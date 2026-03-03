@@ -1,0 +1,45 @@
+{
+  "week": 8,
+  "timestamp": "2026-02-28T21:20:04Z",
+  "mode": "live",
+  "ingestion": {
+    "episodes": 23,
+    "avg_time_s": 3.839,
+    "min_time_s": 0.549,
+    "max_time_s": 8.407
+  },
+  "graph": {
+    "total_entities": 83,
+    "total_relationships": 98,
+    "dedup_merges": 33,
+    "empty_extractions": 2
+  },
+  "recall": {
+    "queries": 28,
+    "hits": 28,
+    "misses": 0,
+    "accuracy_pct": 100.0,
+    "avg_latency_s": 0.0094
+  },
+  "week2": {
+    "contradictions_detected": 0,
+    "contradictions_resolved": 0,
+    "pii_entities_flagged": 9,
+    "fuzzy_dedup_merges": 33,
+    "temporal_dates_resolved": 0
+  },
+  "week3": {
+    "recency_accuracy_pct": 100.0,
+    "frequency_accuracy_pct": 100.0,
+    "associative_accuracy_pct": 100.0,
+    "direct_accuracy_pct": 100.0,
+    "avg_activation_overhead_ms": 9.4,
+    "activation_wins": 0,
+    "fts_wins": 0,
+    "ties": 9
+  },
+  "week4": {
+    "tools_tested": 8,
+    "tools_passed": 8
+  }
+}

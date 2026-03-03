@@ -1,0 +1,66 @@
+[project]
+name = "engram"
+version = "0.1.0"
+description = "Activation-based memory layer for AI agents"
+readme = "../README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "aiosqlite>=0.20.0",
+    "mcp>=1.0.0",
+    "structlog>=24.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "anthropic>=0.40.0",
+    "cryptography>=43.0.0",
+    "thefuzz[speedup]>=0.22.0",
+    "httpx>=0.27.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+full = [
+    "redis[hiredis]>=5.0.0",
+    "falkordb>=1.0.0",
+    "voyageai>=0.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "httpx>=0.28.0",
+    "pytest-cov>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "requires_docker: marks tests requiring Docker services",
+    "requires_api_key: marks tests requiring external API keys",
+]

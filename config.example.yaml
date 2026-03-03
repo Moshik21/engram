@@ -1,0 +1,35 @@
+# config.example.yaml -- Non-secret configuration for Engram
+# Copy to config.yaml and adjust as needed.
+# Secrets (API keys, passwords) must come from environment variables, not this file.
+
+mode: auto  # "lite" | "full" | "auto"
+
+server:
+  host: 0.0.0.0
+  port: 8100
+  log_level: info
+
+sqlite:
+  path: ~/.engram/engram.db
+  wal_mode: true
+
+activation:
+  decay_exponent: 0.5
+  min_age_seconds: 1.0
+  max_history_size: 200
+  B_mid: -0.5
+  B_scale: 1.0
+  spread_max_hops: 2
+  spread_decay_per_hop: 0.5
+  spread_firing_threshold: 0.05
+  spread_energy_budget: 5.0
+  weight_semantic: 0.50
+  weight_activation: 0.35
+  weight_edge_proximity: 0.15
+
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+
+default_group_id: default

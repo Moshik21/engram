@@ -1,0 +1,31 @@
+{
+  "week": 2,
+  "timestamp": "2026-02-27T11:26:04Z",
+  "mode": "mock",
+  "ingestion": {
+    "episodes": 15,
+    "avg_time_s": 0.002,
+    "min_time_s": 0.0,
+    "max_time_s": 0.004
+  },
+  "graph": {
+    "total_entities": 38,
+    "total_relationships": 25,
+    "dedup_merges": 15,
+    "empty_extractions": 2
+  },
+  "recall": {
+    "queries": 18,
+    "hits": 13,
+    "misses": 5,
+    "accuracy_pct": 72.2,
+    "avg_latency_s": 0.0017
+  },
+  "week2": {
+    "contradictions_detected": 2,
+    "contradictions_resolved": 2,
+    "pii_entities_flagged": 4,
+    "fuzzy_dedup_merges": 15,
+    "temporal_dates_resolved": 0
+  }
+}

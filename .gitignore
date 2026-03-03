@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# Secrets -- never commit
+.env
+.env.*
+!.env.example
+config.yaml
+config.local.yaml
+*.pem
+*.key
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+
+# Node
+node_modules/
+dashboard/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Test
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+.dockerignore
+
+# Backups
+backups/

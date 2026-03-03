@@ -1,0 +1,4170 @@
+{
+  "seed": 42,
+  "corpus": {
+    "entities": 1000,
+    "relationships": 4520,
+    "access_events": 6126,
+    "episodes": 255,
+    "queries": 80
+  },
+  "methods": {
+    "Full Stack": {
+      "overall": {
+        "p_at_5": 0.3125,
+        "r_at_10": 0.0995271481332489,
+        "mrr": 0.6954662698412698,
+        "ndcg_at_5": 0.37598940416820936
+      },
+      "by_category": {
+        "associative": {
+          "p_at_5": 0.4,
+          "r_at_10": 0.11014492753623188,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5354306896350256
+        },
+        "contradiction": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.4,
+          "mrr": 0.6952380952380952,
+          "ndcg_at_5": 0.43732581060132547
+        },
+        "cross_cluster": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.11151515151515153,
+          "mrr": 0.6,
+          "ndcg_at_5": 0.15292933547035412
+        },
+        "direct": {
+          "p_at_5": 0.26,
+          "r_at_10": 0.1459082584082584,
+          "mrr": 0.7808333333333334,
+          "ndcg_at_5": 0.39792182421800004
+        },
+        "frequency": {
+          "p_at_5": 0.9,
+          "r_at_10": 0.026285714285714284,
+          "mrr": 0.9111111111111111,
+          "ndcg_at_5": 0.8160342390676837
+        },
+        "graph_traversal": {
+          "p_at_5": 0.24000000000000005,
+          "r_at_10": 0.06541448317764106,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.30638360149385113
+        },
+        "recency": {
+          "p_at_5": 0.13999999999999999,
+          "r_at_10": 0.0070757452700892,
+          "mrr": 0.24333333333333332,
+          "ndcg_at_5": 0.13210085295191462
+        },
+        "semantic": {
+          "p_at_5": 0.1,
+          "r_at_10": 0.03972222222222222,
+          "mrr": 0.45,
+          "ndcg_at_5": 0.12699462872535977
+        }
+      },
+      "latency": {
+        "mean_ms": 227.35137085073802,
+        "p50_ms": 178.97904200071935,
+        "p95_ms": 742.4661976081552,
+        "p99_ms": 881.8563162535422
+      },
+      "per_query": [
+        {
+          "query_id": "q_direct_000",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5074730306121994,
+          "latency_ms": 52.25370900006965
+        },
+        {
+          "query_id": "q_direct_001",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 80.95216701622121
+        },
+        {
+          "query_id": "q_direct_002",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 65.6320410198532
+        },
+        {
+          "query_id": "q_direct_003",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 125.14266700600274
+        },
+        {
+          "query_id": "q_direct_004",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5598664480328199,
+          "latency_ms": 66.90799997886643
+        },
+        {
+          "query_id": "q_direct_005",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.15384615384615385,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 69.21004201285541
+        },
+        {
+          "query_id": "q_direct_006",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 74.81550000375137
+        },
+        {
+          "query_id": "q_direct_007",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.2857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 32.69212497980334
+        },
+        {
+          "query_id": "q_direct_008",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 128.89908300712705
+        },
+        {
+          "query_id": "q_direct_009",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 79.1409169905819
+        },
+        {
+          "query_id": "q_direct_010",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 68.53066699113697
+        },
+        {
+          "query_id": "q_direct_011",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.15384615384615385,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.16827202841841413,
+          "latency_ms": 288.0952089908533
+        },
+        {
+          "query_id": "q_direct_012",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 105.23725001257844
+        },
+        {
+          "query_id": "q_direct_013",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5644244467626702,
+          "latency_ms": 245.89391698827967
+        },
+        {
+          "query_id": "q_direct_014",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 79.58420799695887
+        },
+        {
+          "query_id": "q_direct_015",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 55.550499993842095
+        },
+        {
+          "query_id": "q_direct_016",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2727272727272727,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 249.57716697826982
+        },
+        {
+          "query_id": "q_direct_017",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.2931615930693488,
+          "latency_ms": 78.00591699196957
+        },
+        {
+          "query_id": "q_direct_018",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1875,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 35.441875021206215
+        },
+        {
+          "query_id": "q_direct_019",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 89.39587499480695
+        },
+        {
+          "query_id": "q_recency_020",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.006211180124223602,
+          "mrr": 0.1,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 323.37683299556375
+        },
+        {
+          "query_id": "q_recency_021",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.017341040462427744,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 161.41133301425725
+        },
+        {
+          "query_id": "q_recency_022",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.011695906432748537,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.11305340175787203,
+          "latency_ms": 138.02566699450836
+        },
+        {
+          "query_id": "q_recency_023",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 293.7582499871496
+        },
+        {
+          "query_id": "q_recency_024",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0058823529411764705,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 156.95433301152661
+        },
+        {
+          "query_id": "q_recency_025",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 298.85845800163224
+        },
+        {
+          "query_id": "q_recency_026",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 278.53816698188893
+        },
+        {
+          "query_id": "q_recency_027",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 140.38716701907106
+        },
+        {
+          "query_id": "q_recency_028",
+          "category": "recency",
+          "p_at_5": 0.6,
+          "r_at_10": 0.023529411764705882,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.6992148198508501,
+          "latency_ms": 157.66241599339992
+        },
+        {
+          "query_id": "q_recency_029",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.006097560975609756,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 151.63695899536833
+        },
+        {
+          "query_id": "q_frequency_030",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 45.991624996531755
+        },
+        {
+          "query_id": "q_frequency_031",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.838257148294559,
+          "latency_ms": 143.73533299658448
+        },
+        {
+          "query_id": "q_frequency_032",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7738931964842558,
+          "latency_ms": 52.82804201124236
+        },
+        {
+          "query_id": "q_frequency_033",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 85.87029200862162
+        },
+        {
+          "query_id": "q_frequency_034",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 100.60720800538547
+        },
+        {
+          "query_id": "q_frequency_035",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.943473299121064,
+          "latency_ms": 167.60258399881423
+        },
+        {
+          "query_id": "q_frequency_036",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 47.554499993566424
+        },
+        {
+          "query_id": "q_frequency_037",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 138.38045799639076
+        },
+        {
+          "query_id": "q_frequency_038",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.8638404983775365,
+          "latency_ms": 207.2940829966683
+        },
+        {
+          "query_id": "q_frequency_039",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7895676983469901,
+          "latency_ms": 101.65679201600142
+        },
+        {
+          "query_id": "q_associative_040",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.043478260869565216,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 220.187208004063
+        },
+        {
+          "query_id": "q_associative_041",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 174.21762499725446
+        },
+        {
+          "query_id": "q_associative_042",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5784447668310352,
+          "latency_ms": 205.3151669970248
+        },
+        {
+          "query_id": "q_associative_043",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.507420608541331,
+          "latency_ms": 196.83245799387805
+        },
+        {
+          "query_id": "q_associative_044",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 224.75095800473355
+        },
+        {
+          "query_id": "q_associative_045",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 218.71620797901414
+        },
+        {
+          "query_id": "q_associative_046",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 191.57020800048485
+        },
+        {
+          "query_id": "q_associative_047",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 179.5651669963263
+        },
+        {
+          "query_id": "q_associative_048",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 272.85208299872465
+        },
+        {
+          "query_id": "q_associative_049",
+          "category": "associative",
+          "p_at_5": 0.6,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.6992148198508501,
+          "latency_ms": 228.26437500771135
+        },
+        {
+          "query_id": "q_contradiction_050",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 350.5332500208169
+        },
+        {
+          "query_id": "q_contradiction_051",
+          "category": "contradiction",
+          "p_at_5": 0.0,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 462.17583399266005
+        },
+        {
+          "query_id": "q_contradiction_052",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 323.2811670168303
+        },
+        {
+          "query_id": "q_contradiction_053",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 283.08283298974857
+        },
+        {
+          "query_id": "q_contradiction_054",
+          "category": "contradiction",
+          "p_at_5": 0.4,
+          "r_at_10": 0.6666666666666666,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.5177338737413085,
+          "latency_ms": 242.37258301582187
+        },
+        {
+          "query_id": "q_semantic_055",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.13284008937902195,
+          "latency_ms": 591.0272920154966
+        },
+        {
+          "query_id": "q_semantic_056",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3985202681370658,
+          "latency_ms": 428.89149999246
+        },
+        {
+          "query_id": "q_semantic_057",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.22377298187871583,
+          "latency_ms": 241.44924999563955
+        },
+        {
+          "query_id": "q_semantic_058",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 194.38920801621862
+        },
+        {
+          "query_id": "q_semantic_059",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 298.9876659994479
+        },
+        {
+          "query_id": "q_semantic_060",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 196.39945900416933
+        },
+        {
+          "query_id": "q_semantic_061",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 859.3418750097044
+        },
+        {
+          "query_id": "q_semantic_062",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.24913276910075044,
+          "latency_ms": 196.3623329938855
+        },
+        {
+          "query_id": "q_semantic_063",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 199.6482919785194
+        },
+        {
+          "query_id": "q_semantic_064",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.2656801787580439,
+          "latency_ms": 227.23275001044385
+        },
+        {
+          "query_id": "q_traversal_065",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.041666666666666664,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 315.7740830210969
+        },
+        {
+          "query_id": "q_traversal_066",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 148.765000019921
+        },
+        {
+          "query_id": "q_traversal_067",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.10526315789473684,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 113.28645801404491
+        },
+        {
+          "query_id": "q_traversal_068",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.047619047619047616,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 193.87545800418593
+        },
+        {
+          "query_id": "q_traversal_069",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4818177150966345,
+          "latency_ms": 126.31787499412894
+        },
+        {
+          "query_id": "q_traversal_070",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 167.37750000902452
+        },
+        {
+          "query_id": "q_traversal_071",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 94.05845799483359
+        },
+        {
+          "query_id": "q_traversal_072",
+          "category": "graph_traversal",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 486.93041698425077
+        },
+        {
+          "query_id": "q_traversal_073",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3451913422468693,
+          "latency_ms": 99.12929200800136
+        },
+        {
+          "query_id": "q_traversal_074",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 178.3929170051124
+        },
+        {
+          "query_id": "q_cross_cluster_075",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.25717364673957116,
+          "latency_ms": 966.553499980364
+        },
+        {
+          "query_id": "q_cross_cluster_076",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 574.5424169872422
+        },
+        {
+          "query_id": "q_cross_cluster_077",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.1449922944606284,
+          "latency_ms": 754.4312500103842
+        },
+        {
+          "query_id": "q_cross_cluster_078",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.362480736151571,
+          "latency_ms": 756.302499998128
+        },
+        {
+          "query_id": "q_cross_cluster_079",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 741.8364580080379
+        }
+      ]
+    },
+    "Multi-Pool": {
+      "overall": {
+        "p_at_5": 0.3125,
+        "r_at_10": 0.105702299310626,
+        "mrr": 0.6870287698412698,
+        "ndcg_at_5": 0.3754262386226606
+      },
+      "by_category": {
+        "associative": {
+          "p_at_5": 0.4,
+          "r_at_10": 0.1486513687600644,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5406681763308755
+        },
+        "contradiction": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.4,
+          "mrr": 0.6952380952380952,
+          "ndcg_at_5": 0.43732581060132547
+        },
+        "cross_cluster": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.11151515151515153,
+          "mrr": 0.6,
+          "ndcg_at_5": 0.15292933547035412
+        },
+        "direct": {
+          "p_at_5": 0.26,
+          "r_at_10": 0.14206210456210455,
+          "mrr": 0.7725,
+          "ndcg_at_5": 0.3968006802336432
+        },
+        "frequency": {
+          "p_at_5": 0.9,
+          "r_at_10": 0.026285714285714284,
+          "mrr": 0.9111111111111111,
+          "ndcg_at_5": 0.8202533832423852
+        },
+        "graph_traversal": {
+          "p_at_5": 0.24000000000000005,
+          "r_at_10": 0.07829327105642894,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.30638360149385113
+        },
+        "recency": {
+          "p_at_5": 0.13999999999999999,
+          "r_at_10": 0.006534033278793208,
+          "mrr": 0.1925,
+          "ndcg_at_5": 0.12038118568568716
+        },
+        "semantic": {
+          "p_at_5": 0.1,
+          "r_at_10": 0.04597222222222222,
+          "mrr": 0.45,
+          "ndcg_at_5": 0.12699462872535977
+        }
+      },
+      "latency": {
+        "mean_ms": 233.42453588629724,
+        "p50_ms": 178.21339549846016,
+        "p95_ms": 834.0033497093827,
+        "p99_ms": 1059.5791214154451
+      },
+      "per_query": [
+        {
+          "query_id": "q_direct_000",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5264568359956897,
+          "latency_ms": 60.06829100078903
+        },
+        {
+          "query_id": "q_direct_001",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 113.25804100488313
+        },
+        {
+          "query_id": "q_direct_002",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 69.7877090133261
+        },
+        {
+          "query_id": "q_direct_003",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 174.507125018863
+        },
+        {
+          "query_id": "q_direct_004",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5598664480328199,
+          "latency_ms": 94.40408297814429
+        },
+        {
+          "query_id": "q_direct_005",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 83.379582996713
+        },
+        {
+          "query_id": "q_direct_006",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 93.96204102085903
+        },
+        {
+          "query_id": "q_direct_007",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.2857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 35.88291699998081
+        },
+        {
+          "query_id": "q_direct_008",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 146.4562090113759
+        },
+        {
+          "query_id": "q_direct_009",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 127.001165994443
+        },
+        {
+          "query_id": "q_direct_010",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 83.56366600492038
+        },
+        {
+          "query_id": "q_direct_011",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.15384615384615385,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.16827202841841413,
+          "latency_ms": 320.1577500149142
+        },
+        {
+          "query_id": "q_direct_012",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.1875,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 140.6770829926245
+        },
+        {
+          "query_id": "q_direct_013",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 301.2356670224108
+        },
+        {
+          "query_id": "q_direct_014",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 90.12541602714919
+        },
+        {
+          "query_id": "q_direct_015",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 80.93045899295248
+        },
+        {
+          "query_id": "q_direct_016",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2727272727272727,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 315.9054169955198
+        },
+        {
+          "query_id": "q_direct_017",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.2931615930693488,
+          "latency_ms": 124.2910829896573
+        },
+        {
+          "query_id": "q_direct_018",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1875,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 46.26587498933077
+        },
+        {
+          "query_id": "q_direct_019",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 149.65254100388847
+        },
+        {
+          "query_id": "q_recency_020",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.012422360248447204,
+          "mrr": 0.125,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 173.87537498143502
+        },
+        {
+          "query_id": "q_recency_021",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.011560693641618497,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.13120507751234178,
+          "latency_ms": 124.39787498442456
+        },
+        {
+          "query_id": "q_recency_022",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.005847953216374269,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.08747005167489452,
+          "latency_ms": 81.17295798729174
+        },
+        {
+          "query_id": "q_recency_023",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 136.50308398064226
+        },
+        {
+          "query_id": "q_recency_024",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0058823529411764705,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.13120507751234178,
+          "latency_ms": 117.89745799615048
+        },
+        {
+          "query_id": "q_recency_025",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 182.06587500753812
+        },
+        {
+          "query_id": "q_recency_026",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 144.01062502292916
+        },
+        {
+          "query_id": "q_recency_027",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 109.03262501233257
+        },
+        {
+          "query_id": "q_recency_028",
+          "category": "recency",
+          "p_at_5": 0.6,
+          "r_at_10": 0.023529411764705882,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7227265726449517,
+          "latency_ms": 199.13416699273512
+        },
+        {
+          "query_id": "q_recency_029",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.006097560975609756,
+          "mrr": 0.2,
+          "ndcg_at_5": 0.13120507751234178,
+          "latency_ms": 101.19816698716022
+        },
+        {
+          "query_id": "q_frequency_030",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 49.04691700357944
+        },
+        {
+          "query_id": "q_frequency_031",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.838257148294559,
+          "latency_ms": 167.55283300881274
+        },
+        {
+          "query_id": "q_frequency_032",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7442890884191096,
+          "latency_ms": 54.37745800008997
+        },
+        {
+          "query_id": "q_frequency_033",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 84.05504099209793
+        },
+        {
+          "query_id": "q_frequency_034",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 112.58341697975993
+        },
+        {
+          "query_id": "q_frequency_035",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.943473299121064,
+          "latency_ms": 195.0589579937514
+        },
+        {
+          "query_id": "q_frequency_036",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 1.0,
+          "latency_ms": 53.355125011876225
+        },
+        {
+          "query_id": "q_frequency_037",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 198.56633298331872
+        },
+        {
+          "query_id": "q_frequency_038",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 246.2030420138035
+        },
+        {
+          "query_id": "q_frequency_039",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7738931964842558,
+          "latency_ms": 102.77100000530481
+        },
+        {
+          "query_id": "q_associative_040",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 262.4912500032224
+        },
+        {
+          "query_id": "q_associative_041",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.17391304347826086,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 182.61304098996334
+        },
+        {
+          "query_id": "q_associative_042",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5784447668310352,
+          "latency_ms": 244.31816700962372
+        },
+        {
+          "query_id": "q_associative_043",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4918775606080098,
+          "latency_ms": 207.38404101575725
+        },
+        {
+          "query_id": "q_associative_044",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 235.51399999996647
+        },
+        {
+          "query_id": "q_associative_045",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 240.00587497721426
+        },
+        {
+          "query_id": "q_associative_046",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 178.93787499633618
+        },
+        {
+          "query_id": "q_associative_047",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.17391304347826086,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 176.8457909929566
+        },
+        {
+          "query_id": "q_associative_048",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 252.6237500132993
+        },
+        {
+          "query_id": "q_associative_049",
+          "category": "associative",
+          "p_at_5": 0.6,
+          "r_at_10": 0.18518518518518517,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7227265726449517,
+          "latency_ms": 225.16475000884384
+        },
+        {
+          "query_id": "q_contradiction_050",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 264.97087499592453
+        },
+        {
+          "query_id": "q_contradiction_051",
+          "category": "contradiction",
+          "p_at_5": 0.0,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 355.72366599808447
+        },
+        {
+          "query_id": "q_contradiction_052",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 251.7599159909878
+        },
+        {
+          "query_id": "q_contradiction_053",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 177.48891600058414
+        },
+        {
+          "query_id": "q_contradiction_054",
+          "category": "contradiction",
+          "p_at_5": 0.4,
+          "r_at_10": 0.6666666666666666,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.5177338737413085,
+          "latency_ms": 175.3037909802515
+        },
+        {
+          "query_id": "q_semantic_055",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.13284008937902195,
+          "latency_ms": 429.8827500024345
+        },
+        {
+          "query_id": "q_semantic_056",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3985202681370658,
+          "latency_ms": 322.29549999465235
+        },
+        {
+          "query_id": "q_semantic_057",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.22377298187871583,
+          "latency_ms": 268.7208339921199
+        },
+        {
+          "query_id": "q_semantic_058",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 213.68933300254866
+        },
+        {
+          "query_id": "q_semantic_059",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 295.14212498907
+        },
+        {
+          "query_id": "q_semantic_060",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 237.21704198396765
+        },
+        {
+          "query_id": "q_semantic_061",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 848.4389170189388
+        },
+        {
+          "query_id": "q_semantic_062",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.24913276910075044,
+          "latency_ms": 204.90920898737386
+        },
+        {
+          "query_id": "q_semantic_063",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 220.60050000436604
+        },
+        {
+          "query_id": "q_semantic_064",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.2656801787580439,
+          "latency_ms": 256.7490419896785
+        },
+        {
+          "query_id": "q_traversal_065",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 337.12433400796726
+        },
+        {
+          "query_id": "q_traversal_066",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 187.33566702576354
+        },
+        {
+          "query_id": "q_traversal_067",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.10526315789473684,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 164.29283400066197
+        },
+        {
+          "query_id": "q_traversal_068",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.047619047619047616,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 259.02087497524917
+        },
+        {
+          "query_id": "q_traversal_069",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4818177150966345,
+          "latency_ms": 144.67970799887553
+        },
+        {
+          "query_id": "q_traversal_070",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13636363636363635,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 176.3833749864716
+        },
+        {
+          "query_id": "q_traversal_071",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 94.47412501322106
+        },
+        {
+          "query_id": "q_traversal_072",
+          "category": "graph_traversal",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 556.9097499828786
+        },
+        {
+          "query_id": "q_traversal_073",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3451913422468693,
+          "latency_ms": 93.91266698366962
+        },
+        {
+          "query_id": "q_traversal_074",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 203.0537499813363
+        },
+        {
+          "query_id": "q_cross_cluster_075",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.25717364673957116,
+          "latency_ms": 1056.6654589783866
+        },
+        {
+          "query_id": "q_cross_cluster_076",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 625.0462500029244
+        },
+        {
+          "query_id": "q_cross_cluster_077",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.1449922944606284,
+          "latency_ms": 833.2435830088798
+        },
+        {
+          "query_id": "q_cross_cluster_078",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.362480736151571,
+          "latency_ms": 858.1190409895498
+        },
+        {
+          "query_id": "q_cross_cluster_079",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1070.5400420119986
+        }
+      ]
+    },
+    "Community": {
+      "overall": {
+        "p_at_5": 0.2675,
+        "r_at_10": 0.09461574935459074,
+        "mrr": 0.6639384920634921,
+        "ndcg_at_5": 0.3398662869856237
+      },
+      "by_category": {
+        "associative": {
+          "p_at_5": 0.38,
+          "r_at_10": 0.10829307568438003,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5186694800430879
+        },
+        "contradiction": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.4,
+          "mrr": 0.8285714285714286,
+          "ndcg_at_5": 0.4929556499101695
+        },
+        "cross_cluster": {
+          "p_at_5": 0.16,
+          "r_at_10": 0.09484848484848485,
+          "mrr": 0.45,
+          "ndcg_at_5": 0.11398356258753335
+        },
+        "direct": {
+          "p_at_5": 0.25,
+          "r_at_10": 0.13196595071595071,
+          "mrr": 0.8333333333333334,
+          "ndcg_at_5": 0.4087739698402072
+        },
+        "frequency": {
+          "p_at_5": 0.6,
+          "r_at_10": 0.017714285714285714,
+          "mrr": 0.611111111111111,
+          "ndcg_at_5": 0.5322085242382277
+        },
+        "graph_traversal": {
+          "p_at_5": 0.24000000000000005,
+          "r_at_10": 0.06958114984430773,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.30638360149385113
+        },
+        "recency": {
+          "p_at_5": 0.14,
+          "r_at_10": 0.00470356195983084,
+          "mrr": 0.18333333333333332,
+          "ndcg_at_5": 0.11365651545519735
+        },
+        "semantic": {
+          "p_at_5": 0.1,
+          "r_at_10": 0.04527777777777778,
+          "mrr": 0.4611111111111111,
+          "ndcg_at_5": 0.12699462872535977
+        }
+      },
+      "latency": {
+        "mean_ms": 532.8295308248926,
+        "p50_ms": 408.7642920057988,
+        "p95_ms": 1916.691270850424,
+        "p99_ms": 2898.4758063219483
+      },
+      "per_query": [
+        {
+          "query_id": "q_direct_000",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5074730306121994,
+          "latency_ms": 90.88891700957902
+        },
+        {
+          "query_id": "q_direct_001",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 158.99679201538675
+        },
+        {
+          "query_id": "q_direct_002",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 91.07812499860302
+        },
+        {
+          "query_id": "q_direct_003",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 250.6879169959575
+        },
+        {
+          "query_id": "q_direct_004",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 120.10045800707303
+        },
+        {
+          "query_id": "q_direct_005",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 119.38408299465664
+        },
+        {
+          "query_id": "q_direct_006",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 154.218833980849
+        },
+        {
+          "query_id": "q_direct_007",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.2857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 65.98954199580476
+        },
+        {
+          "query_id": "q_direct_008",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 221.20087500661612
+        },
+        {
+          "query_id": "q_direct_009",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 120.04966699169017
+        },
+        {
+          "query_id": "q_direct_010",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 108.51399999228306
+        },
+        {
+          "query_id": "q_direct_011",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 500.4921249928884
+        },
+        {
+          "query_id": "q_direct_012",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 222.14779199566692
+        },
+        {
+          "query_id": "q_direct_013",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5598664480328199,
+          "latency_ms": 483.7180000031367
+        },
+        {
+          "query_id": "q_direct_014",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 137.99279200611636
+        },
+        {
+          "query_id": "q_direct_015",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 127.46808401425369
+        },
+        {
+          "query_id": "q_direct_016",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2727272727272727,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 533.9587499911431
+        },
+        {
+          "query_id": "q_direct_017",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 157.35970900277607
+        },
+        {
+          "query_id": "q_direct_018",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.25,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 74.91662498796359
+        },
+        {
+          "query_id": "q_direct_019",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 271.05216699419543
+        },
+        {
+          "query_id": "q_recency_020",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 380.7474579953123
+        },
+        {
+          "query_id": "q_recency_021",
+          "category": "recency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.011560693641618497,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.30078518014914984,
+          "latency_ms": 195.25704201078042
+        },
+        {
+          "query_id": "q_recency_022",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.005847953216374269,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.11305340175787203,
+          "latency_ms": 111.36995800188743
+        },
+        {
+          "query_id": "q_recency_023",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 248.5722910205368
+        },
+        {
+          "query_id": "q_recency_024",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0058823529411764705,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 241.71966698486358
+        },
+        {
+          "query_id": "q_recency_025",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 286.23620799044147
+        },
+        {
+          "query_id": "q_recency_026",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 204.32387499022298
+        },
+        {
+          "query_id": "q_recency_027",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 136.63629099028185
+        },
+        {
+          "query_id": "q_recency_028",
+          "category": "recency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.01764705882352941,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3835663673713356,
+          "latency_ms": 465.95112499198876
+        },
+        {
+          "query_id": "q_recency_029",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.006097560975609756,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 144.93504198617302
+        },
+        {
+          "query_id": "q_frequency_030",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 63.921541994204745
+        },
+        {
+          "query_id": "q_frequency_031",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9075755242149837,
+          "latency_ms": 358.18129099789076
+        },
+        {
+          "query_id": "q_frequency_032",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7738931964842558,
+          "latency_ms": 106.2827920250129
+        },
+        {
+          "query_id": "q_frequency_033",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 157.1433749923017
+        },
+        {
+          "query_id": "q_frequency_034",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 190.8135000267066
+        },
+        {
+          "query_id": "q_frequency_035",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.943473299121064,
+          "latency_ms": 321.0619589954149
+        },
+        {
+          "query_id": "q_frequency_036",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 70.9512920002453
+        },
+        {
+          "query_id": "q_frequency_037",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 429.48374999105
+        },
+        {
+          "query_id": "q_frequency_038",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9562649741625525,
+          "latency_ms": 456.9272499938961
+        },
+        {
+          "query_id": "q_frequency_039",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7895676983469901,
+          "latency_ms": 151.87624999089167
+        },
+        {
+          "query_id": "q_associative_040",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 489.8926249879878
+        },
+        {
+          "query_id": "q_associative_041",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 342.6780829904601
+        },
+        {
+          "query_id": "q_associative_042",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5784447668310352,
+          "latency_ms": 510.6473749910947
+        },
+        {
+          "query_id": "q_associative_043",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3546717849523194,
+          "latency_ms": 468.5822910105344
+        },
+        {
+          "query_id": "q_associative_044",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 501.0814169945661
+        },
+        {
+          "query_id": "q_associative_045",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 500.1383750059176
+        },
+        {
+          "query_id": "q_associative_046",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.47036528278595785,
+          "latency_ms": 413.312084012432
+        },
+        {
+          "query_id": "q_associative_047",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 424.01295801391825
+        },
+        {
+          "query_id": "q_associative_048",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 508.0899169843178
+        },
+        {
+          "query_id": "q_associative_049",
+          "category": "associative",
+          "p_at_5": 0.6,
+          "r_at_10": 0.14814814814814814,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7227265726449517,
+          "latency_ms": 549.9396249942947
+        },
+        {
+          "query_id": "q_contradiction_050",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 825.0916670076549
+        },
+        {
+          "query_id": "q_contradiction_051",
+          "category": "contradiction",
+          "p_at_5": 0.0,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 997.599916998297
+        },
+        {
+          "query_id": "q_contradiction_052",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 691.4417499792762
+        },
+        {
+          "query_id": "q_contradiction_053",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 562.9068329872098
+        },
+        {
+          "query_id": "q_contradiction_054",
+          "category": "contradiction",
+          "p_at_5": 0.4,
+          "r_at_10": 0.6666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7958830702855284,
+          "latency_ms": 526.7497499880847
+        },
+        {
+          "query_id": "q_semantic_055",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.13284008937902195,
+          "latency_ms": 918.3396670268849
+        },
+        {
+          "query_id": "q_semantic_056",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3985202681370658,
+          "latency_ms": 692.6322920189705
+        },
+        {
+          "query_id": "q_semantic_057",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.22377298187871583,
+          "latency_ms": 532.9887919942848
+        },
+        {
+          "query_id": "q_semantic_058",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 436.56870900304057
+        },
+        {
+          "query_id": "q_semantic_059",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 989.4564579881262
+        },
+        {
+          "query_id": "q_semantic_060",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 975.9240830026101
+        },
+        {
+          "query_id": "q_semantic_061",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 2881.673750001937
+        },
+        {
+          "query_id": "q_semantic_062",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.24913276910075044,
+          "latency_ms": 480.83541699452326
+        },
+        {
+          "query_id": "q_semantic_063",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 469.2020830116235
+        },
+        {
+          "query_id": "q_semantic_064",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.2656801787580439,
+          "latency_ms": 543.1257500022184
+        },
+        {
+          "query_id": "q_traversal_065",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 779.9505839939229
+        },
+        {
+          "query_id": "q_traversal_066",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 404.21649999916553
+        },
+        {
+          "query_id": "q_traversal_067",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.10526315789473684,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 319.1059170057997
+        },
+        {
+          "query_id": "q_traversal_068",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.047619047619047616,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 564.5465420093387
+        },
+        {
+          "query_id": "q_traversal_069",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4818177150966345,
+          "latency_ms": 352.3709579894785
+        },
+        {
+          "query_id": "q_traversal_070",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 457.8175420174375
+        },
+        {
+          "query_id": "q_traversal_071",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 283.8361669855658
+        },
+        {
+          "query_id": "q_traversal_072",
+          "category": "graph_traversal",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1885.5545420083217
+        },
+        {
+          "query_id": "q_traversal_073",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3451913422468693,
+          "latency_ms": 242.48154202359729
+        },
+        {
+          "query_id": "q_traversal_074",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 426.92141598672606
+        },
+        {
+          "query_id": "q_cross_cluster_075",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.06244478232546733,
+          "latency_ms": 2401.3522080203984
+        },
+        {
+          "query_id": "q_cross_cluster_076",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1648.9112089911941
+        },
+        {
+          "query_id": "q_cross_cluster_077",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.1449922944606284,
+          "latency_ms": 2020.8876670221798
+        },
+        {
+          "query_id": "q_cross_cluster_078",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.362480736151571,
+          "latency_ms": 1911.2072499992792
+        },
+        {
+          "query_id": "q_cross_cluster_079",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 2961.6835420019925
+        }
+      ]
+    },
+    "Context-Gated": {
+      "overall": {
+        "p_at_5": 0.27,
+        "r_at_10": 0.09942803554463314,
+        "mrr": 0.6758134920634921,
+        "ndcg_at_5": 0.3421832839411998
+      },
+      "by_category": {
+        "associative": {
+          "p_at_5": 0.4,
+          "r_at_10": 0.130414653784219,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5230429826268326
+        },
+        "contradiction": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.4,
+          "mrr": 0.8285714285714286,
+          "ndcg_at_5": 0.4929556499101695
+        },
+        "cross_cluster": {
+          "p_at_5": 0.16,
+          "r_at_10": 0.09484848484848485,
+          "mrr": 0.4666666666666667,
+          "ndcg_at_5": 0.1159938355685027
+        },
+        "direct": {
+          "p_at_5": 0.25,
+          "r_at_10": 0.13196595071595071,
+          "mrr": 0.8333333333333334,
+          "ndcg_at_5": 0.4097231601093817
+        },
+        "frequency": {
+          "p_at_5": 0.6,
+          "r_at_10": 0.017714285714285714,
+          "mrr": 0.611111111111111,
+          "ndcg_at_5": 0.5271852208344275
+        },
+        "graph_traversal": {
+          "p_at_5": 0.24000000000000005,
+          "r_at_10": 0.07374781651097441,
+          "mrr": 0.75,
+          "ndcg_at_5": 0.30638360149385113
+        },
+        "recency": {
+          "p_at_5": 0.14,
+          "r_at_10": 0.010663606713664434,
+          "mrr": 0.27,
+          "ndcg_at_5": 0.12993877489102784
+        },
+        "semantic": {
+          "p_at_5": 0.1,
+          "r_at_10": 0.05152777777777777,
+          "mrr": 0.4611111111111111,
+          "ndcg_at_5": 0.12699462872535977
+        }
+      },
+      "latency": {
+        "mean_ms": 742.5509087974206,
+        "p50_ms": 482.4556249950547,
+        "p95_ms": 2049.262230643944,
+        "p99_ms": 4537.206301121894
+      },
+      "per_query": [
+        {
+          "query_id": "q_direct_000",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5264568359956897,
+          "latency_ms": 390.0607920077164
+        },
+        {
+          "query_id": "q_direct_001",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 486.8915409897454
+        },
+        {
+          "query_id": "q_direct_002",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 397.075833985582
+        },
+        {
+          "query_id": "q_direct_003",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 690.0054159923457
+        },
+        {
+          "query_id": "q_direct_004",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 521.3672500103712
+        },
+        {
+          "query_id": "q_direct_005",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 503.3030000049621
+        },
+        {
+          "query_id": "q_direct_006",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 359.4835000112653
+        },
+        {
+          "query_id": "q_direct_007",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.2857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 201.0174999886658
+        },
+        {
+          "query_id": "q_direct_008",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 709.1547919844743
+        },
+        {
+          "query_id": "q_direct_009",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 791.0269169951789
+        },
+        {
+          "query_id": "q_direct_010",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 297.06924999482
+        },
+        {
+          "query_id": "q_direct_011",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 1056.1380420112982
+        },
+        {
+          "query_id": "q_direct_012",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 350.9104999830015
+        },
+        {
+          "query_id": "q_direct_013",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5598664480328199,
+          "latency_ms": 736.3456660241354
+        },
+        {
+          "query_id": "q_direct_014",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 185.8130420150701
+        },
+        {
+          "query_id": "q_direct_015",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 162.6154159894213
+        },
+        {
+          "query_id": "q_direct_016",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2727272727272727,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 807.6458330033347
+        },
+        {
+          "query_id": "q_direct_017",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 280.0528329971712
+        },
+        {
+          "query_id": "q_direct_018",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.25,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 107.30949998833239
+        },
+        {
+          "query_id": "q_direct_019",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 348.07404200546443
+        },
+        {
+          "query_id": "q_recency_020",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.006211180124223602,
+          "mrr": 0.1,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 446.4829160133377
+        },
+        {
+          "query_id": "q_recency_021",
+          "category": "recency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.023121387283236993,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3451913422468693,
+          "latency_ms": 270.22187499096617
+        },
+        {
+          "query_id": "q_recency_022",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.017543859649122806,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.14265750982301836,
+          "latency_ms": 160.56041698902845
+        },
+        {
+          "query_id": "q_recency_023",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.006172839506172839,
+          "mrr": 0.1,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 343.8517499889713
+        },
+        {
+          "query_id": "q_recency_024",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.01764705882352941,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 259.72304100287147
+        },
+        {
+          "query_id": "q_recency_025",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 361.7403749958612
+        },
+        {
+          "query_id": "q_recency_026",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 320.5289999896195
+        },
+        {
+          "query_id": "q_recency_027",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 210.60312498593703
+        },
+        {
+          "query_id": "q_recency_028",
+          "category": "recency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.01764705882352941,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3835663673713356,
+          "latency_ms": 700.3199580067303
+        },
+        {
+          "query_id": "q_recency_029",
+          "category": "recency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.018292682926829267,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 212.70358300535008
+        },
+        {
+          "query_id": "q_frequency_030",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 104.28237498854287
+        },
+        {
+          "query_id": "q_frequency_031",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9075755242149837,
+          "latency_ms": 649.3803749908693
+        },
+        {
+          "query_id": "q_frequency_032",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7442890884191096,
+          "latency_ms": 139.0892080089543
+        },
+        {
+          "query_id": "q_frequency_033",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 186.8823329859879
+        },
+        {
+          "query_id": "q_frequency_034",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 278.1067500181962
+        },
+        {
+          "query_id": "q_frequency_035",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.943473299121064,
+          "latency_ms": 416.4370000071358
+        },
+        {
+          "query_id": "q_frequency_036",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 101.16125000058673
+        },
+        {
+          "query_id": "q_frequency_037",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 525.7138749875594
+        },
+        {
+          "query_id": "q_frequency_038",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.9513105500524311,
+          "latency_ms": 630.714375001844
+        },
+        {
+          "query_id": "q_frequency_039",
+          "category": "frequency",
+          "p_at_5": 1.0,
+          "r_at_10": 0.02857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7738931964842558,
+          "latency_ms": 204.8831669962965
+        },
+        {
+          "query_id": "q_associative_040",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.38289523111106333,
+          "latency_ms": 567.7600420021918
+        },
+        {
+          "query_id": "q_associative_041",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 438.6672919790726
+        },
+        {
+          "query_id": "q_associative_042",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5784447668310352,
+          "latency_ms": 510.74274998973124
+        },
+        {
+          "query_id": "q_associative_043",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3546717849523194,
+          "latency_ms": 550.9792499942705
+        },
+        {
+          "query_id": "q_associative_044",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 3879.3510000105016
+        },
+        {
+          "query_id": "q_associative_045",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.16666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 7011.995291017229
+        },
+        {
+          "query_id": "q_associative_046",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.47036528278595785,
+          "latency_ms": 2377.062457991997
+        },
+        {
+          "query_id": "q_associative_047",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.17391304347826086,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 1319.3403749901336
+        },
+        {
+          "query_id": "q_associative_048",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 1015.9307079738937
+        },
+        {
+          "query_id": "q_associative_049",
+          "category": "associative",
+          "p_at_5": 0.6,
+          "r_at_10": 0.18518518518518517,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7227265726449517,
+          "latency_ms": 1709.7797919996083
+        },
+        {
+          "query_id": "q_contradiction_050",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 2193.9270840084646
+        },
+        {
+          "query_id": "q_contradiction_051",
+          "category": "contradiction",
+          "p_at_5": 0.0,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1575.8204580051824
+        },
+        {
+          "query_id": "q_contradiction_052",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 912.1785000024829
+        },
+        {
+          "query_id": "q_contradiction_053",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 685.7072080019861
+        },
+        {
+          "query_id": "q_contradiction_054",
+          "category": "contradiction",
+          "p_at_5": 0.4,
+          "r_at_10": 0.6666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7958830702855284,
+          "latency_ms": 505.78916698577814
+        },
+        {
+          "query_id": "q_semantic_055",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.13284008937902195,
+          "latency_ms": 1382.1585410041735
+        },
+        {
+          "query_id": "q_semantic_056",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3985202681370658,
+          "latency_ms": 1005.9252499777358
+        },
+        {
+          "query_id": "q_semantic_057",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.22377298187871583,
+          "latency_ms": 2041.6482909931801
+        },
+        {
+          "query_id": "q_semantic_058",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 0.1111111111111111,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 720.1054579927586
+        },
+        {
+          "query_id": "q_semantic_059",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1045.437207998475
+        },
+        {
+          "query_id": "q_semantic_060",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 574.4096669950522
+        },
+        {
+          "query_id": "q_semantic_061",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1641.7502500116825
+        },
+        {
+          "query_id": "q_semantic_062",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.24913276910075044,
+          "latency_ms": 304.5669580169488
+        },
+        {
+          "query_id": "q_semantic_063",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 292.2957499977201
+        },
+        {
+          "query_id": "q_semantic_064",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.2656801787580439,
+          "latency_ms": 366.4767500013113
+        },
+        {
+          "query_id": "q_traversal_065",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 478.01970900036395
+        },
+        {
+          "query_id": "q_traversal_066",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 226.4411249780096
+        },
+        {
+          "query_id": "q_traversal_067",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.10526315789473684,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 188.8969159917906
+        },
+        {
+          "query_id": "q_traversal_068",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.047619047619047616,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 327.16787498793565
+        },
+        {
+          "query_id": "q_traversal_069",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4818177150966345,
+          "latency_ms": 185.56275000446476
+        },
+        {
+          "query_id": "q_traversal_070",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 230.7514580024872
+        },
+        {
+          "query_id": "q_traversal_071",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 131.94941700203344
+        },
+        {
+          "query_id": "q_traversal_072",
+          "category": "graph_traversal",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 781.139707978582
+        },
+        {
+          "query_id": "q_traversal_073",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.3451913422468693,
+          "latency_ms": 129.1946249839384
+        },
+        {
+          "query_id": "q_traversal_074",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 242.61441599810496
+        },
+        {
+          "query_id": "q_cross_cluster_075",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.0724961472303142,
+          "latency_ms": 1402.7275830158032
+        },
+        {
+          "query_id": "q_cross_cluster_076",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1144.6062919858377
+        },
+        {
+          "query_id": "q_cross_cluster_077",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.1449922944606284,
+          "latency_ms": 1167.6829170028213
+        },
+        {
+          "query_id": "q_cross_cluster_078",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.3,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.362480736151571,
+          "latency_ms": 1134.0262919839006
+        },
+        {
+          "query_id": "q_cross_cluster_079",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1098.738708999008
+        }
+      ]
+    },
+    "Pure Search": {
+      "overall": {
+        "p_at_5": 0.18020833333333336,
+        "r_at_10": 0.0869478623827675,
+        "mrr": 0.6175595238095238,
+        "ndcg_at_5": 0.25936834505116046
+      },
+      "by_category": {
+        "associative": {
+          "p_at_5": 0.38,
+          "r_at_10": 0.09172705314009662,
+          "mrr": 0.95,
+          "ndcg_at_5": 0.4781017141294045
+        },
+        "contradiction": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.4,
+          "mrr": 0.8333333333333334,
+          "ndcg_at_5": 0.4880798334760172
+        },
+        "cross_cluster": {
+          "p_at_5": 0.12000000000000002,
+          "r_at_10": 0.13303030303030303,
+          "mrr": 0.42857142857142855,
+          "ndcg_at_5": 0.10149460612243988
+        },
+        "direct": {
+          "p_at_5": 0.21750000000000003,
+          "r_at_10": 0.10809690309690309,
+          "mrr": 0.825,
+          "ndcg_at_5": 0.38242119454765044
+        },
+        "frequency": {
+          "p_at_5": 0.16666666666666669,
+          "r_at_10": 0.004,
+          "mrr": 0.4309523809523809,
+          "ndcg_at_5": 0.13566408210944642
+        },
+        "graph_traversal": {
+          "p_at_5": 0.2,
+          "r_at_10": 0.06541448317764106,
+          "mrr": 0.7333333333333333,
+          "ndcg_at_5": 0.2745567265505432
+        },
+        "recency": {
+          "p_at_5": 0.0,
+          "r_at_10": 0.006454627257666839,
+          "mrr": 0.08095238095238096,
+          "ndcg_at_5": 0.0
+        },
+        "semantic": {
+          "p_at_5": 0.1,
+          "r_at_10": 0.04527777777777778,
+          "mrr": 0.4642857142857143,
+          "ndcg_at_5": 0.12699462872535977
+        }
+      },
+      "latency": {
+        "mean_ms": 217.43558550078887,
+        "p50_ms": 146.36091649299487,
+        "p95_ms": 856.3299711750004,
+        "p99_ms": 1001.502974495523
+      },
+      "per_query": [
+        {
+          "query_id": "q_direct_000",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.14285714285714285,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 37.432582990732044
+        },
+        {
+          "query_id": "q_direct_001",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 72.46366702020168
+        },
+        {
+          "query_id": "q_direct_002",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 67.84475001040846
+        },
+        {
+          "query_id": "q_direct_003",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 88.80283398320898
+        },
+        {
+          "query_id": "q_direct_004",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 44.07987502054311
+        },
+        {
+          "query_id": "q_direct_005",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.2174884416909426,
+          "latency_ms": 73.48512500175275
+        },
+        {
+          "query_id": "q_direct_006",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 38.79362501902506
+        },
+        {
+          "query_id": "q_direct_007",
+          "category": "direct",
+          "p_at_5": 0.25,
+          "r_at_10": 0.07142857142857142,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 37.213083007372916
+        },
+        {
+          "query_id": "q_direct_008",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.2744398578414134,
+          "latency_ms": 139.78245801990852
+        },
+        {
+          "query_id": "q_direct_009",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 38.93174999393523
+        },
+        {
+          "query_id": "q_direct_010",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 36.93745800410397
+        },
+        {
+          "query_id": "q_direct_011",
+          "category": "direct",
+          "p_at_5": 0.0,
+          "r_at_10": 0.07692307692307693,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 393.4923750057351
+        },
+        {
+          "query_id": "q_direct_012",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 75.27779199881479
+        },
+        {
+          "query_id": "q_direct_013",
+          "category": "direct",
+          "p_at_5": 0.4,
+          "r_at_10": 0.2,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.547158235660828,
+          "latency_ms": 314.58370899781585
+        },
+        {
+          "query_id": "q_direct_014",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 91.91929100779817
+        },
+        {
+          "query_id": "q_direct_015",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 61.25804199837148
+        },
+        {
+          "query_id": "q_direct_016",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.2727272727272727,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 298.1202919909265
+        },
+        {
+          "query_id": "q_direct_017",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.07142857142857142,
+          "mrr": 0.25,
+          "ndcg_at_5": 0.18733434697640203,
+          "latency_ms": 68.19654101855122
+        },
+        {
+          "query_id": "q_direct_018",
+          "category": "direct",
+          "p_at_5": 0.5,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5799691778425136,
+          "latency_ms": 37.00991699588485
+        },
+        {
+          "query_id": "q_direct_019",
+          "category": "direct",
+          "p_at_5": 0.2,
+          "r_at_10": 0.06666666666666667,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4349768833818852,
+          "latency_ms": 74.63970899698325
+        },
+        {
+          "query_id": "q_recency_020",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 193.8349589763675
+        },
+        {
+          "query_id": "q_recency_021",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.017341040462427744,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 122.43199997465126
+        },
+        {
+          "query_id": "q_recency_022",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.011695906432748537,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 63.7470840010792
+        },
+        {
+          "query_id": "q_recency_023",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 140.96841699210927
+        },
+        {
+          "query_id": "q_recency_024",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0058823529411764705,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 114.67933299718425
+        },
+        {
+          "query_id": "q_recency_025",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 142.80683299875818
+        },
+        {
+          "query_id": "q_recency_026",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 121.59741701907478
+        },
+        {
+          "query_id": "q_recency_027",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 85.32845799345523
+        },
+        {
+          "query_id": "q_recency_028",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.023529411764705882,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 100.19450000254437
+        },
+        {
+          "query_id": "q_recency_029",
+          "category": "recency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.006097560975609756,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 91.41587498015724
+        },
+        {
+          "query_id": "q_frequency_030",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 54.69058401649818
+        },
+        {
+          "query_id": "q_frequency_031",
+          "category": "frequency",
+          "p_at_5": 0.2,
+          "r_at_10": 0.002857142857142857,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 54.1974579973612
+        },
+        {
+          "query_id": "q_frequency_032",
+          "category": "frequency",
+          "p_at_5": 0.6666666666666666,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.28263350439468005,
+          "latency_ms": 64.86779201077297
+        },
+        {
+          "query_id": "q_frequency_033",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 100.49816701211967
+        },
+        {
+          "query_id": "q_frequency_034",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 89.10770798684098
+        },
+        {
+          "query_id": "q_frequency_035",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 203.1477080017794
+        },
+        {
+          "query_id": "q_frequency_036",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 54.99008297920227
+        },
+        {
+          "query_id": "q_frequency_037",
+          "category": "frequency",
+          "p_at_5": 0.0,
+          "r_at_10": 0.005714285714285714,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 77.72562501486391
+        },
+        {
+          "query_id": "q_frequency_038",
+          "category": "frequency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.011428571428571429,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 203.59854199341498
+        },
+        {
+          "query_id": "q_frequency_039",
+          "category": "frequency",
+          "p_at_5": 0.4,
+          "r_at_10": 0.008571428571428572,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.28263350439468005,
+          "latency_ms": 121.75162500352599
+        },
+        {
+          "query_id": "q_associative_040",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.043478260869565216,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 207.28404200053774
+        },
+        {
+          "query_id": "q_associative_041",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 135.64154200139455
+        },
+        {
+          "query_id": "q_associative_042",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5784447668310352,
+          "latency_ms": 174.57541701151058
+        },
+        {
+          "query_id": "q_associative_043",
+          "category": "associative",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3546717849523194,
+          "latency_ms": 174.8942080012057
+        },
+        {
+          "query_id": "q_associative_044",
+          "category": "associative",
+          "p_at_5": 0.6,
+          "r_at_10": 0.13043478260869565,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5726986067912171,
+          "latency_ms": 211.59095800248906
+        },
+        {
+          "query_id": "q_associative_045",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 241.41758400946856
+        },
+        {
+          "query_id": "q_associative_046",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.125,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 200.9607079962734
+        },
+        {
+          "query_id": "q_associative_047",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08695652173913043,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5087403079104241,
+          "latency_ms": 158.00587498233654
+        },
+        {
+          "query_id": "q_associative_048",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.360054614577234,
+          "latency_ms": 268.419542000629
+        },
+        {
+          "query_id": "q_associative_049",
+          "category": "associative",
+          "p_at_5": 0.4,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5531464700081437,
+          "latency_ms": 216.5539170091506
+        },
+        {
+          "query_id": "q_contradiction_050",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 290.26608300046064
+        },
+        {
+          "query_id": "q_contradiction_051",
+          "category": "contradiction",
+          "p_at_5": 0.0,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 0.16666666666666666,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 458.89224999700673
+        },
+        {
+          "query_id": "q_contradiction_052",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 281.73637500731274
+        },
+        {
+          "query_id": "q_contradiction_053",
+          "category": "contradiction",
+          "p_at_5": 0.2,
+          "r_at_10": 0.3333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.5562983930884396,
+          "latency_ms": 149.91499998723157
+        },
+        {
+          "query_id": "q_contradiction_054",
+          "category": "contradiction",
+          "p_at_5": 0.4,
+          "r_at_10": 0.6666666666666666,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.7715039881147672,
+          "latency_ms": 157.4257909960579
+        },
+        {
+          "query_id": "q_semantic_055",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.13333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.13284008937902195,
+          "latency_ms": 550.5064580065664
+        },
+        {
+          "query_id": "q_semantic_056",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.3985202681370658,
+          "latency_ms": 409.66858400497586
+        },
+        {
+          "query_id": "q_semantic_057",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.22377298187871583,
+          "latency_ms": 214.67379201203585
+        },
+        {
+          "query_id": "q_semantic_058",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.05555555555555555,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 202.946040983079
+        },
+        {
+          "query_id": "q_semantic_059",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 234.71466699265875
+        },
+        {
+          "query_id": "q_semantic_060",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 173.2297090056818
+        },
+        {
+          "query_id": "q_semantic_061",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 949.0049169980921
+        },
+        {
+          "query_id": "q_semantic_062",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.24913276910075044,
+          "latency_ms": 199.25854200846516
+        },
+        {
+          "query_id": "q_semantic_063",
+          "category": "semantic",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 211.66612498927861
+        },
+        {
+          "query_id": "q_semantic_064",
+          "category": "semantic",
+          "p_at_5": 0.2,
+          "r_at_10": 0.0625,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.2656801787580439,
+          "latency_ms": 281.31291700992733
+        },
+        {
+          "query_id": "q_traversal_065",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.041666666666666664,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 324.9137919920031
+        },
+        {
+          "query_id": "q_traversal_066",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 0.3333333333333333,
+          "ndcg_at_5": 0.16958010263680803,
+          "latency_ms": 99.96666701044887
+        },
+        {
+          "query_id": "q_traversal_067",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.10526315789473684,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 93.77637499710545
+        },
+        {
+          "query_id": "q_traversal_068",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.047619047619047616,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 214.8209169972688
+        },
+        {
+          "query_id": "q_traversal_069",
+          "category": "graph_traversal",
+          "p_at_5": 0.4,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.4522136070314881,
+          "latency_ms": 103.01141699892469
+        },
+        {
+          "query_id": "q_traversal_070",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.09090909090909091,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 185.340083000483
+        },
+        {
+          "query_id": "q_traversal_071",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.045454545454545456,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 68.85012498241849
+        },
+        {
+          "query_id": "q_traversal_072",
+          "category": "graph_traversal",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 522.535833006259
+        },
+        {
+          "query_id": "q_traversal_073",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.1111111111111111,
+          "mrr": 0.5,
+          "ndcg_at_5": 0.21398626473452753,
+          "latency_ms": 91.83045901590958
+        },
+        {
+          "query_id": "q_traversal_074",
+          "category": "graph_traversal",
+          "p_at_5": 0.2,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.33916020527361607,
+          "latency_ms": 172.20462497789413
+        },
+        {
+          "query_id": "q_cross_cluster_075",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.08333333333333333,
+          "mrr": 0.14285714285714285,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 1198.9956669858657
+        },
+        {
+          "query_id": "q_cross_cluster_076",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 653.9587920124177
+        },
+        {
+          "query_id": "q_cross_cluster_077",
+          "category": "cross_cluster",
+          "p_at_5": 0.2,
+          "r_at_10": 0.18181818181818182,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.1449922944606284,
+          "latency_ms": 881.4774999918882
+        },
+        {
+          "query_id": "q_cross_cluster_078",
+          "category": "cross_cluster",
+          "p_at_5": 0.4,
+          "r_at_10": 0.4,
+          "mrr": 1.0,
+          "ndcg_at_5": 0.362480736151571,
+          "latency_ms": 881.7520830198191
+        },
+        {
+          "query_id": "q_cross_cluster_079",
+          "category": "cross_cluster",
+          "p_at_5": 0.0,
+          "r_at_10": 0.0,
+          "mrr": 0.0,
+          "ndcg_at_5": 0.0,
+          "latency_ms": 855.0064170267433
+        }
+      ]
+    }
+  },
+  "comparisons": [
+    {
+      "a": "Full Stack",
+      "b": "Multi-Pool",
+      "metric": "p_at_5",
+      "mean_diff": 0.0,
+      "ci_lower": 0.0,
+      "ci_upper": 0.0,
+      "significant": false
+    },
+    {
+      "a": "Full Stack",
+      "b": "Community",
+      "metric": "p_at_5",
+      "mean_diff": 0.044795,
+      "ci_lower": 0.0075,
+      "ci_upper": 0.0875,
+      "significant": true
+    },
+    {
+      "a": "Full Stack",
+      "b": "Context-Gated",
+      "metric": "p_at_5",
+      "mean_diff": 0.042339999999999996,
+      "ci_lower": 0.004999999999999999,
+      "ci_upper": 0.08499999999999999,
+      "significant": true
+    },
+    {
+      "a": "Full Stack",
+      "b": "Pure Search",
+      "metric": "p_at_5",
+      "mean_diff": 0.13197895833333334,
+      "ci_lower": 0.076875,
+      "ci_upper": 0.19583333333333336,
+      "significant": true
+    },
+    {
+      "a": "Multi-Pool",
+      "b": "Community",
+      "metric": "p_at_5",
+      "mean_diff": 0.044795,
+      "ci_lower": 0.0075,
+      "ci_upper": 0.0875,
+      "significant": true
+    },
+    {
+      "a": "Multi-Pool",
+      "b": "Context-Gated",
+      "metric": "p_at_5",
+      "mean_diff": 0.042339999999999996,
+      "ci_lower": 0.004999999999999999,
+      "ci_upper": 0.08499999999999999,
+      "significant": true
+    },
+    {
+      "a": "Multi-Pool",
+      "b": "Pure Search",
+      "metric": "p_at_5",
+      "mean_diff": 0.13197895833333334,
+      "ci_lower": 0.076875,
+      "ci_upper": 0.19583333333333336,
+      "significant": true
+    },
+    {
+      "a": "Community",
+      "b": "Context-Gated",
+      "metric": "p_at_5",
+      "mean_diff": -0.002455,
+      "ci_lower": -0.0075000000000000015,
+      "ci_upper": 0.0,
+      "significant": false
+    },
+    {
+      "a": "Community",
+      "b": "Pure Search",
+      "metric": "p_at_5",
+      "mean_diff": 0.08718395833333334,
+      "ci_lower": 0.044166666666666674,
+      "ci_upper": 0.13625,
+      "significant": true
+    },
+    {
+      "a": "Context-Gated",
+      "b": "Pure Search",
+      "metric": "p_at_5",
+      "mean_diff": 0.08963895833333334,
+      "ci_lower": 0.046875,
+      "ci_upper": 0.13916666666666666,
+      "significant": true
+    }
+  ],
+  "independent_subset": {
+    "categories": [
+      "cross_cluster",
+      "graph_traversal",
+      "semantic"
+    ],
+    "methods": {
+      "Full Stack": {
+        "p_at_5": 0.17600000000000002,
+        "r_at_10": 0.06435771246297561,
+        "mrr": 0.6,
+        "ndcg_at_5": 0.2039371591817552,
+        "n_queries": 25
+      },
+      "Multi-Pool": {
+        "p_at_5": 0.17600000000000002,
+        "r_at_10": 0.07200922761449077,
+        "mrr": 0.6,
+        "ndcg_at_5": 0.2039371591817552,
+        "n_queries": 25
+      },
+      "Community": {
+        "p_at_5": 0.168,
+        "r_at_10": 0.06491326801853117,
+        "mrr": 0.5744444444444444,
+        "ndcg_at_5": 0.19614800460519102,
+        "n_queries": 25
+      },
+      "Context-Gated": {
+        "p_at_5": 0.168,
+        "r_at_10": 0.06907993468519784,
+        "mrr": 0.5777777777777778,
+        "ndcg_at_5": 0.19655005920138494,
+        "n_queries": 25
+      },
+      "Pure Search": {
+        "p_at_5": 0.14400000000000002,
+        "r_at_10": 0.07088296498822814,
+        "mrr": 0.5647619047619048,
+        "ndcg_at_5": 0.18091946333484915,
+        "n_queries": 25
+      }
+    },
+    "comparisons": [
+      {
+        "a": "Full Stack",
+        "b": "Multi-Pool",
+        "metric": "p_at_5",
+        "mean_diff": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "significant": false
+      },
+      {
+        "a": "Full Stack",
+        "b": "Community",
+        "metric": "p_at_5",
+        "mean_diff": 0.008176000000000001,
+        "ci_lower": 0.0,
+        "ci_upper": 0.024000000000000004,
+        "significant": false
+      },
+      {
+        "a": "Full Stack",
+        "b": "Context-Gated",
+        "metric": "p_at_5",
+        "mean_diff": 0.008176000000000001,
+        "ci_lower": 0.0,
+        "ci_upper": 0.024000000000000004,
+        "significant": false
+      },
+      {
+        "a": "Full Stack",
+        "b": "Pure Search",
+        "metric": "p_at_5",
+        "mean_diff": 0.032648,
+        "ci_lower": 0.0,
+        "ci_upper": 0.07200000000000001,
+        "significant": false
+      },
+      {
+        "a": "Multi-Pool",
+        "b": "Community",
+        "metric": "p_at_5",
+        "mean_diff": 0.008176000000000001,
+        "ci_lower": 0.0,
+        "ci_upper": 0.024000000000000004,
+        "significant": false
+      },
+      {
+        "a": "Multi-Pool",
+        "b": "Context-Gated",
+        "metric": "p_at_5",
+        "mean_diff": 0.008176000000000001,
+        "ci_lower": 0.0,
+        "ci_upper": 0.024000000000000004,
+        "significant": false
+      },
+      {
+        "a": "Multi-Pool",
+        "b": "Pure Search",
+        "metric": "p_at_5",
+        "mean_diff": 0.032648,
+        "ci_lower": 0.0,
+        "ci_upper": 0.07200000000000001,
+        "significant": false
+      },
+      {
+        "a": "Community",
+        "b": "Context-Gated",
+        "metric": "p_at_5",
+        "mean_diff": 0.0,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "significant": false
+      },
+      {
+        "a": "Community",
+        "b": "Pure Search",
+        "metric": "p_at_5",
+        "mean_diff": 0.024472,
+        "ci_lower": 0.0,
+        "ci_upper": 0.05600000000000001,
+        "significant": false
+      },
+      {
+        "a": "Context-Gated",
+        "b": "Pure Search",
+        "metric": "p_at_5",
+        "mean_diff": 0.024472,
+        "ci_lower": 0.0,
+        "ci_upper": 0.05600000000000001,
+        "significant": false
+      }
+    ]
+  }
+}
