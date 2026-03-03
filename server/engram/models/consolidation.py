@@ -35,7 +35,7 @@ class ConsolidationCycle:
     """A complete consolidation run with audit trail."""
 
     group_id: str
-    trigger: str = "manual"  # "manual", "scheduled"
+    trigger: str = "manual"  # "manual", "scheduled", "pressure", "shutdown"
     dry_run: bool = True
     status: str = "pending"
     phase_results: list[PhaseResult] = field(default_factory=list)
@@ -74,7 +74,10 @@ class InferredEdge:
     target_name: str
     co_occurrence_count: int
     confidence: float
-    infer_type: str = "co_occurrence"  # "co_occurrence" | "transitivity"
+    infer_type: str = "co_occurrence"
+    pmi_score: float | None = None
+    llm_verdict: str | None = None
+    relationship_id: str | None = None
     id: str = field(default_factory=lambda: f"inf_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
 
@@ -101,6 +104,8 @@ class CycleContext:
     merge_survivor_ids: set[str] = field(default_factory=set)
     inferred_edge_entity_ids: set[str] = field(default_factory=set)
     pruned_entity_ids: set[str] = field(default_factory=set)
+    replay_new_entity_ids: set[str] = field(default_factory=set)
+    dream_seed_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -113,4 +118,33 @@ class ReindexRecord:
     entity_name: str
     source_phase: str  # "merge" | "infer"
     id: str = field(default_factory=lambda: f"rix_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ReplayRecord:
+    """Audit entry for a replayed episode."""
+
+    cycle_id: str
+    group_id: str
+    episode_id: str
+    new_entities_found: int = 0
+    new_relationships_found: int = 0
+    entities_updated: int = 0
+    skipped_reason: str | None = None  # "extraction_failed" | "no_new_info" | None
+    id: str = field(default_factory=lambda: f"rpl_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DreamRecord:
+    """Audit entry for a dream-boosted edge."""
+
+    cycle_id: str
+    group_id: str
+    source_entity_id: str
+    target_entity_id: str
+    weight_delta: float
+    seed_entity_id: str = ""
+    id: str = field(default_factory=lambda: f"drm_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)

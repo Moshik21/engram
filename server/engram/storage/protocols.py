@@ -100,6 +100,10 @@ class GraphStore(Protocol):
         min_co_occurrence: int = 3, limit: int = 100,
     ) -> list[tuple[str, str, int]]: ...
 
+    async def get_entity_episode_counts(
+        self, group_id: str, entity_ids: list[str],
+    ) -> dict[str, int]: ...
+
     async def get_dead_entities(
         self, group_id: str, min_age_days: int = 30, limit: int = 100,
     ) -> list[Entity]: ...
@@ -112,6 +116,11 @@ class GraphStore(Protocol):
         self, group_id: str, predicate: str,
         active_only: bool = True, limit: int = 10000,
     ) -> list[Relationship]: ...
+
+    async def update_relationship_weight(
+        self, source_id: str, target_id: str, weight_delta: float,
+        max_weight: float = 3.0, group_id: str = "default",
+    ) -> float | None: ...
 
 
 @runtime_checkable

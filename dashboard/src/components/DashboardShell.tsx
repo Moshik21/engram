@@ -8,6 +8,7 @@ import { MemoryFeed } from "./MemoryFeed";
 import { StatsPanel } from "./StatsPanel";
 import { TimelineView } from "./TimelineView";
 import { ActivationMonitor } from "./ActivationMonitor";
+import { ConsolidationPanel } from "./ConsolidationPanel";
 
 export function DashboardShell() {
   const error = useEngramStore((s) => s.error);
@@ -61,6 +62,15 @@ export function DashboardShell() {
             style={{ left: contentLeft, top: 54 }}
           >
             <ActivationMonitor />
+          </div>
+        );
+      case "consolidation":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <ConsolidationPanel />
           </div>
         );
       case "graph":

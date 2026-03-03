@@ -9,6 +9,7 @@ const VIEWS: { id: DashboardView; label: string; icon: string }[] = [
   { id: "feed", label: "Feed", icon: "☰" },
   { id: "activation", label: "Activation", icon: "⚡" },
   { id: "stats", label: "Stats", icon: "▤" },
+  { id: "consolidation", label: "Consolidate", icon: "⟳" },
 ];
 
 export function Sidebar() {

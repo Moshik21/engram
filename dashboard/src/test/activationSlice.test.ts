@@ -10,6 +10,7 @@ import { createEpisodeSlice } from "../store/episodeSlice";
 import { createStatsSlice } from "../store/statsSlice";
 import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
+import { createConsolidationSlice } from "../store/consolidationSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -24,6 +25,10 @@ vi.mock("../api/client", () => ({
     deleteEntity: vi.fn(),
     getActivationSnapshot: vi.fn(),
     getActivationCurve: vi.fn(),
+    getConsolidationStatus: vi.fn(),
+    getConsolidationHistory: vi.fn(),
+    getConsolidationCycle: vi.fn(),
+    triggerConsolidation: vi.fn(),
   },
 }));
 
@@ -42,6 +47,7 @@ function createTestStore() {
       ...createStatsSlice(...a),
       ...createWsSlice(...a),
       ...createActivationSlice(...a),
+      ...createConsolidationSlice(...a),
     })),
   );
 }

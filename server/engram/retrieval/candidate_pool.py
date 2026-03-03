@@ -4,16 +4,75 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from typing import TYPE_CHECKING
 
 from engram.config import ActivationConfig
+from engram.retrieval.router import QueryType
 
 if TYPE_CHECKING:
     from engram.retrieval.working_memory import WorkingMemoryBuffer
     from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic pool sizing
+# ---------------------------------------------------------------------------
+
+# Query-type-specific pool multipliers: (search, activation, graph)
+_POOL_MULTIPLIERS: dict[QueryType, tuple[float, float, float]] = {
+    QueryType.TEMPORAL: (1.0, 3.0, 1.0),
+    QueryType.FREQUENCY: (1.0, 3.0, 1.0),
+    QueryType.DIRECT_LOOKUP: (2.0, 1.0, 1.0),
+    QueryType.ASSOCIATIVE: (1.0, 1.0, 2.0),
+    QueryType.DEFAULT: (1.0, 1.0, 1.0),
+}
+
+
+def _clamp(value: int, lo: int, hi: int) -> int:
+    return max(lo, min(value, hi))
+
+
+def compute_dynamic_limits(
+    total_entities: int,
+    cfg: ActivationConfig,
+    query_type: QueryType | None = None,
+) -> dict[str, int]:
+    """Scale pool limits with sqrt(total_entities / 1000).
+
+    At 1k entities the limits equal cfg defaults. At 5k they grow ~2.2x.
+    Query-type multipliers further adjust individual pools.
+    All values are clamped to config field constraints.
+    """
+    scale = math.sqrt(max(total_entities, 1000) / 1000.0)
+
+    search_mul, act_mul, graph_mul = _POOL_MULTIPLIERS.get(
+        query_type or QueryType.DEFAULT, (1.0, 1.0, 1.0),
+    )
+
+    pool_search = _clamp(int(cfg.pool_search_limit * scale * search_mul), 5, 200)
+    pool_activation = _clamp(int(cfg.pool_activation_limit * scale * act_mul), 5, 100)
+    pool_graph_limit = _clamp(int(cfg.pool_graph_limit * scale * graph_mul), 5, 100)
+    pool_graph_seed = _clamp(int(cfg.pool_graph_seed_count * scale), 1, 50)
+    pool_graph_neighbors = _clamp(int(cfg.pool_graph_max_neighbors * scale), 1, 50)
+    pool_wm = _clamp(int(cfg.pool_wm_limit * scale), 5, 50)
+    pool_total = _clamp(
+        pool_search + pool_activation + pool_graph_limit + pool_wm,
+        20, 1000,
+    )
+
+    return {
+        "pool_search_limit": pool_search,
+        "pool_activation_limit": pool_activation,
+        "pool_graph_seed_count": pool_graph_seed,
+        "pool_graph_max_neighbors": pool_graph_neighbors,
+        "pool_graph_limit": pool_graph_limit,
+        "pool_wm_limit": pool_wm,
+        "pool_total_limit": pool_total,
+    }
 
 
 async def _search_pool(
@@ -165,25 +224,31 @@ async def generate_candidates(
     cfg: ActivationConfig,
     now: float | None = None,
     working_memory: WorkingMemoryBuffer | None = None,
+    total_entities: int = 0,
+    query_type: QueryType | None = None,
 ) -> list[tuple[str, float]]:
     """Orchestrate multi-pool candidate generation.
 
     Returns (entity_id, real_semantic_similarity) tuples in RRF-merged order.
+    Pool sizes scale with sqrt(total_entities / 1000) and query-type multipliers.
     """
     if now is None:
         now = time.time()
 
+    # Compute dynamic pool limits based on corpus size and query type
+    limits = compute_dynamic_limits(total_entities, cfg, query_type)
+
     # Step 1: Run search + activation pools concurrently
     search_results, activation_results = await asyncio.gather(
-        _search_pool(query, group_id, search_index, cfg.pool_search_limit),
-        _activation_pool(group_id, activation_store, cfg.pool_activation_limit, now),
+        _search_pool(query, group_id, search_index, limits["pool_search_limit"]),
+        _activation_pool(group_id, activation_store, limits["pool_activation_limit"], now),
     )
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
-    seed_ids = [eid for eid, _ in search_results[:cfg.pool_graph_seed_count]]
+    seed_ids = [eid for eid, _ in search_results[:limits["pool_graph_seed_count"]]]
     graph_results = await _graph_neighborhood_pool(
         seed_ids, group_id, graph_store,
-        cfg.pool_graph_max_neighbors, cfg.pool_graph_limit,
+        limits["pool_graph_max_neighbors"], limits["pool_graph_limit"],
     )
 
     # Step 3: Working memory pool (if provided)
@@ -191,7 +256,7 @@ async def generate_candidates(
     if working_memory is not None and cfg.working_memory_enabled:
         wm_results = await _working_memory_pool(
             working_memory, group_id, graph_store,
-            now, cfg.pool_wm_max_neighbors, cfg.pool_wm_limit,
+            now, cfg.pool_wm_max_neighbors, limits["pool_wm_limit"],
         )
 
     # Step 4: Merge non-empty pools via RRF
@@ -199,7 +264,7 @@ async def generate_candidates(
     if not pools:
         return []
 
-    merged_ids = _merge_pools_rrf(pools, cfg.rrf_k, cfg.pool_total_limit)
+    merged_ids = _merge_pools_rrf(pools, cfg.rrf_k, limits["pool_total_limit"])
 
     # Step 5: Build semantic score map from search results
     search_scores: dict[str, float] = {eid: score for eid, score in search_results}

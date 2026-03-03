@@ -125,6 +125,42 @@ class TestTransitivityConfigDefaults:
             ActivationConfig(consolidation_infer_transitivity_decay=0.05)
 
 
+class TestReplayConfigDefaults:
+    """Verify defaults and validation for replay config fields."""
+
+    def test_replay_disabled_by_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_replay_enabled is False
+
+    def test_replay_max_per_cycle_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_replay_max_per_cycle == 50
+
+    def test_replay_window_hours_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_replay_window_hours == 24.0
+
+    def test_replay_min_age_hours_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_replay_min_age_hours == 1.0
+
+    def test_replay_max_per_cycle_too_low(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_replay_max_per_cycle=0)
+
+    def test_replay_max_per_cycle_too_high(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_replay_max_per_cycle=501)
+
+    def test_replay_window_hours_too_low(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_replay_window_hours=0.5)
+
+    def test_replay_min_age_hours_too_high(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_replay_min_age_hours=49.0)
+
+
 class TestPressureConfigDefaults:
     """Verify defaults and validation for pressure config fields."""
 
@@ -147,3 +183,117 @@ class TestPressureConfigDefaults:
     def test_reindex_max_per_cycle_default(self):
         cfg = ActivationConfig()
         assert cfg.consolidation_reindex_max_per_cycle == 200
+
+
+class TestDreamConfigDefaults:
+    """Verify defaults and validation for dream spreading config fields."""
+
+    def test_dream_disabled_by_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_enabled is False
+
+    def test_dream_max_seeds_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_max_seeds == 20
+
+    def test_dream_activation_band_defaults(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_activation_floor == 0.15
+        assert cfg.consolidation_dream_activation_ceiling == 0.75
+        assert cfg.consolidation_dream_activation_midpoint == 0.40
+
+    def test_dream_weight_increment_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_weight_increment == 0.05
+
+    def test_dream_max_boost_per_edge_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_max_boost_per_edge == 0.15
+
+    def test_dream_max_edge_weight_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_max_edge_weight == 3.0
+
+    def test_dream_min_boost_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_dream_min_boost == 0.005
+
+    def test_dream_max_seeds_too_low(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_max_seeds=0)
+
+    def test_dream_max_seeds_too_high(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_max_seeds=201)
+
+    def test_dream_weight_increment_too_low(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_weight_increment=0.0)
+
+    def test_dream_weight_increment_too_high(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_weight_increment=0.6)
+
+    def test_dream_max_edge_weight_too_low(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_max_edge_weight=0.5)
+
+    def test_dream_max_edge_weight_too_high(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_dream_max_edge_weight=11.0)
+
+
+class TestPMIAndLLMConfigDefaults:
+    """Verify defaults and validation for PMI/tf-idf and LLM config fields."""
+
+    def test_pmi_disabled_by_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_pmi_enabled is False
+
+    def test_pmi_min_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_pmi_min == 1.0
+
+    def test_tfidf_weight_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_tfidf_weight == 0.3
+
+    def test_llm_disabled_by_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_llm_enabled is False
+
+    def test_llm_confidence_threshold_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_llm_confidence_threshold == 0.7
+
+    def test_llm_max_per_cycle_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_llm_max_per_cycle == 20
+
+    def test_llm_model_default(self):
+        cfg = ActivationConfig()
+        assert cfg.consolidation_infer_llm_model == "claude-haiku-4-5-20251001"
+
+    def test_pmi_min_bounds(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_pmi_min=-1.0)
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_pmi_min=11.0)
+
+    def test_tfidf_weight_bounds(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_tfidf_weight=-0.1)
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_tfidf_weight=1.1)
+
+    def test_llm_confidence_threshold_bounds(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_llm_confidence_threshold=0.05)
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_llm_confidence_threshold=1.1)
+
+    def test_llm_max_per_cycle_bounds(self):
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_llm_max_per_cycle=0)
+        with pytest.raises(ValidationError):
+            ActivationConfig(consolidation_infer_llm_max_per_cycle=101)

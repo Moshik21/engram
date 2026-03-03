@@ -660,7 +660,12 @@ class CorpusGenerator:
                     t: len(ids) for t, ids in type_index.items()
                 },
                 "clusters": [
-                    {"name": c["name"], "members": c["members"]}
+                    {
+                        "name": c["name"],
+                        "members": c["members"],
+                        "domains": c.get("domains", []),
+                        "description": c.get("description", ""),
+                    }
                     for c in clusters
                 ],
             },
@@ -2265,11 +2270,16 @@ class CorpusGenerator:
         for i in range(self._scale.temporal_context_queries):
             cluster = real_clusters[i % len(real_clusters)]
             domains = cluster.get("domains", ["technology"])
-            domain_phrase = self._rng.choice(domains)
+            # Pick a domain deterministically (round-robin across domains)
+            domain_phrase = domains[i % len(domains)]
             query_text = temporal_context_templates[
                 i % len(temporal_context_templates)
             ].format(domain=domain_phrase)
 
+            # Grade by recency within cluster. After summary enrichment,
+            # >80% of cluster members will contain their cluster's domain
+            # keywords, making them FTS5-discoverable. Grade purely by
+            # temporal signal here.
             relevant: dict[str, int] = {}
             for mid in cluster["members"]:
                 if mid in last_access_time:

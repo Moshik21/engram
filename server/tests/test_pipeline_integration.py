@@ -188,7 +188,8 @@ class TestBenchmarkMethods:
         assert "Linear Merge" in names
         assert "Context-Gated" in names
         assert "Post-Consolidation" in names
-        assert len(ALL_METHODS) == 16
+        assert "ACT-R Spreading" in names
+        assert len(ALL_METHODS) == 17
 
     def test_linear_merge_method_config(self):
         """Linear merge method has use_rrf=False."""

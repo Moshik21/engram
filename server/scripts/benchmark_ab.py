@@ -112,8 +112,8 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         if not api_key:
             print("ERROR: --embeddings requires VOYAGE_API_KEY env var")
             sys.exit(1)
-        print("Using Voyage AI embeddings (voyage-3-lite, 512d)")
-        provider = VoyageProvider(api_key=api_key)
+        print("Using Voyage AI embeddings (voyage-4-lite, 512d)")
+        provider = VoyageProvider(api_key=api_key, model="voyage-4-lite")
         vector_store = SQLiteVectorStore(db_path)
         await vector_store.initialize(db=graph_store._db)
         search_index = HybridSearchIndex(
@@ -219,6 +219,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                 now=benchmark_now,
                 community_store=community_store,
                 predicate_cache=predicate_cache,
+                total_entities=n_entities,
             )
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -293,6 +294,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                     now=benchmark_now,
                     community_store=community_store,
                     predicate_cache=predicate_cache,
+                    total_entities=n_entities,
                 )
                 elapsed_ms = (time.perf_counter() - t0) * 1000.0
 

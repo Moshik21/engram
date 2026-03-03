@@ -58,10 +58,10 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 5
+        assert len(cycle.phase_results) == 7
         assert cycle.total_duration_ms > 0
         phase_names = [pr.phase for pr in cycle.phase_results]
-        assert phase_names == ["merge", "infer", "prune", "compact", "reindex"]
+        assert phase_names == ["replay", "merge", "infer", "prune", "compact", "reindex", "dream"]
 
     @pytest.mark.asyncio
     async def test_empty_graph_completes(self, engine):
@@ -77,7 +77,7 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         names = [pr.phase for pr in cycle.phase_results]
-        assert names == ["merge", "infer", "prune", "compact", "reindex"]
+        assert names == ["replay", "merge", "infer", "prune", "compact", "reindex", "dream"]
 
     @pytest.mark.asyncio
     async def test_prevents_concurrent_cycles(self, engine):
@@ -126,12 +126,12 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 5
+        assert len(cycle.phase_results) == 7
         assert cycle.phase_results[0].status == "error"
         assert "Simulated merge failure" in cycle.phase_results[0].error
-        # Other phases should succeed
+        # Other phases should succeed or be skipped (dream is disabled by default)
         for pr in cycle.phase_results[1:]:
-            assert pr.status == "success"
+            assert pr.status in ("success", "skipped")
 
     @pytest.mark.asyncio
     async def test_event_publishing(self, store, activation, search, consol_store):
@@ -163,7 +163,7 @@ class TestConsolidationEngine:
         fetched = await consol_store.get_cycle(cycle.id, "test")
         assert fetched is not None
         assert fetched.status == "completed"
-        assert len(fetched.phase_results) == 5
+        assert len(fetched.phase_results) == 7
 
     @pytest.mark.asyncio
     async def test_is_running_property(self, engine):
@@ -183,3 +183,83 @@ class TestConsolidationEngine:
 
         cycle = await engine.run_cycle(group_id="test", dry_run=None)
         assert cycle.dry_run is True
+
+
+class TestShutdownTrigger:
+    """Tests for shutdown consolidation trigger in main._shutdown()."""
+
+    @pytest.mark.asyncio
+    async def test_shutdown_trigger_calls_run_cycle(self, store, activation, search, consol_store):
+        """Shutdown should run a consolidation cycle when enabled and not running."""
+        from unittest.mock import AsyncMock
+
+        from engram.config import EngramConfig
+        from engram.main import _app_state, _shutdown
+
+        bus = EventBus()
+        engine = ConsolidationEngine(
+            store, activation, search,
+            cfg=ActivationConfig(consolidation_enabled=True),
+            consolidation_store=consol_store,
+            event_bus=bus,
+        )
+        config = EngramConfig()
+        config.activation.consolidation_enabled = True
+
+        _app_state.update({
+            "config": config,
+            "consolidation_engine": engine,
+            "consolidation_scheduler": None,
+            "pressure_accumulator": None,
+            "embedding_provider": None,
+            "activation_store": None,
+            "graph_store": None,
+        })
+
+        engine.run_cycle = AsyncMock(return_value=None)
+
+        await _shutdown()
+
+        engine.run_cycle.assert_called_once_with(
+            group_id=config.default_group_id,
+            trigger="shutdown",
+            dry_run=False,
+        )
+
+        _app_state.clear()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_skips_when_disabled(self, store, activation, search, consol_store):
+        """Shutdown should NOT run consolidation when consolidation_enabled=False."""
+        from unittest.mock import AsyncMock
+
+        from engram.config import EngramConfig
+        from engram.main import _app_state, _shutdown
+
+        bus = EventBus()
+        engine = ConsolidationEngine(
+            store, activation, search,
+            cfg=ActivationConfig(consolidation_enabled=False),
+            consolidation_store=consol_store,
+            event_bus=bus,
+        )
+        config = EngramConfig()
+        config.activation.consolidation_enabled = False
+
+        _app_state.update({
+            "config": config,
+            "consolidation_engine": engine,
+            "consolidation_scheduler": None,
+            "pressure_accumulator": None,
+            "embedding_provider": None,
+            "activation_store": None,
+            "graph_store": None,
+        })
+
+        engine.run_cycle = AsyncMock(return_value=None)
+
+        await _shutdown()
+
+        engine.run_cycle.assert_not_called()
+
+        _app_state.clear()

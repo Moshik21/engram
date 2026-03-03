@@ -14,7 +14,7 @@ from engram.config import ActivationConfig
 
 _TEMPORAL_KEYWORDS = re.compile(
     r"\b(recent|recently|lately|last|today|yesterday|this\s+week|this\s+month"
-    r"|just\s+now|earlier|earlier\s+today|few\s+days)\b",
+    r"|just\s+now|earlier|earlier\s+today|few\s+days|what's\s+new|what\s+is\s+new)\b",
     re.IGNORECASE,
 )
 

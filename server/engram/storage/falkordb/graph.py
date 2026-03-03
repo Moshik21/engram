@@ -290,6 +290,37 @@ class FalkorDBGraphStore:
             {"id": rel_id, "gid": group_id, "valid_to": valid_to.isoformat()},
         )
 
+    async def update_relationship_weight(
+        self,
+        source_id: str,
+        target_id: str,
+        weight_delta: float,
+        max_weight: float = 3.0,
+        group_id: str = "default",
+    ) -> float | None:
+        """Atomically increment edge weight in FalkorDB, capped at max_weight."""
+        result = await self._query(
+            """MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity)
+               WHERE s.id = $src AND t.id = $tgt
+                 AND r.group_id = $gid
+                 AND r.valid_to IS NULL
+               SET r.weight = CASE
+                   WHEN r.weight + $delta > $max_w THEN $max_w
+                   ELSE r.weight + $delta
+               END
+               RETURN r.weight""",
+            {
+                "src": source_id,
+                "tgt": target_id,
+                "delta": weight_delta,
+                "max_w": max_weight,
+                "gid": group_id,
+            },
+        )
+        if result.result_set:
+            return result.result_set[0][0]
+        return None
+
     async def find_conflicting_relationships(
         self,
         source_id: str,
@@ -703,6 +734,20 @@ class FalkorDBGraphStore:
         """
         result = await self._query(cypher, params)
         return [(row[0], row[1], row[2]) for row in result.result_set]
+
+    async def get_entity_episode_counts(
+        self, group_id: str, entity_ids: list[str],
+    ) -> dict[str, int]:
+        """Return how many episodes each entity appears in."""
+        if not entity_ids:
+            return {}
+        result = await self._query(
+            """MATCH (ep:Episode)-[:HAS_ENTITY]->(e:Entity)
+               WHERE e.group_id = $gid AND e.id IN $ids
+               RETURN e.id, COUNT(DISTINCT ep) AS cnt""",
+            {"gid": group_id, "ids": entity_ids},
+        )
+        return {row[0]: row[1] for row in result.result_set}
 
     async def get_dead_entities(
         self, group_id: str, min_age_days: int = 30, limit: int = 100,

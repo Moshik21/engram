@@ -8,11 +8,16 @@ between methods.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from engram.activation.spreading import identify_seeds, spread_activation
+from engram.activation.spreading import (
+    identify_actr_seeds,
+    identify_seeds,
+    spread_activation,
+)
 from engram.config import ActivationConfig
 from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
@@ -26,6 +31,12 @@ if TYPE_CHECKING:
     from engram.retrieval.working_memory import WorkingMemoryBuffer
 
 logger = logging.getLogger(__name__)
+
+
+def _scale_limit(base: int, total_entities: int, lo: int, hi: int) -> int:
+    """Scale a limit by sqrt(total_entities / 1000), clamped."""
+    scale = math.sqrt(max(total_entities, 1000) / 1000.0)
+    return max(lo, min(int(base * scale), hi))
 
 
 @dataclass
@@ -51,6 +62,7 @@ METHOD_FULL_ENGRAM = RetrievalMethod(
         "spreading activation + edge proximity scoring."
     ),
     config=ActivationConfig(
+        multi_pool_enabled=True,
         weight_semantic=0.40,
         weight_activation=0.25,
         weight_spreading=0.20,
@@ -113,6 +125,7 @@ METHOD_ROUTED = RetrievalMethod(
         "query classification (direct/temporal/associative/default)."
     ),
     config=ActivationConfig(
+        multi_pool_enabled=True,
         weight_semantic=0.40,
         weight_activation=0.25,
         weight_spreading=0.20,
@@ -228,6 +241,7 @@ METHOD_COMMUNITY = RetrievalMethod(
         "boosted 1.5x, intra-cluster edges dampened to 0.7x."
     ),
     config=ActivationConfig(
+        multi_pool_enabled=True,
         community_spreading_enabled=True,
         community_bridge_boost=1.5,
         community_intra_dampen=0.7,
@@ -247,6 +261,7 @@ METHOD_CONTEXT_GATED = RetrievalMethod(
         "modulated by query-predicate cosine similarity (floor=0.3)."
     ),
     config=ActivationConfig(
+        multi_pool_enabled=True,
         context_gating_enabled=True,
         context_gate_floor=0.3,
         weight_semantic=0.40,
@@ -307,6 +322,22 @@ METHOD_FULL_STACK = RetrievalMethod(
     routing_enabled=True,
 )
 
+METHOD_ACTR_SPREADING = RetrievalMethod(
+    name="ACT-R Spreading",
+    description=(
+        "True ACT-R spreading activation: 1-hop from working memory "
+        "with W_j = W/n attentional weights and fan-based S_ji."
+    ),
+    config=ActivationConfig(
+        spreading_strategy="actr",
+        weight_semantic=0.40,
+        weight_activation=0.25,
+        weight_spreading=0.20,
+        weight_edge_proximity=0.15,
+    ),
+    spreading_enabled=True,
+)
+
 METHOD_POST_CONSOLIDATION = RetrievalMethod(
     name="Post-Consolidation",
     description=(
@@ -340,6 +371,7 @@ ALL_METHODS: list[RetrievalMethod] = [
     METHOD_MULTI_POOL,
     METHOD_CONTEXT_GATED,
     METHOD_FULL_STACK,
+    METHOD_ACTR_SPREADING,
     METHOD_POST_CONSOLIDATION,
 ]
 
@@ -362,6 +394,7 @@ async def run_retrieval(
     working_memory: WorkingMemoryBuffer | None = None,
     community_store=None,
     predicate_cache=None,
+    total_entities: int = 0,
 ) -> list[ScoredResult]:
     """Execute a single retrieval pass for the given method.
 
@@ -389,6 +422,9 @@ async def run_retrieval(
     if cfg.multi_pool_enabled:
         from engram.retrieval.candidate_pool import generate_candidates
 
+        # Pre-classify query for pool composition multipliers
+        pre_query_type = await classify_query(query)
+
         candidates = await generate_candidates(
             query=query,
             group_id=group_id,
@@ -398,15 +434,18 @@ async def run_retrieval(
             cfg=cfg,
             now=now,
             working_memory=working_memory,
+            total_entities=total_entities,
+            query_type=pre_query_type,
         )
         query_type = await classify_query(query, search_results=candidates or [])
         if method.routing_enabled or query_type == QueryType.TEMPORAL:
             cfg = apply_route(query_type, cfg)
         temporal_mode = query_type == QueryType.TEMPORAL
     else:
-        # Original single-pool path
+        # Original single-pool path — scale retrieval_top_k
+        top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
         candidates = await search_index.search(
-            query, group_id=group_id, limit=cfg.retrieval_top_k,
+            query, group_id=group_id, limit=top_k,
         )
 
         # 1.5. Always classify query for temporal bypass
@@ -420,8 +459,9 @@ async def run_retrieval(
         temporal_mode = False
         if query_type == QueryType.TEMPORAL:
             temporal_mode = True
+            act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
             top_activated = await activation_store.get_top_activated(
-                group_id=group_id, limit=cfg.retrieval_top_k, now=now,
+                group_id=group_id, limit=act_limit, now=now,
             )
             existing_ids = {eid for eid, _ in candidates} if candidates else set()
             activation_candidates = [
@@ -473,32 +513,41 @@ async def run_retrieval(
 
     # 3. Spreading activation (conditional)
     if method.spreading_enabled:
-        seeds = identify_seeds(
-            candidates, activation_states, now, cfg,
-            temporal_mode=temporal_mode,
-        )
-        seed_node_ids = {node_id for node_id, _ in seeds}
+        if cfg.spreading_strategy == "actr":
+            # ACT-R: seeds come from working memory only
+            if working_memory is not None and cfg.working_memory_enabled:
+                seeds = identify_actr_seeds(working_memory, now, cfg)
+            else:
+                seeds = []
+            seed_node_ids = {node_id for node_id, _ in seeds}
+            context_gate = None  # context gate is a BFS/PPR concept
+        else:
+            seeds = identify_seeds(
+                candidates, activation_states, now, cfg,
+                temporal_mode=temporal_mode,
+            )
+            seed_node_ids = {node_id for node_id, _ in seeds}
 
-        # 3.5. Add working memory entities as additional seeds
-        if working_memory is not None and cfg.working_memory_enabled:
-            wm_candidates = working_memory.get_candidates(now)
-            for item_id, recency_score, _item_type in wm_candidates:
-                if item_id not in seed_node_ids:
-                    energy = cfg.working_memory_seed_energy * recency_score
-                    if energy > 0.0:
-                        seeds.append((item_id, energy))
-                        seed_node_ids.add(item_id)
+            # 3.5. Add working memory entities as additional seeds
+            if working_memory is not None and cfg.working_memory_enabled:
+                wm_candidates = working_memory.get_candidates(now)
+                for item_id, recency_score, _item_type in wm_candidates:
+                    if item_id not in seed_node_ids:
+                        energy = cfg.working_memory_seed_energy * recency_score
+                        if energy > 0.0:
+                            seeds.append((item_id, energy))
+                            seed_node_ids.add(item_id)
 
-        # Build context gate (if enabled)
-        context_gate = None
-        if cfg.context_gating_enabled and predicate_cache is not None:
-            query_emb = getattr(search_index, '_last_query_vec', None)
-            if query_emb:
-                from engram.activation.context_gate import build_context_gate
+            # Build context gate (if enabled)
+            context_gate = None
+            if cfg.context_gating_enabled and predicate_cache is not None:
+                query_emb = getattr(search_index, '_last_query_vec', None)
+                if query_emb:
+                    from engram.activation.context_gate import build_context_gate
 
-                context_gate = build_context_gate(
-                    query_emb, predicate_cache, cfg,
-                )
+                    context_gate = build_context_gate(
+                        query_emb, predicate_cache, cfg,
+                    )
 
         spreading_bonuses, hop_distances = await spread_activation(
             seeds,

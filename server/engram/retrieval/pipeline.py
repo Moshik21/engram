@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import TYPE_CHECKING
 
-from engram.activation.spreading import identify_seeds, spread_activation
+from engram.activation.spreading import (
+    identify_actr_seeds,
+    identify_seeds,
+    spread_activation,
+)
 from engram.config import ActivationConfig
 from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
@@ -19,6 +24,12 @@ if TYPE_CHECKING:
     from engram.retrieval.working_memory import WorkingMemoryBuffer
 
 logger = logging.getLogger(__name__)
+
+
+def _scale_limit(base: int, total_entities: int, lo: int, hi: int) -> int:
+    """Scale a limit by sqrt(total_entities / 1000), clamped to [lo, hi]."""
+    scale = math.sqrt(max(total_entities, 1000) / 1000.0)
+    return max(lo, min(int(base * scale), hi))
 
 
 async def retrieve(
@@ -52,9 +63,21 @@ async def retrieve(
     # Save original weight for episode scoring (before routing modifies cfg)
     original_weight_semantic = cfg.weight_semantic
 
+    # Fetch entity count for dynamic pool sizing
+    total_entities = 0
+    try:
+        stats = await graph_store.get_stats(group_id)
+        if isinstance(stats, dict):
+            total_entities = int(stats.get("entity_count", 0))
+    except Exception:
+        pass
+
     # Step 1: Generate candidates (multi-pool or single-pool)
     if cfg.multi_pool_enabled:
         from engram.retrieval.candidate_pool import generate_candidates
+
+        # Pre-classify query for pool composition multipliers
+        pre_query_type = await classify_query(query)
 
         candidates = await generate_candidates(
             query=query,
@@ -65,14 +88,16 @@ async def retrieve(
             cfg=cfg,
             now=now,
             working_memory=working_memory,
+            total_entities=total_entities,
+            query_type=pre_query_type,
         )
         query_type = await classify_query(query, search_results=candidates)
         if enable_routing or query_type == QueryType.TEMPORAL:
             cfg = apply_route(query_type, cfg)
         temporal_mode = query_type == QueryType.TEMPORAL
     else:
-        # Original single-pool path
-        top_k = cfg.retrieval_top_k
+        # Original single-pool path — scale retrieval_top_k
+        top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
         search_results = await search_index.search(
             query=query, group_id=group_id, limit=top_k
         )
@@ -87,8 +112,9 @@ async def retrieve(
         temporal_mode = False
         if query_type == QueryType.TEMPORAL:
             temporal_mode = True
+            act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
             top_activated = await activation_store.get_top_activated(
-                group_id=group_id, limit=top_k, now=now,
+                group_id=group_id, limit=act_limit, now=now,
             )
             existing_ids = {eid for eid, _ in candidates}
             activation_candidates = [
@@ -139,31 +165,40 @@ async def retrieve(
     entity_ids = [eid for eid, _ in candidates]
     activation_states = await activation_store.batch_get(entity_ids)
 
-    # Step 3: Identify seeds
-    seeds = identify_seeds(
-        candidates, activation_states, now, cfg,
-        temporal_mode=temporal_mode,
-    )
-    seed_node_ids = {nid for nid, _ in seeds}
+    # Step 3: Identify seeds (strategy-dependent)
+    if cfg.spreading_strategy == "actr":
+        # ACT-R: seeds come from working memory only (not search results)
+        if working_memory is not None and cfg.working_memory_enabled:
+            seeds = identify_actr_seeds(working_memory, now, cfg)
+        else:
+            seeds = []
+        seed_node_ids = {nid for nid, _ in seeds}
+        context_gate = None  # context gate is a BFS/PPR concept
+    else:
+        seeds = identify_seeds(
+            candidates, activation_states, now, cfg,
+            temporal_mode=temporal_mode,
+        )
+        seed_node_ids = {nid for nid, _ in seeds}
 
-    # Step 3.5: Add working memory entities as additional seeds
-    if working_memory is not None and cfg.working_memory_enabled:
-        wm_candidates = working_memory.get_candidates(now)
-        for item_id, recency_score, _item_type in wm_candidates:
-            if item_id not in seed_node_ids:
-                energy = cfg.working_memory_seed_energy * recency_score
-                if energy > 0.0:
-                    seeds.append((item_id, energy))
-                    seed_node_ids.add(item_id)
+        # Step 3.5: Add working memory entities as additional seeds
+        if working_memory is not None and cfg.working_memory_enabled:
+            wm_candidates = working_memory.get_candidates(now)
+            for item_id, recency_score, _item_type in wm_candidates:
+                if item_id not in seed_node_ids:
+                    energy = cfg.working_memory_seed_energy * recency_score
+                    if energy > 0.0:
+                        seeds.append((item_id, energy))
+                        seed_node_ids.add(item_id)
 
-    # Step 3.7: Build context gate (if enabled)
-    context_gate = None
-    if cfg.context_gating_enabled and predicate_cache is not None:
-        query_emb = getattr(search_index, '_last_query_vec', None)
-        if query_emb:
-            from engram.activation.context_gate import build_context_gate
+        # Step 3.7: Build context gate (if enabled)
+        context_gate = None
+        if cfg.context_gating_enabled and predicate_cache is not None:
+            query_emb = getattr(search_index, '_last_query_vec', None)
+            if query_emb:
+                from engram.activation.context_gate import build_context_gate
 
-            context_gate = build_context_gate(query_emb, predicate_cache, cfg)
+                context_gate = build_context_gate(query_emb, predicate_cache, cfg)
 
     # Step 4: Spread activation
     bonuses, hop_distances = await spread_activation(

@@ -9,11 +9,13 @@ import aiosqlite
 
 from engram.models.consolidation import (
     ConsolidationCycle,
+    DreamRecord,
     InferredEdge,
     MergeRecord,
     PhaseResult,
     PruneRecord,
     ReindexRecord,
+    ReplayRecord,
 )
 
 
@@ -118,14 +120,54 @@ class SQLiteConsolidationStore:
             "CREATE INDEX IF NOT EXISTS idx_consol_reindexes_cycle "
             "ON consolidation_reindexes(cycle_id)"
         )
-        # Migration: add infer_type column for existing databases
-        try:
-            await self.db.execute(
-                "ALTER TABLE consolidation_inferred_edges "
-                "ADD COLUMN infer_type TEXT DEFAULT 'co_occurrence'"
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_replays (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                episode_id TEXT NOT NULL,
+                new_entities_found INTEGER DEFAULT 0,
+                new_relationships_found INTEGER DEFAULT 0,
+                entities_updated INTEGER DEFAULT 0,
+                skipped_reason TEXT,
+                timestamp REAL NOT NULL
             )
-        except Exception:
-            pass
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_replays_cycle "
+            "ON consolidation_replays(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_dreams (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                source_entity_id TEXT NOT NULL,
+                target_entity_id TEXT NOT NULL,
+                weight_delta REAL NOT NULL,
+                seed_entity_id TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_dreams_cycle "
+            "ON consolidation_dreams(cycle_id)"
+        )
+        # Migrations: add columns for existing databases
+        for migration_sql in [
+            "ALTER TABLE consolidation_inferred_edges "
+            "ADD COLUMN infer_type TEXT DEFAULT 'co_occurrence'",
+            "ALTER TABLE consolidation_inferred_edges "
+            "ADD COLUMN pmi_score REAL",
+            "ALTER TABLE consolidation_inferred_edges "
+            "ADD COLUMN llm_verdict TEXT",
+            "ALTER TABLE consolidation_inferred_edges "
+            "ADD COLUMN relationship_id TEXT",
+        ]:
+            try:
+                await self.db.execute(migration_sql)
+            except Exception:
+                pass
         await self.db.commit()
 
     @property
@@ -231,13 +273,16 @@ class SQLiteConsolidationStore:
         await self.db.execute(
             "INSERT INTO consolidation_inferred_edges "
             "(id, cycle_id, group_id, source_id, target_id, source_name, "
-            "target_name, co_occurrence_count, confidence, infer_type, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "target_name, co_occurrence_count, confidence, infer_type, "
+            "pmi_score, llm_verdict, relationship_id, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 edge.id, edge.cycle_id, edge.group_id,
                 edge.source_id, edge.target_id, edge.source_name,
                 edge.target_name, edge.co_occurrence_count,
-                edge.confidence, edge.infer_type, edge.timestamp,
+                edge.confidence, edge.infer_type,
+                edge.pmi_score, edge.llm_verdict, edge.relationship_id,
+                edge.timestamp,
             ),
         )
         await self.db.commit()
@@ -289,6 +334,9 @@ class SQLiteConsolidationStore:
             (cycle_id, group_id),
         )
         rows = await cursor.fetchall()
+        keys = set()
+        if rows:
+            keys = set(rows[0].keys())
         return [
             InferredEdge(
                 id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
@@ -296,7 +344,10 @@ class SQLiteConsolidationStore:
                 source_name=r["source_name"], target_name=r["target_name"],
                 co_occurrence_count=r["co_occurrence_count"],
                 confidence=r["confidence"],
-                infer_type=r["infer_type"] if "infer_type" in r.keys() else "co_occurrence",
+                infer_type=r["infer_type"] if "infer_type" in keys else "co_occurrence",
+                pmi_score=r["pmi_score"] if "pmi_score" in keys else None,
+                llm_verdict=r["llm_verdict"] if "llm_verdict" in keys else None,
+                relationship_id=r["relationship_id"] if "relationship_id" in keys else None,
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -356,6 +407,83 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_replay_record(self, record: ReplayRecord) -> None:
+        """Insert a replay audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_replays "
+            "(id, cycle_id, group_id, episode_id, new_entities_found, "
+            "new_relationships_found, entities_updated, skipped_reason, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id, record.cycle_id, record.group_id,
+                record.episode_id, record.new_entities_found,
+                record.new_relationships_found, record.entities_updated,
+                record.skipped_reason, record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_replay_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[ReplayRecord]:
+        """Fetch replay records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_replays "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            ReplayRecord(
+                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
+                episode_id=r["episode_id"],
+                new_entities_found=r["new_entities_found"],
+                new_relationships_found=r["new_relationships_found"],
+                entities_updated=r["entities_updated"],
+                skipped_reason=r["skipped_reason"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_dream_record(self, record: DreamRecord) -> None:
+        """Insert a dream spreading audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_dreams "
+            "(id, cycle_id, group_id, source_entity_id, target_entity_id, "
+            "weight_delta, seed_entity_id, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id, record.cycle_id, record.group_id,
+                record.source_entity_id, record.target_entity_id,
+                record.weight_delta, record.seed_entity_id,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_dream_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DreamRecord]:
+        """Fetch dream records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_dreams "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            DreamRecord(
+                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
+                source_entity_id=r["source_entity_id"],
+                target_entity_id=r["target_entity_id"],
+                weight_delta=r["weight_delta"],
+                seed_entity_id=r["seed_entity_id"] or "",
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def cleanup(self, ttl_days: int = 90) -> int:
         """Delete cycle records older than ttl_days. Returns count deleted."""
         cutoff = time.time() - (ttl_days * 86400)
@@ -384,6 +512,14 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_reindexes WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_replays WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_dreams WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(

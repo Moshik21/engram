@@ -99,6 +99,11 @@ class TestClassifyQuery:
         qt = await classify_query("My top focus areas")
         assert qt == QueryType.FREQUENCY
 
+    async def test_temporal_whats_new(self):
+        """'what's new' triggers TEMPORAL."""
+        qt = await classify_query("What's new in service mesh?")
+        assert qt == QueryType.TEMPORAL
+
     async def test_temporal_takes_priority_over_frequency(self):
         """Temporal keywords take priority over frequency keywords."""
         qt = await classify_query("What have I focused on recently?")

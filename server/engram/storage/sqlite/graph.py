@@ -247,6 +247,30 @@ class SQLiteGraphStore:
         )
         await self.db.commit()
 
+    async def update_relationship_weight(
+        self,
+        source_id: str,
+        target_id: str,
+        weight_delta: float,
+        max_weight: float = 3.0,
+        group_id: str = "default",
+    ) -> float | None:
+        """Atomically increment edge weight, capped at max_weight."""
+        cursor = await self.db.execute(
+            """UPDATE relationships
+               SET weight = MIN(?, weight + ?)
+               WHERE group_id = ?
+                 AND valid_to IS NULL
+                 AND ((source_id = ? AND target_id = ?)
+                   OR (source_id = ? AND target_id = ?))
+               RETURNING weight""",
+            (max_weight, weight_delta, group_id,
+             source_id, target_id, target_id, source_id),
+        )
+        row = await cursor.fetchone()
+        await self.db.commit()
+        return row[0] if row else None
+
     async def find_conflicting_relationships(
         self,
         source_id: str,
@@ -666,6 +690,24 @@ class SQLiteGraphStore:
         cursor = await self.db.execute(sql, params)
         rows = await cursor.fetchall()
         return [(row[0], row[1], row[2]) for row in rows]
+
+    async def get_entity_episode_counts(
+        self, group_id: str, entity_ids: list[str],
+    ) -> dict[str, int]:
+        """Return how many episodes each entity appears in."""
+        if not entity_ids:
+            return {}
+        placeholders = ",".join("?" * len(entity_ids))
+        sql = f"""
+        SELECT ee.entity_id, COUNT(DISTINCT ee.episode_id) AS ep_count
+        FROM episode_entities ee
+        JOIN episodes ep ON ep.id = ee.episode_id
+        WHERE ep.group_id = ? AND ee.entity_id IN ({placeholders})
+        GROUP BY ee.entity_id
+        """
+        cursor = await self.db.execute(sql, [group_id, *entity_ids])
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
 
     async def get_dead_entities(
         self, group_id: str, min_age_days: int = 30, limit: int = 100,

@@ -7,19 +7,23 @@ import time
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.compact import AccessHistoryCompactionPhase
+from engram.consolidation.phases.dream import DreamSpreadingPhase
 from engram.consolidation.phases.infer import EdgeInferencePhase
 from engram.consolidation.phases.merge import EntityMergePhase
 from engram.consolidation.phases.prune import PrunePhase
 from engram.consolidation.phases.reindex import ReindexPhase
+from engram.consolidation.phases.replay import EpisodeReplayPhase
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
 from engram.models.consolidation import (
     ConsolidationCycle,
     CycleContext,
+    DreamRecord,
     InferredEdge,
     MergeRecord,
     PruneRecord,
     ReindexRecord,
+    ReplayRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +40,8 @@ class ConsolidationEngine:
         cfg: ActivationConfig,
         consolidation_store: SQLiteConsolidationStore | None = None,
         event_bus: EventBus | None = None,
+        extractor: object | None = None,
+        llm_client: object | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
@@ -47,11 +53,13 @@ class ConsolidationEngine:
         self._cancelled = False
 
         self._phases = [
+            EpisodeReplayPhase(extractor=extractor),
             EntityMergePhase(),
-            EdgeInferencePhase(),
+            EdgeInferencePhase(llm_client=llm_client),
             PrunePhase(),
             AccessHistoryCompactionPhase(),
             ReindexPhase(),
+            DreamSpreadingPhase(),
         ]
 
     @property
@@ -135,6 +143,10 @@ class ConsolidationEngine:
                                 await self._store.save_prune_record(record)
                             elif isinstance(record, ReindexRecord):
                                 await self._store.save_reindex_record(record)
+                            elif isinstance(record, ReplayRecord):
+                                await self._store.save_replay_record(record)
+                            elif isinstance(record, DreamRecord):
+                                await self._store.save_dream_record(record)
 
                     self._publish(group_id, f"consolidation.phase.{phase.name}.completed", {
                         "cycle_id": cycle.id,

@@ -194,13 +194,14 @@ describe("ActivationMonitor", () => {
 // --- Sidebar ---
 
 describe("Sidebar", () => {
-  it("renders 5 nav items", () => {
+  it("renders 6 nav items", () => {
     render(<Sidebar />);
     expect(screen.getByText("Graph")).toBeInTheDocument();
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Feed")).toBeInTheDocument();
     expect(screen.getByText("Activation")).toBeInTheDocument();
     expect(screen.getByText("Stats")).toBeInTheDocument();
+    expect(screen.getByText("Consolidate")).toBeInTheDocument();
   });
 
   it("highlights active view", () => {

@@ -91,3 +91,30 @@ class TestConsolidationModels:
         )
         assert e.infer_type == "transitivity"
         assert e.co_occurrence_count == 0
+
+    def test_inferred_edge_new_field_defaults(self):
+        e = InferredEdge(
+            cycle_id="cyc_abc", group_id="test",
+            source_id="e1", target_id="e2",
+            source_name="A", target_name="B",
+            co_occurrence_count=5, confidence=0.75,
+        )
+        assert e.pmi_score is None
+        assert e.llm_verdict is None
+        assert e.relationship_id is None
+
+    def test_inferred_edge_pmi_llm_fields(self):
+        e = InferredEdge(
+            cycle_id="cyc_abc", group_id="test",
+            source_id="e1", target_id="e2",
+            source_name="A", target_name="B",
+            co_occurrence_count=5, confidence=0.82,
+            infer_type="llm_validated",
+            pmi_score=2.5,
+            llm_verdict="approved",
+            relationship_id="rel_abc123",
+        )
+        assert e.infer_type == "llm_validated"
+        assert e.pmi_score == 2.5
+        assert e.llm_verdict == "approved"
+        assert e.relationship_id == "rel_abc123"

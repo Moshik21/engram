@@ -41,5 +41,9 @@ def create_strategy(name: str) -> SpreadingStrategy:
         from engram.activation.ppr import PPRStrategy
 
         return PPRStrategy()
+    elif name == "actr":
+        from engram.activation.actr import ACTRStrategy
+
+        return ACTRStrategy()
     else:
         raise ValueError(f"Unknown spreading strategy: {name!r}")

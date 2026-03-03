@@ -55,7 +55,7 @@ def make_redis_mock() -> AsyncMock:
 def make_config(**overrides) -> EmbeddingConfig:
     defaults = dict(
         provider="voyage",
-        model="voyage-3-lite",
+        model="voyage-4-lite",
         dimensions=512,
     )
     defaults.update(overrides)
