@@ -19,7 +19,7 @@ from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.storage.factory import create_stores
-from engram.storage.resolver import EngineMode
+from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +51,12 @@ async def _init() -> None:
     global _manager, _group_id, _session
 
     config = EngramConfig()
-    mode = EngineMode.LITE  # MCP stdio always uses lite
+    mode = await resolve_mode(config.mode)
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    # Share the db connection with FTS5
     if hasattr(search_index, "initialize"):
-        if hasattr(graph_store, "_db"):
+        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
             await search_index.initialize(db=graph_store._db)
         else:
             await search_index.initialize()
@@ -69,7 +68,7 @@ async def _init() -> None:
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
 
-    logger.info("Engram MCP server initialized (lite mode, session=%s)", _session.session_id)
+    logger.info("Engram MCP server initialized (%s mode, session=%s)", mode.value, _session.session_id)
 
 
 def _get_manager() -> GraphManager:

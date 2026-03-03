@@ -53,8 +53,8 @@ services:
 
   server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     container_name: engram-server
     restart: unless-stopped
     ports:

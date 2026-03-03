@@ -84,6 +84,7 @@ async def _check_falkordb() -> bool:
         db = FalkorDB(
             host=os.environ.get("ENGRAM_FALKORDB__HOST", "localhost"),
             port=int(os.environ.get("ENGRAM_FALKORDB__PORT", "6380")),
+            password=os.environ.get("ENGRAM_FALKORDB__PASSWORD"),
             socket_timeout=2,
         )
         db.list_graphs()

@@ -24,7 +24,7 @@ from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.security.middleware import TenantContextMiddleware
 from engram.storage.factory import create_stores
-from engram.storage.resolver import resolve_mode
+from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
     await graph_store.initialize()
     if hasattr(search_index, "initialize"):
-        if hasattr(graph_store, "_db"):
+        # In lite mode, share the SQLite connection across stores
+        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
             await search_index.initialize(db=graph_store._db)
         else:
             await search_index.initialize()
@@ -99,7 +100,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     from engram.consolidation.store import SQLiteConsolidationStore
 
     consolidation_store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    if hasattr(graph_store, "_db"):
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
         await consolidation_store.initialize(db=graph_store._db)
     else:
         await consolidation_store.initialize()

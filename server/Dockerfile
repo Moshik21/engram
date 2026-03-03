@@ -1,22 +1,25 @@
 # Multistage build for Engram server
+# Build context must be the repo root (context: . in docker-compose.yml)
 
 # --- Builder ---
 FROM python:3.12-slim AS builder
 
+# Use /app as WORKDIR so venv paths match runtime
 WORKDIR /app
 
 # Install uv
 RUN pip install --no-cache-dir uv
 
-# Copy dependency files
-COPY pyproject.toml .
-COPY uv.lock* ./
+# Copy README to parent so ../README.md resolves from /app
+COPY README.md /README.md
+
+# Copy dependency files and source (hatchling needs source to build)
+COPY server/pyproject.toml .
+COPY server/uv.lock* ./
+COPY server/engram ./engram
 
 # Install dependencies (no dev deps, include full extras)
 RUN uv sync --frozen --no-dev --extra full || uv sync --no-dev --extra full
-
-# Copy source code
-COPY . .
 
 # --- Runtime ---
 FROM python:3.12-slim
