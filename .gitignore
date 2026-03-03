@@ -53,3 +53,16 @@ coverage.xml
 
 # Backups
 backups/
+
+# AI tool configs
+CLAUDE.md
+.claude/
+.cursorrules
+.cursorignore
+.cursor/
+.aider*
+.codeium/
+.continue/
+.windsurf/
+.cline/
+copilot-*
