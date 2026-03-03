@@ -32,7 +32,9 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
         if not await _check_falkordb() or not await _check_redis():
             raise RuntimeError(
                 "Full mode requested but FalkorDB and/or Redis are not available. "
-                "Start them with `docker compose up -d falkordb redis` or use --mode lite."
+                "Ensure: (1) Docker services are running: `docker compose up -d falkordb redis`, "
+                "(2) full-mode packages are installed: `uv sync --dev` (includes [full] extras). "
+                "Or use ENGRAM_MODE=auto to fall back to lite mode gracefully."
             )
         return EngineMode.FULL
 

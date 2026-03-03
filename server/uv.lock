@@ -674,6 +674,7 @@ full = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "engram", extra = ["full"] },
     { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
@@ -706,6 +707,7 @@ provides-extras = ["full"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "engram", extras = ["full"] },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "pytest", specifier = ">=8.0" },
