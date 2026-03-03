@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useEngramStore } from "../store";
-import type { Episode, EpisodeStatus, GraphDelta } from "../store/types";
+import type { Episode, EpisodeStatus, GraphDelta, GraphNode, GraphEdge } from "../store/types";
 
 const BASE_DELAY = 1000;
 const MAX_DELAY = 30_000;
@@ -30,6 +30,15 @@ interface WsEvent {
   delta?: GraphDelta;
   events?: WsEvent[];
   isFull?: boolean;
+  // Flattened payload fields (server WebSocket handler merges payload into top level)
+  nodes?: GraphNode[];
+  edges?: GraphEdge[];
+  entityId?: string;
+  name?: string;
+  entityType?: string;
+  activation?: number;
+  accessedVia?: string;
+  // activation.snapshot sends nested payload (not flattened)
   payload?: {
     topActivated?: Array<{
       entityId: string;
@@ -74,8 +83,36 @@ function routeEvent(data: WsEvent) {
       }
       break;
     case "graph.nodes_added":
+      if (data.nodes && data.nodes.length > 0) {
+        s.mergeGraphDelta({
+          nodesAdded: data.nodes,
+          edgesAdded: data.edges,
+        });
+      } else {
+        // Fallback for old payloads without full node/edge data
+        s.loadInitialGraph();
+      }
+      break;
     case "graph.delta":
-      s.loadInitialGraph();
+      if (data.delta) {
+        s.mergeGraphDelta(data.delta);
+      } else {
+        s.loadInitialGraph();
+      }
+      break;
+    case "activation.access":
+      if (data.entityId) {
+        s.addActivationPulse({
+          entityId: data.entityId,
+          name: data.name ?? "",
+          entityType: data.entityType ?? "Other",
+          activation: data.activation ?? 0,
+          accessedVia: data.accessedVia ?? "unknown",
+        });
+        s.updateNodeActivations([
+          { entityId: data.entityId, activation: data.activation ?? 0 },
+        ]);
+      }
       break;
     case "activation.snapshot":
       if (data.payload?.topActivated) {
@@ -84,6 +121,12 @@ function routeEvent(data: WsEvent) {
             ...item,
             lastAccessedAt: null,
             decayRate: 0.5,
+          })),
+        );
+        s.updateNodeActivations(
+          data.payload.topActivated.map((item) => ({
+            entityId: item.entityId,
+            activation: item.currentActivation,
           })),
         );
       }

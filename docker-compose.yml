@@ -26,17 +26,15 @@ services:
       - engram-net
 
   redis:
-    image: redis:7.4-alpine
+    image: redis/redis-stack-server:latest
     container_name: engram-redis
     restart: unless-stopped
     ports:
       - "${ENGRAM_REDIS_PORT:-6381}:6379"
-    command: >
-      redis-server /usr/local/etc/redis/redis.conf
-      --requirepass ${ENGRAM_REDIS_PASSWORD:-engram_dev}
+    environment:
+      - REDIS_ARGS=--requirepass ${ENGRAM_REDIS_PASSWORD:-engram_dev} --appendonly yes --appendfsync everysec --maxmemory 200mb --maxmemory-policy noeviction
     volumes:
       - engram_redis_data:/data
-      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${ENGRAM_REDIS_PASSWORD:-engram_dev}", "PING"]
       interval: 10s
@@ -47,7 +45,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 256M
+          memory: 512M
     networks:
       - engram-net
 

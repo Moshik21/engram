@@ -35,7 +35,7 @@ class RedisConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     provider: str = "voyage"
     model: str = "voyage-4-lite"
-    dimensions: int = 512
+    dimensions: int = 1024
     api_key: str = ""
     batch_size: int = 64
     fts_weight: float = 0.3

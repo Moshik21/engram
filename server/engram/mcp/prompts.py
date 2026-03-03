@@ -54,7 +54,20 @@ say 'According to my memory system...'.
 - If you are uncertain whether something is worth remembering, remember it. It \
 is better to have too much context than too little.
 - Always prioritize the user's most recent statements over older memories if \
-there is a conflict."""
+there is a conflict.
+
+## Session Start
+
+Call `get_context()` once at the start of each new conversation to load relevant \
+memory context before your first response. Pass a topic_hint if the user's first \
+message suggests a clear topic.
+
+## Corrections
+
+When the user corrects previously stored information:
+1. Call `forget()` on the outdated entity or fact
+2. Call `remember()` with the corrected information
+This ensures stale memories don't persist."""
 
 ENGRAM_CONTEXT_LOADER_PROMPT = (
     "Before responding, call get_context to load what you know about the user."

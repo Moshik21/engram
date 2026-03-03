@@ -113,6 +113,7 @@ export interface GraphSlice {
   loadInitialGraph: () => Promise<void>;
   expandNode: (nodeId: string) => Promise<void>;
   mergeGraphDelta: (delta: GraphDelta) => void;
+  updateNodeActivations: (updates: Array<{ entityId: string; activation: number }>) => void;
   loadGraphAt: (timestamp: string, centerId?: string) => Promise<void>;
   clear: () => void;
 }
@@ -196,6 +197,16 @@ export interface CurvePoint {
   activation: number;
 }
 
+export interface ActivationPulse {
+  entityId: string;
+  name: string;
+  entityType: string;
+  activation: number;
+  accessedVia: string;
+  timestamp: number;
+  cascadeIntensity?: number;
+}
+
 export interface ActivationSlice {
   activationLeaderboard: ActivationItem[];
   selectedActivationEntity: string | null;
@@ -204,10 +215,13 @@ export interface ActivationSlice {
   accessEvents: string[];
   isActivationSubscribed: boolean;
   isLoadingCurve: boolean;
+  activationPulses: ActivationPulse[];
   setActivationLeaderboard: (items: ActivationItem[]) => void;
   selectActivationEntity: (id: string | null) => void;
   loadDecayCurve: (entityId: string) => Promise<void>;
   setIsActivationSubscribed: (v: boolean) => void;
+  addActivationPulse: (pulse: Omit<ActivationPulse, "timestamp">) => void;
+  clearExpiredPulses: (maxAgeMs?: number) => void;
 }
 
 export interface ConsolidationPhaseResult {

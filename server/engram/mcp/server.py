@@ -15,6 +15,7 @@ from datetime import datetime
 from mcp.server.fastmcp import FastMCP
 
 from engram.config import EngramConfig
+from engram.events.bus import get_event_bus
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
@@ -23,7 +24,7 @@ from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("engram")
+mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT)
 
 
 # ─── Session State ──────────────────────────────────────────────────
@@ -62,13 +63,25 @@ async def _init() -> None:
             await search_index.initialize()
 
     extractor = EntityExtractor()
+    event_bus = get_event_bus()
     _manager = GraphManager(
-        graph_store, activation_store, search_index, extractor, cfg=config.activation
+        graph_store, activation_store, search_index, extractor,
+        cfg=config.activation, event_bus=event_bus,
     )
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
 
-    logger.info("Engram MCP server initialized (%s mode, session=%s)", mode.value, _session.session_id)
+    # In full mode, bridge events to Redis so the REST API/dashboard can see them
+    if mode == EngineMode.FULL:
+        from engram.events.redis_bridge import create_publisher
+
+        publisher = await create_publisher(_group_id, redis_url=config.redis.url)
+        if publisher:
+            event_bus.add_on_publish_hook(publisher)
+
+    logger.info(
+        "Engram MCP server initialized (%s mode, session=%s)", mode.value, _session.session_id
+    )
 
 
 def _get_manager() -> GraphManager:

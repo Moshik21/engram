@@ -242,6 +242,82 @@ Engram exposes 9 MCP tools for AI agents:
 
 Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`) and 2 prompts (`engram_system`, `engram_context_loader`).
 
+### Automatic Memory Behavior
+
+Engram ships with built-in MCP instructions that teach compatible AI agents (Claude, Cursor, Windsurf, etc.) to use memory proactively — no user prompting required:
+
+- **Session start**: The agent calls `get_context()` before its first response to load relevant memories
+- **Auto-remember**: When you share decisions, preferences, project details, or corrections, the agent calls `remember()` silently
+- **Auto-recall**: When you reference past conversations or ask "do you remember...", the agent calls `recall()` or `search_facts()`
+- **Corrections**: When you correct a previously stored fact, the agent calls `forget()` on the old information then `remember()` with the correction
+
+This behavior is powered by the `instructions` parameter on the MCP server, so it works out of the box with any MCP-compatible client.
+
+#### Claude Code: Enhanced Setup
+
+For Claude Code users, you can add two optional layers for stronger enforcement:
+
+**1. Project CLAUDE.md** — Add memory directives to your project's `.claude/CLAUDE.md`:
+
+```markdown
+## Engram Memory
+
+- At conversation start, call `get_context()` to load relevant memory before your first response.
+- After the user shares decisions, preferences, project context, or corrections, call `remember()`.
+- Use `recall()` or `search_facts()` when the user references past conversations or when context would help.
+- When the user corrects a memory, call `forget()` on the old fact then `remember()` the correction.
+- Do not announce memory operations. Integrate recalled context naturally.
+```
+
+**2. SessionStart hook** — Inject memory context via the REST API as a fallback (requires the full Docker stack):
+
+Create `~/.claude/hooks/engram-context.sh`:
+
+```bash
+#!/bin/bash
+# Fails silently with 3s timeout if server is down.
+SNAPSHOT=$(curl -sf --max-time 3 "http://localhost:8100/api/activation/snapshot?limit=10" 2>/dev/null)
+if [ $? -ne 0 ] || [ -z "$SNAPSHOT" ]; then
+  exit 0
+fi
+echo "=== Engram Memory Context ==="
+echo "$SNAPSHOT" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for e in data.get('topActivated', [])[:10]:
+        name, etype = e.get('name', '?'), e.get('entityType', '')
+        summary = (e.get('summary') or '')[:120]
+        act = e.get('activation', 0)
+        print(f'- {name} ({etype}, act={act:.2f}): {summary}')
+except Exception:
+    pass
+"
+echo "==========================="
+```
+
+Then register it in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/engram-context.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+This fires once per session, injecting the top-10 most activated entities into the conversation context. If Docker is down, the hook exits silently with no delay.
+
 ### Example Usage
 
 ```

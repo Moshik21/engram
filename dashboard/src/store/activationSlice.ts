@@ -2,6 +2,8 @@ import type { StateCreator } from "zustand";
 import type { EngramStore, ActivationSlice } from "./types";
 import { api } from "../api/client";
 
+const MAX_PULSES = 50;
+
 export const createActivationSlice: StateCreator<
   EngramStore,
   [["zustand/immer", never]],
@@ -15,6 +17,7 @@ export const createActivationSlice: StateCreator<
   accessEvents: [],
   isActivationSubscribed: false,
   isLoadingCurve: false,
+  activationPulses: [],
 
   setActivationLeaderboard: (items) =>
     set((s) => {
@@ -48,5 +51,19 @@ export const createActivationSlice: StateCreator<
   setIsActivationSubscribed: (v) =>
     set((s) => {
       s.isActivationSubscribed = v;
+    }),
+
+  addActivationPulse: (pulse) =>
+    set((s) => {
+      s.activationPulses.push({ ...pulse, timestamp: Date.now() });
+      if (s.activationPulses.length > MAX_PULSES) {
+        s.activationPulses = s.activationPulses.slice(-MAX_PULSES);
+      }
+    }),
+
+  clearExpiredPulses: (maxAgeMs = 2000) =>
+    set((s) => {
+      const cutoff = Date.now() - maxAgeMs;
+      s.activationPulses = s.activationPulses.filter((p) => p.timestamp > cutoff);
     }),
 });

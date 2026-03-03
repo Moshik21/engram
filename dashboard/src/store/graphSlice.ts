@@ -84,6 +84,15 @@ export const createGraphSlice: StateCreator<
       }
     }),
 
+  updateNodeActivations: (updates) =>
+    set((s) => {
+      for (const { entityId, activation } of updates) {
+        if (s.nodes[entityId]) {
+          s.nodes[entityId].activationCurrent = activation;
+        }
+      }
+    }),
+
   loadGraphAt: async (timestamp: string, centerId?: string) => {
     set((s) => {
       s.isLoading = true;

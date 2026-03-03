@@ -3,22 +3,22 @@ import { activationColor, ENTITY_TYPE_COLORS } from "../lib/colors";
 import { formatRelativeTime, debounce } from "../lib/utils";
 
 describe("activationColor", () => {
-  it("returns teal hsl for activation 0", () => {
+  it("returns deep blue-violet hsl for activation 0", () => {
     const color = activationColor(0);
-    // hue=185, sat=65%, light=55%
-    expect(color).toBe("hsl(185, 65%, 55%)");
+    // hue=240 (resting blue-violet), sat=50%, light=45%
+    expect(color).toBe("hsl(240, 50%, 45%)");
   });
 
-  it("returns warm amber hsl for activation 1", () => {
+  it("returns warm amber-gold hsl for activation 1", () => {
     const color = activationColor(1);
-    // hue=30, sat=85%, light=65%
-    expect(color).toBe("hsl(30, 85%, 65%)");
+    // hue=40 (amber-gold), sat=85%, light=70%
+    expect(color).toBe("hsl(40, 85%, 70%)");
   });
 
-  it("returns intermediate hsl for activation 0.5", () => {
+  it("returns teal-cyan hsl for activation 0.5", () => {
     const color = activationColor(0.5);
-    // hue=107.5, sat=75%, light=60%
-    expect(color).toBe("hsl(107.5, 75%, 60%)");
+    // hue=165 (teal-cyan at mid), sat=67.5%, light=57.5%
+    expect(color).toBe("hsl(165, 67.5%, 57.5%)");
   });
 });
 

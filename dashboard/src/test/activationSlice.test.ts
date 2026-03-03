@@ -140,4 +140,63 @@ describe("activationSlice", () => {
     store.getState().setIsActivationSubscribed(false);
     expect(store.getState().isActivationSubscribed).toBe(false);
   });
+
+  it("addActivationPulse appends to pulse array", () => {
+    const store = createTestStore();
+
+    expect(store.getState().activationPulses).toHaveLength(0);
+
+    store.getState().addActivationPulse({
+      entityId: "e1",
+      name: "Alice",
+      entityType: "Person",
+      activation: 0.8,
+      accessedVia: "recall",
+    });
+
+    expect(store.getState().activationPulses).toHaveLength(1);
+    expect(store.getState().activationPulses[0].entityId).toBe("e1");
+    expect(store.getState().activationPulses[0].accessedVia).toBe("recall");
+    expect(store.getState().activationPulses[0].timestamp).toBeGreaterThan(0);
+  });
+
+  it("addActivationPulse caps at 50 entries", () => {
+    const store = createTestStore();
+
+    for (let i = 0; i < 60; i++) {
+      store.getState().addActivationPulse({
+        entityId: `e${i}`,
+        name: `Entity${i}`,
+        entityType: "Other",
+        activation: 0.5,
+        accessedVia: "ingest",
+      });
+    }
+
+    expect(store.getState().activationPulses).toHaveLength(50);
+    // Should keep the last 50
+    expect(store.getState().activationPulses[0].entityId).toBe("e10");
+  });
+
+  it("clearExpiredPulses removes old pulses", () => {
+    const store = createTestStore();
+    const now = Date.now();
+
+    // Manually set pulses with controlled timestamps
+    store.getState().addActivationPulse({
+      entityId: "e1",
+      name: "Old",
+      entityType: "Person",
+      activation: 0.5,
+      accessedVia: "ingest",
+    });
+
+    // The pulse was just added so it should NOT be cleared with default maxAge
+    store.getState().clearExpiredPulses(2000);
+    expect(store.getState().activationPulses).toHaveLength(1);
+
+    // Clear with maxAge=0 should remove everything
+    store.getState().clearExpiredPulses(0);
+    expect(store.getState().activationPulses).toHaveLength(0);
+  });
 });

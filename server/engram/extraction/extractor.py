@@ -10,6 +10,11 @@ from engram.extraction.prompts import EXTRACTION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
+# Rough chars-to-tokens ratio for estimating output budget
+_CHARS_PER_TOKEN = 4
+_MIN_OUTPUT_TOKENS = 2048
+_MAX_OUTPUT_TOKENS = 8192
+
 
 class ExtractionResult:
     """Parsed extraction output."""
@@ -39,25 +44,70 @@ class EntityExtractor:
             )
         return self._client
 
+    def _estimate_max_tokens(self, text: str) -> int:
+        """Estimate output tokens needed based on input size.
+
+        Longer inputs tend to produce more entities/relationships,
+        requiring more output tokens for the JSON response.
+        """
+        input_tokens_est = len(text) // _CHARS_PER_TOKEN
+        # Output is roughly proportional to input for extraction tasks
+        budget = max(_MIN_OUTPUT_TOKENS, input_tokens_est)
+        return min(budget, _MAX_OUTPUT_TOKENS)
+
     async def extract(self, text: str) -> ExtractionResult:
         """Extract entities and relationships from text."""
+        response_text = ""
         try:
             client = self._get_client()
+            max_tokens = self._estimate_max_tokens(text)
             message = client.messages.create(
                 model=self._model,
-                max_tokens=2048,
+                max_tokens=max_tokens,
                 system=EXTRACTION_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": text}],
             )
 
             response_text = message.content[0].text
+
+            # Check for truncation before parsing
+            if message.stop_reason == "max_tokens":
+                logger.warning(
+                    "Extraction response truncated (max_tokens=%d, input_chars=%d). "
+                    "Retrying with max budget.",
+                    max_tokens,
+                    len(text),
+                )
+                # Retry once with maximum budget
+                if max_tokens < _MAX_OUTPUT_TOKENS:
+                    message = client.messages.create(
+                        model=self._model,
+                        max_tokens=_MAX_OUTPUT_TOKENS,
+                        system=EXTRACTION_SYSTEM_PROMPT,
+                        messages=[{"role": "user", "content": text}],
+                    )
+                    response_text = message.content[0].text
+                    if message.stop_reason == "max_tokens":
+                        logger.error(
+                            "Extraction still truncated at max budget (%d tokens). "
+                            "Input too large (%d chars).",
+                            _MAX_OUTPUT_TOKENS,
+                            len(text),
+                        )
+
             response_text = self._strip_markdown_fences(response_text)
             data = json.loads(response_text)
 
-            return ExtractionResult(
-                entities=data.get("entities", []),
-                relationships=data.get("relationships", []),
+            entities = data.get("entities", [])
+            relationships = data.get("relationships", [])
+            logger.info(
+                "Extracted %d entities, %d relationships from %d chars",
+                len(entities),
+                len(relationships),
+                len(text),
             )
+
+            return ExtractionResult(entities=entities, relationships=relationships)
         except json.JSONDecodeError as e:
             logger.error("Failed to parse extraction response as JSON: %s\n%s", e, response_text)
             return ExtractionResult(entities=[], relationships=[])

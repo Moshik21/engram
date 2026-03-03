@@ -6,10 +6,14 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Callable, Coroutine
 
 logger = logging.getLogger(__name__)
 
 _EVENT_BUS: EventBus | None = None
+
+# Type alias for on-publish hooks: async (group_id, event_type, payload, event) -> None
+OnPublishHook = Callable[[str, str, dict, dict], Coroutine]
 
 
 class EventBus:
@@ -25,19 +29,33 @@ class EventBus:
         self._seq_counter: int = 0
         self._event_history: dict[str, deque] = {}
         self._history_size = history_size
+        self._on_publish_hooks: list[OnPublishHook] = []
 
-    def publish(self, group_id: str, event_type: str, payload: dict | None = None) -> int:
-        """Publish an event to all subscribers of a group. Returns sequence number."""
+    def publish(
+        self,
+        group_id: str,
+        event_type: str,
+        payload: dict | None = None,
+        *,
+        _origin: str | None = None,
+    ) -> int:
+        """Publish an event to all subscribers of a group. Returns sequence number.
+
+        Args:
+            _origin: Tag for loop prevention. Hooks receive this via event["_origin"].
+        """
         self._seq_counter += 1
         seq = self._seq_counter
 
-        event = {
+        event: dict = {
             "seq": seq,
             "type": event_type,
             "timestamp": time.time(),
             "group_id": group_id,
             "payload": payload or {},
         }
+        if _origin is not None:
+            event["_origin"] = _origin
 
         # Store in ring buffer
         if group_id not in self._event_history:
@@ -55,7 +73,26 @@ class EventBus:
                     seq,
                 )
 
+        # Fire on-publish hooks (async, fire-and-forget)
+        for hook in self._on_publish_hooks:
+            try:
+                asyncio.ensure_future(hook(group_id, event_type, payload or {}, event))
+            except RuntimeError:
+                # No running event loop (e.g. sync test context) — skip hooks
+                pass
+
         return seq
+
+    def add_on_publish_hook(self, hook: OnPublishHook) -> None:
+        """Register an async callback fired after every publish."""
+        self._on_publish_hooks.append(hook)
+
+    def remove_on_publish_hook(self, hook: OnPublishHook) -> None:
+        """Unregister a previously added on-publish hook."""
+        try:
+            self._on_publish_hooks.remove(hook)
+        except ValueError:
+            pass
 
     def subscribe(self, group_id: str) -> asyncio.Queue:
         """Create and return a new subscription queue for a group."""

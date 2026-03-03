@@ -38,7 +38,7 @@ class VoyageProvider(EmbeddingProvider):
         self,
         api_key: str,
         model: str = "voyage-4-lite",
-        dimensions: int = 512,
+        dimensions: int = 1024,
         batch_size: int = 64,
     ) -> None:
         import httpx

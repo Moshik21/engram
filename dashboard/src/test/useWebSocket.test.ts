@@ -160,4 +160,130 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().episodes).toHaveLength(1);
     expect(useEngramStore.getState().episodes[0].episodeId).toBe("ep1");
   });
+
+  it("routes activation.access to addActivationPulse", () => {
+    renderHook(() => useWebSocket());
+
+    act(() => {
+      wsInstances[0].readyState = 1;
+      wsInstances[0].onopen?.(new Event("open"));
+    });
+
+    act(() => {
+      wsInstances[0].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "activation.access",
+            seq: 2,
+            // Server WebSocket handler flattens payload into top-level keys
+            entityId: "ent_abc",
+            name: "Alice",
+            entityType: "Person",
+            activation: 0.85,
+            accessedVia: "recall",
+          }),
+        }),
+      );
+    });
+
+    expect(useEngramStore.getState().lastSeq).toBe(2);
+    const pulses = useEngramStore.getState().activationPulses;
+    expect(pulses).toHaveLength(1);
+    expect(pulses[0].entityId).toBe("ent_abc");
+    expect(pulses[0].name).toBe("Alice");
+    expect(pulses[0].accessedVia).toBe("recall");
+  });
+
+  it("routes graph.nodes_added with full data to mergeGraphDelta", () => {
+    renderHook(() => useWebSocket());
+
+    act(() => {
+      wsInstances[0].readyState = 1;
+      wsInstances[0].onopen?.(new Event("open"));
+    });
+
+    act(() => {
+      wsInstances[0].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "graph.nodes_added",
+            seq: 3,
+            // Server WebSocket handler flattens payload into top-level keys
+            entity_count: 1,
+            new_entities: ["React"],
+            nodes: [
+              {
+                id: "ent_react",
+                name: "React",
+                entityType: "Technology",
+                summary: "UI library",
+                activationCurrent: 0.5,
+                accessCount: 1,
+                lastAccessed: null,
+                createdAt: "2024-01-01T00:00:00Z",
+                updatedAt: "2024-01-01T00:00:00Z",
+              },
+            ],
+            edges: [],
+          }),
+        }),
+      );
+    });
+
+    expect(useEngramStore.getState().lastSeq).toBe(3);
+    // Node should have been merged into graph store
+    expect(useEngramStore.getState().nodes["ent_react"]).toBeDefined();
+    expect(useEngramStore.getState().nodes["ent_react"].name).toBe("React");
+  });
+
+  it("routes activation.snapshot to updateNodeActivations", () => {
+    renderHook(() => useWebSocket());
+
+    // Pre-populate a node in the graph
+    useEngramStore.getState().mergeGraphDelta({
+      nodesAdded: [
+        {
+          id: "ent_x",
+          name: "X",
+          entityType: "Other",
+          summary: null,
+          activationCurrent: 0.1,
+          accessCount: 0,
+          lastAccessed: null,
+          createdAt: "2024-01-01T00:00:00Z",
+          updatedAt: "2024-01-01T00:00:00Z",
+        },
+      ],
+    });
+
+    act(() => {
+      wsInstances[0].readyState = 1;
+      wsInstances[0].onopen?.(new Event("open"));
+    });
+
+    act(() => {
+      wsInstances[0].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "activation.snapshot",
+            seq: 4,
+            payload: {
+              topActivated: [
+                {
+                  entityId: "ent_x",
+                  name: "X",
+                  entityType: "Other",
+                  currentActivation: 0.9,
+                  accessCount: 5,
+                },
+              ],
+            },
+          }),
+        }),
+      );
+    });
+
+    // Node activation should be synced
+    expect(useEngramStore.getState().nodes["ent_x"].activationCurrent).toBe(0.9);
+  });
 });

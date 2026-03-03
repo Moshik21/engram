@@ -99,6 +99,36 @@ class GraphManager:
         if self._event_bus:
             self._event_bus.publish(group_id, event_type, payload)
 
+    async def _publish_access_event(
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        group_id: str,
+        accessed_via: str,
+    ) -> None:
+        """Compute activation and publish an activation.access event."""
+        if not self._event_bus:
+            return
+        from engram.activation.engine import compute_activation
+
+        now = time.time()
+        state = await self._activation.get_activation(entity_id)
+        activation = 0.0
+        if state:
+            activation = compute_activation(state.access_history, now, self._cfg)
+        self._publish(
+            group_id,
+            "activation.access",
+            {
+                "entityId": entity_id,
+                "name": name,
+                "entityType": entity_type,
+                "activation": round(activation, 4),
+                "accessedVia": accessed_via,
+            },
+        )
+
     async def _update_episode_status(
         self, episode_id: str, status: EpisodeStatus, group_id: str = "default", **extra: object
     ) -> None:
@@ -208,6 +238,9 @@ class GraphManager:
 
                 # Record access for extracted entity
                 await self._activation.record_access(entity_id, now, group_id=group_id)
+                await self._publish_access_event(
+                    entity_id, name, entity_type, group_id, "ingest"
+                )
 
             # Writing relationships
             await self._update_episode_status(episode_id, EpisodeStatus.WRITING, group_id=group_id)
@@ -304,7 +337,65 @@ class GraphManager:
                     )
                     await self._graph.create_relationship(rel)
 
-            # Publish graph changes
+            # Publish graph changes with full node/edge data for incremental updates
+            serialized_nodes = []
+            serialized_edges = []
+            for ent_data in result.entities:
+                eid = entity_map.get(ent_data["name"])
+                if eid:
+                    ent_obj = await self._graph.get_entity(eid, group_id)
+                    if ent_obj:
+                        serialized_nodes.append(
+                            {
+                                "id": ent_obj.id,
+                                "name": ent_obj.name,
+                                "entityType": ent_obj.entity_type,
+                                "summary": ent_obj.summary,
+                                "activationCurrent": 0.0,
+                                "accessCount": 0,
+                                "lastAccessed": None,
+                                "createdAt": (
+                                    ent_obj.created_at.isoformat()
+                                    if ent_obj.created_at
+                                    else None
+                                ),
+                                "updatedAt": (
+                                    ent_obj.updated_at.isoformat()
+                                    if ent_obj.updated_at
+                                    else None
+                                ),
+                            }
+                        )
+            for rel_data in result.relationships:
+                src_name = rel_data.get("source") or rel_data.get("source_entity", "")
+                tgt_name = rel_data.get("target") or rel_data.get("target_entity", "")
+                src_id = entity_map.get(src_name)
+                tgt_id = entity_map.get(tgt_name)
+                if src_id and tgt_id:
+                    rels = await self._graph.get_relationships(
+                        src_id, direction="outgoing", group_id=group_id
+                    )
+                    for r in rels:
+                        if r.target_id == tgt_id:
+                            serialized_edges.append(
+                                {
+                                    "id": r.id,
+                                    "source": r.source_id,
+                                    "target": r.target_id,
+                                    "predicate": r.predicate,
+                                    "weight": r.weight,
+                                    "validFrom": (
+                                        r.valid_from.isoformat() if r.valid_from else None
+                                    ),
+                                    "validTo": (
+                                        r.valid_to.isoformat() if r.valid_to else None
+                                    ),
+                                    "createdAt": (
+                                        r.created_at.isoformat() if r.created_at else None
+                                    ),
+                                }
+                            )
+                            break
             self._publish(
                 group_id,
                 "graph.nodes_added",
@@ -313,6 +404,8 @@ class GraphManager:
                     "entity_count": len(result.entities),
                     "relationship_count": len(result.relationships),
                     "new_entities": new_entity_names,
+                    "nodes": serialized_nodes,
+                    "edges": serialized_edges,
                 },
             )
 
@@ -524,6 +617,9 @@ class GraphManager:
 
                     # Record access for returned entities
                     await self._activation.record_access(sr.node_id, now, group_id=group_id)
+                    await self._publish_access_event(
+                        sr.node_id, entity.name, entity.entity_type, group_id, "recall"
+                    )
 
                     # Populate working memory buffer for entities
                     if self._working_memory is not None:
@@ -915,6 +1011,9 @@ class GraphManager:
         # Record access for included entities (readOnlyHint=false per spec)
         for ed in entities_data:
             await self._activation.record_access(ed["id"], now, group_id=group_id)
+            await self._publish_access_event(
+                ed["id"], ed["name"], ed["type"], group_id, "context"
+            )
 
         return {
             "context": context_text,

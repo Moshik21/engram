@@ -387,13 +387,14 @@ class FalkorDBGraphStore:
             params["group_id"] = group_id
 
         result = await self._query(
-            f"""MATCH (c:Entity {{id: $id}})-[r:RELATES_TO*1..{hops}]-(m:Entity)
+            f"""MATCH p = (c:Entity {{id: $id}})-[:RELATES_TO*1..{hops}]-(m:Entity)
                 WHERE m.id <> $id
                   AND m.deleted_at IS NULL
-                  AND ALL(rel IN r WHERE rel.valid_to IS NULL)
                   {group_filter}
-                UNWIND r AS edge
+                WITH m, relationships(p) AS rels
+                UNWIND rels AS edge
                 WITH DISTINCT m, edge
+                WHERE edge.valid_to IS NULL
                 RETURN m, edge""",
             params,
         )

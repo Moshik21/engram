@@ -1,13 +1,20 @@
 /**
- * Activation heatmap color — teal (low) through amber (high).
- * Smoother interpolation with better perceptual uniformity.
+ * Activation heatmap color — deep blue-violet (resting) → teal → amber-gold (active).
+ * Bioluminescent neural aesthetic with warm firing glow.
  */
 export function activationColor(activation: number): string {
   const t = Math.max(0, Math.min(1, activation));
-  // Interpolate hue: teal (185°) → amber (30°) through warm arc
-  const hue = 185 - t * 155;
-  const saturation = 65 + t * 20; // 65% → 85%
-  const lightness = 55 + t * 10; // 55% → 65%
+  // Interpolate hue: deep blue-violet (240°) → teal (190°) → warm amber-gold (40°)
+  let hue: number;
+  if (t < 0.4) {
+    // Resting → mid: blue-violet to teal
+    hue = 240 - (t / 0.4) * 50; // 240° → 190°
+  } else {
+    // Mid → active: teal to amber-gold
+    hue = 190 - ((t - 0.4) / 0.6) * 150; // 190° → 40°
+  }
+  const saturation = 50 + t * 35; // 50% → 85%
+  const lightness = 45 + t * 25; // 45% → 70%
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 
@@ -16,42 +23,47 @@ export function activationColor(activation: number): string {
  */
 export function activationGlow(activation: number, alpha = 0.3): string {
   const t = Math.max(0, Math.min(1, activation));
-  const hue = 185 - t * 155;
-  const saturation = 65 + t * 20;
-  const lightness = 55 + t * 10;
+  let hue: number;
+  if (t < 0.4) {
+    hue = 240 - (t / 0.4) * 50;
+  } else {
+    hue = 190 - ((t - 0.4) / 0.6) * 150;
+  }
+  const saturation = 50 + t * 35;
+  const lightness = 45 + t * 25;
   return `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
 }
 
 /**
- * Entity type color palette — carefully chosen for dark backgrounds.
- * Each color is distinct, vibrant, and accessible on dark surfaces.
+ * Entity type color palette — bioluminescent neural aesthetic.
+ * Each color evokes a different neural region or signaling pathway.
  */
 export const ENTITY_TYPE_COLORS: Record<string, string> = {
   // Lowercase (benchmark corpus)
-  person: "#818cf8",      // Indigo
-  organization: "#a78bfa", // Violet
-  project: "#22d3ee",     // Cyan
-  technology: "#34d399",   // Emerald
-  concept: "#fbbf24",     // Amber
-  location: "#fb7185",    // Rose
-  event: "#f472b6",       // Pink
+  person: "#c4b5fd",       // Soft violet — cortical neurons
+  organization: "#a78bfa", // Deeper violet — association areas
+  project: "#67e8f9",      // Bright cyan — active pathways
+  technology: "#6ee7b7",   // Seafoam green — growth signals
+  concept: "#fcd34d",      // Warm gold — firing neurons
+  location: "#fca5a5",     // Soft coral — spatial mapping
+  event: "#f9a8d4",        // Pink — temporal markers
 
   // Capitalized (existing data)
-  Person: "#818cf8",
+  Person: "#c4b5fd",
   Organization: "#a78bfa",
-  Project: "#22d3ee",
-  Technology: "#34d399",
-  Concept: "#fbbf24",
-  Location: "#fb7185",
-  Event: "#f472b6",
-  Other: "#64748b",
+  Project: "#67e8f9",
+  Technology: "#6ee7b7",
+  Concept: "#fcd34d",
+  Location: "#fca5a5",
+  Event: "#f9a8d4",
+  Other: "#94a3b8",        // Cool slate — dormant
 };
 
 /**
  * Get entity color with fallback.
  */
 export function entityColor(type: string): string {
-  return ENTITY_TYPE_COLORS[type] ?? ENTITY_TYPE_COLORS[type.toLowerCase()] ?? "#64748b";
+  return ENTITY_TYPE_COLORS[type] ?? ENTITY_TYPE_COLORS[type.toLowerCase()] ?? "#94a3b8";
 }
 
 /**

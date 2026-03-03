@@ -135,6 +135,17 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     if config.activation.consolidation_enabled:
         consolidation_scheduler.start()
 
+    # In full mode, subscribe to Redis events from MCP processes
+    redis_subscriber = None
+    if mode == EngineMode.FULL:
+        from engram.events.redis_bridge import create_subscriber
+
+        redis_subscriber = await create_subscriber(
+            config.default_group_id, event_bus, redis_url=config.redis.url,
+        )
+        if redis_subscriber:
+            await redis_subscriber.start()
+
     _app_state.update(
         {
             "config": config,
@@ -149,6 +160,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "consolidation_store": consolidation_store,
             "consolidation_scheduler": consolidation_scheduler,
             "pressure_accumulator": pressure_accumulator,
+            "redis_subscriber": redis_subscriber,
         }
     )
 
@@ -161,6 +173,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
 async def _shutdown() -> None:
     """Cleanup on shutdown."""
+    # Stop Redis event subscriber
+    redis_sub = _app_state.get("redis_subscriber")
+    if redis_sub:
+        await redis_sub.stop()
+
     # Stop pressure accumulator
     pressure = _app_state.get("pressure_accumulator")
     if pressure:

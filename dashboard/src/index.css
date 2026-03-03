@@ -10,15 +10,15 @@
 }
 
 :root {
-  /* Void — absolute dark */
-  --void: #030408;
-  --void-elevated: #080a12;
+  /* Void — deep indigo-black */
+  --void: #0a0a1a;
+  --void-elevated: #0e0e24;
 
   /* Surface layers */
-  --surface: rgba(8, 10, 18, 0.82);
-  --surface-solid: #0a0c16;
-  --surface-hover: rgba(14, 17, 30, 0.9);
-  --surface-active: rgba(20, 24, 42, 0.95);
+  --surface: rgba(12, 12, 30, 0.85);
+  --surface-solid: #0e0e24;
+  --surface-hover: rgba(16, 16, 36, 0.9);
+  --surface-active: rgba(22, 22, 48, 0.95);
 
   /* Borders */
   --border: rgba(255, 255, 255, 0.04);
@@ -32,12 +32,12 @@
   --text-muted: #44445c;
   --text-ghost: #2a2a3e;
 
-  /* Accent — electric teal */
-  --accent: #22d3ee;
-  --accent-bright: #67e8f9;
+  /* Accent — bright cyan */
+  --accent: #67e8f9;
+  --accent-bright: #a5f3fc;
   --accent-dim: #0e7490;
-  --accent-glow: rgba(34, 211, 238, 0.12);
-  --accent-glow-strong: rgba(34, 211, 238, 0.25);
+  --accent-glow: rgba(103, 232, 249, 0.12);
+  --accent-glow-strong: rgba(103, 232, 249, 0.25);
 
   /* Warm — activation heat */
   --warm: #f97316;
@@ -97,8 +97,8 @@ html, body, #root {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(34, 211, 238, 0.015) 0%, transparent 70%),
-    radial-gradient(ellipse 60% 80% at 80% 60%, rgba(249, 115, 22, 0.01) 0%, transparent 70%);
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(103, 232, 249, 0.015) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 80% 60%, rgba(196, 181, 253, 0.01) 0%, transparent 70%);
 }
 
 /* Subtle noise grain overlay */
@@ -278,7 +278,7 @@ html, body, #root {
   inset: 0;
   z-index: 1;
   background:
-    radial-gradient(ellipse 120% 100% at center, transparent 40%, rgba(3, 4, 8, 0.7) 100%);
+    radial-gradient(ellipse 120% 100% at center, transparent 40%, rgba(10, 10, 26, 0.7) 100%);
 }
 
 /* ── Accent bar ──────────────────────────────────────── */

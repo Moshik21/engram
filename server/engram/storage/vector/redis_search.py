@@ -88,8 +88,6 @@ class RedisSearchIndex:
                 str(dim),
                 "DISTANCE_METRIC",
                 "COSINE",
-                "INITIAL_CAP",
-                "10000",
                 "M",
                 str(m),
                 "EF_CONSTRUCTION",
