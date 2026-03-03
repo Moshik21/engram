@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+.git
+__pycache__
+*.pyc
+*.pyo
+.venv
+.pytest_cache
+.ruff_cache
+tests/
+scripts/
+*.md
+*.db
+*.db-journal
+*.db-wal
+.DS_Store

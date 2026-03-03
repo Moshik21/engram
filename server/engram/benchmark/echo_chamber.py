@@ -82,9 +82,7 @@ async def run_echo_chamber(
         # Record access for returned entities
         now = time.time()
         for r in results:
-            await activation_store.record_access(
-                r.node_id, now, group_id=group_id
-            )
+            await activation_store.record_access(r.node_id, now, group_id=group_id)
 
         # Take snapshot at intervals
         if (i + 1) % snapshot_interval == 0 or i == total_queries - 1:
@@ -98,8 +96,10 @@ async def run_echo_chamber(
             snapshots.append(snapshot)
             prev_top10 = set(snapshot.top10_ids)
 
-    final = snapshots[-1] if snapshots else EchoChamberSnapshot(
-        query_index=0, coverage=0, gini=0, top10_ids=[], top10_jaccard=0
+    final = (
+        snapshots[-1]
+        if snapshots
+        else EchoChamberSnapshot(query_index=0, coverage=0, gini=0, top10_ids=[], top10_jaccard=0)
     )
 
     return EchoChamberResult(
@@ -125,8 +125,7 @@ async def _take_snapshot(
     # Gather access counts
     states = await activation_store.batch_get(corpus_entity_ids)
     access_counts = [
-        float(states[eid].access_count) if eid in states else 0.0
-        for eid in corpus_entity_ids
+        float(states[eid].access_count) if eid in states else 0.0 for eid in corpus_entity_ids
     ]
 
     # Coverage: fraction of entities with access_count > 0

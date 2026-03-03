@@ -81,10 +81,14 @@ class TestConsolidationStore:
     @pytest.mark.asyncio
     async def test_save_merge_record(self, store):
         record = MergeRecord(
-            cycle_id="cyc_test", group_id="test",
-            keep_id="e1", remove_id="e2",
-            keep_name="Alice", remove_name="alice",
-            similarity=0.92, relationships_transferred=3,
+            cycle_id="cyc_test",
+            group_id="test",
+            keep_id="e1",
+            remove_id="e2",
+            keep_name="Alice",
+            remove_name="alice",
+            similarity=0.92,
+            relationships_transferred=3,
         )
         await store.save_merge_record(record)
 
@@ -96,10 +100,14 @@ class TestConsolidationStore:
     @pytest.mark.asyncio
     async def test_save_inferred_edge(self, store):
         edge = InferredEdge(
-            cycle_id="cyc_test", group_id="test",
-            source_id="e1", target_id="e2",
-            source_name="Python", target_name="FastAPI",
-            co_occurrence_count=5, confidence=0.75,
+            cycle_id="cyc_test",
+            group_id="test",
+            source_id="e1",
+            target_id="e2",
+            source_name="Python",
+            target_name="FastAPI",
+            co_occurrence_count=5,
+            confidence=0.75,
         )
         await store.save_inferred_edge(edge)
 
@@ -110,9 +118,12 @@ class TestConsolidationStore:
     @pytest.mark.asyncio
     async def test_save_prune_record(self, store):
         record = PruneRecord(
-            cycle_id="cyc_test", group_id="test",
-            entity_id="e1", entity_name="Dead Entity",
-            entity_type="Concept", reason="dead_entity",
+            cycle_id="cyc_test",
+            group_id="test",
+            entity_id="e1",
+            entity_name="Dead Entity",
+            entity_type="Concept",
+            reason="dead_entity",
         )
         await store.save_prune_record(record)
 
@@ -130,11 +141,17 @@ class TestConsolidationStore:
         await store.save_cycle(new_cycle)
 
         # Add records to old cycle
-        await store.save_merge_record(MergeRecord(
-            cycle_id=old_cycle.id, group_id="test",
-            keep_id="e1", remove_id="e2",
-            keep_name="A", remove_name="B", similarity=0.9,
-        ))
+        await store.save_merge_record(
+            MergeRecord(
+                cycle_id=old_cycle.id,
+                group_id="test",
+                keep_id="e1",
+                remove_id="e2",
+                keep_name="A",
+                remove_name="B",
+                similarity=0.9,
+            )
+        )
 
         deleted = await store.cleanup(ttl_days=90)
         assert deleted == 1

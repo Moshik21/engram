@@ -58,10 +58,7 @@ async def main(args: argparse.Namespace) -> None:
     if result.category_scores:
         print("\nPer-category:")
         for cat, scores in sorted(result.category_scores.items()):
-            print(
-                f"  {cat:20s}: EM={scores['em']:.3f} "
-                f"F1={scores['f1']:.3f} (n={scores['count']})"
-            )
+            print(f"  {cat:20s}: EM={scores['em']:.3f} F1={scores['f1']:.3f} (n={scores['count']})")
 
     # Save JSON if requested
     if args.json:
@@ -93,15 +90,21 @@ async def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LoCoMo Benchmark")
     parser.add_argument(
-        "--dataset-path", type=str, required=True,
+        "--dataset-path",
+        type=str,
+        required=True,
         help="Path to LoCoMo JSON dataset",
     )
     parser.add_argument(
-        "--max-conversations", type=int, default=None,
+        "--max-conversations",
+        type=int,
+        default=None,
         help="Maximum number of conversations to process",
     )
     parser.add_argument(
-        "--json", type=str, default=None,
+        "--json",
+        type=str,
+        default=None,
         help="Save results to JSON file",
     )
     asyncio.run(main(parser.parse_args()))

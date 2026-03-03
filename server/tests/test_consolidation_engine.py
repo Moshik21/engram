@@ -43,7 +43,9 @@ async def consol_store(store):
 async def engine(store, activation, search, consol_store):
     bus = EventBus()
     return ConsolidationEngine(
-        store, activation, search,
+        store,
+        activation,
+        search,
         cfg=ActivationConfig(),
         consolidation_store=consol_store,
         event_bus=bus,
@@ -111,7 +113,9 @@ class TestConsolidationEngine:
         """A failing phase should not prevent other phases from running."""
         bus = EventBus()
         engine = ConsolidationEngine(
-            store, activation, search,
+            store,
+            activation,
+            search,
             cfg=ActivationConfig(),
             consolidation_store=consol_store,
             event_bus=bus,
@@ -138,7 +142,9 @@ class TestConsolidationEngine:
         bus = EventBus()
         q = bus.subscribe("test")
         engine = ConsolidationEngine(
-            store, activation, search,
+            store,
+            activation,
+            search,
             cfg=ActivationConfig(),
             consolidation_store=consol_store,
             event_bus=bus,
@@ -177,7 +183,10 @@ class TestConsolidationEngine:
         """dry_run=None should use config default."""
         cfg = ActivationConfig(consolidation_dry_run=True)
         engine = ConsolidationEngine(
-            store, activation, search, cfg=cfg,
+            store,
+            activation,
+            search,
+            cfg=cfg,
             consolidation_store=consol_store,
         )
 
@@ -198,7 +207,9 @@ class TestShutdownTrigger:
 
         bus = EventBus()
         engine = ConsolidationEngine(
-            store, activation, search,
+            store,
+            activation,
+            search,
             cfg=ActivationConfig(consolidation_enabled=True),
             consolidation_store=consol_store,
             event_bus=bus,
@@ -206,15 +217,17 @@ class TestShutdownTrigger:
         config = EngramConfig()
         config.activation.consolidation_enabled = True
 
-        _app_state.update({
-            "config": config,
-            "consolidation_engine": engine,
-            "consolidation_scheduler": None,
-            "pressure_accumulator": None,
-            "embedding_provider": None,
-            "activation_store": None,
-            "graph_store": None,
-        })
+        _app_state.update(
+            {
+                "config": config,
+                "consolidation_engine": engine,
+                "consolidation_scheduler": None,
+                "pressure_accumulator": None,
+                "embedding_provider": None,
+                "activation_store": None,
+                "graph_store": None,
+            }
+        )
 
         engine.run_cycle = AsyncMock(return_value=None)
 
@@ -238,7 +251,9 @@ class TestShutdownTrigger:
 
         bus = EventBus()
         engine = ConsolidationEngine(
-            store, activation, search,
+            store,
+            activation,
+            search,
             cfg=ActivationConfig(consolidation_enabled=False),
             consolidation_store=consol_store,
             event_bus=bus,
@@ -246,15 +261,17 @@ class TestShutdownTrigger:
         config = EngramConfig()
         config.activation.consolidation_enabled = False
 
-        _app_state.update({
-            "config": config,
-            "consolidation_engine": engine,
-            "consolidation_scheduler": None,
-            "pressure_accumulator": None,
-            "embedding_provider": None,
-            "activation_store": None,
-            "graph_store": None,
-        })
+        _app_state.update(
+            {
+                "config": config,
+                "consolidation_engine": engine,
+                "consolidation_scheduler": None,
+                "pressure_accumulator": None,
+                "embedding_provider": None,
+                "activation_store": None,
+                "graph_store": None,
+            }
+        )
 
         engine.run_cycle = AsyncMock(return_value=None)
 

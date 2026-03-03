@@ -29,12 +29,18 @@ async def activation_client(tmp_path):
 
     # Create test entities
     e1 = Entity(
-        id="ent_alpha", name="Alpha", entity_type="Concept",
-        summary="First entity", group_id="default",
+        id="ent_alpha",
+        name="Alpha",
+        entity_type="Concept",
+        summary="First entity",
+        group_id="default",
     )
     e2 = Entity(
-        id="ent_beta", name="Beta", entity_type="Technology",
-        summary="Second entity", group_id="default",
+        id="ent_beta",
+        name="Beta",
+        entity_type="Technology",
+        summary="Second entity",
+        group_id="default",
     )
     await graph_store.create_entity(e1)
     await graph_store.create_entity(e2)
@@ -88,9 +94,7 @@ class TestActivationCurve:
     @pytest.mark.asyncio
     async def test_returns_curve_points(self, activation_client):
         """Curve returns array of timestamp/activation points."""
-        resp = await activation_client.get(
-            "/api/activation/ent_alpha/curve?hours=1&points=10"
-        )
+        resp = await activation_client.get("/api/activation/ent_alpha/curve?hours=1&points=10")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -109,17 +113,13 @@ class TestActivationCurve:
     @pytest.mark.asyncio
     async def test_entity_not_found_returns_404(self, activation_client):
         """Requesting curve for nonexistent entity returns 404."""
-        resp = await activation_client.get(
-            "/api/activation/ent_nonexistent/curve"
-        )
+        resp = await activation_client.get("/api/activation/ent_nonexistent/curve")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_curve_shows_decay(self, activation_client):
         """Activation decreases over time (decay curve)."""
-        resp = await activation_client.get(
-            "/api/activation/ent_alpha/curve?hours=1&points=5"
-        )
+        resp = await activation_client.get("/api/activation/ent_alpha/curve?hours=1&points=5")
         data = resp.json()
         curve = data["curve"]
 

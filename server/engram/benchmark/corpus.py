@@ -143,213 +143,809 @@ class CorpusScale:
 # ---------------------------------------------------------------------------
 
 _FIRST_NAMES = [
-    "Alice", "Bob", "Carol", "David", "Eve", "Frank", "Grace", "Hank",
-    "Iris", "Jack", "Karen", "Leo", "Mia", "Noah", "Olivia", "Paul",
-    "Quinn", "Rachel", "Sam", "Tara", "Uma", "Victor", "Wendy", "Xander",
-    "Yuki", "Zara", "Adrian", "Beth", "Carlos", "Diana",
+    "Alice",
+    "Bob",
+    "Carol",
+    "David",
+    "Eve",
+    "Frank",
+    "Grace",
+    "Hank",
+    "Iris",
+    "Jack",
+    "Karen",
+    "Leo",
+    "Mia",
+    "Noah",
+    "Olivia",
+    "Paul",
+    "Quinn",
+    "Rachel",
+    "Sam",
+    "Tara",
+    "Uma",
+    "Victor",
+    "Wendy",
+    "Xander",
+    "Yuki",
+    "Zara",
+    "Adrian",
+    "Beth",
+    "Carlos",
+    "Diana",
 ]
 
 _LAST_NAMES = [
-    "Smith", "Chen", "Patel", "Kim", "Garcia", "Mueller", "Santos",
-    "Nakamura", "Williams", "Brown", "Lee", "Wang", "Anderson", "Taylor",
-    "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Moore",
-    "Clark", "Lewis", "Robinson", "Walker", "Young", "Allen", "King",
-    "Wright", "Scott",
+    "Smith",
+    "Chen",
+    "Patel",
+    "Kim",
+    "Garcia",
+    "Mueller",
+    "Santos",
+    "Nakamura",
+    "Williams",
+    "Brown",
+    "Lee",
+    "Wang",
+    "Anderson",
+    "Taylor",
+    "Thomas",
+    "Jackson",
+    "White",
+    "Harris",
+    "Martin",
+    "Thompson",
+    "Moore",
+    "Clark",
+    "Lewis",
+    "Robinson",
+    "Walker",
+    "Young",
+    "Allen",
+    "King",
+    "Wright",
+    "Scott",
 ]
 
 _TECHNOLOGIES = [
-    "Python", "JavaScript", "TypeScript", "Rust", "Go", "Java", "C++",
-    "Ruby", "Swift", "Kotlin", "React", "Vue", "Angular", "Svelte",
-    "Next.js", "FastAPI", "Django", "Flask", "Express", "Spring Boot",
-    "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "Kafka",
-    "RabbitMQ", "GraphQL", "gRPC", "REST API", "Docker", "Kubernetes",
-    "Terraform", "Ansible", "Jenkins", "GitHub Actions", "AWS Lambda",
-    "Azure Functions", "GCP Cloud Run", "Vercel", "TensorFlow", "PyTorch",
-    "scikit-learn", "pandas", "NumPy", "Jupyter", "MLflow", "Airflow",
-    "Spark", "Flink", "Node.js", "Deno", "Bun", "Webpack", "Vite",
-    "Tailwind CSS", "Bootstrap", "Material UI", "Three.js", "D3.js",
-    "OpenAI API", "Claude API", "LangChain", "LlamaIndex", "Hugging Face",
-    "CUDA", "WebAssembly", "WebRTC", "WebSocket", "HTTP/3", "SQLite",
-    "DynamoDB", "Cassandra", "Neo4j", "FalkorDB", "Prometheus", "Grafana",
-    "Datadog", "Sentry", "PagerDuty", "Linux", "Nginx", "HAProxy",
-    "Envoy", "Istio", "ArgoCD", "Flux", "Helm", "Pulumi", "CDK",
-    "Supabase", "Firebase", "Auth0", "Stripe API", "Twilio", "SendGrid",
-    "Mapbox", "Figma API", "Notion API", "Slack API",
+    "Python",
+    "JavaScript",
+    "TypeScript",
+    "Rust",
+    "Go",
+    "Java",
+    "C++",
+    "Ruby",
+    "Swift",
+    "Kotlin",
+    "React",
+    "Vue",
+    "Angular",
+    "Svelte",
+    "Next.js",
+    "FastAPI",
+    "Django",
+    "Flask",
+    "Express",
+    "Spring Boot",
+    "PostgreSQL",
+    "MySQL",
+    "MongoDB",
+    "Redis",
+    "Elasticsearch",
+    "Kafka",
+    "RabbitMQ",
+    "GraphQL",
+    "gRPC",
+    "REST API",
+    "Docker",
+    "Kubernetes",
+    "Terraform",
+    "Ansible",
+    "Jenkins",
+    "GitHub Actions",
+    "AWS Lambda",
+    "Azure Functions",
+    "GCP Cloud Run",
+    "Vercel",
+    "TensorFlow",
+    "PyTorch",
+    "scikit-learn",
+    "pandas",
+    "NumPy",
+    "Jupyter",
+    "MLflow",
+    "Airflow",
+    "Spark",
+    "Flink",
+    "Node.js",
+    "Deno",
+    "Bun",
+    "Webpack",
+    "Vite",
+    "Tailwind CSS",
+    "Bootstrap",
+    "Material UI",
+    "Three.js",
+    "D3.js",
+    "OpenAI API",
+    "Claude API",
+    "LangChain",
+    "LlamaIndex",
+    "Hugging Face",
+    "CUDA",
+    "WebAssembly",
+    "WebRTC",
+    "WebSocket",
+    "HTTP/3",
+    "SQLite",
+    "DynamoDB",
+    "Cassandra",
+    "Neo4j",
+    "FalkorDB",
+    "Prometheus",
+    "Grafana",
+    "Datadog",
+    "Sentry",
+    "PagerDuty",
+    "Linux",
+    "Nginx",
+    "HAProxy",
+    "Envoy",
+    "Istio",
+    "ArgoCD",
+    "Flux",
+    "Helm",
+    "Pulumi",
+    "CDK",
+    "Supabase",
+    "Firebase",
+    "Auth0",
+    "Stripe API",
+    "Twilio",
+    "SendGrid",
+    "Mapbox",
+    "Figma API",
+    "Notion API",
+    "Slack API",
     # Pad to 200
-    "Redux", "MobX", "Zustand", "Jotai", "Recoil", "SWR", "React Query",
-    "tRPC", "Prisma", "Drizzle", "SQLAlchemy", "Alembic", "Celery",
-    "Dramatiq", "FastStream", "Pydantic", "Zod", "io-ts", "Effect-TS",
-    "RxJS", "Socket.io", "Actix", "Axum", "Tokio", "Warp", "Rocket",
-    "Gin", "Echo", "Fiber", "Chi", "HTMX", "Alpine.js", "Solid.js",
-    "Qwik", "Astro", "Remix", "Gatsby", "Nuxt", "SvelteKit", "Electron",
-    "Tauri", "React Native", "Flutter", "Ionic", "Capacitor", "Expo",
-    "SwiftUI", "Jetpack Compose", "Unity", "Unreal Engine", "Godot",
-    "Blender API", "OpenCV", "FFmpeg", "ImageMagick", "Sharp",
-    "Puppeteer", "Playwright", "Cypress", "Selenium", "Vitest", "Jest",
-    "Mocha", "pytest", "JUnit", "Testcontainers", "k6", "Locust",
-    "Artillery", "Gatling", "wrk", "Apache Bench", "hey", "Vegeta",
-    "Chaos Monkey", "Litmus", "Gremlin", "LaunchDarkly", "Unleash",
-    "Flagsmith", "PostHog", "Amplitude", "Segment", "Mixpanel",
-    "FullStory", "LogRocket", "New Relic", "Dynatrace", "Splunk",
-    "ELK Stack", "Loki", "Tempo", "Jaeger", "Zipkin", "OpenTelemetry",
-    "Meilisearch", "Typesense", "Weaviate", "Qdrant", "Pinecone",
+    "Redux",
+    "MobX",
+    "Zustand",
+    "Jotai",
+    "Recoil",
+    "SWR",
+    "React Query",
+    "tRPC",
+    "Prisma",
+    "Drizzle",
+    "SQLAlchemy",
+    "Alembic",
+    "Celery",
+    "Dramatiq",
+    "FastStream",
+    "Pydantic",
+    "Zod",
+    "io-ts",
+    "Effect-TS",
+    "RxJS",
+    "Socket.io",
+    "Actix",
+    "Axum",
+    "Tokio",
+    "Warp",
+    "Rocket",
+    "Gin",
+    "Echo",
+    "Fiber",
+    "Chi",
+    "HTMX",
+    "Alpine.js",
+    "Solid.js",
+    "Qwik",
+    "Astro",
+    "Remix",
+    "Gatsby",
+    "Nuxt",
+    "SvelteKit",
+    "Electron",
+    "Tauri",
+    "React Native",
+    "Flutter",
+    "Ionic",
+    "Capacitor",
+    "Expo",
+    "SwiftUI",
+    "Jetpack Compose",
+    "Unity",
+    "Unreal Engine",
+    "Godot",
+    "Blender API",
+    "OpenCV",
+    "FFmpeg",
+    "ImageMagick",
+    "Sharp",
+    "Puppeteer",
+    "Playwright",
+    "Cypress",
+    "Selenium",
+    "Vitest",
+    "Jest",
+    "Mocha",
+    "pytest",
+    "JUnit",
+    "Testcontainers",
+    "k6",
+    "Locust",
+    "Artillery",
+    "Gatling",
+    "wrk",
+    "Apache Bench",
+    "hey",
+    "Vegeta",
+    "Chaos Monkey",
+    "Litmus",
+    "Gremlin",
+    "LaunchDarkly",
+    "Unleash",
+    "Flagsmith",
+    "PostHog",
+    "Amplitude",
+    "Segment",
+    "Mixpanel",
+    "FullStory",
+    "LogRocket",
+    "New Relic",
+    "Dynatrace",
+    "Splunk",
+    "ELK Stack",
+    "Loki",
+    "Tempo",
+    "Jaeger",
+    "Zipkin",
+    "OpenTelemetry",
+    "Meilisearch",
+    "Typesense",
+    "Weaviate",
+    "Qdrant",
+    "Pinecone",
 ]
 
 _ORGANIZATIONS = [
-    "Acme Corp", "NovaTech", "Quantum Labs", "Stellar AI", "DataForge",
-    "CloudNine", "ByteStream", "NeuralPath", "DeepMind", "OpenAI",
-    "Anthropic", "Meta AI", "Google Brain", "Microsoft Research",
-    "Apple ML", "Amazon Science", "Netflix Tech", "Spotify Engineering",
-    "Uber Engineering", "Airbnb Tech", "Stripe Engineering", "Square",
-    "Shopify", "Atlassian", "JetBrains", "HashiCorp", "Elastic",
-    "Confluent", "Databricks", "Snowflake", "Palantir", "Scale AI",
-    "Weights & Biases", "Cohere", "Stability AI", "Hugging Face Inc",
-    "Lightning AI", "Modal", "Replicate", "Together AI",
+    "Acme Corp",
+    "NovaTech",
+    "Quantum Labs",
+    "Stellar AI",
+    "DataForge",
+    "CloudNine",
+    "ByteStream",
+    "NeuralPath",
+    "DeepMind",
+    "OpenAI",
+    "Anthropic",
+    "Meta AI",
+    "Google Brain",
+    "Microsoft Research",
+    "Apple ML",
+    "Amazon Science",
+    "Netflix Tech",
+    "Spotify Engineering",
+    "Uber Engineering",
+    "Airbnb Tech",
+    "Stripe Engineering",
+    "Square",
+    "Shopify",
+    "Atlassian",
+    "JetBrains",
+    "HashiCorp",
+    "Elastic",
+    "Confluent",
+    "Databricks",
+    "Snowflake",
+    "Palantir",
+    "Scale AI",
+    "Weights & Biases",
+    "Cohere",
+    "Stability AI",
+    "Hugging Face Inc",
+    "Lightning AI",
+    "Modal",
+    "Replicate",
+    "Together AI",
     # Pad to 150
-    "Cerebras", "Groq", "Inflection AI", "Mistral AI", "Adept AI",
-    "Character AI", "Runway ML", "Midjourney", "Jasper AI", "Copy AI",
-    "Notion Labs", "Figma Inc", "Canva", "Miro", "Linear",
-    "Vercel Inc", "Netlify", "Cloudflare", "Fastly", "Akamai",
-    "Twilio Inc", "SendGrid Inc", "Plaid", "Brex", "Ramp",
-    "Gusto", "Rippling", "Lattice", "Culture Amp", "Lever",
-    "Greenhouse", "Workday", "ServiceNow", "Salesforce AI",
-    "HubSpot", "Zendesk", "Intercom", "Drift", "Gong",
-    "Clari", "Outreach", "SalesLoft", "Apollo", "ZoomInfo",
-    "Clearbit", "FullContact", "People Data Labs", "Snyk", "Sonar",
-    "GitLab", "Bitbucket", "CircleCI", "Travis CI", "Buildkite",
-    "Semaphore", "CodeClimate", "Codacy", "DeepSource", "SonarQube",
-    "LaunchDarkly Inc", "Split", "Optimizely", "VWO", "Kameleoon",
-    "Amplitude Inc", "Heap", "Pendo", "WalkMe", "Appcues",
-    "Datadog Inc", "New Relic Inc", "Dynatrace Inc", "Splunk Inc",
-    "Elastic Inc", "Grafana Labs", "Chronosphere", "Lightstep",
-    "Honeycomb", "Monte Carlo", "Atlan", "dbt Labs", "Fivetran",
-    "Airbyte", "Stitch", "Talend", "Informatica", "Matillion",
-    "Hightouch", "Census", "Rudderstack", "mParticle", "Lytics",
-    "ActionIQ", "Amperity", "Treasure Data", "Tealium",
-    "OneTrust", "BigID", "Collibra", "Alation", "Immuta",
-    "Privacera", "Securiti", "Transcend", "Ethyca", "DataGrail",
-    "Anyscale", "Ray Labs", "Dask Labs", "Prefect", "Dagster",
-    "Temporal Inc", "Conductor", "Camunda", "Zeebe", "Orkes",
-    "PlanetScale", "CockroachDB", "TiDB", "YugabyteDB", "Neon",
-    "Turso", "SingleStore", "ClickHouse Inc", "StarRocks", "Apache Doris",
+    "Cerebras",
+    "Groq",
+    "Inflection AI",
+    "Mistral AI",
+    "Adept AI",
+    "Character AI",
+    "Runway ML",
+    "Midjourney",
+    "Jasper AI",
+    "Copy AI",
+    "Notion Labs",
+    "Figma Inc",
+    "Canva",
+    "Miro",
+    "Linear",
+    "Vercel Inc",
+    "Netlify",
+    "Cloudflare",
+    "Fastly",
+    "Akamai",
+    "Twilio Inc",
+    "SendGrid Inc",
+    "Plaid",
+    "Brex",
+    "Ramp",
+    "Gusto",
+    "Rippling",
+    "Lattice",
+    "Culture Amp",
+    "Lever",
+    "Greenhouse",
+    "Workday",
+    "ServiceNow",
+    "Salesforce AI",
+    "HubSpot",
+    "Zendesk",
+    "Intercom",
+    "Drift",
+    "Gong",
+    "Clari",
+    "Outreach",
+    "SalesLoft",
+    "Apollo",
+    "ZoomInfo",
+    "Clearbit",
+    "FullContact",
+    "People Data Labs",
+    "Snyk",
+    "Sonar",
+    "GitLab",
+    "Bitbucket",
+    "CircleCI",
+    "Travis CI",
+    "Buildkite",
+    "Semaphore",
+    "CodeClimate",
+    "Codacy",
+    "DeepSource",
+    "SonarQube",
+    "LaunchDarkly Inc",
+    "Split",
+    "Optimizely",
+    "VWO",
+    "Kameleoon",
+    "Amplitude Inc",
+    "Heap",
+    "Pendo",
+    "WalkMe",
+    "Appcues",
+    "Datadog Inc",
+    "New Relic Inc",
+    "Dynatrace Inc",
+    "Splunk Inc",
+    "Elastic Inc",
+    "Grafana Labs",
+    "Chronosphere",
+    "Lightstep",
+    "Honeycomb",
+    "Monte Carlo",
+    "Atlan",
+    "dbt Labs",
+    "Fivetran",
+    "Airbyte",
+    "Stitch",
+    "Talend",
+    "Informatica",
+    "Matillion",
+    "Hightouch",
+    "Census",
+    "Rudderstack",
+    "mParticle",
+    "Lytics",
+    "ActionIQ",
+    "Amperity",
+    "Treasure Data",
+    "Tealium",
+    "OneTrust",
+    "BigID",
+    "Collibra",
+    "Alation",
+    "Immuta",
+    "Privacera",
+    "Securiti",
+    "Transcend",
+    "Ethyca",
+    "DataGrail",
+    "Anyscale",
+    "Ray Labs",
+    "Dask Labs",
+    "Prefect",
+    "Dagster",
+    "Temporal Inc",
+    "Conductor",
+    "Camunda",
+    "Zeebe",
+    "Orkes",
+    "PlanetScale",
+    "CockroachDB",
+    "TiDB",
+    "YugabyteDB",
+    "Neon",
+    "Turso",
+    "SingleStore",
+    "ClickHouse Inc",
+    "StarRocks",
+    "Apache Doris",
 ]
 
 _LOCATIONS = [
-    "San Francisco", "New York", "London", "Tokyo", "Berlin", "Paris",
-    "Singapore", "Toronto", "Sydney", "Seattle", "Austin", "Boston",
-    "Chicago", "Los Angeles", "Denver", "Portland", "Atlanta", "Miami",
-    "Vancouver", "Montreal", "Dublin", "Amsterdam", "Stockholm",
-    "Helsinki", "Oslo", "Copenhagen", "Zurich", "Munich", "Barcelona",
-    "Lisbon", "Tel Aviv", "Dubai", "Bangalore", "Mumbai", "Delhi",
-    "Shanghai", "Beijing", "Shenzhen", "Seoul", "Taipei", "Hong Kong",
-    "Melbourne", "Auckland", "Cape Town", "Nairobi", "Lagos", "Cairo",
-    "São Paulo", "Mexico City", "Buenos Aires", "Santiago", "Lima",
-    "Bogotá", "Medellín", "Remote", "Distributed", "Hybrid", "Vienna",
-    "Prague", "Warsaw", "Budapest", "Bucharest", "Sofia", "Athens",
-    "Istanbul", "Ankara", "Riyadh", "Doha", "Abu Dhabi",
-    "Kuala Lumpur", "Jakarta", "Bangkok", "Ho Chi Minh City", "Manila",
-    "Osaka", "Kyoto", "Nagoya", "Fukuoka", "Yokohama", "Sapporo",
-    "Pittsburgh", "Philadelphia", "Washington DC", "Detroit",
-    "Minneapolis", "Nashville", "Raleigh", "Salt Lake City", "Phoenix",
-    "San Diego", "San Jose", "Sacramento", "Oakland", "Palo Alto",
-    "Mountain View", "Cupertino", "Redmond", "Kirkland", "Bellevue",
+    "San Francisco",
+    "New York",
+    "London",
+    "Tokyo",
+    "Berlin",
+    "Paris",
+    "Singapore",
+    "Toronto",
+    "Sydney",
+    "Seattle",
+    "Austin",
+    "Boston",
+    "Chicago",
+    "Los Angeles",
+    "Denver",
+    "Portland",
+    "Atlanta",
+    "Miami",
+    "Vancouver",
+    "Montreal",
+    "Dublin",
+    "Amsterdam",
+    "Stockholm",
+    "Helsinki",
+    "Oslo",
+    "Copenhagen",
+    "Zurich",
+    "Munich",
+    "Barcelona",
+    "Lisbon",
+    "Tel Aviv",
+    "Dubai",
+    "Bangalore",
+    "Mumbai",
+    "Delhi",
+    "Shanghai",
+    "Beijing",
+    "Shenzhen",
+    "Seoul",
+    "Taipei",
+    "Hong Kong",
+    "Melbourne",
+    "Auckland",
+    "Cape Town",
+    "Nairobi",
+    "Lagos",
+    "Cairo",
+    "São Paulo",
+    "Mexico City",
+    "Buenos Aires",
+    "Santiago",
+    "Lima",
+    "Bogotá",
+    "Medellín",
+    "Remote",
+    "Distributed",
+    "Hybrid",
+    "Vienna",
+    "Prague",
+    "Warsaw",
+    "Budapest",
+    "Bucharest",
+    "Sofia",
+    "Athens",
+    "Istanbul",
+    "Ankara",
+    "Riyadh",
+    "Doha",
+    "Abu Dhabi",
+    "Kuala Lumpur",
+    "Jakarta",
+    "Bangkok",
+    "Ho Chi Minh City",
+    "Manila",
+    "Osaka",
+    "Kyoto",
+    "Nagoya",
+    "Fukuoka",
+    "Yokohama",
+    "Sapporo",
+    "Pittsburgh",
+    "Philadelphia",
+    "Washington DC",
+    "Detroit",
+    "Minneapolis",
+    "Nashville",
+    "Raleigh",
+    "Salt Lake City",
+    "Phoenix",
+    "San Diego",
+    "San Jose",
+    "Sacramento",
+    "Oakland",
+    "Palo Alto",
+    "Mountain View",
+    "Cupertino",
+    "Redmond",
+    "Kirkland",
+    "Bellevue",
     "Cambridge",
 ]
 
 _PROJECT_PREFIXES = [
-    "Project", "Operation", "Initiative", "Platform", "System",
+    "Project",
+    "Operation",
+    "Initiative",
+    "Platform",
+    "System",
 ]
 
 _PROJECT_NAMES = [
-    "Phoenix", "Atlas", "Nebula", "Horizon", "Catalyst", "Apex", "Prism",
-    "Vertex", "Nexus", "Zenith", "Eclipse", "Aurora", "Titan", "Vanguard",
-    "Odyssey", "Helios", "Artemis", "Orion", "Mercury", "Neptune",
-    "Quantum", "Fusion", "Cosmos", "Stellar", "Nova",
-    "Voyager", "Pioneer", "Sentinel", "Beacon", "Compass",
+    "Phoenix",
+    "Atlas",
+    "Nebula",
+    "Horizon",
+    "Catalyst",
+    "Apex",
+    "Prism",
+    "Vertex",
+    "Nexus",
+    "Zenith",
+    "Eclipse",
+    "Aurora",
+    "Titan",
+    "Vanguard",
+    "Odyssey",
+    "Helios",
+    "Artemis",
+    "Orion",
+    "Mercury",
+    "Neptune",
+    "Quantum",
+    "Fusion",
+    "Cosmos",
+    "Stellar",
+    "Nova",
+    "Voyager",
+    "Pioneer",
+    "Sentinel",
+    "Beacon",
+    "Compass",
 ]
 
 _PROJECT_SUFFIXES = [
-    "Engine", "Platform", "Suite", "Hub", "Core", "SDK", "API",
-    "Framework", "Toolkit", "Dashboard",
+    "Engine",
+    "Platform",
+    "Suite",
+    "Hub",
+    "Core",
+    "SDK",
+    "API",
+    "Framework",
+    "Toolkit",
+    "Dashboard",
 ]
 
 _CONCEPTS = [
-    "Machine Learning", "Deep Learning", "Neural Networks",
-    "Natural Language Processing", "Computer Vision",
-    "Reinforcement Learning", "Transfer Learning", "Federated Learning",
-    "Meta Learning", "Few-Shot Learning", "Zero-Shot Learning",
-    "Prompt Engineering", "RAG", "Fine-Tuning", "RLHF", "DPO",
-    "Constitutional AI", "AI Safety", "AI Alignment", "Interpretability",
-    "Explainable AI", "Bias Mitigation", "Differential Privacy",
-    "Homomorphic Encryption", "Secure Multi-Party Computation",
-    "Knowledge Graphs", "Ontologies", "Semantic Web",
-    "Graph Neural Networks", "Attention Mechanism",
-    "Transformer Architecture", "Diffusion Models", "Generative AI",
-    "Large Language Models", "Multimodal AI", "Embodied AI",
-    "Autonomous Agents", "Tool Use", "Function Calling",
-    "Chain of Thought", "Tree of Thought", "ReAct", "Plan and Execute",
-    "Cognitive Architecture", "ACT-R", "Spreading Activation",
-    "Memory Systems", "Episodic Memory", "Semantic Memory",
-    "Working Memory", "Long-Term Memory",
-    "Retrieval Augmented Generation", "Vector Databases",
-    "Embedding Models", "Cosine Similarity", "HNSW", "IVF",
-    "Product Quantization", "Dimensionality Reduction", "PCA", "t-SNE",
+    "Machine Learning",
+    "Deep Learning",
+    "Neural Networks",
+    "Natural Language Processing",
+    "Computer Vision",
+    "Reinforcement Learning",
+    "Transfer Learning",
+    "Federated Learning",
+    "Meta Learning",
+    "Few-Shot Learning",
+    "Zero-Shot Learning",
+    "Prompt Engineering",
+    "RAG",
+    "Fine-Tuning",
+    "RLHF",
+    "DPO",
+    "Constitutional AI",
+    "AI Safety",
+    "AI Alignment",
+    "Interpretability",
+    "Explainable AI",
+    "Bias Mitigation",
+    "Differential Privacy",
+    "Homomorphic Encryption",
+    "Secure Multi-Party Computation",
+    "Knowledge Graphs",
+    "Ontologies",
+    "Semantic Web",
+    "Graph Neural Networks",
+    "Attention Mechanism",
+    "Transformer Architecture",
+    "Diffusion Models",
+    "Generative AI",
+    "Large Language Models",
+    "Multimodal AI",
+    "Embodied AI",
+    "Autonomous Agents",
+    "Tool Use",
+    "Function Calling",
+    "Chain of Thought",
+    "Tree of Thought",
+    "ReAct",
+    "Plan and Execute",
+    "Cognitive Architecture",
+    "ACT-R",
+    "Spreading Activation",
+    "Memory Systems",
+    "Episodic Memory",
+    "Semantic Memory",
+    "Working Memory",
+    "Long-Term Memory",
+    "Retrieval Augmented Generation",
+    "Vector Databases",
+    "Embedding Models",
+    "Cosine Similarity",
+    "HNSW",
+    "IVF",
+    "Product Quantization",
+    "Dimensionality Reduction",
+    "PCA",
+    "t-SNE",
     "UMAP",
     # Pad to 200
-    "Contrastive Learning", "Self-Supervised Learning",
-    "Semi-Supervised Learning", "Active Learning", "Curriculum Learning",
-    "Multi-Task Learning", "Continual Learning", "Online Learning",
-    "Bayesian Optimization", "Hyperparameter Tuning",
-    "Neural Architecture Search", "AutoML", "Model Compression",
-    "Knowledge Distillation", "Pruning", "Quantization",
-    "Mixed Precision Training", "Gradient Checkpointing",
-    "Data Parallelism", "Model Parallelism", "Pipeline Parallelism",
-    "Tensor Parallelism", "ZeRO", "DeepSpeed", "Megatron-LM",
-    "Flash Attention", "Ring Attention", "Sliding Window Attention",
-    "Multi-Head Attention", "Cross-Attention", "Self-Attention",
-    "Positional Encoding", "Rotary Embeddings", "ALiBi",
-    "Byte Pair Encoding", "SentencePiece", "Tokenization",
-    "Vocabulary Selection", "Subword Segmentation",
-    "Beam Search", "Nucleus Sampling", "Top-K Sampling",
-    "Temperature Scaling", "Classifier-Free Guidance",
-    "Score Distillation", "LoRA", "QLoRA", "Adapters", "Prefix Tuning",
-    "Prompt Tuning", "In-Context Learning", "Instruction Tuning",
-    "PEFT", "Model Merging", "Mixture of Experts",
-    "Sparse Transformers", "State Space Models", "Mamba",
-    "Linear Attention", "RWKV", "Hyena", "RetNet",
-    "Retrieval Augmentation", "Memory Networks", "Hopfield Networks",
-    "Associative Memory", "Content-Addressable Memory",
-    "Neural Turing Machine", "Differentiable Programming",
-    "Program Synthesis", "Neuro-Symbolic AI", "Causal Inference",
-    "Counterfactual Reasoning", "Abductive Reasoning",
-    "Inductive Logic Programming", "Abstract Reasoning",
-    "Analogical Reasoning", "Common Sense Reasoning",
-    "Spatial Reasoning", "Temporal Reasoning",
-    "Object Detection", "Image Segmentation", "Optical Flow",
-    "Depth Estimation", "3D Reconstruction", "NeRF",
-    "Gaussian Splatting", "Point Clouds", "Mesh Generation",
-    "Texture Synthesis", "Style Transfer", "Image Inpainting",
-    "Super Resolution", "Image Generation", "Video Generation",
-    "Audio Generation", "Speech Synthesis", "Voice Cloning",
-    "Music Generation", "Sound Event Detection",
-    "Automatic Speech Recognition", "Speaker Diarization",
-    "Emotion Recognition", "Sentiment Analysis",
-    "Named Entity Recognition", "Relation Extraction",
-    "Coreference Resolution", "Dependency Parsing",
-    "Constituency Parsing", "Semantic Role Labeling",
-    "Word Sense Disambiguation", "Machine Translation",
-    "Text Summarization", "Question Answering",
-    "Dialog Systems", "Chatbots", "Information Retrieval",
-    "Document Understanding", "Table Understanding",
-    "Code Generation", "Code Understanding", "Code Review",
-    "Bug Detection", "Test Generation", "Formal Verification",
-    "Theorem Proving", "SAT Solving", "Constraint Satisfaction",
-    "Optimization", "Evolutionary Algorithms", "Genetic Programming",
-    "Swarm Intelligence", "Ant Colony Optimization",
-    "Simulated Annealing", "Monte Carlo Methods",
-    "Markov Decision Processes", "Partially Observable MDPs",
-    "Multi-Agent Systems", "Game Theory", "Mechanism Design",
-    "Auction Theory", "Social Choice Theory", "Voting Theory",
+    "Contrastive Learning",
+    "Self-Supervised Learning",
+    "Semi-Supervised Learning",
+    "Active Learning",
+    "Curriculum Learning",
+    "Multi-Task Learning",
+    "Continual Learning",
+    "Online Learning",
+    "Bayesian Optimization",
+    "Hyperparameter Tuning",
+    "Neural Architecture Search",
+    "AutoML",
+    "Model Compression",
+    "Knowledge Distillation",
+    "Pruning",
+    "Quantization",
+    "Mixed Precision Training",
+    "Gradient Checkpointing",
+    "Data Parallelism",
+    "Model Parallelism",
+    "Pipeline Parallelism",
+    "Tensor Parallelism",
+    "ZeRO",
+    "DeepSpeed",
+    "Megatron-LM",
+    "Flash Attention",
+    "Ring Attention",
+    "Sliding Window Attention",
+    "Multi-Head Attention",
+    "Cross-Attention",
+    "Self-Attention",
+    "Positional Encoding",
+    "Rotary Embeddings",
+    "ALiBi",
+    "Byte Pair Encoding",
+    "SentencePiece",
+    "Tokenization",
+    "Vocabulary Selection",
+    "Subword Segmentation",
+    "Beam Search",
+    "Nucleus Sampling",
+    "Top-K Sampling",
+    "Temperature Scaling",
+    "Classifier-Free Guidance",
+    "Score Distillation",
+    "LoRA",
+    "QLoRA",
+    "Adapters",
+    "Prefix Tuning",
+    "Prompt Tuning",
+    "In-Context Learning",
+    "Instruction Tuning",
+    "PEFT",
+    "Model Merging",
+    "Mixture of Experts",
+    "Sparse Transformers",
+    "State Space Models",
+    "Mamba",
+    "Linear Attention",
+    "RWKV",
+    "Hyena",
+    "RetNet",
+    "Retrieval Augmentation",
+    "Memory Networks",
+    "Hopfield Networks",
+    "Associative Memory",
+    "Content-Addressable Memory",
+    "Neural Turing Machine",
+    "Differentiable Programming",
+    "Program Synthesis",
+    "Neuro-Symbolic AI",
+    "Causal Inference",
+    "Counterfactual Reasoning",
+    "Abductive Reasoning",
+    "Inductive Logic Programming",
+    "Abstract Reasoning",
+    "Analogical Reasoning",
+    "Common Sense Reasoning",
+    "Spatial Reasoning",
+    "Temporal Reasoning",
+    "Object Detection",
+    "Image Segmentation",
+    "Optical Flow",
+    "Depth Estimation",
+    "3D Reconstruction",
+    "NeRF",
+    "Gaussian Splatting",
+    "Point Clouds",
+    "Mesh Generation",
+    "Texture Synthesis",
+    "Style Transfer",
+    "Image Inpainting",
+    "Super Resolution",
+    "Image Generation",
+    "Video Generation",
+    "Audio Generation",
+    "Speech Synthesis",
+    "Voice Cloning",
+    "Music Generation",
+    "Sound Event Detection",
+    "Automatic Speech Recognition",
+    "Speaker Diarization",
+    "Emotion Recognition",
+    "Sentiment Analysis",
+    "Named Entity Recognition",
+    "Relation Extraction",
+    "Coreference Resolution",
+    "Dependency Parsing",
+    "Constituency Parsing",
+    "Semantic Role Labeling",
+    "Word Sense Disambiguation",
+    "Machine Translation",
+    "Text Summarization",
+    "Question Answering",
+    "Dialog Systems",
+    "Chatbots",
+    "Information Retrieval",
+    "Document Understanding",
+    "Table Understanding",
+    "Code Generation",
+    "Code Understanding",
+    "Code Review",
+    "Bug Detection",
+    "Test Generation",
+    "Formal Verification",
+    "Theorem Proving",
+    "SAT Solving",
+    "Constraint Satisfaction",
+    "Optimization",
+    "Evolutionary Algorithms",
+    "Genetic Programming",
+    "Swarm Intelligence",
+    "Ant Colony Optimization",
+    "Simulated Annealing",
+    "Monte Carlo Methods",
+    "Markov Decision Processes",
+    "Partially Observable MDPs",
+    "Multi-Agent Systems",
+    "Game Theory",
+    "Mechanism Design",
+    "Auction Theory",
+    "Social Choice Theory",
+    "Voting Theory",
 ]
 
 # ---------------------------------------------------------------------------
@@ -382,8 +978,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"person": 15, "technology": 10, "organization": 5},
         "description": "Machine learning engineering team at a large corporation",
         "domains": [
-            "ML infrastructure", "recommendation engines", "data pipelines",
-            "model training", "feature engineering",
+            "ML infrastructure",
+            "recommendation engines",
+            "data pipelines",
+            "model training",
+            "feature engineering",
         ],
     },
     {
@@ -391,8 +990,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 25, "project": 10},
         "description": "Modern web development technology stack",
         "domains": [
-            "API design", "frontend frameworks", "server-side rendering",
-            "developer tooling", "web performance",
+            "API design",
+            "frontend frameworks",
+            "server-side rendering",
+            "developer tooling",
+            "web performance",
         ],
     },
     {
@@ -400,8 +1002,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"organization": 15, "location": 5, "person": 10},
         "description": "Startup ecosystem in the San Francisco Bay Area",
         "domains": [
-            "scalability", "growth engineering", "platform engineering",
-            "product development", "startup operations",
+            "scalability",
+            "growth engineering",
+            "platform engineering",
+            "product development",
+            "startup operations",
         ],
     },
     {
@@ -409,8 +1014,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 15, "concept": 15},
         "description": "End-to-end data science and analytics workflow",
         "domains": [
-            "real-time analytics", "batch processing", "data governance",
-            "statistical modeling", "data visualization",
+            "real-time analytics",
+            "batch processing",
+            "data governance",
+            "statistical modeling",
+            "data visualization",
         ],
     },
     {
@@ -418,8 +1026,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 15, "organization": 5, "project": 10},
         "description": "Cloud computing and infrastructure automation",
         "domains": [
-            "cloud-native architecture", "container orchestration",
-            "infrastructure as code", "service mesh", "cloud migration",
+            "cloud-native architecture",
+            "container orchestration",
+            "infrastructure as code",
+            "service mesh",
+            "cloud migration",
         ],
     },
     {
@@ -427,8 +1038,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"concept": 15, "person": 10, "organization": 5},
         "description": "Research on AI alignment and safety",
         "domains": [
-            "AI alignment", "safety evaluation", "interpretability",
-            "robustness testing", "responsible AI",
+            "AI alignment",
+            "safety evaluation",
+            "interpretability",
+            "robustness testing",
+            "responsible AI",
         ],
     },
     {
@@ -436,8 +1050,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"location": 15, "organization": 10, "person": 5},
         "description": "Technology companies and workers across Europe",
         "domains": [
-            "distributed teams", "regulatory compliance", "GDPR engineering",
-            "cross-border operations", "remote collaboration",
+            "distributed teams",
+            "regulatory compliance",
+            "GDPR engineering",
+            "cross-border operations",
+            "remote collaboration",
         ],
     },
     {
@@ -445,8 +1062,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 15, "project": 5, "person": 5},
         "description": "Mobile app development across iOS and Android",
         "domains": [
-            "mobile UI frameworks", "cross-platform development",
-            "app performance", "mobile testing", "push notification systems",
+            "mobile UI frameworks",
+            "cross-platform development",
+            "app performance",
+            "mobile testing",
+            "push notification systems",
         ],
     },
     {
@@ -454,8 +1074,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 15, "concept": 5, "project": 5},
         "description": "CI/CD, infrastructure as code, and observability tools",
         "domains": [
-            "CI/CD automation", "observability", "deployment pipelines",
-            "incident management", "release engineering",
+            "CI/CD automation",
+            "observability",
+            "deployment pipelines",
+            "incident management",
+            "release engineering",
         ],
     },
     {
@@ -463,8 +1086,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"concept": 15, "person": 10, "technology": 5},
         "description": "Natural language processing research and applications",
         "domains": [
-            "language modeling", "text classification",
-            "named entity recognition", "semantic parsing", "dialogue systems",
+            "language modeling",
+            "text classification",
+            "named entity recognition",
+            "semantic parsing",
+            "dialogue systems",
         ],
     },
     {
@@ -472,8 +1098,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"organization": 15, "technology": 5, "location": 5},
         "description": "Financial technology companies and platforms",
         "domains": [
-            "payment processing", "regulatory technology", "fraud detection",
-            "digital banking", "financial data analytics",
+            "payment processing",
+            "regulatory technology",
+            "fraud detection",
+            "digital banking",
+            "financial data analytics",
         ],
     },
     {
@@ -481,8 +1110,11 @@ _CLUSTER_DEFS: list[dict] = [
         "types": {"technology": 10, "concept": 5, "project": 10},
         "description": "Game engines, 3D graphics, and interactive media",
         "domains": [
-            "game engine design", "real-time rendering", "shader programming",
-            "physics simulation", "interactive media",
+            "game engine design",
+            "real-time rendering",
+            "shader programming",
+            "physics simulation",
+            "interactive media",
         ],
     },
 ]
@@ -540,41 +1172,106 @@ _CONCEPT_SUMMARY_TEMPLATES = [
 # ---------------------------------------------------------------------------
 
 _ADJECTIVES = [
-    "innovative", "experienced", "prolific", "passionate", "versatile",
-    "meticulous", "pragmatic", "visionary", "dedicated", "resourceful",
-    "analytical", "collaborative", "detail-oriented", "forward-thinking",
-    "adaptable", "tenacious", "strategic", "inventive", "methodical",
-    "ambitious", "driven", "insightful", "creative", "diligent",
-    "accomplished", "seasoned", "proactive", "dynamic", "reliable",
+    "innovative",
+    "experienced",
+    "prolific",
+    "passionate",
+    "versatile",
+    "meticulous",
+    "pragmatic",
+    "visionary",
+    "dedicated",
+    "resourceful",
+    "analytical",
+    "collaborative",
+    "detail-oriented",
+    "forward-thinking",
+    "adaptable",
+    "tenacious",
+    "strategic",
+    "inventive",
+    "methodical",
+    "ambitious",
+    "driven",
+    "insightful",
+    "creative",
+    "diligent",
+    "accomplished",
+    "seasoned",
+    "proactive",
+    "dynamic",
+    "reliable",
     "thorough",
 ]
 
 _DOMAINS = [
-    "distributed systems", "real-time analytics", "API design",
-    "cloud-native architecture", "data pipelines", "developer tooling",
-    "platform engineering", "site reliability", "security engineering",
-    "performance optimization", "scalability", "observability",
-    "event-driven systems", "microservices", "edge computing",
-    "data governance", "ML infrastructure", "search systems",
-    "recommendation engines", "stream processing", "batch processing",
-    "CI/CD automation", "infrastructure as code", "container orchestration",
-    "service mesh", "API gateway design", "database internals",
-    "compiler design", "language runtimes", "protocol design",
+    "distributed systems",
+    "real-time analytics",
+    "API design",
+    "cloud-native architecture",
+    "data pipelines",
+    "developer tooling",
+    "platform engineering",
+    "site reliability",
+    "security engineering",
+    "performance optimization",
+    "scalability",
+    "observability",
+    "event-driven systems",
+    "microservices",
+    "edge computing",
+    "data governance",
+    "ML infrastructure",
+    "search systems",
+    "recommendation engines",
+    "stream processing",
+    "batch processing",
+    "CI/CD automation",
+    "infrastructure as code",
+    "container orchestration",
+    "service mesh",
+    "API gateway design",
+    "database internals",
+    "compiler design",
+    "language runtimes",
+    "protocol design",
 ]
 
 _ORG_TYPES = [
-    "startup", "enterprise", "research lab", "open-source collective",
-    "consultancy", "venture-backed company", "public company",
-    "non-profit", "accelerator", "incubator", "industry consortium",
-    "government agency", "academic spin-off", "remote-first company",
-    "developer tools company", "platform provider", "SaaS vendor",
-    "data company", "AI lab", "cloud provider",
+    "startup",
+    "enterprise",
+    "research lab",
+    "open-source collective",
+    "consultancy",
+    "venture-backed company",
+    "public company",
+    "non-profit",
+    "accelerator",
+    "incubator",
+    "industry consortium",
+    "government agency",
+    "academic spin-off",
+    "remote-first company",
+    "developer tools company",
+    "platform provider",
+    "SaaS vendor",
+    "data company",
+    "AI lab",
+    "cloud provider",
 ]
 
 # Suffixes for procedural technology names at >200 entities
 _TECH_GEN_SUFFIXES = [
-    "Engine", "Studio", "Accelerator", "Compiler", "Orchestrator",
-    "Analyzer", "Connector", "Optimizer", "Processor", "Controller",
+    "Engine",
+    "Studio",
+    "Accelerator",
+    "Compiler",
+    "Orchestrator",
+    "Analyzer",
+    "Connector",
+    "Optimizer",
+    "Processor",
+    "Controller",
 ]
 
 
@@ -615,14 +1312,24 @@ class CorpusGenerator:
 
         clusters = self._assign_clusters(entities, type_index)
         relationships, rel_idx = self._generate_relationships(
-            entities, entity_map, type_index, clusters,
+            entities,
+            entity_map,
+            type_index,
+            clusters,
         )
         access_events, access_tiers = self._generate_access_events(
-            entities, clusters,
+            entities,
+            clusters,
         )
         ground_truth = self._generate_ground_truth(
-            entities, entity_map, type_index, clusters,
-            relationships, rel_idx, access_events, access_tiers,
+            entities,
+            entity_map,
+            type_index,
+            clusters,
+            relationships,
+            rel_idx,
+            access_events,
+            access_tiers,
         )
 
         # Enrich summaries last so RNG state doesn't affect prior generation
@@ -631,7 +1338,10 @@ class CorpusGenerator:
         # Generate episodes after summaries are enriched (so content references real text)
         adj = self._build_adjacency(relationships)
         episodes, episode_entities = self._generate_episodes(
-            entities, entity_map, access_tiers, adj,
+            entities,
+            entity_map,
+            access_tiers,
+            adj,
         )
 
         # Update recency ground truth with episode relevance
@@ -639,7 +1349,9 @@ class CorpusGenerator:
 
         # Generate conversation scenarios for working memory benchmark
         conversation_scenarios = self._generate_conversation_scenarios(
-            entity_map, clusters, adj,
+            entity_map,
+            clusters,
+            adj,
         )
 
         return CorpusSpec(
@@ -656,9 +1368,7 @@ class CorpusGenerator:
                 "num_queries": len(ground_truth),
                 "num_episodes": len(episodes),
                 "num_clusters": len(clusters),
-                "entity_type_counts": {
-                    t: len(ids) for t, ids in type_index.items()
-                },
+                "entity_type_counts": {t: len(ids) for t, ids in type_index.items()},
                 "clusters": [
                     {
                         "name": c["name"],
@@ -701,23 +1411,34 @@ class CorpusGenerator:
 
         # Try bulk SQLite path (single transaction instead of N commits).
         # Check for aiosqlite.Connection to avoid false positives with mocks.
-        db = getattr(graph_store, '_db', None)
-        if db is not None and type(db).__module__.startswith('aiosqlite'):
+        db = getattr(graph_store, "_db", None)
+        if db is not None and type(db).__module__.startswith("aiosqlite"):
             await self._bulk_load_sqlite(
-                corpus, graph_store, db, search_index,
-                structure_aware, cfg, entity_map,
+                corpus,
+                graph_store,
+                db,
+                search_index,
+                structure_aware,
+                cfg,
+                entity_map,
             )
         else:
             await self._load_sequential(
-                corpus, graph_store, search_index,
-                structure_aware, cfg, entity_map,
+                corpus,
+                graph_store,
+                search_index,
+                structure_aware,
+                cfg,
+                entity_map,
             )
 
         # Record all access events (in-memory store, already fast)
         access_group = corpus.entities[0].group_id if corpus.entities else GROUP_ID
         for entity_id, timestamp in corpus.access_events:
             await activation_store.record_access(
-                entity_id, timestamp, group_id=access_group,
+                entity_id,
+                timestamp,
+                group_id=access_group,
             )
 
         return time.time() - start
@@ -737,19 +1458,25 @@ class CorpusGenerator:
 
         # 1. Bulk insert entities
         entity_rows = []
-        encrypt = getattr(graph_store, '_encrypt', None)
+        encrypt = getattr(graph_store, "_encrypt", None)
         for e in corpus.entities:
             summary = encrypt(e.group_id, e.summary) if encrypt else e.summary
-            entity_rows.append((
-                e.id, e.name, e.entity_type, summary,
-                json.dumps(e.attributes) if e.attributes else None,
-                e.group_id,
-                e.created_at.isoformat() if e.created_at else now,
-                now, e.access_count,
-                e.last_accessed.isoformat() if e.last_accessed else None,
-                1 if e.pii_detected else 0,
-                json.dumps(e.pii_categories) if e.pii_categories else None,
-            ))
+            entity_rows.append(
+                (
+                    e.id,
+                    e.name,
+                    e.entity_type,
+                    summary,
+                    json.dumps(e.attributes) if e.attributes else None,
+                    e.group_id,
+                    e.created_at.isoformat() if e.created_at else now,
+                    now,
+                    e.access_count,
+                    e.last_accessed.isoformat() if e.last_accessed else None,
+                    1 if e.pii_detected else 0,
+                    json.dumps(e.pii_categories) if e.pii_categories else None,
+                )
+            )
         await db.executemany(
             """INSERT INTO entities
                (id, name, entity_type, summary, attributes, group_id,
@@ -762,13 +1489,21 @@ class CorpusGenerator:
         # 2. Bulk insert relationships
         rel_rows = []
         for r in corpus.relationships:
-            rel_rows.append((
-                r.id, r.source_id, r.target_id, r.predicate, r.weight,
-                r.valid_from.isoformat() if r.valid_from else None,
-                r.valid_to.isoformat() if r.valid_to else None,
-                r.created_at.isoformat() if r.created_at else now,
-                r.source_episode, r.group_id, r.confidence,
-            ))
+            rel_rows.append(
+                (
+                    r.id,
+                    r.source_id,
+                    r.target_id,
+                    r.predicate,
+                    r.weight,
+                    r.valid_from.isoformat() if r.valid_from else None,
+                    r.valid_to.isoformat() if r.valid_to else None,
+                    r.created_at.isoformat() if r.created_at else now,
+                    r.source_episode,
+                    r.group_id,
+                    r.confidence,
+                )
+            )
         await db.executemany(
             """INSERT INTO relationships
                (id, source_id, target_id, predicate, weight,
@@ -782,14 +1517,21 @@ class CorpusGenerator:
         ep_rows = []
         for ep in corpus.episodes:
             content = encrypt(ep.group_id, ep.content) if encrypt else ep.content
-            ep_rows.append((
-                ep.id, content, ep.source,
-                ep.status.value if hasattr(ep.status, "value") else ep.status,
-                ep.group_id, ep.session_id,
-                ep.created_at.isoformat() if ep.created_at else now,
-                ep.updated_at.isoformat() if ep.updated_at else now,
-                ep.error, ep.retry_count, ep.processing_duration_ms,
-            ))
+            ep_rows.append(
+                (
+                    ep.id,
+                    content,
+                    ep.source,
+                    ep.status.value if hasattr(ep.status, "value") else ep.status,
+                    ep.group_id,
+                    ep.session_id,
+                    ep.created_at.isoformat() if ep.created_at else now,
+                    ep.updated_at.isoformat() if ep.updated_at else now,
+                    ep.error,
+                    ep.retry_count,
+                    ep.processing_duration_ms,
+                )
+            )
         await db.executemany(
             """INSERT INTO episodes
                (id, content, source, status, group_id, session_id,
@@ -813,10 +1555,10 @@ class CorpusGenerator:
         # For FTS5: index_entity/index_episode are no-ops (triggers handle it)
         # For HybridSearchIndex: bulk-embed and batch-upsert vectors
         has_vectors = (
-            hasattr(search_index, '_embeddings_enabled')
+            hasattr(search_index, "_embeddings_enabled")
             and search_index._embeddings_enabled
-            and hasattr(search_index, '_vectors')
-            and hasattr(search_index, '_provider')
+            and hasattr(search_index, "_vectors")
+            and hasattr(search_index, "_provider")
         )
         if has_vectors:
             await self._bulk_embed(corpus, search_index, structure_aware, cfg)
@@ -844,10 +1586,13 @@ class CorpusGenerator:
         for rel in corpus.relationships:
             await graph_store.create_relationship(rel)
 
-        if structure_aware and hasattr(search_index, '_embeddings_enabled'):
+        if structure_aware and hasattr(search_index, "_embeddings_enabled"):
             if search_index._embeddings_enabled:
                 await self._reindex_structure_aware(
-                    corpus, search_index, entity_map, cfg,
+                    corpus,
+                    search_index,
+                    entity_map,
+                    cfg,
                 )
 
         for episode in corpus.episodes:
@@ -877,7 +1622,9 @@ class CorpusGenerator:
         # Build final text for each entity
         if structure_aware:
             entity_texts = self._build_structure_texts(
-                corpus, entity_map, cfg,
+                corpus,
+                entity_map,
+                cfg,
             )
         else:
             entity_texts = {}
@@ -897,12 +1644,20 @@ class CorpusGenerator:
             if all_embeddings and len(all_embeddings) == len(eid_list):
                 items = []
                 for eid, text, emb in zip(
-                    eid_list, text_list, all_embeddings,
+                    eid_list,
+                    text_list,
+                    all_embeddings,
                 ):
                     entity = entity_map[eid]
-                    items.append((
-                        eid, "entity", entity.group_id, text, emb,
-                    ))
+                    items.append(
+                        (
+                            eid,
+                            "entity",
+                            entity.group_id,
+                            text,
+                            emb,
+                        )
+                    )
                 await vectors.batch_upsert(items)
                 await vectors.db.commit()
 
@@ -920,14 +1675,20 @@ class CorpusGenerator:
             if ep_embeddings and len(ep_embeddings) == len(ep_ids):
                 items = []
                 for epid, text, emb in zip(
-                    ep_ids, ep_text_list, ep_embeddings,
+                    ep_ids,
+                    ep_text_list,
+                    ep_embeddings,
                 ):
-                    ep = next(
-                        e for e in corpus.episodes if e.id == epid
+                    ep = next(e for e in corpus.episodes if e.id == epid)
+                    items.append(
+                        (
+                            epid,
+                            "episode",
+                            ep.group_id,
+                            text,
+                            emb,
+                        )
                     )
-                    items.append((
-                        epid, "episode", ep.group_id, text, emb,
-                    ))
                 await vectors.batch_upsert(items)
                 await vectors.db.commit()
 
@@ -971,14 +1732,16 @@ class CorpusGenerator:
                 preds_sorted = sorted(
                     preds,
                     key=lambda p: predicate_weights.get(
-                        p[0], default_weight,
+                        p[0],
+                        default_weight,
                     ),
                     reverse=True,
                 )
                 rel_parts: list[str] = []
                 for pred, other_name, is_source in preds_sorted[:max_rels]:
                     pred_natural = natural_names.get(
-                        pred, pred.lower().replace("_", " "),
+                        pred,
+                        pred.lower().replace("_", " "),
                     )
                     if is_source:
                         rel_parts.append(
@@ -1034,7 +1797,8 @@ class CorpusGenerator:
             rel_parts: list[str] = []
             for pred, other_name, is_source in preds_sorted[:max_rels]:
                 pred_natural = natural_names.get(
-                    pred, pred.lower().replace("_", " "),
+                    pred,
+                    pred.lower().replace("_", " "),
                 )
                 if is_source:
                     rel_parts.append(f"{entity.name} {pred_natural} {other_name}")
@@ -1086,14 +1850,16 @@ class CorpusGenerator:
                 concept=self._rng.choice(_CONCEPTS[:30]),
                 org=self._rng.choice(_ORGANIZATIONS[:20]),
             )
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="person",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="person",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         # Technology — pool then concept+suffix combos
         for i in range(type_counts["technology"]):
@@ -1102,23 +1868,23 @@ class CorpusGenerator:
             else:
                 extra = i - len(_TECHNOLOGIES)
                 concept = _CONCEPTS[extra % len(_CONCEPTS)]
-                suffix = _TECH_GEN_SUFFIXES[
-                    (extra // len(_CONCEPTS)) % len(_TECH_GEN_SUFFIXES)
-                ]
+                suffix = _TECH_GEN_SUFFIXES[(extra // len(_CONCEPTS)) % len(_TECH_GEN_SUFFIXES)]
                 name = f"{concept} {suffix}"
                 cycle = extra // (len(_CONCEPTS) * len(_TECH_GEN_SUFFIXES))
                 if cycle > 0:
                     name = f"{name} v{cycle + 1}"
             eid = f"ent_bench_tech_{i:04d}"
             summary = self._rng.choice(_TECH_SUMMARY_TEMPLATES).format(name=name)
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="technology",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="technology",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         # Organization — pool then adj+domain+org_type combos
         for i in range(type_counts["organization"]):
@@ -1129,20 +1895,21 @@ class CorpusGenerator:
                 adj = _ADJECTIVES[extra % len(_ADJECTIVES)]
                 domain = _DOMAINS[(extra // len(_ADJECTIVES)) % len(_DOMAINS)]
                 org_type = _ORG_TYPES[
-                    (extra // (len(_ADJECTIVES) * len(_DOMAINS)))
-                    % len(_ORG_TYPES)
+                    (extra // (len(_ADJECTIVES) * len(_DOMAINS))) % len(_ORG_TYPES)
                 ]
                 name = f"{adj.title()} {domain.title()} {org_type.title()}"
             eid = f"ent_bench_org_{i:04d}"
             summary = self._rng.choice(_ORG_SUMMARY_TEMPLATES).format(name=name)
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="organization",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="organization",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         # Location — pool then adj+domain district combos
         for i in range(type_counts["location"]):
@@ -1155,14 +1922,16 @@ class CorpusGenerator:
                 name = f"{adj.title()} {region.title()} District"
             eid = f"ent_bench_loc_{i:04d}"
             summary = self._rng.choice(_LOC_SUMMARY_TEMPLATES).format(name=name)
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="location",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="location",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         # Project — combinatorial prefix+name+suffix; numeric dedup beyond pool
         used_project_names: set[str] = set()
@@ -1170,8 +1939,7 @@ class CorpusGenerator:
             prefix = _PROJECT_PREFIXES[i % len(_PROJECT_PREFIXES)]
             pname = _PROJECT_NAMES[(i // len(_PROJECT_PREFIXES)) % len(_PROJECT_NAMES)]
             suffix = _PROJECT_SUFFIXES[
-                (i // (len(_PROJECT_PREFIXES) * len(_PROJECT_NAMES)))
-                % len(_PROJECT_SUFFIXES)
+                (i // (len(_PROJECT_PREFIXES) * len(_PROJECT_NAMES))) % len(_PROJECT_SUFFIXES)
             ]
             name = f"{prefix} {pname} {suffix}"
             if name in used_project_names:
@@ -1179,14 +1947,16 @@ class CorpusGenerator:
             used_project_names.add(name)
             eid = f"ent_bench_proj_{i:04d}"
             summary = self._rng.choice(_PROJECT_SUMMARY_TEMPLATES).format(name=name)
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="project",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="project",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         # Concept — pool then adj+concept combos
         for i in range(type_counts["concept"]):
@@ -1195,20 +1965,20 @@ class CorpusGenerator:
             else:
                 extra = i - len(_CONCEPTS)
                 adj = _ADJECTIVES[extra % len(_ADJECTIVES)]
-                base_concept = _CONCEPTS[
-                    (extra // len(_ADJECTIVES)) % len(_CONCEPTS)
-                ]
+                base_concept = _CONCEPTS[(extra // len(_ADJECTIVES)) % len(_CONCEPTS)]
                 name = f"{adj.title()} {base_concept}"
             eid = f"ent_bench_con_{i:04d}"
             summary = self._rng.choice(_CONCEPT_SUMMARY_TEMPLATES).format(name=name)
-            entities.append(Entity(
-                id=eid,
-                name=name,
-                entity_type="concept",
-                summary=summary,
-                group_id=GROUP_ID,
-                created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
-            ))
+            entities.append(
+                Entity(
+                    id=eid,
+                    name=name,
+                    entity_type="concept",
+                    summary=summary,
+                    group_id=GROUP_ID,
+                    created_at=base_time - timedelta(days=self._rng.randint(1, 365)),
+                )
+            )
 
         return entities
 
@@ -1235,20 +2005,19 @@ class CorpusGenerator:
             members: list[str] = []
             for etype, base_count in cluster_def["types"].items():
                 count = max(1, int(base_count * scale_factor))
-                available = [
-                    eid for eid in type_index.get(etype, [])
-                    if eid not in assigned
-                ]
+                available = [eid for eid in type_index.get(etype, []) if eid not in assigned]
                 chosen = available[:count] if len(available) >= count else available
                 members.extend(chosen)
                 assigned.update(chosen)
 
             hub = members[0] if members else None
-            clusters.append({
-                **cluster_def,
-                "members": members,
-                "hub": hub,
-            })
+            clusters.append(
+                {
+                    **cluster_def,
+                    "members": members,
+                    "hub": hub,
+                }
+            )
 
         # Extra clusters at larger scale
         num_extra = max(0, self._scale.num_clusters - len(_CLUSTER_DEFS))
@@ -1263,34 +2032,36 @@ class CorpusGenerator:
 
                 # Derive cluster-specific domains from _DOMAINS pool
                 start_idx = (ci * 3) % len(_DOMAINS)
-                extra_domains = [
-                    _DOMAINS[(start_idx + j) % len(_DOMAINS)] for j in range(5)
-                ]
+                extra_domains = [_DOMAINS[(start_idx + j) % len(_DOMAINS)] for j in range(5)]
 
                 chunk = unassigned[:per_cluster]
                 unassigned = unassigned[per_cluster:]
 
                 hub = chunk[0] if chunk else None
-                clusters.append({
-                    "name": cluster_name,
-                    "types": {},
-                    "description": desc,
-                    "domains": extra_domains,
-                    "members": chunk,
-                    "hub": hub,
-                })
+                clusters.append(
+                    {
+                        "name": cluster_name,
+                        "types": {},
+                        "description": desc,
+                        "domains": extra_domains,
+                        "members": chunk,
+                        "hub": hub,
+                    }
+                )
                 assigned.update(chunk)
 
         # Long-tail: unassigned entities get noted but no cluster
         long_tail = [e.id for e in entities if e.id not in assigned]
-        clusters.append({
-            "name": "Long Tail",
-            "types": {},
-            "description": "Unassigned entities with sparse connections",
-            "domains": list(_DOMAINS),  # fallback to global pool
-            "members": long_tail,
-            "hub": None,
-        })
+        clusters.append(
+            {
+                "name": "Long Tail",
+                "types": {},
+                "description": "Unassigned entities with sparse connections",
+                "domains": list(_DOMAINS),  # fallback to global pool
+                "members": long_tail,
+                "hub": None,
+            }
+        )
 
         return clusters
 
@@ -1391,9 +2162,7 @@ class CorpusGenerator:
 
             elif etype == "technology":
                 # Pick alt_tech from same cluster, excluding self
-                tech_pool = [
-                    t for t in cnames.get("technology", []) if t != name
-                ]
+                tech_pool = [t for t in cnames.get("technology", []) if t != name]
                 alt_tech = (
                     self._rng.choice(tech_pool)
                     if tech_pool
@@ -1486,9 +2255,7 @@ class CorpusGenerator:
                     else self._rng.choice(_TECHNOLOGIES[:80])
                 )
                 # Pick alt_concept from same cluster, excluding self
-                concept_pool = [
-                    c for c in cnames.get("concept", []) if c != name
-                ]
+                concept_pool = [c for c in cnames.get("concept", []) if c != name]
                 alt_concept = (
                     self._rng.choice(concept_pool)
                     if concept_pool
@@ -1511,7 +2278,9 @@ class CorpusGenerator:
     # -- relationship generation ---------------------------------------------
 
     def _get_predicate_for_pair(
-        self, type_a: str, type_b: str,
+        self,
+        type_a: str,
+        type_b: str,
     ) -> str | None:
         """Look up a valid predicate for a (type_a, type_b) pair."""
         preds = _TYPE_PREDICATES.get((type_a, type_b))
@@ -1537,7 +2306,8 @@ class CorpusGenerator:
         base_time = datetime.utcnow()
 
         def _add_rel(
-            src_id: str, tgt_id: str,
+            src_id: str,
+            tgt_id: str,
             predicate: str | None = None,
             valid_from: datetime | None = None,
             valid_to: datetime | None = None,
@@ -1559,19 +2329,20 @@ class CorpusGenerator:
                 # Fallback for types without defined predicates
                 predicate = "RELATED_TO"
 
-            relationships.append(Relationship(
-                id=f"rel_bench_{rel_idx:04d}",
-                source_id=src_id,
-                target_id=tgt_id,
-                predicate=predicate,
-                weight=round(self._rng.uniform(0.5, 1.0), 2),
-                valid_from=valid_from or (
-                    base_time - timedelta(days=self._rng.randint(1, 180))
-                ),
-                valid_to=valid_to,
-                group_id=GROUP_ID,
-                confidence=round(self._rng.uniform(0.7, 1.0), 2),
-            ))
+            relationships.append(
+                Relationship(
+                    id=f"rel_bench_{rel_idx:04d}",
+                    source_id=src_id,
+                    target_id=tgt_id,
+                    predicate=predicate,
+                    weight=round(self._rng.uniform(0.5, 1.0), 2),
+                    valid_from=valid_from
+                    or (base_time - timedelta(days=self._rng.randint(1, 180))),
+                    valid_to=valid_to,
+                    group_id=GROUP_ID,
+                    confidence=round(self._rng.uniform(0.7, 1.0), 2),
+                )
+            )
             existing_pairs.add(pair)
             rel_idx += 1
             return True
@@ -1659,7 +2430,7 @@ class CorpusGenerator:
         ordered = hub_list + non_hub
 
         n = len(ordered)
-        hot_end = int(n * 0.10)       # 10% -> ~100
+        hot_end = int(n * 0.10)  # 10% -> ~100
         warm_end = hot_end + int(n * 0.25)  # 25% -> ~250
         cold_end = warm_end + int(n * 0.35)  # 35% -> ~350
         # Remaining ~30% are dormant
@@ -1726,15 +2497,14 @@ class CorpusGenerator:
         cold_ids = [e.id for e in entities if access_tiers.get(e.id) == "cold"]
 
         def _make_episode(
-            entity_id: str, min_days: float, max_days: float,
+            entity_id: str,
+            min_days: float,
+            max_days: float,
         ) -> None:
             nonlocal ep_idx
             entity = entity_map[entity_id]
             neighbors = sorted(adj.get(entity_id, set()))
-            related_names = [
-                entity_map[n].name for n in neighbors[:3]
-                if n in entity_map
-            ]
+            related_names = [entity_map[n].name for n in neighbors[:3] if n in entity_map]
             related_str = ", ".join(related_names) if related_names else entity.name
 
             template = self._rng.choice(self._EPISODE_TEMPLATES)
@@ -1749,14 +2519,16 @@ class CorpusGenerator:
             created_at = datetime.utcfromtimestamp(self._now - offset_secs)
             ep_id = f"ep_bench_{ep_idx:04d}"
 
-            episodes.append(Episode(
-                id=ep_id,
-                content=content,
-                source="benchmark",
-                status=EpisodeStatus.COMPLETED,
-                group_id=GROUP_ID,
-                created_at=created_at,
-            ))
+            episodes.append(
+                Episode(
+                    id=ep_id,
+                    content=content,
+                    source="benchmark",
+                    status=EpisodeStatus.COMPLETED,
+                    group_id=GROUP_ID,
+                    created_at=created_at,
+                )
+            )
 
             # Link to main entity + up to 2 neighbors
             episode_entities.append((ep_id, entity_id))
@@ -1860,9 +2632,7 @@ class CorpusGenerator:
         pair_list = sorted(bridge_pairs.keys())
         self._rng.shuffle(pair_list)
 
-        for pair_idx, (ci_a, ci_b) in enumerate(
-            pair_list[:self._scale.max_scenarios]
-        ):
+        for pair_idx, (ci_a, ci_b) in enumerate(pair_list[: self._scale.max_scenarios]):
             cluster_a = real_clusters[ci_a]
             cluster_b = real_clusters[ci_b]
             hub_a = cluster_a["hub"]
@@ -1887,11 +2657,13 @@ class CorpusGenerator:
             # Expected bridge: query 2 (index 2) should find bridge entities
             expected_bridge: dict[int, set[str]] = {2: bridge_ids}
 
-            scenarios.append(ConversationScenario(
-                name=f"bridge_{cluster_a['name']}_to_{cluster_b['name']}",
-                queries=queries,
-                expected_bridge=expected_bridge,
-            ))
+            scenarios.append(
+                ConversationScenario(
+                    name=f"bridge_{cluster_a['name']}_to_{cluster_b['name']}",
+                    queries=queries,
+                    expected_bridge=expected_bridge,
+                )
+            )
 
         return scenarios
 
@@ -1909,7 +2681,9 @@ class CorpusGenerator:
         return adj
 
     def _bfs_2hop(
-        self, start: str, adj: dict[str, set[str]],
+        self,
+        start: str,
+        adj: dict[str, set[str]],
     ) -> tuple[set[str], set[str]]:
         """Return (1-hop neighbors, 2-hop neighbors) via BFS."""
         hop1 = adj.get(start, set())
@@ -1931,6 +2705,7 @@ class CorpusGenerator:
         if start == end:
             return []
         from collections import deque
+
         visited: dict[str, str | None] = {start: None}
         queue: deque[tuple[str, int]] = deque([(start, 0)])
         while queue:
@@ -1960,12 +2735,8 @@ class CorpusGenerator:
         """Build entity_id -> {predicate -> [target_ids]} index."""
         idx: dict[str, dict[str, list[str]]] = {}
         for rel in relationships:
-            idx.setdefault(rel.source_id, {}).setdefault(rel.predicate, []).append(
-                rel.target_id
-            )
-            idx.setdefault(rel.target_id, {}).setdefault(rel.predicate, []).append(
-                rel.source_id
-            )
+            idx.setdefault(rel.source_id, {}).setdefault(rel.predicate, []).append(rel.target_id)
+            idx.setdefault(rel.target_id, {}).setdefault(rel.predicate, []).append(rel.source_id)
         return idx
 
     def _bfs_3hop(
@@ -2048,9 +2819,7 @@ class CorpusGenerator:
         # Dormant entities have no access events; they are implicitly grade 0
 
         # Real clusters (excluding long tail)
-        real_clusters = [
-            c for c in clusters if c["name"] != "Long Tail" and len(c["members"]) > 2
-        ]
+        real_clusters = [c for c in clusters if c["name"] != "Long Tail" and len(c["members"]) > 2]
 
         # ---- DIRECT (15) ----
         direct_templates = [
@@ -2094,12 +2863,14 @@ class CorpusGenerator:
             for n_id in hop2_list:
                 relevant[n_id] = 1
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_direct_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="direct",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_direct_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="direct",
+                )
+            )
             query_idx += 1
 
         # ---- RECENCY (10) ----
@@ -2108,22 +2879,20 @@ class CorpusGenerator:
         # last_access_time falls within the window.
         recency_specs = [
             # (template, g3_window, g2_window, g1_window)
-            ("What was I working on in the last few hours?",   (0, 0.5),  (0.5, 1),  (1, 3)),
-            ("What topics came up today?",                     (0, 1),    (1, 3),    (3, 7)),
-            ("What was I looking at yesterday?",               (1, 2),    (0, 1),    (2, 7)),
-            ("What did I work on this week?",                  (0, 7),    (7, 14),   (14, 30)),
-            ("What came up in the last few days?",             (0, 3),    (3, 7),    (7, 14)),
-            ("What have I been working on this month?",        (0, 30),   (30, 60),  (60, 90)),
-            ("What was I focused on last week?",               (7, 14),   (0, 7),    (14, 30)),
-            ("What did I deal with last month?",               (30, 60),  (7, 30),   (60, 90)),
-            ("What's fresh in my memory?",                     (0, 1),    (1, 7),    (7, 30)),
-            ("What came up most recently?",                    (0, 3),    (3, 14),   (14, 30)),
+            ("What was I working on in the last few hours?", (0, 0.5), (0.5, 1), (1, 3)),
+            ("What topics came up today?", (0, 1), (1, 3), (3, 7)),
+            ("What was I looking at yesterday?", (1, 2), (0, 1), (2, 7)),
+            ("What did I work on this week?", (0, 7), (7, 14), (14, 30)),
+            ("What came up in the last few days?", (0, 3), (3, 7), (7, 14)),
+            ("What have I been working on this month?", (0, 30), (30, 60), (60, 90)),
+            ("What was I focused on last week?", (7, 14), (0, 7), (14, 30)),
+            ("What did I deal with last month?", (30, 60), (7, 30), (60, 90)),
+            ("What's fresh in my memory?", (0, 1), (1, 7), (7, 30)),
+            ("What came up most recently?", (0, 3), (3, 14), (14, 30)),
         ]
 
         for spec_idx in range(self._scale.recency_queries):
-            template, g3_win, g2_win, g1_win = recency_specs[
-                spec_idx % len(recency_specs)
-            ]
+            template, g3_win, g2_win, g1_win = recency_specs[spec_idx % len(recency_specs)]
             graded: dict[int, list[str]] = {3: [], 2: [], 1: []}
             for eid, ts in last_access_time.items():
                 days_ago = (self._now - ts) / 86400.0
@@ -2138,23 +2907,27 @@ class CorpusGenerator:
             caps = {3: 30, 2: 20, 1: 15}
             capped: dict[str, int] = {}
             for grade in (3, 2, 1):
-                for eid in sorted(graded[grade])[:caps[grade]]:
+                for eid in sorted(graded[grade])[: caps[grade]]:
                     capped[eid] = grade
 
             # Safety: if no entities matched any window, take nearest 5
             if not capped:
                 nearest = sorted(
-                    last_access_time, key=lambda e: last_access_time[e], reverse=True,
+                    last_access_time,
+                    key=lambda e: last_access_time[e],
+                    reverse=True,
                 )[:5]
                 for eid in nearest:
                     capped[eid] = 3
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_recency_{query_idx:03d}",
-                query_text=template,
-                relevant_entities=capped,
-                category="recency",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_recency_{query_idx:03d}",
+                    query_text=template,
+                    relevant_entities=capped,
+                    category="recency",
+                )
+            )
             query_idx += 1
 
         # ---- FREQUENCY (10) ----
@@ -2181,12 +2954,14 @@ class CorpusGenerator:
                 elif count >= 5:
                     relevant[eid] = 1
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_frequency_{query_idx:03d}",
-                query_text=frequency_templates[i % len(frequency_templates)],
-                relevant_entities=relevant,
-                category="frequency",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_frequency_{query_idx:03d}",
+                    query_text=frequency_templates[i % len(frequency_templates)],
+                    relevant_entities=relevant,
+                    category="frequency",
+                )
+            )
             query_idx += 1
 
         # ---- ASSOCIATIVE (10) ----
@@ -2247,12 +3022,14 @@ class CorpusGenerator:
                         if m not in relevant:
                             relevant[m] = 1
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_associative_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="associative",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_associative_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="associative",
+                )
+            )
             query_idx += 1
 
         # ---- TEMPORAL_CONTEXT (5) ----
@@ -2272,9 +3049,9 @@ class CorpusGenerator:
             domains = cluster.get("domains", ["technology"])
             # Pick a domain deterministically (round-robin across domains)
             domain_phrase = domains[i % len(domains)]
-            query_text = temporal_context_templates[
-                i % len(temporal_context_templates)
-            ].format(domain=domain_phrase)
+            query_text = temporal_context_templates[i % len(temporal_context_templates)].format(
+                domain=domain_phrase
+            )
 
             # Grade by recency within cluster. After summary enrichment,
             # >80% of cluster members will contain their cluster's domain
@@ -2302,12 +3079,14 @@ class CorpusGenerator:
                 for mid, _ in cluster_accessed[:3]:
                     relevant[mid] = 3
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_temporal_context_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="temporal_context",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_temporal_context_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="temporal_context",
+                )
+            )
             query_idx += 1
 
         # ---- SEMANTIC (10) — graded by relationship predicates ----
@@ -2333,9 +3112,11 @@ class CorpusGenerator:
         for i in range(self._scale.semantic_queries):
             relevant: dict[str, int] = {}
             # Pick a focal entity (person) and grade by predicate richness
-            focal_person = person_ids_all[
-                (i * 7 + 3) % len(person_ids_all)
-            ] if person_ids_all else entities[i].id
+            focal_person = (
+                person_ids_all[(i * 7 + 3) % len(person_ids_all)]
+                if person_ids_all
+                else entities[i].id
+            )
             # Find entities connected by specific predicates
             person_preds = pred_index.get(focal_person, {})
 
@@ -2362,38 +3143,49 @@ class CorpusGenerator:
             # Build query text using focal person's actual connections
             works_at_list = person_preds.get("WORKS_AT", [])
             uses_list = person_preds.get("USES", [])
-            concept_list = (
-                person_preds.get("EXPERT_IN", [])
-                or person_preds.get("RESEARCHES", [])
-            )
+            concept_list = person_preds.get("EXPERT_IN", []) or person_preds.get("RESEARCHES", [])
 
             org_name = (
-                entity_map[works_at_list[0]].name if works_at_list
-                else (entity_map[org_ids_all[i % len(org_ids_all)]].name
-                      if org_ids_all else "Unknown")
+                entity_map[works_at_list[0]].name
+                if works_at_list
+                else (
+                    entity_map[org_ids_all[i % len(org_ids_all)]].name if org_ids_all else "Unknown"
+                )
             )
             tech_name = (
-                entity_map[uses_list[0]].name if uses_list
-                else (entity_map[tech_ids_all[i % len(tech_ids_all)]].name
-                      if tech_ids_all else "Unknown")
+                entity_map[uses_list[0]].name
+                if uses_list
+                else (
+                    entity_map[tech_ids_all[i % len(tech_ids_all)]].name
+                    if tech_ids_all
+                    else "Unknown"
+                )
             )
             concept_name = (
-                entity_map[concept_list[0]].name if concept_list
-                else (entity_map[concept_ids_all[i % len(concept_ids_all)]].name
-                      if concept_ids_all else "Unknown")
+                entity_map[concept_list[0]].name
+                if concept_list
+                else (
+                    entity_map[concept_ids_all[i % len(concept_ids_all)]].name
+                    if concept_ids_all
+                    else "Unknown"
+                )
             )
             focal_person_name = entity_map[focal_person].name
             query_text = semantic_templates[i % len(semantic_templates)].format(
-                person=focal_person_name, org=org_name, tech=tech_name,
+                person=focal_person_name,
+                org=org_name,
+                tech=tech_name,
                 concept=concept_name,
             )
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_semantic_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="semantic",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_semantic_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="semantic",
+                )
+            )
             query_idx += 1
 
         # ---- GRAPH_TRAVERSAL (10) — graded by hop distance ----
@@ -2425,9 +3217,7 @@ class CorpusGenerator:
         for i in range(self._scale.graph_traversal_queries):
             target_id = traversal_targets[i % len(traversal_targets)]
             target_name = entity_map[target_id].name
-            query_text = traversal_templates[
-                i % len(traversal_templates)
-            ].format(name=target_name)
+            query_text = traversal_templates[i % len(traversal_templates)].format(name=target_name)
 
             hop1, hop2, hop3 = self._bfs_3hop(target_id, adj)
 
@@ -2444,12 +3234,14 @@ class CorpusGenerator:
                 if eid not in relevant:
                     relevant[eid] = 1
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_traversal_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="graph_traversal",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_traversal_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="graph_traversal",
+                )
+            )
             query_idx += 1
 
         # ---- CROSS_CLUSTER (5) — graded by bridge role ----
@@ -2479,11 +3271,13 @@ class CorpusGenerator:
                 bridge_id, ci_a, ci_b = bridges[i]
                 cluster_a_phrase = (
                     real_clusters[ci_a]["description"]
-                    if ci_a < len(real_clusters) else "unknown domain"
+                    if ci_a < len(real_clusters)
+                    else "unknown domain"
                 )
                 cluster_b_phrase = (
                     real_clusters[ci_b]["description"]
-                    if ci_b < len(real_clusters) else "unknown domain"
+                    if ci_b < len(real_clusters)
+                    else "unknown domain"
                 )
             else:
                 # Fallback: pick two clusters and find any shared neighbors
@@ -2492,14 +3286,11 @@ class CorpusGenerator:
                 cluster_a_phrase = real_clusters[ci_a]["description"]
                 cluster_b_phrase = real_clusters[ci_b]["description"]
                 members_ci = real_clusters[ci_a]["members"]
-                bridge_id = (
-                    members_ci[0] if members_ci else entities[0].id
-                )
+                bridge_id = members_ci[0] if members_ci else entities[0].id
 
-            query_text = cross_templates[
-                i % len(cross_templates)
-            ].format(
-                a=cluster_a_phrase, b=cluster_b_phrase,
+            query_text = cross_templates[i % len(cross_templates)].format(
+                a=cluster_a_phrase,
+                b=cluster_b_phrase,
             )
 
             relevant = {bridge_id: 3}
@@ -2525,12 +3316,14 @@ class CorpusGenerator:
                 if m not in relevant:
                     relevant[m] = 1
 
-            queries.append(GroundTruthQuery(
-                query_id=f"q_cross_cluster_{query_idx:03d}",
-                query_text=query_text,
-                relevant_entities=relevant,
-                category="cross_cluster",
-            ))
+            queries.append(
+                GroundTruthQuery(
+                    query_id=f"q_cross_cluster_{query_idx:03d}",
+                    query_text=query_text,
+                    relevant_entities=relevant,
+                    category="cross_cluster",
+                )
+            )
             query_idx += 1
 
         return queries
@@ -2539,6 +3332,7 @@ class CorpusGenerator:
 # ---------------------------------------------------------------------------
 # Module-level convenience
 # ---------------------------------------------------------------------------
+
 
 def generate_corpus(seed: int = 42, total_entities: int = 1000) -> CorpusSpec:
     """Convenience wrapper: generate a benchmark corpus with default settings."""

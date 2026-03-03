@@ -20,7 +20,9 @@ def _make_store():
     from engram.storage.falkordb.graph import FalkorDBGraphStore
 
     cfg = FalkorDBConfig(
-        host="localhost", port=6380, graph_name=f"test_{uuid.uuid4().hex[:8]}",
+        host="localhost",
+        port=6380,
+        graph_name=f"test_{uuid.uuid4().hex[:8]}",
     )
     return FalkorDBGraphStore(cfg)
 
@@ -28,14 +30,19 @@ def _make_store():
 def _entity(name: str, entity_type: str = "Person", group_id: str = "test") -> Entity:
     return Entity(
         id=f"ent_{uuid.uuid4().hex[:8]}",
-        name=name, entity_type=entity_type, group_id=group_id,
+        name=name,
+        entity_type=entity_type,
+        group_id=group_id,
     )
 
 
 def _episode(group_id: str = "test") -> Episode:
     return Episode(
         id=f"ep_{uuid.uuid4().hex[:8]}",
-        content="test content", source="test", status="completed", group_id=group_id,
+        content="test content",
+        source="test",
+        status="completed",
+        group_id=group_id,
     )
 
 
@@ -62,7 +69,8 @@ class TestFalkorDBCoOccurrence:
             await store.link_episode_entity(ep.id, e2.id)
 
         pairs = await store.get_co_occurring_entity_pairs(
-            group_id="test", min_co_occurrence=3,
+            group_id="test",
+            min_co_occurrence=3,
         )
         assert len(pairs) >= 1
         ids = {(p[0], p[1]) for p in pairs}
@@ -80,8 +88,10 @@ class TestFalkorDBCoOccurrence:
         # Create existing relationship
         rel = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e1.id, target_id=e2.id,
-            predicate="KNOWS", group_id="test",
+            source_id=e1.id,
+            target_id=e2.id,
+            predicate="KNOWS",
+            group_id="test",
         )
         await store.create_relationship(rel)
 
@@ -92,7 +102,8 @@ class TestFalkorDBCoOccurrence:
             await store.link_episode_entity(ep.id, e2.id)
 
         pairs = await store.get_co_occurring_entity_pairs(
-            group_id="test", min_co_occurrence=3,
+            group_id="test",
+            min_co_occurrence=3,
         )
         pair_ids = {(p[0], p[1]) for p in pairs}
         canonical = tuple(sorted([e1.id, e2.id]))
@@ -127,8 +138,10 @@ class TestFalkorDBDeadEntities:
 
         rel = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e1.id, target_id=e2.id,
-            predicate="KNOWS", group_id="test",
+            source_id=e1.id,
+            target_id=e2.id,
+            predicate="KNOWS",
+            group_id="test",
         )
         await store.create_relationship(rel)
 
@@ -150,8 +163,10 @@ class TestFalkorDBMergeEntities:
         # Loser has an outgoing relationship to other
         rel = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=loser.id, target_id=other.id,
-            predicate="KNOWS", group_id="test",
+            source_id=loser.id,
+            target_id=other.id,
+            predicate="KNOWS",
+            group_id="test",
         )
         await store.create_relationship(rel)
 

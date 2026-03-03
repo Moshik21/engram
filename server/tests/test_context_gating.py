@@ -191,8 +191,8 @@ class TestBFSContextGate:
 
         query_vec = _make_unit_vec(0)
         pred_embs = {
-            "EXPERT_IN": _make_unit_vec(5),     # Nearly aligned
-            "LOCATED_IN": _make_unit_vec(90),   # Orthogonal
+            "EXPERT_IN": _make_unit_vec(5),  # Nearly aligned
+            "LOCATED_IN": _make_unit_vec(90),  # Orthogonal
         }
         gate = ContextGate(query_vec, pred_embs, floor=0.3)
 

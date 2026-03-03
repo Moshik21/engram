@@ -56,10 +56,10 @@ class TestLogarithmicCompact:
         max_age = 30 * 86400  # 30 days
         # Some within range, some beyond
         history = [
-            now - 10 * 86400,     # Within range
-            now - 20 * 86400,     # Within range
-            now - 40 * 86400,     # Beyond max_age
-            now - 50 * 86400,     # Beyond max_age
+            now - 10 * 86400,  # Within range
+            now - 20 * 86400,  # Within range
+            now - 40 * 86400,  # Beyond max_age
+            now - 50 * 86400,  # Beyond max_age
         ]
         result = logarithmic_compact(history, now, max_age_seconds=max_age, keep_min=1)
 
@@ -112,8 +112,13 @@ class TestAccessHistoryCompactionPhase:
         )
         phase = AccessHistoryCompactionPhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 1
@@ -127,7 +132,9 @@ class TestAccessHistoryCompactionPhase:
         now = time.time()
         history = [now - i * 3600 for i in range(200)]
         state = ActivationState(
-            node_id="ent_test", access_history=history, access_count=200,
+            node_id="ent_test",
+            access_history=history,
+            access_count=200,
         )
         await activation.set_activation("ent_test", state)
         activation._group_map["ent_test"] = "test"
@@ -135,8 +142,13 @@ class TestAccessHistoryCompactionPhase:
         cfg = ActivationConfig(consolidation_compaction_logarithmic=True)
         phase = AccessHistoryCompactionPhase()
         result, _ = await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
 
         # History should not be modified
@@ -148,11 +160,13 @@ class TestAccessHistoryCompactionPhase:
         now = time.time()
         # Mix of recent and old timestamps
         history = (
-            [now - i * 3600 for i in range(24)] +  # Recent
-            [now - 50 * 86400 - i * 3600 for i in range(100)]  # Old
+            [now - i * 3600 for i in range(24)]  # Recent
+            + [now - 50 * 86400 - i * 3600 for i in range(100)]  # Old
         )
         state = ActivationState(
-            node_id="ent_test", access_history=history, access_count=124,
+            node_id="ent_test",
+            access_history=history,
+            access_count=124,
         )
         await activation.set_activation("ent_test", state)
         activation._group_map["ent_test"] = "test"
@@ -164,8 +178,13 @@ class TestAccessHistoryCompactionPhase:
         )
         phase = AccessHistoryCompactionPhase()
         result, _ = await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 1
@@ -197,8 +216,13 @@ class TestConsolidatedStrengthCompaction:
         )
         phase = AccessHistoryCompactionPhase()
         await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_cs", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_cs",
+            dry_run=False,
         )
 
         updated = await activation.get_activation("ent_cs")
@@ -228,13 +252,20 @@ class TestConsolidatedStrengthCompaction:
 
         phase = AccessHistoryCompactionPhase()
         await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_pres", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_pres",
+            dry_run=False,
         )
 
         updated = await activation.get_activation("ent_pres")
         act_after = compute_activation(
-            updated.access_history, now, cfg,
+            updated.access_history,
+            now,
+            cfg,
             updated.consolidated_strength,
         )
 
@@ -264,22 +295,30 @@ class TestConsolidatedStrengthCompaction:
 
         # First compaction
         await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_1", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_1",
+            dry_run=False,
         )
         after_first = await activation.get_activation("ent_acc")
         cs_first = after_first.consolidated_strength
 
         # Add more old timestamps to force a second compaction
-        after_first.access_history.extend(
-            [now - 10 * 86400 - i * 3600 for i in range(200)]
-        )
+        after_first.access_history.extend([now - 10 * 86400 - i * 3600 for i in range(200)])
         await activation.set_activation("ent_acc", after_first)
 
         # Second compaction
         await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_2", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_2",
+            dry_run=False,
         )
         after_second = await activation.get_activation("ent_acc")
 
@@ -308,8 +347,13 @@ class TestDirtyFlagCompaction:
         cfg = ActivationConfig(consolidation_compaction_logarithmic=True)
         phase = AccessHistoryCompactionPhase()
         result, _ = await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_skip", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_skip",
+            dry_run=False,
         )
 
         assert result.items_processed == 0
@@ -336,8 +380,13 @@ class TestDirtyFlagCompaction:
         )
         phase = AccessHistoryCompactionPhase()
         result, _ = await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_recomp", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_recomp",
+            dry_run=False,
         )
 
         assert result.items_processed == 1
@@ -363,8 +412,13 @@ class TestDirtyFlagCompaction:
         )
         phase = AccessHistoryCompactionPhase()
         await phase.execute(
-            group_id="test", graph_store=None, activation_store=activation,
-            search_index=None, cfg=cfg, cycle_id="cyc_flag", dry_run=False,
+            group_id="test",
+            graph_store=None,
+            activation_store=activation,
+            search_index=None,
+            cfg=cfg,
+            cycle_id="cyc_flag",
+            dry_run=False,
         )
 
         updated = await activation.get_activation("ent_flag")

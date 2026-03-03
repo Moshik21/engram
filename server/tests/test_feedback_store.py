@@ -23,8 +23,10 @@ class TestFeedbackStore:
     async def test_record_and_retrieve(self, store):
         """Record an event and retrieve it."""
         event = FeedbackEvent(
-            entity_id="e1", event_type="returned",
-            query="test query", group_id="default",
+            entity_id="e1",
+            event_type="returned",
+            query="test query",
+            group_id="default",
         )
         await store.record_event(event)
         events = await store.get_entity_feedback("e1", "default")
@@ -38,20 +40,28 @@ class TestFeedbackStore:
         """Stats correctly aggregate across event types."""
         events = [
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q1", group_id="g1",
+                entity_id="e1",
+                event_type="returned",
+                query="q1",
+                group_id="g1",
             ),
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q2", group_id="g1",
+                entity_id="e1",
+                event_type="returned",
+                query="q2",
+                group_id="g1",
             ),
             FeedbackEvent(
-                entity_id="e1", event_type="ignored",
-                query="q3", group_id="g1",
+                entity_id="e1",
+                event_type="ignored",
+                query="q3",
+                group_id="g1",
             ),
             FeedbackEvent(
-                entity_id="e2", event_type="re_accessed",
-                query="q4", group_id="g1",
+                entity_id="e2",
+                event_type="re_accessed",
+                query="q4",
+                group_id="g1",
             ),
         ]
         for e in events:
@@ -70,14 +80,18 @@ class TestFeedbackStore:
         """Events are filtered by group_id."""
         await store.record_event(
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q1", group_id="g1",
+                entity_id="e1",
+                event_type="returned",
+                query="q1",
+                group_id="g1",
             ),
         )
         await store.record_event(
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q2", group_id="g2",
+                entity_id="e1",
+                event_type="returned",
+                query="q2",
+                group_id="g2",
             ),
         )
         events_g1 = await store.get_entity_feedback("e1", "g1")
@@ -89,11 +103,17 @@ class TestFeedbackStore:
     async def test_cleanup_ttl(self, store):
         """Cleanup removes events older than TTL."""
         old_event = FeedbackEvent(
-            entity_id="e1", event_type="returned", query="q1", group_id="g1",
+            entity_id="e1",
+            event_type="returned",
+            query="q1",
+            group_id="g1",
             timestamp=time.time() - (100 * 86400),
         )
         new_event = FeedbackEvent(
-            entity_id="e2", event_type="returned", query="q2", group_id="g1",
+            entity_id="e2",
+            event_type="returned",
+            query="q2",
+            group_id="g1",
             timestamp=time.time(),
         )
         await store.record_event(old_event)
@@ -109,12 +129,18 @@ class TestFeedbackStore:
     async def test_multiple_event_types(self, store):
         """All event types are stored and aggregated correctly."""
         types = [
-            "returned", "re_accessed", "mentioned_in_remember", "ignored",
+            "returned",
+            "re_accessed",
+            "mentioned_in_remember",
+            "ignored",
         ]
         for t in types:
             await store.record_event(
                 FeedbackEvent(
-                    entity_id="e1", event_type=t, query="q", group_id="g1",
+                    entity_id="e1",
+                    event_type=t,
+                    query="q",
+                    group_id="g1",
                 ),
             )
         stats = await store.get_feedback_stats("g1")
@@ -138,14 +164,18 @@ class TestFeedbackStore:
         """Stats are scoped to group_id."""
         await store.record_event(
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q", group_id="g1",
+                entity_id="e1",
+                event_type="returned",
+                query="q",
+                group_id="g1",
             ),
         )
         await store.record_event(
             FeedbackEvent(
-                entity_id="e1", event_type="returned",
-                query="q", group_id="g2",
+                entity_id="e1",
+                event_type="returned",
+                query="q",
+                group_id="g2",
             ),
         )
         stats_g1 = await store.get_feedback_stats("g1")

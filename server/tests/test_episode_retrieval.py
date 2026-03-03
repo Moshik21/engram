@@ -168,7 +168,8 @@ class TestHybridSearchEpisodes:
 
 
 def _mock_search_index_with_episodes(
-    entity_results=None, episode_results=None,
+    entity_results=None,
+    episode_results=None,
 ):
     """Create a mock search index that supports search_episodes."""
     idx = AsyncMock()
@@ -177,8 +178,7 @@ def _mock_search_index_with_episodes(
     )
     idx.search_episodes = AsyncMock(
         return_value=(
-            episode_results if episode_results is not None
-            else [("ep_1", 0.8), ("ep_2", 0.6)]
+            episode_results if episode_results is not None else [("ep_1", 0.8), ("ep_2", 0.6)]
         ),
     )
     idx.compute_similarity = AsyncMock(return_value={})
@@ -189,15 +189,25 @@ def _mock_search_index_with_episodes(
 def _mock_graph_store():
     store = AsyncMock()
     store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
-    store.get_entity = AsyncMock(return_value=Entity(
-        id="e1", name="Test", entity_type="Thing",
-        summary="A test entity", group_id="default",
-    ))
-    store.get_episode_by_id = AsyncMock(return_value=Episode(
-        id="ep_1", content="Test episode content that is quite long",
-        source="test", status=EpisodeStatus.COMPLETED,
-        group_id="default", created_at=datetime.utcnow(),
-    ))
+    store.get_entity = AsyncMock(
+        return_value=Entity(
+            id="e1",
+            name="Test",
+            entity_type="Thing",
+            summary="A test entity",
+            group_id="default",
+        )
+    )
+    store.get_episode_by_id = AsyncMock(
+        return_value=Episode(
+            id="ep_1",
+            content="Test episode content that is quite long",
+            source="test",
+            status=EpisodeStatus.COMPLETED,
+            group_id="default",
+            created_at=datetime.utcnow(),
+        )
+    )
     store.get_episode_entities = AsyncMock(return_value=["e1", "e2"])
     return store
 
@@ -291,7 +301,8 @@ class TestPipelineEpisodeRetrieval:
             # score = weight_semantic * sem_sim * episode_retrieval_weight
             # = 0.40 * 1.0 * 0.5 = 0.20
             assert ep_results[0].score == pytest.approx(
-                cfg.weight_semantic * 1.0 * 0.5, abs=0.01,
+                cfg.weight_semantic * 1.0 * 0.5,
+                abs=0.01,
             )
 
     @pytest.mark.asyncio

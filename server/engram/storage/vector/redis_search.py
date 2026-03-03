@@ -57,27 +57,50 @@ class RedisSearchIndex:
 
         try:
             await self._redis.execute_command(
-                "FT.CREATE", self.INDEX_NAME,
-                "ON", "HASH",
-                "PREFIX", "1", "engram:",
+                "FT.CREATE",
+                self.INDEX_NAME,
+                "ON",
+                "HASH",
+                "PREFIX",
+                "1",
+                "engram:",
                 "SCHEMA",
-                "group_id", "TAG",
-                "content_type", "TAG",
-                "source_id", "TAG",
-                "text", "TEXT",
-                "entity_type", "TAG",
-                "created_at", "NUMERIC", "SORTABLE",
-                "embedding", "VECTOR", "HNSW", "10",
-                "TYPE", "FLOAT32",
-                "DIM", str(dim),
-                "DISTANCE_METRIC", "COSINE",
-                "INITIAL_CAP", "10000",
-                "M", str(m),
-                "EF_CONSTRUCTION", str(ef_construction),
+                "group_id",
+                "TAG",
+                "content_type",
+                "TAG",
+                "source_id",
+                "TAG",
+                "text",
+                "TEXT",
+                "entity_type",
+                "TAG",
+                "created_at",
+                "NUMERIC",
+                "SORTABLE",
+                "embedding",
+                "VECTOR",
+                "HNSW",
+                "10",
+                "TYPE",
+                "FLOAT32",
+                "DIM",
+                str(dim),
+                "DISTANCE_METRIC",
+                "COSINE",
+                "INITIAL_CAP",
+                "10000",
+                "M",
+                str(m),
+                "EF_CONSTRUCTION",
+                str(ef_construction),
             )
             logger.info(
                 "RedisSearchIndex: created index '%s' (dim=%d, M=%d, ef=%d)",
-                self.INDEX_NAME, dim, m, ef_construction,
+                self.INDEX_NAME,
+                dim,
+                m,
+                ef_construction,
             )
         except Exception as e:
             logger.warning("RedisSearchIndex: FT.CREATE failed: %s", e)
@@ -103,15 +126,18 @@ class RedisSearchIndex:
             vec_bytes = pack_vector(embeddings[0])
             created_ts = entity.created_at.timestamp() if entity.created_at else 0.0
 
-            await self._redis.hset(key, mapping={
-                "group_id": entity.group_id,
-                "content_type": "entity",
-                "source_id": entity.id,
-                "text": text,
-                "entity_type": entity.entity_type or "",
-                "created_at": str(created_ts),
-                "embedding": vec_bytes,
-            })
+            await self._redis.hset(
+                key,
+                mapping={
+                    "group_id": entity.group_id,
+                    "content_type": "entity",
+                    "source_id": entity.id,
+                    "text": text,
+                    "entity_type": entity.entity_type or "",
+                    "created_at": str(created_ts),
+                    "embedding": vec_bytes,
+                },
+            )
         except Exception as e:
             logger.warning("Failed to index entity %s: %s", entity.id, e)
 
@@ -129,15 +155,18 @@ class RedisSearchIndex:
             vec_bytes = pack_vector(embeddings[0])
             created_ts = episode.created_at.timestamp() if episode.created_at else 0.0
 
-            await self._redis.hset(key, mapping={
-                "group_id": episode.group_id,
-                "content_type": "episode",
-                "source_id": episode.id,
-                "text": episode.content,
-                "entity_type": "",
-                "created_at": str(created_ts),
-                "embedding": vec_bytes,
-            })
+            await self._redis.hset(
+                key,
+                mapping={
+                    "group_id": episode.group_id,
+                    "content_type": "episode",
+                    "source_id": episode.id,
+                    "text": episode.content,
+                    "entity_type": "",
+                    "created_at": str(created_ts),
+                    "embedding": vec_bytes,
+                },
+            )
         except Exception as e:
             logger.warning("Failed to index episode %s: %s", episode.id, e)
 
@@ -177,13 +206,24 @@ class RedisSearchIndex:
 
         try:
             result = await self._redis.execute_command(
-                "FT.SEARCH", self.INDEX_NAME,
+                "FT.SEARCH",
+                self.INDEX_NAME,
                 knn_query,
-                "PARAMS", "2", "blob", vec_bytes,
-                "SORTBY", "score",
-                "LIMIT", "0", str(limit),
-                "RETURN", "2", "source_id", "score",
-                "DIALECT", "2",
+                "PARAMS",
+                "2",
+                "blob",
+                vec_bytes,
+                "SORTBY",
+                "score",
+                "LIMIT",
+                "0",
+                str(limit),
+                "RETURN",
+                "2",
+                "source_id",
+                "score",
+                "DIALECT",
+                "2",
             )
         except Exception as e:
             logger.warning("RedisSearchIndex search failed: %s", e)

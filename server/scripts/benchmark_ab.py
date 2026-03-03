@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import os
+
 from dotenv import load_dotenv
 
 # Load .env from server/ directory
@@ -75,10 +76,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     """Execute the full A/B benchmark and return the results dict."""
 
     # 1. Generate corpus
-    print(
-        f"Generating corpus with seed={args.seed}, "
-        f"entities={args.entities} ..."
-    )
+    print(f"Generating corpus with seed={args.seed}, entities={args.entities} ...")
     corpus_gen = CorpusGenerator(seed=args.seed, total_entities=args.entities)
     corpus: CorpusSpec = corpus_gen.generate()
 
@@ -127,14 +125,17 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         search_index = fts_index
 
     # 3. Load corpus into stores
-    structure_aware = getattr(args, 'structure_aware', False)
+    structure_aware = getattr(args, "structure_aware", False)
     bench_cfg = ActivationConfig()
     if structure_aware:
         print("Loading corpus into stores (structure-aware indexing) ...")
     else:
         print("Loading corpus into stores ...")
     load_elapsed = await corpus_gen.load(
-        corpus, graph_store, activation_store, search_index,
+        corpus,
+        graph_store,
+        activation_store,
+        search_index,
         structure_aware=structure_aware,
         cfg=bench_cfg,
     )
@@ -158,8 +159,10 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             cluster_assignments[member_id] = cluster_info["name"]
     if cluster_assignments:
         community_store.set_assignments("benchmark", cluster_assignments)
-        print(f"Community store: {len(cluster_assignments)} entities in "
-              f"{len(corpus.metadata.get('clusters', []))} clusters")
+        print(
+            f"Community store: {len(cluster_assignments)} entities in "
+            f"{len(corpus.metadata.get('clusters', []))} clusters"
+        )
 
     # 4. Filter methods
     method_names = {m.name for m in ALL_METHODS}
@@ -177,15 +180,16 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     else:
         selected_methods = list(ALL_METHODS)
 
-    corpus.metadata["search_mode"] = (
-        "Voyage AI + FTS5 hybrid" if args.embeddings else "FTS5 only"
-    )
+    corpus.metadata["search_mode"] = "Voyage AI + FTS5 hybrid" if args.embeddings else "FTS5 only"
 
     # 4.5. Partition methods into regular and consolidation-requiring
     regular_methods = [m for m in selected_methods if not m.requires_consolidation]
     consolidation_methods = [m for m in selected_methods if m.requires_consolidation]
 
-    print(f"Running {len(regular_methods)} regular + {len(consolidation_methods)} consolidation methods x {n_queries} queries ...\n")
+    print(
+        f"Running {len(regular_methods)} regular + "
+        f"{len(consolidation_methods)} consolidation methods x {n_queries} queries ...\n"
+    )
 
     # 5. Run retrieval for each method x query
     # Structure: method_name -> list of per-query dicts
@@ -196,14 +200,14 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     benchmark_now = corpus.metadata.get("generated_at", time.time())
 
     # Track original config for swapping
-    original_cfg = getattr(search_index, '_cfg', None)
+    original_cfg = getattr(search_index, "_cfg", None)
 
     for method in regular_methods:
         method_results[method.name] = []
         method_latencies[method.name] = []
 
         # Swap search index config for methods that need it (RRF vs Linear)
-        if hasattr(search_index, '_cfg'):
+        if hasattr(search_index, "_cfg"):
             search_index._cfg = method.config
 
         for qi, query in enumerate(corpus.ground_truth):
@@ -257,7 +261,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             print()
 
     # Restore original search config
-    if hasattr(search_index, '_cfg') and original_cfg is not None:
+    if hasattr(search_index, "_cfg") and original_cfg is not None:
         search_index._cfg = original_cfg
 
     # 5.5. Run consolidation methods (after running a consolidation cycle)
@@ -265,11 +269,16 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         from engram.consolidation.engine import ConsolidationEngine
 
         consol_engine = ConsolidationEngine(
-            graph_store, activation_store, search_index, cfg=bench_cfg,
+            graph_store,
+            activation_store,
+            search_index,
+            cfg=bench_cfg,
         )
         print("Running consolidation cycle ...")
         cycle = await consol_engine.run_cycle(
-            group_id="benchmark", trigger="benchmark", dry_run=False,
+            group_id="benchmark",
+            trigger="benchmark",
+            dry_run=False,
         )
         affected = sum(r.items_affected for r in cycle.phase_results)
         print(f"Consolidation: {cycle.status}, {affected} items affected\n")
@@ -278,7 +287,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             method_results[method.name] = []
             method_latencies[method.name] = []
 
-            if hasattr(search_index, '_cfg'):
+            if hasattr(search_index, "_cfg"):
                 search_index._cfg = method.config
 
             for qi, query in enumerate(corpus.ground_truth):
@@ -331,7 +340,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                 print()
 
         # Restore original search config again
-        if hasattr(search_index, '_cfg') and original_cfg is not None:
+        if hasattr(search_index, "_cfg") and original_cfg is not None:
             search_index._cfg = original_cfg
 
     # 6. Aggregate results
@@ -382,18 +391,22 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         scores_a = method_p5_scores[name_a]
         scores_b = method_p5_scores[name_b]
         mean_diff, ci_lower, ci_upper = bootstrap_ci(
-            scores_a, scores_b, n_resamples=args.bootstrap_n,
+            scores_a,
+            scores_b,
+            n_resamples=args.bootstrap_n,
         )
         significant = (ci_lower > 0.0) or (ci_upper < 0.0)
-        comparisons.append({
-            "a": name_a,
-            "b": name_b,
-            "metric": "p_at_5",
-            "mean_diff": mean_diff,
-            "ci_lower": ci_lower,
-            "ci_upper": ci_upper,
-            "significant": significant,
-        })
+        comparisons.append(
+            {
+                "a": name_a,
+                "b": name_b,
+                "metric": "p_at_5",
+                "mean_diff": mean_diff,
+                "ci_lower": ci_lower,
+                "ci_upper": ci_upper,
+                "significant": significant,
+            }
+        )
 
     # 7.5. Independent subset analysis (non-circular queries)
     independent_categories = {"semantic", "graph_traversal", "cross_cluster"}
@@ -418,23 +431,32 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
         scores_b = independent_p5_scores[name_b]
         if scores_a and scores_b and len(scores_a) == len(scores_b):
             mean_diff, ci_lower, ci_upper = bootstrap_ci(
-                scores_a, scores_b, n_resamples=args.bootstrap_n,
+                scores_a,
+                scores_b,
+                n_resamples=args.bootstrap_n,
             )
             significant = (ci_lower > 0.0) or (ci_upper < 0.0)
-            independent_comparisons.append({
-                "a": name_a,
-                "b": name_b,
-                "metric": "p_at_5",
-                "mean_diff": mean_diff,
-                "ci_lower": ci_lower,
-                "ci_upper": ci_upper,
-                "significant": significant,
-            })
+            independent_comparisons.append(
+                {
+                    "a": name_a,
+                    "b": name_b,
+                    "metric": "p_at_5",
+                    "mean_diff": mean_diff,
+                    "ci_lower": ci_lower,
+                    "ci_upper": ci_upper,
+                    "significant": significant,
+                }
+            )
 
     # 8. Print console output
     _print_results(
-        overall, by_category, latency_stats, comparisons,
-        selected_methods, categories, corpus,
+        overall,
+        by_category,
+        latency_stats,
+        comparisons,
+        selected_methods,
+        categories,
+        corpus,
         independent_overall=independent_overall,
         independent_comparisons=independent_comparisons,
     )
@@ -502,9 +524,7 @@ def _print_results(
     for q in corpus.ground_truth:
         cat_counts[q.category] = cat_counts.get(q.category, 0) + 1
 
-    cat_summary = ", ".join(
-        f"{cat_counts.get(c, 0)} {c}" for c in categories
-    )
+    cat_summary = ", ".join(f"{cat_counts.get(c, 0)} {c}" for c in categories)
 
     print("=" * 60)
     print("=== A/B Benchmark Results ===")
@@ -526,10 +546,7 @@ def _print_results(
         f"{'Method':<16}| {'P@5':>5} | {'R@10':>5} | {'MRR':>5} "
         f"| {'nDCG@5':>6} | {'Latency(ms)':>11}"
     )
-    sep = (
-        f"{'-' * 16}|{'-' * 7}|{'-' * 7}|{'-' * 7}"
-        f"|{'-' * 8}|{'-' * 12}"
-    )
+    sep = f"{'-' * 16}|{'-' * 7}|{'-' * 7}|{'-' * 7}|{'-' * 8}|{'-' * 12}"
     print(header)
     print(sep)
     for method in methods:
@@ -583,15 +600,11 @@ def _print_results(
 
     # --- Independent Subset Analysis ---
     if independent_overall:
-        n_ind = next(
-            (v.get("n_queries", 0) for v in independent_overall.values()), 0
-        )
+        n_ind = next((v.get("n_queries", 0) for v in independent_overall.values()), 0)
         cats = "semantic, graph_traversal, cross_cluster"
         print(f"--- Independent Subset ({n_ind} queries: {cats}) ---")
         method_names = [m.name for m in methods]
-        ind_header = (
-            f"{'Method':<16}| {'P@5':>5} | {'R@10':>5} | {'MRR':>5} | {'nDCG@5':>6}"
-        )
+        ind_header = f"{'Method':<16}| {'P@5':>5} | {'R@10':>5} | {'MRR':>5} | {'nDCG@5':>6}"
         ind_sep = f"{'-' * 16}|{'-' * 7}|{'-' * 7}|{'-' * 7}|{'-' * 8}"
         print(ind_header)
         print(ind_sep)
@@ -628,39 +641,52 @@ def main() -> None:
         description="A/B benchmark for Engram retrieval methods",
     )
     parser.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed for corpus generation (default: 42)",
     )
     parser.add_argument(
-        "--methods", nargs="+", default=None,
+        "--methods",
+        nargs="+",
+        default=None,
         help=(
             "Method names to benchmark (default: all). "
             "Available: " + ", ".join(f'"{m.name}"' for m in ALL_METHODS)
         ),
     )
     parser.add_argument(
-        "--json", type=str, default=None,
+        "--json",
+        type=str,
+        default=None,
         help="Path for JSON output file (optional)",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Print per-query results as they run",
     )
     parser.add_argument(
-        "--bootstrap-n", type=int, default=1000,
+        "--bootstrap-n",
+        type=int,
+        default=1000,
         help="Number of bootstrap resamples for CIs (default: 1000)",
     )
     parser.add_argument(
-        "--embeddings", action="store_true",
+        "--embeddings",
+        action="store_true",
         help="Use Voyage AI embeddings (requires VOYAGE_API_KEY)",
     )
     parser.add_argument(
-        "--structure-aware", action="store_true",
+        "--structure-aware",
+        action="store_true",
         dest="structure_aware",
         help="Re-index entities with predicate-enriched text for semantic queries",
     )
     parser.add_argument(
-        "--entities", type=int, default=1000,
+        "--entities",
+        type=int,
+        default=1000,
         help="Total entities in corpus (default: 1000). Try 5000, 10000, 50000.",
     )
 

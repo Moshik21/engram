@@ -50,7 +50,8 @@ def compute_dynamic_limits(
     scale = math.sqrt(max(total_entities, 1000) / 1000.0)
 
     search_mul, act_mul, graph_mul = _POOL_MULTIPLIERS.get(
-        query_type or QueryType.DEFAULT, (1.0, 1.0, 1.0),
+        query_type or QueryType.DEFAULT,
+        (1.0, 1.0, 1.0),
     )
 
     pool_search = _clamp(int(cfg.pool_search_limit * scale * search_mul), 5, 200)
@@ -61,7 +62,8 @@ def compute_dynamic_limits(
     pool_wm = _clamp(int(cfg.pool_wm_limit * scale), 5, 50)
     pool_total = _clamp(
         pool_search + pool_activation + pool_graph_limit + pool_wm,
-        20, 1000,
+        20,
+        1000,
     )
 
     return {
@@ -84,7 +86,9 @@ async def _search_pool(
     """Pool 1: semantic/FTS search candidates."""
     try:
         results = await search_index.search(
-            query=query, group_id=group_id, limit=limit,
+            query=query,
+            group_id=group_id,
+            limit=limit,
         )
         return results or []
     except Exception as e:
@@ -108,7 +112,9 @@ async def _activation_pool(
         from engram.config import ActivationConfig
 
         top = await activation_store.get_top_activated(
-            group_id=group_id, limit=limit, now=now,
+            group_id=group_id,
+            limit=limit,
+            now=now,
         )
         cfg = ActivationConfig()
         results: list[tuple[str, float]] = []
@@ -139,7 +145,8 @@ async def _graph_neighborhood_pool(
 
         for sid in seed_ids:
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                entity_id=sid, group_id=group_id,
+                entity_id=sid,
+                group_id=group_id,
             )
             for nid, _weight, _pred in neighbors[:max_neighbors]:
                 if nid not in seed_set:
@@ -178,7 +185,8 @@ async def _working_memory_pool(
         # Expand 1-hop neighbors with 0.5x dampening
         for item_id, recency_score, _item_type in wm_candidates:
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                entity_id=item_id, group_id=group_id,
+                entity_id=item_id,
+                group_id=group_id,
             )
             for nid, _weight, _pred in neighbors[:max_neighbors]:
                 if nid not in wm_ids:
@@ -245,18 +253,25 @@ async def generate_candidates(
     )
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
-    seed_ids = [eid for eid, _ in search_results[:limits["pool_graph_seed_count"]]]
+    seed_ids = [eid for eid, _ in search_results[: limits["pool_graph_seed_count"]]]
     graph_results = await _graph_neighborhood_pool(
-        seed_ids, group_id, graph_store,
-        limits["pool_graph_max_neighbors"], limits["pool_graph_limit"],
+        seed_ids,
+        group_id,
+        graph_store,
+        limits["pool_graph_max_neighbors"],
+        limits["pool_graph_limit"],
     )
 
     # Step 3: Working memory pool (if provided)
     wm_results: list[tuple[str, float]] = []
     if working_memory is not None and cfg.working_memory_enabled:
         wm_results = await _working_memory_pool(
-            working_memory, group_id, graph_store,
-            now, cfg.pool_wm_max_neighbors, limits["pool_wm_limit"],
+            working_memory,
+            group_id,
+            graph_store,
+            now,
+            cfg.pool_wm_max_neighbors,
+            limits["pool_wm_limit"],
         )
 
     # Step 4: Merge non-empty pools via RRF
@@ -275,13 +290,12 @@ async def generate_candidates(
     if non_search_ids:
         try:
             backfilled = await search_index.compute_similarity(
-                query=query, entity_ids=non_search_ids, group_id=group_id,
+                query=query,
+                entity_ids=non_search_ids,
+                group_id=group_id,
             )
         except Exception as e:
             logger.warning("Semantic backfill failed (non-fatal): %s", e)
 
     # Step 6: Return (entity_id, real_semantic_similarity) in RRF order
-    return [
-        (eid, search_scores.get(eid, backfilled.get(eid, 0.0)))
-        for eid in merged_ids
-    ]
+    return [(eid, search_scores.get(eid, backfilled.get(eid, 0.0))) for eid in merged_ids]

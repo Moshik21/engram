@@ -73,12 +73,7 @@ def score_candidates(
             exploration = 0.0
 
         # Rediscovery bonus: exponential decay for dormant entities
-        if (
-            sem_sim > 0
-            and state
-            and state.access_history
-            and cfg.rediscovery_weight > 0
-        ):
+        if sem_sim > 0 and state and state.access_history and cfg.rediscovery_weight > 0:
             last_access = max(state.access_history)
             days_since = (now - last_access) / 86400.0
             halflife = cfg.rediscovery_halflife_days
@@ -159,12 +154,7 @@ def score_candidates_thompson(
             exploration = 0.0
 
         # Rediscovery bonus (same as deterministic scorer)
-        if (
-            sem_sim > 0
-            and state
-            and state.access_history
-            and cfg.rediscovery_weight > 0
-        ):
+        if sem_sim > 0 and state and state.access_history and cfg.rediscovery_weight > 0:
             last_access = max(state.access_history)
             days_since = (now - last_access) / 86400.0
             halflife = cfg.rediscovery_halflife_days

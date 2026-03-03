@@ -50,14 +50,23 @@ def search_index():
 class TestReindexPhase:
     @pytest.mark.asyncio
     async def test_empty_context_returns_zero(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Empty context (no affected entities) should return 0 processed."""
         ctx = CycleContext()
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_processed == 0
         assert result.items_affected == 0
@@ -65,20 +74,34 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_no_context_returns_zero(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """None context should return 0 processed."""
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=None,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=None,
         )
         assert result.items_processed == 0
         assert result.items_affected == 0
 
     @pytest.mark.asyncio
     async def test_merge_survivors_reindexed(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Merge survivor entities should be re-embedded."""
         ctx = CycleContext()
@@ -89,9 +112,13 @@ class TestReindexPhase:
         graph_store.get_entity = AsyncMock(return_value=entity)
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_affected == 1
         search_index.index_entity.assert_called_once_with(entity)
@@ -100,7 +127,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_infer_endpoints_reindexed(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Inferred edge endpoint entities should be re-embedded."""
         ctx = CycleContext()
@@ -112,9 +144,13 @@ class TestReindexPhase:
         )
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_affected == 2
         assert search_index.index_entity.call_count == 2
@@ -123,7 +159,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_pruned_entities_excluded(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Pruned entities should NOT be reindexed."""
         ctx = CycleContext()
@@ -132,9 +173,13 @@ class TestReindexPhase:
         ctx.pruned_entity_ids.add("ent_1")
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_processed == 0
         assert result.items_affected == 0
@@ -142,7 +187,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_dry_run_no_index_calls(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Dry run should count but not call index_entity."""
         ctx = CycleContext()
@@ -153,9 +203,14 @@ class TestReindexPhase:
         graph_store.get_entity = AsyncMock(return_value=entity)
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", dry_run=True, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
+            context=ctx,
         )
         assert result.items_processed == 1
         assert result.items_affected == 0
@@ -165,7 +220,11 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_max_per_cycle_respected(
-        self, phase, graph_store, activation_store, search_index,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
     ):
         """Should cap reindexing at consolidation_reindex_max_per_cycle."""
         cfg = ActivationConfig(consolidation_reindex_max_per_cycle=2)
@@ -180,9 +239,13 @@ class TestReindexPhase:
         )
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_processed == 2
         assert result.items_affected == 2
@@ -190,7 +253,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_entity_not_found_skipped(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Entity that can't be fetched should be gracefully skipped."""
         ctx = CycleContext()
@@ -200,9 +268,13 @@ class TestReindexPhase:
         graph_store.get_entity = AsyncMock(return_value=None)
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_processed == 1
         assert result.items_affected == 0
@@ -210,7 +282,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_embedding_error_non_fatal(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Embedding failure for one entity should not halt the phase."""
         ctx = CycleContext()
@@ -232,9 +309,13 @@ class TestReindexPhase:
         search_index.index_entity = mock_index
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         # One should succeed, one should fail
         assert result.items_processed == 2
@@ -244,7 +325,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_deduplicates_entity_ids(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Same entity from merge AND infer should be reindexed once."""
         ctx = CycleContext()
@@ -256,9 +342,13 @@ class TestReindexPhase:
         graph_store.get_entity = AsyncMock(return_value=entity)
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         assert result.items_affected == 1
         assert search_index.index_entity.call_count == 1
@@ -267,7 +357,12 @@ class TestReindexPhase:
 
     @pytest.mark.asyncio
     async def test_audit_trail_correct_source_phase(
-        self, phase, graph_store, activation_store, search_index, cfg,
+        self,
+        phase,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
     ):
         """Records should have correct source_phase based on context sets."""
         ctx = CycleContext()
@@ -281,9 +376,13 @@ class TestReindexPhase:
         )
 
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            context=ctx,
         )
         by_id = {r.entity_id: r for r in records}
         assert by_id["ent_merged"].source_phase == "merge"

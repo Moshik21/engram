@@ -65,8 +65,9 @@ class EntityMergePhase(ConsolidationPhase):
         # Load all active entities
         entities = await graph_store.find_entities(group_id=group_id, limit=100000)
         if not entities:
-            return PhaseResult(phase=self.name, items_processed=0, items_affected=0,
-                               duration_ms=_elapsed_ms(t0)), []
+            return PhaseResult(
+                phase=self.name, items_processed=0, items_affected=0, duration_ms=_elapsed_ms(t0)
+            ), []
 
         # Group by type for blocking
         type_blocks: dict[str, list] = defaultdict(list)
@@ -104,13 +105,19 @@ class EntityMergePhase(ConsolidationPhase):
 
                 for sub_block in prefix_blocks.values():
                     pairs_checked += _compare_block(
-                        sub_block, threshold, same_type_boost,
-                        require_same_type, union,
+                        sub_block,
+                        threshold,
+                        same_type_boost,
+                        require_same_type,
+                        union,
                     )
             else:
                 pairs_checked += _compare_block(
-                    block_entities, threshold, same_type_boost,
-                    require_same_type, union,
+                    block_entities,
+                    threshold,
+                    same_type_boost,
+                    require_same_type,
+                    union,
                 )
 
         # Collect merge groups
@@ -142,7 +149,9 @@ class EntityMergePhase(ConsolidationPhase):
                 rels_transferred = 0
                 if not dry_run:
                     rels_transferred = await graph_store.merge_entities(
-                        survivor.id, loser.id, group_id,
+                        survivor.id,
+                        loser.id,
+                        group_id,
                     )
                     # Merge activation histories
                     surv_state = await activation_store.get_activation(survivor.id)
@@ -151,7 +160,7 @@ class EntityMergePhase(ConsolidationPhase):
                         merged_history = sorted(
                             set(surv_state.access_history + loser_state.access_history),
                             reverse=True,
-                        )[:cfg.max_history_size]
+                        )[: cfg.max_history_size]
                         surv_state.access_history = merged_history
                         surv_state.access_count += loser_state.access_count
                         surv_state.consolidated_strength += loser_state.consolidated_strength
@@ -166,16 +175,18 @@ class EntityMergePhase(ConsolidationPhase):
                         context.merge_survivor_ids.add(survivor.id)
                         context.affected_entity_ids.add(survivor.id)
 
-                merge_records.append(MergeRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    keep_id=survivor.id,
-                    remove_id=loser.id,
-                    keep_name=survivor.name,
-                    remove_name=loser.name,
-                    similarity=round(sim, 4),
-                    relationships_transferred=rels_transferred,
-                ))
+                merge_records.append(
+                    MergeRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        keep_id=survivor.id,
+                        remove_id=loser.id,
+                        keep_name=survivor.name,
+                        remove_name=loser.name,
+                        similarity=round(sim, 4),
+                        relationships_transferred=rels_transferred,
+                    )
+                )
 
         return PhaseResult(
             phase=self.name,

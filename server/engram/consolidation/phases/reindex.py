@@ -34,7 +34,9 @@ class ReindexPhase(ConsolidationPhase):
 
         if context is None:
             return PhaseResult(
-                phase=self.name, items_processed=0, items_affected=0,
+                phase=self.name,
+                items_processed=0,
+                items_affected=0,
                 duration_ms=_elapsed_ms(t0),
             ), []
 
@@ -53,13 +55,15 @@ class ReindexPhase(ConsolidationPhase):
                 source = _source_phase(entity_id, context)
                 entity = await graph_store.get_entity(entity_id, group_id)
                 name = entity.name if entity else "unknown"
-                records.append(ReindexRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    entity_id=entity_id,
-                    entity_name=name,
-                    source_phase=source,
-                ))
+                records.append(
+                    ReindexRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        entity_id=entity_id,
+                        entity_name=name,
+                        source_phase=source,
+                    )
+                )
             return PhaseResult(
                 phase=self.name,
                 items_processed=len(to_reindex),
@@ -79,17 +83,20 @@ class ReindexPhase(ConsolidationPhase):
                 await search_index.index_entity(entity)
 
                 source = _source_phase(entity_id, context)
-                records.append(ReindexRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    entity_id=entity_id,
-                    entity_name=entity.name,
-                    source_phase=source,
-                ))
+                records.append(
+                    ReindexRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        entity_id=entity_id,
+                        entity_name=entity.name,
+                        source_phase=source,
+                    )
+                )
             except Exception:
                 errors += 1
                 logger.warning(
-                    "Reindex failed for entity %s (non-fatal)", entity_id,
+                    "Reindex failed for entity %s (non-fatal)",
+                    entity_id,
                     exc_info=True,
                 )
 

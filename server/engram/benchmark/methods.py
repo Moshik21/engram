@@ -89,9 +89,7 @@ METHOD_NO_SPREADING = RetrievalMethod(
 
 METHOD_PURE_SEARCH = RetrievalMethod(
     name="Pure Search",
-    description=(
-        "Baseline: only semantic/FTS similarity, no activation signals."
-    ),
+    description=("Baseline: only semantic/FTS similarity, no activation signals."),
     config=ActivationConfig(
         weight_semantic=1.00,
         weight_activation=0.00,
@@ -204,8 +202,7 @@ METHOD_RRF = RetrievalMethod(
 METHOD_MMR = RetrievalMethod(
     name="MMR Diversity",
     description=(
-        "Full pipeline with Maximal Marginal Relevance diversity "
-        "re-ranking (lambda=0.7)."
+        "Full pipeline with Maximal Marginal Relevance diversity re-ranking (lambda=0.7)."
     ),
     config=ActivationConfig(
         mmr_enabled=True,
@@ -445,7 +442,9 @@ async def run_retrieval(
         # Original single-pool path — scale retrieval_top_k
         top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
         candidates = await search_index.search(
-            query, group_id=group_id, limit=top_k,
+            query,
+            group_id=group_id,
+            limit=top_k,
         )
 
         # 1.5. Always classify query for temporal bypass
@@ -461,12 +460,13 @@ async def run_retrieval(
             temporal_mode = True
             act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
             top_activated = await activation_store.get_top_activated(
-                group_id=group_id, limit=act_limit, now=now,
+                group_id=group_id,
+                limit=act_limit,
+                now=now,
             )
             existing_ids = {eid for eid, _ in candidates} if candidates else set()
             activation_candidates = [
-                (eid, 0.0) for eid, _state in top_activated
-                if eid not in existing_ids
+                (eid, 0.0) for eid, _state in top_activated if eid not in existing_ids
             ]
             if candidates:
                 candidates = candidates + activation_candidates
@@ -487,23 +487,27 @@ async def run_retrieval(
 
     # 1.8. Episode search — collect episode results to merge at the end
     episode_results: list[ScoredResult] = []
-    if cfg.episode_retrieval_enabled and hasattr(search_index, 'search_episodes'):
+    if cfg.episode_retrieval_enabled and hasattr(search_index, "search_episodes"):
         try:
             ep_hits = await search_index.search_episodes(
-                query, group_id=group_id, limit=cfg.episode_retrieval_max,
+                query,
+                group_id=group_id,
+                limit=cfg.episode_retrieval_max,
             )
             for ep_id, sem_sim in ep_hits:
                 score = cfg.weight_semantic * sem_sim * cfg.episode_retrieval_weight
-                episode_results.append(ScoredResult(
-                    node_id=ep_id,
-                    score=score,
-                    semantic_similarity=sem_sim,
-                    activation=0.0,
-                    spreading=0.0,
-                    edge_proximity=0.0,
-                    exploration_bonus=0.0,
-                    result_type="episode",
-                ))
+                episode_results.append(
+                    ScoredResult(
+                        node_id=ep_id,
+                        score=score,
+                        semantic_similarity=sem_sim,
+                        activation=0.0,
+                        spreading=0.0,
+                        edge_proximity=0.0,
+                        exploration_bonus=0.0,
+                        result_type="episode",
+                    )
+                )
         except Exception as e:
             logger.warning("Episode search failed (non-fatal): %s", e)
 
@@ -523,7 +527,10 @@ async def run_retrieval(
             context_gate = None  # context gate is a BFS/PPR concept
         else:
             seeds = identify_seeds(
-                candidates, activation_states, now, cfg,
+                candidates,
+                activation_states,
+                now,
+                cfg,
                 temporal_mode=temporal_mode,
             )
             seed_node_ids = {node_id for node_id, _ in seeds}
@@ -541,12 +548,14 @@ async def run_retrieval(
             # Build context gate (if enabled)
             context_gate = None
             if cfg.context_gating_enabled and predicate_cache is not None:
-                query_emb = getattr(search_index, '_last_query_vec', None)
+                query_emb = getattr(search_index, "_last_query_vec", None)
                 if query_emb:
                     from engram.activation.context_gate import build_context_gate
 
                     context_gate = build_context_gate(
-                        query_emb, predicate_cache, cfg,
+                        query_emb,
+                        predicate_cache,
+                        cfg,
                     )
 
         spreading_bonuses, hop_distances = await spread_activation(
@@ -561,18 +570,19 @@ async def run_retrieval(
         # 3.7. Merge spreading-discovered entities with real semantic similarity
         existing_ids = {eid for eid, _ in candidates}
         new_ids = [
-            nid for nid in spreading_bonuses
+            nid
+            for nid in spreading_bonuses
             if nid not in existing_ids and spreading_bonuses[nid] > 0.0
         ]
         if new_ids:
             new_states = await activation_store.batch_get(new_ids)
             activation_states.update(new_states)
             discovered_sims = await search_index.compute_similarity(
-                query=query, entity_ids=new_ids, group_id=group_id,
+                query=query,
+                entity_ids=new_ids,
+                group_id=group_id,
             )
-            candidates = candidates + [
-                (nid, discovered_sims.get(nid, 0.0)) for nid in new_ids
-            ]
+            candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
     else:
         spreading_bonuses: dict[str, float] = {}
         hop_distances: dict[str, int] = {}
@@ -604,7 +614,7 @@ async def run_retrieval(
     if cfg.reranker_enabled and reranker is not None:
         try:
             docs: list[tuple[str, str]] = []
-            for sr in scored[:cfg.reranker_top_n * 2]:
+            for sr in scored[: cfg.reranker_top_n * 2]:
                 entity = await graph_store.get_entity(sr.node_id, group_id)
                 text = ""
                 if entity:
@@ -615,7 +625,9 @@ async def run_retrieval(
 
             if docs:
                 reranked = await reranker.rerank(
-                    query, docs, top_n=cfg.reranker_top_n,
+                    query,
+                    docs,
+                    top_n=cfg.reranker_top_n,
                 )
                 rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
                 scored.sort(
@@ -630,10 +642,11 @@ async def run_retrieval(
             from engram.retrieval.mmr import apply_mmr
 
             entity_embeddings: dict[str, list[float]] = {}
-            mmr_ids = [sr.node_id for sr in scored[:cfg.retrieval_top_n * 2]]
-            if hasattr(search_index, '_vectors') and hasattr(search_index, '_embeddings_enabled'):
+            mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+            if hasattr(search_index, "_vectors") and hasattr(search_index, "_embeddings_enabled"):
                 if search_index._embeddings_enabled:
                     from engram.storage.sqlite.vectors import unpack_vector
+
                     for eid in mmr_ids:
                         cursor = await search_index._vectors.db.execute(
                             "SELECT embedding, dimensions FROM embeddings "
@@ -643,11 +656,13 @@ async def run_retrieval(
                         row = await cursor.fetchone()
                         if row:
                             entity_embeddings[eid] = unpack_vector(
-                                row["embedding"], row["dimensions"],
+                                row["embedding"],
+                                row["dimensions"],
                             )
 
             scored = apply_mmr(
-                scored, entity_embeddings,
+                scored,
+                entity_embeddings,
                 lambda_param=cfg.mmr_lambda,
                 top_n=min(limit, cfg.retrieval_top_n),
             )

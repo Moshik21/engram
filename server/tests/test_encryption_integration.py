@@ -45,9 +45,7 @@ class TestEncryptedStorage:
         assert result.summary == "Phone: 555-1234, SSN: 123-45-6789"
 
         # Check raw DB value is encrypted
-        cursor = await store.db.execute(
-            "SELECT summary FROM entities WHERE id = ?", ("ent_enc1",)
-        )
+        cursor = await store.db.execute("SELECT summary FROM entities WHERE id = ?", ("ent_enc1",))
         row = await cursor.fetchone()
         raw_summary = row[0]
         assert raw_summary.startswith("enc::")
@@ -68,9 +66,7 @@ class TestEncryptedStorage:
         assert episodes[0].content == "Sensitive conversation about health records"
 
         # Check raw DB value is encrypted
-        cursor = await store.db.execute(
-            "SELECT content FROM episodes WHERE id = ?", ("ep_enc1",)
-        )
+        cursor = await store.db.execute("SELECT content FROM episodes WHERE id = ?", ("ep_enc1",))
         row = await cursor.fetchone()
         raw_content = row[0]
         assert raw_content.startswith("enc::")
@@ -93,9 +89,7 @@ class TestEncryptedStorage:
         assert result.summary == "Not encrypted"
 
         # Raw value should be plaintext
-        cursor = await store.db.execute(
-            "SELECT summary FROM entities WHERE id = ?", ("ent_plain",)
-        )
+        cursor = await store.db.execute("SELECT summary FROM entities WHERE id = ?", ("ent_plain",))
         row = await cursor.fetchone()
         assert row[0] == "Not encrypted"
 

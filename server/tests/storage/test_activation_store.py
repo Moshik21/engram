@@ -33,10 +33,7 @@ class TestMemoryActivationStore:
         assert "ent_99" not in result
 
     async def test_batch_set(self, activation_store: MemoryActivationStore):
-        states = {
-            f"ent_{i}": ActivationState(node_id=f"ent_{i}", access_count=1)
-            for i in range(5)
-        }
+        states = {f"ent_{i}": ActivationState(node_id=f"ent_{i}", access_count=1) for i in range(5)}
         await activation_store.batch_set(states)
         result = await activation_store.batch_get([f"ent_{i}" for i in range(5)])
         assert len(result) == 5
@@ -102,7 +99,8 @@ class TestMemoryActivationStore:
         assert state.access_count == 2
 
     async def test_get_top_activated_filters_by_group(
-        self, activation_store: MemoryActivationStore,
+        self,
+        activation_store: MemoryActivationStore,
     ):
         """get_top_activated filters by group_id when provided."""
         now = time.time()
@@ -112,7 +110,8 @@ class TestMemoryActivationStore:
         assert all(eid == "ent_a" for eid, _ in top)
 
     async def test_clear_activation_removes_group_map(
-        self, activation_store: MemoryActivationStore,
+        self,
+        activation_store: MemoryActivationStore,
     ):
         """clear_activation also removes from group map."""
         now = time.time()

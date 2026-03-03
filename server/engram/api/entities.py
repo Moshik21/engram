@@ -83,9 +83,7 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
         if state.last_accessed:
             from datetime import datetime, timezone
 
-            last_accessed = datetime.fromtimestamp(
-                state.last_accessed, tz=timezone.utc
-            ).isoformat()
+            last_accessed = datetime.fromtimestamp(state.last_accessed, tz=timezone.utc).isoformat()
     else:
         # Fallback to entity-level fields
         activation_current = getattr(entity, "activation_current", 0.0) or 0.0
@@ -167,9 +165,7 @@ async def get_entity_neighbors(
 
 
 @router.patch("/{entity_id}")
-async def patch_entity(
-    request: Request, entity_id: str, body: EntityPatchBody
-) -> JSONResponse:
+async def patch_entity(request: Request, entity_id: str, body: EntityPatchBody) -> JSONResponse:
     """Update entity name and/or summary."""
     tenant = get_tenant(request)
     group_id = tenant.group_id
@@ -216,6 +212,4 @@ async def delete_entity(request: Request, entity_id: str) -> JSONResponse:
     await manager._graph.delete_entity(entity_id, soft=True, group_id=group_id)
     await manager._activation.clear_activation(entity_id)
 
-    return JSONResponse(
-        content={"status": "deleted", "id": entity_id, "name": entity.name}
-    )
+    return JSONResponse(content={"status": "deleted", "id": entity_id, "name": entity.name})

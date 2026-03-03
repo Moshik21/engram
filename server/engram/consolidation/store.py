@@ -101,20 +101,17 @@ class SQLiteConsolidationStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_cycles_group "
-            "ON consolidation_cycles(group_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_cycles_group ON consolidation_cycles(group_id)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_merges_cycle "
-            "ON consolidation_merges(cycle_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_merges_cycle ON consolidation_merges(cycle_id)"
         )
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_edges_cycle "
             "ON consolidation_inferred_edges(cycle_id)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_prunes_cycle "
-            "ON consolidation_prunes(cycle_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_prunes_cycle ON consolidation_prunes(cycle_id)"
         )
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_reindexes_cycle "
@@ -134,8 +131,7 @@ class SQLiteConsolidationStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_replays_cycle "
-            "ON consolidation_replays(cycle_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_replays_cycle ON consolidation_replays(cycle_id)"
         )
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS consolidation_dreams (
@@ -150,19 +146,15 @@ class SQLiteConsolidationStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_dreams_cycle "
-            "ON consolidation_dreams(cycle_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_dreams_cycle ON consolidation_dreams(cycle_id)"
         )
         # Migrations: add columns for existing databases
         for migration_sql in [
             "ALTER TABLE consolidation_inferred_edges "
             "ADD COLUMN infer_type TEXT DEFAULT 'co_occurrence'",
-            "ALTER TABLE consolidation_inferred_edges "
-            "ADD COLUMN pmi_score REAL",
-            "ALTER TABLE consolidation_inferred_edges "
-            "ADD COLUMN llm_verdict TEXT",
-            "ALTER TABLE consolidation_inferred_edges "
-            "ADD COLUMN relationship_id TEXT",
+            "ALTER TABLE consolidation_inferred_edges ADD COLUMN pmi_score REAL",
+            "ALTER TABLE consolidation_inferred_edges ADD COLUMN llm_verdict TEXT",
+            "ALTER TABLE consolidation_inferred_edges ADD COLUMN relationship_id TEXT",
         ]:
             try:
                 await self.db.execute(migration_sql)
@@ -178,53 +170,67 @@ class SQLiteConsolidationStore:
 
     async def save_cycle(self, cycle: ConsolidationCycle) -> None:
         """Insert a new consolidation cycle."""
-        phase_json = json.dumps([
-            {
-                "phase": pr.phase,
-                "status": pr.status,
-                "items_processed": pr.items_processed,
-                "items_affected": pr.items_affected,
-                "duration_ms": pr.duration_ms,
-                "error": pr.error,
-            }
-            for pr in cycle.phase_results
-        ])
+        phase_json = json.dumps(
+            [
+                {
+                    "phase": pr.phase,
+                    "status": pr.status,
+                    "items_processed": pr.items_processed,
+                    "items_affected": pr.items_affected,
+                    "duration_ms": pr.duration_ms,
+                    "error": pr.error,
+                }
+                for pr in cycle.phase_results
+            ]
+        )
         await self.db.execute(
             "INSERT INTO consolidation_cycles "
             "(id, group_id, trigger, dry_run, status, phase_results, "
             "started_at, completed_at, total_duration_ms, error) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                cycle.id, cycle.group_id, cycle.trigger,
+                cycle.id,
+                cycle.group_id,
+                cycle.trigger,
                 1 if cycle.dry_run else 0,
-                cycle.status, phase_json, cycle.started_at,
-                cycle.completed_at, cycle.total_duration_ms, cycle.error,
+                cycle.status,
+                phase_json,
+                cycle.started_at,
+                cycle.completed_at,
+                cycle.total_duration_ms,
+                cycle.error,
             ),
         )
         await self.db.commit()
 
     async def update_cycle(self, cycle: ConsolidationCycle) -> None:
         """Update an existing consolidation cycle."""
-        phase_json = json.dumps([
-            {
-                "phase": pr.phase,
-                "status": pr.status,
-                "items_processed": pr.items_processed,
-                "items_affected": pr.items_affected,
-                "duration_ms": pr.duration_ms,
-                "error": pr.error,
-            }
-            for pr in cycle.phase_results
-        ])
+        phase_json = json.dumps(
+            [
+                {
+                    "phase": pr.phase,
+                    "status": pr.status,
+                    "items_processed": pr.items_processed,
+                    "items_affected": pr.items_affected,
+                    "duration_ms": pr.duration_ms,
+                    "error": pr.error,
+                }
+                for pr in cycle.phase_results
+            ]
+        )
         await self.db.execute(
             "UPDATE consolidation_cycles "
             "SET status = ?, phase_results = ?, completed_at = ?, "
             "total_duration_ms = ?, error = ? "
             "WHERE id = ? AND group_id = ?",
             (
-                cycle.status, phase_json, cycle.completed_at,
-                cycle.total_duration_ms, cycle.error,
-                cycle.id, cycle.group_id,
+                cycle.status,
+                phase_json,
+                cycle.completed_at,
+                cycle.total_duration_ms,
+                cycle.error,
+                cycle.id,
+                cycle.group_id,
             ),
         )
         await self.db.commit()
@@ -241,7 +247,9 @@ class SQLiteConsolidationStore:
         return self._row_to_cycle(row)
 
     async def get_recent_cycles(
-        self, group_id: str, limit: int = 10,
+        self,
+        group_id: str,
+        limit: int = 10,
     ) -> list[ConsolidationCycle]:
         """Fetch recent cycles for a group, newest first."""
         cursor = await self.db.execute(
@@ -260,10 +268,16 @@ class SQLiteConsolidationStore:
             "remove_name, similarity, relationships_transferred, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                record.id, record.cycle_id, record.group_id,
-                record.keep_id, record.remove_id, record.keep_name,
-                record.remove_name, record.similarity,
-                record.relationships_transferred, record.timestamp,
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.keep_id,
+                record.remove_id,
+                record.keep_name,
+                record.remove_name,
+                record.similarity,
+                record.relationships_transferred,
+                record.timestamp,
             ),
         )
         await self.db.commit()
@@ -277,11 +291,19 @@ class SQLiteConsolidationStore:
             "pmi_score, llm_verdict, relationship_id, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                edge.id, edge.cycle_id, edge.group_id,
-                edge.source_id, edge.target_id, edge.source_name,
-                edge.target_name, edge.co_occurrence_count,
-                edge.confidence, edge.infer_type,
-                edge.pmi_score, edge.llm_verdict, edge.relationship_id,
+                edge.id,
+                edge.cycle_id,
+                edge.group_id,
+                edge.source_id,
+                edge.target_id,
+                edge.source_name,
+                edge.target_name,
+                edge.co_occurrence_count,
+                edge.confidence,
+                edge.infer_type,
+                edge.pmi_score,
+                edge.llm_verdict,
+                edge.relationship_id,
                 edge.timestamp,
             ),
         )
@@ -295,15 +317,22 @@ class SQLiteConsolidationStore:
             "entity_type, reason, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                record.id, record.cycle_id, record.group_id,
-                record.entity_id, record.entity_name,
-                record.entity_type, record.reason, record.timestamp,
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.entity_id,
+                record.entity_name,
+                record.entity_type,
+                record.reason,
+                record.timestamp,
             ),
         )
         await self.db.commit()
 
     async def get_merge_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[MergeRecord]:
         """Fetch merge records for a cycle."""
         cursor = await self.db.execute(
@@ -314,9 +343,13 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             MergeRecord(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
-                keep_id=r["keep_id"], remove_id=r["remove_id"],
-                keep_name=r["keep_name"], remove_name=r["remove_name"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                keep_id=r["keep_id"],
+                remove_id=r["remove_id"],
+                keep_name=r["keep_name"],
+                remove_name=r["remove_name"],
                 similarity=r["similarity"],
                 relationships_transferred=r["relationships_transferred"],
                 timestamp=r["timestamp"],
@@ -325,7 +358,9 @@ class SQLiteConsolidationStore:
         ]
 
     async def get_inferred_edges(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[InferredEdge]:
         """Fetch inferred edge records for a cycle."""
         cursor = await self.db.execute(
@@ -339,9 +374,13 @@ class SQLiteConsolidationStore:
             keys = set(rows[0].keys())
         return [
             InferredEdge(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
-                source_id=r["source_id"], target_id=r["target_id"],
-                source_name=r["source_name"], target_name=r["target_name"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                source_id=r["source_id"],
+                target_id=r["target_id"],
+                source_name=r["source_name"],
+                target_name=r["target_name"],
                 co_occurrence_count=r["co_occurrence_count"],
                 confidence=r["confidence"],
                 infer_type=r["infer_type"] if "infer_type" in keys else "co_occurrence",
@@ -361,15 +400,21 @@ class SQLiteConsolidationStore:
             "source_phase, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                record.id, record.cycle_id, record.group_id,
-                record.entity_id, record.entity_name,
-                record.source_phase, record.timestamp,
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.entity_id,
+                record.entity_name,
+                record.source_phase,
+                record.timestamp,
             ),
         )
         await self.db.commit()
 
     async def get_reindex_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[ReindexRecord]:
         """Fetch reindex records for a cycle."""
         cursor = await self.db.execute(
@@ -380,15 +425,21 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             ReindexRecord(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
-                entity_id=r["entity_id"], entity_name=r["entity_name"],
-                source_phase=r["source_phase"], timestamp=r["timestamp"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                entity_id=r["entity_id"],
+                entity_name=r["entity_name"],
+                source_phase=r["source_phase"],
+                timestamp=r["timestamp"],
             )
             for r in rows
         ]
 
     async def get_prune_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[PruneRecord]:
         """Fetch prune records for a cycle."""
         cursor = await self.db.execute(
@@ -399,9 +450,13 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             PruneRecord(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
-                entity_id=r["entity_id"], entity_name=r["entity_name"],
-                entity_type=r["entity_type"], reason=r["reason"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                entity_id=r["entity_id"],
+                entity_name=r["entity_name"],
+                entity_type=r["entity_type"],
+                reason=r["reason"],
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -415,16 +470,23 @@ class SQLiteConsolidationStore:
             "new_relationships_found, entities_updated, skipped_reason, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                record.id, record.cycle_id, record.group_id,
-                record.episode_id, record.new_entities_found,
-                record.new_relationships_found, record.entities_updated,
-                record.skipped_reason, record.timestamp,
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.episode_id,
+                record.new_entities_found,
+                record.new_relationships_found,
+                record.entities_updated,
+                record.skipped_reason,
+                record.timestamp,
             ),
         )
         await self.db.commit()
 
     async def get_replay_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[ReplayRecord]:
         """Fetch replay records for a cycle."""
         cursor = await self.db.execute(
@@ -435,7 +497,9 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             ReplayRecord(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
                 episode_id=r["episode_id"],
                 new_entities_found=r["new_entities_found"],
                 new_relationships_found=r["new_relationships_found"],
@@ -454,16 +518,22 @@ class SQLiteConsolidationStore:
             "weight_delta, seed_entity_id, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                record.id, record.cycle_id, record.group_id,
-                record.source_entity_id, record.target_entity_id,
-                record.weight_delta, record.seed_entity_id,
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.source_entity_id,
+                record.target_entity_id,
+                record.weight_delta,
+                record.seed_entity_id,
                 record.timestamp,
             ),
         )
         await self.db.commit()
 
     async def get_dream_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DreamRecord]:
         """Fetch dream records for a cycle."""
         cursor = await self.db.execute(
@@ -474,7 +544,9 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             DreamRecord(
-                id=r["id"], cycle_id=r["cycle_id"], group_id=r["group_id"],
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
                 source_entity_id=r["source_entity_id"],
                 target_entity_id=r["target_entity_id"],
                 weight_delta=r["weight_delta"],
@@ -540,14 +612,16 @@ class SQLiteConsolidationStore:
         phase_results = []
         if row["phase_results"]:
             for pr in json.loads(row["phase_results"]):
-                phase_results.append(PhaseResult(
-                    phase=pr["phase"],
-                    status=pr["status"],
-                    items_processed=pr["items_processed"],
-                    items_affected=pr["items_affected"],
-                    duration_ms=pr["duration_ms"],
-                    error=pr.get("error"),
-                ))
+                phase_results.append(
+                    PhaseResult(
+                        phase=pr["phase"],
+                        status=pr["status"],
+                        items_processed=pr["items_processed"],
+                        items_affected=pr["items_affected"],
+                        duration_ms=pr["duration_ms"],
+                        error=pr.get("error"),
+                    )
+                )
         return ConsolidationCycle(
             id=row["id"],
             group_id=row["group_id"],

@@ -218,7 +218,9 @@ class TestSQLiteGraphStore:
             Entity(id="ent_val2", name="Y", entity_type="Test", group_id="default")
         )
         await graph_store.update_entity(
-            "ent_val2", {"name": "Z", "summary": "new"}, group_id="default",
+            "ent_val2",
+            {"name": "Z", "summary": "new"},
+            group_id="default",
         )
         result = await graph_store.get_entity("ent_val2", "default")
         assert result.name == "Z"
@@ -253,7 +255,8 @@ class TestSQLiteGraphStore:
         assert match[0].status == "completed"
 
     async def test_get_relationships_always_filters_by_group(
-        self, graph_store: SQLiteGraphStore,
+        self,
+        graph_store: SQLiteGraphStore,
     ):
         """get_relationships must always filter by group_id (tenant isolation)."""
         # Create entities in two groups
@@ -270,12 +273,22 @@ class TestSQLiteGraphStore:
             Entity(id="ent_g4", name="D", entity_type="Test", group_id="group2")
         )
         await graph_store.create_relationship(
-            Relationship(id="rel_g1", source_id="ent_g1", target_id="ent_g2",
-                         predicate="KNOWS", group_id="group1")
+            Relationship(
+                id="rel_g1",
+                source_id="ent_g1",
+                target_id="ent_g2",
+                predicate="KNOWS",
+                group_id="group1",
+            )
         )
         await graph_store.create_relationship(
-            Relationship(id="rel_g2", source_id="ent_g3", target_id="ent_g4",
-                         predicate="KNOWS", group_id="group2")
+            Relationship(
+                id="rel_g2",
+                source_id="ent_g3",
+                target_id="ent_g4",
+                predicate="KNOWS",
+                group_id="group2",
+            )
         )
         # group1 should only see its own relationship
         rels1 = await graph_store.get_relationships("ent_g1", group_id="group1")
@@ -286,7 +299,8 @@ class TestSQLiteGraphStore:
         assert len(rels2) == 0
 
     async def test_get_relationships_at_always_filters_by_group(
-        self, graph_store: SQLiteGraphStore,
+        self,
+        graph_store: SQLiteGraphStore,
     ):
         """get_relationships_at must always filter by group_id."""
         await graph_store.create_entity(
@@ -297,8 +311,14 @@ class TestSQLiteGraphStore:
         )
         now = datetime.utcnow()
         await graph_store.create_relationship(
-            Relationship(id="rel_at1", source_id="ent_at1", target_id="ent_at2",
-                         predicate="LINKS", group_id="grpA", valid_from=now)
+            Relationship(
+                id="rel_at1",
+                source_id="ent_at1",
+                target_id="ent_at2",
+                predicate="LINKS",
+                group_id="grpA",
+                valid_from=now,
+            )
         )
         # Correct group sees the relationship
         rels = await graph_store.get_relationships_at("ent_at1", now, group_id="grpA")

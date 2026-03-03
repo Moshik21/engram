@@ -51,9 +51,7 @@ class FalkorDBGraphStore:
             port=self._config.port,
             password=password,
         )
-        self._graph = await asyncio.to_thread(
-            self._db.select_graph, self._config.graph_name
-        )
+        self._graph = await asyncio.to_thread(self._db.select_graph, self._config.graph_name)
 
         # Create indexes — FalkorDB errors on duplicate, so wrap each in try/except
         indexes = [
@@ -248,10 +246,7 @@ class FalkorDBGraphStore:
         elif direction == "incoming":
             match = "MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity {id: $eid})"
         else:
-            match = (
-                "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) "
-                "WHERE s.id = $eid OR t.id = $eid"
-            )
+            match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE s.id = $eid OR t.id = $eid"
 
         conditions = []
         params: dict = {"eid": entity_id}
@@ -350,10 +345,7 @@ class FalkorDBGraphStore:
         elif direction == "incoming":
             match = "MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity {id: $eid})"
         else:
-            match = (
-                "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) "
-                "WHERE s.id = $eid OR t.id = $eid"
-            )
+            match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE s.id = $eid OR t.id = $eid"
 
         time_conditions = [
             "(r.valid_from IS NULL OR r.valid_from <= $at_time)",
@@ -458,12 +450,8 @@ class FalkorDBGraphStore:
                 "status": status_val,
                 "group_id": episode.group_id,
                 "session_id": episode.session_id,
-                "created_at": (
-                    episode.created_at.isoformat() if episode.created_at else now_iso
-                ),
-                "updated_at": (
-                    episode.updated_at.isoformat() if episode.updated_at else now_iso
-                ),
+                "created_at": (episode.created_at.isoformat() if episode.created_at else now_iso),
+                "updated_at": (episode.updated_at.isoformat() if episode.updated_at else now_iso),
                 "error": episode.error,
                 "retry_count": episode.retry_count,
                 "processing_duration_ms": episode.processing_duration_ms,
@@ -472,7 +460,10 @@ class FalkorDBGraphStore:
         return episode.id
 
     async def update_episode(
-        self, episode_id: str, updates: dict, group_id: str = "default",
+        self,
+        episode_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None:
         if not updates:
             return
@@ -552,12 +543,8 @@ class FalkorDBGraphStore:
             ent_result = await self._query(
                 "MATCH (n:Entity) WHERE n.deleted_at IS NULL RETURN COUNT(n)"
             )
-            rel_result = await self._query(
-                "MATCH ()-[r:RELATES_TO]->() RETURN COUNT(r)"
-            )
-            ep_result = await self._query(
-                "MATCH (n:Episode) RETURN COUNT(n)"
-            )
+            rel_result = await self._query("MATCH ()-[r:RELATES_TO]->() RETURN COUNT(r)")
+            ep_result = await self._query("MATCH (n:Episode) RETURN COUNT(n)")
 
         return {
             "entities": ent_result.result_set[0][0] if ent_result.result_set else 0,
@@ -599,19 +586,14 @@ class FalkorDBGraphStore:
             params,
         )
 
-        episodes = [
-            self._node_to_episode(row[0], group_id)
-            for row in result.result_set[:limit]
-        ]
+        episodes = [self._node_to_episode(row[0], group_id) for row in result.result_set[:limit]]
         next_cursor = None
         if len(result.result_set) > limit:
             next_cursor = episodes[-1].created_at.isoformat()
 
         return episodes, next_cursor
 
-    async def get_top_connected(
-        self, group_id: str | None = None, limit: int = 10
-    ) -> list[dict]:
+    async def get_top_connected(self, group_id: str | None = None, limit: int = 10) -> list[dict]:
         group_filter = " AND e.group_id = $group_id" if group_id else ""
         params: dict = {"limit": limit}
         if group_id:
@@ -638,9 +620,7 @@ class FalkorDBGraphStore:
             for row in result.result_set
         ]
 
-    async def get_growth_timeline(
-        self, group_id: str | None = None, days: int = 30
-    ) -> list[dict]:
+    async def get_growth_timeline(self, group_id: str | None = None, days: int = 30) -> list[dict]:
         """Return daily entity and episode counts. Aggregated in Python."""
         from datetime import timedelta
 
@@ -705,8 +685,11 @@ class FalkorDBGraphStore:
     # --- Consolidation methods ---
 
     async def get_co_occurring_entity_pairs(
-        self, group_id: str, since: datetime | None = None,
-        min_co_occurrence: int = 3, limit: int = 100,
+        self,
+        group_id: str,
+        since: datetime | None = None,
+        min_co_occurrence: int = 3,
+        limit: int = 100,
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs that co-occur in episodes but lack a relationship."""
         since_clause = ""
@@ -736,7 +719,9 @@ class FalkorDBGraphStore:
         return [(row[0], row[1], row[2]) for row in result.result_set]
 
     async def get_entity_episode_counts(
-        self, group_id: str, entity_ids: list[str],
+        self,
+        group_id: str,
+        entity_ids: list[str],
     ) -> dict[str, int]:
         """Return how many episodes each entity appears in."""
         if not entity_ids:
@@ -750,7 +735,10 @@ class FalkorDBGraphStore:
         return {row[0]: row[1] for row in result.result_set}
 
     async def get_dead_entities(
-        self, group_id: str, min_age_days: int = 30, limit: int = 100,
+        self,
+        group_id: str,
+        min_age_days: int = 30,
+        limit: int = 100,
     ) -> list[Entity]:
         """Find entities with zero relationships and zero access."""
         cutoff = (datetime.utcnow() - timedelta(days=min_age_days)).isoformat()
@@ -770,7 +758,10 @@ class FalkorDBGraphStore:
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
 
     async def merge_entities(
-        self, keep_id: str, remove_id: str, group_id: str,
+        self,
+        keep_id: str,
+        remove_id: str,
+        group_id: str,
     ) -> int:
         """Merge remove_id into keep_id: re-point edges, merge summaries, soft-delete loser.
 
@@ -800,8 +791,11 @@ class FalkorDBGraphStore:
                        source_episode: $source_episode, group_id: $gid
                    }]->(t)""",
                 {
-                    "keep_id": keep_id, "tgt_id": target_id, "new_id": new_id,
-                    "predicate": old_rel.predicate, "weight": old_rel.weight,
+                    "keep_id": keep_id,
+                    "tgt_id": target_id,
+                    "new_id": new_id,
+                    "predicate": old_rel.predicate,
+                    "weight": old_rel.weight,
                     "valid_from": old_rel.valid_from.isoformat() if old_rel.valid_from else None,
                     "valid_to": old_rel.valid_to.isoformat() if old_rel.valid_to else None,
                     "created_at": old_rel.created_at.isoformat() if old_rel.created_at else None,
@@ -839,8 +833,11 @@ class FalkorDBGraphStore:
                        source_episode: $source_episode, group_id: $gid
                    }]->(k)""",
                 {
-                    "src_id": source_id, "keep_id": keep_id, "new_id": new_id,
-                    "predicate": old_rel.predicate, "weight": old_rel.weight,
+                    "src_id": source_id,
+                    "keep_id": keep_id,
+                    "new_id": new_id,
+                    "predicate": old_rel.predicate,
+                    "weight": old_rel.weight,
                     "valid_from": old_rel.valid_from.isoformat() if old_rel.valid_from else None,
                     "valid_to": old_rel.valid_to.isoformat() if old_rel.valid_to else None,
                     "created_at": old_rel.created_at.isoformat() if old_rel.created_at else None,
@@ -886,7 +883,8 @@ class FalkorDBGraphStore:
                        SET n.summary = $summary, n.access_count = $count,
                            n.updated_at = $now""",
                     {
-                        "id": keep_id, "gid": group_id,
+                        "id": keep_id,
+                        "gid": group_id,
                         "summary": merged_summary,
                         "count": keep_count + remove_count,
                         "now": datetime.utcnow().isoformat(),
@@ -903,8 +901,11 @@ class FalkorDBGraphStore:
         return transferred
 
     async def get_relationships_by_predicate(
-        self, group_id: str, predicate: str,
-        active_only: bool = True, limit: int = 10000,
+        self,
+        group_id: str,
+        predicate: str,
+        active_only: bool = True,
+        limit: int = 10000,
     ) -> list[Relationship]:
         """Fetch relationships matching a specific predicate."""
         active_clause = "AND r.valid_to IS NULL" if active_only else ""

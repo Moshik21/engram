@@ -62,7 +62,9 @@ class GraphManager:
 
     @staticmethod
     def _merge_entity_attributes(
-        existing: Entity, new_summary: str | None, new_pii: bool = False,
+        existing: Entity,
+        new_summary: str | None,
+        new_pii: bool = False,
         new_pii_categories: list[str] | None = None,
     ) -> dict:
         """Merge new attributes into an existing entity. Returns update dict."""
@@ -87,6 +89,7 @@ class GraphManager:
             merged_cats = list(set(existing_cats + new_pii_categories))
             if merged_cats != existing_cats:
                 import json
+
                 updates["pii_categories"] = json.dumps(merged_cats)
 
         return updates
@@ -128,32 +131,40 @@ class GraphManager:
             created_at=datetime.utcnow(),
         )
         await self._graph.create_episode(episode)
-        self._publish(group_id, "episode.queued", {
-            "episode": {
-                "episodeId": episode_id,
-                "content": content[:200] if content else "",
-                "source": source or "unknown",
-                "status": "queued",
-                "createdAt": episode.created_at.isoformat() if episode.created_at else "",
-                "updatedAt": episode.created_at.isoformat() if episode.created_at else "",
-                "entities": [],
-                "factsCount": 0,
-                "processingDurationMs": None,
-                "error": None,
-                "retryCount": 0,
+        self._publish(
+            group_id,
+            "episode.queued",
+            {
+                "episode": {
+                    "episodeId": episode_id,
+                    "content": content[:200] if content else "",
+                    "source": source or "unknown",
+                    "status": "queued",
+                    "createdAt": episode.created_at.isoformat() if episode.created_at else "",
+                    "updatedAt": episode.created_at.isoformat() if episode.created_at else "",
+                    "entities": [],
+                    "factsCount": 0,
+                    "processingDurationMs": None,
+                    "error": None,
+                    "retryCount": 0,
+                },
             },
-        })
+        )
 
         try:
             # Extraction
             await self._update_episode_status(
-                episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.EXTRACTING,
+                group_id=group_id,
             )
             result = await self._extractor.extract(content)
 
             # Resolution
             await self._update_episode_status(
-                episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.RESOLVING,
+                group_id=group_id,
             )
             existing = await self._graph.find_entities(group_id=group_id, limit=1000)
             entity_map: dict[str, str] = {}  # extracted_name -> entity_id
@@ -272,8 +283,7 @@ class GraphManager:
                                 conflict.id, valid_from, group_id=group_id
                             )
                             logger.info(
-                                "Invalidated conflicting relationship %s "
-                                "(%s → %s via %s)",
+                                "Invalidated conflicting relationship %s (%s → %s via %s)",
                                 conflict.id,
                                 conflict.source_id,
                                 conflict.target_id,
@@ -295,16 +305,22 @@ class GraphManager:
                     await self._graph.create_relationship(rel)
 
             # Publish graph changes
-            self._publish(group_id, "graph.nodes_added", {
-                "episode_id": episode_id,
-                "entity_count": len(result.entities),
-                "relationship_count": len(result.relationships),
-                "new_entities": new_entity_names,
-            })
+            self._publish(
+                group_id,
+                "graph.nodes_added",
+                {
+                    "episode_id": episode_id,
+                    "entity_count": len(result.entities),
+                    "relationship_count": len(result.relationships),
+                    "new_entities": new_entity_names,
+                },
+            )
 
             # ── Embedding ──
             await self._update_episode_status(
-                episode_id, EpisodeStatus.EMBEDDING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.EMBEDDING,
+                group_id=group_id,
             )
             try:
                 # Index changed entities for vector search
@@ -315,7 +331,8 @@ class GraphManager:
                         if ent:
                             if self._cfg.structure_aware_embeddings:
                                 await self._index_entity_with_structure(
-                                    ent, group_id,
+                                    ent,
+                                    group_id,
                                 )
                             else:
                                 await self._search.index_entity(ent)
@@ -326,30 +343,38 @@ class GraphManager:
             except Exception as embed_err:
                 logger.warning(
                     "Embedding failed for episode %s (non-fatal): %s",
-                    episode_id, embed_err,
+                    episode_id,
+                    embed_err,
                 )
                 # Continue — FTS5 still works
 
             # ── Activating ──
             await self._update_episode_status(
-                episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.ACTIVATING,
+                group_id=group_id,
             )
             # Activation recording already happens during entity extraction above
 
             # Complete
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
             await self._update_episode_status(
-                episode_id, EpisodeStatus.COMPLETED,
+                episode_id,
+                EpisodeStatus.COMPLETED,
                 group_id=group_id,
                 processing_duration_ms=elapsed_ms,
             )
-            self._publish(group_id, "episode.completed", {
-                "episodeId": episode_id,
-                "status": "completed",
-                "entity_count": len(result.entities),
-                "relationship_count": len(result.relationships),
-                "duration_ms": elapsed_ms,
-            })
+            self._publish(
+                group_id,
+                "episode.completed",
+                {
+                    "episodeId": episode_id,
+                    "status": "completed",
+                    "entity_count": len(result.entities),
+                    "relationship_count": len(result.relationships),
+                    "duration_ms": elapsed_ms,
+                },
+            )
 
             logger.info(
                 "Ingested episode %s: %d entities, %d relationships",
@@ -361,22 +386,33 @@ class GraphManager:
         except Exception as e:
             logger.error("Failed to process episode %s: %s", episode_id, e)
             await self._update_episode_status(
-                episode_id, EpisodeStatus.FAILED, group_id=group_id, error=str(e),
+                episode_id,
+                EpisodeStatus.FAILED,
+                group_id=group_id,
+                error=str(e),
             )
-            self._publish(group_id, "episode.failed", {
-                "episodeId": episode_id,
-                "status": "failed",
-                "error": str(e),
-            })
+            self._publish(
+                group_id,
+                "episode.failed",
+                {
+                    "episodeId": episode_id,
+                    "status": "failed",
+                    "error": str(e),
+                },
+            )
 
         return episode_id
 
     async def _index_entity_with_structure(
-        self, entity: Entity, group_id: str,
+        self,
+        entity: Entity,
+        group_id: str,
     ) -> None:
         """Build structure-aware embedding text that includes relationship predicates."""
         rels = await self._graph.get_relationships(
-            entity.id, active_only=True, group_id=group_id,
+            entity.id,
+            active_only=True,
+            group_id=group_id,
         )
 
         # Sort by predicate weight (high-signal predicates first)
@@ -392,9 +428,7 @@ class GraphManager:
         max_rels = self._cfg.structure_max_relationships
         rel_parts: list[str] = []
         for r in rels_sorted[:max_rels]:
-            pred_natural = natural_names.get(
-                r.predicate, r.predicate.lower().replace("_", " ")
-            )
+            pred_natural = natural_names.get(r.predicate, r.predicate.lower().replace("_", " "))
             if r.source_id == entity.id:
                 target = await self._graph.get_entity(r.target_id, group_id)
                 target_name = target.name if target else r.target_id
@@ -457,7 +491,11 @@ class GraphManager:
                     # Populate working memory buffer for episodes
                     if self._working_memory is not None:
                         self._working_memory.add(
-                            sr.node_id, "episode", sr.score, query, now,
+                            sr.node_id,
+                            "episode",
+                            sr.score,
+                            query,
+                            now,
                         )
 
                     results.append(
@@ -490,7 +528,11 @@ class GraphManager:
                     # Populate working memory buffer for entities
                     if self._working_memory is not None:
                         self._working_memory.add(
-                            sr.node_id, "entity", sr.score, query, now,
+                            sr.node_id,
+                            "entity",
+                            sr.score,
+                            query,
+                            now,
                         )
 
                     results.append(
@@ -550,9 +592,7 @@ class GraphManager:
 
         if name:
             # Use FTS5 for fuzzy matching, then optionally filter by type
-            search_hits = await self._search.search(
-                query=name, group_id=group_id, limit=limit * 2
-            )
+            search_hits = await self._search.search(query=name, group_id=group_id, limit=limit * 2)
             for eid, _score in search_hits:
                 ent = await self._graph.get_entity(eid, group_id)
                 if ent and (not entity_type or ent.entity_type == entity_type):
@@ -577,16 +617,18 @@ class GraphManager:
                 activation_score = compute_activation(state.access_history, now, self._cfg)
                 access_count = state.access_count
 
-            result.append({
-                "id": entity.id,
-                "name": entity.name,
-                "entity_type": entity.entity_type,
-                "summary": entity.summary,
-                "activation_score": round(activation_score, 4),
-                "created_at": entity.created_at.isoformat() if entity.created_at else None,
-                "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
-                "access_count": access_count,
-            })
+            result.append(
+                {
+                    "id": entity.id,
+                    "name": entity.name,
+                    "entity_type": entity.entity_type,
+                    "summary": entity.summary,
+                    "activation_score": round(activation_score, 4),
+                    "created_at": entity.created_at.isoformat() if entity.created_at else None,
+                    "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
+                    "access_count": access_count,
+                }
+            )
 
         return result
 
@@ -634,9 +676,7 @@ class GraphManager:
                 relationships.extend(rels)
         else:
             # FTS5 search, get relationships for top hits
-            search_hits = await self._search.search(
-                query=query, group_id=group_id, limit=limit
-            )
+            search_hits = await self._search.search(query=query, group_id=group_id, limit=limit)
             seen_rel_ids: set[str] = set()
             for eid, _ in search_hits:
                 rels = await self._graph.get_relationships(
@@ -658,16 +698,18 @@ class GraphManager:
         for r in relationships[:limit]:
             source_name = await self.resolve_entity_name(r.source_id, group_id)
             target_name = await self.resolve_entity_name(r.target_id, group_id)
-            result.append({
-                "subject": source_name,
-                "predicate": r.predicate,
-                "object": target_name,
-                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
-                "confidence": r.confidence,
-                "source_episode": r.source_episode,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            })
+            result.append(
+                {
+                    "subject": source_name,
+                    "predicate": r.predicate,
+                    "object": target_name,
+                    "valid_from": r.valid_from.isoformat() if r.valid_from else None,
+                    "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                    "confidence": r.confidence,
+                    "source_episode": r.source_episode,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+            )
 
         return result
 
@@ -680,9 +722,7 @@ class GraphManager:
         reason: str | None = None,
     ) -> dict:
         """Soft-delete an entity and clear its activation."""
-        entities = await self._graph.find_entities(
-            name=entity_name, group_id=group_id, limit=1
-        )
+        entities = await self._graph.find_entities(name=entity_name, group_id=group_id, limit=1)
         if not entities:
             return {"status": "error", "message": f"Entity '{entity_name}' not found."}
 
@@ -729,7 +769,10 @@ class GraphManager:
         object_id = object_entities[0].id
 
         rels = await self._graph.get_relationships(
-            subject_id, direction="outgoing", predicate=predicate, active_only=True,
+            subject_id,
+            direction="outgoing",
+            predicate=predicate,
+            active_only=True,
             group_id=group_id,
         )
         target_rel = None
@@ -741,9 +784,7 @@ class GraphManager:
         if not target_rel:
             return {
                 "status": "error",
-                "message": (
-                    f"No active fact found: {subject_name} —{predicate}→ {object_name}."
-                ),
+                "message": (f"No active fact found: {subject_name} —{predicate}→ {object_name}."),
             }
 
         await self._graph.invalidate_relationship(
@@ -752,7 +793,10 @@ class GraphManager:
 
         logger.info(
             "Forgot fact %s —%s→ %s, reason: %s",
-            subject_name, predicate, object_name, reason,
+            subject_name,
+            predicate,
+            object_name,
+            reason,
         )
         return {
             "status": "forgotten",
@@ -790,13 +834,15 @@ class GraphManager:
                 act = 0.0
                 if state:
                     act = compute_activation(state.access_history, now, self._cfg)
-                entities_data.append({
-                    "name": ent["name"],
-                    "type": ent["type"],
-                    "summary": ent.get("summary") or "",
-                    "activation": act,
-                    "id": ent["id"],
-                })
+                entities_data.append(
+                    {
+                        "name": ent["name"],
+                        "type": ent["type"],
+                        "summary": ent.get("summary") or "",
+                        "activation": act,
+                        "id": ent["id"],
+                    }
+                )
                 for rel in r.get("relationships", []):
                     source_name = await self.resolve_entity_name(rel["source_id"], group_id)
                     target_name = await self.resolve_entity_name(rel["target_id"], group_id)
@@ -808,13 +854,15 @@ class GraphManager:
                 entity = await self._graph.get_entity(eid, group_id)
                 if entity:
                     act = compute_activation(state.access_history, now, self._cfg)
-                    entities_data.append({
-                        "name": entity.name,
-                        "type": entity.entity_type,
-                        "summary": entity.summary or "",
-                        "activation": act,
-                        "id": entity.id,
-                    })
+                    entities_data.append(
+                        {
+                            "name": entity.name,
+                            "type": entity.entity_type,
+                            "summary": entity.summary or "",
+                            "activation": act,
+                            "id": entity.id,
+                        }
+                    )
                     rels = await self._graph.get_relationships(
                         eid, active_only=True, group_id=group_id
                     )
@@ -914,14 +962,16 @@ class GraphManager:
                 dormant_count += 1
 
             if len(top_activated) < top_n:
-                top_activated.append({
-                    "id": entity.id,
-                    "name": entity.name,
-                    "entity_type": entity.entity_type,
-                    "summary": entity.summary,
-                    "activation": round(act, 4),
-                    "access_count": state.access_count,
-                })
+                top_activated.append(
+                    {
+                        "id": entity.id,
+                        "name": entity.name,
+                        "entity_type": entity.entity_type,
+                        "summary": entity.summary,
+                        "activation": round(act, 4),
+                        "access_count": state.access_count,
+                    }
+                )
 
         stats["active_entities"] = active_count
         stats["dormant_entities"] = dormant_count
@@ -944,12 +994,14 @@ class GraphManager:
                         seen_rel_ids.add(r.id)
                         source_name = await self.resolve_entity_name(r.source_id, group_id)
                         target_name = await self.resolve_entity_name(r.target_id, group_id)
-                        edges.append({
-                            "source": source_name,
-                            "target": target_name,
-                            "predicate": r.predicate,
-                            "weight": r.weight,
-                        })
+                        edges.append(
+                            {
+                                "source": source_name,
+                                "target": target_name,
+                                "predicate": r.predicate,
+                                "weight": r.weight,
+                            }
+                        )
             result["edges"] = edges
 
         return result

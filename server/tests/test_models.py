@@ -73,9 +73,15 @@ class TestEpisode:
     def test_episode_new_status_values(self):
         """Granular pipeline statuses exist and are valid."""
         for name in [
-            "QUEUED", "EXTRACTING", "RESOLVING", "WRITING",
-            "EMBEDDING", "ACTIVATING", "COMPLETED",
-            "RETRYING", "DEAD_LETTER",
+            "QUEUED",
+            "EXTRACTING",
+            "RESOLVING",
+            "WRITING",
+            "EMBEDDING",
+            "ACTIVATING",
+            "COMPLETED",
+            "RETRYING",
+            "DEAD_LETTER",
         ]:
             status = EpisodeStatus[name]
             assert isinstance(status.value, str)

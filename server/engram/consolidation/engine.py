@@ -102,11 +102,15 @@ class ConsolidationEngine:
 
         context = CycleContext()
 
-        self._publish(group_id, "consolidation.started", {
-            "cycle_id": cycle.id,
-            "dry_run": dry_run,
-            "trigger": trigger,
-        })
+        self._publish(
+            group_id,
+            "consolidation.started",
+            {
+                "cycle_id": cycle.id,
+                "dry_run": dry_run,
+                "trigger": trigger,
+            },
+        )
 
         try:
             for phase in self._phases:
@@ -114,10 +118,14 @@ class ConsolidationEngine:
                     cycle.status = "cancelled"
                     break
 
-                self._publish(group_id, f"consolidation.phase.{phase.name}.started", {
-                    "cycle_id": cycle.id,
-                    "phase": phase.name,
-                })
+                self._publish(
+                    group_id,
+                    f"consolidation.phase.{phase.name}.started",
+                    {
+                        "cycle_id": cycle.id,
+                        "phase": phase.name,
+                    },
+                )
 
                 try:
                     result, records = await phase.execute(
@@ -148,29 +156,42 @@ class ConsolidationEngine:
                             elif isinstance(record, DreamRecord):
                                 await self._store.save_dream_record(record)
 
-                    self._publish(group_id, f"consolidation.phase.{phase.name}.completed", {
-                        "cycle_id": cycle.id,
-                        "phase": phase.name,
-                        "items_processed": result.items_processed,
-                        "items_affected": result.items_affected,
-                    })
+                    self._publish(
+                        group_id,
+                        f"consolidation.phase.{phase.name}.completed",
+                        {
+                            "cycle_id": cycle.id,
+                            "phase": phase.name,
+                            "items_processed": result.items_processed,
+                            "items_affected": result.items_affected,
+                        },
+                    )
 
                 except Exception as exc:
                     logger.error(
-                        "Phase %s failed (non-fatal): %s", phase.name, exc,
+                        "Phase %s failed (non-fatal): %s",
+                        phase.name,
+                        exc,
                         exc_info=True,
                     )
                     from engram.models.consolidation import PhaseResult
-                    cycle.phase_results.append(PhaseResult(
-                        phase=phase.name,
-                        status="error",
-                        error=str(exc),
-                    ))
-                    self._publish(group_id, f"consolidation.phase.{phase.name}.failed", {
-                        "cycle_id": cycle.id,
-                        "phase": phase.name,
-                        "error": str(exc),
-                    })
+
+                    cycle.phase_results.append(
+                        PhaseResult(
+                            phase=phase.name,
+                            status="error",
+                            error=str(exc),
+                        )
+                    )
+                    self._publish(
+                        group_id,
+                        f"consolidation.phase.{phase.name}.failed",
+                        {
+                            "cycle_id": cycle.id,
+                            "phase": phase.name,
+                            "error": str(exc),
+                        },
+                    )
 
             if cycle.status != "cancelled":
                 cycle.status = "completed"
@@ -184,18 +205,23 @@ class ConsolidationEngine:
             self._running = False
             cycle.completed_at = time.time()
             cycle.total_duration_ms = round(
-                (cycle.completed_at - cycle.started_at) * 1000, 1,
+                (cycle.completed_at - cycle.started_at) * 1000,
+                1,
             )
 
             if self._store:
                 await self._store.update_cycle(cycle)
 
-            self._publish(group_id, "consolidation.completed", {
-                "cycle_id": cycle.id,
-                "status": cycle.status,
-                "duration_ms": cycle.total_duration_ms,
-                "phases": len(cycle.phase_results),
-            })
+            self._publish(
+                group_id,
+                "consolidation.completed",
+                {
+                    "cycle_id": cycle.id,
+                    "status": cycle.status,
+                    "duration_ms": cycle.total_duration_ms,
+                    "phases": len(cycle.phase_results),
+                },
+            )
 
         return cycle
 

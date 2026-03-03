@@ -36,9 +36,7 @@ class PPRStrategy:
         total_energy = sum(e for _, e in seed_nodes)
         if total_energy <= 0:
             return {}, {}
-        seed_vec: dict[str, float] = {
-            nid: e / total_energy for nid, e in seed_nodes
-        }
+        seed_vec: dict[str, float] = {nid: e / total_energy for nid, e in seed_nodes}
         seed_ids = set(seed_vec.keys())
 
         # 2. BFS-expand local subgraph
@@ -65,13 +63,11 @@ class PPRStrategy:
             for nid, ew, p in neighbors:
                 pw = cfg.predicate_weights.get(p, cfg.predicate_weight_default)
                 cf = 1.0
-                if (
-                    cfg.community_spreading_enabled
-                    and community_store is not None
-                    and group_id
-                ):
+                if cfg.community_spreading_enabled and community_store is not None and group_id:
                     is_bridge = community_store.is_bridge_edge(
-                        node, nid, group_id,
+                        node,
+                        nid,
+                        group_id,
                     )
                     if is_bridge is True:
                         cf = cfg.community_bridge_boost
@@ -84,9 +80,7 @@ class PPRStrategy:
             total_w = sum(w for _, w in raw_weights)
             if total_w <= 0:
                 continue
-            transition[node] = [
-                (nid, w * fan_factor / total_w) for nid, w in raw_weights
-            ]
+            transition[node] = [(nid, w * fan_factor / total_w) for nid, w in raw_weights]
 
         # 4. Power iteration: r = alpha * seed_vec + (1-alpha) * M^T * r
         alpha = cfg.ppr_alpha
@@ -95,18 +89,13 @@ class PPRStrategy:
             r.setdefault(nid, 0.0)
 
         for _ in range(cfg.ppr_max_iterations):
-            new_r: dict[str, float] = {
-                nid: alpha * seed_vec.get(nid, 0.0) for nid in all_nodes
-            }
+            new_r: dict[str, float] = {nid: alpha * seed_vec.get(nid, 0.0) for nid in all_nodes}
             for node, edges in transition.items():
                 r_node = r.get(node, 0.0)
                 if r_node <= 0:
                     continue
                 for neighbor, weight in edges:
-                    new_r[neighbor] = (
-                        new_r.get(neighbor, 0.0)
-                        + (1 - alpha) * r_node * weight
-                    )
+                    new_r[neighbor] = new_r.get(neighbor, 0.0) + (1 - alpha) * r_node * weight
 
             # Check convergence (L1 norm)
             diff = sum(abs(new_r.get(n, 0) - r.get(n, 0)) for n in all_nodes)
@@ -151,10 +140,8 @@ class PPRStrategy:
         while queue:
             node_id, hop = queue.popleft()
 
-            neighbors_raw = (
-                await neighbor_provider.get_active_neighbors_with_weights(
-                    node_id, group_id=group_id
-                )
+            neighbors_raw = await neighbor_provider.get_active_neighbors_with_weights(
+                node_id, group_id=group_id
             )
 
             neighbors: list[tuple[str, float, str]] = []
@@ -162,9 +149,7 @@ class PPRStrategy:
                 if len(info) >= 3:
                     neighbors.append((info[0], info[1], info[2]))
                 else:
-                    neighbors.append(
-                        (info[0], info[1], "__DEFAULT__")
-                    )
+                    neighbors.append((info[0], info[1], "__DEFAULT__"))
 
             adjacency[node_id] = neighbors
 

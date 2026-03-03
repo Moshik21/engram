@@ -65,9 +65,7 @@ class TestVoyageProvider:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "data": [{"index": 0, "embedding": [0.1, 0.2]}]
-        }
+        mock_response.json.return_value = {"data": [{"index": 0, "embedding": [0.1, 0.2]}]}
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = mock_response
@@ -84,14 +82,14 @@ class TestVoyageProvider:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "data": [{"index": 0, "embedding": [1.0]}]
-        }
+        mock_response.json.return_value = {"data": [{"index": 0, "embedding": [1.0]}]}
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             mock_post.return_value = mock_response
             provider = VoyageProvider(
-                api_key="test-key", dimensions=1, batch_size=2,
+                api_key="test-key",
+                dimensions=1,
+                batch_size=2,
             )
             texts = ["a", "b", "c", "d", "e"]
             await provider.embed(texts)

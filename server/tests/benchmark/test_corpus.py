@@ -188,19 +188,32 @@ def test_cross_cluster_queries_use_searchable_terms():
     assert len(cross_queries) == 5
 
     domain_keywords = [
-        "machine learning", "web development", "startup", "data science",
-        "cloud", "mobile", "devops", "alignment", "nlp", "natural language",
-        "fintech", "financial", "game", "infrastructure", "analytics",
-        "engineering", "technology", "computing", "app development",
+        "machine learning",
+        "web development",
+        "startup",
+        "data science",
+        "cloud",
+        "mobile",
+        "devops",
+        "alignment",
+        "nlp",
+        "natural language",
+        "fintech",
+        "financial",
+        "game",
+        "infrastructure",
+        "analytics",
+        "engineering",
+        "technology",
+        "computing",
+        "app development",
         "observability",
     ]
 
     for q in cross_queries:
         text_lower = q.query_text.lower()
         matches = [kw for kw in domain_keywords if kw in text_lower]
-        assert len(matches) >= 1, (
-            f"Query {q.query_id} has no domain keywords: {q.query_text!r}"
-        )
+        assert len(matches) >= 1, f"Query {q.query_id} has no domain keywords: {q.query_text!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +231,7 @@ def test_episode_count():
 def test_episode_temporal_distribution():
     """Episodes should span hot/warm/cold temporal tiers."""
     import time
+
     ref_time = _corpus.metadata.get("generated_at", time.time())
     hot_count = 0  # 0-7 days
     warm_count = 0  # 1-30 days
@@ -259,9 +273,7 @@ def test_episode_content_mentions_entities():
             if name in ep.content:
                 matches += 1
                 break
-    assert matches >= 40, (
-        f"Only {matches}/50 episodes mention entity names"
-    )
+    assert matches >= 40, f"Only {matches}/50 episodes mention entity names"
 
 
 def test_episode_ids_prefixed():
@@ -465,7 +477,8 @@ def test_semantic_queries_name_focal_person():
     semantic_queries = [q for q in corpus.ground_truth if q.category == "semantic"]
     for q in semantic_queries:
         g3_names = [
-            entity_map[eid].name for eid, g in q.relevant_entities.items()
+            entity_map[eid].name
+            for eid, g in q.relevant_entities.items()
             if g == 3 and entity_map[eid].entity_type == "person"
         ]
         assert any(name in q.query_text for name in g3_names), (
@@ -488,9 +501,7 @@ def test_summary_cluster_discrimination():
     for cluster in clusters:
         if cluster["name"] == "Long Tail":
             continue
-        cluster_domain_map[cluster["name"]] = [
-            d.lower() for d in cluster.get("domains", [])
-        ]
+        cluster_domain_map[cluster["name"]] = [d.lower() for d in cluster.get("domains", [])]
 
     for cluster in clusters:
         cname = cluster["name"]

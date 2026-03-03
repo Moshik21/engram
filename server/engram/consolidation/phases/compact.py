@@ -42,7 +42,9 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
 
         # Pull activated entities for this group
         activated = await activation_store.get_top_activated(
-            group_id=group_id, limit=_DEFAULT_ENTITY_LIMIT, now=now,
+            group_id=group_id,
+            limit=_DEFAULT_ENTITY_LIMIT,
+            now=now,
         )
 
         items_processed = 0
@@ -53,8 +55,7 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
                 continue
 
             # Skip entities that haven't been accessed since last compaction
-            if (state.last_compacted > 0
-                    and state.last_accessed <= state.last_compacted):
+            if state.last_compacted > 0 and state.last_accessed <= state.last_compacted:
                 continue
 
             items_processed += 1
@@ -62,14 +63,14 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
             original_len = len(state.access_history)
             if use_log:
                 compacted = logarithmic_compact(
-                    state.access_history, now, max_age_seconds, keep_min,
+                    state.access_history,
+                    now,
+                    max_age_seconds,
+                    keep_min,
                 )
             else:
                 # Simple mode: just drop old timestamps and enforce keep_min
-                compacted = [
-                    t for t in state.access_history
-                    if (now - t) <= max_age_seconds
-                ]
+                compacted = [t for t in state.access_history if (now - t) <= max_age_seconds]
                 if len(compacted) < keep_min and state.access_history:
                     compacted = sorted(state.access_history, reverse=True)[:keep_min]
 
@@ -79,7 +80,10 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
                     dropped = set(state.access_history) - set(compacted)
                     if dropped:
                         state.consolidated_strength += compute_dropped_strength(
-                            dropped, now, cfg.decay_exponent, cfg.min_age_seconds,
+                            dropped,
+                            now,
+                            cfg.decay_exponent,
+                            cfg.min_age_seconds,
                         )
                     state.access_history = compacted
                     state.last_compacted = now
@@ -104,10 +108,7 @@ def compute_dropped_strength(
     Returns the sum of age^(-d) for each dropped timestamp, which can be
     added to consolidated_strength to preserve activation accuracy.
     """
-    return sum(
-        max(min_age_seconds, now - t) ** (-decay_exponent)
-        for t in dropped_timestamps
-    )
+    return sum(max(min_age_seconds, now - t) ** (-decay_exponent) for t in dropped_timestamps)
 
 
 def logarithmic_compact(
@@ -130,9 +131,9 @@ def logarithmic_compact(
     if not history:
         return []
 
-    recent: list[float] = []      # < 24h
+    recent: list[float] = []  # < 24h
     hourly_buckets: dict[int, float] = {}  # 1-7d, keyed by hour offset
-    daily_buckets: dict[int, float] = {}   # 7d+, keyed by day offset
+    daily_buckets: dict[int, float] = {}  # 7d+, keyed by day offset
 
     one_day = 86400
     seven_days = 7 * one_day

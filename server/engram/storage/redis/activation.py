@@ -103,7 +103,10 @@ class RedisActivationStore:
         await pipe.execute()
 
     async def record_access(
-        self, entity_id: str, timestamp: float, group_id: str | None = None,
+        self,
+        entity_id: str,
+        timestamp: float,
+        group_id: str | None = None,
     ) -> None:
         """Record an access event, creating state if needed."""
         from engram.activation.engine import record_access as _record_access
@@ -123,7 +126,9 @@ class RedisActivationStore:
         await self._redis.delete(self._key(entity_id))
 
     async def get_top_activated(
-        self, group_id: str | None = None, limit: int = 20,
+        self,
+        group_id: str | None = None,
+        limit: int = 20,
         now: float | None = None,
     ) -> list[tuple[str, ActivationState]]:
         """Scan all activation keys, filter by group, compute activation, sort."""
@@ -151,7 +156,9 @@ class RedisActivationStore:
             if state:
                 entity_id = key_str.removeprefix("act:")
                 act = compute_activation(
-                    state.access_history, now, self._cfg,
+                    state.access_history,
+                    now,
+                    self._cfg,
                     state.consolidated_strength,
                 )
                 scored.append((entity_id, state, act))

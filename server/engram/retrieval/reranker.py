@@ -83,10 +83,7 @@ class CohereReranker(RerankerProvider):
 
         except Exception as e:
             logger.warning("Cohere rerank failed, returning original order: %s", e)
-            return [
-                (eid, 1.0 - i / len(documents))
-                for i, (eid, _) in enumerate(documents[:top_n])
-            ]
+            return [(eid, 1.0 - i / len(documents)) for i, (eid, _) in enumerate(documents[:top_n])]
 
     async def close(self) -> None:
         """Close the httpx client."""
@@ -104,13 +101,13 @@ class NoopReranker(RerankerProvider):
     ) -> list[tuple[str, float]]:
         top_n = min(top_n, len(documents))
         return [
-            (eid, 1.0 - i / max(len(documents), 1))
-            for i, (eid, _) in enumerate(documents[:top_n])
+            (eid, 1.0 - i / max(len(documents), 1)) for i, (eid, _) in enumerate(documents[:top_n])
         ]
 
 
 def create_reranker(
-    api_key: str | None = None, model: str = "rerank-v3.5",
+    api_key: str | None = None,
+    model: str = "rerank-v3.5",
 ) -> RerankerProvider:
     """Factory to create a reranker provider.
 

@@ -54,20 +54,22 @@ class TestActivationBenchmarks:
         """Entity mentioned 5 times should rank #1 for relevant query."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "Engram": ExtractionResult(
-                entities=[
-                    {"name": "Engram", "entity_type": "Project", "summary": "Memory layer"},
-                ],
-                relationships=[],
-            ),
-            "weather": ExtractionResult(
-                entities=[
-                    {"name": "Weather", "entity_type": "Topic", "summary": "Weather report"},
-                ],
-                relationships=[],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "Engram": ExtractionResult(
+                    entities=[
+                        {"name": "Engram", "entity_type": "Project", "summary": "Memory layer"},
+                    ],
+                    relationships=[],
+                ),
+                "weather": ExtractionResult(
+                    entities=[
+                        {"name": "Weather", "entity_type": "Topic", "summary": "Weather report"},
+                    ],
+                    relationships=[],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
         for i in range(5):
@@ -84,24 +86,26 @@ class TestActivationBenchmarks:
         """Recent entity should rank higher than old entity with same semantic."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "VS Code": ExtractionResult(
-                entities=[
-                    {"name": "VS Code", "entity_type": "Technology", "summary": "Code editor"},
-                ],
-                relationships=[],
-            ),
-            "Cursor": ExtractionResult(
-                entities=[
-                    {
-                        "name": "Cursor",
-                        "entity_type": "Technology",
-                        "summary": "AI code editor",
-                    },
-                ],
-                relationships=[],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "VS Code": ExtractionResult(
+                    entities=[
+                        {"name": "VS Code", "entity_type": "Technology", "summary": "Code editor"},
+                    ],
+                    relationships=[],
+                ),
+                "Cursor": ExtractionResult(
+                    entities=[
+                        {
+                            "name": "Cursor",
+                            "entity_type": "Technology",
+                            "summary": "AI code editor",
+                        },
+                    ],
+                    relationships=[],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
         await manager.ingest_episode("Using VS Code for development", group_id="default")
@@ -116,53 +120,53 @@ class TestActivationBenchmarks:
         """Spreading activation should find entities connected via multi-hop paths."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "Marcus Elena": ExtractionResult(
-                entities=[
-                    {
-                        "name": "Marcus",
-                        "entity_type": "Person",
-                        "summary": "Startup network contact",
-                    },
-                    {"name": "Elena", "entity_type": "Person", "summary": "Works at YC"},
-                    {
-                        "name": "YC",
-                        "entity_type": "Organization",
-                        "summary": "Y Combinator accelerator",
-                    },
-                    {
-                        "name": "Engram",
-                        "entity_type": "Project",
-                        "summary": "Could get funding",
-                    },
-                ],
-                relationships=[
-                    {
-                        "source": "Marcus",
-                        "target": "Elena",
-                        "predicate": "KNOWS",
-                        "weight": 1.0,
-                    },
-                    {
-                        "source": "Elena",
-                        "target": "YC",
-                        "predicate": "WORKS_AT",
-                        "weight": 1.0,
-                    },
-                    {
-                        "source": "Marcus",
-                        "target": "Engram",
-                        "predicate": "COULD_FUND",
-                        "weight": 0.5,
-                    },
-                ],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "Marcus Elena": ExtractionResult(
+                    entities=[
+                        {
+                            "name": "Marcus",
+                            "entity_type": "Person",
+                            "summary": "Startup network contact",
+                        },
+                        {"name": "Elena", "entity_type": "Person", "summary": "Works at YC"},
+                        {
+                            "name": "YC",
+                            "entity_type": "Organization",
+                            "summary": "Y Combinator accelerator",
+                        },
+                        {
+                            "name": "Engram",
+                            "entity_type": "Project",
+                            "summary": "Could get funding",
+                        },
+                    ],
+                    relationships=[
+                        {
+                            "source": "Marcus",
+                            "target": "Elena",
+                            "predicate": "KNOWS",
+                            "weight": 1.0,
+                        },
+                        {
+                            "source": "Elena",
+                            "target": "YC",
+                            "predicate": "WORKS_AT",
+                            "weight": 1.0,
+                        },
+                        {
+                            "source": "Marcus",
+                            "target": "Engram",
+                            "predicate": "COULD_FUND",
+                            "weight": 0.5,
+                        },
+                    ],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
-        await manager.ingest_episode(
-            "Marcus Elena YC could help fund Engram", group_id="default"
-        )
+        await manager.ingest_episode("Marcus Elena YC could help fund Engram", group_id="default")
 
         results = await manager.recall("funding", group_id="default")
         found_names = {r["entity"]["name"] for r in results if "entity" in r}
@@ -172,18 +176,20 @@ class TestActivationBenchmarks:
         """Activation overhead should be < 50ms p95."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "test": ExtractionResult(
-                entities=[
-                    {
-                        "name": "TestEntity",
-                        "entity_type": "Test",
-                        "summary": "For benchmarking",
-                    },
-                ],
-                relationships=[],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "test": ExtractionResult(
+                    entities=[
+                        {
+                            "name": "TestEntity",
+                            "entity_type": "Test",
+                            "summary": "For benchmarking",
+                        },
+                    ],
+                    relationships=[],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
         await manager.ingest_episode("test entity for benchmarking", group_id="default")
@@ -202,18 +208,20 @@ class TestActivationBenchmarks:
         """A single-mention entity should still be retrievable via search."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "allergy": ExtractionResult(
-                entities=[
-                    {
-                        "name": "PeanutAllergy",
-                        "entity_type": "Health",
-                        "summary": "Peanut allergy condition",
-                    },
-                ],
-                relationships=[],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "allergy": ExtractionResult(
+                    entities=[
+                        {
+                            "name": "PeanutAllergy",
+                            "entity_type": "Health",
+                            "summary": "Peanut allergy condition",
+                        },
+                    ],
+                    relationships=[],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
         await manager.ingest_episode("I have a peanut allergy", group_id="default")
@@ -228,30 +236,32 @@ class TestActivationBenchmarks:
         """Direct recall queries should still work correctly."""
         graph_store, activation_store, search_index, cfg = benchmark_env
 
-        extractor = MockBenchExtractor({
-            "Python FastAPI": ExtractionResult(
-                entities=[
-                    {
-                        "name": "Python",
-                        "entity_type": "Technology",
-                        "summary": "Programming language",
-                    },
-                    {
-                        "name": "FastAPI",
-                        "entity_type": "Technology",
-                        "summary": "Web framework",
-                    },
-                ],
-                relationships=[
-                    {
-                        "source": "FastAPI",
-                        "target": "Python",
-                        "predicate": "BUILT_WITH",
-                        "weight": 1.0,
-                    },
-                ],
-            ),
-        })
+        extractor = MockBenchExtractor(
+            {
+                "Python FastAPI": ExtractionResult(
+                    entities=[
+                        {
+                            "name": "Python",
+                            "entity_type": "Technology",
+                            "summary": "Programming language",
+                        },
+                        {
+                            "name": "FastAPI",
+                            "entity_type": "Technology",
+                            "summary": "Web framework",
+                        },
+                    ],
+                    relationships=[
+                        {
+                            "source": "FastAPI",
+                            "target": "Python",
+                            "predicate": "BUILT_WITH",
+                            "weight": 1.0,
+                        },
+                    ],
+                ),
+            }
+        )
         manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
 
         await manager.ingest_episode("Python FastAPI web development", group_id="default")

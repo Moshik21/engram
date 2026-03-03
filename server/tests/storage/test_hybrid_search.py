@@ -25,12 +25,27 @@ async def fts(tmp_path):
 
     # Insert test entities (FTS5 is trigger-based)
     for ent in [
-        Entity(id="e1", name="Python", entity_type="Technology",
-               summary="Programming language", group_id="default"),
-        Entity(id="e2", name="JavaScript", entity_type="Technology",
-               summary="Web language", group_id="default"),
-        Entity(id="e3", name="FastAPI", entity_type="Technology",
-               summary="Python web framework", group_id="default"),
+        Entity(
+            id="e1",
+            name="Python",
+            entity_type="Technology",
+            summary="Programming language",
+            group_id="default",
+        ),
+        Entity(
+            id="e2",
+            name="JavaScript",
+            entity_type="Technology",
+            summary="Web language",
+            group_id="default",
+        ),
+        Entity(
+            id="e3",
+            name="FastAPI",
+            entity_type="Technology",
+            summary="Python web framework",
+            group_id="default",
+        ),
     ]:
         await graph.create_entity(ent)
 

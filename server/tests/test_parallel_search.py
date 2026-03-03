@@ -48,7 +48,10 @@ def hybrid_index(mock_fts, mock_vectors, mock_provider):
 class TestParallelSearch:
     @pytest.mark.asyncio
     async def test_parallel_search_produces_results(
-        self, hybrid_index, mock_fts, mock_vectors,
+        self,
+        hybrid_index,
+        mock_fts,
+        mock_vectors,
     ):
         """Parallel search returns merged results from both sources."""
         results = await hybrid_index.search("test query", group_id="default")
@@ -58,7 +61,9 @@ class TestParallelSearch:
 
     @pytest.mark.asyncio
     async def test_parallel_search_caches_query_vec(
-        self, hybrid_index, mock_provider,
+        self,
+        hybrid_index,
+        mock_provider,
     ):
         """search() caches the query embedding for later reuse."""
         assert hybrid_index._last_query_vec is None
@@ -71,7 +76,9 @@ class TestParallelSearch:
         provider = MagicMock()
         provider.dimension.return_value = 0
         idx = HybridSearchIndex(
-            fts=mock_fts, vector_store=mock_vectors, provider=provider,
+            fts=mock_fts,
+            vector_store=mock_vectors,
+            provider=provider,
         )
         results = await idx.search("test query", group_id="default")
         assert results == [("e1", 5.0), ("e2", 3.0)]
@@ -79,7 +86,10 @@ class TestParallelSearch:
 
     @pytest.mark.asyncio
     async def test_fallback_on_embed_failure(
-        self, hybrid_index, mock_provider, mock_fts,
+        self,
+        hybrid_index,
+        mock_provider,
+        mock_fts,
     ):
         """Falls back to FTS5 when embedding fails."""
         mock_provider.embed_query = AsyncMock(
@@ -90,7 +100,10 @@ class TestParallelSearch:
 
     @pytest.mark.asyncio
     async def test_no_embeddings_group(
-        self, hybrid_index, mock_vectors, mock_fts,
+        self,
+        hybrid_index,
+        mock_vectors,
+        mock_fts,
     ):
         """Falls back to FTS5 when group has no embeddings."""
         mock_vectors.has_embeddings = AsyncMock(return_value=False)
@@ -108,35 +121,48 @@ class TestParallelSearch:
 class TestEmbeddingPassthrough:
     @pytest.mark.asyncio
     async def test_passthrough_skips_embed_call(
-        self, hybrid_index, mock_provider,
+        self,
+        hybrid_index,
+        mock_provider,
     ):
         """When query_embedding is provided, embed_query is not called."""
         precomputed = [0.5] * 512
         await hybrid_index.compute_similarity(
-            "test", ["e1"], group_id="default", query_embedding=precomputed,
+            "test",
+            ["e1"],
+            group_id="default",
+            query_embedding=precomputed,
         )
         mock_provider.embed_query.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_uses_cached_vec_from_search(
-        self, hybrid_index, mock_provider,
+        self,
+        hybrid_index,
+        mock_provider,
     ):
         """compute_similarity uses _last_query_vec from prior search()."""
         await hybrid_index.search("test query", group_id="default")
         mock_provider.embed_query.reset_mock()
         await hybrid_index.compute_similarity(
-            "test query", ["e1"], group_id="default",
+            "test query",
+            ["e1"],
+            group_id="default",
         )
         mock_provider.embed_query.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_falls_back_to_embed_query(
-        self, hybrid_index, mock_provider,
+        self,
+        hybrid_index,
+        mock_provider,
     ):
         """When no cached vec and no passthrough, calls embed_query."""
         hybrid_index._last_query_vec = None
         await hybrid_index.compute_similarity(
-            "new query", ["e1"], group_id="default",
+            "new query",
+            ["e1"],
+            group_id="default",
         )
         mock_provider.embed_query.assert_called_once_with("new query")
 
@@ -146,7 +172,9 @@ class TestEmbeddingPassthrough:
         provider = MagicMock()
         provider.dimension.return_value = 0
         idx = HybridSearchIndex(
-            fts=AsyncMock(), vector_store=AsyncMock(), provider=provider,
+            fts=AsyncMock(),
+            vector_store=AsyncMock(),
+            provider=provider,
         )
         result = await idx.compute_similarity("q", ["e1"], group_id="default")
         assert result == {}

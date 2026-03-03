@@ -28,6 +28,7 @@ _LLM_VALIDATION_PROMPT = (
 # PMI / tf-idf helpers
 # ---------------------------------------------------------------------------
 
+
 def _compute_pmi(co_count: int, ep_count_a: int, ep_count_b: int, total_episodes: int) -> float:
     """PMI(a,b) = log2(P(a,b) / (P(a) * P(b))). Returns 0.0 on invalid input."""
     if total_episodes <= 0 or ep_count_a <= 0 or ep_count_b <= 0 or co_count <= 0:
@@ -110,7 +111,8 @@ class EdgeInferencePhase(ConsolidationPhase):
                 all_ids.add(a_id)
                 all_ids.add(b_id)
             ep_counts = await graph_store.get_entity_episode_counts(
-                group_id, list(all_ids),
+                group_id,
+                list(all_ids),
             )
             stats = await graph_store.get_stats(group_id)
             total_episodes = stats.get("total_episodes", 0)
@@ -133,7 +135,9 @@ class EdgeInferencePhase(ConsolidationPhase):
                 imp_a = _compute_tfidf_importance(ep_a, total_episodes)
                 imp_b = _compute_tfidf_importance(ep_b, total_episodes)
                 confidence = _pmi_confidence(
-                    pmi_val, imp_a, imp_b,
+                    pmi_val,
+                    imp_a,
+                    imp_b,
                     cfg.consolidation_infer_tfidf_weight,
                     confidence_floor,
                 )
@@ -172,24 +176,30 @@ class EdgeInferencePhase(ConsolidationPhase):
                     context.affected_entity_ids.add(entity_a_id)
                     context.affected_entity_ids.add(entity_b_id)
 
-            records.append(InferredEdge(
-                cycle_id=cycle_id,
-                group_id=group_id,
-                source_id=entity_a_id,
-                target_id=entity_b_id,
-                source_name=entity_a.name,
-                target_name=entity_b.name,
-                co_occurrence_count=count,
-                confidence=round(confidence, 4),
-                infer_type=infer_type,
-                pmi_score=pmi_score,
-                relationship_id=rel_id,
-            ))
+            records.append(
+                InferredEdge(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    source_id=entity_a_id,
+                    target_id=entity_b_id,
+                    source_name=entity_a.name,
+                    target_name=entity_b.name,
+                    co_occurrence_count=count,
+                    confidence=round(confidence, 4),
+                    infer_type=infer_type,
+                    pmi_score=pmi_score,
+                    relationship_id=rel_id,
+                )
+            )
 
         # --- Transitivity pass ---
         if cfg.consolidation_infer_transitivity_enabled:
             trans_records = await _run_transitivity_pass(
-                group_id, graph_store, cfg, cycle_id, dry_run,
+                group_id,
+                graph_store,
+                cfg,
+                cycle_id,
+                dry_run,
                 remaining=max_edges - len(records),
                 context=context,
             )
@@ -198,7 +208,11 @@ class EdgeInferencePhase(ConsolidationPhase):
         # --- LLM validation pass (Tier 3) ---
         if cfg.consolidation_infer_llm_enabled:
             await self._run_llm_validation_pass(
-                records, graph_store, cfg, group_id, dry_run,
+                records,
+                graph_store,
+                cfg,
+                group_id,
+                dry_run,
             )
 
         return PhaseResult(
@@ -221,9 +235,9 @@ class EdgeInferencePhase(ConsolidationPhase):
         max_validations = cfg.consolidation_infer_llm_max_per_cycle
 
         candidates = [
-            r for r in records
-            if r.confidence >= threshold
-            and r.infer_type in ("co_occurrence", "co_occurrence_pmi")
+            r
+            for r in records
+            if r.confidence >= threshold and r.infer_type in ("co_occurrence", "co_occurrence_pmi")
         ][:max_validations]
 
         if not candidates:
@@ -239,6 +253,7 @@ class EdgeInferencePhase(ConsolidationPhase):
         if client is None:
             try:
                 import anthropic
+
                 client = anthropic.Anthropic()
             except Exception:
                 logger.warning("Could not create Anthropic client for LLM validation")
@@ -272,7 +287,9 @@ class EdgeInferencePhase(ConsolidationPhase):
                     # Invalidate the created relationship
                     if rec.relationship_id:
                         await graph_store.invalidate_relationship(
-                            rec.relationship_id, datetime.utcnow(), group_id,
+                            rec.relationship_id,
+                            datetime.utcnow(),
+                            group_id,
                         )
                 else:
                     rec.llm_verdict = "uncertain"
@@ -302,7 +319,8 @@ async def _run_transitivity_pass(
             break
 
         rels = await graph_store.get_relationships_by_predicate(
-            group_id, predicate,
+            group_id,
+            predicate,
         )
         if not rels:
             continue
@@ -360,17 +378,19 @@ async def _run_transitivity_pass(
                             context.affected_entity_ids.add(a_id)
                             context.affected_entity_ids.add(c_id)
 
-                    records.append(InferredEdge(
-                        cycle_id=cycle_id,
-                        group_id=group_id,
-                        source_id=a_id,
-                        target_id=c_id,
-                        source_name=entity_a.name,
-                        target_name=entity_c.name,
-                        co_occurrence_count=0,
-                        confidence=confidence,
-                        infer_type="transitivity",
-                    ))
+                    records.append(
+                        InferredEdge(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            source_id=a_id,
+                            target_id=c_id,
+                            source_name=entity_a.name,
+                            target_name=entity_c.name,
+                            co_occurrence_count=0,
+                            confidence=confidence,
+                            infer_type="transitivity",
+                        )
+                    )
 
                     # Prevent duplicate within this pass
                     direct_pairs.add((a_id, c_id))

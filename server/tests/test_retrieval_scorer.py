@@ -113,7 +113,8 @@ class TestScoreCandidates:
         candidates = [("ent_1", 0.5)]
         states = {
             "ent_1": ActivationState(
-                node_id="ent_1", access_history=[now - 1]  # very recent = high act
+                node_id="ent_1",
+                access_history=[now - 1],  # very recent = high act
             ),
         }
         scored = score_candidates(
@@ -139,9 +140,7 @@ class TestScoreCandidates:
         now = time.time()
         candidates = [("ent_1", 0.6)]
         states = {
-            "ent_1": ActivationState(
-                node_id="ent_1", access_history=[now - 10]
-            ),
+            "ent_1": ActivationState(node_id="ent_1", access_history=[now - 10]),
         }
         scored = score_candidates(
             candidates=candidates,
@@ -240,7 +239,8 @@ class TestScoreCandidates:
         candidates = [("spread_ent", 0.0)]
         states = {
             "spread_ent": ActivationState(
-                node_id="spread_ent", access_history=[now - 10],
+                node_id="spread_ent",
+                access_history=[now - 10],
             ),
         }
         scored = score_candidates(
@@ -274,7 +274,8 @@ class TestScoreCandidates:
         candidates = [("max_spread", 0.0)]
         states = {
             "max_spread": ActivationState(
-                node_id="max_spread", access_history=[now - 1],
+                node_id="max_spread",
+                access_history=[now - 1],
             ),
         }
         scored = score_candidates(
@@ -306,7 +307,8 @@ class TestScoreCandidates:
         candidates = [("hot_ent", 0.5)]
         states = {
             "hot_ent": ActivationState(
-                node_id="hot_ent", access_history=[now - 5],  # very recent
+                node_id="hot_ent",
+                access_history=[now - 5],  # very recent
             ),
         }
         scored = score_candidates(
@@ -355,14 +357,14 @@ class TestScoreCandidates:
     def test_exploration_bonus_low_access(self):
         """Bonus applies when access_count < threshold."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
         )
         now = time.time()
         candidates = [("new_ent", 0.6)]
         states = {
             "new_ent": ActivationState(
-                node_id="new_ent", access_history=[now - 100],
+                node_id="new_ent",
+                access_history=[now - 100],
                 access_count=2,
             ),
         }
@@ -383,7 +385,6 @@ class TestScoreCandidates:
     def test_exploration_bonus_high_access_diminished(self):
         """Bonus is diminished but nonzero for high access_count (smooth decay)."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
             rediscovery_weight=0.0,  # isolate novelty signal
         )
@@ -391,7 +392,8 @@ class TestScoreCandidates:
         candidates = [("established", 0.6)]
         states = {
             "established": ActivationState(
-                node_id="established", access_history=[now - 100],
+                node_id="established",
+                access_history=[now - 100],
                 access_count=10,
             ),
         }
@@ -414,7 +416,6 @@ class TestScoreCandidates:
     def test_exploration_bonus_zero_semantic(self):
         """No bonus when sem_sim = 0."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
         )
         now = time.time()
@@ -433,7 +434,6 @@ class TestScoreCandidates:
     def test_exploration_bonus_no_state(self):
         """Bonus applies for brand-new entity (0 accesses, no state)."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
         )
         now = time.time()
@@ -459,7 +459,6 @@ class TestScoreCandidates:
             weight_semantic=0.50,
             weight_activation=0.50,
             weight_edge_proximity=0.00,
-
             exploration_weight=0.10,
             rediscovery_weight=0.0,  # isolate novelty signal
         )
@@ -468,12 +467,14 @@ class TestScoreCandidates:
         states = {
             # Veteran: many accesses but old, so low activation
             "veteran": ActivationState(
-                node_id="veteran", access_history=[now - 604800],
+                node_id="veteran",
+                access_history=[now - 604800],
                 access_count=20,
             ),
             # Newcomer: 1 access, very recent
             "newcomer": ActivationState(
-                node_id="newcomer", access_history=[now - 100],
+                node_id="newcomer",
+                access_history=[now - 100],
                 access_count=1,
             ),
         }
@@ -496,7 +497,6 @@ class TestScoreCandidates:
     def test_exploration_bonus_diminishes(self):
         """Bonus decreases smoothly as access_count increases, even past old threshold."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
             rediscovery_weight=0.0,  # isolate novelty signal
             weight_semantic=0.50,
@@ -510,7 +510,8 @@ class TestScoreCandidates:
             candidates = [(f"ent_{ac}", 0.7)]
             states = {
                 f"ent_{ac}": ActivationState(
-                    node_id=f"ent_{ac}", access_history=[now - 100],
+                    node_id=f"ent_{ac}",
+                    access_history=[now - 100],
                     access_count=ac,
                 ),
             }
@@ -536,7 +537,6 @@ class TestScoreCandidates:
     def test_smooth_decay_no_cliff(self):
         """Bonus at threshold boundary has no discontinuity (smooth transition)."""
         cfg = ActivationConfig(
-
             exploration_weight=0.05,
             rediscovery_weight=0.0,
         )
@@ -547,7 +547,8 @@ class TestScoreCandidates:
             candidates = [(f"ent_{ac}", 0.7)]
             states = {
                 f"ent_{ac}": ActivationState(
-                    node_id=f"ent_{ac}", access_history=[now - 100],
+                    node_id=f"ent_{ac}",
+                    access_history=[now - 100],
                     access_count=ac,
                 ),
             }

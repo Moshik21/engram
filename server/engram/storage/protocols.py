@@ -10,14 +10,28 @@ from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.relationship import Relationship
 
-ENTITY_UPDATABLE_FIELDS = frozenset({
-    "name", "summary", "updated_at", "pii_detected", "pii_categories",
-    "access_count", "last_accessed", "deleted_at",
-})
+ENTITY_UPDATABLE_FIELDS = frozenset(
+    {
+        "name",
+        "summary",
+        "updated_at",
+        "pii_detected",
+        "pii_categories",
+        "access_count",
+        "last_accessed",
+        "deleted_at",
+    }
+)
 
-EPISODE_UPDATABLE_FIELDS = frozenset({
-    "status", "updated_at", "error", "retry_count", "processing_duration_ms",
-})
+EPISODE_UPDATABLE_FIELDS = frozenset(
+    {
+        "status",
+        "updated_at",
+        "error",
+        "retry_count",
+        "processing_duration_ms",
+    }
+)
 
 
 @runtime_checkable
@@ -70,7 +84,10 @@ class GraphStore(Protocol):
     ) -> list[tuple[str, float, str]]: ...  # (neighbor_id, weight, predicate)
     async def create_episode(self, episode: Episode) -> str: ...
     async def update_episode(
-        self, episode_id: str, updates: dict, group_id: str = "default",
+        self,
+        episode_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None: ...
     async def get_episodes(
         self,
@@ -83,43 +100,69 @@ class GraphStore(Protocol):
     async def link_episode_entity(self, episode_id: str, entity_id: str) -> None: ...
     async def get_stats(self, group_id: str | None = None) -> dict: ...
     async def get_episodes_paginated(
-        self, group_id: str | None = None, cursor: str | None = None,
-        limit: int = 50, source: str | None = None, status: str | None = None,
+        self,
+        group_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+        source: str | None = None,
+        status: str | None = None,
     ) -> tuple[list[Episode], str | None]: ...
     async def get_top_connected(
-        self, group_id: str | None = None, limit: int = 10,
+        self,
+        group_id: str | None = None,
+        limit: int = 10,
     ) -> list[dict]: ...
     async def get_growth_timeline(
-        self, group_id: str | None = None, days: int = 30,
+        self,
+        group_id: str | None = None,
+        days: int = 30,
     ) -> list[dict]: ...
     async def get_entity_type_counts(self, group_id: str | None = None) -> dict[str, int]: ...
 
     # --- Consolidation methods ---
     async def get_co_occurring_entity_pairs(
-        self, group_id: str, since: datetime | None = None,
-        min_co_occurrence: int = 3, limit: int = 100,
+        self,
+        group_id: str,
+        since: datetime | None = None,
+        min_co_occurrence: int = 3,
+        limit: int = 100,
     ) -> list[tuple[str, str, int]]: ...
 
     async def get_entity_episode_counts(
-        self, group_id: str, entity_ids: list[str],
+        self,
+        group_id: str,
+        entity_ids: list[str],
     ) -> dict[str, int]: ...
 
     async def get_dead_entities(
-        self, group_id: str, min_age_days: int = 30, limit: int = 100,
+        self,
+        group_id: str,
+        min_age_days: int = 30,
+        limit: int = 100,
     ) -> list[Entity]: ...
 
     async def merge_entities(
-        self, keep_id: str, remove_id: str, group_id: str,
+        self,
+        keep_id: str,
+        remove_id: str,
+        group_id: str,
     ) -> int: ...
 
     async def get_relationships_by_predicate(
-        self, group_id: str, predicate: str,
-        active_only: bool = True, limit: int = 10000,
+        self,
+        group_id: str,
+        predicate: str,
+        active_only: bool = True,
+        limit: int = 10000,
     ) -> list[Relationship]: ...
 
     async def update_relationship_weight(
-        self, source_id: str, target_id: str, weight_delta: float,
-        max_weight: float = 3.0, group_id: str = "default",
+        self,
+        source_id: str,
+        target_id: str,
+        weight_delta: float,
+        max_weight: float = 3.0,
+        group_id: str = "default",
     ) -> float | None: ...
 
 
@@ -132,11 +175,16 @@ class ActivationStore(Protocol):
     async def batch_get(self, entity_ids: list[str]) -> dict[str, ActivationState]: ...
     async def batch_set(self, states: dict[str, ActivationState]) -> None: ...
     async def record_access(
-        self, entity_id: str, timestamp: float, group_id: str | None = None,
+        self,
+        entity_id: str,
+        timestamp: float,
+        group_id: str | None = None,
     ) -> None: ...
     async def clear_activation(self, entity_id: str) -> None: ...
     async def get_top_activated(
-        self, group_id: str | None = None, limit: int = 20,
+        self,
+        group_id: str | None = None,
+        limit: int = 20,
         now: float | None = None,
     ) -> list[tuple[str, ActivationState]]: ...
 

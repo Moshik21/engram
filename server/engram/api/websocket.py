@@ -80,9 +80,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                         continue
 
                     now = time.time()
-                    top = await activation_store.get_top_activated(
-                        group_id=group_id, limit=20
-                    )
+                    top = await activation_store.get_top_activated(group_id=group_id, limit=20)
 
                     items = []
                     for entity_id, state in top:
@@ -92,20 +90,24 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                         activation = compute_activation(
                             state.access_history, now, config.activation
                         )
-                        items.append({
-                            "entityId": entity.id,
-                            "name": entity.name,
-                            "entityType": entity.entity_type,
-                            "currentActivation": round(activation, 4),
-                            "accessCount": state.access_count,
-                        })
+                        items.append(
+                            {
+                                "entityId": entity.id,
+                                "name": entity.name,
+                                "entityType": entity.entity_type,
+                                "currentActivation": round(activation, 4),
+                                "accessCount": state.access_count,
+                            }
+                        )
 
                     items.sort(key=lambda x: x["currentActivation"], reverse=True)
 
-                    await websocket.send_json({
-                        "type": "activation.snapshot",
-                        "payload": {"topActivated": items},
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "activation.snapshot",
+                            "payload": {"topActivated": items},
+                        }
+                    )
                 except Exception as e:
                     logger.debug("Activation snapshot error: %s", e)
         except asyncio.CancelledError:
@@ -122,10 +124,12 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                 msg_type = data.get("type", "")
 
                 if msg_type == "ping":
-                    await websocket.send_json({
-                        "type": "pong",
-                        "timestamp": time.time(),
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "pong",
+                            "timestamp": time.time(),
+                        }
+                    )
 
                 elif msg_type == "command":
                     command = data.get("command", "")
@@ -133,11 +137,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                     if command == "resync":
                         last_seq = data.get("lastSeq", 0)
                         events, is_full = bus.get_events_since(group_id, last_seq)
-                        await websocket.send_json({
-                            "type": "resync",
-                            "events": events,
-                            "isFull": is_full,
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "resync",
+                                "events": events,
+                                "isFull": is_full,
+                            }
+                        )
 
                     elif command == "subscribe.activation_monitor":
                         interval_ms = data.get("interval_ms", 2000)
@@ -148,9 +154,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                                 await activation_task
                             except asyncio.CancelledError:
                                 pass
-                        activation_task = asyncio.create_task(
-                            activation_snapshot_loop(interval_ms)
-                        )
+                        activation_task = asyncio.create_task(activation_snapshot_loop(interval_ms))
 
                     elif command == "unsubscribe.activation_monitor":
                         if activation_task and not activation_task.done():

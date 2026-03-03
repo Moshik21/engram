@@ -63,14 +63,12 @@ def identify_actr_seeds(
     candidates = working_memory.get_candidates(now)
     # Filter to entities only
     entities = [
-        (item_id, recency)
-        for item_id, recency, item_type in candidates
-        if item_type == "entity"
+        (item_id, recency) for item_id, recency, item_type in candidates if item_type == "entity"
     ]
     # Sort by recency descending (most recent first)
     entities.sort(key=lambda x: x[1], reverse=True)
     # Cap at Miller's number
-    entities = entities[:cfg.actr_max_sources]
+    entities = entities[: cfg.actr_max_sources]
     return [(item_id, 1.0) for item_id, _recency in entities]
 
 
@@ -93,12 +91,17 @@ async def spread_activation(
     if cfg.community_spreading_enabled and community_store is not None and group_id:
         seed_ids = [nid for nid, _ in seed_nodes]
         await community_store.ensure_fresh(
-            group_id, neighbor_provider, entity_ids=seed_ids,
+            group_id,
+            neighbor_provider,
+            entity_ids=seed_ids,
         )
 
     strategy = create_strategy(cfg.spreading_strategy)
     return await strategy.spread(
-        seed_nodes, neighbor_provider, cfg,
-        group_id=group_id, community_store=community_store,
+        seed_nodes,
+        neighbor_provider,
+        cfg,
+        group_id=group_id,
+        community_store=community_store,
         context_gate=context_gate,
     )

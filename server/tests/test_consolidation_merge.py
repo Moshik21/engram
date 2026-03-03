@@ -59,8 +59,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 1
@@ -77,8 +82,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.88)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 0
@@ -96,8 +106,13 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         # Different types — should NOT merge
@@ -113,8 +128,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
 
         assert result.items_affected == 1  # Reported as would-merge
@@ -133,8 +153,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert len(records) == 1
@@ -158,8 +183,13 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_sub", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_sub",
+            dry_run=True,
         )
 
         # Full O(n²) would be count*(count-1)/2; sub-blocking should reduce this
@@ -181,8 +211,13 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_sub2", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_sub2",
+            dry_run=True,
         )
 
         # "Alice Smith" and "alice smith" share prefix "al" → should merge
@@ -205,8 +240,13 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, _ = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_cross", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_cross",
+            dry_run=True,
         )
 
         # Full O(n²) would be 510*509/2 = 129,795 pairs
@@ -228,8 +268,13 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected <= 2
@@ -245,8 +290,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="group_a", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="group_a",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         # Only one entity in group_a, nothing to merge
@@ -257,8 +307,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig()
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_processed == 0
@@ -275,11 +330,15 @@ class TestEntityMergePhase:
 
         # Set up activation states with consolidated_strength
         s1 = ActivationState(
-            node_id=e1.id, access_history=[now - 60], access_count=5,
+            node_id=e1.id,
+            access_history=[now - 60],
+            access_count=5,
             consolidated_strength=2.5,
         )
         s2 = ActivationState(
-            node_id=e2.id, access_history=[now - 120], access_count=10,
+            node_id=e2.id,
+            access_history=[now - 120],
+            access_count=10,
             consolidated_strength=3.7,
         )
         await activation.set_activation(e1.id, s1)
@@ -288,8 +347,13 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_cs", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_cs",
+            dry_run=False,
         )
 
         assert len(records) == 1

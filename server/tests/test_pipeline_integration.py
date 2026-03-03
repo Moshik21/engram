@@ -23,10 +23,15 @@ def _mock_graph_store(neighbors=None):
     store.get_active_neighbors_with_weights = AsyncMock(
         return_value=neighbors or [],
     )
-    store.get_entity = AsyncMock(return_value=Entity(
-        id="e1", name="Test", entity_type="Thing",
-        summary="A test entity", group_id="default",
-    ))
+    store.get_entity = AsyncMock(
+        return_value=Entity(
+            id="e1",
+            name="Test",
+            entity_type="Thing",
+            summary="A test entity",
+            group_id="default",
+        )
+    )
     return store
 
 
@@ -125,8 +130,10 @@ class TestPipelineWithBoth:
     async def test_pipeline_with_reranker_and_mmr(self):
         """Pipeline applies both reranker and MMR."""
         cfg = ActivationConfig(
-            reranker_enabled=True, reranker_top_n=10,
-            mmr_enabled=True, mmr_lambda=0.7,
+            reranker_enabled=True,
+            reranker_top_n=10,
+            mmr_enabled=True,
+            mmr_lambda=0.7,
         )
 
         results = await retrieve(
@@ -162,12 +169,14 @@ class TestBenchmarkMethods:
     def test_fan_spread_method_config(self):
         """Fan spread method has correct config (aggressive fan_s_max=2.5)."""
         from engram.benchmark.methods import METHOD_FAN_SPREAD
+
         assert METHOD_FAN_SPREAD.spreading_enabled is True
         assert METHOD_FAN_SPREAD.config.fan_s_max == 4.5
 
     def test_rrf_method_config(self):
         """RRF method has correct config."""
         from engram.benchmark.methods import METHOD_RRF
+
         assert METHOD_RRF.config.use_rrf is True
         assert METHOD_RRF.config.rrf_k == 60
         assert METHOD_RRF.spreading_enabled is True
@@ -175,12 +184,14 @@ class TestBenchmarkMethods:
     def test_mmr_method_config(self):
         """MMR method has correct config."""
         from engram.benchmark.methods import METHOD_MMR
+
         assert METHOD_MMR.config.mmr_enabled is True
         assert METHOD_MMR.config.mmr_lambda == 0.7
 
     def test_all_methods_includes_new(self):
         """ALL_METHODS includes the new benchmark methods."""
         from engram.benchmark.methods import ALL_METHODS
+
         names = [m.name for m in ALL_METHODS]
         assert "Fan Spread" in names
         assert "RRF Fusion" in names
@@ -194,12 +205,14 @@ class TestBenchmarkMethods:
     def test_linear_merge_method_config(self):
         """Linear merge method has use_rrf=False."""
         from engram.benchmark.methods import METHOD_LINEAR
+
         assert METHOD_LINEAR.config.use_rrf is False
         assert METHOD_LINEAR.spreading_enabled is True
 
     def test_community_method_config(self):
         """Community method has correct config."""
         from engram.benchmark.methods import METHOD_COMMUNITY
+
         assert METHOD_COMMUNITY.config.community_spreading_enabled is True
         assert METHOD_COMMUNITY.config.community_bridge_boost == 1.5
         assert METHOD_COMMUNITY.config.community_intra_dampen == 0.7
@@ -209,6 +222,7 @@ class TestBenchmarkMethods:
     def test_context_gated_method_config(self):
         """Context-gated method has correct config."""
         from engram.benchmark.methods import METHOD_CONTEXT_GATED
+
         assert METHOD_CONTEXT_GATED.config.context_gating_enabled is True
         assert METHOD_CONTEXT_GATED.config.context_gate_floor == 0.3
         assert METHOD_CONTEXT_GATED.spreading_enabled is True

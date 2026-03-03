@@ -40,7 +40,9 @@ async def activation():
 def _old_entity(name, group_id="test", days_old=60):
     return Entity(
         id=f"ent_{uuid.uuid4().hex[:8]}",
-        name=name, entity_type="Concept", group_id=group_id,
+        name=name,
+        entity_type="Concept",
+        group_id=group_id,
         access_count=0,
         created_at=datetime.utcnow() - timedelta(days=days_old),
     )
@@ -68,8 +70,13 @@ class TestPrunePhase:
         cfg = ActivationConfig(consolidation_prune_min_age_days=30)
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 1
@@ -86,8 +93,13 @@ class TestPrunePhase:
         cfg = ActivationConfig(consolidation_prune_min_age_days=30)
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
 
         assert result.items_affected == 1
@@ -115,8 +127,13 @@ class TestPrunePhase:
         )
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 0  # Protected by access count
@@ -133,16 +150,23 @@ class TestPrunePhase:
 
         rel = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e1.id, target_id=e2.id,
-            predicate="KNOWS", group_id="test",
+            source_id=e1.id,
+            target_id=e2.id,
+            predicate="KNOWS",
+            group_id="test",
         )
         await store.create_relationship(rel)
 
         cfg = ActivationConfig(consolidation_prune_min_age_days=30)
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         # Neither should be pruned (they have a relationship to each other)
@@ -163,8 +187,13 @@ class TestPrunePhase:
         )
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected <= 2
@@ -182,8 +211,13 @@ class TestPrunePhase:
         cfg = ActivationConfig(consolidation_prune_min_age_days=30)
         phase = PrunePhase()
         await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         # Activation should be cleared
@@ -198,8 +232,13 @@ class TestPrunePhase:
         cfg = ActivationConfig(consolidation_prune_min_age_days=30)
         phase = PrunePhase()
         result, records = await phase.execute(
-            group_id="group_b", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="group_b",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 0

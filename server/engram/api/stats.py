@@ -22,9 +22,7 @@ async def get_stats(
     manager = get_manager()
     graph_store = get_graph_store()
 
-    result = await manager.get_graph_state(
-        group_id=group_id, top_n=20, include_edges=False
-    )
+    result = await manager.get_graph_state(group_id=group_id, top_n=20, include_edges=False)
 
     # Convert top_activated to camelCase
     top_activated = []

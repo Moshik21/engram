@@ -50,10 +50,8 @@ class ACTRStrategy:
         for source_id, _energy in seed_nodes:
             hop_distances.setdefault(source_id, 0)
 
-            neighbors = (
-                await neighbor_provider.get_active_neighbors_with_weights(
-                    source_id, group_id=group_id
-                )
+            neighbors = await neighbor_provider.get_active_neighbors_with_weights(
+                source_id, group_id=group_id
             )
             fan = len(neighbors)
             if fan == 0:

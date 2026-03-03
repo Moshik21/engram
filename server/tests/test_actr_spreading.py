@@ -64,10 +64,12 @@ class TestStrategyFactory:
 
     def test_bfs_still_works(self):
         from engram.activation.bfs import BFSStrategy
+
         assert isinstance(create_strategy("bfs"), BFSStrategy)
 
     def test_ppr_still_works(self):
         from engram.activation.ppr import PPRStrategy
+
         assert isinstance(create_strategy("ppr"), PPRStrategy)
 
 
@@ -155,7 +157,9 @@ class MockNeighborProvider:
         self._adjacency = adjacency
 
     async def get_active_neighbors_with_weights(
-        self, node_id: str, group_id: str | None = None,
+        self,
+        node_id: str,
+        group_id: str | None = None,
     ) -> list[tuple[str, float, str]]:
         return self._adjacency.get(node_id, [])
 
@@ -176,11 +180,15 @@ class TestACTRStrategy:
     async def test_single_source(self):
         strategy = ACTRStrategy()
         cfg = ActivationConfig(spreading_strategy="actr", actr_total_w=1.0)
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0, "KNOWS")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0, "KNOWS")],
+            }
+        )
         bonuses, hops = await strategy.spread(
-            [("A", 1.0)], provider, cfg,
+            [("A", 1.0)],
+            provider,
+            cfg,
         )
         # W_j = 1.0/1 = 1.0
         # fan = 1, S_ji = max(0.3, 3.5 - ln(2)) = max(0.3, 2.807) = 2.807
@@ -197,12 +205,16 @@ class TestACTRStrategy:
         """Entity connected to multiple WM items accumulates bonuses."""
         strategy = ACTRStrategy()
         cfg = ActivationConfig(spreading_strategy="actr", actr_total_w=1.0)
-        provider = MockNeighborProvider({
-            "A": [("C", 1.0, "KNOWS")],
-            "B": [("C", 1.0, "KNOWS")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("C", 1.0, "KNOWS")],
+                "B": [("C", 1.0, "KNOWS")],
+            }
+        )
         bonuses, hops = await strategy.spread(
-            [("A", 1.0), ("B", 1.0)], provider, cfg,
+            [("A", 1.0), ("B", 1.0)],
+            provider,
+            cfg,
         )
         # W_j = 1.0/2 = 0.5
         # Each source contributes: 0.5 * (3.5-ln(2)) * 0.5 * 1.0
@@ -218,7 +230,9 @@ class TestACTRStrategy:
         neighbors = [(f"n{i}", 1.0, "KNOWS") for i in range(10)]
         provider = MockNeighborProvider({"A": neighbors})
         bonuses, _ = await strategy.spread(
-            [("A", 1.0)], provider, cfg,
+            [("A", 1.0)],
+            provider,
+            cfg,
         )
         # fan = 10, S_ji = max(0.3, 3.5 - ln(11)) = max(0.3, 1.103)
         s_ji = max(0.3, 3.5 - math.log(11))
@@ -231,12 +245,16 @@ class TestACTRStrategy:
         """ACT-R does NOT do multi-hop spreading."""
         strategy = ACTRStrategy()
         cfg = ActivationConfig(spreading_strategy="actr")
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0, "KNOWS")],
-            "B": [("C", 1.0, "KNOWS")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0, "KNOWS")],
+                "B": [("C", 1.0, "KNOWS")],
+            }
+        )
         bonuses, hops = await strategy.spread(
-            [("A", 1.0)], provider, cfg,
+            [("A", 1.0)],
+            provider,
+            cfg,
         )
         assert "B" in bonuses
         assert "C" not in bonuses  # no 2nd hop
@@ -246,7 +264,8 @@ class TestACTRStrategy:
         """Bonuses should be in a meaningful range (>> 0.034 BFS median)."""
         strategy = ACTRStrategy()
         cfg = ActivationConfig(
-            spreading_strategy="actr", actr_total_w=1.0,
+            spreading_strategy="actr",
+            actr_total_w=1.0,
         )
         # 5 sources, target connected to all 5, each source has degree 5
         adjacency = {}
@@ -269,9 +288,11 @@ class TestACTRStrategy:
         """Different predicates produce different bonuses."""
         strategy = ACTRStrategy()
         cfg = ActivationConfig(spreading_strategy="actr", actr_total_w=1.0)
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0, "EXPERT_IN"), ("C", 1.0, "MENTIONED_WITH")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0, "EXPERT_IN"), ("C", 1.0, "MENTIONED_WITH")],
+            }
+        )
         bonuses, _ = await strategy.spread([("A", 1.0)], provider, cfg)
         # EXPERT_IN weight = 0.9, MENTIONED_WITH weight = 0.3
         assert bonuses["B"] > bonuses["C"]
@@ -283,9 +304,11 @@ class TestACTRStrategy:
         """Edge weight multiplies into the bonus."""
         strategy = ACTRStrategy()
         cfg = ActivationConfig(spreading_strategy="actr", actr_total_w=1.0)
-        provider = MockNeighborProvider({
-            "A": [("B", 2.0, "KNOWS"), ("C", 0.5, "KNOWS")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 2.0, "KNOWS"), ("C", 0.5, "KNOWS")],
+            }
+        )
         bonuses, _ = await strategy.spread([("A", 1.0)], provider, cfg)
         assert bonuses["B"] / bonuses["C"] == pytest.approx(4.0)
 
@@ -301,11 +324,15 @@ class TestSpreadActivationDispatcher:
     @pytest.mark.asyncio
     async def test_dispatches_to_actr(self):
         cfg = ActivationConfig(spreading_strategy="actr", actr_total_w=1.0)
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0, "KNOWS")],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0, "KNOWS")],
+            }
+        )
         bonuses, hops = await spread_activation(
-            [("A", 1.0)], provider, cfg,
+            [("A", 1.0)],
+            provider,
+            cfg,
         )
         assert "B" in bonuses
         assert hops["B"] == 1

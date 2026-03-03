@@ -252,9 +252,7 @@ EPISODES = [
     },
     {
         "label": "Recent but weak",
-        "content": (
-            "The weather in Denver is nice today. Clear skies and warm for February."
-        ),
+        "content": ("The weather in Denver is nice today. Clear skies and warm for February."),
         "source": "conversation",
     },
 ]
@@ -1169,12 +1167,14 @@ class SimStats:
     recency_accuracy: float = 0.0
     associative_accuracy: float = 0.0
     frequency_accuracy: float = 0.0
-    category_hits: dict = field(default_factory=lambda: {
-        "recency": [0, 0],
-        "frequency": [0, 0],
-        "associative": [0, 0],
-        "direct": [0, 0],
-    })
+    category_hits: dict = field(
+        default_factory=lambda: {
+            "recency": [0, 0],
+            "frequency": [0, 0],
+            "associative": [0, 0],
+            "direct": [0, 0],
+        }
+    )
 
 
 # ─── Main simulation ─────────────────────────────────────────────────
@@ -1222,7 +1222,7 @@ async def run_simulation(
         content = ep["content"]
         source = ep.get("source", "conversation")
 
-        subsection(f"Episode {i+1}/{len(EPISODES)}: {label}")
+        subsection(f"Episode {i + 1}/{len(EPISODES)}: {label}")
         print(f"  {DIM}{content[:100]}{'...' if len(content) > 100 else ''}{RESET}")
 
         # Count entities before ingestion for dedup detection
@@ -1394,9 +1394,7 @@ async def run_simulation(
             score = r["score"]
             breakdown = r.get("score_breakdown", {})
             rel_count = len(r.get("relationships", []))
-            is_expected = "✓" if any(
-                _name_match(x, e["name"]) for x in expected
-            ) else " "
+            is_expected = "✓" if any(_name_match(x, e["name"]) for x in expected) else " "
             bd_str = ""
             if breakdown:
                 bd_str = (
@@ -1420,8 +1418,8 @@ async def run_simulation(
 
     if activation_overhead_ms_list:
         activation_overhead_ms_list.sort()
-        stats.avg_activation_overhead_ms = (
-            sum(activation_overhead_ms_list) / len(activation_overhead_ms_list)
+        stats.avg_activation_overhead_ms = sum(activation_overhead_ms_list) / len(
+            activation_overhead_ms_list
         )
 
     # ───────────────────────────────────────────────────────────────
@@ -1475,9 +1473,7 @@ async def run_simulation(
         if invalidated_jobs:
             stats.contradictions_detected += len(invalidated_jobs)
             stats.contradictions_resolved += len(invalidated_jobs)
-            print(
-                f"  {GREEN}✓ {len(invalidated_jobs)} job contradiction(s) resolved{RESET}"
-            )
+            print(f"  {GREEN}✓ {len(invalidated_jobs)} job contradiction(s) resolved{RESET}")
 
     subsection("PII Detection")
     pii_entities = [e for e in all_entities if e.pii_detected]
@@ -1522,14 +1518,8 @@ async def run_simulation(
             fts_found = [r["entity"]["name"] for r in fts_results[:5]]
             act_found = [r["entity"]["name"] for r in act_results[:5]]
 
-            fts_hit = any(
-                any(_name_match(e, fn) for fn in fts_found)
-                for e in expected
-            )
-            act_hit = any(
-                any(_name_match(e, fn) for fn in act_found)
-                for e in expected
-            )
+            fts_hit = any(any(_name_match(e, fn) for fn in fts_found) for e in expected)
+            act_hit = any(any(_name_match(e, fn) for fn in act_found) for e in expected)
 
             stats.activation_queries_tested += 1
             if act_hit and not fts_hit:
@@ -1560,13 +1550,16 @@ async def run_simulation(
     # Test 1: search_entities by name
     subsection("search_entities(name='Engram')")
     se_results = await manager.search_entities(
-        group_id="default", name="Engram",
+        group_id="default",
+        name="Engram",
     )
     passed = any(_name_match("Engram", r["name"]) for r in se_results)
     if not passed:
         # FTS5 may not match — try find_entities (exact name) as fallback
         fallback = await manager._graph.find_entities(
-            name="Engram", group_id="default", limit=5,
+            name="Engram",
+            group_id="default",
+            limit=5,
         )
         passed = len(fallback) > 0
     w4_tests.append(("search_entities(name)", passed))
@@ -1579,11 +1572,10 @@ async def run_simulation(
     # Test 2: search_entities by type
     subsection("search_entities(entity_type='Technology')")
     se_type = await manager.search_entities(
-        group_id="default", entity_type="Technology",
+        group_id="default",
+        entity_type="Technology",
     )
-    passed = len(se_type) >= 2 and all(
-        r["entity_type"] == "Technology" for r in se_type
-    )
+    passed = len(se_type) >= 2 and all(r["entity_type"] == "Technology" for r in se_type)
     w4_tests.append(("search_entities(type)", passed))
     if passed:
         print(
@@ -1595,7 +1587,9 @@ async def run_simulation(
     # Test 3: search_facts by subject
     subsection("search_facts(subject='Konner')")
     sf_results = await manager.search_facts(
-        group_id="default", query="Konner", subject="Konner",
+        group_id="default",
+        query="Konner",
+        subject="Konner",
     )
     passed = len(sf_results) >= 1
     w4_tests.append(("search_facts(subject)", passed))
@@ -1603,8 +1597,7 @@ async def run_simulation(
         print(f"  {GREEN}✓ Found {len(sf_results)} facts{RESET}")
         for f in sf_results[:3]:
             print(
-                f"    {DIM}{f['subject']} —{f['predicate']}→ "
-                f"{f['object']}{RESET}",
+                f"    {DIM}{f['subject']} —{f['predicate']}→ {f['object']}{RESET}",
             )
     else:
         print(f"  {RED}✗ No facts found for Konner{RESET}")
@@ -1612,7 +1605,8 @@ async def run_simulation(
     # Test 4: search_facts with include_expired
     subsection("search_facts(include_expired=True)")
     sf_expired = await manager.search_facts(
-        group_id="default", query="location",
+        group_id="default",
+        query="location",
         include_expired=True,
     )
     passed = len(sf_expired) >= 0  # May be empty if no expired yet
@@ -1623,7 +1617,8 @@ async def run_simulation(
     # Haiku may use different predicates (BASED_IN vs MOVED_FROM) and
     # entity names (Mesa, Arizona vs Mesa), so we pick one dynamically.
     konner_facts = await manager.search_facts(
-        group_id="default", query="Konner",
+        group_id="default",
+        query="Konner",
     )
     forget_subj, forget_pred, forget_obj = "Konner", "BUILDS", "Engram"
     for f in konner_facts:
@@ -1634,8 +1629,10 @@ async def run_simulation(
             break
     subsection(f"forget(fact: {forget_subj} {forget_pred} {forget_obj})")
     forget_result = await manager.forget_fact(
-        subject_name=forget_subj, predicate=forget_pred,
-        object_name=forget_obj, group_id="default",
+        subject_name=forget_subj,
+        predicate=forget_pred,
+        object_name=forget_obj,
+        group_id="default",
     )
     passed = forget_result.get("status") == "forgotten"
     w4_tests.append(("forget(fact)", passed))
@@ -1643,14 +1640,14 @@ async def run_simulation(
         print(f"  {GREEN}✓ Fact forgotten: {forget_result['message']}{RESET}")
     else:
         print(
-            f"  {YELLOW}⚠ Forget result: "
-            f"{forget_result.get('message', 'unknown')}{RESET}",
+            f"  {YELLOW}⚠ Forget result: {forget_result.get('message', 'unknown')}{RESET}",
         )
 
     # Test 6: get_context with topic
     subsection("get_context(topic_hint='projects')")
     ctx = await manager.get_context(
-        group_id="default", topic_hint="projects",
+        group_id="default",
+        topic_hint="projects",
     )
     passed = "context" in ctx and ctx.get("entity_count", 0) >= 0
     w4_tests.append(("get_context(topic)", passed))
@@ -1670,8 +1667,7 @@ async def run_simulation(
     w4_tests.append(("get_context(broad)", passed))
     if passed:
         print(
-            f"  {GREEN}✓ Broad context: {ctx_broad['entity_count']} "
-            f"entities{RESET}",
+            f"  {GREEN}✓ Broad context: {ctx_broad['entity_count']} entities{RESET}",
         )
     else:
         print(f"  {RED}✗ Missing markdown header{RESET}")
@@ -1679,13 +1675,11 @@ async def run_simulation(
     # Test 8: get_graph_state
     subsection("get_graph_state(top_n=10, include_edges=True)")
     gs = await manager.get_graph_state(
-        group_id="default", top_n=10, include_edges=True,
+        group_id="default",
+        top_n=10,
+        include_edges=True,
     )
-    passed = (
-        "stats" in gs
-        and "top_activated" in gs
-        and "edges" in gs
-    )
+    passed = "stats" in gs and "top_activated" in gs and "edges" in gs
     w4_tests.append(("get_graph_state", passed))
     if passed:
         print(
@@ -1693,15 +1687,12 @@ async def run_simulation(
             f"{gs['stats']['relationships']} rels{RESET}",
         )
         print(
-            f"    Top activated: "
-            f"{len(gs['top_activated'])} entities, "
-            f"{len(gs['edges'])} edges",
+            f"    Top activated: {len(gs['top_activated'])} entities, {len(gs['edges'])} edges",
         )
         if gs.get("stats", {}).get("entity_type_distribution"):
             dist = gs["stats"]["entity_type_distribution"]
             print(
-                f"    Type distribution: "
-                f"{', '.join(f'{k}={v}' for k, v in dist.items())}",
+                f"    Type distribution: {', '.join(f'{k}={v}' for k, v in dist.items())}",
             )
     else:
         print(f"  {RED}✗ get_graph_state missing fields{RESET}")
@@ -1727,9 +1718,7 @@ async def run_simulation(
     min_ingest = min(stats.ingestion_times) if stats.ingestion_times else 0
     avg_recall = sum(stats.recall_times) / len(stats.recall_times) if stats.recall_times else 0
 
-    recall_accuracy = (
-        stats.recall_hits / stats.recall_queries * 100 if stats.recall_queries else 0
-    )
+    recall_accuracy = stats.recall_hits / stats.recall_queries * 100 if stats.recall_queries else 0
 
     print(
         f"""

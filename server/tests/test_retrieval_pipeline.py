@@ -26,7 +26,10 @@ class _FakeSearchIndex:
         return self._results[:limit]
 
     async def compute_similarity(
-        self, query: str, entity_ids: list[str], group_id: str | None = None,
+        self,
+        query: str,
+        entity_ids: list[str],
+        group_id: str | None = None,
     ) -> dict[str, float]:
         return {eid: self._similarity_map.get(eid, 0.0) for eid in entity_ids}
 
@@ -62,18 +65,20 @@ class TestRetrievalPipeline:
         now = time.time()
         # search_ent is found by search, neighbor_ent is discovered via spreading
         search_index = _FakeSearchIndex([("search_ent", 0.8)])
-        activation_store = _FakeActivationStore({
-            "search_ent": ActivationState(
-                node_id="search_ent",
-                access_history=[now - 10],
-                access_count=5,
-            ),
-            "neighbor_ent": ActivationState(
-                node_id="neighbor_ent",
-                access_history=[now - 5],
-                access_count=3,
-            ),
-        })
+        activation_store = _FakeActivationStore(
+            {
+                "search_ent": ActivationState(
+                    node_id="search_ent",
+                    access_history=[now - 10],
+                    access_count=5,
+                ),
+                "neighbor_ent": ActivationState(
+                    node_id="neighbor_ent",
+                    access_history=[now - 5],
+                    access_count=3,
+                ),
+            }
+        )
         # search_ent connects to neighbor_ent
         graph_store = _FakeGraphStore({"search_ent": ["neighbor_ent"]})
 
@@ -106,18 +111,20 @@ class TestRetrievalPipeline:
             [("seed", 0.9)],
             similarity_map={"discovered": 0.65},
         )
-        activation_store = _FakeActivationStore({
-            "seed": ActivationState(
-                node_id="seed",
-                access_history=[now - 5],
-                access_count=3,
-            ),
-            "discovered": ActivationState(
-                node_id="discovered",
-                access_history=[now - 10],
-                access_count=2,
-            ),
-        })
+        activation_store = _FakeActivationStore(
+            {
+                "seed": ActivationState(
+                    node_id="seed",
+                    access_history=[now - 5],
+                    access_count=3,
+                ),
+                "discovered": ActivationState(
+                    node_id="discovered",
+                    access_history=[now - 10],
+                    access_count=2,
+                ),
+            }
+        )
         graph_store = _FakeGraphStore({"seed": ["discovered"]})
 
         cfg = ActivationConfig(
@@ -146,18 +153,20 @@ class TestRetrievalPipeline:
         """Entities discovered by spreading get 0.0 when search index has no embeddings."""
         now = time.time()
         search_index = _FakeSearchIndex([("seed", 0.9)])  # no similarity_map
-        activation_store = _FakeActivationStore({
-            "seed": ActivationState(
-                node_id="seed",
-                access_history=[now - 5],
-                access_count=3,
-            ),
-            "discovered": ActivationState(
-                node_id="discovered",
-                access_history=[now - 10],
-                access_count=2,
-            ),
-        })
+        activation_store = _FakeActivationStore(
+            {
+                "seed": ActivationState(
+                    node_id="seed",
+                    access_history=[now - 5],
+                    access_count=3,
+                ),
+                "discovered": ActivationState(
+                    node_id="discovered",
+                    access_history=[now - 10],
+                    access_count=2,
+                ),
+            }
+        )
         graph_store = _FakeGraphStore({"seed": ["discovered"]})
 
         cfg = ActivationConfig(

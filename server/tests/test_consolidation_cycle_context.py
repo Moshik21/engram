@@ -74,9 +74,14 @@ class TestMergePopulatesContext:
         ctx = CycleContext()
 
         await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", dry_run=False, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
         )
 
         assert "ent_a" in ctx.merge_survivor_ids
@@ -111,9 +116,14 @@ class TestInferPopulatesContext:
         ctx = CycleContext()
 
         await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", dry_run=False, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
         )
 
         assert "ent_a" in ctx.inferred_edge_entity_ids
@@ -149,9 +159,14 @@ class TestPrunePopulatesContext:
         ctx = CycleContext()
 
         await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", dry_run=False, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
         )
 
         assert "ent_dead" in ctx.pruned_entity_ids
@@ -186,7 +201,9 @@ class TestEnginePhaseOrder:
     async def engine(self, store, activation, search, consol_store):
         bus = EventBus()
         return ConsolidationEngine(
-            store, activation, search,
+            store,
+            activation,
+            search,
             cfg=ActivationConfig(),
             consolidation_store=consol_store,
             event_bus=bus,
@@ -208,9 +225,13 @@ class TestEnginePhaseOrder:
         activation_store.get_top_activated = AsyncMock(return_value=[])
 
         result, records = await phase.execute(
-            group_id="test", graph_store=AsyncMock(),
-            activation_store=activation_store, search_index=AsyncMock(),
-            cfg=ActivationConfig(), cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=AsyncMock(),
+            activation_store=activation_store,
+            search_index=AsyncMock(),
+            cfg=ActivationConfig(),
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert result.phase == "compact"
         assert result.status == "success"

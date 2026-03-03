@@ -264,8 +264,7 @@ class SQLiteGraphStore:
                  AND ((source_id = ? AND target_id = ?)
                    OR (source_id = ? AND target_id = ?))
                RETURNING weight""",
-            (max_weight, weight_delta, group_id,
-             source_id, target_id, target_id, source_id),
+            (max_weight, weight_delta, group_id, source_id, target_id, target_id, source_id),
         )
         row = await cursor.fetchone()
         await self.db.commit()
@@ -436,7 +435,10 @@ class SQLiteGraphStore:
         return episode.id
 
     async def update_episode(
-        self, episode_id: str, updates: dict, group_id: str = "default",
+        self,
+        episode_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None:
         """Update episode fields (status, error, retry_count, etc.)."""
         if not updates:
@@ -532,16 +534,14 @@ class SQLiteGraphStore:
         rows_cursor = await self.db.execute(sql, params)
         rows = await rows_cursor.fetchall()
 
-        episodes = [self._row_to_episode(r, group_id) for r in rows[: limit]]
+        episodes = [self._row_to_episode(r, group_id) for r in rows[:limit]]
         next_cursor = None
         if len(rows) > limit:
             next_cursor = episodes[-1].created_at.isoformat()
 
         return episodes, next_cursor
 
-    async def get_top_connected(
-        self, group_id: str | None = None, limit: int = 10
-    ) -> list[dict]:
+    async def get_top_connected(self, group_id: str | None = None, limit: int = 10) -> list[dict]:
         """Return entities sorted by number of active edges (degree)."""
         group_filter = "AND r.group_id = ?" if group_id else ""
         entity_group_filter = "AND e.group_id = ?" if group_id else ""
@@ -578,15 +578,11 @@ class SQLiteGraphStore:
             for row in rows
         ]
 
-    async def get_growth_timeline(
-        self, group_id: str | None = None, days: int = 30
-    ) -> list[dict]:
+    async def get_growth_timeline(self, group_id: str | None = None, days: int = 30) -> list[dict]:
         """Return daily entity and episode counts for the last N days."""
         group_filter = "WHERE group_id = ?" if group_id else ""
         entity_group_filter = (
-            "WHERE deleted_at IS NULL AND group_id = ?"
-            if group_id
-            else "WHERE deleted_at IS NULL"
+            "WHERE deleted_at IS NULL AND group_id = ?" if group_id else "WHERE deleted_at IS NULL"
         )
 
         params_ep: list = []
@@ -649,8 +645,11 @@ class SQLiteGraphStore:
     # --- Consolidation methods ---
 
     async def get_co_occurring_entity_pairs(
-        self, group_id: str, since: datetime | None = None,
-        min_co_occurrence: int = 3, limit: int = 100,
+        self,
+        group_id: str,
+        since: datetime | None = None,
+        min_co_occurrence: int = 3,
+        limit: int = 100,
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs that co-occur in multiple episodes.
 
@@ -692,7 +691,9 @@ class SQLiteGraphStore:
         return [(row[0], row[1], row[2]) for row in rows]
 
     async def get_entity_episode_counts(
-        self, group_id: str, entity_ids: list[str],
+        self,
+        group_id: str,
+        entity_ids: list[str],
     ) -> dict[str, int]:
         """Return how many episodes each entity appears in."""
         if not entity_ids:
@@ -710,14 +711,15 @@ class SQLiteGraphStore:
         return {row[0]: row[1] for row in rows}
 
     async def get_dead_entities(
-        self, group_id: str, min_age_days: int = 30, limit: int = 100,
+        self,
+        group_id: str,
+        min_age_days: int = 30,
+        limit: int = 100,
     ) -> list[Entity]:
         """Find entities with zero relationships and zero access."""
-        cutoff = (
-            datetime.utcnow()
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-        )
+        cutoff = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         from datetime import timedelta
+
         cutoff = (cutoff - timedelta(days=min_age_days)).isoformat()
 
         sql = """
@@ -738,7 +740,10 @@ class SQLiteGraphStore:
         return [self._row_to_entity(r, group_id) for r in rows]
 
     async def merge_entities(
-        self, keep_id: str, remove_id: str, group_id: str,
+        self,
+        keep_id: str,
+        remove_id: str,
+        group_id: str,
     ) -> int:
         """Merge remove_id into keep_id: re-point relationships, merge summaries, soft-delete loser.
 
@@ -813,8 +818,11 @@ class SQLiteGraphStore:
         return total_count
 
     async def get_relationships_by_predicate(
-        self, group_id: str, predicate: str,
-        active_only: bool = True, limit: int = 10000,
+        self,
+        group_id: str,
+        predicate: str,
+        active_only: bool = True,
+        limit: int = 10000,
     ) -> list[Relationship]:
         """Fetch relationships matching a specific predicate."""
         conditions = ["group_id = ?", "predicate = ?"]
@@ -879,9 +887,7 @@ class SQLiteGraphStore:
             updated_at=_parse_dt(row["updated_at"]) or datetime.utcnow(),
             deleted_at=_parse_dt(row["deleted_at"]),
             activation_current=(
-                row["activation_current"]
-                if "activation_current" in row.keys()
-                else 0.0
+                row["activation_current"] if "activation_current" in row.keys() else 0.0
             ),
             access_count=row["access_count"],
             last_accessed=_parse_dt(row["last_accessed"]),
@@ -931,9 +937,7 @@ class SQLiteGraphStore:
                 else 0
             ),
             processing_duration_ms=(
-                row["processing_duration_ms"]
-                if "processing_duration_ms" in keys
-                else None
+                row["processing_duration_ms"] if "processing_duration_ms" in keys else None
             ),
         )
 

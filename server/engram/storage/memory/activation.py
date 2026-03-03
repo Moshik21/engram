@@ -30,7 +30,10 @@ class MemoryActivationStore:
         self._states.update(states)
 
     async def record_access(
-        self, entity_id: str, timestamp: float, group_id: str | None = None,
+        self,
+        entity_id: str,
+        timestamp: float,
+        group_id: str | None = None,
     ) -> None:
         """Record an access event for an entity, creating state if needed."""
         from engram.activation.engine import record_access as _record_access
@@ -49,7 +52,9 @@ class MemoryActivationStore:
         self._group_map.pop(entity_id, None)
 
     async def get_top_activated(
-        self, group_id: str | None = None, limit: int = 20,
+        self,
+        group_id: str | None = None,
+        limit: int = 20,
         now: float | None = None,
     ) -> list[tuple[str, ActivationState]]:
         import time
@@ -62,7 +67,9 @@ class MemoryActivationStore:
             if group_id and self._group_map.get(eid) != group_id:
                 continue
             act = compute_activation(
-                state.access_history, now, self._cfg,
+                state.access_history,
+                now,
+                self._cfg,
                 state.consolidated_strength,
             )
             scored.append((eid, state, act))

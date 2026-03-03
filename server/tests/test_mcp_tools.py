@@ -26,16 +26,24 @@ GROUP = "test_group"
 
 def _entity(eid, name, etype, summary):
     return Entity(
-        id=eid, name=name, entity_type=etype,
-        summary=summary, group_id=GROUP,
+        id=eid,
+        name=name,
+        entity_type=etype,
+        summary=summary,
+        group_id=GROUP,
     )
 
 
 def _rel(rid, src, tgt, pred, vf, **kw):
     return Relationship(
-        id=rid, source_id=src, target_id=tgt,
-        predicate=pred, weight=1.0, valid_from=vf,
-        group_id=GROUP, **kw,
+        id=rid,
+        source_id=src,
+        target_id=tgt,
+        predicate=pred,
+        weight=1.0,
+        valid_from=vf,
+        group_id=GROUP,
+        **kw,
     )
 
 
@@ -81,7 +89,10 @@ async def rich_manager(tmp_path):
 
     extractor = MockExtractor()
     manager = GraphManager(
-        graph_store, activation_store, search_index, extractor,
+        graph_store,
+        activation_store,
+        search_index,
+        extractor,
     )
     yield manager
     await graph_store.close()
@@ -110,11 +121,18 @@ async def rich_manager_with_expired(tmp_path):
 
     rels = [
         _rel(
-            "rel_old_job", "ent_konner2", "ent_acme", "WORKS_AT",
-            past_dt, valid_to=now_dt,
+            "rel_old_job",
+            "ent_konner2",
+            "ent_acme",
+            "WORKS_AT",
+            past_dt,
+            valid_to=now_dt,
         ),
         _rel(
-            "rel_new_job", "ent_konner2", "ent_vercel", "WORKS_AT",
+            "rel_new_job",
+            "ent_konner2",
+            "ent_vercel",
+            "WORKS_AT",
             now_dt,
         ),
     ]
@@ -123,7 +141,10 @@ async def rich_manager_with_expired(tmp_path):
 
     extractor = MockExtractor()
     manager = GraphManager(
-        graph_store, activation_store, search_index, extractor,
+        graph_store,
+        activation_store,
+        search_index,
+        extractor,
     )
     yield manager
     await graph_store.close()
@@ -136,7 +157,8 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_by_name_finds_entity(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="Konner",
+            group_id=GROUP,
+            name="Konner",
         )
         assert len(results) >= 1
         names = [r["name"] for r in results]
@@ -145,7 +167,8 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_by_type_only(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, entity_type="Technology",
+            group_id=GROUP,
+            entity_type="Technology",
         )
         assert len(results) >= 2
         for r in results:
@@ -154,7 +177,9 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_by_name_and_type(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="Python", entity_type="Technology",
+            group_id=GROUP,
+            name="Python",
+            entity_type="Technology",
         )
         assert len(results) >= 1
         assert results[0]["name"] == "Python"
@@ -163,7 +188,8 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_returns_activation_score(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="Konner",
+            group_id=GROUP,
+            name="Konner",
         )
         assert len(results) >= 1
         assert results[0]["activation_score"] > 0
@@ -171,7 +197,8 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_empty_result(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="NonExistentXYZ",
+            group_id=GROUP,
+            name="NonExistentXYZ",
         )
         assert results == []
 
@@ -193,13 +220,20 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_returns_expected_fields(self, rich_manager):
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="Engram",
+            group_id=GROUP,
+            name="Engram",
         )
         assert len(results) >= 1
         r = results[0]
         for key in [
-            "id", "name", "entity_type", "summary",
-            "activation_score", "access_count", "created_at", "updated_at",
+            "id",
+            "name",
+            "entity_type",
+            "summary",
+            "activation_score",
+            "access_count",
+            "created_at",
+            "updated_at",
         ]:
             assert key in r
 
@@ -211,7 +245,9 @@ class TestSearchFacts:
     @pytest.mark.asyncio
     async def test_search_by_subject_name(self, rich_manager):
         facts = await rich_manager.search_facts(
-            group_id=GROUP, query="Konner", subject="Konner",
+            group_id=GROUP,
+            query="Konner",
+            subject="Konner",
         )
         assert len(facts) >= 1
         subjects = [f["subject"] for f in facts]
@@ -220,8 +256,10 @@ class TestSearchFacts:
     @pytest.mark.asyncio
     async def test_search_with_predicate_filter(self, rich_manager):
         facts = await rich_manager.search_facts(
-            group_id=GROUP, query="Konner",
-            subject="Konner", predicate="LIVES_IN",
+            group_id=GROUP,
+            query="Konner",
+            subject="Konner",
+            predicate="LIVES_IN",
         )
         assert len(facts) >= 1
         for f in facts:
@@ -229,19 +267,26 @@ class TestSearchFacts:
 
     @pytest.mark.asyncio
     async def test_search_include_expired_facts(
-        self, rich_manager_with_expired,
+        self,
+        rich_manager_with_expired,
     ):
         active_facts = await rich_manager_with_expired.search_facts(
-            group_id=GROUP, query="Konner", subject="Konner",
-            predicate="WORKS_AT", include_expired=False,
+            group_id=GROUP,
+            query="Konner",
+            subject="Konner",
+            predicate="WORKS_AT",
+            include_expired=False,
         )
         active_objects = [f["object"] for f in active_facts]
         assert "Vercel" in active_objects
         assert "Acme Corp" not in active_objects
 
         all_facts = await rich_manager_with_expired.search_facts(
-            group_id=GROUP, query="Konner", subject="Konner",
-            predicate="WORKS_AT", include_expired=True,
+            group_id=GROUP,
+            query="Konner",
+            subject="Konner",
+            predicate="WORKS_AT",
+            include_expired=True,
         )
         all_objects = [f["object"] for f in all_facts]
         assert "Vercel" in all_objects
@@ -250,8 +295,10 @@ class TestSearchFacts:
     @pytest.mark.asyncio
     async def test_search_resolves_entity_names(self, rich_manager):
         facts = await rich_manager.search_facts(
-            group_id=GROUP, query="Engram",
-            subject="Engram", predicate="USES",
+            group_id=GROUP,
+            query="Engram",
+            subject="Engram",
+            predicate="USES",
         )
         assert len(facts) >= 1
         for f in facts:
@@ -261,7 +308,8 @@ class TestSearchFacts:
     @pytest.mark.asyncio
     async def test_search_no_results(self, rich_manager):
         facts = await rich_manager.search_facts(
-            group_id=GROUP, query="NonExistentXYZ",
+            group_id=GROUP,
+            query="NonExistentXYZ",
         )
         assert facts == []
 
@@ -283,7 +331,8 @@ class TestForgetEntity:
     @pytest.mark.asyncio
     async def test_forget_entity_clears_activation(self, rich_manager):
         await rich_manager._activation.record_access(
-            "ent_python", time.time(),
+            "ent_python",
+            time.time(),
         )
         state = await rich_manager._activation.get_activation("ent_python")
         assert state is not None
@@ -303,7 +352,8 @@ class TestForgetEntity:
     async def test_forgotten_entity_not_in_recall(self, rich_manager):
         await rich_manager.forget_entity("Mesa", GROUP)
         results = await rich_manager.search_entities(
-            group_id=GROUP, name="Mesa",
+            group_id=GROUP,
+            name="Mesa",
         )
         names = [r["name"] for r in results]
         assert "Mesa" not in names
@@ -316,15 +366,19 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forget_fact_invalidates_relationship(self, rich_manager):
         result = await rich_manager.forget_fact(
-            subject_name="Konner", predicate="LIVES_IN",
-            object_name="Denver", group_id=GROUP,
+            subject_name="Konner",
+            predicate="LIVES_IN",
+            object_name="Denver",
+            group_id=GROUP,
         )
         assert result["status"] == "forgotten"
         assert result["target_type"] == "fact"
 
         rels = await rich_manager._graph.get_relationships(
-            "ent_konner", direction="outgoing",
-            predicate="LIVES_IN", active_only=True,
+            "ent_konner",
+            direction="outgoing",
+            predicate="LIVES_IN",
+            active_only=True,
         )
         target_ids = [r.target_id for r in rels]
         assert "ent_denver" not in target_ids
@@ -332,20 +386,27 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forget_fact_not_found(self, rich_manager):
         result = await rich_manager.forget_fact(
-            subject_name="Konner", predicate="WORKS_AT",
-            object_name="Denver", group_id=GROUP,
+            subject_name="Konner",
+            predicate="WORKS_AT",
+            object_name="Denver",
+            group_id=GROUP,
         )
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_forgotten_fact_not_in_search_facts(self, rich_manager):
         await rich_manager.forget_fact(
-            subject_name="Konner", predicate="LIVES_IN",
-            object_name="Denver", group_id=GROUP,
+            subject_name="Konner",
+            predicate="LIVES_IN",
+            object_name="Denver",
+            group_id=GROUP,
         )
         facts = await rich_manager.search_facts(
-            group_id=GROUP, query="Konner", subject="Konner",
-            predicate="LIVES_IN", include_expired=False,
+            group_id=GROUP,
+            query="Konner",
+            subject="Konner",
+            predicate="LIVES_IN",
+            include_expired=False,
         )
         objects = [f["object"] for f in facts]
         assert "Denver" not in objects
@@ -353,8 +414,10 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forget_requires_valid_subject(self, rich_manager):
         result = await rich_manager.forget_fact(
-            subject_name="NonExistent", predicate="LIVES_IN",
-            object_name="Denver", group_id=GROUP,
+            subject_name="NonExistent",
+            predicate="LIVES_IN",
+            object_name="Denver",
+            group_id=GROUP,
         )
         assert result["status"] == "error"
         assert "not found" in result["message"].lower()
@@ -376,7 +439,8 @@ class TestGetContext:
     @pytest.mark.asyncio
     async def test_get_context_with_topic_hint(self, rich_manager):
         result = await rich_manager.get_context(
-            group_id=GROUP, topic_hint="Engram",
+            group_id=GROUP,
+            topic_hint="Engram",
         )
         assert "context" in result
         assert result["entity_count"] >= 0
@@ -384,7 +448,8 @@ class TestGetContext:
     @pytest.mark.asyncio
     async def test_get_context_respects_max_tokens(self, rich_manager):
         result = await rich_manager.get_context(
-            group_id=GROUP, max_tokens=50,
+            group_id=GROUP,
+            max_tokens=50,
         )
         assert result["token_estimate"] <= 50
 
@@ -428,7 +493,8 @@ class TestGetGraphState:
     @pytest.mark.asyncio
     async def test_get_graph_state_top_activated(self, rich_manager):
         result = await rich_manager.get_graph_state(
-            group_id=GROUP, top_n=3,
+            group_id=GROUP,
+            top_n=3,
         )
         assert len(result["top_activated"]) <= 3
         if result["top_activated"]:
@@ -438,7 +504,9 @@ class TestGetGraphState:
     @pytest.mark.asyncio
     async def test_get_graph_state_with_edges(self, rich_manager):
         result = await rich_manager.get_graph_state(
-            group_id=GROUP, top_n=5, include_edges=True,
+            group_id=GROUP,
+            top_n=5,
+            include_edges=True,
         )
         assert "edges" in result
         assert len(result["edges"]) > 0
@@ -450,7 +518,8 @@ class TestGetGraphState:
     @pytest.mark.asyncio
     async def test_get_graph_state_filter_entity_types(self, rich_manager):
         result = await rich_manager.get_graph_state(
-            group_id=GROUP, entity_types=["Technology"],
+            group_id=GROUP,
+            entity_types=["Technology"],
         )
         for ta in result["top_activated"]:
             assert ta["entity_type"] == "Technology"
@@ -506,10 +575,12 @@ class TestJSONResponses:
     async def test_recall_returns_list(self, graph_manager):
         """recall returns a list (MCP tool wraps with JSON)."""
         await graph_manager.ingest_episode(
-            content="Python is great", group_id="default",
+            content="Python is great",
+            group_id="default",
         )
         results = await graph_manager.recall(
-            query="Python", group_id="default",
+            query="Python",
+            group_id="default",
         )
         assert isinstance(results, list)
         if results:
@@ -526,14 +597,16 @@ class TestResolveEntityName:
     @pytest.mark.asyncio
     async def test_resolve_existing_entity(self, rich_manager):
         name = await rich_manager.resolve_entity_name(
-            "ent_konner", GROUP,
+            "ent_konner",
+            GROUP,
         )
         assert name == "Konner"
 
     @pytest.mark.asyncio
     async def test_resolve_missing_entity_returns_id(self, rich_manager):
         name = await rich_manager.resolve_entity_name(
-            "ent_nonexistent", GROUP,
+            "ent_nonexistent",
+            GROUP,
         )
         assert name == "ent_nonexistent"
 

@@ -54,7 +54,9 @@ class PrunePhase(ConsolidationPhase):
                 continue
             if state:
                 act_level = compute_activation(
-                    state.access_history, now, cfg,
+                    state.access_history,
+                    now,
+                    cfg,
                     state.consolidated_strength,
                 )
                 if act_level > activation_floor:
@@ -69,14 +71,16 @@ class PrunePhase(ConsolidationPhase):
                 if context is not None:
                     context.pruned_entity_ids.add(entity.id)
 
-            records.append(PruneRecord(
-                cycle_id=cycle_id,
-                group_id=group_id,
-                entity_id=entity.id,
-                entity_name=entity.name,
-                entity_type=entity.entity_type,
-                reason="dead_entity",
-            ))
+            records.append(
+                PruneRecord(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    entity_id=entity.id,
+                    entity_name=entity.name,
+                    entity_type=entity.entity_type,
+                    reason="dead_entity",
+                )
+            )
 
         return PhaseResult(
             phase=self.name,

@@ -90,7 +90,10 @@ class TestMMR:
         """Single result is returned as-is."""
         results = [_make_result("e1", 1.0)]
         reranked = apply_mmr(
-            results, {"e1": [1.0, 0.0]}, lambda_param=0.7, top_n=5,
+            results,
+            {"e1": [1.0, 0.0]},
+            lambda_param=0.7,
+            top_n=5,
         )
         assert len(reranked) == 1
         assert reranked[0].node_id == "e1"
@@ -119,11 +122,7 @@ class TestMMR:
 
     def test_top_n_limits_output(self):
         """top_n parameter limits number of results returned."""
-        results = [
-            _make_result(f"e{i}", 1.0 - i * 0.1) for i in range(10)
-        ]
-        embeddings = {
-            f"e{i}": [float(i == j) for j in range(10)] for i in range(10)
-        }
+        results = [_make_result(f"e{i}", 1.0 - i * 0.1) for i in range(10)]
+        embeddings = {f"e{i}": [float(i == j) for j in range(10)] for i in range(10)}
         reranked = apply_mmr(results, embeddings, lambda_param=0.7, top_n=3)
         assert len(reranked) == 3

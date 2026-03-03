@@ -59,11 +59,13 @@ class TestWebSocket:
                 ws.receive_json()  # consume ev3
 
                 # Request resync from after ev1 (should get ev2, ev3)
-                ws.send_json({
-                    "type": "command",
-                    "command": "resync",
-                    "lastSeq": ev1["seq"],
-                })
+                ws.send_json(
+                    {
+                        "type": "command",
+                        "command": "resync",
+                        "lastSeq": ev1["seq"],
+                    }
+                )
                 resync = ws.receive_json()
                 assert resync["type"] == "resync"
                 assert resync["isFull"] is False
@@ -80,11 +82,13 @@ class TestWebSocket:
                 bus.publish("default", "boot", {})
                 ws.receive_json()  # consume it
 
-                ws.send_json({
-                    "type": "command",
-                    "command": "resync",
-                    "lastSeq": 0,
-                })
+                ws.send_json(
+                    {
+                        "type": "command",
+                        "command": "resync",
+                        "lastSeq": 0,
+                    }
+                )
                 resync = ws.receive_json()
                 assert resync["type"] == "resync"
                 # With lastSeq=0 and events starting at seq>0,

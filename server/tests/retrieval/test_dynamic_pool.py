@@ -47,7 +47,8 @@ class TestComputeDynamicLimits:
 
         # Activation should be 3x for TEMPORAL
         assert temporal_limits["pool_activation_limit"] == min(
-            cfg.pool_activation_limit * 3, 100,
+            cfg.pool_activation_limit * 3,
+            100,
         )
         # Search should stay the same
         assert temporal_limits["pool_search_limit"] == default_limits["pool_search_limit"]
@@ -60,7 +61,8 @@ class TestComputeDynamicLimits:
 
         # Graph should be 2x for ASSOCIATIVE
         assert assoc_limits["pool_graph_limit"] == min(
-            cfg.pool_graph_limit * 2, 100,
+            cfg.pool_graph_limit * 2,
+            100,
         )
         # Search should stay the same
         assert assoc_limits["pool_search_limit"] == default_limits["pool_search_limit"]
@@ -73,7 +75,8 @@ class TestComputeDynamicLimits:
 
         # Search should be 2x for DIRECT_LOOKUP
         assert direct_limits["pool_search_limit"] == min(
-            cfg.pool_search_limit * 2, 200,
+            cfg.pool_search_limit * 2,
+            200,
         )
         # Activation should stay the same
         assert direct_limits["pool_activation_limit"] == default_limits["pool_activation_limit"]

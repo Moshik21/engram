@@ -31,8 +31,10 @@ def _mock_search_index(results=_DEFAULT_SEARCH, similarity=None):
 def _mock_graph_store(neighbors_map=None):
     store = AsyncMock()
     if neighbors_map:
+
         async def _get_neighbors(entity_id, group_id=None):
             return neighbors_map.get(entity_id, [])
+
         store.get_active_neighbors_with_weights = AsyncMock(side_effect=_get_neighbors)
     else:
         store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
@@ -74,9 +76,12 @@ class TestActivationPool:
     @pytest.mark.asyncio
     async def test_returns_top_activated(self):
         import time
+
         now = time.time()
         state = ActivationState(
-            node_id="a1", access_history=[now - 10], access_count=1,
+            node_id="a1",
+            access_history=[now - 10],
+            access_count=1,
         )
         store = _mock_activation_store(top_activated=[("a1", state)])
         results = await _activation_pool("default", store, 20, now)
@@ -99,9 +104,11 @@ class TestActivationPool:
 class TestGraphNeighborhoodPool:
     @pytest.mark.asyncio
     async def test_expands_1_hop_neighbors(self):
-        store = _mock_graph_store(neighbors_map={
-            "e1": [("n1", 0.8, "KNOWS"), ("n2", 0.6, "WORKS_AT")],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "e1": [("n1", 0.8, "KNOWS"), ("n2", 0.6, "WORKS_AT")],
+            }
+        )
         results = await _graph_neighborhood_pool(["e1"], "default", store, 10, 20)
         ids = [eid for eid, _ in results]
         assert "n1" in ids
@@ -110,12 +117,18 @@ class TestGraphNeighborhoodPool:
     @pytest.mark.asyncio
     async def test_ranks_by_fan_in(self):
         """Neighbor connecting 2 seeds ranks higher than one connecting 1."""
-        store = _mock_graph_store(neighbors_map={
-            "e1": [("shared", 0.8, "KNOWS"), ("only1", 0.5, "USES")],
-            "e2": [("shared", 0.7, "WORKS_AT"), ("only2", 0.3, "USES")],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "e1": [("shared", 0.8, "KNOWS"), ("only1", 0.5, "USES")],
+                "e2": [("shared", 0.7, "WORKS_AT"), ("only2", 0.3, "USES")],
+            }
+        )
         results = await _graph_neighborhood_pool(
-            ["e1", "e2"], "default", store, 10, 20,
+            ["e1", "e2"],
+            "default",
+            store,
+            10,
+            20,
         )
         # "shared" connects to both seeds -> fan-in=2, should be first
         assert results[0][0] == "shared"
@@ -123,9 +136,11 @@ class TestGraphNeighborhoodPool:
 
     @pytest.mark.asyncio
     async def test_excludes_seed_entities(self):
-        store = _mock_graph_store(neighbors_map={
-            "e1": [("e2", 0.8, "KNOWS"), ("n1", 0.6, "USES")],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "e1": [("e2", 0.8, "KNOWS"), ("n1", 0.6, "USES")],
+            }
+        )
         results = await _graph_neighborhood_pool(["e1", "e2"], "default", store, 10, 20)
         ids = [eid for eid, _ in results]
         assert "e1" not in ids
@@ -134,9 +149,11 @@ class TestGraphNeighborhoodPool:
 
     @pytest.mark.asyncio
     async def test_respects_pool_limit(self):
-        store = _mock_graph_store(neighbors_map={
-            "e1": [(f"n{i}", 0.5, "USES") for i in range(20)],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "e1": [(f"n{i}", 0.5, "USES") for i in range(20)],
+            }
+        )
         results = await _graph_neighborhood_pool(["e1"], "default", store, 20, 5)
         assert len(results) <= 5
 
@@ -150,6 +167,7 @@ class TestWorkingMemoryPool:
     @pytest.mark.asyncio
     async def test_includes_wm_entities(self):
         import time
+
         now = time.time()
         wm = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
         wm.add("wm1", "entity", 0.9, "query", now - 10)
@@ -161,12 +179,15 @@ class TestWorkingMemoryPool:
     @pytest.mark.asyncio
     async def test_expands_wm_neighbors(self):
         import time
+
         now = time.time()
         wm = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
         wm.add("wm1", "entity", 0.9, "query", now - 10)
-        store = _mock_graph_store(neighbors_map={
-            "wm1": [("nb1", 0.7, "KNOWS")],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "wm1": [("nb1", 0.7, "KNOWS")],
+            }
+        )
         results = await _working_memory_pool(wm, "default", store, now, 5, 15)
         ids = [eid for eid, _ in results]
         assert "wm1" in ids
@@ -175,12 +196,15 @@ class TestWorkingMemoryPool:
     @pytest.mark.asyncio
     async def test_dampened_neighbor_scores(self):
         import time
+
         now = time.time()
         wm = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
         wm.add("wm1", "entity", 0.9, "query", now - 10)
-        store = _mock_graph_store(neighbors_map={
-            "wm1": [("nb1", 0.7, "KNOWS")],
-        })
+        store = _mock_graph_store(
+            neighbors_map={
+                "wm1": [("nb1", 0.7, "KNOWS")],
+            }
+        )
         results = await _working_memory_pool(wm, "default", store, now, 5, 15)
         result_map = {eid: score for eid, score in results}
         # Neighbor should have dampened (0.5x) score
@@ -229,19 +253,24 @@ class TestGenerateCandidates:
     @pytest.mark.asyncio
     async def test_full_pipeline_all_pools(self):
         import time
+
         now = time.time()
 
         state = ActivationState(
-            node_id="a1", access_history=[now - 5], access_count=1,
+            node_id="a1",
+            access_history=[now - 5],
+            access_count=1,
         )
         search_idx = _mock_search_index(
             results=[("e1", 0.9), ("e2", 0.7)],
             similarity={"a1": 0.3},
         )
         act_store = _mock_activation_store(top_activated=[("a1", state)])
-        graph = _mock_graph_store(neighbors_map={
-            "e1": [("n1", 0.8, "KNOWS")],
-        })
+        graph = _mock_graph_store(
+            neighbors_map={
+                "e1": [("n1", 0.8, "KNOWS")],
+            }
+        )
 
         cfg = ActivationConfig(multi_pool_enabled=True)
         results = await generate_candidates(
@@ -281,10 +310,13 @@ class TestGenerateCandidates:
     @pytest.mark.asyncio
     async def test_non_search_entities_get_backfilled_scores(self):
         import time
+
         now = time.time()
 
         state = ActivationState(
-            node_id="a1", access_history=[now - 5], access_count=1,
+            node_id="a1",
+            access_history=[now - 5],
+            access_count=1,
         )
         search_idx = _mock_search_index(
             results=[("e1", 0.9)],
@@ -414,4 +446,5 @@ class TestPipelineMultiPoolIntegration:
 
     def test_all_methods_count(self):
         from engram.benchmark.methods import ALL_METHODS
+
         assert len(ALL_METHODS) == 17

@@ -50,14 +50,16 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         if not cfg.consolidation_replay_enabled:
             return PhaseResult(
-                phase=self.name, status="skipped",
+                phase=self.name,
+                status="skipped",
                 duration_ms=_elapsed_ms(t0),
             ), []
 
         if self._extractor is None:
             logger.warning("Replay phase: no EntityExtractor provided, skipping")
             return PhaseResult(
-                phase=self.name, status="skipped",
+                phase=self.name,
+                status="skipped",
                 duration_ms=_elapsed_ms(t0),
             ), []
 
@@ -67,7 +69,8 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         # Fetch recent episodes and filter in Python
         episodes = await graph_store.get_episodes(
-            group_id=group_id, limit=max_per_cycle * 2,
+            group_id=group_id,
+            limit=max_per_cycle * 2,
         )
 
         now = datetime.utcnow()
@@ -75,22 +78,28 @@ class EpisodeReplayPhase(ConsolidationPhase):
         age_cutoff = now - timedelta(hours=min_age_hours)
 
         eligible = [
-            ep for ep in episodes
-            if (ep.status.value == "completed"
+            ep
+            for ep in episodes
+            if (
+                ep.status.value == "completed"
                 and ep.created_at is not None
                 and ep.created_at >= window_cutoff
-                and ep.created_at <= age_cutoff)
+                and ep.created_at <= age_cutoff
+            )
         ][:max_per_cycle]
 
         if not eligible:
             return PhaseResult(
-                phase=self.name, items_processed=0, items_affected=0,
+                phase=self.name,
+                items_processed=0,
+                items_affected=0,
                 duration_ms=_elapsed_ms(t0),
             ), []
 
         # Load existing entities once for resolution across all replays
         existing_entities = await graph_store.find_entities(
-            group_id=group_id, limit=100000,
+            group_id=group_id,
+            limit=100000,
         )
 
         records: list[ReplayRecord] = []
@@ -119,14 +128,17 @@ class EpisodeReplayPhase(ConsolidationPhase):
             except Exception:
                 logger.warning(
                     "Replay failed for episode %s (non-fatal)",
-                    episode.id, exc_info=True,
+                    episode.id,
+                    exc_info=True,
                 )
-                records.append(ReplayRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    episode_id=episode.id,
-                    skipped_reason="extraction_failed",
-                ))
+                records.append(
+                    ReplayRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        episode_id=episode.id,
+                        skipped_reason="extraction_failed",
+                    )
+                )
 
         return PhaseResult(
             phase=self.name,
@@ -160,9 +172,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
             )
 
         # Get entities already linked to this episode
-        already_linked = set(
-            await graph_store.get_episode_entities(episode.id)
-        )
+        already_linked = set(await graph_store.get_episode_entities(episode.id))
 
         entity_map: dict[str, str] = {}
         new_entities = 0
@@ -175,7 +185,9 @@ class EpisodeReplayPhase(ConsolidationPhase):
             summary = ent_data.get("summary")
 
             existing_entity = await resolve_entity(
-                name, entity_type, existing_entities,
+                name,
+                entity_type,
+                existing_entities,
             )
 
             if existing_entity:
@@ -189,22 +201,29 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 if not dry_run:
                     if summary:
                         from engram.graph_manager import GraphManager
+
                         updates = GraphManager._merge_entity_attributes(
-                            existing_entity, summary,
+                            existing_entity,
+                            summary,
                             ent_data.get("pii_detected", False),
                             ent_data.get("pii_categories"),
                         )
                         if updates:
                             await graph_store.update_entity(
-                                entity_id, updates, group_id=group_id,
+                                entity_id,
+                                updates,
+                                group_id=group_id,
                             )
                             entities_updated += 1
 
                     await graph_store.link_episode_entity(
-                        episode.id, entity_id,
+                        episode.id,
+                        entity_id,
                     )
                     await activation_store.record_access(
-                        entity_id, now_ts, group_id=group_id,
+                        entity_id,
+                        now_ts,
+                        group_id=group_id,
                     )
                     if context is not None:
                         context.affected_entity_ids.add(entity_id)
@@ -227,10 +246,13 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     await graph_store.create_entity(entity)
                     existing_entities.append(entity)
                     await graph_store.link_episode_entity(
-                        episode.id, entity_id,
+                        episode.id,
+                        entity_id,
                     )
                     await activation_store.record_access(
-                        entity_id, now_ts, group_id=group_id,
+                        entity_id,
+                        now_ts,
+                        group_id=group_id,
                     )
                     await search_index.index_entity(entity)
 
@@ -300,9 +322,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 active_only=True,
                 group_id=group_id,
             )
-            already_exists = any(
-                r.target_id == target_id for r in existing_rels
-            )
+            already_exists = any(r.target_id == target_id for r in existing_rels)
             if already_exists:
                 continue
 

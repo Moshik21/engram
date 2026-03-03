@@ -51,7 +51,8 @@ class EventBus:
             except asyncio.QueueFull:
                 logger.warning(
                     "Event queue full for group %s, dropping event seq=%d",
-                    group_id, seq,
+                    group_id,
+                    seq,
                 )
 
         return seq

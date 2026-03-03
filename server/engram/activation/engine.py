@@ -82,7 +82,10 @@ def batch_compute_activations(
     """Compute activation for a batch of nodes."""
     return {
         nid: compute_activation(
-            state.access_history, now, cfg, state.consolidated_strength,
+            state.access_history,
+            now,
+            cfg,
+            state.consolidated_strength,
         )
         for nid, state in states.items()
     }

@@ -83,11 +83,13 @@ class TestDreamSeedSelection:
         high_state = _make_state([now - 0.5])  # ~0.5s ago → very high activation
         low_state = _make_state([now - 100000.0])  # ~28hrs ago → very low activation
 
-        activation_store.get_top_activated = AsyncMock(return_value=[
-            ("ent_medium", medium_state),
-            ("ent_high", high_state),
-            ("ent_low", low_state),
-        ])
+        activation_store.get_top_activated = AsyncMock(
+            return_value=[
+                ("ent_medium", medium_state),
+                ("ent_high", high_state),
+                ("ent_low", low_state),
+            ]
+        )
 
         seeds = await phase._select_dream_seeds(activation_store, "test", now, cfg)
 
@@ -114,10 +116,12 @@ class TestDreamSeedSelection:
         high_state = _make_state([now - 0.1])  # ~0.1s ago → ~0.97 activation
 
         activation_store = AsyncMock()
-        activation_store.get_top_activated = AsyncMock(return_value=[
-            ("ent_1", high_state),
-            ("ent_2", high_state),
-        ])
+        activation_store.get_top_activated = AsyncMock(
+            return_value=[
+                ("ent_1", high_state),
+                ("ent_2", high_state),
+            ]
+        )
 
         seeds = await phase._select_dream_seeds(activation_store, "test", now, cfg)
         assert len(seeds) == 0
@@ -177,11 +181,15 @@ class TestDreamPhaseExecution:
         graph_store = AsyncMock()
         # After spreading, get_active_neighbors_with_weights returns neighbors
         graph_store.get_active_neighbors_with_weights = AsyncMock(
-            side_effect=lambda eid, group_id=None: [
-                ("neighbor_1", 1.0, "RELATES_TO"),
-            ] if eid == "seed_1" else [
-                ("seed_1", 1.0, "RELATES_TO"),
-            ],
+            side_effect=lambda eid, group_id=None: (
+                [
+                    ("neighbor_1", 1.0, "RELATES_TO"),
+                ]
+                if eid == "seed_1"
+                else [
+                    ("seed_1", 1.0, "RELATES_TO"),
+                ]
+            ),
         )
         graph_store.update_relationship_weight = AsyncMock(return_value=1.05)
 
@@ -229,11 +237,15 @@ class TestDreamPhaseExecution:
 
         graph_store = AsyncMock()
         graph_store.get_active_neighbors_with_weights = AsyncMock(
-            side_effect=lambda eid, group_id=None: [
-                ("neighbor_1", 1.0, "RELATES_TO"),
-            ] if eid == "seed_1" else [
-                ("seed_1", 1.0, "RELATES_TO"),
-            ],
+            side_effect=lambda eid, group_id=None: (
+                [
+                    ("neighbor_1", 1.0, "RELATES_TO"),
+                ]
+                if eid == "seed_1"
+                else [
+                    ("seed_1", 1.0, "RELATES_TO"),
+                ]
+            ),
         )
 
         mock_bonuses = {"seed_1": 0.5, "neighbor_1": 0.3}
@@ -278,11 +290,15 @@ class TestDreamPhaseExecution:
 
         graph_store = AsyncMock()
         graph_store.get_active_neighbors_with_weights = AsyncMock(
-            side_effect=lambda eid, group_id=None: [
-                ("neighbor_1", 1.0, "RELATES_TO"),
-            ] if eid == "seed_1" else [
-                ("seed_1", 1.0, "RELATES_TO"),
-            ],
+            side_effect=lambda eid, group_id=None: (
+                [
+                    ("neighbor_1", 1.0, "RELATES_TO"),
+                ]
+                if eid == "seed_1"
+                else [
+                    ("seed_1", 1.0, "RELATES_TO"),
+                ]
+            ),
         )
         graph_store.update_relationship_weight = AsyncMock(return_value=1.05)
 
@@ -409,7 +425,11 @@ class TestEdgeIdentification:
         )
 
         boosts = await phase._accumulate_edge_boosts(
-            "seed_1", bonuses, graph_store, "test", cfg,
+            "seed_1",
+            bonuses,
+            graph_store,
+            "test",
+            cfg,
         )
 
         # Only (seed_1, neighbor_1) should be boosted, not (seed_1, neighbor_2)
@@ -438,7 +458,11 @@ class TestEdgeIdentification:
         )
 
         boosts = await phase._accumulate_edge_boosts(
-            "node_a", bonuses, graph_store, "test", cfg,
+            "node_a",
+            bonuses,
+            graph_store,
+            "test",
+            cfg,
         )
 
         # Should only have one entry, not two

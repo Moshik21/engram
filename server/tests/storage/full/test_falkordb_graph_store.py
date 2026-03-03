@@ -149,14 +149,10 @@ class TestFalkorDBGraphStore:
         now = datetime.utcnow()
         await falkordb_graph_store.invalidate_relationship("rel_inv1", now, group_id="default")
         # Active-only should return empty
-        active_rels = await falkordb_graph_store.get_relationships(
-            "ent_inv1", active_only=True
-        )
+        active_rels = await falkordb_graph_store.get_relationships("ent_inv1", active_only=True)
         assert len(active_rels) == 0
         # All rels should still return it
-        all_rels = await falkordb_graph_store.get_relationships(
-            "ent_inv1", active_only=False
-        )
+        all_rels = await falkordb_graph_store.get_relationships("ent_inv1", active_only=False)
         assert len(all_rels) == 1
 
     async def test_find_conflicting_relationships(self, falkordb_graph_store):

@@ -267,8 +267,12 @@ class TestPipelineWithWorkingMemory:
         captured_seeds = []
 
         async def mock_spread(
-            seeds, graph_store, cfg,
-            group_id=None, community_store=None, context_gate=None,
+            seeds,
+            graph_store,
+            cfg,
+            group_id=None,
+            community_store=None,
+            context_gate=None,
         ):
             captured_seeds.extend(seeds)
             return {}, {}
@@ -331,8 +335,11 @@ class TestGraphManagerWorkingMemory:
         cfg = ActivationConfig(working_memory_enabled=True)
 
         mock_entity = Entity(
-            id="ent_1", name="Test", entity_type="Person",
-            summary="A test entity", group_id="default",
+            id="ent_1",
+            name="Test",
+            entity_type="Person",
+            summary="A test entity",
+            group_id="default",
         )
 
         mock_graph = AsyncMock()
@@ -354,9 +361,12 @@ class TestGraphManagerWorkingMemory:
 
         # Mock retrieve to return a known result
         scored = ScoredResult(
-            node_id="ent_1", score=0.8,
-            semantic_similarity=0.9, activation=0.3,
-            spreading=0.1, edge_proximity=0.1,
+            node_id="ent_1",
+            score=0.8,
+            semantic_similarity=0.9,
+            activation=0.3,
+            spreading=0.1,
+            edge_proximity=0.1,
             result_type="entity",
         )
         with patch("engram.graph_manager.retrieve", return_value=[scored]):

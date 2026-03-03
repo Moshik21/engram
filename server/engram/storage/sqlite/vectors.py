@@ -101,8 +101,7 @@ class SQLiteVectorStore:
                 dimensions = excluded.dimensions,
                 updated_at = excluded.updated_at
             """,
-            (item_id, content_type, group_id, text_content,
-             blob, len(embedding), now, now),
+            (item_id, content_type, group_id, text_content, blob, len(embedding), now, now),
         )
         await self.db.commit()
 
@@ -118,10 +117,18 @@ class SQLiteVectorStore:
         rows = []
         for item_id, content_type, group_id, text_content, embedding in items:
             blob = pack_vector(embedding)
-            rows.append((
-                item_id, content_type, group_id, text_content,
-                blob, len(embedding), now, now,
-            ))
+            rows.append(
+                (
+                    item_id,
+                    content_type,
+                    group_id,
+                    text_content,
+                    blob,
+                    len(embedding),
+                    now,
+                    now,
+                )
+            )
 
         await self.db.executemany(
             """INSERT INTO embeddings

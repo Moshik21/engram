@@ -108,11 +108,13 @@ async def remember(content: str, source: str = "mcp") -> str:
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
-    return json.dumps({
-        "status": "stored",
-        "episode_id": episode_id,
-        "message": "Memory received. Entities and relationships extracted.",
-    })
+    return json.dumps(
+        {
+            "status": "stored",
+            "episode_id": episode_id,
+            "message": "Memory received. Entities and relationships extracted.",
+        }
+    )
 
 
 @mcp.tool()
@@ -141,32 +143,38 @@ async def recall(query: str, limit: int = 5) -> str:
         for rel in r.get("relationships", []):
             source_name = await manager.resolve_entity_name(rel["source_id"], _group_id)
             target_name = await manager.resolve_entity_name(rel["target_id"], _group_id)
-            related_facts.append({
-                "subject": source_name,
-                "predicate": rel["predicate"],
-                "object": target_name,
-            })
+            related_facts.append(
+                {
+                    "subject": source_name,
+                    "predicate": rel["predicate"],
+                    "object": target_name,
+                }
+            )
 
         state = await manager._activation.get_activation(entity["id"])
         access_count = state.access_count if state else 0
 
-        formatted.append({
-            "entity": entity["name"],
-            "entity_type": entity["type"],
-            "summary": entity.get("summary"),
-            "composite_score": round(r["score"], 4),
-            "score_breakdown": {
-                k: round(v, 4) for k, v in r.get("score_breakdown", {}).items()
-            },
-            "related_facts": related_facts,
-            "access_count": access_count,
-        })
+        formatted.append(
+            {
+                "entity": entity["name"],
+                "entity_type": entity["type"],
+                "summary": entity.get("summary"),
+                "composite_score": round(r["score"], 4),
+                "score_breakdown": {
+                    k: round(v, 4) for k, v in r.get("score_breakdown", {}).items()
+                },
+                "related_facts": related_facts,
+                "access_count": access_count,
+            }
+        )
 
-    return json.dumps({
-        "results": formatted,
-        "total_candidates": len(formatted),
-        "query_time_ms": query_time_ms,
-    })
+    return json.dumps(
+        {
+            "results": formatted,
+            "total_candidates": len(formatted),
+            "query_time_ms": query_time_ms,
+        }
+    )
 
 
 @mcp.tool()
@@ -186,10 +194,12 @@ async def search_entities(
         JSON with entities array and total count.
     """
     if not name and not entity_type:
-        return json.dumps({
-            "status": "error",
-            "message": "At least one of 'name' or 'entity_type' is required.",
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "At least one of 'name' or 'entity_type' is required.",
+            }
+        )
     manager = _get_manager()
     entities = await manager.search_entities(
         group_id=_group_id, name=name, entity_type=entity_type, limit=limit
@@ -248,10 +258,12 @@ async def forget(
         JSON with status and details.
     """
     if (entity_name is None) == (fact is None):
-        return json.dumps({
-            "status": "error",
-            "message": "Provide exactly one of 'entity_name' or 'fact'.",
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "Provide exactly one of 'entity_name' or 'fact'.",
+            }
+        )
     manager = _get_manager()
     if entity_name:
         result = await manager.forget_entity(entity_name, _group_id, reason=reason)
@@ -334,31 +346,37 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
         await store.initialize(db=manager._graph._db)
 
     engine = ConsolidationEngine(
-        manager._graph, manager._activation, manager._search,
+        manager._graph,
+        manager._activation,
+        manager._search,
         cfg=manager._cfg,
         consolidation_store=store,
         extractor=manager._extractor,
     )
 
     cycle = await engine.run_cycle(
-        group_id=_group_id, trigger="mcp", dry_run=dry_run,
+        group_id=_group_id,
+        trigger="mcp",
+        dry_run=dry_run,
     )
 
-    return json.dumps({
-        "cycle_id": cycle.id,
-        "status": cycle.status,
-        "dry_run": cycle.dry_run,
-        "phases": [
-            {
-                "phase": pr.phase,
-                "status": pr.status,
-                "items_processed": pr.items_processed,
-                "items_affected": pr.items_affected,
-            }
-            for pr in cycle.phase_results
-        ],
-        "total_duration_ms": cycle.total_duration_ms,
-    })
+    return json.dumps(
+        {
+            "cycle_id": cycle.id,
+            "status": cycle.status,
+            "dry_run": cycle.dry_run,
+            "phases": [
+                {
+                    "phase": pr.phase,
+                    "status": pr.status,
+                    "items_processed": pr.items_processed,
+                    "items_affected": pr.items_affected,
+                }
+                for pr in cycle.phase_results
+            ],
+            "total_duration_ms": cycle.total_duration_ms,
+        }
+    )
 
 
 @mcp.tool()
@@ -369,11 +387,13 @@ async def get_consolidation_status() -> str:
         JSON with is_running flag and latest cycle summary if available.
     """
     # In MCP mode, consolidation runs synchronously so is_running is always false
-    return json.dumps({
-        "is_running": False,
-        "message": "Use trigger_consolidation to run a cycle. "
-                   "In MCP mode, cycles run synchronously.",
-    })
+    return json.dumps(
+        {
+            "is_running": False,
+            "message": "Use trigger_consolidation to run a cycle. "
+            "In MCP mode, cycles run synchronously.",
+        }
+    )
 
 
 # ─── Resources ──────────────────────────────────────────────────────
@@ -405,19 +425,23 @@ async def entity_profile_resource(entity_id: str) -> str:
         target_name = await manager.resolve_entity_name(r.target_id, _group_id)
         source_name = await manager.resolve_entity_name(r.source_id, _group_id)
         if r.source_id == entity_id:
-            facts.append({
-                "predicate": r.predicate,
-                "object": target_name,
-                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
-            })
+            facts.append(
+                {
+                    "predicate": r.predicate,
+                    "object": target_name,
+                    "valid_from": r.valid_from.isoformat() if r.valid_from else None,
+                    "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                }
+            )
         else:
-            facts.append({
-                "predicate": r.predicate,
-                "subject": source_name,
-                "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                "valid_to": r.valid_to.isoformat() if r.valid_to else None,
-            })
+            facts.append(
+                {
+                    "predicate": r.predicate,
+                    "subject": source_name,
+                    "valid_from": r.valid_from.isoformat() if r.valid_from else None,
+                    "valid_to": r.valid_to.isoformat() if r.valid_to else None,
+                }
+            )
 
     from engram.activation.engine import compute_activation
 
@@ -426,20 +450,22 @@ async def entity_profile_resource(entity_id: str) -> str:
     if state:
         activation_score = compute_activation(state.access_history, now, manager._cfg)
 
-    return json.dumps({
-        "id": entity.id,
-        "name": entity.name,
-        "entity_type": entity.entity_type,
-        "summary": entity.summary,
-        "activation": {
-            "current": round(activation_score, 4),
-            "access_count": state.access_count if state else 0,
-            "last_accessed": state.last_accessed if state else None,
-        },
-        "facts": facts,
-        "created_at": entity.created_at.isoformat() if entity.created_at else None,
-        "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
-    })
+    return json.dumps(
+        {
+            "id": entity.id,
+            "name": entity.name,
+            "entity_type": entity.entity_type,
+            "summary": entity.summary,
+            "activation": {
+                "current": round(activation_score, 4),
+                "access_count": state.access_count if state else 0,
+                "last_accessed": state.last_accessed if state else None,
+            },
+            "facts": facts,
+            "created_at": entity.created_at.isoformat() if entity.created_at else None,
+            "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
+        }
+    )
 
 
 @mcp.resource("engram://entity/{entity_id}/neighbors")
@@ -449,20 +475,22 @@ async def entity_neighbors_resource(entity_id: str) -> str:
     neighbors = await manager._graph.get_neighbors(entity_id, hops=1, group_id=_group_id)
     result = []
     for entity, rel in neighbors:
-        result.append({
-            "entity": {
-                "id": entity.id,
-                "name": entity.name,
-                "entity_type": entity.entity_type,
-                "summary": entity.summary,
-            },
-            "relationship": {
-                "predicate": rel.predicate,
-                "source_id": rel.source_id,
-                "target_id": rel.target_id,
-                "weight": rel.weight,
-            },
-        })
+        result.append(
+            {
+                "entity": {
+                    "id": entity.id,
+                    "name": entity.name,
+                    "entity_type": entity.entity_type,
+                    "summary": entity.summary,
+                },
+                "relationship": {
+                    "predicate": rel.predicate,
+                    "source_id": rel.source_id,
+                    "target_id": rel.target_id,
+                    "weight": rel.weight,
+                },
+            }
+        )
     return json.dumps(result)
 
 

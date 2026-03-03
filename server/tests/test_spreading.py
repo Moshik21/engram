@@ -75,10 +75,12 @@ class TestSpreadActivation:
             spread_firing_threshold=0.01,
             spread_energy_budget=10.0,
         )
-        provider = MockNeighborProvider({
-            "ent_1": [("ent_2", 1.0)],
-            "ent_2": [],
-        })
+        provider = MockNeighborProvider(
+            {
+                "ent_1": [("ent_2", 1.0)],
+                "ent_2": [],
+            }
+        )
         seeds = [("ent_1", 1.0)]
         bonuses, hops = await spread_activation(seeds, provider, cfg)
         assert "ent_2" in bonuses
@@ -93,11 +95,13 @@ class TestSpreadActivation:
             spread_energy_budget=10.0,
             spread_decay_per_hop=0.5,
         )
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0)],
-            "B": [("C", 1.0)],
-            "C": [],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0)],
+                "B": [("C", 1.0)],
+                "C": [],
+            }
+        )
         seeds = [("A", 1.0)]
         bonuses, hops = await spread_activation(seeds, provider, cfg)
         assert "B" in bonuses
@@ -113,12 +117,14 @@ class TestSpreadActivation:
             spread_firing_threshold=0.001,
             spread_energy_budget=10.0,
         )
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0)],
-            "B": [("C", 1.0)],
-            "C": [("D", 1.0)],
-            "D": [],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0)],
+                "B": [("C", 1.0)],
+                "C": [("D", 1.0)],
+                "D": [],
+            }
+        )
         seeds = [("A", 1.0)]
         bonuses, hops = await spread_activation(seeds, provider, cfg)
         assert "B" in bonuses
@@ -134,10 +140,12 @@ class TestSpreadActivation:
         )
         # Hub with 10 neighbors
         neighbors = [(f"leaf_{i}", 1.0) for i in range(10)]
-        provider = MockNeighborProvider({
-            "hub": neighbors,
-            **{f"leaf_{i}": [] for i in range(10)},
-        })
+        provider = MockNeighborProvider(
+            {
+                "hub": neighbors,
+                **{f"leaf_{i}": [] for i in range(10)},
+            }
+        )
         seeds = [("hub", 1.0)]
         bonuses, _ = await spread_activation(seeds, provider, cfg)
         # fan_factor = max(0, 3.0 - ln(11)) ≈ 0.60
@@ -153,10 +161,12 @@ class TestSpreadActivation:
             spread_firing_threshold=0.001,
             spread_energy_budget=10.0,
         )
-        provider = MockNeighborProvider({
-            "A": [("B", 1.0)],
-            "B": [("A", 1.0)],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 1.0)],
+                "B": [("A", 1.0)],
+            }
+        )
         seeds = [("A", 1.0)]
         bonuses, hops = await spread_activation(seeds, provider, cfg)
         # B should get bonus, A should not get bonus from B (visited)
@@ -170,10 +180,12 @@ class TestSpreadActivation:
             spread_firing_threshold=0.001,
         )
         neighbors = [(f"n_{i}", 1.0) for i in range(20)]
-        provider = MockNeighborProvider({
-            "hub": neighbors,
-            **{f"n_{i}": [] for i in range(20)},
-        })
+        provider = MockNeighborProvider(
+            {
+                "hub": neighbors,
+                **{f"n_{i}": [] for i in range(20)},
+            }
+        )
         seeds = [("hub", 1.0)]
         bonuses, _ = await spread_activation(seeds, provider, cfg)
         # Should stop before reaching all 20 neighbors
@@ -185,10 +197,12 @@ class TestSpreadActivation:
             spread_firing_threshold=0.5,
             spread_energy_budget=10.0,
         )
-        provider = MockNeighborProvider({
-            "A": [("B", 0.1)],  # spread = 0.1 * 0.1 * 1.0 * 0.5 = tiny
-            "B": [],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("B", 0.1)],  # spread = 0.1 * 0.1 * 1.0 * 0.5 = tiny
+                "B": [],
+            }
+        )
         seeds = [("A", 0.1)]
         bonuses, _ = await spread_activation(seeds, provider, cfg)
         # Spread amount too small for threshold
@@ -200,11 +214,13 @@ class TestSpreadActivation:
             spread_firing_threshold=0.001,
             spread_energy_budget=10.0,
         )
-        provider = MockNeighborProvider({
-            "A": [("C", 1.0)],
-            "B": [("C", 1.0)],
-            "C": [],
-        })
+        provider = MockNeighborProvider(
+            {
+                "A": [("C", 1.0)],
+                "B": [("C", 1.0)],
+                "C": [],
+            }
+        )
         seeds = [("A", 1.0), ("B", 1.0)]
         bonuses, _ = await spread_activation(seeds, provider, cfg)
         assert "C" in bonuses

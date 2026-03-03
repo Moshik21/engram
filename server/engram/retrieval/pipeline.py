@@ -98,9 +98,7 @@ async def retrieve(
     else:
         # Original single-pool path — scale retrieval_top_k
         top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
-        search_results = await search_index.search(
-            query=query, group_id=group_id, limit=top_k
-        )
+        search_results = await search_index.search(query=query, group_id=group_id, limit=top_k)
         candidates = search_results or []
 
         # Step 1.5: Classify query and override weights
@@ -114,12 +112,13 @@ async def retrieve(
             temporal_mode = True
             act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
             top_activated = await activation_store.get_top_activated(
-                group_id=group_id, limit=act_limit, now=now,
+                group_id=group_id,
+                limit=act_limit,
+                now=now,
             )
             existing_ids = {eid for eid, _ in candidates}
             activation_candidates = [
-                (eid, 0.0) for eid, _state in top_activated
-                if eid not in existing_ids
+                (eid, 0.0) for eid, _state in top_activated if eid not in existing_ids
             ]
             candidates = candidates + activation_candidates
 
@@ -176,7 +175,10 @@ async def retrieve(
         context_gate = None  # context gate is a BFS/PPR concept
     else:
         seeds = identify_seeds(
-            candidates, activation_states, now, cfg,
+            candidates,
+            activation_states,
+            now,
+            cfg,
             temporal_mode=temporal_mode,
         )
         seed_node_ids = {nid for nid, _ in seeds}
@@ -194,7 +196,7 @@ async def retrieve(
         # Step 3.7: Build context gate (if enabled)
         context_gate = None
         if cfg.context_gating_enabled and predicate_cache is not None:
-            query_emb = getattr(search_index, '_last_query_vec', None)
+            query_emb = getattr(search_index, "_last_query_vec", None)
             if query_emb:
                 from engram.activation.context_gate import build_context_gate
 
@@ -202,26 +204,26 @@ async def retrieve(
 
     # Step 4: Spread activation
     bonuses, hop_distances = await spread_activation(
-        seeds, graph_store, cfg, group_id=group_id,
+        seeds,
+        graph_store,
+        cfg,
+        group_id=group_id,
         community_store=community_store,
         context_gate=context_gate,
     )
 
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
     existing_ids = {eid for eid, _ in candidates}
-    new_ids = [
-        nid for nid in bonuses
-        if nid not in existing_ids and bonuses[nid] > 0.0
-    ]
+    new_ids = [nid for nid in bonuses if nid not in existing_ids and bonuses[nid] > 0.0]
     if new_ids:
         new_states = await activation_store.batch_get(new_ids)
         activation_states.update(new_states)
         discovered_sims = await search_index.compute_similarity(
-            query=query, entity_ids=new_ids, group_id=group_id,
+            query=query,
+            entity_ids=new_ids,
+            group_id=group_id,
         )
-        candidates = candidates + [
-            (nid, discovered_sims.get(nid, 0.0)) for nid in new_ids
-        ]
+        candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
 
     # Step 5: Score all candidates
     if cfg.ts_enabled:
@@ -250,7 +252,7 @@ async def retrieve(
         try:
             # Fetch entity summaries for reranking
             docs: list[tuple[str, str]] = []
-            for sr in scored[:cfg.reranker_top_n * 2]:
+            for sr in scored[: cfg.reranker_top_n * 2]:
                 entity = await graph_store.get_entity(sr.node_id, group_id)
                 text = ""
                 if entity:
@@ -261,7 +263,9 @@ async def retrieve(
 
             if docs:
                 reranked = await reranker.rerank(
-                    query, docs, top_n=cfg.reranker_top_n,
+                    query,
+                    docs,
+                    top_n=cfg.reranker_top_n,
                 )
                 # Build reranked order
                 rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
@@ -278,10 +282,11 @@ async def retrieve(
 
             # Fetch entity embeddings for MMR
             entity_embeddings: dict[str, list[float]] = {}
-            mmr_ids = [sr.node_id for sr in scored[:cfg.retrieval_top_n * 2]]
-            if hasattr(search_index, '_vectors') and hasattr(search_index, '_embeddings_enabled'):
+            mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+            if hasattr(search_index, "_vectors") and hasattr(search_index, "_embeddings_enabled"):
                 if search_index._embeddings_enabled:
                     from engram.storage.sqlite.vectors import unpack_vector
+
                     for eid in mmr_ids:
                         cursor = await search_index._vectors.db.execute(
                             "SELECT embedding, dimensions FROM embeddings "
@@ -291,11 +296,13 @@ async def retrieve(
                         row = await cursor.fetchone()
                         if row:
                             entity_embeddings[eid] = unpack_vector(
-                                row["embedding"], row["dimensions"],
+                                row["embedding"],
+                                row["dimensions"],
                             )
 
             scored = apply_mmr(
-                scored, entity_embeddings,
+                scored,
+                entity_embeddings,
                 lambda_param=cfg.mmr_lambda,
                 top_n=min(limit, cfg.retrieval_top_n),
             )
@@ -310,7 +317,7 @@ async def retrieve(
         entity_results = scored[:entity_limit]
         # Fill remaining slots with top episodes up to episode_retrieval_max
         episode_candidates.sort(key=lambda r: r.score, reverse=True)
-        ep_results_final = episode_candidates[:cfg.episode_retrieval_max]
+        ep_results_final = episode_candidates[: cfg.episode_retrieval_max]
         # Combine and re-sort by score
         results = entity_results + ep_results_final
         results.sort(key=lambda r: r.score, reverse=True)

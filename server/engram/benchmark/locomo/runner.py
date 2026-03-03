@@ -54,9 +54,7 @@ class LoCoMoResult:
     overall_em: float
     overall_f1: float
     elapsed_seconds: float = 0.0
-    category_scores: dict[str, dict[str, float]] = field(
-        default_factory=dict
-    )
+    category_scores: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 async def run_locomo(
@@ -81,9 +79,7 @@ async def run_locomo(
     start = time.perf_counter()
 
     # Load dataset
-    conversations = load_locomo_dataset(
-        dataset_path, max_conversations=max_conversations
-    )
+    conversations = load_locomo_dataset(dataset_path, max_conversations=max_conversations)
 
     conversation_results = []
     all_em_scores: list[float] = []
@@ -117,9 +113,7 @@ async def run_locomo(
             # Get entity summaries
             summaries = []
             for r in results:
-                entity = await graph_store.get_entity(
-                    r.node_id, group_id
-                )
+                entity = await graph_store.get_entity(r.node_id, group_id)
                 if entity and entity.summary:
                     summaries.append(entity.summary)
 
@@ -127,51 +121,47 @@ async def run_locomo(
             em = exact_match(composed, answer)
             f1 = token_f1(composed, answer)
 
-            probe_results.append(ProbeResult(
-                probe_question=question,
-                ground_truth=answer,
-                composed_answer=composed,
-                exact_match_score=em,
-                f1_score=f1,
-                category=category,
-            ))
+            probe_results.append(
+                ProbeResult(
+                    probe_question=question,
+                    ground_truth=answer,
+                    composed_answer=composed,
+                    exact_match_score=em,
+                    f1_score=f1,
+                    category=category,
+                )
+            )
 
             all_em_scores.append(em)
             all_f1_scores.append(f1)
 
             if category:
-                category_scores.setdefault(category, []).append(
-                    (em, f1)
-                )
+                category_scores.setdefault(category, []).append((em, f1))
 
         # Conversation-level aggregation
         conv_em = (
             sum(p.exact_match_score for p in probe_results) / len(probe_results)
-            if probe_results else 0.0
+            if probe_results
+            else 0.0
         )
         conv_f1 = (
-            sum(p.f1_score for p in probe_results) / len(probe_results)
-            if probe_results else 0.0
+            sum(p.f1_score for p in probe_results) / len(probe_results) if probe_results else 0.0
         )
 
-        conversation_results.append(ConversationResult(
-            conversation_id=conv.conversation_id,
-            num_turns=len(conv.turns),
-            num_probes=len(probes),
-            probe_results=probe_results,
-            avg_em=conv_em,
-            avg_f1=conv_f1,
-        ))
+        conversation_results.append(
+            ConversationResult(
+                conversation_id=conv.conversation_id,
+                num_turns=len(conv.turns),
+                num_probes=len(probes),
+                probe_results=probe_results,
+                avg_em=conv_em,
+                avg_f1=conv_f1,
+            )
+        )
 
     # Overall aggregation
-    overall_em = (
-        sum(all_em_scores) / len(all_em_scores)
-        if all_em_scores else 0.0
-    )
-    overall_f1 = (
-        sum(all_f1_scores) / len(all_f1_scores)
-        if all_f1_scores else 0.0
-    )
+    overall_em = sum(all_em_scores) / len(all_em_scores) if all_em_scores else 0.0
+    overall_f1 = sum(all_f1_scores) / len(all_f1_scores) if all_f1_scores else 0.0
 
     # Category-level aggregation
     cat_agg = {}

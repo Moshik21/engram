@@ -43,7 +43,8 @@ class TestThompsonSamplingScorer:
     def test_high_alpha_boosts_exploration(self):
         """High ts_alpha (many successes) → higher expected exploration."""
         cfg = ActivationConfig(
-            ts_enabled=True, ts_weight=0.5,
+            ts_enabled=True,
+            ts_weight=0.5,
             rediscovery_weight=0.0,
         )
         states_high = {"A": _make_state("A", ts_alpha=50.0, ts_beta=1.0)}
@@ -56,15 +57,23 @@ class TestThompsonSamplingScorer:
         for seed in range(n):
             r_high = score_candidates_thompson(
                 candidates=[("A", 0.8)],
-                spreading_bonuses={}, hop_distances={},
-                seed_node_ids=set(), activation_states=states_high,
-                now=time.time(), cfg=cfg, rng_seed=seed,
+                spreading_bonuses={},
+                hop_distances={},
+                seed_node_ids=set(),
+                activation_states=states_high,
+                now=time.time(),
+                cfg=cfg,
+                rng_seed=seed,
             )
             r_low = score_candidates_thompson(
                 candidates=[("A", 0.8)],
-                spreading_bonuses={}, hop_distances={},
-                seed_node_ids=set(), activation_states=states_low,
-                now=time.time(), cfg=cfg, rng_seed=seed,
+                spreading_bonuses={},
+                hop_distances={},
+                seed_node_ids=set(),
+                activation_states=states_low,
+                now=time.time(),
+                cfg=cfg,
+                rng_seed=seed,
             )
             high_total += r_high[0].exploration_bonus
             low_total += r_low[0].exploration_bonus
@@ -74,7 +83,8 @@ class TestThompsonSamplingScorer:
     def test_high_beta_suppresses_exploration(self):
         """High ts_beta (many failures) → lower expected exploration."""
         cfg = ActivationConfig(
-            ts_enabled=True, ts_weight=0.5,
+            ts_enabled=True,
+            ts_weight=0.5,
             rediscovery_weight=0.0,
         )
         states = {"A": _make_state("A", ts_alpha=1.0, ts_beta=100.0)}
@@ -83,9 +93,13 @@ class TestThompsonSamplingScorer:
         for seed in range(n):
             results = score_candidates_thompson(
                 candidates=[("A", 0.8)],
-                spreading_bonuses={}, hop_distances={},
-                seed_node_ids=set(), activation_states=states,
-                now=time.time(), cfg=cfg, rng_seed=seed,
+                spreading_bonuses={},
+                hop_distances={},
+                seed_node_ids=set(),
+                activation_states=states,
+                now=time.time(),
+                cfg=cfg,
+                rng_seed=seed,
             )
             total += results[0].exploration_bonus
         avg = total / n
@@ -95,21 +109,30 @@ class TestThompsonSamplingScorer:
     def test_deterministic_with_seed(self):
         """Same rng_seed should give identical results."""
         cfg = ActivationConfig(
-            ts_enabled=True, ts_weight=0.1,
+            ts_enabled=True,
+            ts_weight=0.1,
             rediscovery_weight=0.0,
         )
         states = {"A": _make_state("A")}
         r1 = score_candidates_thompson(
             candidates=[("A", 0.8)],
-            spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states,
-            now=1000000.0, cfg=cfg, rng_seed=123,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=1000000.0,
+            cfg=cfg,
+            rng_seed=123,
         )
         r2 = score_candidates_thompson(
             candidates=[("A", 0.8)],
-            spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states,
-            now=1000000.0, cfg=cfg, rng_seed=123,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=1000000.0,
+            cfg=cfg,
+            rng_seed=123,
         )
         assert r1[0].score == r2[0].score
 
@@ -119,9 +142,12 @@ class TestThompsonSamplingScorer:
         states = {"A": _make_state("A", ts_alpha=100.0)}
         results = score_candidates(
             candidates=[("A", 0.8)],
-            spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states,
-            now=time.time(), cfg=cfg,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=time.time(),
+            cfg=cfg,
         )
         # Should use deterministic exploration, not TS
         assert results[0].exploration_bonus >= 0
@@ -129,30 +155,40 @@ class TestThompsonSamplingScorer:
     def test_zero_weight_no_ts_bonus(self):
         """ts_weight=0 should eliminate TS exploration bonus."""
         cfg = ActivationConfig(
-            ts_enabled=True, ts_weight=0.0,
+            ts_enabled=True,
+            ts_weight=0.0,
             rediscovery_weight=0.0,
         )
         states = {"A": _make_state("A", ts_alpha=50.0)}
         results = score_candidates_thompson(
             candidates=[("A", 0.8)],
-            spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states,
-            now=time.time(), cfg=cfg, rng_seed=42,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=time.time(),
+            cfg=cfg,
+            rng_seed=42,
         )
         assert results[0].exploration_bonus == 0.0
 
     def test_zero_semantic_no_exploration(self):
         """Zero semantic similarity → no exploration bonus."""
         cfg = ActivationConfig(
-            ts_enabled=True, ts_weight=0.1,
+            ts_enabled=True,
+            ts_weight=0.1,
             rediscovery_weight=0.0,
         )
         states = {"A": _make_state("A", ts_alpha=50.0)}
         results = score_candidates_thompson(
             candidates=[("A", 0.0)],
-            spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states,
-            now=time.time(), cfg=cfg, rng_seed=42,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=time.time(),
+            cfg=cfg,
+            rng_seed=42,
         )
         assert results[0].exploration_bonus == 0.0
 
@@ -214,12 +250,8 @@ class TestFeedbackRecording:
 
         store = MemoryActivationStore()
         cfg = ActivationConfig()
-        await store.set_activation(
-            "A", ActivationState(node_id="A")
-        )
-        await store.set_activation(
-            "B", ActivationState(node_id="B")
-        )
+        await store.set_activation("A", ActivationState(node_id="A"))
+        await store.set_activation("B", ActivationState(node_id="B"))
 
         await record_positive_feedback("A", store, cfg)
         await record_negative_feedback("B", store, cfg)

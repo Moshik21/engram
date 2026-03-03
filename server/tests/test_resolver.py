@@ -48,9 +48,7 @@ class TestComputeSimilarity:
 
     def test_token_reorder(self):
         # Token sort handles word reordering
-        score = compute_similarity(
-            "ACT-R Spreading Activation", "Spreading Activation ACT-R"
-        )
+        score = compute_similarity("ACT-R Spreading Activation", "Spreading Activation ACT-R")
         assert score >= 0.95
 
     def test_mesa_arizona_match(self):

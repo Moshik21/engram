@@ -116,9 +116,7 @@ class TestHybridComputeSimilarity:
         # Store a vector for entity
         await vectors.upsert("e1", "entity", "default", "test text", [1.0, 0.0, 0.0])
 
-        result = await hybrid.compute_similarity(
-            "test query", ["e1"], group_id="default"
-        )
+        result = await hybrid.compute_similarity("test query", ["e1"], group_id="default")
         assert "e1" in result
         assert abs(result["e1"] - 1.0) < 1e-5  # identical vectors → sim ≈ 1.0
 
@@ -139,7 +137,5 @@ class TestHybridComputeSimilarity:
 
         hybrid = HybridSearchIndex(fts, vectors, mock_provider)
 
-        result = await hybrid.compute_similarity(
-            "test query", ["e1"], group_id="default"
-        )
+        result = await hybrid.compute_similarity("test query", ["e1"], group_id="default")
         assert result == {}

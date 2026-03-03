@@ -20,32 +20,47 @@ class TestStructureAwareEmbeddings:
 
         graph_store = AsyncMock()
         entity = Entity(
-            id="e1", name="Alice", entity_type="Person",
-            summary="Engineer at TechCorp", group_id="default",
+            id="e1",
+            name="Alice",
+            entity_type="Person",
+            summary="Engineer at TechCorp",
+            group_id="default",
         )
         graph_store.get_entity = AsyncMock(
             side_effect=lambda eid, gid: {
                 "e1": entity,
                 "e2": Entity(
-                    id="e2", name="TechCorp",
-                    entity_type="Organization", group_id="default",
+                    id="e2",
+                    name="TechCorp",
+                    entity_type="Organization",
+                    group_id="default",
                 ),
                 "e3": Entity(
-                    id="e3", name="Python",
-                    entity_type="Technology", group_id="default",
+                    id="e3",
+                    name="Python",
+                    entity_type="Technology",
+                    group_id="default",
                 ),
             }.get(eid),
         )
 
         rels = [
             Relationship(
-                id="r1", source_id="e1", target_id="e2",
-                predicate="WORKS_AT", weight=1.0, group_id="default",
+                id="r1",
+                source_id="e1",
+                target_id="e2",
+                predicate="WORKS_AT",
+                weight=1.0,
+                group_id="default",
                 valid_from=datetime.utcnow(),
             ),
             Relationship(
-                id="r2", source_id="e1", target_id="e3",
-                predicate="EXPERT_IN", weight=1.0, group_id="default",
+                id="r2",
+                source_id="e1",
+                target_id="e3",
+                predicate="EXPERT_IN",
+                weight=1.0,
+                group_id="default",
                 valid_from=datetime.utcnow(),
             ),
         ]
@@ -81,8 +96,11 @@ class TestStructureAwareEmbeddings:
 
         graph_store = AsyncMock()
         entity = Entity(
-            id="e1", name="Alice", entity_type="Person",
-            summary="Engineer", group_id="default",
+            id="e1",
+            name="Alice",
+            entity_type="Person",
+            summary="Engineer",
+            group_id="default",
         )
         graph_store.get_relationships = AsyncMock(return_value=[])
 

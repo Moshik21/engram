@@ -60,9 +60,7 @@ def load_locomo_dataset(
         if max_conversations and len(conversations) >= max_conversations:
             break
 
-        conv_id = entry.get(
-            "conversation_id", entry.get("id", f"conv_{i}")
-        )
+        conv_id = entry.get("conversation_id", entry.get("id", f"conv_{i}"))
 
         # Extract turns
         turns = entry.get(
@@ -77,18 +75,22 @@ def load_locomo_dataset(
         )
         probes = []
         for j, p in enumerate(raw_probes):
-            probes.append(LoCoMoProbe(
-                probe_id=p.get("id", f"{conv_id}_q{j}"),
-                question=p.get("question", p.get("query", "")),
-                answer=p.get("answer", p.get("ground_truth", "")),
-                category=p.get("category", p.get("type", "")),
-            ))
+            probes.append(
+                LoCoMoProbe(
+                    probe_id=p.get("id", f"{conv_id}_q{j}"),
+                    question=p.get("question", p.get("query", "")),
+                    answer=p.get("answer", p.get("ground_truth", "")),
+                    category=p.get("category", p.get("type", "")),
+                )
+            )
 
-        conversations.append(LoCoMoConversation(
-            conversation_id=conv_id,
-            turns=turns,
-            probes=probes,
-        ))
+        conversations.append(
+            LoCoMoConversation(
+                conversation_id=conv_id,
+                turns=turns,
+                probes=probes,
+            )
+        )
 
     return conversations
 
@@ -101,12 +103,7 @@ def conversation_to_episodes(
     episodes = []
     for i, turn in enumerate(conversation.turns):
         # Extract text content from various LoCoMo formats
-        text = (
-            turn.get("text")
-            or turn.get("content")
-            or turn.get("utterance")
-            or str(turn)
-        )
+        text = turn.get("text") or turn.get("content") or turn.get("utterance") or str(turn)
 
         # Prefix with speaker if available
         speaker = turn.get("speaker", turn.get("role", ""))
@@ -129,8 +126,4 @@ def probes_to_queries(
     probes: list[LoCoMoProbe],
 ) -> list[tuple[str, str, str]]:
     """Convert probes to (question, answer, category) tuples."""
-    return [
-        (p.question, p.answer, p.category)
-        for p in probes
-        if p.question and p.answer
-    ]
+    return [(p.question, p.answer, p.category) for p in probes if p.question and p.answer]

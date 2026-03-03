@@ -48,10 +48,8 @@ class BFSStrategy:
             if hop >= cfg.spread_max_hops:
                 continue
 
-            neighbors = (
-                await neighbor_provider.get_active_neighbors_with_weights(
-                    node_id, group_id=group_id
-                )
+            neighbors = await neighbor_provider.get_active_neighbors_with_weights(
+                node_id, group_id=group_id
             )
             out_degree = len(neighbors)
             if out_degree == 0:
@@ -81,7 +79,9 @@ class BFSStrategy:
                     and group_id is not None
                 ):
                     is_bridge = community_store.is_bridge_edge(
-                        node_id, neighbor_id, group_id,
+                        node_id,
+                        neighbor_id,
+                        group_id,
                     )
                     if is_bridge is True:
                         community_factor = cfg.community_bridge_boost
@@ -114,17 +114,12 @@ class BFSStrategy:
                 if energy_spent > cfg.spread_energy_budget:
                     break
 
-                bonuses[neighbor_id] = (
-                    bonuses.get(neighbor_id, 0.0) + spread_amount
-                )
+                bonuses[neighbor_id] = bonuses.get(neighbor_id, 0.0) + spread_amount
 
                 if neighbor_id not in visited:
                     visited.add(neighbor_id)
                     new_hop = hop + 1
-                    if (
-                        neighbor_id not in hop_distances
-                        or new_hop < hop_distances[neighbor_id]
-                    ):
+                    if neighbor_id not in hop_distances or new_hop < hop_distances[neighbor_id]:
                         hop_distances[neighbor_id] = new_hop
                     queue.append((neighbor_id, spread_amount, new_hop))
 

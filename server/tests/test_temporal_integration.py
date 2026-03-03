@@ -1,6 +1,5 @@
 """Integration tests for temporal contradiction pipeline."""
 
-
 import pytest
 
 from engram.extraction.extractor import ExtractionResult

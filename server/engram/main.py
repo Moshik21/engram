@@ -83,9 +83,14 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             predicate_cache = None
 
     manager = GraphManager(
-        graph_store, activation_store, search_index, extractor,
-        cfg=config.activation, event_bus=event_bus,
-        reranker=reranker, community_store=community_store,
+        graph_store,
+        activation_store,
+        search_index,
+        extractor,
+        cfg=config.activation,
+        event_bus=event_bus,
+        reranker=reranker,
+        community_store=community_store,
         predicate_cache=predicate_cache,
     )
 
@@ -100,7 +105,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         await consolidation_store.initialize()
 
     consolidation_engine = ConsolidationEngine(
-        graph_store, activation_store, search_index,
+        graph_store,
+        activation_store,
+        search_index,
         cfg=config.activation,
         consolidation_store=consolidation_store,
         event_bus=event_bus,
@@ -119,7 +126,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     from engram.consolidation.scheduler import ConsolidationScheduler
 
     consolidation_scheduler = ConsolidationScheduler(
-        consolidation_engine, config.activation,
+        consolidation_engine,
+        config.activation,
         default_group_id=config.default_group_id,
         pressure=pressure_accumulator,
     )

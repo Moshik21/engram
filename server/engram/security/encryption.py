@@ -53,7 +53,7 @@ class FieldEncryptor:
         """Decrypt 'enc::...' → plaintext. Passes through non-encrypted data."""
         if not data or not self.is_encrypted(data):
             return data
-        encoded = data[len(ENCRYPTED_PREFIX):]
+        encoded = data[len(ENCRYPTED_PREFIX) :]
         combined = base64.b64decode(encoded)
         nonce = combined[:12]
         ciphertext = combined[12:]

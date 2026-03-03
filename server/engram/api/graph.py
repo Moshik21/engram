@@ -188,16 +188,18 @@ async def get_graph_at(
             rels = await manager._graph.get_relationships_at(eid, at_time, group_id=group_id)
             for r in rels:
                 other = r.target_id if r.source_id == eid else r.source_id
-                edges_list.append({
-                    "id": r.id,
-                    "source": r.source_id,
-                    "target": r.target_id,
-                    "predicate": r.predicate,
-                    "weight": r.weight,
-                    "validFrom": r.valid_from.isoformat() if r.valid_from else None,
-                    "validTo": r.valid_to.isoformat() if r.valid_to else None,
-                    "createdAt": r.created_at.isoformat() if r.created_at else None,
-                })
+                edges_list.append(
+                    {
+                        "id": r.id,
+                        "source": r.source_id,
+                        "target": r.target_id,
+                        "predicate": r.predicate,
+                        "weight": r.weight,
+                        "validFrom": r.valid_from.isoformat() if r.valid_from else None,
+                        "validTo": r.valid_to.isoformat() if r.valid_to else None,
+                        "createdAt": r.created_at.isoformat() if r.created_at else None,
+                    }
+                )
                 if other not in visited:
                     visited.add(other)
                     next_frontier.add(other)
@@ -211,13 +213,15 @@ async def get_graph_at(
     # Build nodes
     nodes = []
     for eid, entity in list(entities_map.items())[:max_nodes]:
-        nodes.append({
-            "id": entity.id,
-            "name": entity.name,
-            "entityType": entity.entity_type,
-            "summary": entity.summary,
-            "createdAt": entity.created_at.isoformat() if entity.created_at else None,
-        })
+        nodes.append(
+            {
+                "id": entity.id,
+                "name": entity.name,
+                "entityType": entity.entity_type,
+                "summary": entity.summary,
+                "createdAt": entity.created_at.isoformat() if entity.created_at else None,
+            }
+        )
 
     # Deduplicate edges and filter to remaining node IDs
     remaining_ids = {n["id"] for n in nodes}

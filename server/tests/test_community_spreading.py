@@ -76,7 +76,11 @@ class TestLabelPropagation:
         all_ids = clique_a + clique_b
 
         labels = await label_propagation(
-            provider, "test", entity_ids=all_ids, max_iterations=10, seed=42,
+            provider,
+            "test",
+            entity_ids=all_ids,
+            max_iterations=10,
+            seed=42,
         )
 
         # All nodes in clique A should share one label
@@ -96,13 +100,15 @@ class TestLabelPropagation:
         nodes = ["n1", "n2", "n3", "n4"]
         adj = {}
         for node in nodes:
-            adj[node] = [
-                (other, 1.0, "KNOWS") for other in nodes if other != node
-            ]
+            adj[node] = [(other, 1.0, "KNOWS") for other in nodes if other != node]
         provider = _build_neighbor_provider(adj)
 
         labels = await label_propagation(
-            provider, "test", entity_ids=nodes, max_iterations=10, seed=42,
+            provider,
+            "test",
+            entity_ids=nodes,
+            max_iterations=10,
+            seed=42,
         )
         unique_labels = set(labels.values())
         assert len(unique_labels) == 1
@@ -115,7 +121,11 @@ class TestLabelPropagation:
         provider = _build_neighbor_provider(adj)
 
         labels = await label_propagation(
-            provider, "test", entity_ids=nodes, max_iterations=10, seed=42,
+            provider,
+            "test",
+            entity_ids=nodes,
+            max_iterations=10,
+            seed=42,
         )
         # Each node should keep its own label
         assert labels["n1"] != labels["n2"]
@@ -129,10 +139,16 @@ class TestLabelPropagation:
         all_ids = clique_a + clique_b
 
         labels1 = await label_propagation(
-            provider, "test", entity_ids=all_ids, seed=42,
+            provider,
+            "test",
+            entity_ids=all_ids,
+            seed=42,
         )
         labels2 = await label_propagation(
-            provider, "test", entity_ids=all_ids, seed=42,
+            provider,
+            "test",
+            entity_ids=all_ids,
+            seed=42,
         )
         assert labels1 == labels2
 
@@ -144,7 +160,11 @@ class TestLabelPropagation:
         all_ids = clique_a + clique_b
 
         labels = await label_propagation(
-            provider, "test", entity_ids=all_ids, max_iterations=1, seed=42,
+            provider,
+            "test",
+            entity_ids=all_ids,
+            max_iterations=1,
+            seed=42,
         )
         # Should still produce valid labels for all nodes
         assert len(labels) == len(all_ids)
@@ -154,20 +174,14 @@ class TestLabelPropagation:
     @pytest.mark.asyncio
     async def test_four_clusters(self):
         """100 nodes, 4 clusters with sparse bridges."""
-        clusters = {
-            f"c{ci}": [f"c{ci}_n{i}" for i in range(25)]
-            for ci in range(4)
-        }
+        clusters = {f"c{ci}": [f"c{ci}_n{i}" for i in range(25)] for ci in range(4)}
         adj: dict[str, list[tuple[str, float, str]]] = {}
         all_ids = []
 
         for cname, members in clusters.items():
             all_ids.extend(members)
             for node in members:
-                neighbors = [
-                    (other, 1.0, "KNOWS")
-                    for other in members if other != node
-                ]
+                neighbors = [(other, 1.0, "KNOWS") for other in members if other != node]
                 adj[node] = neighbors
 
         # Add one bridge between each adjacent pair
@@ -180,7 +194,11 @@ class TestLabelPropagation:
 
         provider = _build_neighbor_provider(adj)
         labels = await label_propagation(
-            provider, "test", entity_ids=all_ids, max_iterations=20, seed=42,
+            provider,
+            "test",
+            entity_ids=all_ids,
+            max_iterations=20,
+            seed=42,
         )
 
         # Should detect 4 communities
@@ -192,7 +210,10 @@ class TestLabelPropagation:
         """Empty entity_ids returns empty dict."""
         provider = _build_neighbor_provider({})
         labels = await label_propagation(
-            provider, "test", entity_ids=[], seed=42,
+            provider,
+            "test",
+            entity_ids=[],
+            seed=42,
         )
         assert labels == {}
 
@@ -214,15 +235,18 @@ class TestCommunityStore:
     def test_is_bridge(self):
         """True cross-community, False intra, None unknown."""
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "e1": "cluster_a",
-            "e2": "cluster_a",
-            "e3": "cluster_b",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "e1": "cluster_a",
+                "e2": "cluster_a",
+                "e3": "cluster_b",
+            },
+        )
         assert store.is_bridge_edge("e1", "e2", "g1") is False  # same cluster
-        assert store.is_bridge_edge("e1", "e3", "g1") is True   # cross cluster
-        assert store.is_bridge_edge("e1", "e4", "g1") is None   # unknown entity
-        assert store.is_bridge_edge("e1", "e2", "g2") is None   # unknown group
+        assert store.is_bridge_edge("e1", "e3", "g1") is True  # cross cluster
+        assert store.is_bridge_edge("e1", "e4", "g1") is None  # unknown entity
+        assert store.is_bridge_edge("e1", "e2", "g2") is None  # unknown group
 
     def test_staleness(self):
         """Fresh not stale, after TTL is stale."""
@@ -274,9 +298,14 @@ class TestBFSCommunityFactor:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "cross": "B", "same": "A",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "cross": "B",
+                "same": "A",
+            },
+        )
 
         cfg = ActivationConfig(
             community_spreading_enabled=True,
@@ -287,8 +316,11 @@ class TestBFSCommunityFactor:
         )
         strategy = BFSStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         assert bonuses["cross"] > bonuses["same"]
 
@@ -302,9 +334,14 @@ class TestBFSCommunityFactor:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "intra": "A", "bridge": "B",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "intra": "A",
+                "bridge": "B",
+            },
+        )
 
         cfg = ActivationConfig(
             community_spreading_enabled=True,
@@ -314,8 +351,11 @@ class TestBFSCommunityFactor:
         )
         strategy = BFSStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         assert bonuses["intra"] < bonuses["bridge"]
 
@@ -337,8 +377,11 @@ class TestBFSCommunityFactor:
         )
         strategy = BFSStrategy()
         bonuses_disabled, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg_disabled,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg_disabled,
+            group_id="g1",
+            community_store=store,
         )
         # Both neighbors should get equal energy when disabled
         assert abs(bonuses_disabled["n1"] - bonuses_disabled["n2"]) < 1e-9
@@ -359,8 +402,11 @@ class TestBFSCommunityFactor:
         )
         strategy = BFSStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=None,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=None,
         )
         assert abs(bonuses["n1"] - bonuses["n2"]) < 1e-9
 
@@ -374,9 +420,14 @@ class TestBFSCommunityFactor:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "bridge": "B", "intra": "A",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "bridge": "B",
+                "intra": "A",
+            },
+        )
 
         boost = 2.0
         dampen = 0.5
@@ -388,8 +439,11 @@ class TestBFSCommunityFactor:
         )
         strategy = BFSStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         ratio = bonuses["bridge"] / bonuses["intra"]
         expected_ratio = boost / dampen
@@ -412,9 +466,14 @@ class TestPPRCommunityFactor:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "cross": "B", "same": "A",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "cross": "B",
+                "same": "A",
+            },
+        )
 
         cfg = ActivationConfig(
             spreading_strategy="ppr",
@@ -425,8 +484,11 @@ class TestPPRCommunityFactor:
         )
         strategy = PPRStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         assert bonuses.get("cross", 0) > bonuses.get("same", 0)
 
@@ -440,9 +502,14 @@ class TestPPRCommunityFactor:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "intra": "A", "bridge": "B",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "intra": "A",
+                "bridge": "B",
+            },
+        )
 
         cfg = ActivationConfig(
             spreading_strategy="ppr",
@@ -453,8 +520,11 @@ class TestPPRCommunityFactor:
         )
         strategy = PPRStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         assert bonuses.get("intra", 0) < bonuses.get("bridge", 0)
 
@@ -477,8 +547,11 @@ class TestPPRCommunityFactor:
         )
         strategy = PPRStrategy()
         bonuses, _ = await strategy.spread(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         # Equal with tolerance
         assert abs(bonuses.get("n1", 0) - bonuses.get("n2", 0)) < 1e-6
@@ -542,9 +615,14 @@ class TestCommunityIntegration:
         }
         provider = _build_neighbor_provider(adj)
         store = CommunityStore()
-        store.set_assignments("g1", {
-            "seed": "A", "n1": "A", "n2": "B",
-        })
+        store.set_assignments(
+            "g1",
+            {
+                "seed": "A",
+                "n1": "A",
+                "n2": "B",
+            },
+        )
 
         cfg = ActivationConfig(
             community_spreading_enabled=True,
@@ -554,8 +632,11 @@ class TestCommunityIntegration:
         )
 
         bonuses, hop_distances = await spread_activation(
-            [("seed", 1.0)], provider, cfg,
-            group_id="g1", community_store=store,
+            [("seed", 1.0)],
+            provider,
+            cfg,
+            group_id="g1",
+            community_store=store,
         )
         assert "n1" in bonuses
         assert "n2" in bonuses

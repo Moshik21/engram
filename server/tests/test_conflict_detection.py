@@ -84,9 +84,7 @@ class TestConflictDetection:
             "rel_old", datetime(2026, 1, 1), group_id="default"
         )
 
-        conflicts = await graph_store.find_conflicting_relationships(
-            "ent_p", "LIVES_IN", "default"
-        )
+        conflicts = await graph_store.find_conflicting_relationships("ent_p", "LIVES_IN", "default")
         assert len(conflicts) == 0
 
     async def test_non_exclusive_no_invalidation(self, graph_store: SQLiteGraphStore):
@@ -112,9 +110,7 @@ class TestConflictDetection:
             )
         )
 
-        conflicts = await graph_store.find_conflicting_relationships(
-            "ent_s", "LIVES_IN", "default"
-        )
+        conflicts = await graph_store.find_conflicting_relationships("ent_s", "LIVES_IN", "default")
         # The existing rel is returned; the graph_manager would skip same-target
         assert len(conflicts) == 1
 

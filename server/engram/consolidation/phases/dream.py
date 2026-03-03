@@ -46,21 +46,28 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         if not cfg.consolidation_dream_enabled:
             return PhaseResult(
-                phase=self.name, status="skipped", duration_ms=0.0,
+                phase=self.name,
+                status="skipped",
+                duration_ms=0.0,
             ), []
 
         now = time.time()
 
         # 1. Select seeds using bell-curve preference for medium activation
         seeds = await self._select_dream_seeds(
-            activation_store, group_id, now, cfg,
+            activation_store,
+            group_id,
+            now,
+            cfg,
         )
 
         if not seeds:
             elapsed = (time.perf_counter() - t0) * 1000
             return PhaseResult(
-                phase=self.name, status="success",
-                items_processed=0, items_affected=0,
+                phase=self.name,
+                status="success",
+                items_processed=0,
+                items_affected=0,
                 duration_ms=round(elapsed, 1),
             ), []
 
@@ -72,10 +79,17 @@ class DreamSpreadingPhase(ConsolidationPhase):
         edge_boosts: dict[tuple[str, str], float] = {}
         for seed_id, energy in seeds:
             bonuses, _ = await spread_activation(
-                [(seed_id, energy)], graph_store, cfg, group_id=group_id,
+                [(seed_id, energy)],
+                graph_store,
+                cfg,
+                group_id=group_id,
             )
             seed_boosts = await self._accumulate_edge_boosts(
-                seed_id, bonuses, graph_store, group_id, cfg,
+                seed_id,
+                bonuses,
+                graph_store,
+                group_id,
+                cfg,
             )
             for edge_key, boost in seed_boosts.items():
                 edge_boosts[edge_key] = edge_boosts.get(edge_key, 0.0) + boost
@@ -90,19 +104,23 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
             if not dry_run:
                 await graph_store.update_relationship_weight(
-                    src, tgt, capped_boost,
+                    src,
+                    tgt,
+                    capped_boost,
                     max_weight=cfg.consolidation_dream_max_edge_weight,
                     group_id=group_id,
                 )
 
             edges_boosted += 1
-            records.append(DreamRecord(
-                cycle_id=cycle_id,
-                group_id=group_id,
-                source_entity_id=src,
-                target_entity_id=tgt,
-                weight_delta=capped_boost,
-            ))
+            records.append(
+                DreamRecord(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    source_entity_id=src,
+                    target_entity_id=tgt,
+                    weight_delta=capped_boost,
+                )
+            )
 
         elapsed = (time.perf_counter() - t0) * 1000
         return PhaseResult(
@@ -131,7 +149,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
         """
         # get_top_activated returns (entity_id, ActivationState) pairs
         all_entities = await activation_store.get_top_activated(
-            group_id=group_id, limit=10000, now=now,
+            group_id=group_id,
+            limit=10000,
+            now=now,
         )
 
         floor = cfg.consolidation_dream_activation_floor
@@ -175,7 +195,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         for node_id in reached:
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                node_id, group_id=group_id,
+                node_id,
+                group_id=group_id,
             )
             for neighbor_id, _weight, _predicate in neighbors:
                 if neighbor_id not in reached:

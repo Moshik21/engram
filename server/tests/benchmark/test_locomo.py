@@ -162,8 +162,7 @@ class TestLoadLocomoDataset:
     def test_max_conversations(self, tmp_path):
         """Respects max_conversations limit."""
         data = [
-            {"conversation_id": f"c{i}", "conversation": [], "questions": []}
-            for i in range(10)
+            {"conversation_id": f"c{i}", "conversation": [], "questions": []} for i in range(10)
         ]
         path = tmp_path / "locomo.json"
         path.write_text(json.dumps(data))

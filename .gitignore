@@ -48,9 +48,6 @@ coverage.xml
 .mypy_cache/
 .ruff_cache/
 
-# Docker
-.dockerignore
-
 # Backups
 backups/
 

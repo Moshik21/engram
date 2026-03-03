@@ -77,9 +77,13 @@ class TestEpisodeReplayPhase:
         cfg = _make_cfg(consolidation_replay_enabled=False)
         phase = EpisodeReplayPhase(extractor=AsyncMock())
         result, records = await phase.execute(
-            group_id="test", graph_store=AsyncMock(),
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=AsyncMock(),
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.status == "skipped"
         assert records == []
@@ -89,9 +93,13 @@ class TestEpisodeReplayPhase:
         cfg = _make_cfg()
         phase = EpisodeReplayPhase(extractor=None)
         result, records = await phase.execute(
-            group_id="test", graph_store=AsyncMock(),
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=AsyncMock(),
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.status == "skipped"
         assert records == []
@@ -104,9 +112,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=_make_extractor())
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.items_processed == 0
         assert records == []
@@ -122,9 +134,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=_make_extractor())
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.items_processed == 0
 
@@ -139,9 +155,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=_make_extractor())
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.items_processed == 0
 
@@ -166,9 +186,14 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=activation_store, search_index=search_index,
-            cfg=cfg, cycle_id="cyc_test", dry_run=False, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
         )
 
         assert result.items_processed == 1
@@ -199,9 +224,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert records[0].new_entities_found == 0
@@ -236,9 +265,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert records[0].new_relationships_found == 1
@@ -278,9 +311,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert records[0].new_relationships_found == 0
@@ -304,9 +341,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
 
         assert records[0].new_entities_found == 1
@@ -327,9 +368,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_processed == 2
@@ -356,9 +401,13 @@ class TestEpisodeReplayPhase:
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_processed == 2
@@ -387,9 +436,14 @@ class TestEpisodeReplayPhase:
         ctx = CycleContext()
         phase = EpisodeReplayPhase(extractor=extractor)
         await phase.execute(
-            group_id="test", graph_store=graph_store,
-            activation_store=AsyncMock(), search_index=AsyncMock(),
-            cfg=cfg, cycle_id="cyc_test", dry_run=False, context=ctx,
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
         )
 
         assert len(ctx.replay_new_entity_ids) == 2

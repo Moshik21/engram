@@ -125,6 +125,7 @@ class PressureAccumulator:
                 raise
             except Exception:
                 logger.warning(
-                    "Pressure accumulator error for group %s", group_id,
+                    "Pressure accumulator error for group %s",
+                    group_id,
                     exc_info=True,
                 )

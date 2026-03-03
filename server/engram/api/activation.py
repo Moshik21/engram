@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/activation", tags=["activation"])
 def _get_deps(request: Request) -> tuple:
     """Extract dependencies from app state."""
     from engram.main import _app_state
+
     activation_store = _app_state.get("activation_store")
     graph_store = _app_state.get("graph_store")
     config = _app_state.get("config")
@@ -44,19 +45,21 @@ async def get_activation_snapshot(request: Request, limit: int = 50):
             continue
 
         activation = compute_activation(state.access_history, now, config.activation)
-        items.append({
-            "entityId": entity.id,
-            "name": entity.name,
-            "entityType": entity.entity_type,
-            "currentActivation": round(activation, 4),
-            "accessCount": state.access_count,
-            "lastAccessedAt": (
-                datetime.fromtimestamp(state.last_accessed).isoformat()
-                if state.last_accessed
-                else None
-            ),
-            "decayRate": config.activation.decay_exponent,
-        })
+        items.append(
+            {
+                "entityId": entity.id,
+                "name": entity.name,
+                "entityType": entity.entity_type,
+                "currentActivation": round(activation, 4),
+                "accessCount": state.access_count,
+                "lastAccessedAt": (
+                    datetime.fromtimestamp(state.last_accessed).isoformat()
+                    if state.last_accessed
+                    else None
+                ),
+                "decayRate": config.activation.decay_exponent,
+            }
+        )
         if len(items) >= limit:
             break
 
@@ -98,16 +101,16 @@ async def get_activation_curve(
             activation = compute_activation(history_at_t, t, config.activation)
         else:
             activation = 0.0
-        curve.append({
-            "timestamp": datetime.fromtimestamp(t).isoformat(),
-            "activation": round(activation, 4),
-        })
+        curve.append(
+            {
+                "timestamp": datetime.fromtimestamp(t).isoformat(),
+                "activation": round(activation, 4),
+            }
+        )
 
     # Identify access event timestamps within the window
     access_events = [
-        datetime.fromtimestamp(ts).isoformat()
-        for ts in access_history
-        if start_time <= ts <= now
+        datetime.fromtimestamp(ts).isoformat() for ts in access_history if start_time <= ts <= now
     ]
 
     d = config.activation.decay_exponent

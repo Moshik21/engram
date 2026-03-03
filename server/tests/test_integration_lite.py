@@ -59,9 +59,7 @@ class TestLiteModeIntegration:
         assert stats["entities"] >= 1
         assert stats["episodes"] >= 1
 
-    async def test_fuzzy_dedup_across_episodes(
-        self, graph_store, activation_store, search_index
-    ):
+    async def test_fuzzy_dedup_across_episodes(self, graph_store, activation_store, search_index):
         """Fuzzy dedup should merge 'Python' and 'python' across episodes."""
         from engram.extraction.extractor import ExtractionResult
         from tests.conftest import MockExtractor

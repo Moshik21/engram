@@ -20,7 +20,8 @@ async def load_benchmark(
     request: Request,
     seed: int = Query(42, description="Corpus RNG seed"),
     structure_aware: bool = Query(
-        False, description="Enrich entity text with predicates before embedding",
+        False,
+        description="Enrich entity text with predicates before embedding",
     ),
 ) -> JSONResponse:
     """Load the benchmark corpus into the running server's live stores.
@@ -51,18 +52,23 @@ async def load_benchmark(
 
     # Load into live stores (entities, relationships, access events)
     elapsed = await corpus_gen.load(
-        corpus, graph_store, activation_store, search_index,
+        corpus,
+        graph_store,
+        activation_store,
+        search_index,
         structure_aware=structure_aware,
     )
 
-    return JSONResponse(content={
-        "loaded": True,
-        "seed": seed,
-        "group_id": group_id,
-        "entities": len(corpus.entities),
-        "relationships": len(corpus.relationships),
-        "access_events": len(corpus.access_events),
-        "queries": len(corpus.ground_truth),
-        "elapsed_seconds": round(elapsed, 2),
-        "structure_aware": structure_aware,
-    })
+    return JSONResponse(
+        content={
+            "loaded": True,
+            "seed": seed,
+            "group_id": group_id,
+            "entities": len(corpus.entities),
+            "relationships": len(corpus.relationships),
+            "access_events": len(corpus.access_events),
+            "queries": len(corpus.ground_truth),
+            "elapsed_seconds": round(elapsed, 2),
+            "structure_aware": structure_aware,
+        }
+    )

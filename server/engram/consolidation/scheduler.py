@@ -62,10 +62,7 @@ class ConsolidationScheduler:
 
     async def _loop(self) -> None:
         """Main loop: sleep → check conditions → run cycle → repeat."""
-        pressure_enabled = (
-            self._cfg.consolidation_pressure_enabled
-            and self._pressure is not None
-        )
+        pressure_enabled = self._cfg.consolidation_pressure_enabled and self._pressure is not None
 
         while True:
             if pressure_enabled:
@@ -90,12 +87,10 @@ class ConsolidationScheduler:
                 trigger = "scheduled"
 
             # Check pressure trigger
-            if (
-                pressure_enabled
-                and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
-            ):
+            if pressure_enabled and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds:
                 pressure_value = self._pressure.get_pressure(
-                    self._group_id, self._cfg,
+                    self._group_id,
+                    self._cfg,
                 )
                 if pressure_value >= self._cfg.consolidation_pressure_threshold:
                     trigger = "pressure"

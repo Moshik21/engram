@@ -151,24 +151,26 @@ class ActivationConfig(BaseModel):
 
     # --- Structure-aware embeddings ---
     structure_aware_embeddings: bool = Field(default=True)
-    predicate_natural_names: dict[str, str] = Field(default_factory=lambda: {
-        "WORKS_AT": "works at",
-        "EXPERT_IN": "expert in",
-        "USES": "uses",
-        "KNOWS": "knows",
-        "MENTIONED_WITH": "mentioned with",
-        "RELATED_TO": "related to",
-        "CREATED": "created",
-        "MENTORS": "mentors",
-        "COLLABORATES_WITH": "collaborates with",
-        "DEPENDS_ON": "depends on",
-        "INTEGRATES_WITH": "integrates with",
-        "BUILT_WITH": "built with",
-        "LEADS": "leads",
-        "RESEARCHES": "researches",
-        "HEADQUARTERED_IN": "headquartered in",
-        "LOCATED_IN": "located in",
-    })
+    predicate_natural_names: dict[str, str] = Field(
+        default_factory=lambda: {
+            "WORKS_AT": "works at",
+            "EXPERT_IN": "expert in",
+            "USES": "uses",
+            "KNOWS": "knows",
+            "MENTIONED_WITH": "mentioned with",
+            "RELATED_TO": "related to",
+            "CREATED": "created",
+            "MENTORS": "mentors",
+            "COLLABORATES_WITH": "collaborates with",
+            "DEPENDS_ON": "depends on",
+            "INTEGRATES_WITH": "integrates with",
+            "BUILT_WITH": "built with",
+            "LEADS": "leads",
+            "RESEARCHES": "researches",
+            "HEADQUARTERED_IN": "headquartered in",
+            "LOCATED_IN": "located in",
+        }
+    )
     structure_max_relationships: int = Field(default=15, ge=1, le=50)
 
     # --- Working memory buffer ---
@@ -183,13 +185,25 @@ class ActivationConfig(BaseModel):
     episode_retrieval_max: int = Field(default=3, ge=0, le=20)
 
     # --- Typed edge weighting ---
-    predicate_weights: dict[str, float] = Field(default_factory=lambda: {
-        "WORKS_AT": 0.8, "EXPERT_IN": 0.9, "USES": 0.6, "KNOWS": 0.5,
-        "MENTIONED_WITH": 0.3, "RELATED_TO": 0.4, "CREATED": 0.7,
-        "MENTORS": 0.7, "COLLABORATES_WITH": 0.6, "DEPENDS_ON": 0.7,
-        "INTEGRATES_WITH": 0.5, "BUILT_WITH": 0.6, "LEADS": 0.8,
-        "RESEARCHES": 0.8, "HEADQUARTERED_IN": 0.3,
-    })
+    predicate_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "WORKS_AT": 0.8,
+            "EXPERT_IN": 0.9,
+            "USES": 0.6,
+            "KNOWS": 0.5,
+            "MENTIONED_WITH": 0.3,
+            "RELATED_TO": 0.4,
+            "CREATED": 0.7,
+            "MENTORS": 0.7,
+            "COLLABORATES_WITH": 0.6,
+            "DEPENDS_ON": 0.7,
+            "INTEGRATES_WITH": 0.5,
+            "BUILT_WITH": 0.6,
+            "LEADS": 0.8,
+            "RESEARCHES": 0.8,
+            "HEADQUARTERED_IN": 0.3,
+        }
+    )
     predicate_weight_default: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # --- Memory consolidation ---

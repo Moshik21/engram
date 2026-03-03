@@ -19,7 +19,10 @@ def make_index():
         provider.dimension.return_value = 512
         cfg = ActivationConfig(use_rrf=use_rrf, rrf_k=rrf_k)
         return HybridSearchIndex(
-            fts=fts, vector_store=vectors, provider=provider, cfg=cfg,
+            fts=fts,
+            vector_store=vectors,
+            provider=provider,
+            cfg=cfg,
         )
 
     return _make

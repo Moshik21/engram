@@ -236,7 +236,10 @@ class TestSchedulerPressureIntegration:
         )
 
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="default", pressure=pressure,
+            engine,
+            cfg,
+            default_group_id="default",
+            pressure=pressure,
         )
         # Set last cycle time far enough in the past for cooldown check
         scheduler._last_cycle_time = time.time() - 60
@@ -256,7 +259,8 @@ class TestSchedulerPressureIntegration:
                 pass
 
         engine.run_cycle.assert_called_once_with(
-            group_id="default", trigger="pressure",
+            group_id="default",
+            trigger="pressure",
         )
 
     @pytest.mark.asyncio
@@ -283,7 +287,10 @@ class TestSchedulerPressureIntegration:
         )
 
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="default", pressure=pressure,
+            engine,
+            cfg,
+            default_group_id="default",
+            pressure=pressure,
         )
         scheduler._last_cycle_time = time.time()  # Just ran
 
@@ -326,7 +333,10 @@ class TestSchedulerPressureIntegration:
         )
 
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="default", pressure=pressure,
+            engine,
+            cfg,
+            default_group_id="default",
+            pressure=pressure,
         )
         # Set last cycle time far enough in the past for interval trigger (>60s)
         scheduler._last_cycle_time = time.time() - 120.0
@@ -347,5 +357,6 @@ class TestSchedulerPressureIntegration:
 
         # Should trigger from interval, not pressure
         engine.run_cycle.assert_called_once_with(
-            group_id="default", trigger="scheduled",
+            group_id="default",
+            trigger="scheduled",
         )

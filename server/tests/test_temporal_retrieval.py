@@ -32,10 +32,15 @@ def _mock_graph_store(neighbors=None):
     store.get_active_neighbors_with_weights = AsyncMock(
         return_value=neighbors or [],
     )
-    store.get_entity = AsyncMock(return_value=Entity(
-        id="e1", name="Test", entity_type="Thing",
-        summary="A test entity", group_id="default",
-    ))
+    store.get_entity = AsyncMock(
+        return_value=Entity(
+            id="e1",
+            name="Test",
+            entity_type="Thing",
+            summary="A test entity",
+            group_id="default",
+        )
+    )
     return store
 
 
@@ -292,14 +297,23 @@ class TestStructureAwareIndexing:
         from engram.benchmark.corpus import CorpusGenerator, CorpusSpec
 
         entities = [
-            Entity(id="e1", name="Alice", entity_type="person",
-                   summary="A developer", group_id="benchmark"),
-            Entity(id="e2", name="TechCorp", entity_type="organization",
-                   summary="A company", group_id="benchmark"),
+            Entity(
+                id="e1",
+                name="Alice",
+                entity_type="person",
+                summary="A developer",
+                group_id="benchmark",
+            ),
+            Entity(
+                id="e2",
+                name="TechCorp",
+                entity_type="organization",
+                summary="A company",
+                group_id="benchmark",
+            ),
         ]
         relationships = [
-            Relationship(id="r1", source_id="e1", target_id="e2",
-                         predicate="WORKS_AT"),
+            Relationship(id="r1", source_id="e1", target_id="e2", predicate="WORKS_AT"),
         ]
         corpus = CorpusSpec(
             entities=entities,
@@ -319,8 +333,7 @@ class TestStructureAwareIndexing:
         search_index._embeddings_enabled = True
 
         gen = CorpusGenerator(seed=42)
-        await gen.load(corpus, graph_store, activation_store, search_index,
-                       structure_aware=True)
+        await gen.load(corpus, graph_store, activation_store, search_index, structure_aware=True)
 
         # index_entity called initially (2) + re-indexed (2) = 4 calls
         assert search_index.index_entity.call_count == 4
@@ -340,11 +353,19 @@ class TestStructureAwareIndexing:
         from engram.benchmark.corpus import CorpusGenerator, CorpusSpec
 
         entities = [
-            Entity(id="e1", name="Alice", entity_type="person",
-                   summary="A developer", group_id="benchmark"),
+            Entity(
+                id="e1",
+                name="Alice",
+                entity_type="person",
+                summary="A developer",
+                group_id="benchmark",
+            ),
         ]
         corpus = CorpusSpec(
-            entities=entities, relationships=[], access_events=[], ground_truth=[],
+            entities=entities,
+            relationships=[],
+            access_events=[],
+            ground_truth=[],
         )
 
         graph_store = AsyncMock()
@@ -358,8 +379,7 @@ class TestStructureAwareIndexing:
         search_index._embeddings_enabled = True
 
         gen = CorpusGenerator(seed=42)
-        await gen.load(corpus, graph_store, activation_store, search_index,
-                       structure_aware=False)
+        await gen.load(corpus, graph_store, activation_store, search_index, structure_aware=False)
 
         # Only initial indexing, no re-indexing
         assert search_index.index_entity.call_count == 1
@@ -370,18 +390,29 @@ class TestStructureAwareIndexing:
         from engram.benchmark.corpus import CorpusGenerator, CorpusSpec
 
         entities = [
-            Entity(id="e1", name="Alice", entity_type="person",
-                   summary="A developer", group_id="benchmark"),
-            Entity(id="e2", name="TechCorp", entity_type="organization",
-                   summary="A company", group_id="benchmark"),
+            Entity(
+                id="e1",
+                name="Alice",
+                entity_type="person",
+                summary="A developer",
+                group_id="benchmark",
+            ),
+            Entity(
+                id="e2",
+                name="TechCorp",
+                entity_type="organization",
+                summary="A company",
+                group_id="benchmark",
+            ),
         ]
         relationships = [
-            Relationship(id="r1", source_id="e1", target_id="e2",
-                         predicate="WORKS_AT"),
+            Relationship(id="r1", source_id="e1", target_id="e2", predicate="WORKS_AT"),
         ]
         corpus = CorpusSpec(
-            entities=entities, relationships=relationships,
-            access_events=[], ground_truth=[],
+            entities=entities,
+            relationships=relationships,
+            access_events=[],
+            ground_truth=[],
         )
 
         graph_store = AsyncMock()
@@ -395,8 +426,7 @@ class TestStructureAwareIndexing:
         search_index._embeddings_enabled = False  # No embeddings
 
         gen = CorpusGenerator(seed=42)
-        await gen.load(corpus, graph_store, activation_store, search_index,
-                       structure_aware=True)
+        await gen.load(corpus, graph_store, activation_store, search_index, structure_aware=True)
 
         # Only initial indexing (2), no re-indexing because embeddings disabled
         assert search_index.index_entity.call_count == 2

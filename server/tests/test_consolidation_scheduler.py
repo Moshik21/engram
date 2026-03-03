@@ -105,7 +105,8 @@ class TestConsolidationScheduler:
         scheduler = ConsolidationScheduler(engine, cfg)
 
         with patch(
-            _SLEEP_PATH, new_callable=AsyncMock,
+            _SLEEP_PATH,
+            new_callable=AsyncMock,
         ) as mock_sleep:
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -128,7 +129,8 @@ class TestConsolidationScheduler:
         scheduler = ConsolidationScheduler(engine, cfg)
 
         with patch(
-            _SLEEP_PATH, new_callable=AsyncMock,
+            _SLEEP_PATH,
+            new_callable=AsyncMock,
         ) as mock_sleep:
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -148,13 +150,15 @@ class TestConsolidationScheduler:
             consolidation_interval_seconds=60.0,
         )
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="test_group",
+            engine,
+            cfg,
+            default_group_id="test_group",
         )
 
         # time.time() calls: start() sets _last_cycle_time,
         # then _loop checks elapsed, then updates _last_cycle_time after cycle
         time_values = [
-            0.0,    # start() → _last_cycle_time = 0
+            0.0,  # start() → _last_cycle_time = 0
             100.0,  # _loop: now = 100 → elapsed = 100 ≥ 60 → trigger
             100.0,  # _loop: _last_cycle_time update after run_cycle
         ]
@@ -192,7 +196,9 @@ class TestConsolidationScheduler:
             patch(_TIME_PATH, side_effect=time_values),
         ):
             mock_sleep.side_effect = [
-                None, None, asyncio.CancelledError(),
+                None,
+                None,
+                asyncio.CancelledError(),
             ]
             scheduler.start()
             try:
@@ -217,7 +223,10 @@ class TestPressureTriggering:
             consolidation_pressure_cooldown_seconds=30.0,
         )
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="test", pressure=pressure,
+            engine,
+            cfg,
+            default_group_id="test",
+            pressure=pressure,
         )
 
         # start sets _last_cycle_time=0, loop checks: elapsed=100 < 3600
@@ -253,7 +262,10 @@ class TestPressureTriggering:
             consolidation_pressure_cooldown_seconds=30.0,
         )
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="test", pressure=pressure,
+            engine,
+            cfg,
+            default_group_id="test",
+            pressure=pressure,
         )
 
         # elapsed=100 >= interval=60 → "scheduled"
@@ -285,7 +297,9 @@ class TestPressureTriggering:
             consolidation_pressure_enabled=False,
         )
         scheduler = ConsolidationScheduler(
-            engine, cfg, default_group_id="test",
+            engine,
+            cfg,
+            default_group_id="test",
         )
 
         # No pressure accumulator, interval trigger only

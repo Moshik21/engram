@@ -42,7 +42,10 @@ class CommunityStore:
         return (time.monotonic() - ts) > self._stale_seconds
 
     def is_bridge_edge(
-        self, src_id: str, dst_id: str, group_id: str,
+        self,
+        src_id: str,
+        dst_id: str,
+        group_id: str,
     ) -> bool | None:
         """Return True if cross-cluster, False if same-cluster, None if unknown."""
         group_data = self._assignments.get(group_id)
@@ -64,7 +67,9 @@ class CommunityStore:
         if not self.is_stale(group_id):
             return
         assignments = await self.compute(
-            group_id, neighbor_provider, entity_ids,
+            group_id,
+            neighbor_provider,
+            entity_ids,
         )
         self._assignments[group_id] = assignments
         self._timestamps[group_id] = time.monotonic()
@@ -85,7 +90,9 @@ class CommunityStore:
         )
 
     def set_assignments(
-        self, group_id: str, assignments: dict[str, str],
+        self,
+        group_id: str,
+        assignments: dict[str, str],
     ) -> None:
         """Inject known community assignments (e.g. from benchmark corpus)."""
         self._assignments[group_id] = dict(assignments)
@@ -126,7 +133,8 @@ async def label_propagation(
     adjacency: dict[str, list[str]] = {}
     for eid in entity_ids:
         neighbors_raw = await neighbor_provider.get_active_neighbors_with_weights(
-            eid, group_id=group_id,
+            eid,
+            group_id=group_id,
         )
         neighbor_ids = []
         for info in neighbors_raw:
@@ -154,9 +162,7 @@ async def label_propagation(
 
             # Find max count
             max_count = max(label_counts.values())
-            candidates = [
-                lbl for lbl, cnt in label_counts.items() if cnt == max_count
-            ]
+            candidates = [lbl for lbl, cnt in label_counts.items() if cnt == max_count]
 
             # Break ties deterministically with seeded RNG
             new_label = rng.choice(sorted(candidates))

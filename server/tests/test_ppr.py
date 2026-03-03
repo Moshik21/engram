@@ -76,12 +76,14 @@ async def test_single_seed_no_neighbors():
 @pytest.mark.asyncio
 async def test_3hop_chain_reachable():
     """PPR can reach nodes 3 hops away (no hard BFS cutoff)."""
-    provider = MockNeighborProvider({
-        "A": [("B", 1.0, "KNOWS")],
-        "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
-        "C": [("B", 1.0, "KNOWS"), ("D", 1.0, "KNOWS")],
-        "D": [("C", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("B", 1.0, "KNOWS")],
+            "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
+            "C": [("B", 1.0, "KNOWS"), ("D", 1.0, "KNOWS")],
+            "D": [("C", 1.0, "KNOWS")],
+        }
+    )
     cfg = _ppr_cfg(ppr_expansion_hops=4)
     ppr = PPRStrategy()
     bonuses, hops = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -99,15 +101,20 @@ async def test_hub_dampening():
     """Hub nodes (high degree) shouldn't monopolize all activation."""
     # A -> hub (connects to B, C, D, E, F) and A -> leaf
     hub_neighbors = [
-        ("B", 1.0, "KNOWS"), ("C", 1.0, "KNOWS"),
-        ("D", 1.0, "KNOWS"), ("E", 1.0, "KNOWS"),
-        ("F", 1.0, "KNOWS"), ("A", 1.0, "KNOWS"),
+        ("B", 1.0, "KNOWS"),
+        ("C", 1.0, "KNOWS"),
+        ("D", 1.0, "KNOWS"),
+        ("E", 1.0, "KNOWS"),
+        ("F", 1.0, "KNOWS"),
+        ("A", 1.0, "KNOWS"),
     ]
-    provider = MockNeighborProvider({
-        "A": [("hub", 1.0, "KNOWS"), ("leaf", 1.0, "KNOWS")],
-        "hub": hub_neighbors,
-        "leaf": [("A", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("hub", 1.0, "KNOWS"), ("leaf", 1.0, "KNOWS")],
+            "hub": hub_neighbors,
+            "leaf": [("A", 1.0, "KNOWS")],
+        }
+    )
     cfg = _ppr_cfg()
     ppr = PPRStrategy()
     bonuses, _ = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -120,11 +127,13 @@ async def test_hub_dampening():
 @pytest.mark.asyncio
 async def test_convergence_under_max_iterations():
     """PPR should converge well before max_iterations on a small graph."""
-    provider = MockNeighborProvider({
-        "A": [("B", 1.0, "KNOWS")],
-        "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
-        "C": [("B", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("B", 1.0, "KNOWS")],
+            "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
+            "C": [("B", 1.0, "KNOWS")],
+        }
+    )
     cfg = _ppr_cfg(ppr_max_iterations=100, ppr_epsilon=1e-10)
     ppr = PPRStrategy()
     bonuses, _ = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -137,11 +146,13 @@ async def test_convergence_under_max_iterations():
 async def test_cycle_stability():
     """PPR should handle cycles without diverging."""
     # A -> B -> C -> A (cycle)
-    provider = MockNeighborProvider({
-        "A": [("B", 1.0, "KNOWS")],
-        "B": [("C", 1.0, "KNOWS")],
-        "C": [("A", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("B", 1.0, "KNOWS")],
+            "B": [("C", 1.0, "KNOWS")],
+            "C": [("A", 1.0, "KNOWS")],
+        }
+    )
     cfg = _ppr_cfg()
     ppr = PPRStrategy()
     bonuses, _ = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -156,9 +167,7 @@ async def test_dense_clique():
     nodes = ["A", "B", "C", "D"]
     adj: dict[str, list[tuple[str, float, str]]] = {}
     for n in nodes:
-        adj[n] = [
-            (m, 1.0, "KNOWS") for m in nodes if m != n
-        ]
+        adj[n] = [(m, 1.0, "KNOWS") for m in nodes if m != n]
     provider = MockNeighborProvider(adj)
     cfg = _ppr_cfg()
     ppr = PPRStrategy()
@@ -172,14 +181,16 @@ async def test_dense_clique():
 @pytest.mark.asyncio
 async def test_typed_edge_influence():
     """EXPERT_IN (0.9) edges should propagate more than MENTIONED_WITH (0.3)."""
-    provider = MockNeighborProvider({
-        "A": [
-            ("B", 1.0, "EXPERT_IN"),
-            ("C", 1.0, "MENTIONED_WITH"),
-        ],
-        "B": [("A", 1.0, "EXPERT_IN")],
-        "C": [("A", 1.0, "MENTIONED_WITH")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [
+                ("B", 1.0, "EXPERT_IN"),
+                ("C", 1.0, "MENTIONED_WITH"),
+            ],
+            "B": [("A", 1.0, "EXPERT_IN")],
+            "C": [("A", 1.0, "MENTIONED_WITH")],
+        }
+    )
     cfg = _ppr_cfg()
     ppr = PPRStrategy()
     bonuses, _ = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -189,22 +200,20 @@ async def test_typed_edge_influence():
 @pytest.mark.asyncio
 async def test_alpha_sensitivity():
     """Different alpha values produce different bonus distributions."""
-    provider = MockNeighborProvider({
-        "A": [("B", 1.0, "KNOWS")],
-        "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
-        "C": [("B", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("B", 1.0, "KNOWS")],
+            "B": [("A", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
+            "C": [("B", 1.0, "KNOWS")],
+        }
+    )
     ppr = PPRStrategy()
 
     cfg_low_alpha = _ppr_cfg(ppr_alpha=0.05)
-    bonuses_low, _ = await ppr.spread(
-        [("A", 1.0)], provider, cfg_low_alpha
-    )
+    bonuses_low, _ = await ppr.spread([("A", 1.0)], provider, cfg_low_alpha)
 
     cfg_high_alpha = _ppr_cfg(ppr_alpha=0.45)
-    bonuses_high, _ = await ppr.spread(
-        [("A", 1.0)], provider, cfg_high_alpha
-    )
+    bonuses_high, _ = await ppr.spread([("A", 1.0)], provider, cfg_high_alpha)
 
     # Both should produce bonuses for B and C
     assert bonuses_low.get("B", 0) > 0
@@ -218,10 +227,12 @@ async def test_alpha_sensitivity():
 @pytest.mark.asyncio
 async def test_backward_compat_2tuple():
     """PPR should work with legacy 2-tuple neighbor providers."""
-    provider = MockNeighborProvider2Tuple({
-        "A": [("B", 0.8)],
-        "B": [("A", 0.8)],
-    })
+    provider = MockNeighborProvider2Tuple(
+        {
+            "A": [("B", 0.8)],
+            "B": [("A", 0.8)],
+        }
+    )
     cfg = _ppr_cfg()
     ppr = PPRStrategy()
     bonuses, hops = await ppr.spread([("A", 1.0)], provider, cfg)
@@ -234,12 +245,14 @@ async def test_ppr_vs_bfs_same_graph():
     """PPR and BFS should both produce bonuses on the same graph."""
     from engram.activation.bfs import BFSStrategy
 
-    provider = MockNeighborProvider({
-        "A": [("B", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
-        "B": [("A", 1.0, "KNOWS"), ("D", 1.0, "KNOWS")],
-        "C": [("A", 1.0, "KNOWS")],
-        "D": [("B", 1.0, "KNOWS")],
-    })
+    provider = MockNeighborProvider(
+        {
+            "A": [("B", 1.0, "KNOWS"), ("C", 1.0, "KNOWS")],
+            "B": [("A", 1.0, "KNOWS"), ("D", 1.0, "KNOWS")],
+            "C": [("A", 1.0, "KNOWS")],
+            "D": [("B", 1.0, "KNOWS")],
+        }
+    )
     seeds = [("A", 1.0)]
 
     bfs_cfg = ActivationConfig(

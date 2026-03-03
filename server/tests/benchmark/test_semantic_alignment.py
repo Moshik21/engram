@@ -19,9 +19,7 @@ class TestSemanticQueryAlignment:
 
     def test_each_semantic_query_has_overlapping_entities(self):
         entity_map = {e.id: e for e in _corpus.entities}
-        semantic_queries = [
-            q for q in _corpus.ground_truth if q.category == "semantic"
-        ]
+        semantic_queries = [q for q in _corpus.ground_truth if q.category == "semantic"]
         assert len(semantic_queries) > 0, "No semantic queries found"
 
         failures = []
@@ -39,8 +37,7 @@ class TestSemanticQueryAlignment:
 
         assert len(failures) <= len(semantic_queries) // 2, (
             f"{len(failures)}/{len(semantic_queries)} semantic queries have "
-            f"zero entity overlap between query text and ground truth:\n"
-            + "\n".join(failures)
+            f"zero entity overlap between query text and ground truth:\n" + "\n".join(failures)
         )
 
 
@@ -48,9 +45,7 @@ class TestCrossClusterPairUniqueness:
     """Cross-cluster queries should test distinct cluster pairs."""
 
     def test_cross_cluster_uses_distinct_pairs(self):
-        cross_queries = [
-            q for q in _corpus.ground_truth if q.category == "cross_cluster"
-        ]
+        cross_queries = [q for q in _corpus.ground_truth if q.category == "cross_cluster"]
         assert len(cross_queries) > 0, "No cross-cluster queries found"
 
         # Each pair of queries should have < 60% ground truth overlap

@@ -106,8 +106,10 @@ class HybridSearchIndex:
         try:
             fts_results, query_vec = await asyncio.gather(
                 self._fts.search(
-                    query=query, entity_types=entity_types,
-                    group_id=group_id, limit=limit * 2,
+                    query=query,
+                    entity_types=entity_types,
+                    group_id=group_id,
+                    limit=limit * 2,
                 ),
                 self._provider.embed_query(query),
             )
@@ -270,27 +272,35 @@ class HybridSearchIndex:
         # If embeddings not available, fall back to FTS5-only
         if not self._embeddings_enabled:
             return await self._fts.search_episodes(
-                query=query, group_id=group_id, limit=limit,
+                query=query,
+                group_id=group_id,
+                limit=limit,
             )
 
         # Check if we have any embeddings for this group
         if group_id and not await self._vectors.has_embeddings(group_id):
             return await self._fts.search_episodes(
-                query=query, group_id=group_id, limit=limit,
+                query=query,
+                group_id=group_id,
+                limit=limit,
             )
 
         # Run FTS5 episode search and query embedding concurrently
         try:
             fts_results, query_vec = await asyncio.gather(
                 self._fts.search_episodes(
-                    query=query, group_id=group_id, limit=limit * 2,
+                    query=query,
+                    group_id=group_id,
+                    limit=limit * 2,
                 ),
                 self._provider.embed_query(query),
             )
         except Exception as e:
             logger.warning("Parallel episode search failed, falling back to FTS5: %s", e)
             return await self._fts.search_episodes(
-                query=query, group_id=group_id, limit=limit,
+                query=query,
+                group_id=group_id,
+                limit=limit,
             )
 
         if not query_vec:
@@ -299,7 +309,10 @@ class HybridSearchIndex:
         # Vector search for episodes
         try:
             vec_results = await self._vectors.search(
-                query_vec, group_id or "default", content_type="episode", limit=limit * 2,
+                query_vec,
+                group_id or "default",
+                content_type="episode",
+                limit=limit * 2,
             )
         except Exception as e:
             logger.warning("Vector episode search failed, falling back to FTS5: %s", e)

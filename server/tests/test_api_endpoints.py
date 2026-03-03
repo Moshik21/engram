@@ -34,28 +34,45 @@ async def api_client(tmp_path):
 
     # Populate test data: 3 entities + 2 relationships
     e1 = Entity(
-        id="ent_alice", name="Alice", entity_type="Person",
-        summary="Engineer", group_id="default",
+        id="ent_alice",
+        name="Alice",
+        entity_type="Person",
+        summary="Engineer",
+        group_id="default",
     )
     e2 = Entity(
-        id="ent_bob", name="Bob", entity_type="Person",
-        summary="Designer", group_id="default",
+        id="ent_bob",
+        name="Bob",
+        entity_type="Person",
+        summary="Designer",
+        group_id="default",
     )
     e3 = Entity(
-        id="ent_engram", name="Engram", entity_type="Project",
-        summary="Memory layer", group_id="default",
+        id="ent_engram",
+        name="Engram",
+        entity_type="Project",
+        summary="Memory layer",
+        group_id="default",
     )
 
     for e in [e1, e2, e3]:
         await graph_store.create_entity(e)
 
     r1 = Relationship(
-        id="rel_builds", source_id="ent_alice", target_id="ent_engram",
-        predicate="BUILDS", weight=1.0, group_id="default",
+        id="rel_builds",
+        source_id="ent_alice",
+        target_id="ent_engram",
+        predicate="BUILDS",
+        weight=1.0,
+        group_id="default",
     )
     r2 = Relationship(
-        id="rel_designs", source_id="ent_bob", target_id="ent_engram",
-        predicate="DESIGNS", weight=0.8, group_id="default",
+        id="rel_designs",
+        source_id="ent_bob",
+        target_id="ent_engram",
+        predicate="DESIGNS",
+        weight=0.8,
+        group_id="default",
     )
     for r in [r1, r2]:
         await graph_store.create_relationship(r)
@@ -348,9 +365,7 @@ class TestEpisodes:
         assert data["nextCursor"] is not None
 
         # Fetch next page
-        resp2 = await api_client.get(
-            f"/api/episodes?limit=2&cursor={data['nextCursor']}"
-        )
+        resp2 = await api_client.get(f"/api/episodes?limit=2&cursor={data['nextCursor']}")
         assert resp2.status_code == 200
         data2 = resp2.json()
         assert len(data2["items"]) >= 1
@@ -390,9 +405,7 @@ class TestGraphAt:
     @pytest.mark.asyncio
     async def test_temporal_query(self, api_client):
         """GET /api/graph/at returns temporal subgraph."""
-        resp = await api_client.get(
-            "/api/graph/at?center=ent_alice&at=2099-01-01T00:00:00"
-        )
+        resp = await api_client.get("/api/graph/at?center=ent_alice&at=2099-01-01T00:00:00")
         assert resp.status_code == 200
         data = resp.json()
         assert data["centerId"] == "ent_alice"
@@ -403,15 +416,11 @@ class TestGraphAt:
     @pytest.mark.asyncio
     async def test_temporal_query_not_found(self, api_client):
         """GET /api/graph/at returns 404 for unknown entity."""
-        resp = await api_client.get(
-            "/api/graph/at?center=ent_nope&at=2099-01-01T00:00:00"
-        )
+        resp = await api_client.get("/api/graph/at?center=ent_nope&at=2099-01-01T00:00:00")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_temporal_query_bad_timestamp(self, api_client):
         """GET /api/graph/at returns 400 for invalid timestamp."""
-        resp = await api_client.get(
-            "/api/graph/at?center=ent_alice&at=not-a-date"
-        )
+        resp = await api_client.get("/api/graph/at?center=ent_alice&at=not-a-date")
         assert resp.status_code == 400

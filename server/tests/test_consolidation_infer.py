@@ -45,14 +45,19 @@ async def activation():
 def _entity(name, entity_type="Person", group_id="test"):
     return Entity(
         id=f"ent_{uuid.uuid4().hex[:8]}",
-        name=name, entity_type=entity_type, group_id=group_id,
+        name=name,
+        entity_type=entity_type,
+        group_id=group_id,
     )
 
 
 def _episode(group_id="test"):
     return Episode(
         id=f"ep_{uuid.uuid4().hex[:8]}",
-        content="test", source="test", status="completed", group_id=group_id,
+        content="test",
+        source="test",
+        status="completed",
+        group_id=group_id,
     )
 
 
@@ -76,8 +81,13 @@ class TestEdgeInferencePhase:
         cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
         phase = EdgeInferencePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected == 1
@@ -110,8 +120,13 @@ class TestEdgeInferencePhase:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert len(records) == 1
@@ -142,8 +157,13 @@ class TestEdgeInferencePhase:
         )
         phase = EdgeInferencePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         assert result.items_affected <= 2
@@ -159,8 +179,10 @@ class TestEdgeInferencePhase:
         # Add existing relationship
         rel = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e1.id, target_id=e2.id,
-            predicate="KNOWS", group_id="test",
+            source_id=e1.id,
+            target_id=e2.id,
+            predicate="KNOWS",
+            group_id="test",
         )
         await store.create_relationship(rel)
 
@@ -174,8 +196,13 @@ class TestEdgeInferencePhase:
         cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
         phase = EdgeInferencePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
 
         # Existing relationship should prevent inference
@@ -197,8 +224,13 @@ class TestEdgeInferencePhase:
         cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
         phase = EdgeInferencePhase()
         result, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
 
         assert result.items_affected == 1
@@ -225,8 +257,13 @@ class TestEdgeInferencePhase:
 
         # Query group_b — should find nothing
         result, records = await phase.execute(
-            group_id="group_b", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="group_b",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert result.items_affected == 0
 
@@ -247,13 +284,17 @@ class TestTransitivityPass:
         # A LOCATED_IN B, B LOCATED_IN C
         rel_ab = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         rel_bc = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         await store.create_relationship(rel_ab)
         await store.create_relationship(rel_bc)
@@ -263,8 +304,13 @@ class TestTransitivityPass:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_trans", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_trans",
+            dry_run=False,
         )
         assert len(records) == 0
 
@@ -280,13 +326,19 @@ class TestTransitivityPass:
 
         rel_ab = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", confidence=0.9, group_id="test",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            confidence=0.9,
+            group_id="test",
         )
         rel_bc = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", confidence=0.8, group_id="test",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            confidence=0.8,
+            group_id="test",
         )
         await store.create_relationship(rel_ab)
         await store.create_relationship(rel_bc)
@@ -298,8 +350,13 @@ class TestTransitivityPass:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_trans", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_trans",
+            dry_run=False,
         )
 
         trans = [r for r in records if r.infer_type == "transitivity"]
@@ -325,19 +382,25 @@ class TestTransitivityPass:
 
         rel_ab = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         rel_bc = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         # Direct A→C already exists
         rel_ac = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_c.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_a.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         await store.create_relationship(rel_ab)
         await store.create_relationship(rel_bc)
@@ -350,8 +413,13 @@ class TestTransitivityPass:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_trans", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_trans",
+            dry_run=False,
         )
 
         trans = [r for r in records if r.infer_type == "transitivity"]
@@ -369,13 +437,19 @@ class TestTransitivityPass:
 
         rel_ab = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", confidence=0.9, group_id="test",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            confidence=0.9,
+            group_id="test",
         )
         rel_bc = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", confidence=0.7, group_id="test",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            confidence=0.7,
+            group_id="test",
         )
         await store.create_relationship(rel_ab)
         await store.create_relationship(rel_bc)
@@ -388,8 +462,13 @@ class TestTransitivityPass:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_trans", dry_run=False,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_trans",
+            dry_run=False,
         )
 
         trans = [r for r in records if r.infer_type == "transitivity"]
@@ -409,13 +488,17 @@ class TestTransitivityPass:
 
         rel_ab = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         rel_bc = Relationship(
             id=f"rel_{uuid.uuid4().hex[:8]}",
-            source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", group_id="test",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            group_id="test",
         )
         await store.create_relationship(rel_ab)
         await store.create_relationship(rel_bc)
@@ -427,8 +510,13 @@ class TestTransitivityPass:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=store, activation_store=activation,
-            search_index=search, cfg=cfg, cycle_id="cyc_trans", dry_run=True,
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_trans",
+            dry_run=True,
         )
 
         trans = [r for r in records if r.infer_type == "transitivity"]
@@ -442,6 +530,7 @@ class TestTransitivityPass:
 # ---------------------------------------------------------------------------
 # PMI Scoring Tests (Tier 2)
 # ---------------------------------------------------------------------------
+
 
 def _mock_graph_store(pairs, entities, ep_counts, total_episodes):
     """Build an AsyncMock graph_store for PMI tests."""
@@ -477,8 +566,13 @@ class TestPMIScoring:
         cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         assert records[0].pmi_score is None
@@ -503,8 +597,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         assert records[0].infer_type == "co_occurrence_pmi"
@@ -532,8 +631,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 0
 
@@ -564,8 +668,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 2
         rare_rec = next(r for r in records if r.source_name == "RareAlice")
@@ -594,8 +703,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         assert records[0].confidence >= 0.6
@@ -620,8 +734,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         # With tfidf_weight=0, confidence is purely from PMI sigmoid
@@ -638,12 +757,20 @@ class TestPMIScoring:
         entities = {e.id: e for e in [e1, e2, e_a, e_b, e_c]}
 
         rel_ab = Relationship(
-            id="rel_ab", source_id=e_a.id, target_id=e_b.id,
-            predicate="LOCATED_IN", confidence=0.9, group_id="test",
+            id="rel_ab",
+            source_id=e_a.id,
+            target_id=e_b.id,
+            predicate="LOCATED_IN",
+            confidence=0.9,
+            group_id="test",
         )
         rel_bc = Relationship(
-            id="rel_bc", source_id=e_b.id, target_id=e_c.id,
-            predicate="LOCATED_IN", confidence=0.8, group_id="test",
+            id="rel_bc",
+            source_id=e_b.id,
+            target_id=e_c.id,
+            predicate="LOCATED_IN",
+            confidence=0.8,
+            group_id="test",
         )
 
         gs = _mock_graph_store(
@@ -663,8 +790,13 @@ class TestPMIScoring:
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         pmi_records = [r for r in records if r.infer_type == "co_occurrence_pmi"]
         trans_records = [r for r in records if r.infer_type == "transitivity"]
@@ -675,6 +807,7 @@ class TestPMIScoring:
 # ---------------------------------------------------------------------------
 # LLM Validation Tests (Tier 3)
 # ---------------------------------------------------------------------------
+
 
 def _make_llm_response(verdict: str, reason: str = "test"):
     """Create a mock Anthropic API response."""
@@ -703,8 +836,13 @@ class TestLLMValidation:
         cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         assert records[0].llm_verdict is None
@@ -732,8 +870,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert len(records) == 1
         assert records[0].infer_type == "llm_validated"
@@ -763,8 +906,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert len(records) == 1
         assert records[0].infer_type == "llm_rejected"
@@ -794,8 +942,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         assert len(records) == 1
         assert records[0].infer_type == "co_occurrence"  # Unchanged
@@ -824,8 +977,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         result, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         # Phase should complete despite error
         assert result.status == "success"
@@ -855,8 +1013,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         # LLM should not be called (confidence below threshold)
         mock_client.messages.create.assert_not_called()
@@ -884,8 +1047,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=True,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
         )
         assert len(records) == 1
         assert records[0].llm_verdict == "dry_run_skipped"
@@ -921,8 +1089,13 @@ class TestLLMValidation:
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
         _, records = await phase.execute(
-            group_id="test", graph_store=gs, activation_store=AsyncMock(),
-            search_index=AsyncMock(), cfg=cfg, cycle_id="cyc_test", dry_run=False,
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
         )
         # Only 2 should be LLM-validated
         validated = [r for r in records if r.llm_verdict == "approved"]
@@ -933,6 +1106,7 @@ class TestLLMValidation:
 # ---------------------------------------------------------------------------
 # PMI Helper Unit Tests
 # ---------------------------------------------------------------------------
+
 
 class TestPMIHelpers:
     """Unit tests for PMI/tf-idf helper functions."""

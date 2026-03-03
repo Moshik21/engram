@@ -52,9 +52,7 @@ async def _run_scenario(
     """Run a single conversation scenario and return bridge recall metrics."""
     retrieval_method = METHOD_FULL_ENGRAM
 
-    wm_buffer = (
-        WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0) if use_wm else None
-    )
+    wm_buffer = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0) if use_wm else None
 
     all_results: dict[int, list[str]] = {}
 
@@ -88,10 +86,7 @@ async def _run_scenario(
 
         if verbose:
             mode = "WM" if use_wm else "no-WM"
-            print(
-                f"  [{mode}] Q{qi + 1}: "
-                f"{query_text[:50]}... -> {len(results)} results"
-            )
+            print(f"  [{mode}] Q{qi + 1}: {query_text[:50]}... -> {len(results)} results")
 
     # Compute bridge recall for each query index with expected bridges
     bridge_recalls: dict[int, float] = {}
@@ -104,8 +99,7 @@ async def _run_scenario(
         bridge_recalls[query_idx] = recall
 
     avg_bridge_recall = (
-        sum(bridge_recalls.values()) / len(bridge_recalls)
-        if bridge_recalls else 0.0
+        sum(bridge_recalls.values()) / len(bridge_recalls) if bridge_recalls else 0.0
     )
 
     return {
@@ -121,8 +115,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
 
     # 1. Generate corpus
     print(
-        f"Generating corpus with seed={args.seed}, "
-        f"entities={getattr(args, 'entities', 1000)} ..."
+        f"Generating corpus with seed={args.seed}, entities={getattr(args, 'entities', 1000)} ..."
     )
     corpus_gen = CorpusGenerator(
         seed=args.seed,
@@ -132,10 +125,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
 
     scenarios = corpus.conversation_scenarios
     if not scenarios:
-        print(
-            "ERROR: No conversation scenarios generated. "
-            "Check corpus generator."
-        )
+        print("ERROR: No conversation scenarios generated. Check corpus generator.")
         sys.exit(1)
 
     print(
@@ -160,17 +150,17 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
     # 3. Load corpus
     print("Loading corpus into stores ...")
     load_elapsed = await corpus_gen.load(
-        corpus, graph_store, activation_store, search_index,
+        corpus,
+        graph_store,
+        activation_store,
+        search_index,
     )
     print(f"Loaded in {load_elapsed:.2f}s")
 
     benchmark_now = corpus.metadata.get("generated_at", time.time())
 
     # 4. Run each scenario with and without WM
-    print(
-        f"\nRunning {len(scenarios)} scenarios "
-        f"(with WM + without WM) ...\n"
-    )
+    print(f"\nRunning {len(scenarios)} scenarios (with WM + without WM) ...\n")
 
     results_with_wm: list[dict] = []
     results_without_wm: list[dict] = []
@@ -180,22 +170,29 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
             print(f"--- Scenario {si + 1}: {scenario.name} ---")
 
         result_wm = await _run_scenario(
-            scenario, graph_store, activation_store, search_index,
-            now=benchmark_now, use_wm=True, verbose=args.verbose,
+            scenario,
+            graph_store,
+            activation_store,
+            search_index,
+            now=benchmark_now,
+            use_wm=True,
+            verbose=args.verbose,
         )
         results_with_wm.append(result_wm)
 
         result_no_wm = await _run_scenario(
-            scenario, graph_store, activation_store, search_index,
-            now=benchmark_now, use_wm=False, verbose=args.verbose,
+            scenario,
+            graph_store,
+            activation_store,
+            search_index,
+            now=benchmark_now,
+            use_wm=False,
+            verbose=args.verbose,
         )
         results_without_wm.append(result_no_wm)
 
         if args.verbose:
-            lift = (
-                result_wm["avg_bridge_recall"]
-                - result_no_wm["avg_bridge_recall"]
-            )
+            lift = result_wm["avg_bridge_recall"] - result_no_wm["avg_bridge_recall"]
             print(
                 f"  Bridge recall: "
                 f"WM={result_wm['avg_bridge_recall']:.3f}  "
@@ -206,21 +203,25 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
 
     # 5. Aggregate results
     avg_wm = (
-        sum(r["avg_bridge_recall"] for r in results_with_wm)
-        / len(results_with_wm)
-        if results_with_wm else 0.0
+        sum(r["avg_bridge_recall"] for r in results_with_wm) / len(results_with_wm)
+        if results_with_wm
+        else 0.0
     )
     avg_no_wm = (
-        sum(r["avg_bridge_recall"] for r in results_without_wm)
-        / len(results_without_wm)
-        if results_without_wm else 0.0
+        sum(r["avg_bridge_recall"] for r in results_without_wm) / len(results_without_wm)
+        if results_without_wm
+        else 0.0
     )
     wm_lift = avg_wm - avg_no_wm
 
     # 6. Print results
     _print_results(
-        scenarios, results_with_wm, results_without_wm,
-        avg_wm, avg_no_wm, wm_lift,
+        scenarios,
+        results_with_wm,
+        results_without_wm,
+        avg_wm,
+        avg_no_wm,
+        wm_lift,
     )
 
     # 7. Build output dict
@@ -237,10 +238,7 @@ async def run_benchmark(args: argparse.Namespace) -> dict:
                 "name": r_wm["scenario"],
                 "with_wm": r_wm["avg_bridge_recall"],
                 "without_wm": r_no["avg_bridge_recall"],
-                "lift": (
-                    r_wm["avg_bridge_recall"]
-                    - r_no["avg_bridge_recall"]
-                ),
+                "lift": (r_wm["avg_bridge_recall"] - r_no["avg_bridge_recall"]),
             }
             for r_wm, r_no in zip(results_with_wm, results_without_wm)
         ],
@@ -280,17 +278,13 @@ def _print_results(
 
     # Per-scenario breakdown
     print("--- Per-Scenario Breakdown ---")
-    header = (
-        f"{'Scenario':<40}| {'WM':>5} | {'noWM':>5} | {'Lift':>6}"
-    )
+    header = f"{'Scenario':<40}| {'WM':>5} | {'noWM':>5} | {'Lift':>6}"
     sep = f"{'-' * 40}|{'-' * 7}|{'-' * 7}|{'-' * 8}"
     print(header)
     print(sep)
     for r_wm, r_no in zip(results_with_wm, results_without_wm):
         name = r_wm["scenario"][:39]
-        lift = (
-            r_wm["avg_bridge_recall"] - r_no["avg_bridge_recall"]
-        )
+        lift = r_wm["avg_bridge_recall"] - r_no["avg_bridge_recall"]
         print(
             f"{name:<40}| {r_wm['avg_bridge_recall']:>5.3f} | "
             f"{r_no['avg_bridge_recall']:>5.3f} | {lift:>+6.3f}"
@@ -298,13 +292,11 @@ def _print_results(
     print()
 
     positive_lift = sum(
-        1 for r_wm, r_no in zip(results_with_wm, results_without_wm)
+        1
+        for r_wm, r_no in zip(results_with_wm, results_without_wm)
         if r_wm["avg_bridge_recall"] > r_no["avg_bridge_recall"]
     )
-    print(
-        f"Scenarios with positive WM lift: "
-        f"{positive_lift}/{len(scenarios)}"
-    )
+    print(f"Scenarios with positive WM lift: {positive_lift}/{len(scenarios)}")
 
 
 def main() -> None:
@@ -312,19 +304,26 @@ def main() -> None:
         description="Working memory benchmark for Engram retrieval",
     )
     parser.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed for corpus generation (default: 42)",
     )
     parser.add_argument(
-        "--json", type=str, default=None,
+        "--json",
+        type=str,
+        default=None,
         help="Path for JSON output file (optional)",
     )
     parser.add_argument(
-        "--verbose", action="store_true",
+        "--verbose",
+        action="store_true",
         help="Print per-scenario results as they run",
     )
     parser.add_argument(
-        "--entities", type=int, default=1000,
+        "--entities",
+        type=int,
+        default=1000,
         help="Total entities in corpus (default: 1000). Try 5000, 10000, 50000.",
     )
 

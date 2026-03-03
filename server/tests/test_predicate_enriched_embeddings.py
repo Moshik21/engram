@@ -13,16 +13,23 @@ from engram.models.relationship import Relationship
 
 def _make_rel(rid, source_id, target_id, predicate):
     return Relationship(
-        id=rid, source_id=source_id, target_id=target_id,
-        predicate=predicate, weight=1.0, group_id="default",
+        id=rid,
+        source_id=source_id,
+        target_id=target_id,
+        predicate=predicate,
+        weight=1.0,
+        group_id="default",
         valid_from=datetime.utcnow(),
     )
 
 
 def _make_entity(eid, name, entity_type="Other", summary=None):
     return Entity(
-        id=eid, name=name, entity_type=entity_type,
-        summary=summary, group_id="default",
+        id=eid,
+        name=name,
+        entity_type=entity_type,
+        summary=summary,
+        group_id="default",
     )
 
 

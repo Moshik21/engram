@@ -35,16 +35,13 @@ class SQLiteFeedbackStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feedback_entity "
-            "ON feedback_events(entity_id, group_id)"
+            "CREATE INDEX IF NOT EXISTS idx_feedback_entity ON feedback_events(entity_id, group_id)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feedback_group "
-            "ON feedback_events(group_id)"
+            "CREATE INDEX IF NOT EXISTS idx_feedback_group ON feedback_events(group_id)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feedback_timestamp "
-            "ON feedback_events(timestamp)"
+            "CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback_events(timestamp)"
         )
         await self.db.commit()
 
@@ -60,13 +57,21 @@ class SQLiteFeedbackStore:
             "INSERT INTO feedback_events "
             "(id, entity_id, event_type, query, group_id, timestamp) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (event.id, event.entity_id, event.event_type, event.query,
-             event.group_id, event.timestamp),
+            (
+                event.id,
+                event.entity_id,
+                event.event_type,
+                event.query,
+                event.group_id,
+                event.timestamp,
+            ),
         )
         await self.db.commit()
 
     async def get_entity_feedback(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> list[FeedbackEvent]:
         """Get all feedback events for an entity in a group."""
         cursor = await self.db.execute(

@@ -36,12 +36,14 @@ class MockNeighborProvider3Tuple:
 async def test_works_at_stronger_than_mentioned_with():
     """WORKS_AT (0.8) should propagate more than MENTIONED_WITH (0.3)."""
     # A -> B via WORKS_AT, A -> C via MENTIONED_WITH
-    provider = MockNeighborProvider3Tuple({
-        "A": [
-            ("B", 1.0, "WORKS_AT"),
-            ("C", 1.0, "MENTIONED_WITH"),
-        ],
-    })
+    provider = MockNeighborProvider3Tuple(
+        {
+            "A": [
+                ("B", 1.0, "WORKS_AT"),
+                ("C", 1.0, "MENTIONED_WITH"),
+            ],
+        }
+    )
     cfg = ActivationConfig(
         spread_max_hops=1,
         spread_decay_per_hop=1.0,
@@ -58,9 +60,11 @@ async def test_works_at_stronger_than_mentioned_with():
 @pytest.mark.asyncio
 async def test_unknown_predicate_gets_default():
     """A predicate not in the weight map should use predicate_weight_default."""
-    provider = MockNeighborProvider3Tuple({
-        "A": [("B", 1.0, "SOME_UNKNOWN_PREDICATE")],
-    })
+    provider = MockNeighborProvider3Tuple(
+        {
+            "A": [("B", 1.0, "SOME_UNKNOWN_PREDICATE")],
+        }
+    )
     cfg = ActivationConfig(
         spread_max_hops=1,
         spread_decay_per_hop=1.0,
@@ -73,6 +77,7 @@ async def test_unknown_predicate_gets_default():
     # fan_factor = max(0, 1.5 - ln(2)) ≈ 0.807
     # spread = 1.0 * 1.0 * 0.42 * 0.807 * 1.0 ≈ 0.339
     import math
+
     fan_factor = max(0.0, cfg.fan_s_max - math.log(2))
     assert bonuses["B"] == pytest.approx(0.42 * fan_factor, rel=0.01)
 
@@ -80,9 +85,11 @@ async def test_unknown_predicate_gets_default():
 @pytest.mark.asyncio
 async def test_backward_compat_2tuple():
     """Legacy 2-tuple neighbor providers should still work."""
-    provider = MockNeighborProvider2Tuple({
-        "A": [("B", 0.8)],
-    })
+    provider = MockNeighborProvider2Tuple(
+        {
+            "A": [("B", 0.8)],
+        }
+    )
     cfg = ActivationConfig(
         spread_max_hops=1,
         spread_decay_per_hop=1.0,
@@ -95,6 +102,7 @@ async def test_backward_compat_2tuple():
     # fan_factor = max(0, 1.5 - ln(2)) ≈ 0.807
     # spread = 1.0 * 0.8 * 0.5 * 0.807 * 1.0 ≈ 0.323
     import math
+
     fan_factor = max(0.0, cfg.fan_s_max - math.log(2))
     assert bonuses["B"] == pytest.approx(0.8 * 0.5 * fan_factor, rel=0.01)
 
@@ -102,9 +110,11 @@ async def test_backward_compat_2tuple():
 @pytest.mark.asyncio
 async def test_config_override_predicate_weights():
     """Custom predicate_weights in config should override defaults."""
-    provider = MockNeighborProvider3Tuple({
-        "A": [("B", 1.0, "WORKS_AT")],
-    })
+    provider = MockNeighborProvider3Tuple(
+        {
+            "A": [("B", 1.0, "WORKS_AT")],
+        }
+    )
     cfg = ActivationConfig(
         spread_max_hops=1,
         spread_decay_per_hop=1.0,
@@ -117,6 +127,7 @@ async def test_config_override_predicate_weights():
     # fan_factor = max(0, 1.5 - ln(2)) ≈ 0.807
     # spread = 1.0 * 1.0 * 0.1 * 0.807 * 1.0 ≈ 0.081
     import math
+
     fan_factor = max(0.0, cfg.fan_s_max - math.log(2))
     assert bonuses["B"] == pytest.approx(0.1 * fan_factor, rel=0.01)
 
@@ -124,9 +135,11 @@ async def test_config_override_predicate_weights():
 @pytest.mark.asyncio
 async def test_zero_weight_blocks_propagation():
     """A predicate with weight 0.0 should block spreading."""
-    provider = MockNeighborProvider3Tuple({
-        "A": [("B", 1.0, "BLOCKED_EDGE")],
-    })
+    provider = MockNeighborProvider3Tuple(
+        {
+            "A": [("B", 1.0, "BLOCKED_EDGE")],
+        }
+    )
     cfg = ActivationConfig(
         spread_max_hops=2,
         spread_decay_per_hop=1.0,
@@ -158,8 +171,12 @@ async def test_sqlite_integration_returns_3tuple(tmp_path):
     await store.create_entity(e2)
 
     rel = Relationship(
-        id="r1", source_id="e1", target_id="e2",
-        predicate="WORKS_AT", weight=0.9, group_id="test",
+        id="r1",
+        source_id="e1",
+        target_id="e2",
+        predicate="WORKS_AT",
+        weight=0.9,
+        group_id="test",
     )
     await store.create_relationship(rel)
 

@@ -34,22 +34,26 @@ async def list_episodes(
 
     items = []
     for ep in episodes:
-        items.append({
-            "episodeId": ep.id,
-            "content": ep.content[:200] if ep.content else None,
-            "source": ep.source,
-            "status": ep.status.value if hasattr(ep.status, "value") else ep.status,
-            "createdAt": ep.created_at.isoformat() if ep.created_at else None,
-            "updatedAt": ep.updated_at.isoformat() if ep.updated_at else None,
-            "error": ep.error,
-            "retryCount": ep.retry_count,
-            "processingDurationMs": ep.processing_duration_ms,
-            "entities": [],
-            "factsCount": 0,
-        })
+        items.append(
+            {
+                "episodeId": ep.id,
+                "content": ep.content[:200] if ep.content else None,
+                "source": ep.source,
+                "status": ep.status.value if hasattr(ep.status, "value") else ep.status,
+                "createdAt": ep.created_at.isoformat() if ep.created_at else None,
+                "updatedAt": ep.updated_at.isoformat() if ep.updated_at else None,
+                "error": ep.error,
+                "retryCount": ep.retry_count,
+                "processingDurationMs": ep.processing_duration_ms,
+                "entities": [],
+                "factsCount": 0,
+            }
+        )
 
-    return JSONResponse(content={
-        "items": items,
-        "nextCursor": next_cursor,
-        "total": len(items),
-    })
+    return JSONResponse(
+        content={
+            "items": items,
+            "nextCursor": next_cursor,
+            "total": len(items),
+        }
+    )

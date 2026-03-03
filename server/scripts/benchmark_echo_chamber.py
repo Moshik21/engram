@@ -32,10 +32,7 @@ async def main(args: argparse.Namespace) -> None:
 
     # Build corpus
     corpus = generate_corpus(seed=42)
-    print(
-        f"Corpus: {len(corpus.entities)} entities, "
-        f"{len(corpus.relationships)} relationships"
-    )
+    print(f"Corpus: {len(corpus.entities)} entities, {len(corpus.relationships)} relationships")
 
     # Initialize stores (in-memory SQLite)
     graph_store = SQLiteGraphStore(":memory:")
@@ -143,19 +140,26 @@ async def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Echo Chamber Benchmark")
     parser.add_argument(
-        "--queries", type=int, default=200,
+        "--queries",
+        type=int,
+        default=200,
         help="Total number of queries to simulate",
     )
     parser.add_argument(
-        "--snapshot-interval", type=int, default=50,
+        "--snapshot-interval",
+        type=int,
+        default=50,
         help="Take snapshot every N queries",
     )
     parser.add_argument(
-        "--ts-enabled", action="store_true",
+        "--ts-enabled",
+        action="store_true",
         help="Enable Thompson Sampling exploration",
     )
     parser.add_argument(
-        "--json", type=str, default=None,
+        "--json",
+        type=str,
+        default=None,
         help="Save results to JSON file",
     )
     asyncio.run(main(parser.parse_args()))

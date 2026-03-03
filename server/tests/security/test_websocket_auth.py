@@ -23,9 +23,7 @@ class TestResolveTenantFromScope:
             bearer_token="secret-token",
             default_group_id="my-group",
         )
-        tenant = await resolve_tenant_from_scope(
-            {"authorization": "Bearer secret-token"}, config
-        )
+        tenant = await resolve_tenant_from_scope({"authorization": "Bearer secret-token"}, config)
         assert tenant.group_id == "my-group"
         assert tenant.auth_method == "bearer"
         assert tenant.role == "owner"
@@ -44,15 +42,11 @@ class TestResolveTenantFromScope:
             bearer_token="tok",
             default_group_id="configured-group",
         )
-        tenant = await resolve_tenant_from_scope(
-            {"authorization": "Bearer tok"}, config
-        )
+        tenant = await resolve_tenant_from_scope({"authorization": "Bearer tok"}, config)
         assert tenant.group_id == "configured-group"
 
     async def test_raises_on_bad_token(self):
         """resolve_tenant_from_scope raises ValueError on bad token."""
         config = AuthConfig(enabled=True, bearer_token="correct-token")
         with pytest.raises(ValueError, match="Valid authentication credentials required"):
-            await resolve_tenant_from_scope(
-                {"authorization": "Bearer wrong-token"}, config
-            )
+            await resolve_tenant_from_scope({"authorization": "Bearer wrong-token"}, config)
