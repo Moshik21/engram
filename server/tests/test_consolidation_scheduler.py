@@ -189,11 +189,12 @@ class TestConsolidationScheduler:
         )
         scheduler = ConsolidationScheduler(engine, cfg)
 
-        # Time values for: start, loop iter 1, loop iter 2, post-cycle update
-        time_values = [0.0, 100.0, 200.0, 200.0]
+        # Use iterator with default to avoid StopIteration inside the
+        # coroutine (PEP 479 converts it to RuntimeError).
+        time_seq = iter([0.0, 100.0, 200.0, 200.0])
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=lambda: next(time_seq, 999.0)),
         ):
             mock_sleep.side_effect = [
                 None,
