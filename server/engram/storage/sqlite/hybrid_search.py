@@ -310,6 +310,10 @@ class HybridSearchIndex:
 
         return self._merge_results(fts_results, vec_results, limit)
 
+    async def close(self) -> None:
+        """No-op — connection is shared with the graph store."""
+        pass
+
     async def remove(self, entity_id: str) -> None:
         """Remove entity from both FTS5 and vector store."""
         await self._fts.remove(entity_id)

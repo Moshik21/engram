@@ -38,10 +38,6 @@ async def trigger_consolidation(
             content={"status": "conflict", "message": "A consolidation cycle is already running"},
         )
 
-    # Create cycle synchronously to return the ID
-    from engram.models.consolidation import ConsolidationCycle
-    cycle = ConsolidationCycle(group_id=group_id, dry_run=dry_run, trigger="manual")
-
     async def _run():
         try:
             await engine.run_cycle(group_id=group_id, trigger="manual", dry_run=dry_run)
@@ -52,7 +48,6 @@ async def trigger_consolidation(
 
     return JSONResponse(content={
         "status": "triggered",
-        "cycle_id": cycle.id,
         "group_id": group_id,
         "dry_run": dry_run,
     })
@@ -172,6 +167,8 @@ async def consolidation_cycle_detail(
     inferred = await engine._store.get_inferred_edges(cycle_id, group_id)
     prunes = await engine._store.get_prune_records(cycle_id, group_id)
     reindexes = await engine._store.get_reindex_records(cycle_id, group_id)
+    replays = await engine._store.get_replay_records(cycle_id, group_id)
+    dreams = await engine._store.get_dream_records(cycle_id, group_id)
 
     return JSONResponse(content={
         "id": cycle.id,
@@ -214,6 +211,9 @@ async def consolidation_cycle_detail(
                 "target_name": e.target_name,
                 "co_occurrence_count": e.co_occurrence_count,
                 "confidence": e.confidence,
+                "infer_type": e.infer_type,
+                "pmi_score": e.pmi_score,
+                "llm_verdict": e.llm_verdict,
             }
             for e in inferred
         ],
@@ -235,5 +235,26 @@ async def consolidation_cycle_detail(
                 "source_phase": r.source_phase,
             }
             for r in reindexes
+        ],
+        "replays": [
+            {
+                "id": rp.id,
+                "episode_id": rp.episode_id,
+                "new_entities_found": rp.new_entities_found,
+                "new_relationships_found": rp.new_relationships_found,
+                "entities_updated": rp.entities_updated,
+                "skipped_reason": rp.skipped_reason,
+            }
+            for rp in replays
+        ],
+        "dreams": [
+            {
+                "id": d.id,
+                "source_entity_id": d.source_entity_id,
+                "target_entity_id": d.target_entity_id,
+                "weight_delta": d.weight_delta,
+                "seed_entity_id": d.seed_entity_id,
+            }
+            for d in dreams
         ],
     })

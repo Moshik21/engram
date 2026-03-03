@@ -5,6 +5,9 @@ import type {
   EntityDetail,
   Episode,
   GraphStats,
+  ConsolidationCycleSummary,
+  ConsolidationCycleDetail,
+  ConsolidationPressure,
 } from "../store/types";
 
 export interface NeighborhoodResponse {
@@ -107,9 +110,10 @@ export const api = {
     return fetchJSON<EpisodesResponse>(`/api/episodes?${sp}`);
   },
 
-  getGraphAt: (timestamp: string) => {
+  getGraphAt: (timestamp: string, centerId?: string) => {
     const sp = new URLSearchParams();
     sp.set("at", timestamp);
+    if (centerId) sp.set("center", centerId);
     return fetchJSON<NeighborhoodResponse>(`/api/graph/neighborhood?${sp}`);
   },
 
@@ -137,4 +141,16 @@ export const api = {
     if (points) sp.set("points", String(points));
     return fetchJSON<{ entityId: string; entityName: string; curve: Array<{ timestamp: string; activation: number }>; accessEvents: string[]; formula: string; hours: number; points: number }>(`/api/activation/${entityId}/curve?${sp}`);
   },
+
+  getConsolidationStatus: () =>
+    fetchJSON<{ is_running: boolean; scheduler_active: boolean; pressure?: ConsolidationPressure; latest_cycle?: ConsolidationCycleSummary }>("/api/consolidation/status"),
+
+  getConsolidationHistory: (limit = 10) =>
+    fetchJSON<{ cycles: ConsolidationCycleSummary[] }>(`/api/consolidation/history?limit=${limit}`),
+
+  getConsolidationCycle: (cycleId: string) =>
+    fetchJSON<ConsolidationCycleDetail>(`/api/consolidation/cycle/${cycleId}`),
+
+  triggerConsolidation: (dryRun = true) =>
+    fetchJSON<{ status: string; cycle_id: string }>("/api/consolidation/trigger?dry_run=" + dryRun, { method: "POST" }),
 };

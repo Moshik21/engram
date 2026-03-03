@@ -46,11 +46,19 @@ async def dashboard_ws(websocket: WebSocket) -> None:
     activation_task: asyncio.Task | None = None
 
     async def forward_events() -> None:
-        """Read events from the bus queue and send to websocket."""
+        """Read events from the bus queue and send to websocket.
+
+        Flattens the ``payload`` dict into top-level keys so the frontend
+        can read fields like ``episodeId``, ``status``, ``episode`` directly
+        instead of through ``data.payload.episodeId``.
+        """
         try:
             while True:
                 event = await queue.get()
-                await websocket.send_json(event)
+                flat = {k: v for k, v in event.items() if k != "payload"}
+                if event.get("payload"):
+                    flat.update(event["payload"])
+                await websocket.send_json(flat)
         except (WebSocketDisconnect, Exception):
             pass
 

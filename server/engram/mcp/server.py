@@ -133,6 +133,8 @@ async def recall(query: str, limit: int = 5) -> str:
 
     formatted = []
     for r in results:
+        if r.get("result_type") == "episode":
+            continue
         entity = r["entity"]
         # Resolve relationship target/source IDs to entity names
         related_facts = []
@@ -335,6 +337,7 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
         manager._graph, manager._activation, manager._search,
         cfg=manager._cfg,
         consolidation_store=store,
+        extractor=manager._extractor,
     )
 
     cycle = await engine.run_cycle(

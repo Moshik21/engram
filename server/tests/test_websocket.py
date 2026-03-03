@@ -41,7 +41,7 @@ class TestWebSocket:
                 bus.publish("default", "test.event", {"hello": "world"})
                 data = ws.receive_json()
                 assert data["type"] == "test.event"
-                assert data["payload"]["hello"] == "world"
+                assert data["hello"] == "world"
 
     def test_resync_returns_missed_events(self, ws_app):
         """Resync command returns events missed since lastSeq."""

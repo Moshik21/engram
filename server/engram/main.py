@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,14 +46,48 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
     extractor = EntityExtractor()
     event_bus = get_event_bus()
-    manager = GraphManager(
-        graph_store, activation_store, search_index, extractor, event_bus=event_bus,
-    )
 
     # Extract embedding provider from search index for lifecycle management
     embedding_provider = None
     if hasattr(search_index, "_provider"):
         embedding_provider = search_index._provider
+
+    # Optional reranker (B1)
+    reranker = None
+    if config.activation.reranker_enabled:
+        from engram.retrieval.reranker import create_reranker
+
+        cohere_key = os.environ.get("COHERE_API_KEY", "")
+        reranker = create_reranker(api_key=cohere_key or None)
+
+    # Optional community store (B2)
+    community_store = None
+    if config.activation.community_spreading_enabled:
+        from engram.activation.community import CommunityStore
+
+        community_store = CommunityStore(
+            stale_seconds=config.activation.community_stale_seconds,
+            max_iterations=config.activation.community_max_iterations,
+        )
+
+    # Optional predicate cache for context-gated spreading (B3)
+    predicate_cache = None
+    if config.activation.context_gating_enabled and embedding_provider is not None:
+        from engram.activation.context_gate import PredicateEmbeddingCache
+
+        predicate_cache = PredicateEmbeddingCache()
+        try:
+            await predicate_cache.initialize(config.activation, embedding_provider)
+        except Exception:
+            logger.warning("Failed to initialize predicate cache", exc_info=True)
+            predicate_cache = None
+
+    manager = GraphManager(
+        graph_store, activation_store, search_index, extractor,
+        cfg=config.activation, event_bus=event_bus,
+        reranker=reranker, community_store=community_store,
+        predicate_cache=predicate_cache,
+    )
 
     # Consolidation engine + store
     from engram.consolidation.engine import ConsolidationEngine
@@ -69,6 +104,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         cfg=config.activation,
         consolidation_store=consolidation_store,
         event_bus=event_bus,
+        extractor=extractor,
     )
 
     # Pressure accumulator (optional)
@@ -126,10 +162,22 @@ async def _shutdown() -> None:
     if scheduler:
         await scheduler.stop()
 
-    # Cancel running consolidation
+    # Run final consolidation cycle or cancel running one
     engine = _app_state.get("consolidation_engine")
-    if engine and engine.is_running:
-        engine.cancel()
+    config = _app_state.get("config")
+
+    if engine:
+        if engine.is_running:
+            engine.cancel()
+        elif config and config.activation.consolidation_enabled:
+            try:
+                await engine.run_cycle(
+                    group_id=config.default_group_id,
+                    trigger="shutdown",
+                    dry_run=False,
+                )
+            except Exception:
+                logger.warning("Shutdown consolidation failed", exc_info=True)
 
     # Close embedding provider
     provider = _app_state.get("embedding_provider")
@@ -140,6 +188,10 @@ async def _shutdown() -> None:
     activation_store = _app_state.get("activation_store")
     if activation_store and hasattr(activation_store, "close"):
         await activation_store.close()
+
+    search_index = _app_state.get("search_index")
+    if search_index and hasattr(search_index, "close"):
+        await search_index.close()
 
     graph_store = _app_state.get("graph_store")
     if graph_store and hasattr(graph_store, "close"):

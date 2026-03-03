@@ -29,8 +29,8 @@ async def main(args: argparse.Namespace) -> None:
     # Initialize stores (in-memory SQLite)
     graph_store = SQLiteGraphStore(":memory:")
     await graph_store.initialize()
-    search_index = FTS5SearchIndex(graph_store.db)
-    await search_index.initialize()
+    search_index = FTS5SearchIndex(":memory:")
+    await search_index.initialize(db=graph_store._db)
 
     cfg = ActivationConfig()
     activation_store = MemoryActivationStore(cfg)

@@ -258,6 +258,10 @@ class RedisSearchIndex:
 
         return results
 
+    async def close(self) -> None:
+        """No-op — Redis client lifecycle is managed externally."""
+        pass
+
     async def remove(self, entity_id: str) -> None:
         """Remove all vector entries for an entity."""
         # Scan for matching keys and delete them

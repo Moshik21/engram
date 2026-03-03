@@ -10,6 +10,7 @@ import { createEpisodeSlice } from "../store/episodeSlice";
 import { createStatsSlice } from "../store/statsSlice";
 import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
+import { createConsolidationSlice } from "../store/consolidationSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -24,6 +25,10 @@ vi.mock("../api/client", () => ({
     deleteEntity: vi.fn(),
     getActivationSnapshot: vi.fn(),
     getActivationCurve: vi.fn(),
+    getConsolidationStatus: vi.fn(),
+    getConsolidationHistory: vi.fn(),
+    getConsolidationCycle: vi.fn(),
+    triggerConsolidation: vi.fn(),
   },
 }));
 
@@ -42,6 +47,7 @@ function createTestStore() {
       ...createStatsSlice(...a),
       ...createWsSlice(...a),
       ...createActivationSlice(...a),
+      ...createConsolidationSlice(...a),
     })),
   );
 }
@@ -197,7 +203,7 @@ describe("graphSlice", () => {
     const store = createTestStore();
     await store.getState().loadGraphAt("2024-06-01T00:00:00Z");
 
-    expect(mockedApi.getGraphAt).toHaveBeenCalledWith("2024-06-01T00:00:00Z");
+    expect(mockedApi.getGraphAt).toHaveBeenCalledWith("2024-06-01T00:00:00Z", undefined);
     expect(Object.keys(store.getState().nodes)).toHaveLength(1);
     expect(store.getState().isLoading).toBe(false);
   });

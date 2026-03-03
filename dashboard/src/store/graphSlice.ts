@@ -84,13 +84,14 @@ export const createGraphSlice: StateCreator<
       }
     }),
 
-  loadGraphAt: async (timestamp: string) => {
+  loadGraphAt: async (timestamp: string, centerId?: string) => {
     set((s) => {
       s.isLoading = true;
       s.error = null;
     });
     try {
-      const data = await api.getGraphAt(timestamp);
+      const center = centerId || get().centerNodeId || undefined;
+      const data = await api.getGraphAt(timestamp, center);
       set((s) => {
         s.nodes = {};
         s.edges = {};

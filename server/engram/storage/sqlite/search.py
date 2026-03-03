@@ -153,6 +153,10 @@ class FTS5SearchIndex:
         max_score = abs(rows[0]["rank"])
         return [(row["id"], abs(row["rank"]) / max_score if max_score > 0 else 0.0) for row in rows]
 
+    async def close(self) -> None:
+        """No-op — connection is shared with the graph store."""
+        pass
+
     async def remove(self, entity_id: str) -> None:
         """Removal is handled by entity deletion triggers."""
         pass

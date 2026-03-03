@@ -92,7 +92,8 @@ export type DashboardView =
   | "timeline"
   | "feed"
   | "activation"
-  | "stats";
+  | "stats"
+  | "consolidation";
 
 export interface GraphDelta {
   nodesAdded?: GraphNode[];
@@ -112,7 +113,7 @@ export interface GraphSlice {
   loadInitialGraph: () => Promise<void>;
   expandNode: (nodeId: string) => Promise<void>;
   mergeGraphDelta: (delta: GraphDelta) => void;
-  loadGraphAt: (timestamp: string) => Promise<void>;
+  loadGraphAt: (timestamp: string, centerId?: string) => Promise<void>;
   clear: () => void;
 }
 
@@ -209,6 +210,104 @@ export interface ActivationSlice {
   setIsActivationSubscribed: (v: boolean) => void;
 }
 
+export interface ConsolidationPhaseResult {
+  phase: string;
+  status: "success" | "skipped" | "error";
+  items_processed: number;
+  items_affected: number;
+  duration_ms: number;
+  error: string | null;
+}
+
+export interface ConsolidationCycleSummary {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  dry_run: boolean;
+  trigger: string;
+  started_at: number;
+  completed_at: number | null;
+  total_duration_ms: number;
+  phases: ConsolidationPhaseResult[];
+}
+
+export interface ConsolidationMerge {
+  id: string;
+  keep_name: string;
+  remove_name: string;
+  similarity: number;
+  relationships_transferred: number;
+}
+
+export interface ConsolidationInferredEdge {
+  id: string;
+  source_name: string;
+  target_name: string;
+  co_occurrence_count: number;
+  confidence: number;
+}
+
+export interface ConsolidationPrune {
+  id: string;
+  entity_name: string;
+  entity_type: string;
+  reason: string;
+}
+
+export interface ConsolidationDream {
+  id: string;
+  source_entity_id: string;
+  target_entity_id: string;
+  weight_delta: number;
+}
+
+export interface ConsolidationReplay {
+  id: string;
+  episode_id: string;
+  skipped_reason: string | null;
+  new_entities_found: number;
+  new_relationships_found: number;
+  entities_updated: number;
+}
+
+export interface ConsolidationReindex {
+  id: string;
+  entity_name: string;
+  source_phase: string;
+}
+
+export interface ConsolidationCycleDetail extends ConsolidationCycleSummary {
+  error: string | null;
+  merges: ConsolidationMerge[];
+  inferred_edges: ConsolidationInferredEdge[];
+  prunes: ConsolidationPrune[];
+  dreams: ConsolidationDream[];
+  replays: ConsolidationReplay[];
+  reindexes: ConsolidationReindex[];
+}
+
+export interface ConsolidationPressure {
+  value: number;
+  threshold: number;
+  episodes_since_last: number;
+  entities_created: number;
+}
+
+export interface ConsolidationSlice {
+  cycles: ConsolidationCycleSummary[];
+  isLoadingCycles: boolean;
+  selectedCycleId: string | null;
+  cycleDetail: ConsolidationCycleDetail | null;
+  isLoadingDetail: boolean;
+  isRunning: boolean;
+  schedulerActive: boolean;
+  pressure: ConsolidationPressure | null;
+  loadStatus: () => Promise<void>;
+  loadCycles: () => Promise<void>;
+  selectCycle: (id: string | null) => void;
+  loadCycleDetail: (id: string) => Promise<void>;
+  triggerCycle: (dryRun: boolean) => Promise<void>;
+}
+
 export type EngramStore =
   GraphSlice &
   SelectionSlice &
@@ -217,4 +316,5 @@ export type EngramStore =
   EpisodeSlice &
   StatsSlice &
   WebSocketSlice &
-  ActivationSlice;
+  ActivationSlice &
+  ConsolidationSlice;

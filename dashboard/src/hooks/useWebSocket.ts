@@ -75,9 +75,7 @@ function routeEvent(data: WsEvent) {
       break;
     case "graph.nodes_added":
     case "graph.delta":
-      if (data.delta) {
-        s.mergeGraphDelta(data.delta);
-      }
+      s.loadInitialGraph();
       break;
     case "activation.snapshot":
       if (data.payload?.topActivated) {
@@ -90,7 +88,17 @@ function routeEvent(data: WsEvent) {
         );
       }
       break;
+    case "consolidation.started":
+    case "consolidation.completed":
+      s.loadStatus();
+      s.loadCycles();
+      break;
     case "pong":
+      break;
+    default:
+      if (data.type?.startsWith("consolidation.phase.")) {
+        s.loadStatus();
+      }
       break;
   }
 }

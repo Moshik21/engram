@@ -355,7 +355,7 @@ class TestScoreCandidates:
     def test_exploration_bonus_low_access(self):
         """Bonus applies when access_count < threshold."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
         )
         now = time.time()
@@ -383,7 +383,7 @@ class TestScoreCandidates:
     def test_exploration_bonus_high_access_diminished(self):
         """Bonus is diminished but nonzero for high access_count (smooth decay)."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
             rediscovery_weight=0.0,  # isolate novelty signal
         )
@@ -414,7 +414,7 @@ class TestScoreCandidates:
     def test_exploration_bonus_zero_semantic(self):
         """No bonus when sem_sim = 0."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
         )
         now = time.time()
@@ -433,7 +433,7 @@ class TestScoreCandidates:
     def test_exploration_bonus_no_state(self):
         """Bonus applies for brand-new entity (0 accesses, no state)."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
         )
         now = time.time()
@@ -459,7 +459,7 @@ class TestScoreCandidates:
             weight_semantic=0.50,
             weight_activation=0.50,
             weight_edge_proximity=0.00,
-            exploration_threshold=5,
+
             exploration_weight=0.10,
             rediscovery_weight=0.0,  # isolate novelty signal
         )
@@ -496,7 +496,7 @@ class TestScoreCandidates:
     def test_exploration_bonus_diminishes(self):
         """Bonus decreases smoothly as access_count increases, even past old threshold."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
             rediscovery_weight=0.0,  # isolate novelty signal
             weight_semantic=0.50,
@@ -536,7 +536,7 @@ class TestScoreCandidates:
     def test_smooth_decay_no_cliff(self):
         """Bonus at threshold boundary has no discontinuity (smooth transition)."""
         cfg = ActivationConfig(
-            exploration_threshold=5,
+
             exploration_weight=0.05,
             rediscovery_weight=0.0,
         )

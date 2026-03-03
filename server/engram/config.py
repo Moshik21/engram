@@ -34,7 +34,7 @@ class RedisConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     provider: str = "voyage"
-    model: str = "voyage-3-lite"
+    model: str = "voyage-4-lite"
     dimensions: int = 512
     api_key: str = ""
     batch_size: int = 64
@@ -82,7 +82,6 @@ class ActivationConfig(BaseModel):
     weight_edge_proximity: float = Field(default=0.15, ge=0.0, le=1.0)
     seed_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     activation_ttl_days: int = Field(default=90, ge=1, le=365)
-    exploration_threshold: int = Field(default=5, ge=1, le=100)
     exploration_weight: float = Field(default=0.05, ge=0.0, le=0.5)
     rediscovery_weight: float = Field(default=0.02, ge=0.0, le=0.5)
     rediscovery_halflife_days: float = Field(default=30.0, gt=0.0, le=365.0)
@@ -90,7 +89,7 @@ class ActivationConfig(BaseModel):
     retrieval_top_n: int = Field(default=10, ge=1, le=100)
 
     # --- Spreading strategy ---
-    spreading_strategy: str = Field(default="bfs", pattern="^(bfs|ppr)$")
+    spreading_strategy: str = Field(default="bfs", pattern="^(bfs|ppr|actr)$")
 
     # --- PPR parameters ---
     ppr_alpha: float = Field(default=0.15, ge=0.01, le=0.5)
@@ -107,6 +106,10 @@ class ActivationConfig(BaseModel):
     # --- Fan-based spreading (ACT-R S_ji) ---
     fan_s_max: float = Field(default=3.5, gt=0.0, le=5.0)
     fan_s_min: float = Field(default=0.3, ge=0.0, le=2.0)
+
+    # --- ACT-R spreading activation ---
+    actr_total_w: float = Field(default=1.0, gt=0.0, le=3.0)
+    actr_max_sources: int = Field(default=7, ge=1, le=20)
 
     # --- RRF fusion ---
     rrf_k: int = Field(default=60, ge=1, le=200)
@@ -128,7 +131,7 @@ class ActivationConfig(BaseModel):
     pool_graph_limit: int = Field(default=20, ge=5, le=100)
     pool_wm_max_neighbors: int = Field(default=5, ge=1, le=20)
     pool_wm_limit: int = Field(default=15, ge=5, le=50)
-    pool_total_limit: int = Field(default=80, ge=20, le=500)
+    pool_total_limit: int = Field(default=80, ge=20, le=1000)
 
     # --- Re-ranker ---
     reranker_enabled: bool = Field(default=False)
@@ -209,13 +212,41 @@ class ActivationConfig(BaseModel):
         default_factory=lambda: ["LOCATED_IN", "PART_OF"],
     )
     consolidation_infer_transitivity_decay: float = Field(default=0.8, ge=0.1, le=1.0)
+
+    # --- Statistical scoring (Tier 2: PMI + tf-idf) ---
+    consolidation_infer_pmi_enabled: bool = Field(default=False)
+    consolidation_infer_pmi_min: float = Field(default=1.0, ge=0.0, le=10.0)
+    consolidation_infer_tfidf_weight: float = Field(default=0.3, ge=0.0, le=1.0)
+
+    # --- LLM validation (Tier 3) ---
+    consolidation_infer_llm_enabled: bool = Field(default=False)
+    consolidation_infer_llm_confidence_threshold: float = Field(default=0.7, ge=0.1, le=1.0)
+    consolidation_infer_llm_max_per_cycle: int = Field(default=20, ge=1, le=100)
+    consolidation_infer_llm_model: str = Field(default="claude-haiku-4-5-20251001")
+
     consolidation_compaction_horizon_days: int = Field(default=90, ge=30, le=365)
     consolidation_compaction_keep_min: int = Field(default=10, ge=5, le=50)
     consolidation_compaction_logarithmic: bool = Field(default=True)
 
+    # --- Episode replay ---
+    consolidation_replay_enabled: bool = Field(default=False)
+    consolidation_replay_max_per_cycle: int = Field(default=50, ge=1, le=500)
+    consolidation_replay_window_hours: float = Field(default=24.0, ge=1.0, le=720.0)
+    consolidation_replay_min_age_hours: float = Field(default=1.0, ge=0.0, le=48.0)
+
     # --- Reindex after consolidation ---
     consolidation_reindex_max_per_cycle: int = Field(default=200, ge=1, le=5000)
-    consolidation_reindex_batch_size: int = Field(default=32, ge=1, le=128)
+
+    # --- Dream spreading (offline consolidation) ---
+    consolidation_dream_enabled: bool = Field(default=False)
+    consolidation_dream_max_seeds: int = Field(default=20, ge=1, le=200)
+    consolidation_dream_activation_floor: float = Field(default=0.15, ge=0.0, le=1.0)
+    consolidation_dream_activation_ceiling: float = Field(default=0.75, ge=0.0, le=1.0)
+    consolidation_dream_activation_midpoint: float = Field(default=0.40, ge=0.0, le=1.0)
+    consolidation_dream_weight_increment: float = Field(default=0.05, ge=0.001, le=0.5)
+    consolidation_dream_max_boost_per_edge: float = Field(default=0.15, ge=0.01, le=1.0)
+    consolidation_dream_max_edge_weight: float = Field(default=3.0, ge=1.0, le=10.0)
+    consolidation_dream_min_boost: float = Field(default=0.005, ge=0.0, le=0.1)
 
     # --- Pressure-based triggering ---
     consolidation_pressure_enabled: bool = Field(default=False)

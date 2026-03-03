@@ -36,6 +36,9 @@ class GraphManager:
         cfg: ActivationConfig | None = None,
         event_bus: EventBus | None = None,
         canonicalizer: PredicateCanonicalizer | None = None,
+        reranker: object | None = None,
+        community_store: object | None = None,
+        predicate_cache: object | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
@@ -44,6 +47,9 @@ class GraphManager:
         self._cfg = cfg or ActivationConfig()
         self._event_bus = event_bus
         self._canonicalizer = canonicalizer or PredicateCanonicalizer()
+        self._reranker = reranker
+        self._community_store = community_store
+        self._predicate_cache = predicate_cache
 
         # Working memory buffer
         if self._cfg.working_memory_enabled:
@@ -122,7 +128,21 @@ class GraphManager:
             created_at=datetime.utcnow(),
         )
         await self._graph.create_episode(episode)
-        self._publish(group_id, "episode.queued", {"episode_id": episode_id})
+        self._publish(group_id, "episode.queued", {
+            "episode": {
+                "episodeId": episode_id,
+                "content": content[:200] if content else "",
+                "source": source or "unknown",
+                "status": "queued",
+                "createdAt": episode.created_at.isoformat() if episode.created_at else "",
+                "updatedAt": episode.created_at.isoformat() if episode.created_at else "",
+                "entities": [],
+                "factsCount": 0,
+                "processingDurationMs": None,
+                "error": None,
+                "retryCount": 0,
+            },
+        })
 
         try:
             # Extraction
@@ -324,7 +344,8 @@ class GraphManager:
                 processing_duration_ms=elapsed_ms,
             )
             self._publish(group_id, "episode.completed", {
-                "episode_id": episode_id,
+                "episodeId": episode_id,
+                "status": "completed",
                 "entity_count": len(result.entities),
                 "relationship_count": len(result.relationships),
                 "duration_ms": elapsed_ms,
@@ -343,7 +364,8 @@ class GraphManager:
                 episode_id, EpisodeStatus.FAILED, group_id=group_id, error=str(e),
             )
             self._publish(group_id, "episode.failed", {
-                "episode_id": episode_id,
+                "episodeId": episode_id,
+                "status": "failed",
                 "error": str(e),
             })
 
@@ -418,6 +440,9 @@ class GraphManager:
             cfg=self._cfg,
             limit=limit,
             working_memory=self._working_memory,
+            reranker=self._reranker,
+            community_store=self._community_store,
+            predicate_cache=self._predicate_cache,
         )
 
         now = time.time()
@@ -758,6 +783,8 @@ class GraphManager:
             # Topic-biased: use recall to find relevant entities
             results = await self.recall(query=topic_hint, group_id=group_id, limit=20)
             for r in results:
+                if r.get("result_type") == "episode":
+                    continue
                 ent = r["entity"]
                 state = await self._activation.get_activation(ent["id"])
                 act = 0.0
