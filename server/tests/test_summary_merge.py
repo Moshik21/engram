@@ -10,12 +10,14 @@ def _make_entity(
     name: str = "TestEntity",
     entity_type: str = "Person",
     summary: str = "Original summary",
+    attributes: dict | None = None,
 ) -> Entity:
     return Entity(
         id="ent_test",
         name=name,
         entity_type=entity_type,
         summary=summary,
+        attributes=attributes,
         group_id="default",
     )
 
@@ -161,3 +163,141 @@ class TestMergeEntityAttributes:
         # Summary rejected, but PII should still be flagged
         assert "summary" not in updates
         assert updates.get("pii_detected") == 1
+
+
+class TestMergeEntityAttributesDict:
+    """Tests for structured dict merge in _merge_entity_attributes."""
+
+    def test_new_attributes_on_entity_with_none(self):
+        """Adding attributes to entity that has none."""
+        entity = _make_entity(attributes=None)
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes={"status": "recovering"}
+        )
+        import json
+        assert "attributes" in updates
+        assert json.loads(updates["attributes"]) == {"status": "recovering"}
+
+    def test_merge_overwrites_existing_key(self):
+        """New value for same key should overwrite old."""
+        entity = _make_entity(attributes={"status": "injured", "severity": "mild"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes={"status": "recovering"}
+        )
+        import json
+        merged = json.loads(updates["attributes"])
+        assert merged["status"] == "recovering"
+        assert merged["severity"] == "mild"
+
+    def test_merge_adds_new_keys(self):
+        """New keys should be added alongside existing ones."""
+        entity = _make_entity(attributes={"role": "engineer"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes={"level": "senior"}
+        )
+        import json
+        merged = json.loads(updates["attributes"])
+        assert merged == {"role": "engineer", "level": "senior"}
+
+    def test_no_update_when_attributes_unchanged(self):
+        """No update if new attributes are same as existing."""
+        entity = _make_entity(attributes={"status": "active"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes={"status": "active"}
+        )
+        assert "attributes" not in updates
+
+    def test_none_new_attributes_no_update(self):
+        """None new_attributes should not produce update."""
+        entity = _make_entity(attributes={"role": "dev"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes=None
+        )
+        assert "attributes" not in updates
+
+    def test_empty_dict_new_attributes_no_update(self):
+        """Empty dict new_attributes should not produce update."""
+        entity = _make_entity(attributes={"role": "dev"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, None, new_attributes={}
+        )
+        assert "attributes" not in updates
+
+    def test_attributes_and_summary_both_merge(self):
+        """Both summary and attributes should merge simultaneously."""
+        entity = _make_entity(summary="Data scientist", attributes={"role": "ds"})
+        updates = GraphManager._merge_entity_attributes(
+            entity, "at Acme Corp", new_attributes={"company": "Acme"}
+        )
+        assert "summary" in updates
+        assert "Acme Corp" in updates["summary"]
+        import json
+        merged = json.loads(updates["attributes"])
+        assert merged == {"role": "ds", "company": "Acme"}
+
+
+class TestRenderTierAttributes:
+    """Tests for attribute rendering in _render_tier."""
+
+    def test_render_with_attributes(self):
+        """Attributes should appear inline in rendered output."""
+        entities = [
+            {
+                "name": "Konner",
+                "type": "Person",
+                "summary": "Software engineer",
+                "activation": 0.95,
+                "attributes": {"status": "recovering", "goal": "hypertrophy"},
+            }
+        ]
+        output = GraphManager._render_tier("## Test", entities, [])
+        assert "status: recovering" in output
+        assert "goal: hypertrophy" in output
+
+    def test_render_without_attributes(self):
+        """No attributes should render cleanly without brackets."""
+        entities = [
+            {
+                "name": "Alice",
+                "type": "Person",
+                "summary": "Data scientist",
+                "activation": 0.80,
+                "attributes": None,
+            }
+        ]
+        output = GraphManager._render_tier("## Test", entities, [])
+        assert "Alice (Person, act=0.80) — Data scientist" in output
+        assert "[" not in output
+
+    def test_render_empty_attributes(self):
+        """Empty dict should not add brackets."""
+        entities = [
+            {
+                "name": "Bob",
+                "type": "Person",
+                "summary": "Engineer",
+                "activation": 0.5,
+                "attributes": {},
+            }
+        ]
+        output = GraphManager._render_tier("## Test", entities, [])
+        assert "[" not in output
+
+    def test_render_limits_to_five_attributes(self):
+        """At most 5 attributes should be rendered inline."""
+        attrs = {f"key{i}": f"val{i}" for i in range(8)}
+        entities = [
+            {
+                "name": "Entity",
+                "type": "Other",
+                "summary": None,
+                "activation": 0.1,
+                "attributes": attrs,
+            }
+        ]
+        output = GraphManager._render_tier("## Test", entities, [])
+        # Count commas in the bracket section — 5 items = 4 commas
+        bracket_start = output.index("[")
+        bracket_end = output.index("]")
+        bracket_content = output[bracket_start + 1 : bracket_end]
+        assert bracket_content.count(",") == 4

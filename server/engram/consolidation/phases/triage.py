@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import time
 from typing import Any
@@ -10,9 +12,68 @@ from typing import Any
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.discourse import classify_discourse
+from engram.extraction.prompts import TRIAGE_JUDGE_SYSTEM_CACHED
 from engram.models.consolidation import CycleContext, PhaseResult, TriageRecord
 
 logger = logging.getLogger(__name__)
+
+_PERSONAL_PATTERNS = re.compile(
+    r"\b(?:mom|dad|mother|father|brother|sister|wife|husband|partner|"
+    r"family|daughter|son|child|children|friend|"
+    r"birthday|wedding|funeral|anniversary|holiday|vacation|"
+    r"diagnosed|hospital|surgery|illness|health|cancer|"
+    r"love|miss|afraid|excited|proud|grateful|worried|happy|sad|"
+    r"home|moved|married|divorced|born|died|retired|graduated)\b",
+    re.IGNORECASE,
+)
+
+
+def personal_narrative_boost(content: str, cfg: ActivationConfig) -> float:
+    """Return boost if personal narrative keywords found above threshold."""
+    if not cfg.triage_personal_boost_enabled:
+        return 0.0
+    matches = len(_PERSONAL_PATTERNS.findall(content))
+    if matches >= cfg.triage_personal_min_matches:
+        return cfg.triage_personal_boost
+    return 0.0
+
+
+def _llm_judge_score(content: str, model: str) -> dict:
+    """Call LLM to judge episode content. Returns parsed JSON dict.
+
+    Synchronous — intended to be called from async context via asyncio.to_thread
+    or directly from consolidation phase.
+    """
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        )
+        response = client.messages.create(
+            model=model,
+            max_tokens=256,
+            system=TRIAGE_JUDGE_SYSTEM_CACHED,
+            messages=[{"role": "user", "content": content}],
+        )
+        text = response.content[0].text.strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            first_nl = text.index("\n")
+            text = text[first_nl + 1:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        parsed = json.loads(text)
+        return {
+            "extract": bool(parsed.get("extract", True)),
+            "score": float(parsed.get("score", 0.5)),
+            "reason": str(parsed.get("reason", "")),
+            "tags": list(parsed.get("tags", [])),
+        }
+    except Exception as exc:
+        logger.warning("LLM triage judge failed: %s", exc)
+        return {"extract": True, "score": 0.5, "reason": "llm_error_fallback", "tags": []}
 
 
 class TriagePhase(ConsolidationPhase):
@@ -89,8 +150,17 @@ class TriagePhase(ConsolidationPhase):
             else:
                 world_episodes.append(ep)
 
-        # 3. Score each remaining episode
-        scored = [(ep, self._score_episode(ep, cfg)) for ep in world_episodes]
+        # 3. Score each remaining episode (LLM judge or heuristic)
+        llm_metadata: dict[str, dict] = {}  # episode_id → judge result
+        if cfg.triage_llm_judge_enabled:
+            scored = []
+            for ep in world_episodes:
+                ep_content = getattr(ep, "content", "") or ""
+                judge_result = _llm_judge_score(ep_content, cfg.triage_llm_judge_model)
+                llm_metadata[ep.id] = judge_result
+                scored.append((ep, judge_result["score"]))
+        else:
+            scored = [(ep, self._score_episode(ep, cfg)) for ep in world_episodes]
         scored.sort(key=lambda x: x[1], reverse=True)
 
         if not scored:
@@ -106,6 +176,7 @@ class TriagePhase(ConsolidationPhase):
 
         for i, (ep, score) in enumerate(scored):
             decision = "extract" if i < extract_count else "skip"
+            judge_meta = llm_metadata.get(ep.id, {})
             records.append(
                 TriageRecord(
                     cycle_id=cycle_id,
@@ -113,6 +184,8 @@ class TriagePhase(ConsolidationPhase):
                     episode_id=ep.id,
                     score=round(score, 4),
                     decision=decision,
+                    llm_reason=judge_meta.get("reason"),
+                    llm_tags=judge_meta.get("tags", []),
                 )
             )
 
@@ -146,7 +219,7 @@ class TriagePhase(ConsolidationPhase):
 
     @staticmethod
     def _score_episode(episode: Any, cfg: ActivationConfig) -> float:
-        """Lightweight scoring based on length, keyword density, and base novelty."""
+        """Lightweight scoring based on length, keyword density, novelty, and personal boost."""
         content = getattr(episode, "content", "") or ""
         if not content:
             return 0.0
@@ -165,7 +238,10 @@ class TriagePhase(ConsolidationPhase):
         # Full novelty would compare against existing episodes via FTS5
         novelty_score = 0.2
 
-        return length_score + keyword_score + novelty_score
+        # Personal narrative boost (0-0.15): prevent personal content from being deprioritized
+        personal_score = personal_narrative_boost(content, cfg)
+
+        return length_score + keyword_score + novelty_score + personal_score
 
 
 def _elapsed_ms(t0: float) -> float:

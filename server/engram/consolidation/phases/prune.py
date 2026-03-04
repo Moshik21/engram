@@ -48,6 +48,11 @@ class PrunePhase(ConsolidationPhase):
             if len(records) >= max_prunes:
                 break
 
+            # Skip identity core entities (should already be excluded by query,
+            # but double-check in case of storage backend differences)
+            if getattr(entity, "identity_core", False) is True:
+                continue
+
             # Double-check activation (graph store access_count may be stale)
             state = await activation_store.get_activation(entity.id)
             if state and state.access_count > cfg.consolidation_prune_min_access_count:

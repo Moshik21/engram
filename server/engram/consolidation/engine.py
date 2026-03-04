@@ -19,6 +19,7 @@ from engram.events.bus import EventBus
 from engram.models.consolidation import (
     ConsolidationCycle,
     CycleContext,
+    DreamAssociationRecord,
     DreamRecord,
     InferredEdge,
     MergeRecord,
@@ -58,8 +59,8 @@ class ConsolidationEngine:
         self._phases = [
             TriagePhase(graph_manager=graph_manager),
             EpisodeReplayPhase(extractor=extractor),
-            EntityMergePhase(),
-            EdgeInferencePhase(llm_client=llm_client),
+            EntityMergePhase(llm_client=llm_client),
+            EdgeInferencePhase(llm_client=llm_client, escalation_client=llm_client),
             PrunePhase(),
             AccessHistoryCompactionPhase(),
             ReindexPhase(),
@@ -157,6 +158,8 @@ class ConsolidationEngine:
                                 await self._store.save_reindex_record(record)
                             elif isinstance(record, ReplayRecord):
                                 await self._store.save_replay_record(record)
+                            elif isinstance(record, DreamAssociationRecord):
+                                await self._store.save_dream_association_record(record)
                             elif isinstance(record, DreamRecord):
                                 await self._store.save_dream_record(record)
                             elif isinstance(record, TriageRecord):

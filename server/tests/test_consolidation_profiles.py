@@ -37,6 +37,12 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_infer_pmi_enabled is True
         assert cfg.consolidation_infer_transitivity_enabled is True
         assert cfg.consolidation_pressure_enabled is True
+        # LLM features enabled in standard
+        assert cfg.triage_llm_judge_enabled is True
+        assert cfg.consolidation_infer_llm_enabled is True
+        assert cfg.consolidation_infer_escalation_enabled is True
+        assert cfg.consolidation_merge_llm_enabled is True
+        assert cfg.consolidation_merge_escalation_enabled is True
 
     def test_default_is_off(self):
         cfg = ActivationConfig()

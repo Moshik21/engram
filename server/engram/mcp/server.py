@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import sys
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -24,7 +25,14 @@ from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT)
+@asynccontextmanager
+async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
+    """Initialize storage on the same event loop as the MCP server."""
+    await _init()
+    yield
+
+
+mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT, lifespan=_lifespan)
 
 
 # ─── Session State ──────────────────────────────────────────────────
@@ -161,8 +169,7 @@ async def observe(content: str, source: str = "mcp") -> str:
         {
             "status": "stored",
             "episode_id": episode_id,
-            "message": "Raw text stored. No extraction performed. "
-            "Use trigger_consolidation or remember for extraction.",
+            "message": "Stored for background processing.",
         }
     )
 
@@ -329,19 +336,30 @@ async def forget(
 
 
 @mcp.tool()
-async def get_context(max_tokens: int = 2000, topic_hint: str | None = None) -> str:
+async def get_context(
+    max_tokens: int = 2000,
+    topic_hint: str | None = None,
+    project_path: str | None = None,
+    format: str = "structured",
+) -> str:
     """Return a pre-assembled context string of the most activated memories.
 
     Args:
         max_tokens: Token budget for context (default 2000)
         topic_hint: Optional topic to bias which memories are loaded
+        project_path: Project directory; leaf name used as topic hint
+        format: Output format — "structured" (markdown) or "briefing" (LLM narrative)
 
     Returns:
         JSON with context markdown, entity_count, fact_count, token_estimate.
     """
     manager = _get_manager()
     result = await manager.get_context(
-        group_id=_group_id, max_tokens=max_tokens, topic_hint=topic_hint
+        group_id=_group_id,
+        max_tokens=max_tokens,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        format=format,
     )
     return json.dumps(result)
 
@@ -370,6 +388,46 @@ async def get_graph_state(
         entity_types=entity_types,
     )
     return json.dumps(result)
+
+
+@mcp.tool()
+async def mark_identity_core(entity_name: str, identity_core: bool = True) -> str:
+    """Mark or unmark an entity as part of the user's identity core.
+
+    Identity core entities are protected from pruning and always included
+    in context loading.
+
+    Args:
+        entity_name: Name of the entity to mark
+        identity_core: True to protect, False to unprotect
+
+    Returns:
+        JSON with status and entity details.
+    """
+    manager = _get_manager()
+    entities = await manager._graph.find_entities(
+        name=entity_name, group_id=_group_id, limit=1
+    )
+    if not entities:
+        return json.dumps(
+            {"status": "error", "message": f"Entity '{entity_name}' not found."}
+        )
+    entity = entities[0]
+    await manager._graph.update_entity(
+        entity.id,
+        {"identity_core": 1 if identity_core else 0},
+        group_id=_group_id,
+    )
+    action = "marked as" if identity_core else "removed from"
+    return json.dumps(
+        {
+            "status": "updated",
+            "entity": entity.name,
+            "entity_type": entity.entity_type,
+            "identity_core": identity_core,
+            "message": f"Entity '{entity.name}' {action} identity core.",
+        }
+    )
 
 
 @mcp.tool()
@@ -590,9 +648,6 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         stream=sys.stderr,
     )
-
-    # Run initialization before starting the server
-    asyncio.get_event_loop().run_until_complete(_init())
 
     transport = os.environ.get("ENGRAM_TRANSPORT", "stdio")
     mcp.run(transport=transport)

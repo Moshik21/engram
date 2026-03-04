@@ -49,6 +49,10 @@ class SQLiteGraphStore:
             "ALTER TABLE episodes ADD COLUMN error TEXT",
             "ALTER TABLE episodes ADD COLUMN retry_count INTEGER DEFAULT 0",
             "ALTER TABLE episodes ADD COLUMN processing_duration_ms INTEGER",
+            # Identity core
+            "ALTER TABLE entities ADD COLUMN identity_core INTEGER DEFAULT 0",
+            # Negation/uncertainty polarity
+            "ALTER TABLE relationships ADD COLUMN polarity TEXT DEFAULT 'positive'",
         ]
         for sql in migrations:
             try:
@@ -237,8 +241,9 @@ class SQLiteGraphStore:
         await self.db.execute(
             """INSERT INTO relationships
                (id, source_id, target_id, predicate, weight,
-                valid_from, valid_to, created_at, source_episode, group_id, confidence)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                valid_from, valid_to, created_at, source_episode, group_id, confidence,
+                polarity)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 rel.id,
                 rel.source_id,
@@ -251,6 +256,7 @@ class SQLiteGraphStore:
                 rel.source_episode,
                 rel.group_id,
                 rel.confidence,
+                rel.polarity,
             ),
         )
         await self.db.commit()
@@ -279,7 +285,7 @@ class SQLiteGraphStore:
             conditions.append("predicate = ?")
             params.append(predicate)
         if active_only:
-            conditions.append("valid_to IS NULL")
+            conditions.append("(valid_to IS NULL OR datetime(valid_to) > datetime('now'))")
         conditions.append("group_id = ?")
         params.append(group_id)
         where = " AND ".join(conditions)
@@ -310,7 +316,7 @@ class SQLiteGraphStore:
             """UPDATE relationships
                SET weight = MIN(?, weight + ?)
                WHERE group_id = ?
-                 AND valid_to IS NULL
+                 AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))
                  AND ((source_id = ? AND target_id = ?)
                    OR (source_id = ? AND target_id = ?))
                RETURNING weight""",
@@ -393,18 +399,18 @@ class SQLiteGraphStore:
             FROM neighbors n
             JOIN relationships r ON (r.source_id = n.entity_id OR r.target_id = n.entity_id)
             WHERE n.depth < ?
-              AND r.valid_to IS NULL
+              AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
               AND r.source_id != r.target_id
         )
         SELECT DISTINCT e.*, r.id as rel_id, r.source_id, r.target_id,
                r.predicate, r.weight, r.valid_from, r.valid_to,
                r.created_at as rel_created_at, r.source_episode, r.group_id as rel_group_id,
-               r.confidence as rel_confidence
+               r.confidence as rel_confidence, r.polarity as rel_polarity
         FROM neighbors n
         JOIN entities e ON e.id = n.entity_id
         JOIN relationships r ON (
             (r.source_id = n.entity_id OR r.target_id = n.entity_id)
-            AND r.valid_to IS NULL
+            AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
         )
         WHERE e.deleted_at IS NULL AND n.depth > 0
         {group_filter}
@@ -415,6 +421,9 @@ class SQLiteGraphStore:
         results = []
         for row in rows:
             entity = self._row_to_entity(row, group_id)
+            rel_polarity = "positive"
+            if "rel_polarity" in row.keys() and row["rel_polarity"]:
+                rel_polarity = row["rel_polarity"]
             rel = Relationship(
                 id=row["rel_id"],
                 source_id=row["source_id"],
@@ -425,6 +434,7 @@ class SQLiteGraphStore:
                 valid_to=_parse_dt(row["valid_to"]),
                 created_at=_parse_dt(row["rel_created_at"]) or datetime.utcnow(),
                 confidence=row["rel_confidence"] if "rel_confidence" in row.keys() else 1.0,
+                polarity=rel_polarity,
                 source_episode=row["source_episode"],
                 group_id=row["rel_group_id"],
             )
@@ -433,29 +443,45 @@ class SQLiteGraphStore:
 
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
-    ) -> list[tuple[str, float, str]]:
-        """Return (neighbor_id, edge_weight, predicate) for active relationships."""
+    ) -> list[tuple[str, float, str, str]]:
+        """Return (neighbor_id, edge_weight, predicate, entity_type) for active relationships.
+
+        Negative-polarity edges are excluded. Uncertain edges have weight halved.
+        """
         conditions = [
-            "(source_id = ? OR target_id = ?)",
-            "valid_to IS NULL",
-            "source_id != target_id",
+            "(r.source_id = ? OR r.target_id = ?)",
+            "(r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))",
+            "r.source_id != r.target_id",
+            "COALESCE(r.polarity, 'positive') != 'negative'",
         ]
         params: list = [entity_id, entity_id]
         if group_id:
-            conditions.append("group_id = ?")
+            conditions.append("r.group_id = ?")
             params.append(group_id)
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
             f"""SELECT
-                    CASE WHEN source_id = ? THEN target_id ELSE source_id END AS neighbor_id,
-                    weight,
-                    predicate
-                FROM relationships
+                    CASE WHEN r.source_id = ?
+                         THEN r.target_id
+                         ELSE r.source_id END AS neighbor_id,
+                    CASE WHEN COALESCE(r.polarity, 'positive') = 'uncertain'
+                         THEN r.weight * 0.5
+                         ELSE r.weight END AS weight,
+                    r.predicate,
+                    e.entity_type
+                FROM relationships r
+                JOIN entities e ON e.id = (
+                    CASE WHEN r.source_id = ?
+                         THEN r.target_id
+                         ELSE r.source_id END)
                 WHERE {where}""",
-            [entity_id] + params,
+            [entity_id, entity_id] + params,
         )
         rows = await cursor.fetchall()
-        return [(row["neighbor_id"], row["weight"], row["predicate"]) for row in rows]
+        return [
+            (row["neighbor_id"], row["weight"], row["predicate"], row["entity_type"])
+            for row in rows
+        ]
 
     # --- Episodes ---
 
@@ -608,7 +634,7 @@ class SQLiteGraphStore:
         FROM entities e
         LEFT JOIN relationships r
             ON (r.source_id = e.id OR r.target_id = e.id)
-            AND r.valid_to IS NULL
+            AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
             {group_filter}
         WHERE e.deleted_at IS NULL
             {entity_group_filter}
@@ -731,7 +757,8 @@ class SQLiteGraphStore:
             SELECT 1 FROM relationships r
             WHERE ((r.source_id = ee1.entity_id AND r.target_id = ee2.entity_id)
                 OR (r.source_id = ee2.entity_id AND r.target_id = ee1.entity_id))
-            AND r.valid_to IS NULL AND r.group_id = e1.group_id
+            AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
+            AND r.group_id = e1.group_id
         )
         ORDER BY cnt DESC
         LIMIT ?
@@ -776,16 +803,28 @@ class SQLiteGraphStore:
         SELECT e.*
         FROM entities e
         LEFT JOIN relationships r ON (r.source_id = e.id OR r.target_id = e.id)
-            AND r.valid_to IS NULL AND r.group_id = ?
+            AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now')) AND r.group_id = ?
         WHERE e.group_id = ?
           AND e.deleted_at IS NULL
           AND e.access_count = 0
           AND e.created_at < ?
+          AND COALESCE(e.identity_core, 0) = 0
           AND r.id IS NULL
         ORDER BY e.created_at ASC
         LIMIT ?
         """
         cursor = await self.db.execute(sql, (group_id, group_id, cutoff, limit))
+        rows = await cursor.fetchall()
+        return [self._row_to_entity(r, group_id) for r in rows]
+
+    async def get_identity_core_entities(self, group_id: str) -> list[Entity]:
+        """Return all entities marked as identity_core for a group."""
+        cursor = await self.db.execute(
+            """SELECT * FROM entities
+               WHERE group_id = ? AND deleted_at IS NULL
+                 AND identity_core = 1""",
+            (group_id,),
+        )
         rows = await cursor.fetchall()
         return [self._row_to_entity(r, group_id) for r in rows]
 
@@ -867,6 +906,59 @@ class SQLiteGraphStore:
         await self.db.commit()
         return total_count
 
+    async def path_exists_within_hops(
+        self,
+        source_id: str,
+        target_id: str,
+        max_hops: int,
+        group_id: str,
+    ) -> bool:
+        """Check if a path exists between two entities within N hops."""
+        sql = """
+        WITH RECURSIVE reachable(entity_id, depth) AS (
+            SELECT ?, 0
+            UNION ALL
+            SELECT
+                CASE WHEN r.source_id = rc.entity_id THEN r.target_id ELSE r.source_id END,
+                rc.depth + 1
+            FROM reachable rc
+            JOIN relationships r ON (r.source_id = rc.entity_id OR r.target_id = rc.entity_id)
+            WHERE rc.depth < ?
+              AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
+              AND r.group_id = ?
+              AND r.source_id != r.target_id
+        )
+        SELECT 1 FROM reachable WHERE entity_id = ? LIMIT 1
+        """
+        cursor = await self.db.execute(sql, (source_id, max_hops, group_id, target_id))
+        row = await cursor.fetchone()
+        return row is not None
+
+    async def get_expired_relationships(
+        self,
+        group_id: str,
+        predicate: str | None = None,
+        limit: int = 100,
+    ) -> list[Relationship]:
+        """Return relationships whose valid_to has passed."""
+        conditions = [
+            "group_id = ?",
+            "valid_to IS NOT NULL",
+            "datetime(valid_to) <= datetime('now')",
+        ]
+        params: list = [group_id]
+        if predicate:
+            conditions.append("predicate = ?")
+            params.append(predicate)
+        params.append(limit)
+        where = " AND ".join(conditions)
+        cursor = await self.db.execute(
+            f"SELECT * FROM relationships WHERE {where} LIMIT ?",
+            params,
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_relationship(r) for r in rows]
+
     async def get_relationships_by_predicate(
         self,
         group_id: str,
@@ -878,7 +970,7 @@ class SQLiteGraphStore:
         conditions = ["group_id = ?", "predicate = ?"]
         params: list = [group_id, predicate]
         if active_only:
-            conditions.append("valid_to IS NULL")
+            conditions.append("(valid_to IS NULL OR datetime(valid_to) > datetime('now'))")
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
             f"SELECT * FROM relationships WHERE {where} LIMIT ?",
@@ -926,6 +1018,10 @@ class SQLiteGraphStore:
         if "pii_categories" in row.keys() and row["pii_categories"]:
             pii_categories = json.loads(row["pii_categories"])
 
+        identity_core = False
+        if "identity_core" in row.keys():
+            identity_core = bool(row["identity_core"])
+
         return Entity(
             id=row["id"],
             name=row["name"],
@@ -943,6 +1039,7 @@ class SQLiteGraphStore:
             last_accessed=_parse_dt(row["last_accessed"]),
             pii_detected=pii_detected,
             pii_categories=pii_categories,
+            identity_core=identity_core,
         )
 
     @staticmethod
@@ -950,6 +1047,10 @@ class SQLiteGraphStore:
         confidence = 1.0
         if "confidence" in row.keys():
             confidence = row["confidence"] if row["confidence"] is not None else 1.0
+
+        polarity = "positive"
+        if "polarity" in row.keys() and row["polarity"]:
+            polarity = row["polarity"]
 
         return Relationship(
             id=row["id"],
@@ -961,6 +1062,7 @@ class SQLiteGraphStore:
             valid_to=_parse_dt(row["valid_to"]),
             created_at=_parse_dt(row["created_at"]) or datetime.utcnow(),
             confidence=confidence,
+            polarity=polarity,
             source_episode=row["source_episode"],
             group_id=row["group_id"],
         )

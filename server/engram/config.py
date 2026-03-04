@@ -169,6 +169,21 @@ class ActivationConfig(BaseModel):
             "RESEARCHES": "researches",
             "HEADQUARTERED_IN": "headquartered in",
             "LOCATED_IN": "located in",
+            "DREAM_ASSOCIATED": "dream-associated with",
+            "RECOVERING_FROM": "recovering from",
+            "HAS_CONDITION": "has condition",
+            "LIKES": "likes",
+            "DISLIKES": "dislikes",
+            "PREFERS": "prefers",
+            "AIMS_FOR": "aims for",
+            "REQUIRES": "requires",
+            "STUDYING": "studying",
+            "LED_TO": "led to",
+            "CAUSED_BY": "caused by",
+            "HAS_PART": "has part",
+            "PARENT_OF": "parent of",
+            "CHILD_OF": "child of",
+            "TREATS": "treats",
         }
     )
     structure_max_relationships: int = Field(default=15, ge=1, le=50)
@@ -202,6 +217,21 @@ class ActivationConfig(BaseModel):
             "LEADS": 0.8,
             "RESEARCHES": 0.8,
             "HEADQUARTERED_IN": 0.3,
+            "DREAM_ASSOCIATED": 0.1,
+            "RECOVERING_FROM": 0.8,
+            "HAS_CONDITION": 0.85,
+            "LIKES": 0.6,
+            "DISLIKES": 0.6,
+            "PREFERS": 0.7,
+            "AIMS_FOR": 0.75,
+            "REQUIRES": 0.8,
+            "STUDYING": 0.65,
+            "LED_TO": 0.7,
+            "CAUSED_BY": 0.75,
+            "HAS_PART": 0.65,
+            "PARENT_OF": 0.8,
+            "CHILD_OF": 0.8,
+            "TREATS": 0.8,
         }
     )
     predicate_weight_default: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -217,6 +247,13 @@ class ActivationConfig(BaseModel):
     consolidation_merge_max_per_cycle: int = Field(default=50, ge=1, le=500)
     consolidation_merge_require_same_type: bool = Field(default=True)
     consolidation_merge_block_size: int = Field(default=500, ge=50, le=5000)
+
+    # --- LLM-assisted merge (borderline candidates) ---
+    consolidation_merge_llm_enabled: bool = Field(default=False)
+    consolidation_merge_soft_threshold: float = Field(default=0.80, ge=0.5, le=1.0)
+    consolidation_merge_llm_model: str = Field(default="claude-haiku-4-5-20251001")
+    consolidation_merge_escalation_enabled: bool = Field(default=False)
+    consolidation_merge_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
     consolidation_prune_activation_floor: float = Field(default=0.05, ge=0.0, le=0.5)
     consolidation_prune_min_age_days: int = Field(default=30, ge=1, le=365)
     consolidation_prune_min_access_count: int = Field(default=0, ge=0, le=100)
@@ -240,6 +277,11 @@ class ActivationConfig(BaseModel):
     consolidation_infer_llm_confidence_threshold: float = Field(default=0.7, ge=0.1, le=1.0)
     consolidation_infer_llm_max_per_cycle: int = Field(default=20, ge=1, le=100)
     consolidation_infer_llm_model: str = Field(default="claude-haiku-4-5-20251001")
+
+    # --- LLM escalation (Sonnet re-validation of uncertain verdicts) ---
+    consolidation_infer_escalation_enabled: bool = Field(default=False)
+    consolidation_infer_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
+    consolidation_infer_escalation_max_per_cycle: int = Field(default=5, ge=1, le=50)
 
     consolidation_compaction_horizon_days: int = Field(default=90, ge=30, le=365)
     consolidation_compaction_keep_min: int = Field(default=10, ge=5, le=50)
@@ -265,6 +307,18 @@ class ActivationConfig(BaseModel):
     consolidation_dream_max_edge_weight: float = Field(default=3.0, ge=1.0, le=10.0)
     consolidation_dream_min_boost: float = Field(default=0.005, ge=0.0, le=0.1)
 
+    # --- Dream associations (cross-domain creative connections) ---
+    consolidation_dream_associations_enabled: bool = Field(default=False)
+    consolidation_dream_assoc_max_per_cycle: int = Field(default=10, ge=1, le=100)
+    consolidation_dream_assoc_min_surprise: float = Field(default=0.25, ge=0.0, le=1.0)
+    consolidation_dream_assoc_ttl_days: int = Field(default=30, ge=1, le=365)
+    consolidation_dream_assoc_weight: float = Field(default=0.1, ge=0.01, le=0.5)
+    consolidation_dream_assoc_max_per_domain_pair: int = Field(default=3, ge=1, le=20)
+    consolidation_dream_assoc_min_summary_len: int = Field(default=20, ge=0, le=200)
+    consolidation_dream_assoc_structural_max_hops: int = Field(default=3, ge=1, le=6)
+    consolidation_dream_assoc_max_duration_ms: int = Field(default=5000, ge=500, le=30000)
+    consolidation_dream_assoc_top_n_per_domain: int = Field(default=20, ge=5, le=200)
+
     # --- Pressure-based triggering ---
     consolidation_pressure_enabled: bool = Field(default=False)
     consolidation_pressure_threshold: float = Field(default=100.0, gt=0.0, le=10000.0)
@@ -283,6 +337,85 @@ class ActivationConfig(BaseModel):
     triage_min_score: float = Field(
         default=0.2, ge=0.0, le=1.0,
         description="Minimum score to consider for extraction",
+    )
+
+    # --- Triage personal narrative boost ---
+    triage_personal_boost_enabled: bool = Field(
+        default=True, description="Boost personal/emotional content in triage scoring",
+    )
+    triage_personal_boost: float = Field(
+        default=0.15, ge=0.0, le=0.5,
+        description="Score boost for personal narrative content",
+    )
+    triage_personal_min_matches: int = Field(
+        default=2, ge=1, le=10,
+        description="Minimum personal keyword matches to trigger boost",
+    )
+
+    # --- Triage LLM judge ---
+    triage_llm_judge_enabled: bool = Field(
+        default=False, description="Use Haiku as triage judge (replaces heuristics)",
+    )
+    triage_llm_judge_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Model for LLM triage judge",
+    )
+
+    # --- Identity core ---
+    identity_core_enabled: bool = Field(
+        default=True, description="Enable identity core protected entity subgraph",
+    )
+    identity_predicates: list[str] = Field(
+        default_factory=lambda: [
+            "FAMILY_OF", "PARENT_OF", "CHILD_OF", "SIBLING_OF",
+            "MARRIED_TO", "PARTNER_OF", "LIVES_IN", "WORKS_AT",
+        ],
+        description="Relationship predicates that trigger identity core auto-detection",
+    )
+
+    # --- Cross-domain penalty (topic-aware spreading) ---
+    cross_domain_penalty_enabled: bool = Field(
+        default=False, description="Penalize spreading activation across topic domains",
+    )
+    cross_domain_penalty_factor: float = Field(
+        default=0.3, ge=0.0, le=1.0,
+        description="Multiplier applied when spreading crosses topic domains",
+    )
+    domain_groups: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "personal": ["Person", "Event", "Emotion", "Goal", "Preference", "Habit"],
+            "technical": ["Technology", "Software", "Project"],
+            "creative": ["CreativeWork", "Article"],
+            "knowledge": ["Concept"],
+            "health": ["HealthCondition", "BodyPart"],
+            "spatial": ["Organization", "Location"],
+        },
+        description="Entity type to topic domain mapping for cross-domain penalty",
+    )
+
+    # --- Context tiers ---
+    context_identity_budget: int = Field(
+        default=200, description="Token budget for identity core tier in get_context",
+    )
+    context_project_budget: int = Field(
+        default=400, description="Token budget for project context tier in get_context",
+    )
+    context_recency_budget: int = Field(
+        default=400, description="Token budget for recent activity tier in get_context",
+    )
+
+    # --- Briefing format ---
+    briefing_enabled: bool = Field(
+        default=True, description="Enable LLM briefing format for get_context",
+    )
+    briefing_model: str = Field(
+        default="claude-haiku-4-5-20251001", description="Model for briefing synthesis",
+    )
+    briefing_cache_ttl_seconds: float = Field(
+        default=300.0, description="TTL for briefing cache entries",
+    )
+    briefing_max_tokens: int = Field(
+        default=300, description="Max tokens for briefing response",
     )
 
     # --- Background episode worker ---
@@ -304,6 +437,7 @@ class ActivationConfig(BaseModel):
             _set("consolidation_replay_enabled", True)
             _set("consolidation_dream_enabled", True)
             _set("consolidation_infer_pmi_enabled", True)
+            _set("consolidation_dream_associations_enabled", True)
             _set("triage_enabled", True)
             _set("worker_enabled", True)
         elif profile == "conservative":
@@ -327,6 +461,13 @@ class ActivationConfig(BaseModel):
             _set("triage_enabled", True)
             _set("triage_extract_ratio", 0.35)
             _set("worker_enabled", True)
+            # LLM features
+            _set("triage_llm_judge_enabled", True)
+            _set("consolidation_infer_llm_enabled", True)
+            _set("consolidation_infer_escalation_enabled", True)
+            _set("consolidation_merge_llm_enabled", True)
+            _set("consolidation_merge_escalation_enabled", True)
+            _set("consolidation_dream_associations_enabled", True)
 
 
 class EngramConfig(BaseSettings):
@@ -335,7 +476,10 @@ class EngramConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ENGRAM_",
         env_nested_delimiter="__",
-        env_file=".env",
+        env_file=(
+            str(Path.home() / ".engram" / ".env"),  # global config
+            ".env",  # local override
+        ),
         env_file_encoding="utf-8",
         extra="ignore",
     )

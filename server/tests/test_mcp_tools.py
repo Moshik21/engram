@@ -474,7 +474,13 @@ class TestGetContext:
     async def test_get_context_returns_markdown(self, rich_manager):
         result = await rich_manager.get_context(group_id=GROUP)
         ctx = result["context"]
-        assert "## Active Memory Context" in ctx
+        # Tiered context uses section headers like ## Identity, ## Recent Activity
+        assert "##" in ctx
+
+    @pytest.mark.asyncio
+    async def test_get_context_returns_format_field(self, rich_manager):
+        result = await rich_manager.get_context(group_id=GROUP)
+        assert result.get("format") == "structured"
 
 
 # ─── TestGetGraphState ───────────────────────────────────────────────

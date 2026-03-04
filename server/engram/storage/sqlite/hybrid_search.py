@@ -327,6 +327,27 @@ class HybridSearchIndex:
         """No-op — connection is shared with the graph store."""
         pass
 
+    async def get_entity_embeddings(
+        self,
+        entity_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """Batch retrieve entity embeddings from vector store."""
+        if not self._embeddings_enabled or not entity_ids:
+            return {}
+        results: dict[str, list[float]] = {}
+        placeholders = ",".join("?" * len(entity_ids))
+        gid = group_id or "default"
+        cursor = await self._vectors.db.execute(
+            f"SELECT id, embedding, dimensions FROM embeddings "
+            f"WHERE id IN ({placeholders}) AND group_id = ? AND content_type = 'entity'",
+            [*entity_ids, gid],
+        )
+        for row in await cursor.fetchall():
+            vec = unpack_vector(row["embedding"], row["dimensions"])
+            results[row["id"]] = vec
+        return results
+
     async def remove(self, entity_id: str) -> None:
         """Remove entity from both FTS5 and vector store."""
         await self._fts.remove(entity_id)

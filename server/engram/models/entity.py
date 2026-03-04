@@ -24,3 +24,4 @@ class Entity(BaseModel):
     last_accessed: datetime | None = None
     pii_detected: bool = False
     pii_categories: list[str] | None = None
+    identity_core: bool = False

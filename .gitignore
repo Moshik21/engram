@@ -51,6 +51,10 @@ coverage.xml
 # Backups
 backups/
 
+# Internal analysis / dev notes
+CONSOLIDATION_HEALTH_ANALYSIS.md
+CROSS_TOPIC_ANALYSIS.md
+
 # AI tool configs
 CLAUDE.md
 .claude/

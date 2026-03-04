@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import pytest
-
-from dataclasses import dataclass
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
@@ -334,7 +333,6 @@ class TestEntityFirstFallback:
 
     async def test_entity_first_fallback_skipped_when_search_has_results(self):
         """When search returns 3+ results, find_entities is not called."""
-        now = time.time()
 
         candidates = await _inject_entity_matches(
             query="test query",

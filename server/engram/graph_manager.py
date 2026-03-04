@@ -53,6 +53,9 @@ class GraphManager:
         self._community_store = community_store
         self._predicate_cache = predicate_cache
 
+        # Briefing cache: (group_id, topic_hint) -> (timestamp, text)
+        self._briefing_cache: dict[tuple[str, str | None], tuple[float, str]] = {}
+
         # Working memory buffer
         if self._cfg.working_memory_enabled:
             self._working_memory: WorkingMemoryBuffer | None = WorkingMemoryBuffer(
@@ -64,7 +67,8 @@ class GraphManager:
 
     # Entity types where meta-summaries should be rejected (real-world entities)
     _PROTECTED_ENTITY_TYPES = frozenset(
-        {"Person", "CreativeWork", "Location", "Event", "Organization"}
+        {"Person", "CreativeWork", "Location", "Event", "Organization",
+         "Emotion", "Goal", "Preference"}
     )
 
     # Patterns that indicate a summary contains system-internal meta-commentary
@@ -90,6 +94,7 @@ class GraphManager:
         new_summary: str | None,
         new_pii: bool = False,
         new_pii_categories: list[str] | None = None,
+        new_attributes: dict | None = None,
     ) -> dict:
         """Merge new attributes into an existing entity. Returns update dict."""
         updates: dict = {}
@@ -115,6 +120,14 @@ class GraphManager:
                 updates["summary"] = merged
             else:
                 updates["summary"] = new_summary[:500]
+
+        # Structured attributes: new values overwrite old for same key
+        if new_attributes:
+            merged_attrs = {**(existing.attributes or {}), **new_attributes}
+            if merged_attrs != (existing.attributes or {}):
+                import json
+
+                updates["attributes"] = json.dumps(merged_attrs)
 
         # PII: once flagged, always flagged
         if new_pii and not existing.pii_detected:
@@ -205,8 +218,16 @@ class GraphManager:
                     "content": content[:200] if content else "",
                     "source": source or "unknown",
                     "status": "queued",
-                    "createdAt": episode.created_at.isoformat() if episode.created_at else "",
-                    "updatedAt": episode.created_at.isoformat() if episode.created_at else "",
+                    "createdAt": (
+                        episode.created_at.isoformat() + "Z"
+                        if episode.created_at
+                        else ""
+                    ),
+                    "updatedAt": (
+                        episode.created_at.isoformat() + "Z"
+                        if episode.created_at
+                        else ""
+                    ),
                     "entities": [],
                     "factsCount": 0,
                     "processingDurationMs": None,
@@ -270,6 +291,7 @@ class GraphManager:
                 name = ent_data["name"]
                 entity_type = ent_data.get("entity_type", "Other")
                 summary = ent_data.get("summary")
+                attributes = ent_data.get("attributes") or None
                 pii_detected = ent_data.get("pii_detected", False)
                 pii_categories = ent_data.get("pii_categories")
 
@@ -289,7 +311,8 @@ class GraphManager:
                 if existing_entity:
                     entity_id = existing_entity.id
                     updates = self._merge_entity_attributes(
-                        existing_entity, summary, pii_detected, pii_categories
+                        existing_entity, summary, pii_detected, pii_categories,
+                        new_attributes=attributes,
                     )
                     if updates:
                         await self._graph.update_entity(entity_id, updates, group_id=group_id)
@@ -300,6 +323,7 @@ class GraphManager:
                         name=name,
                         entity_type=entity_type,
                         summary=summary,
+                        attributes=attributes,
                         group_id=group_id,
                         pii_detected=pii_detected,
                         pii_categories=pii_categories,
@@ -385,6 +409,39 @@ class GraphManager:
                     if valid_from is None:
                         valid_from = dt_now
 
+                    # Polarity handling
+                    polarity = rel_data.get("polarity", "positive")
+                    if polarity not in ("positive", "negative", "uncertain"):
+                        polarity = "positive"
+
+                    rel_weight = float(rel_data.get("weight", 1.0))
+
+                    if polarity == "negative":
+                        # Invalidate existing positive relationships with same
+                        # source+target+predicate
+                        existing_rels = await self._graph.get_relationships(
+                            source_id,
+                            direction="outgoing",
+                            predicate=predicate,
+                            active_only=True,
+                            group_id=group_id,
+                        )
+                        for existing_rel in existing_rels:
+                            if existing_rel.target_id == target_id:
+                                await self._graph.invalidate_relationship(
+                                    existing_rel.id, dt_now, group_id=group_id
+                                )
+                                logger.info(
+                                    "Negation invalidated relationship %s "
+                                    "(%s → %s via %s)",
+                                    existing_rel.id,
+                                    existing_rel.source_id,
+                                    existing_rel.target_id,
+                                    existing_rel.predicate,
+                                )
+                    elif polarity == "uncertain":
+                        rel_weight *= 0.5
+
                     if is_exclusive_predicate(predicate):
                         conflicts = await self._graph.find_conflicting_relationships(
                             source_id, predicate, group_id
@@ -408,7 +465,8 @@ class GraphManager:
                         source_id=source_id,
                         target_id=target_id,
                         predicate=predicate,
-                        weight=float(rel_data.get("weight", 1.0)),
+                        weight=rel_weight,
+                        polarity=polarity,
                         valid_from=valid_from,
                         valid_to=valid_to,
                         confidence=confidence,
@@ -416,6 +474,21 @@ class GraphManager:
                         group_id=group_id,
                     )
                     await self._graph.create_relationship(rel)
+
+                    # Auto-detect identity core entities via identity predicates
+                    if (
+                        self._cfg.identity_core_enabled
+                        and predicate in self._cfg.identity_predicates
+                    ):
+                        for eid_to_mark in (source_id, target_id):
+                            try:
+                                await self._graph.update_entity(
+                                    eid_to_mark,
+                                    {"identity_core": 1},
+                                    group_id=group_id,
+                                )
+                            except Exception:
+                                pass  # May fail if entity already marked
 
             # Publish graph changes
             serialized_nodes = []
@@ -538,6 +611,7 @@ class GraphManager:
                 "Ingested episode %s: %d entities, %d relationships",
                 episode_id, len(result.entities), len(result.relationships),
             )
+            self.invalidate_briefing_cache(group_id)
 
         except Exception as e:
             logger.error("Failed to process episode %s: %s", episode_id, e)
@@ -718,6 +792,7 @@ class GraphManager:
                                 "activation": sr.activation,
                                 "edge_proximity": sr.edge_proximity,
                                 "exploration_bonus": sr.exploration_bonus,
+                                "hop_distance": sr.hop_distance,
                             },
                             "relationships": [
                                 {
@@ -985,120 +1060,314 @@ class GraphManager:
 
     # ─── Get context ────────────────────────────────────────────────
 
+    async def _entity_to_context_data(
+        self, entity_id: str, name: str, entity_type: str,
+        summary: str, group_id: str, now: float,
+        detail_level: str = "full",
+    ) -> dict:
+        """Build context data dict for a single entity with activation and facts.
+
+        detail_level controls rendering resolution:
+        - "full": name + type + activation + summary + attributes + up to 5 facts
+        - "summary": name + type + summary + up to 2 facts
+        - "mention": name + type only
+        """
+        result: dict = {
+            "name": name,
+            "type": entity_type,
+            "detail_level": detail_level,
+            "id": entity_id,
+        }
+
+        if detail_level == "mention":
+            result["activation"] = 0.0
+            result["summary"] = None
+            result["facts"] = []
+            result["attributes"] = None
+            return result
+
+        from engram.activation.engine import compute_activation
+
+        state = await self._activation.get_activation(entity_id)
+        act = 0.0
+        if state:
+            act = compute_activation(state.access_history, now, self._cfg)
+        result["activation"] = act
+        result["summary"] = summary
+
+        max_facts = 5 if detail_level == "full" else 2
+        facts: list[str] = []
+        rels = await self._graph.get_relationships(
+            entity_id, active_only=True, group_id=group_id,
+        )
+        for r in rels[:max_facts]:
+            src = await self.resolve_entity_name(r.source_id, group_id)
+            tgt = await self.resolve_entity_name(r.target_id, group_id)
+            facts.append(f"{src} {r.predicate} {tgt}")
+        result["facts"] = facts
+
+        # Only fetch attributes for full detail
+        if detail_level == "full":
+            entity = await self._graph.get_entity(entity_id, group_id)
+            result["attributes"] = entity.attributes if entity else None
+        else:
+            result["attributes"] = None
+
+        return result
+
+    @staticmethod
+    def _render_tier(header: str, entities: list[dict], facts: list[str]) -> str:
+        """Render a single context tier as markdown with variable resolution.
+
+        Each entity dict may have a 'detail_level' key:
+        - "full": name + type + activation + summary + attributes + facts
+        - "summary": name + type + summary + facts (no attributes)
+        - "mention": name + type only
+        """
+        lines = [header, ""]
+        for ed in entities:
+            detail = ed.get("detail_level", "full")
+
+            if detail == "mention":
+                lines.append(f"- {ed['name']} ({ed['type']})")
+                continue
+
+            summary_part = f" — {ed['summary']}" if ed.get("summary") else ""
+            # Append top attributes inline (full detail only)
+            if detail == "full":
+                attrs = ed.get("attributes")
+                if attrs:
+                    attr_parts = [f"{k}: {v}" for k, v in list(attrs.items())[:5]]
+                    summary_part += f" [{', '.join(attr_parts)}]"
+            lines.append(
+                f"- {ed['name']} ({ed['type']}, act={ed['activation']:.2f})"
+                f"{summary_part}"
+            )
+            # Render per-entity facts inline
+            for fact in ed.get("facts", []):
+                lines.append(f"  - {fact}")
+
+        # Also render any tier-level facts not already covered by entities
+        entity_facts = set()
+        for ed in entities:
+            entity_facts.update(ed.get("facts", []))
+        extra_facts = [f for f in facts if f not in entity_facts]
+        if extra_facts:
+            for fact in extra_facts:
+                lines.append(f"  - {fact}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        return len(text) // 4
+
+    def invalidate_briefing_cache(self, group_id: str) -> None:
+        """Clear briefing cache entries for the given group."""
+        keys_to_remove = [k for k in self._briefing_cache if k[0] == group_id]
+        for k in keys_to_remove:
+            del self._briefing_cache[k]
+
+    async def _synthesize_briefing(
+        self, structured_context: str, group_id: str, topic_hint: str | None,
+    ) -> str:
+        """Call Claude Haiku to synthesize a brief narrative from structured context."""
+        import asyncio
+
+        cache_key = (group_id, topic_hint)
+        now = time.time()
+        if cache_key in self._briefing_cache:
+            ts, text = self._briefing_cache[cache_key]
+            if now - ts < self._cfg.briefing_cache_ttl_seconds:
+                return text
+
+        try:
+            import anthropic
+
+            client = anthropic.Anthropic()
+
+            def _call() -> str:
+                resp = client.messages.create(
+                    model=self._cfg.briefing_model,
+                    max_tokens=self._cfg.briefing_max_tokens,
+                    system=(
+                        "You synthesize memory context into a brief, natural-sounding "
+                        "summary for an AI assistant about to start a conversation. "
+                        "Write 2-3 sentences: who the user is, what they're working on, "
+                        "and relevant recent context. Be concise and conversational. "
+                        "Do not mention activation scores or system internals."
+                    ),
+                    messages=[{"role": "user", "content": structured_context}],
+                )
+                return resp.content[0].text
+
+            briefing = await asyncio.to_thread(_call)
+            self._briefing_cache[cache_key] = (now, briefing)
+            return briefing
+        except Exception:
+            logger.warning("Briefing synthesis failed, falling back to structured", exc_info=True)
+            return structured_context
+
     async def get_context(
         self,
         group_id: str = "default",
         max_tokens: int = 2000,
         topic_hint: str | None = None,
+        project_path: str | None = None,
+        format: str = "structured",
     ) -> dict:
-        """Build a markdown context summary of the most activated memories."""
+        """Build a tiered markdown context summary of the most activated memories.
+
+        Tiers:
+        1. Identity Core — always-included identity entities + top relationships
+        2. Project Context — topic-biased entities (from project_path or topic_hint)
+        3. Recent Activity — top-activated entities filling remaining budget
+        """
+        from pathlib import Path
+
         from engram.activation.engine import compute_activation
 
         now = time.time()
-        entities_data = []
-        facts_data = []
+        seen_ids: set[str] = set()
+
+        # Derive topic_hint from project_path if not provided
+        if project_path and not topic_hint:
+            p = Path(project_path).expanduser()
+            if p.name and str(p) != str(Path.home()):
+                topic_hint = p.name
+
+        # ── Layer 1: Identity Core ──
+        layer1_entities: list[dict] = []
+        layer1_facts: list[str] = []
+
+        if self._cfg.identity_core_enabled and hasattr(self._graph, "get_identity_core_entities"):
+            try:
+                core_entities = await self._graph.get_identity_core_entities(group_id)
+                for ce in core_entities:
+                    ed = await self._entity_to_context_data(
+                        ce.id, ce.name, ce.entity_type,
+                        ce.summary or "", group_id, now,
+                        detail_level="full",
+                    )
+                    layer1_entities.append(ed)
+                    layer1_facts.extend(ed["facts"])
+                    seen_ids.add(ce.id)
+            except Exception:
+                logger.debug("Identity core lookup failed (non-fatal)", exc_info=True)
+
+        layer1_entities.sort(key=lambda x: x["activation"], reverse=True)
+        layer1_text = self._render_tier("## Identity", layer1_entities, layer1_facts)
+
+        # ── Layer 2: Project Context ──
+        layer2_entities: list[dict] = []
+        layer2_facts: list[str] = []
 
         if topic_hint:
-            # Topic-biased: use recall to find relevant entities
-            results = await self.recall(query=topic_hint, group_id=group_id, limit=20)
+            results = await self.recall(query=topic_hint, group_id=group_id, limit=15)
             for r in results:
                 if r.get("result_type") == "episode":
                     continue
                 ent = r["entity"]
-                state = await self._activation.get_activation(ent["id"])
-                act = 0.0
-                if state:
-                    act = compute_activation(state.access_history, now, self._cfg)
-                entities_data.append(
-                    {
-                        "name": ent["name"],
-                        "type": ent["type"],
-                        "summary": ent.get("summary") or "",
-                        "activation": act,
-                        "id": ent["id"],
-                    }
+                if ent["id"] in seen_ids:
+                    continue
+                # Variable resolution based on hop distance
+                hop = r.get("score_breakdown", {}).get("hop_distance")
+                if hop is None or hop == 0:
+                    detail = "full"
+                elif hop == 1:
+                    detail = "summary"
+                else:
+                    detail = "mention"
+                ed = await self._entity_to_context_data(
+                    ent["id"], ent["name"], ent["type"],
+                    ent.get("summary") or "", group_id, now,
+                    detail_level=detail,
                 )
-                for rel in r.get("relationships", []):
-                    source_name = await self.resolve_entity_name(rel["source_id"], group_id)
-                    target_name = await self.resolve_entity_name(rel["target_id"], group_id)
-                    facts_data.append(f"{source_name} {rel['predicate']} {target_name}")
-        else:
-            # Broad: get top activated entities
-            top = await self._activation.get_top_activated(group_id=group_id, limit=20)
-            for eid, state in top:
-                entity = await self._graph.get_entity(eid, group_id)
-                if entity:
-                    act = compute_activation(state.access_history, now, self._cfg)
-                    entities_data.append(
-                        {
-                            "name": entity.name,
-                            "type": entity.entity_type,
-                            "summary": entity.summary or "",
-                            "activation": act,
-                            "id": entity.id,
-                        }
-                    )
-                    rels = await self._graph.get_relationships(
-                        eid, active_only=True, group_id=group_id
-                    )
-                    for r in rels[:3]:
-                        source_name = await self.resolve_entity_name(r.source_id, group_id)
-                        target_name = await self.resolve_entity_name(r.target_id, group_id)
-                        fact = f"{source_name} {r.predicate} {target_name}"
-                        if fact not in facts_data:
-                            facts_data.append(fact)
+                layer2_entities.append(ed)
+                layer2_facts.extend(ed["facts"])
+                seen_ids.add(ent["id"])
+            layer2_entities.sort(key=lambda x: x["activation"], reverse=True)
 
-        # Sort by activation (highest first)
-        entities_data.sort(key=lambda x: x["activation"], reverse=True)
-
-        # Build markdown
-        lines = ["## Active Memory Context", ""]
-        lines.append("**Key entities (by activation):**")
-        for ed in entities_data:
-            summary_part = f" — {ed['summary']}" if ed["summary"] else ""
-            lines.append(
-                f"- **{ed['name']}** ({ed['type']}, activation={ed['activation']:.2f})"
-                f"{summary_part}"
+        if layer2_entities:
+            layer2_text = self._render_tier(
+                f"## Project Context ({topic_hint})", layer2_entities, layer2_facts,
             )
+        else:
+            layer2_text = ""
 
-        if facts_data:
-            lines.append("")
-            lines.append("**Recent facts:**")
-            # Deduplicate
-            seen = set()
-            for fact in facts_data:
-                if fact not in seen:
-                    seen.add(fact)
-                    lines.append(f"- {fact}")
+        # ── Layer 3: Recent Activity ──
+        layer3_entities: list[dict] = []
+        layer3_facts: list[str] = []
 
-        # Active topics (unique entity types)
-        types = list({ed["type"] for ed in entities_data})
-        if types:
-            lines.append("")
-            lines.append(f"**Active topics:** {', '.join(sorted(types))}")
+        top = await self._activation.get_top_activated(group_id=group_id, limit=20)
+        for eid, state in top:
+            if eid in seen_ids:
+                continue
+            entity = await self._graph.get_entity(eid, group_id)
+            if not entity:
+                continue
+            act = compute_activation(state.access_history, now, self._cfg)
+            ed = await self._entity_to_context_data(
+                entity.id, entity.name, entity.entity_type,
+                entity.summary or "", group_id, now,
+                detail_level="summary",
+            )
+            ed["activation"] = act  # use fresh computation
+            layer3_entities.append(ed)
+            layer3_facts.extend(ed["facts"])
+            seen_ids.add(eid)
 
-        context_text = "\n".join(lines)
+        layer3_entities.sort(key=lambda x: x["activation"], reverse=True)
+        layer3_text = self._render_tier("## Recent Activity", layer3_entities, layer3_facts)
+
+        # ── Assemble ──
+        all_entities = layer1_entities + layer2_entities + layer3_entities
+        all_facts = layer1_facts + layer2_facts + layer3_facts
+        # Deduplicate facts
+        seen_facts: set[str] = set()
+        unique_facts: list[str] = []
+        for f in all_facts:
+            if f not in seen_facts:
+                seen_facts.add(f)
+                unique_facts.append(f)
+
+        sections = [s for s in [layer1_text, layer2_text, layer3_text] if s]
+        context_text = (
+            "\n\n".join(sections)
+            if sections
+            else "## Active Memory Context\n\nNo memories loaded."
+        )
 
         # Token estimate and truncation
-        token_estimate = len(context_text) // 4
+        token_estimate = self._estimate_tokens(context_text)
         if token_estimate > max_tokens:
-            # Truncate to fit budget
             char_budget = max_tokens * 4
             context_text = context_text[:char_budget]
             token_estimate = max_tokens
 
-        # Record access for included entities (readOnlyHint=false per spec)
-        for ed in entities_data:
+        # Record access for included entities
+        for ed in all_entities:
             await self._activation.record_access(ed["id"], now, group_id=group_id)
             await self._publish_access_event(
-                ed["id"], ed["name"], ed["type"], group_id, "context"
+                ed["id"], ed["name"], ed["type"], group_id, "context",
             )
+
+        # Briefing format
+        if format == "briefing" and self._cfg.briefing_enabled and all_entities:
+            briefing = await self._synthesize_briefing(context_text, group_id, topic_hint)
+            return {
+                "context": briefing,
+                "entity_count": len(all_entities),
+                "fact_count": len(unique_facts),
+                "token_estimate": self._estimate_tokens(briefing),
+                "format": "briefing",
+            }
 
         return {
             "context": context_text,
-            "entity_count": len(entities_data),
-            "fact_count": len(facts_data),
+            "entity_count": len(all_entities),
+            "fact_count": len(unique_facts),
             "token_estimate": token_estimate,
+            "format": "structured",
         }
 
     # ─── Get graph state ────────────────────────────────────────────

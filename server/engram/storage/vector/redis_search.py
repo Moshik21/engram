@@ -395,6 +395,30 @@ class RedisSearchIndex:
         """No-op — Redis client lifecycle is managed externally."""
         pass
 
+    async def get_entity_embeddings(
+        self,
+        entity_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """Batch retrieve entity embeddings from Redis hashes."""
+        if not self._embeddings_enabled or not entity_ids:
+            return {}
+        gid = group_id or "default"
+        results: dict[str, list[float]] = {}
+        pipe = self._redis.pipeline(transaction=False)
+        keys = []
+        for eid in entity_ids:
+            key = self._hash_key(gid, "entity", eid)
+            keys.append((eid, key))
+            pipe.hget(key, "vector")
+        raw_values = await pipe.execute()
+        dim = self._config.dimensions
+        for (eid, _), raw in zip(keys, raw_values):
+            if raw:
+                vec = list(struct.unpack(f"<{dim}f", raw))
+                results[eid] = vec
+        return results
+
     async def remove(self, entity_id: str) -> None:
         """Remove all vector entries for an entity."""
         # Scan for matching keys and delete them

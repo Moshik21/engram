@@ -12,6 +12,14 @@ if TYPE_CHECKING:
     from engram.activation.context_gate import ContextGate
 
 
+def _resolve_domain(entity_type: str, domain_groups: dict[str, list[str]]) -> str | None:
+    """Map an entity type to its topic domain. Returns None for mixed/unclassified."""
+    for domain, types in domain_groups.items():
+        if entity_type in types:
+            return domain
+    return None
+
+
 class BFSStrategy:
     """Bounded BFS spreading activation with typed edge weights."""
 
@@ -23,6 +31,7 @@ class BFSStrategy:
         group_id: str | None = None,
         community_store=None,
         context_gate: ContextGate | None = None,
+        seed_entity_types: dict[str, str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes through the graph via BFS.
 
@@ -34,6 +43,9 @@ class BFSStrategy:
         hop_distances: dict[str, int] = {}
         visited: set[str] = set()
         energy_spent: float = 0.0
+
+        # Track entity types for cross-domain penalty
+        node_types: dict[str, str] = dict(seed_entity_types or {})
 
         queue: deque[tuple[str, float, int]] = deque()
 
@@ -58,7 +70,16 @@ class BFSStrategy:
             fan_factor = max(cfg.fan_s_min, cfg.fan_s_max - math.log(out_degree + 1))
 
             for neighbor_info in neighbors:
-                if len(neighbor_info) >= 3:
+                neighbor_entity_type = None
+                if len(neighbor_info) >= 4:
+                    neighbor_id = neighbor_info[0]
+                    edge_weight = neighbor_info[1]
+                    predicate = neighbor_info[2]
+                    neighbor_entity_type = neighbor_info[3]
+                    predicate_weight = cfg.predicate_weights.get(
+                        predicate, cfg.predicate_weight_default
+                    )
+                elif len(neighbor_info) >= 3:
                     neighbor_id = neighbor_info[0]
                     edge_weight = neighbor_info[1]
                     predicate = neighbor_info[2]
@@ -70,6 +91,10 @@ class BFSStrategy:
                     edge_weight = neighbor_info[1]
                     predicate = None
                     predicate_weight = cfg.predicate_weight_default
+
+                # Track discovered entity types
+                if neighbor_entity_type:
+                    node_types[neighbor_id] = neighbor_entity_type
 
                 # Community factor
                 community_factor = 1.0
@@ -97,6 +122,21 @@ class BFSStrategy:
                 ):
                     context_factor = context_gate.gate(predicate)
 
+                # Cross-domain penalty (exempt DREAM_ASSOCIATED edges)
+                domain_factor = 1.0
+                if cfg.cross_domain_penalty_enabled and predicate != "DREAM_ASSOCIATED":
+                    source_type = node_types.get(node_id, "")
+                    target_type = neighbor_entity_type or node_types.get(neighbor_id, "")
+                    if source_type and target_type:
+                        source_domain = _resolve_domain(source_type, cfg.domain_groups)
+                        target_domain = _resolve_domain(target_type, cfg.domain_groups)
+                        if (
+                            source_domain is not None
+                            and target_domain is not None
+                            and source_domain != target_domain
+                        ):
+                            domain_factor = cfg.cross_domain_penalty_factor
+
                 spread_amount = (
                     energy
                     * edge_weight
@@ -104,6 +144,7 @@ class BFSStrategy:
                     * fan_factor
                     * community_factor
                     * context_factor
+                    * domain_factor
                     * cfg.spread_decay_per_hop
                 )
 

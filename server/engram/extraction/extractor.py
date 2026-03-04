@@ -6,7 +6,7 @@ import json
 import logging
 import os
 
-from engram.extraction.prompts import EXTRACTION_SYSTEM_PROMPT
+from engram.extraction.prompts import EXTRACTION_SYSTEM_CACHED
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class EntityExtractor:
             message = client.messages.create(
                 model=self._model,
                 max_tokens=max_tokens,
-                system=EXTRACTION_SYSTEM_PROMPT,
+                system=EXTRACTION_SYSTEM_CACHED,
                 messages=[{"role": "user", "content": text}],
             )
 
@@ -83,7 +83,7 @@ class EntityExtractor:
                     message = client.messages.create(
                         model=self._model,
                         max_tokens=_MAX_OUTPUT_TOKENS,
-                        system=EXTRACTION_SYSTEM_PROMPT,
+                        system=EXTRACTION_SYSTEM_CACHED,
                         messages=[{"role": "user", "content": text}],
                     )
                     response_text = message.content[0].text

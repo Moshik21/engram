@@ -141,3 +141,76 @@ class TestExtract:
         result = await extractor.extract("test text")
         assert result.entities == []
         assert result.relationships == []
+
+    async def test_uses_cached_system_prompt(self):
+        """System kwarg should be a list with cache_control for prompt caching."""
+        data = {"entities": [], "relationships": []}
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        await extractor.extract("test text")
+
+        call_kwargs = extractor._client.messages.create.call_args[1]
+        assert isinstance(call_kwargs["system"], list)
+        assert len(call_kwargs["system"]) == 1
+        assert call_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    async def test_health_condition_entity_type(self):
+        """HealthCondition entity type parses correctly from extraction response."""
+        data = {
+            "entities": [
+                {"name": "Type 2 Diabetes", "entity_type": "HealthCondition",
+                 "summary": "Chronic metabolic condition"},
+                {"name": "Pancreas", "entity_type": "BodyPart",
+                 "summary": "Organ that produces insulin"},
+            ],
+            "relationships": [
+                {"source": "Type 2 Diabetes", "target": "Pancreas",
+                 "predicate": "AFFECTS"},
+            ],
+        }
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        result = await extractor.extract(
+            "He was diagnosed with type 2 diabetes which affects the pancreas"
+        )
+        assert len(result.entities) == 2
+        assert result.entities[0]["entity_type"] == "HealthCondition"
+        assert result.entities[1]["entity_type"] == "BodyPart"
+
+    async def test_emotion_entity_type(self):
+        """Emotion entity type parses correctly from extraction response."""
+        data = {
+            "entities": [
+                {"name": "Anxiety", "entity_type": "Emotion",
+                 "summary": "Feeling of worry and unease"},
+            ],
+            "relationships": [],
+        }
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        result = await extractor.extract(
+            "I have been feeling a lot of anxiety about the move"
+        )
+        assert len(result.entities) == 1
+        assert result.entities[0]["entity_type"] == "Emotion"
+
+    async def test_goal_preference_habit_entity_types(self):
+        """Goal, Preference, and Habit entity types parse correctly."""
+        data = {
+            "entities": [
+                {"name": "Run A Marathon", "entity_type": "Goal",
+                 "summary": "Aspiration to complete a marathon"},
+                {"name": "Morning Running", "entity_type": "Habit",
+                 "summary": "Daily morning running routine"},
+                {"name": "Plant-Based Diet", "entity_type": "Preference",
+                 "summary": "Prefers plant-based foods"},
+            ],
+            "relationships": [
+                {"source": "Morning Running", "target": "Run A Marathon",
+                 "predicate": "SUPPORTS"},
+            ],
+        }
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        result = await extractor.extract(
+            "My goal is to run a marathon. I run every morning and prefer a plant-based diet."
+        )
+        assert len(result.entities) == 3
+        types = {e["entity_type"] for e in result.entities}
+        assert types == {"Goal", "Habit", "Preference"}

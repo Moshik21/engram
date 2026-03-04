@@ -8,6 +8,8 @@ export function KnowledgeEntityCard({ entity }: { entity: SearchResult }) {
   const expandEntity = useEngramStore((s) => s.expandEntity);
   const selectNode = useEngramStore((s) => s.selectNode);
   const setCurrentView = useEngramStore((s) => s.setCurrentView);
+  const openDrawer = useEngramStore((s) => s.openDrawer);
+  const setBrowseOverlayOpen = useEngramStore((s) => s.setBrowseOverlayOpen);
 
   const isExpanded = expandedEntityId === entity.id;
   const color = entityColor(entity.entityType);
@@ -93,31 +95,55 @@ export function KnowledgeEntityCard({ entity }: { entity: SearchResult }) {
             </div>
           )}
 
-          {/* View in Graph button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              selectNode(entity.id);
-              setCurrentView("graph");
-            }}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              padding: "5px 0",
-              background: entityColorDim(entity.entityType, 0.08),
-              border: `1px solid ${color}20`,
-              borderRadius: "var(--radius-xs)",
-              color,
-              fontSize: 10,
-              fontFamily: "var(--font-mono)",
-              fontWeight: 500,
-              cursor: "pointer",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-            }}
-          >
-            View in Graph
-          </button>
+          {/* Action buttons */}
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                selectNode(entity.id);
+                setCurrentView("graph");
+              }}
+              style={{
+                flex: 1,
+                padding: "5px 0",
+                background: entityColorDim(entity.entityType, 0.08),
+                border: `1px solid ${color}20`,
+                borderRadius: "var(--radius-xs)",
+                color,
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                fontWeight: 500,
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Graph
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openDrawer(entity.id);
+                setBrowseOverlayOpen(false);
+              }}
+              style={{
+                flex: 1,
+                padding: "5px 0",
+                background: "rgba(34, 211, 238, 0.06)",
+                border: "1px solid var(--border-active)",
+                borderRadius: "var(--radius-xs)",
+                color: "var(--accent)",
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                fontWeight: 500,
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              Details
+            </button>
+          </div>
         </div>
       )}
     </div>

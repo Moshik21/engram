@@ -349,9 +349,19 @@ def _make_stream_mock(text_chunks):
 
 
 class TestChat:
+    @staticmethod
+    def _parse_sse_events(text: str) -> list:
+        """Parse SSE events from response text, returning decoded JSON objects."""
+        events = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if line.startswith("data: ") and line != "data: [DONE]":
+                events.append(json.loads(line[6:]))
+        return events
+
     @pytest.mark.asyncio
     async def test_chat_streams_sse(self, knowledge_client):
-        """POST /chat returns SSE stream ending with [DONE]."""
+        """POST /chat returns AI SDK v6 UIMessageStream protocol."""
         mock_stream_ctx = _make_stream_mock(["Hello", " world"])
 
         mock_client = MagicMock()
@@ -366,24 +376,22 @@ class TestChat:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
 
-        # Parse SSE events
-        text = resp.text
-        lines = [line for line in text.split("\n") if line.startswith("data: ")]
-        assert len(lines) >= 3  # at least: text chunk(s) + sources + [DONE]
+        events = self._parse_sse_events(resp.text)
 
-        # Check text chunks
-        first = json.loads(lines[0].removeprefix("data: "))
-        assert first["type"] == "text"
-        assert first["content"] == "Hello"
+        # Should start with start + start-step
+        assert events[0]["type"] == "start"
+        assert events[1]["type"] == "start-step"
 
-        # Check sources event
-        sources_line = lines[-2]  # second to last is sources
-        sources_data = json.loads(sources_line.removeprefix("data: "))
-        assert sources_data["type"] == "sources"
-        assert isinstance(sources_data["items"], list)
+        # Should have text-start, text-delta(s), text-end
+        text_deltas = [e for e in events if e["type"] == "text-delta"]
+        assert len(text_deltas) >= 2
+        assert text_deltas[0]["delta"] == "Hello"
+        assert text_deltas[1]["delta"] == " world"
 
-        # Check [DONE]
-        assert lines[-1] == "data: [DONE]"
+        # Should end with finish-step + finish
+        assert events[-2]["type"] == "finish-step"
+        assert events[-1]["type"] == "finish"
+        assert events[-1]["finishReason"] == "stop"
 
     @pytest.mark.asyncio
     async def test_chat_with_history(self, knowledge_client):
@@ -435,10 +443,13 @@ class TestChat:
             )
 
         assert resp.status_code == 200
-        text = resp.text
-        lines = [line for line in text.split("\n") if line.startswith("data: ")]
-        # Should have error event + [DONE]
-        error_line = lines[0]
-        error_data = json.loads(error_line.removeprefix("data: "))
-        assert error_data["type"] == "error"
-        assert "API key invalid" in error_data["content"]
+        events = self._parse_sse_events(resp.text)
+
+        # Should have error event + finish with error reason
+        error_events = [e for e in events if e["type"] == "error"]
+        assert len(error_events) == 1
+        assert "API key invalid" in error_events[0]["errorText"]
+
+        finish_events = [e for e in events if e["type"] == "finish"]
+        assert len(finish_events) == 1
+        assert finish_events[0]["finishReason"] == "error"

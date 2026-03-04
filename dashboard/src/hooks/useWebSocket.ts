@@ -129,6 +129,15 @@ function routeEvent(data: WsEvent) {
             activation: item.currentActivation,
           })),
         );
+        // Update pulse entities (top 5)
+        s.setPulseEntities(
+          data.payload.topActivated.slice(0, 5).map((item) => ({
+            entityId: item.entityId,
+            name: item.name,
+            entityType: item.entityType,
+            currentActivation: item.currentActivation,
+          })),
+        );
       }
       break;
     case "consolidation.started":

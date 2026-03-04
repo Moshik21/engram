@@ -15,6 +15,25 @@ vi.mock("react-force-graph-2d", () => ({
   ),
 }));
 
+vi.mock("../components/knowledge/ChatProvider", () => ({
+  useChatContext: () => ({
+    messages: [],
+    setMessages: vi.fn(),
+    sendMessage: vi.fn(),
+    status: "ready",
+    error: undefined,
+    id: "test-chat",
+    stop: vi.fn(),
+    regenerate: vi.fn(),
+    resumeStream: vi.fn(),
+    addToolResult: vi.fn(),
+    addToolOutput: vi.fn(),
+    addToolApprovalResponse: vi.fn(),
+    clearError: vi.fn(),
+  }),
+  ChatProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("../api/client", () => ({
   api: {
     getNeighborhood: vi.fn().mockResolvedValue({
@@ -40,6 +59,14 @@ vi.mock("../api/client", () => ({
     getGraphAt: vi.fn(),
     updateEntity: vi.fn(),
     deleteEntity: vi.fn(),
+    getActivationSnapshot: vi.fn().mockResolvedValue({ topActivated: [] }),
+    getActivationCurve: vi.fn(),
+    recall: vi.fn(),
+    searchFacts: vi.fn(),
+    getKnowledgeContext: vi.fn(),
+    observe: vi.fn(),
+    remember: vi.fn(),
+    forget: vi.fn(),
   },
 }));
 
@@ -320,5 +347,158 @@ describe("StatsPanel", () => {
     expect(screen.getByText("42")).toBeInTheDocument();
     expect(screen.getByText("100")).toBeInTheDocument();
     expect(screen.getByText("15")).toBeInTheDocument();
+  });
+});
+
+// --- Knowledge Tab Redesign Tests ---
+
+import { MemoryPulse } from "../components/knowledge/MemoryPulse";
+import { IntentIndicator } from "../components/knowledge/IntentIndicator";
+import { ConfirmDialog } from "../components/knowledge/ConfirmDialog";
+import { SearchOverlay } from "../components/knowledge/SearchOverlay";
+
+describe("MemoryPulse", () => {
+  it("renders nothing when no pulse entities and not loading", () => {
+    act(() => {
+      useEngramStore.setState({ pulseEntities: [], isPulseLoading: false });
+    });
+    const { container } = render(<MemoryPulse />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders skeleton pills when loading", () => {
+    act(() => {
+      useEngramStore.setState({ pulseEntities: [], isPulseLoading: true });
+    });
+    const { container } = render(<MemoryPulse />);
+    expect(container.querySelectorAll(".skeleton")).toHaveLength(3);
+  });
+
+  it("renders entity pills when data is loaded", () => {
+    act(() => {
+      useEngramStore.setState({
+        pulseEntities: [
+          { entityId: "e1", name: "Engram", entityType: "Project", currentActivation: 0.94 },
+          { entityId: "e2", name: "Konner", entityType: "Person", currentActivation: 0.91 },
+        ],
+        isPulseLoading: false,
+      });
+    });
+    render(<MemoryPulse />);
+    expect(screen.getByText("Engram")).toBeInTheDocument();
+    expect(screen.getByText("Konner")).toBeInTheDocument();
+    expect(screen.getByText("PULSE")).toBeInTheDocument();
+  });
+});
+
+// KnowledgeChatStream tests removed — component now uses useChat from ChatProvider.
+// Testing would require mocking @ai-sdk/react's useChat hook, which is covered by integration tests.
+
+describe("IntentIndicator", () => {
+  it("renders nothing when intentMode is null", () => {
+    act(() => {
+      useEngramStore.setState({ intentMode: null });
+    });
+    const { container } = render(<IntentIndicator />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders Recalling label when asking", () => {
+    act(() => {
+      useEngramStore.setState({ intentMode: "asking" });
+    });
+    render(<IntentIndicator />);
+    expect(screen.getByText("Recalling...")).toBeInTheDocument();
+  });
+
+  it("renders Remembering label when remembering", () => {
+    act(() => {
+      useEngramStore.setState({ intentMode: "remembering" });
+    });
+    render(<IntentIndicator />);
+    expect(screen.getByText("Remembering...")).toBeInTheDocument();
+  });
+
+  it("renders Observing label when observing", () => {
+    act(() => {
+      useEngramStore.setState({ intentMode: "observing" });
+    });
+    render(<IntentIndicator />);
+    expect(screen.getByText("Observing...")).toBeInTheDocument();
+  });
+
+  it("renders Forgetting label when forgetting", () => {
+    act(() => {
+      useEngramStore.setState({ intentMode: "forgetting" });
+    });
+    render(<IntentIndicator />);
+    expect(screen.getByText("Forgetting...")).toBeInTheDocument();
+  });
+});
+
+describe("ConfirmDialog", () => {
+  it("renders nothing when no confirm dialog", () => {
+    act(() => {
+      useEngramStore.setState({ confirmDialog: null });
+    });
+    const { container } = render(<ConfirmDialog />);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders delete dialog with correct text", () => {
+    act(() => {
+      useEngramStore.setState({
+        confirmDialog: {
+          type: "delete",
+          entityId: "e1",
+          entityName: "Engram",
+          title: "Delete Entity",
+          message: 'Are you sure you want to delete "Engram"?',
+        },
+      });
+    });
+    render(<ConfirmDialog />);
+    expect(screen.getByText("Delete Entity")).toBeInTheDocument();
+    expect(screen.getByText(/Are you sure you want to delete "Engram"/)).toBeInTheDocument();
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+    expect(screen.getByText("Confirm")).toBeInTheDocument();
+  });
+
+  it("renders forget dialog with correct text", () => {
+    act(() => {
+      useEngramStore.setState({
+        confirmDialog: {
+          type: "forget",
+          entityName: "Python",
+          title: "Forget Entity",
+          message: 'Are you sure you want to forget "Python"?',
+        },
+      });
+    });
+    render(<ConfirmDialog />);
+    expect(screen.getByText("Forget Entity")).toBeInTheDocument();
+    expect(screen.getByText(/Are you sure you want to forget "Python"/)).toBeInTheDocument();
+  });
+});
+
+describe("SearchOverlay", () => {
+  it("renders search input", () => {
+    act(() => {
+      useEngramStore.setState({ searchOverlayOpen: true });
+    });
+    render(<SearchOverlay />);
+    expect(screen.getByPlaceholderText("Search entities...")).toBeInTheDocument();
+  });
+
+  it("closes on Escape key", async () => {
+    const user = userEvent.setup();
+    act(() => {
+      useEngramStore.setState({ searchOverlayOpen: true });
+    });
+    render(<SearchOverlay />);
+    const input = screen.getByPlaceholderText("Search entities...");
+    await user.click(input);
+    await user.keyboard("{Escape}");
+    expect(useEngramStore.getState().searchOverlayOpen).toBe(false);
   });
 });

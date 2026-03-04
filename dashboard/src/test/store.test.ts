@@ -397,3 +397,206 @@ describe("wsSlice", () => {
     expect(store.getState().reconnectAttempt).toBe(3);
   });
 });
+
+describe("knowledgeSlice — new features", () => {
+  it("loadPulseEntities calls getActivationSnapshot and sets pulseEntities", async () => {
+    mockedApi.getActivationSnapshot.mockResolvedValueOnce({
+      topActivated: [
+        { entityId: "e1", name: "Engram", entityType: "Project", currentActivation: 0.94, accessCount: 10, lastAccessedAt: null, decayRate: 0.5 },
+        { entityId: "e2", name: "Konner", entityType: "Person", currentActivation: 0.91, accessCount: 8, lastAccessedAt: null, decayRate: 0.5 },
+      ],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadPulseEntities();
+
+    expect(mockedApi.getActivationSnapshot).toHaveBeenCalledWith(5);
+    expect(store.getState().pulseEntities).toHaveLength(2);
+    expect(store.getState().pulseEntities[0].name).toBe("Engram");
+    expect(store.getState().pulseEntities[0].currentActivation).toBe(0.94);
+    expect(store.getState().isPulseLoading).toBe(false);
+  });
+
+  it("openDrawer fetches entity detail and sets drawerEntity", async () => {
+    const detail = {
+      id: "e1",
+      name: "Engram",
+      entityType: "Project",
+      summary: "Memory system",
+      activationCurrent: 0.94,
+      accessCount: 10,
+      lastAccessed: null,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      facts: [],
+    };
+    mockedApi.getEntity.mockResolvedValueOnce(detail);
+
+    const store = createTestStore();
+    await store.getState().openDrawer("e1");
+
+    expect(mockedApi.getEntity).toHaveBeenCalledWith("e1");
+    expect(store.getState().drawerEntityId).toBe("e1");
+    expect(store.getState().drawerEntity?.name).toBe("Engram");
+    expect(store.getState().isDrawerLoading).toBe(false);
+  });
+
+  it("closeDrawer clears drawer state", async () => {
+    const store = createTestStore();
+    store.setState((s) => {
+      s.drawerEntityId = "e1";
+      s.drawerEntity = {
+        id: "e1",
+        name: "Engram",
+        entityType: "Project",
+        summary: null,
+        activationCurrent: 0.5,
+        accessCount: 1,
+        lastAccessed: null,
+        createdAt: "2024-01-01T00:00:00Z",
+        updatedAt: "2024-01-01T00:00:00Z",
+        facts: [],
+      };
+    });
+
+    store.getState().closeDrawer();
+
+    expect(store.getState().drawerEntityId).toBeNull();
+    expect(store.getState().drawerEntity).toBeNull();
+  });
+
+  it("submitInput routes 'remember X' to api.remember", async () => {
+    mockedApi.remember.mockResolvedValueOnce({ status: "ok", episodeId: "ep1" });
+
+    const store = createTestStore();
+    const appendMessages = vi.fn();
+    await store.getState().submitInput("remember I prefer dark mode", appendMessages);
+
+    expect(mockedApi.remember).toHaveBeenCalledWith({
+      content: "I prefer dark mode",
+      source: "dashboard",
+    });
+    // Should call appendMessages callback with confirmation
+    expect(appendMessages).toHaveBeenCalledWith(
+      "remember I prefer dark mode",
+      'Remembered: "I prefer dark mode"',
+    );
+  });
+
+  it("submitInput routes 'forget X' to confirm dialog", async () => {
+    const store = createTestStore();
+    await store.getState().submitInput("forget Python");
+
+    expect(store.getState().confirmDialog).not.toBeNull();
+    expect(store.getState().confirmDialog?.type).toBe("forget");
+    expect(store.getState().confirmDialog?.entityName).toBe("Python");
+  });
+
+  it("submitInput routes '/observe X' to api.observe", async () => {
+    mockedApi.observe.mockResolvedValueOnce({ status: "ok", episodeId: "ep1" });
+
+    const store = createTestStore();
+    await store.getState().submitInput("/observe the weather is nice today");
+
+    expect(mockedApi.observe).toHaveBeenCalledWith({
+      content: "the weather is nice today",
+      source: "dashboard",
+    });
+  });
+
+  it("updateEntity calls api.updateEntity and refreshes drawer", async () => {
+    const detail = {
+      id: "e1",
+      name: "Engram",
+      entityType: "Project",
+      summary: "Updated summary",
+      activationCurrent: 0.94,
+      accessCount: 10,
+      lastAccessed: null,
+      createdAt: "2024-01-01T00:00:00Z",
+      updatedAt: "2024-01-01T00:00:00Z",
+      facts: [],
+    };
+    mockedApi.updateEntity.mockResolvedValueOnce({});
+    mockedApi.getEntity.mockResolvedValueOnce(detail);
+
+    const store = createTestStore();
+    store.setState((s) => { s.drawerEntityId = "e1"; });
+    await store.getState().updateEntity("e1", { summary: "Updated summary" });
+
+    expect(mockedApi.updateEntity).toHaveBeenCalledWith("e1", { summary: "Updated summary" });
+    expect(mockedApi.getEntity).toHaveBeenCalledWith("e1");
+    expect(store.getState().drawerEntity?.summary).toBe("Updated summary");
+  });
+
+  it("deleteEntity calls api.deleteEntity and clears drawer", async () => {
+    mockedApi.deleteEntity.mockResolvedValueOnce({});
+    mockedApi.getActivationSnapshot.mockResolvedValueOnce({ topActivated: [] });
+    mockedApi.searchEntities.mockResolvedValueOnce([]);
+
+    const store = createTestStore();
+    store.setState((s) => {
+      s.drawerEntityId = "e1";
+      s.drawerEntity = {
+        id: "e1",
+        name: "Engram",
+        entityType: "Project",
+        summary: null,
+        activationCurrent: 0.5,
+        accessCount: 1,
+        lastAccessed: null,
+        createdAt: "2024-01-01T00:00:00Z",
+        updatedAt: "2024-01-01T00:00:00Z",
+        facts: [],
+      };
+    });
+
+    await store.getState().deleteEntity("e1");
+
+    expect(mockedApi.deleteEntity).toHaveBeenCalledWith("e1");
+    expect(store.getState().drawerEntityId).toBeNull();
+    expect(store.getState().drawerEntity).toBeNull();
+  });
+
+  it("confirmAction dispatches correctly for forget dialog", async () => {
+    mockedApi.forget.mockResolvedValueOnce({ status: "ok" });
+    mockedApi.getActivationSnapshot.mockResolvedValueOnce({ topActivated: [] });
+    mockedApi.searchEntities.mockResolvedValueOnce([]);
+
+    const store = createTestStore();
+    store.setState((s) => {
+      s.confirmDialog = {
+        type: "forget",
+        entityName: "Python",
+        title: "Forget Entity",
+        message: "Are you sure?",
+      };
+    });
+
+    await store.getState().confirmAction();
+
+    expect(mockedApi.forget).toHaveBeenCalledWith({ entity_name: "Python" });
+    expect(store.getState().confirmDialog).toBeNull();
+  });
+
+  it("setPulseEntities updates pulse state directly", () => {
+    const store = createTestStore();
+    store.getState().setPulseEntities([
+      { entityId: "e1", name: "Test", entityType: "Concept", currentActivation: 0.5 },
+    ]);
+    expect(store.getState().pulseEntities).toHaveLength(1);
+    expect(store.getState().pulseEntities[0].name).toBe("Test");
+  });
+
+  it("setSearchOverlayOpen and setBrowseOverlayOpen toggle overlays", () => {
+    const store = createTestStore();
+
+    expect(store.getState().searchOverlayOpen).toBe(false);
+    store.getState().setSearchOverlayOpen(true);
+    expect(store.getState().searchOverlayOpen).toBe(true);
+
+    expect(store.getState().browseOverlayOpen).toBe(false);
+    store.getState().setBrowseOverlayOpen(true);
+    expect(store.getState().browseOverlayOpen).toBe(true);
+  });
+});

@@ -55,6 +55,44 @@ CANONICAL_MAP: dict[str, str] = {
     "TEACHES": "MENTORS",
     "COACHES": "MENTORS",
     "TRAINS": "MENTORS",
+    # Health / Physical
+    "INJURED": "RECOVERING_FROM",
+    "HURT": "RECOVERING_FROM",
+    "DIAGNOSED_WITH": "HAS_CONDITION",
+    "SUFFERS_FROM": "HAS_CONDITION",
+    "TREATING": "TREATS",
+    "PRESCRIBED": "TREATS",
+    # Sentiment / Preference
+    "ENJOYS": "LIKES",
+    "LOVES": "LIKES",
+    "APPRECIATES": "LIKES",
+    "HATES": "DISLIKES",
+    "AVOIDS": "DISLIKES",
+    "PREFERS": "PREFERS",
+    "FAVORS": "PREFERS",
+    # Goals / Aspirations
+    "WANTS_TO": "AIMS_FOR",
+    "PLANS_TO": "AIMS_FOR",
+    "INTENDS_TO": "AIMS_FOR",
+    "ASPIRES_TO": "AIMS_FOR",
+    "WORKING_TOWARD": "AIMS_FOR",
+    # Causation
+    "CAUSED": "CAUSED_BY",
+    "RESULTED_IN": "LED_TO",
+    "TRIGGERED": "LED_TO",
+    "DEPENDS_ON": "REQUIRES",
+    "NEEDS": "REQUIRES",
+    "BLOCKED_BY": "REQUIRES",
+    # Hierarchy / Containment
+    "CONTAINS": "HAS_PART",
+    "INCLUDES": "HAS_PART",
+    "COMPOSED_OF": "HAS_PART",
+    "PARENT_OF": "PARENT_OF",
+    "CHILD_OF": "CHILD_OF",
+    # Learning
+    "LEARNING": "STUDYING",
+    "READING": "STUDYING",
+    "PRACTICING": "STUDYING",
 }
 
 

@@ -16,6 +16,12 @@ export const createConsolidationSlice: StateCreator<
   isRunning: false,
   schedulerActive: false,
   pressure: null,
+  triggerDryRun: true,
+  setTriggerDryRun: (value: boolean) => {
+    set((s) => {
+      s.triggerDryRun = value;
+    });
+  },
 
   loadStatus: async () => {
     try {

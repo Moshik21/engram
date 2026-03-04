@@ -36,9 +36,12 @@ class FalkorDBGraphStore:
         self._db = None
         self._graph = None
 
-    async def _query(self, cypher: str, params: dict | None = None):
+    async def _query(self, cypher: str, params: dict | None = None, timeout: int | None = None):
         """Execute a Cypher query via thread pool (falkordb is synchronous)."""
-        return await asyncio.to_thread(self._graph.query, cypher, params or {})
+        kwargs: dict = {"params": params or {}}
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return await asyncio.to_thread(self._graph.query, cypher, **kwargs)
 
     async def initialize(self) -> None:
         """Connect to FalkorDB and create indexes."""
@@ -293,12 +296,12 @@ class FalkorDBGraphStore:
             match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE s.id = $eid OR t.id = $eid"
 
         conditions = []
-        params: dict = {"eid": entity_id}
+        params: dict = {"eid": entity_id, "now": datetime.utcnow().isoformat()}
         if predicate:
             conditions.append("r.predicate = $predicate")
             params["predicate"] = predicate
         if active_only:
-            conditions.append("r.valid_to IS NULL")
+            conditions.append("(r.valid_to IS NULL OR r.valid_to > $now)")
         conditions.append("r.group_id = $gid")
         params["gid"] = group_id
 
@@ -342,7 +345,7 @@ class FalkorDBGraphStore:
             """MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity)
                WHERE s.id = $src AND t.id = $tgt
                  AND r.group_id = $gid
-                 AND r.valid_to IS NULL
+                 AND (r.valid_to IS NULL OR r.valid_to > $now)
                SET r.weight = CASE
                    WHEN r.weight + $delta > $max_w THEN $max_w
                    ELSE r.weight + $delta
@@ -354,6 +357,7 @@ class FalkorDBGraphStore:
                 "delta": weight_delta,
                 "max_w": max_weight,
                 "gid": group_id,
+                "now": datetime.utcnow().isoformat(),
             },
         )
         if result.result_set:
@@ -424,54 +428,70 @@ class FalkorDBGraphStore:
         hops: int = 1,
         group_id: str | None = None,
     ) -> list[tuple[Entity, Relationship]]:
-        """Return entities within N hops via variable-length path."""
+        """Return entities within N hops via iterative BFS (avoids combinatorial explosion)."""
+        now_str = datetime.utcnow().isoformat()
         group_filter = " AND m.group_id = $group_id" if group_id else ""
-        params: dict = {"id": entity_id, "hops": hops}
-        if group_id:
-            params["group_id"] = group_id
 
-        result = await self._query(
-            f"""MATCH p = (c:Entity {{id: $id}})-[:RELATES_TO*1..{hops}]-(m:Entity)
-                WHERE m.id <> $id
-                  AND m.deleted_at IS NULL
-                  {group_filter}
-                WITH m, relationships(p) AS rels
-                UNWIND rels AS edge
-                WITH DISTINCT m, edge
-                WHERE edge.valid_to IS NULL
-                RETURN m, edge""",
-            params,
-        )
+        seen_entities: set[str] = {entity_id}
+        seen_edges: set[str] = set()
+        frontier: set[str] = {entity_id}
+        results: list[tuple[Entity, Relationship]] = []
 
-        seen: set[tuple[str, str]] = set()
-        results = []
-        for row in result.result_set:
-            entity = self._node_to_entity(row[0], group_id)
-            rel = self._edge_to_relationship(row[1])
-            key = (entity.id, rel.id)
-            if key not in seen:
-                seen.add(key)
-                results.append((entity, rel))
+        for _hop in range(hops):
+            if not frontier:
+                break
+
+            # Fetch 1-hop neighbors from current frontier
+            params: dict = {"ids": list(frontier), "now": now_str}
+            if group_id:
+                params["group_id"] = group_id
+
+            result = await self._query(
+                f"""MATCH (c:Entity)-[edge:RELATES_TO]-(m:Entity)
+                    WHERE c.id IN $ids
+                      AND m.deleted_at IS NULL
+                      AND (edge.valid_to IS NULL OR edge.valid_to > $now)
+                      {group_filter}
+                    RETURN DISTINCT m, edge""",
+                params,
+                timeout=10000,
+            )
+
+            next_frontier: set[str] = set()
+            for row in result.result_set:
+                entity = self._node_to_entity(row[0], group_id)
+                rel = self._edge_to_relationship(row[1])
+
+                if rel.id not in seen_edges:
+                    seen_edges.add(rel.id)
+                    results.append((entity, rel))
+
+                if entity.id not in seen_entities:
+                    seen_entities.add(entity.id)
+                    next_frontier.add(entity.id)
+
+            frontier = next_frontier
+
         return results
 
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
-    ) -> list[tuple[str, float, str]]:
+    ) -> list[tuple[str, float, str, str]]:
         group_filter = " AND r.group_id = $group_id" if group_id else ""
-        params: dict = {"id": entity_id}
+        params: dict = {"id": entity_id, "now": datetime.utcnow().isoformat()}
         if group_id:
             params["group_id"] = group_id
 
         result = await self._query(
             f"""MATCH (n:Entity {{id: $id}})-[r:RELATES_TO]-(m:Entity)
-                WHERE r.valid_to IS NULL
+                WHERE (r.valid_to IS NULL OR r.valid_to > $now)
                   AND n.id <> m.id
                   {group_filter}
                 RETURN m.id AS neighbor_id, r.weight AS weight,
-                       r.predicate AS predicate""",
+                       r.predicate AS predicate, m.entity_type AS entity_type""",
             params,
         )
-        return [(row[0], row[1], row[2]) for row in result.result_set]
+        return [(row[0], row[1], row[2], row[3]) for row in result.result_set]
 
     # --- Episodes ---
 
@@ -640,7 +660,7 @@ class FalkorDBGraphStore:
 
     async def get_top_connected(self, group_id: str | None = None, limit: int = 10) -> list[dict]:
         group_filter = " AND e.group_id = $group_id" if group_id else ""
-        params: dict = {"limit": limit}
+        params: dict = {"limit": limit, "now": datetime.utcnow().isoformat()}
         if group_id:
             params["group_id"] = group_id
 
@@ -648,7 +668,7 @@ class FalkorDBGraphStore:
             f"""MATCH (e:Entity)
                 WHERE e.deleted_at IS NULL{group_filter}
                 OPTIONAL MATCH (e)-[r:RELATES_TO]-()
-                WHERE r.valid_to IS NULL
+                WHERE r.valid_to IS NULL OR r.valid_to > $now
                 RETURN e.id AS id, e.name AS name, e.entity_type AS entity_type,
                        COUNT(r) AS edge_count
                 ORDER BY edge_count DESC
@@ -738,7 +758,8 @@ class FalkorDBGraphStore:
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs that co-occur in episodes but lack a relationship."""
         since_clause = ""
-        params: dict = {"gid": group_id, "min_co": min_co_occurrence, "limit": limit}
+        params: dict = {"gid": group_id, "min_co": min_co_occurrence, "limit": limit,
+                       "now": datetime.utcnow().isoformat()}
         if since:
             since_clause = "AND ep.created_at >= $since"
             params["since"] = since.isoformat()
@@ -753,7 +774,7 @@ class FalkorDBGraphStore:
             WITH e1, e2, COUNT(DISTINCT ep) AS cnt
             WHERE cnt >= $min_co
             OPTIONAL MATCH (e1)-[r:RELATES_TO]-(e2)
-            WHERE r.valid_to IS NULL
+            WHERE r.valid_to IS NULL OR r.valid_to > $now
             WITH e1, e2, cnt, r
             WHERE r IS NULL
             RETURN e1.id, e2.id, cnt
@@ -792,13 +813,27 @@ class FalkorDBGraphStore:
                WHERE n.deleted_at IS NULL
                  AND n.access_count = 0
                  AND n.created_at < $cutoff
+                 AND (n.identity_core IS NULL OR n.identity_core = false)
                OPTIONAL MATCH (n)-[r:RELATES_TO]-()
-               WHERE r.valid_to IS NULL
+               WHERE r.valid_to IS NULL OR r.valid_to > $now
                WITH n, r
                WHERE r IS NULL
                RETURN n
                LIMIT $limit""",
-            {"gid": group_id, "cutoff": cutoff, "limit": limit},
+            {
+                "gid": group_id, "cutoff": cutoff,
+                "limit": limit, "now": datetime.utcnow().isoformat(),
+            },
+        )
+        return [self._node_to_entity(row[0], group_id) for row in result.result_set]
+
+    async def get_identity_core_entities(self, group_id: str) -> list[Entity]:
+        """Return all entities marked as identity_core for a group."""
+        result = await self._query(
+            """MATCH (n:Entity {group_id: $gid})
+               WHERE n.deleted_at IS NULL AND n.identity_core = true
+               RETURN n""",
+            {"gid": group_id},
         )
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
 
@@ -945,6 +980,52 @@ class FalkorDBGraphStore:
 
         return transferred
 
+    async def path_exists_within_hops(
+        self,
+        source_id: str,
+        target_id: str,
+        max_hops: int,
+        group_id: str,
+    ) -> bool:
+        """Check if a path exists between two entities within N hops."""
+        now = datetime.utcnow().isoformat()
+        cypher = (
+            f"MATCH p = (s:Entity {{id: $src}})"
+            f"-[:RELATES_TO*1..{max_hops}]-(t:Entity {{id: $tgt}}) "
+            "WHERE ALL(r IN relationships(p) WHERE "
+            "r.group_id = $gid AND "
+            "(r.valid_to IS NULL OR r.valid_to > $now)) "
+            "RETURN 1 LIMIT 1"
+        )
+        result = await self._query(
+            cypher,
+            {"src": source_id, "tgt": target_id, "gid": group_id, "now": now},
+        )
+        return bool(result.result_set)
+
+    async def get_expired_relationships(
+        self,
+        group_id: str,
+        predicate: str | None = None,
+        limit: int = 100,
+    ) -> list[Relationship]:
+        """Return relationships whose valid_to has passed."""
+        now = datetime.utcnow().isoformat()
+        pred_clause = "AND r.predicate = $pred" if predicate else ""
+        params: dict = {"gid": group_id, "now": now, "limit": limit}
+        if predicate:
+            params["pred"] = predicate
+        result = await self._query(
+            f"""MATCH ()-[r:RELATES_TO]->()
+                WHERE r.group_id = $gid
+                  AND r.valid_to IS NOT NULL
+                  AND r.valid_to <= $now
+                  {pred_clause}
+                RETURN r LIMIT $limit""",
+            params,
+        )
+        return [self._edge_to_relationship(row[0]) for row in result.result_set]
+
     async def get_relationships_by_predicate(
         self,
         group_id: str,
@@ -953,13 +1034,14 @@ class FalkorDBGraphStore:
         limit: int = 10000,
     ) -> list[Relationship]:
         """Fetch relationships matching a specific predicate."""
-        active_clause = "AND r.valid_to IS NULL" if active_only else ""
+        active_clause = "AND (r.valid_to IS NULL OR r.valid_to > $now)" if active_only else ""
         result = await self._query(
             f"""MATCH ()-[r:RELATES_TO]->()
                 WHERE r.group_id = $gid AND r.predicate = $pred
                   {active_clause}
                 RETURN r LIMIT $limit""",
-            {"gid": group_id, "pred": predicate, "limit": limit},
+            {"gid": group_id, "pred": predicate, "limit": limit,
+             "now": datetime.utcnow().isoformat()},
         )
         seen_ids: set[str] = set()
         rels = []
@@ -1007,6 +1089,7 @@ class FalkorDBGraphStore:
             last_accessed=_parse_dt(props.get("last_accessed")),
             pii_detected=bool(props.get("pii_detected", False)),
             pii_categories=pii_categories,
+            identity_core=bool(props.get("identity_core", False)),
         )
 
     @staticmethod

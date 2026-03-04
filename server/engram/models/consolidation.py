@@ -77,6 +77,7 @@ class InferredEdge:
     infer_type: str = "co_occurrence"
     pmi_score: float | None = None
     llm_verdict: str | None = None
+    escalation_verdict: str | None = None
     relationship_id: str | None = None
     id: str = field(default_factory=lambda: f"inf_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
@@ -106,6 +107,8 @@ class TriageRecord:
     score: float
     decision: str  # "extract" | "skip"
     score_breakdown: dict = field(default_factory=dict)
+    llm_reason: str | None = None
+    llm_tags: list[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: f"tri_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
 
@@ -120,6 +123,7 @@ class CycleContext:
     pruned_entity_ids: set[str] = field(default_factory=set)
     replay_new_entity_ids: set[str] = field(default_factory=set)
     dream_seed_ids: set[str] = field(default_factory=set)
+    dream_association_ids: set[str] = field(default_factory=set)
     triage_promoted_ids: set[str] = field(default_factory=set)
 
 
@@ -162,4 +166,24 @@ class DreamRecord:
     weight_delta: float
     seed_entity_id: str = ""
     id: str = field(default_factory=lambda: f"drm_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DreamAssociationRecord:
+    """Audit entry for a dream-discovered cross-domain association."""
+
+    cycle_id: str
+    group_id: str
+    source_entity_id: str
+    target_entity_id: str
+    source_entity_name: str
+    target_entity_name: str
+    source_domain: str
+    target_domain: str
+    surprise_score: float
+    embedding_similarity: float
+    structural_proximity: float
+    relationship_id: str | None = None
+    id: str = field(default_factory=lambda: f"dra_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)

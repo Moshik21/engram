@@ -182,8 +182,8 @@ async def test_sqlite_integration_returns_3tuple(tmp_path):
 
     neighbors = await store.get_active_neighbors_with_weights("e1", group_id="test")
     assert len(neighbors) == 1
-    assert len(neighbors[0]) == 3
-    neighbor_id, weight, predicate = neighbors[0]
+    assert len(neighbors[0]) == 4
+    neighbor_id, weight, predicate, entity_type = neighbors[0]
     assert neighbor_id == "e2"
     assert weight == pytest.approx(0.9)
     assert predicate == "WORKS_AT"

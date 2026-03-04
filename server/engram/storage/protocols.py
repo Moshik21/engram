@@ -14,12 +14,14 @@ ENTITY_UPDATABLE_FIELDS = frozenset(
     {
         "name",
         "summary",
+        "attributes",
         "updated_at",
         "pii_detected",
         "pii_categories",
         "access_count",
         "last_accessed",
         "deleted_at",
+        "identity_core",
     }
 )
 
@@ -30,6 +32,9 @@ EPISODE_UPDATABLE_FIELDS = frozenset(
         "error",
         "retry_count",
         "processing_duration_ms",
+        "content",
+        "skipped_meta",
+        "skipped_triage",
     }
 )
 
@@ -81,7 +86,7 @@ class GraphStore(Protocol):
     ) -> list[tuple[Entity, Relationship]]: ...
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
-    ) -> list[tuple[str, float, str]]: ...  # (neighbor_id, weight, predicate)
+    ) -> list[tuple[str, float, str, str]]: ...  # (neighbor_id, weight, predicate, entity_type)
     async def create_episode(self, episode: Episode) -> str: ...
     async def update_episode(
         self,
@@ -169,6 +174,25 @@ class GraphStore(Protocol):
         group_id: str = "default",
     ) -> float | None: ...
 
+    async def get_identity_core_entities(
+        self, group_id: str,
+    ) -> list[Entity]: ...
+
+    async def path_exists_within_hops(
+        self,
+        source_id: str,
+        target_id: str,
+        max_hops: int,
+        group_id: str,
+    ) -> bool: ...
+
+    async def get_expired_relationships(
+        self,
+        group_id: str,
+        predicate: str | None = None,
+        limit: int = 100,
+    ) -> list[Relationship]: ...
+
 
 @runtime_checkable
 class ActivationStore(Protocol):
@@ -221,3 +245,8 @@ class SearchIndex(Protocol):
         group_id: str | None = None,
         limit: int = 10,
     ) -> list[tuple[str, float]]: ...
+    async def get_entity_embeddings(
+        self,
+        entity_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]: ...

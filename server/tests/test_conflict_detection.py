@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from engram.extraction.conflicts import is_exclusive_predicate
+from engram.extraction.conflicts import get_contradictory_predicates, is_exclusive_predicate
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
 from engram.storage.sqlite.graph import SQLiteGraphStore
@@ -28,6 +28,16 @@ class TestExclusivePredicates:
 
     def test_case_insensitive(self):
         assert is_exclusive_predicate("lives_in")
+
+    def test_likes_contradicts_dislikes(self):
+        assert "DISLIKES" in get_contradictory_predicates("LIKES")
+        assert "LIKES" in get_contradictory_predicates("DISLIKES")
+
+    def test_no_contradictions_for_works_at(self):
+        assert get_contradictory_predicates("WORKS_AT") == set()
+
+    def test_contradictory_case_insensitive(self):
+        assert "DISLIKES" in get_contradictory_predicates("likes")
 
 
 @pytest.mark.asyncio

@@ -122,12 +122,21 @@ export interface FactResult {
   confidence: number | null;
 }
 
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sources?: Array<{ name: string; entityType?: string; score?: number }>;
-  timestamp: number;
+export type IntentMode = "asking" | "remembering" | "observing" | "forgetting" | null;
+
+export interface PulseEntity {
+  entityId: string;
+  name: string;
+  entityType: string;
+  currentActivation: number;
+}
+
+export interface ConfirmDialogState {
+  type: "delete" | "forget";
+  entityId?: string;
+  entityName: string;
+  title: string;
+  message: string;
 }
 
 export interface GraphDelta {
@@ -342,6 +351,7 @@ export interface ConsolidationPressure {
 }
 
 export interface KnowledgeSlice {
+  // Existing state
   knowledgeQuery: string;
   knowledgeResults: RecallResult[];
   isRecalling: boolean;
@@ -352,19 +362,38 @@ export interface KnowledgeSlice {
   entityDetail: EntityDetail | null;
   inputText: string;
   isSending: boolean;
-  chatMessages: ChatMessage[];
-  isChatStreaming: boolean;
-  chatOpen: boolean;
+
+  // New state
+  pulseEntities: PulseEntity[];
+  isPulseLoading: boolean;
+  drawerEntityId: string | null;
+  drawerEntity: EntityDetail | null;
+  isDrawerLoading: boolean;
+  searchOverlayOpen: boolean;
+  browseOverlayOpen: boolean;
+  intentMode: IntentMode;
+  confirmDialog: ConfirmDialogState | null;
+
+  // Existing actions
   setKnowledgeQuery: (q: string) => void;
   executeRecall: (query: string) => Promise<void>;
   loadEntityGroups: () => Promise<void>;
   setActiveTypeFilter: (type: string | null) => void;
   expandEntity: (id: string | null) => Promise<void>;
   setInputText: (t: string) => void;
-  submitInput: (text: string) => Promise<void>;
-  sendChatMessage: (message: string) => Promise<void>;
-  toggleChat: () => void;
-  clearChat: () => void;
+  submitInput: (text: string, appendMessages?: (userText: string, assistantText: string) => void) => Promise<void>;
+
+  // New actions
+  loadPulseEntities: () => Promise<void>;
+  setPulseEntities: (entities: PulseEntity[]) => void;
+  openDrawer: (id: string) => Promise<void>;
+  closeDrawer: () => void;
+  setSearchOverlayOpen: (open: boolean) => void;
+  setBrowseOverlayOpen: (open: boolean) => void;
+  updateEntity: (id: string, patch: { name?: string; summary?: string }) => Promise<void>;
+  deleteEntity: (id: string) => Promise<void>;
+  setConfirmDialog: (dialog: ConfirmDialogState | null) => void;
+  confirmAction: () => Promise<void>;
 }
 
 export interface ConsolidationSlice {
@@ -376,6 +405,8 @@ export interface ConsolidationSlice {
   isRunning: boolean;
   schedulerActive: boolean;
   pressure: ConsolidationPressure | null;
+  triggerDryRun: boolean;
+  setTriggerDryRun: (value: boolean) => void;
   loadStatus: () => Promise<void>;
   loadCycles: () => Promise<void>;
   selectCycle: (id: string | null) => void;

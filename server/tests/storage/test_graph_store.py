@@ -347,3 +347,55 @@ class TestSQLiteGraphStore:
         assert len(neighbors) >= 1
         entity_names = [e.name for e, _ in neighbors]
         assert "Neighbor" in entity_names
+
+    async def test_attributes_roundtrip(self, graph_store: SQLiteGraphStore):
+        """Attributes dict should serialize to JSON on write and deserialize on read."""
+        attrs = {"status": "active", "level": "senior", "team_size": "5"}
+        entity = Entity(
+            id="ent_attrs",
+            name="TestAttrs",
+            entity_type="Person",
+            summary="Test entity",
+            attributes=attrs,
+            group_id="default",
+        )
+        await graph_store.create_entity(entity)
+        result = await graph_store.get_entity("ent_attrs", "default")
+        assert result is not None
+        assert result.attributes == attrs
+
+    async def test_attributes_update_roundtrip(self, graph_store: SQLiteGraphStore):
+        """Updating attributes via update_entity should persist correctly."""
+        import json
+
+        entity = Entity(
+            id="ent_attrs_upd",
+            name="TestAttrsUpd",
+            entity_type="Person",
+            attributes={"role": "dev"},
+            group_id="default",
+        )
+        await graph_store.create_entity(entity)
+
+        new_attrs = {"role": "dev", "status": "recovering"}
+        await graph_store.update_entity(
+            "ent_attrs_upd",
+            {"attributes": json.dumps(new_attrs)},
+            group_id="default",
+        )
+        result = await graph_store.get_entity("ent_attrs_upd", "default")
+        assert result is not None
+        assert result.attributes == new_attrs
+
+    async def test_attributes_none_roundtrip(self, graph_store: SQLiteGraphStore):
+        """Entity with no attributes should return None."""
+        entity = Entity(
+            id="ent_no_attrs",
+            name="NoAttrs",
+            entity_type="Other",
+            group_id="default",
+        )
+        await graph_store.create_entity(entity)
+        result = await graph_store.get_entity("ent_no_attrs", "default")
+        assert result is not None
+        assert result.attributes is None

@@ -23,6 +23,30 @@ _LLM_VALIDATION_PROMPT = (
     '{"verdict": "approved"|"rejected"|"uncertain", "reason": "brief explanation"}'
 )
 
+_LLM_VALIDATION_SYSTEM_CACHED = [
+    {
+        "type": "text",
+        "text": _LLM_VALIDATION_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
+_LLM_ESCALATION_PROMPT = (
+    "You are a senior knowledge graph quality reviewer.\n"
+    "A lower-tier model was uncertain about the following relationship.\n"
+    "Apply strict judgment. Respond with JSON only:\n"
+    '{"verdict": "approved"|"rejected", "reason": "brief explanation"}\n'
+    "You MUST choose approved or rejected. Do not respond with uncertain."
+)
+
+_LLM_ESCALATION_SYSTEM_CACHED = [
+    {
+        "type": "text",
+        "text": _LLM_ESCALATION_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
 
 # ---------------------------------------------------------------------------
 # PMI / tf-idf helpers
@@ -73,8 +97,9 @@ def _pmi_confidence(
 class EdgeInferencePhase(ConsolidationPhase):
     """Find entity pairs that co-occur across episodes and create edges."""
 
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, escalation_client=None):
         self._llm_client = llm_client
+        self._escalation_client = escalation_client
 
     @property
     def name(self) -> str:
@@ -215,6 +240,16 @@ class EdgeInferencePhase(ConsolidationPhase):
                 dry_run,
             )
 
+        # --- Sonnet escalation pass (Tier 4) ---
+        if cfg.consolidation_infer_escalation_enabled:
+            await self._run_escalation_pass(
+                records,
+                graph_store,
+                cfg,
+                group_id,
+                dry_run,
+            )
+
         return PhaseResult(
             phase=self.name,
             items_processed=len(pairs) + (len(records) - len(pairs)),
@@ -271,7 +306,7 @@ class EdgeInferencePhase(ConsolidationPhase):
                 response = client.messages.create(
                     model=cfg.consolidation_infer_llm_model,
                     max_tokens=256,
-                    system=_LLM_VALIDATION_PROMPT,
+                    system=_LLM_VALIDATION_SYSTEM_CACHED,
                     messages=[{"role": "user", "content": user_msg}],
                 )
                 text = response.content[0].text.strip()
@@ -296,6 +331,81 @@ class EdgeInferencePhase(ConsolidationPhase):
             except Exception as exc:
                 logger.warning("LLM validation failed for %s: %s", rec.id, exc)
                 rec.llm_verdict = "error"
+
+    async def _run_escalation_pass(
+        self,
+        records: list[InferredEdge],
+        graph_store,
+        cfg: ActivationConfig,
+        group_id: str,
+        dry_run: bool,
+    ) -> None:
+        """Re-validate uncertain edges via Sonnet escalation model."""
+        max_escalations = cfg.consolidation_infer_escalation_max_per_cycle
+
+        candidates = [
+            r for r in records if r.llm_verdict == "uncertain"
+        ][:max_escalations]
+
+        if not candidates:
+            return
+
+        if dry_run:
+            for rec in candidates:
+                rec.escalation_verdict = "dry_run_skipped"
+            return
+
+        client = self._escalation_client or self._llm_client
+        if client is None:
+            try:
+                import anthropic
+
+                client = anthropic.Anthropic()
+            except Exception:
+                logger.warning("Could not create Anthropic client for escalation")
+                return
+
+        for rec in candidates:
+            try:
+                user_msg = (
+                    f"Entity A: {rec.source_name} (ID: {rec.source_id})\n"
+                    f"Entity B: {rec.target_name} (ID: {rec.target_id})\n"
+                    f"Proposed relationship: MENTIONED_WITH\n"
+                    f"Co-occurrence count: {rec.co_occurrence_count}\n"
+                    f"Statistical confidence: {rec.confidence}\n"
+                    f"Previous verdict: uncertain"
+                )
+                response = client.messages.create(
+                    model=cfg.consolidation_infer_escalation_model,
+                    max_tokens=256,
+                    system=_LLM_ESCALATION_SYSTEM_CACHED,
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+                text = response.content[0].text.strip()
+                parsed = json.loads(text)
+                verdict = parsed.get("verdict", "rejected")
+
+                # Sonnet must not return uncertain
+                if verdict not in ("approved", "rejected"):
+                    verdict = "rejected"
+
+                rec.escalation_verdict = verdict
+
+                if verdict == "approved":
+                    rec.infer_type = "escalation_approved"
+                    rec.llm_verdict = "escalation_approved"
+                elif verdict == "rejected":
+                    rec.infer_type = "escalation_rejected"
+                    rec.llm_verdict = "escalation_rejected"
+                    if rec.relationship_id:
+                        await graph_store.invalidate_relationship(
+                            rec.relationship_id,
+                            datetime.utcnow(),
+                            group_id,
+                        )
+            except Exception as exc:
+                logger.warning("Escalation failed for %s: %s", rec.id, exc)
+                rec.escalation_verdict = "error"
 
 
 async def _run_transitivity_pass(

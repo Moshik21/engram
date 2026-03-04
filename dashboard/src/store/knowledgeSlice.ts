@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import { api } from "../api/client";
-import type { EngramStore, KnowledgeSlice, ChatMessage } from "./types";
+import type { EngramStore, KnowledgeSlice } from "./types";
 
 export const createKnowledgeSlice: StateCreator<
   EngramStore,
@@ -18,9 +18,17 @@ export const createKnowledgeSlice: StateCreator<
   entityDetail: null,
   inputText: "",
   isSending: false,
-  chatMessages: [],
-  isChatStreaming: false,
-  chatOpen: false,
+
+  // New state
+  pulseEntities: [],
+  isPulseLoading: false,
+  drawerEntityId: null,
+  drawerEntity: null,
+  isDrawerLoading: false,
+  searchOverlayOpen: false,
+  browseOverlayOpen: false,
+  intentMode: null,
+  confirmDialog: null,
 
   setKnowledgeQuery: (q) => {
     set((s) => {
@@ -65,7 +73,6 @@ export const createKnowledgeSlice: StateCreator<
         if (!groups[type]) groups[type] = [];
         groups[type].push(entity);
       }
-      // Sort each group by activation descending
       for (const type of Object.keys(groups)) {
         groups[type].sort((a, b) => b.activationScore - a.activationScore);
       }
@@ -116,146 +123,186 @@ export const createKnowledgeSlice: StateCreator<
     });
   },
 
-  submitInput: async (text) => {
+  submitInput: async (text, appendMessages) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+
     set((s) => {
       s.isSending = true;
       s.inputText = "";
     });
+
     try {
-      if (trimmed.startsWith("/remember ")) {
-        await api.remember({ content: trimmed.slice(10), source: "dashboard" });
-      } else if (trimmed.startsWith("/recall ")) {
-        const query = trimmed.slice(8);
+      // "forget X" or "/forget X" -> confirm dialog
+      const forgetMatch = trimmed.match(/^\/?(forget)\s+(.+)/i);
+      if (forgetMatch) {
         set((s) => {
-          s.knowledgeQuery = query;
+          s.intentMode = "forgetting";
+          s.confirmDialog = {
+            type: "forget",
+            entityName: forgetMatch[2],
+            title: "Forget Entity",
+            message: `Are you sure you want to forget "${forgetMatch[2]}"? This will soft-delete the entity from memory.`,
+          };
+          s.isSending = false;
+          s.intentMode = null;
         });
-        await get().executeRecall(query);
-      } else if (trimmed.startsWith("/forget ")) {
-        await api.forget({ entity_name: trimmed.slice(8) });
-        get().loadEntityGroups();
-      } else {
-        await api.observe({ content: trimmed, source: "dashboard" });
+        return;
+      }
+
+      // "remember X" or "/remember X" -> remember
+      const rememberMatch = trimmed.match(/^\/?(remember)\s+(.+)/i);
+      if (rememberMatch) {
+        set((s) => { s.intentMode = "remembering"; });
+        await api.remember({ content: rememberMatch[2], source: "dashboard" });
+        set((s) => {
+          s.intentMode = null;
+          s.isSending = false;
+        });
+        // Add confirmation messages to chat via callback
+        if (appendMessages) {
+          appendMessages(trimmed, `Remembered: "${rememberMatch[2]}"`);
+        }
+        return;
+      }
+
+      // "/observe X" -> observe
+      const observeMatch = trimmed.match(/^\/observe\s+(.+)/i);
+      if (observeMatch) {
+        set((s) => { s.intentMode = "observing"; });
+        await api.observe({ content: observeMatch[1], source: "dashboard" });
+        set((s) => {
+          s.intentMode = null;
+          s.isSending = false;
+        });
+        if (appendMessages) {
+          appendMessages(trimmed, `Observed: "${observeMatch[1]}"`);
+        }
+        return;
       }
     } catch {
       // silently handle
     } finally {
       set((s) => {
         s.isSending = false;
+        s.intentMode = null;
       });
     }
   },
 
-  sendChatMessage: async (message) => {
-    const trimmed = message.trim();
-    if (!trimmed || get().isChatStreaming) return;
+  // --- New actions ---
 
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: trimmed,
-      timestamp: Date.now(),
-    };
-
-    const assistantId = crypto.randomUUID();
-
-    set((s) => {
-      s.chatMessages.push(userMsg);
-      s.chatMessages.push({
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        timestamp: Date.now(),
-      });
-      s.isChatStreaming = true;
-      s.inputText = "";
-    });
-
+  loadPulseEntities: async () => {
+    set((s) => { s.isPulseLoading = true; });
     try {
-      const history = get()
-        .chatMessages.filter((m) => m.id !== assistantId && m.role !== "assistant" || m.content)
-        .slice(-10)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const response = await fetch("/api/knowledge/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history }),
+      const data = await api.getActivationSnapshot(5);
+      set((s) => {
+        s.pulseEntities = data.topActivated.map((item) => ({
+          entityId: item.entityId,
+          name: item.name,
+          entityType: item.entityType,
+          currentActivation: item.currentActivation,
+        }));
+        s.isPulseLoading = false;
       });
+    } catch {
+      set((s) => { s.isPulseLoading = false; });
+    }
+  },
 
-      if (!response.ok) throw new Error(`Chat error: ${response.status}`);
+  setPulseEntities: (entities) => {
+    set((s) => {
+      s.pulseEntities = entities;
+    });
+  },
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") continue;
-
-          try {
-            const event = JSON.parse(payload);
-            if (event.type === "text") {
-              set((s) => {
-                const msg = s.chatMessages.find((m) => m.id === assistantId);
-                if (msg) msg.content += event.content;
-              });
-            } else if (event.type === "sources") {
-              set((s) => {
-                const msg = s.chatMessages.find((m) => m.id === assistantId);
-                if (msg) {
-                  msg.sources = event.items.map(
-                    (item: { name?: string; content?: string; score?: number }) => ({
-                      name: item.name || (item.content ? item.content.slice(0, 40) + "..." : "Memory"),
-                      score: item.score,
-                    }),
-                  );
-                }
-              });
-            } else if (event.type === "error") {
-              set((s) => {
-                const msg = s.chatMessages.find((m) => m.id === assistantId);
-                if (msg) msg.content = `Error: ${event.content}`;
-              });
-            }
-          } catch {
-            // skip malformed SSE events
-          }
-        }
-      }
+  openDrawer: async (id) => {
+    set((s) => {
+      s.drawerEntityId = id;
+      s.isDrawerLoading = true;
+      s.drawerEntity = null;
+    });
+    try {
+      const detail = await api.getEntity(id);
+      set((s) => {
+        s.drawerEntity = detail;
+        s.isDrawerLoading = false;
+      });
     } catch {
       set((s) => {
-        const msg = s.chatMessages.find((m) => m.id === assistantId);
-        if (msg && !msg.content) msg.content = "Failed to get response.";
-      });
-    } finally {
-      set((s) => {
-        s.isChatStreaming = false;
+        s.drawerEntityId = null;
+        s.drawerEntity = null;
+        s.isDrawerLoading = false;
       });
     }
   },
 
-  toggleChat: () => {
+  closeDrawer: () => {
     set((s) => {
-      s.chatOpen = !s.chatOpen;
+      s.drawerEntityId = null;
+      s.drawerEntity = null;
+      s.isDrawerLoading = false;
     });
   },
 
-  clearChat: () => {
-    set((s) => {
-      s.chatMessages = [];
-    });
+  setSearchOverlayOpen: (open) => {
+    set((s) => { s.searchOverlayOpen = open; });
+  },
+
+  setBrowseOverlayOpen: (open) => {
+    set((s) => { s.browseOverlayOpen = open; });
+  },
+
+  updateEntity: async (id, patch) => {
+    try {
+      await api.updateEntity(id, patch);
+      // Refresh drawer
+      const detail = await api.getEntity(id);
+      set((s) => {
+        s.drawerEntity = detail;
+      });
+    } catch {
+      // silently handle
+    }
+  },
+
+  deleteEntity: async (id) => {
+    try {
+      await api.deleteEntity(id);
+      set((s) => {
+        s.drawerEntityId = null;
+        s.drawerEntity = null;
+        s.confirmDialog = null;
+      });
+      // Refresh entity groups and pulse
+      get().loadEntityGroups();
+      get().loadPulseEntities();
+    } catch {
+      // silently handle
+    }
+  },
+
+  setConfirmDialog: (dialog) => {
+    set((s) => { s.confirmDialog = dialog; });
+  },
+
+  confirmAction: async () => {
+    const dialog = get().confirmDialog;
+    if (!dialog) return;
+
+    if (dialog.type === "delete" && dialog.entityId) {
+      await get().deleteEntity(dialog.entityId);
+    } else if (dialog.type === "forget") {
+      try {
+        await api.forget({ entity_name: dialog.entityName });
+        set((s) => { s.confirmDialog = null; });
+        get().loadEntityGroups();
+        get().loadPulseEntities();
+      } catch {
+        set((s) => { s.confirmDialog = null; });
+      }
+    } else {
+      set((s) => { s.confirmDialog = null; });
+    }
   },
 });

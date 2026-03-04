@@ -172,8 +172,8 @@ export function ConsolidationPanel() {
   const loadCycles = useEngramStore((s) => s.loadCycles);
   const selectCycle = useEngramStore((s) => s.selectCycle);
   const triggerCycle = useEngramStore((s) => s.triggerCycle);
-
-  const [triggerDryRun, setTriggerDryRun] = useState(true);
+  const triggerDryRun = useEngramStore((s) => s.triggerDryRun);
+  const setTriggerDryRun = useEngramStore((s) => s.setTriggerDryRun);
 
   useEffect(() => {
     loadStatus();

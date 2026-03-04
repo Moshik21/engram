@@ -268,6 +268,14 @@ class FTS5SearchIndex:
         """FTS5 has no embeddings — always returns empty dict."""
         return {}
 
+    async def get_entity_embeddings(
+        self,
+        entity_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """FTS5 has no embeddings — always returns empty dict."""
+        return {}
+
     @staticmethod
     def _prepare_query(query: str) -> str:
         """Convert natural language query to FTS5 query syntax.

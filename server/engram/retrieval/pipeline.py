@@ -267,6 +267,18 @@ async def retrieve(
 
                 context_gate = build_context_gate(query_emb, predicate_cache, cfg)
 
+    # Step 3.8: Build seed entity types for cross-domain penalty
+    seed_entity_types: dict[str, str] | None = None
+    if cfg.cross_domain_penalty_enabled:
+        seed_entity_types = {}
+        for seed_id, _ in seeds:
+            try:
+                ent = await graph_store.get_entity(seed_id, group_id)
+                if ent:
+                    seed_entity_types[seed_id] = ent.entity_type
+            except Exception:
+                pass
+
     # Step 4: Spread activation
     bonuses, hop_distances = await spread_activation(
         seeds,
@@ -275,6 +287,7 @@ async def retrieve(
         group_id=group_id,
         community_store=community_store,
         context_gate=context_gate,
+        seed_entity_types=seed_entity_types,
     )
 
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity

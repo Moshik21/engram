@@ -25,6 +25,10 @@ the user work?').
 you or asks you to forget something.
 - **get_context**: Get a broad overview of what you know about the user. Use \
 this at the start of conversations.
+- **mark_identity_core**: Protect important personal entities from being \
+pruned. When the user shares core personal identity (family members, \
+workplace, home location, persistent preferences), these entities are \
+automatically protected. Use this tool to manually mark/unmark entities.
 
 ## When to Observe vs Remember
 
@@ -73,8 +77,10 @@ reviewing entities), do not store that discussion as a memory.
 ## Session Start
 
 Call `get_context()` once at the start of each new conversation to load relevant \
-memory context before your first response. Pass a topic_hint if the user's first \
-message suggests a clear topic.
+memory context before your first response. Pass a `topic_hint` if the user's first \
+message suggests a clear topic, or `project_path` to auto-derive it from the project \
+directory name. Use `format="briefing"` for a concise LLM-synthesized narrative \
+instead of structured markdown.
 
 ## Corrections
 

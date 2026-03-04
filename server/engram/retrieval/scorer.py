@@ -22,6 +22,7 @@ class ScoredResult:
     spreading: float
     edge_proximity: float
     exploration_bonus: float = 0.0
+    hop_distance: int | None = None
     result_type: str = "entity"
 
 
@@ -93,6 +94,14 @@ def score_candidates(
             + exploration
         )
 
+        # Hop distance: 0 for seeds, from hop_distances dict, or None
+        if node_id in seed_node_ids:
+            hop_dist: int | None = 0
+        elif node_id in hop_distances:
+            hop_dist = hop_distances[node_id]
+        else:
+            hop_dist = None
+
         results.append(
             ScoredResult(
                 node_id=node_id,
@@ -102,6 +111,7 @@ def score_candidates(
                 spreading=spread,
                 edge_proximity=edge_prox,
                 exploration_bonus=exploration,
+                hop_distance=hop_dist,
             )
         )
 
@@ -173,6 +183,13 @@ def score_candidates_thompson(
             + exploration
         )
 
+        if node_id in seed_node_ids:
+            hop_dist_t: int | None = 0
+        elif node_id in hop_distances:
+            hop_dist_t = hop_distances[node_id]
+        else:
+            hop_dist_t = None
+
         results.append(
             ScoredResult(
                 node_id=node_id,
@@ -182,6 +199,7 @@ def score_candidates_thompson(
                 spreading=spread,
                 edge_proximity=edge_prox,
                 exploration_bonus=exploration,
+                hop_distance=hop_dist_t,
             )
         )
 

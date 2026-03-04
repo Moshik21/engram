@@ -1060,6 +1060,42 @@ class TestLLMValidation:
         mock_client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_llm_uses_cached_system_prompt(self):
+        """LLM validation uses cached system prompt."""
+        e1 = _entity("Alice")
+        e2 = _entity("Bob")
+        entities = {e1.id: e1, e2.id: e2}
+        gs = _mock_graph_store(
+            pairs=[(e1.id, e2.id, 5)],
+            entities=entities,
+            ep_counts={},
+            total_episodes=0,
+        )
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _make_llm_response("approved")
+
+        cfg = ActivationConfig(
+            consolidation_infer_cooccurrence_min=3,
+            consolidation_infer_confidence_floor=0.7,
+            consolidation_infer_llm_enabled=True,
+            consolidation_infer_llm_confidence_threshold=0.5,
+        )
+        phase = EdgeInferencePhase(llm_client=mock_client)
+        await phase.execute(
+            group_id="test",
+            graph_store=gs,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert isinstance(call_kwargs["system"], list)
+        assert call_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
+
+    @pytest.mark.asyncio
     async def test_llm_max_per_cycle(self):
         """At most N edges validated."""
         entities = {}

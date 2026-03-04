@@ -62,6 +62,62 @@ class TestPredicateCanonicalizer:
         assert c.canonicalize("JOINED") == "MEMBER_OF"
         assert c.canonicalize("AFFILIATED_WITH") == "MEMBER_OF"
 
+    def test_health_mappings(self):
+        """Health predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("INJURED") == "RECOVERING_FROM"
+        assert c.canonicalize("HURT") == "RECOVERING_FROM"
+        assert c.canonicalize("DIAGNOSED_WITH") == "HAS_CONDITION"
+        assert c.canonicalize("SUFFERS_FROM") == "HAS_CONDITION"
+        assert c.canonicalize("TREATING") == "TREATS"
+        assert c.canonicalize("PRESCRIBED") == "TREATS"
+
+    def test_sentiment_mappings(self):
+        """Sentiment predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("ENJOYS") == "LIKES"
+        assert c.canonicalize("LOVES") == "LIKES"
+        assert c.canonicalize("APPRECIATES") == "LIKES"
+        assert c.canonicalize("HATES") == "DISLIKES"
+        assert c.canonicalize("AVOIDS") == "DISLIKES"
+        assert c.canonicalize("PREFERS") == "PREFERS"
+        assert c.canonicalize("FAVORS") == "PREFERS"
+
+    def test_goals_mappings(self):
+        """Goal predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("WANTS_TO") == "AIMS_FOR"
+        assert c.canonicalize("PLANS_TO") == "AIMS_FOR"
+        assert c.canonicalize("INTENDS_TO") == "AIMS_FOR"
+        assert c.canonicalize("ASPIRES_TO") == "AIMS_FOR"
+        assert c.canonicalize("WORKING_TOWARD") == "AIMS_FOR"
+
+    def test_causation_mappings(self):
+        """Causation predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("CAUSED") == "CAUSED_BY"
+        assert c.canonicalize("RESULTED_IN") == "LED_TO"
+        assert c.canonicalize("TRIGGERED") == "LED_TO"
+        assert c.canonicalize("DEPENDS_ON") == "REQUIRES"
+        assert c.canonicalize("NEEDS") == "REQUIRES"
+        assert c.canonicalize("BLOCKED_BY") == "REQUIRES"
+
+    def test_hierarchy_mappings(self):
+        """Hierarchy predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("CONTAINS") == "HAS_PART"
+        assert c.canonicalize("INCLUDES") == "HAS_PART"
+        assert c.canonicalize("COMPOSED_OF") == "HAS_PART"
+        assert c.canonicalize("PARENT_OF") == "PARENT_OF"
+        assert c.canonicalize("CHILD_OF") == "CHILD_OF"
+
+    def test_learning_mappings(self):
+        """Learning predicates map correctly."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("LEARNING") == "STUDYING"
+        assert c.canonicalize("READING") == "STUDYING"
+        assert c.canonicalize("PRACTICING") == "STUDYING"
+
     def test_all_map_entries_valid(self):
         """All values in CANONICAL_MAP should be uppercase with underscores."""
         for key, value in CANONICAL_MAP.items():

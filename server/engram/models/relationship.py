@@ -19,5 +19,6 @@ class Relationship(BaseModel):
     valid_to: datetime | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     confidence: float = 1.0
+    polarity: str = "positive"  # positive | negative | uncertain
     source_episode: str | None = None
     group_id: str = "default"

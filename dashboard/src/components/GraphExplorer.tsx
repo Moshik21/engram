@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import ForceGraph2D from "react-force-graph-2d";
 import * as THREE from "three";
@@ -8,111 +8,16 @@ import { activationColor, entityColor } from "../lib/colors";
 import { NodeTooltip } from "./NodeTooltip";
 import { EmptyState } from "./EmptyState";
 
-/**
- * Create a biologically-inspired neuron node: faceted soma + dendrite tendrils + glow halo.
- * Uses MeshBasicMaterial for distance-independent self-luminosity.
- */
-function createNodeObject(node: Record<string, unknown>, showHeatmap: boolean) {
-  const activation = (node.activationCurrent as number) ?? 0;
-  const type = (node.entityType as string) ?? "Other";
-  const accessCount = (node.accessCount as number) ?? 0;
-
-  const colorHex = showHeatmap ? activationColor(activation) : entityColor(type);
-  const color = new THREE.Color(colorHex);
-
-  // Core soma: faceted icosahedron — organic shape, self-lit
-  const coreRadius = 2 + activation * 6;
-  const somaGeometry = new THREE.IcosahedronGeometry(coreRadius, 1);
-  const somaMaterial = new THREE.MeshBasicMaterial({
-    color: color,
-  });
-  const somaMesh = new THREE.Mesh(somaGeometry, somaMaterial);
-
-  const group = new THREE.Group();
-  group.add(somaMesh);
-
-  // Dendrite tendrils — thin curved lines radiating from soma
-  const dendriteCount = Math.min(6 + accessCount, 12);
-  for (let i = 0; i < dendriteCount; i++) {
-    const dir = new THREE.Vector3(
-      Math.random() - 0.5,
-      Math.random() - 0.5,
-      Math.random() - 0.5,
-    ).normalize();
-
-    const length = coreRadius * (1.5 + Math.random() * 1.5);
-
-    const mid = dir
-      .clone()
-      .multiplyScalar(length * 0.5)
-      .add(
-        new THREE.Vector3(
-          (Math.random() - 0.5) * coreRadius * 0.6,
-          (Math.random() - 0.5) * coreRadius * 0.6,
-          (Math.random() - 0.5) * coreRadius * 0.6,
-        ),
-      );
-    const tip = dir.clone().multiplyScalar(length);
-
-    const curve = new THREE.QuadraticBezierCurve3(
-      new THREE.Vector3(0, 0, 0),
-      mid,
-      tip,
-    );
-    const points = curve.getPoints(6);
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-
-    // Vertex colors fade from bright at soma to dim at tips
-    const colors = new Float32Array(points.length * 3);
-    for (let j = 0; j < points.length; j++) {
-      const fade = 1 - j / (points.length - 1);
-      colors[j * 3] = color.r * (0.3 + fade * 0.7);
-      colors[j * 3 + 1] = color.g * (0.3 + fade * 0.7);
-      colors[j * 3 + 2] = color.b * (0.3 + fade * 0.7);
-    }
-    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.25 + (1 - i / dendriteCount) * 0.15,
-      depthWrite: false,
-    });
-
-    group.add(new THREE.Line(geometry, material));
-  }
-
-  // Outer glow sprite — subtle halo, restrained alpha to avoid bloom blowout
-  const glowAlpha = 0.04 + activation * 0.12;
-  const glowSize = coreRadius * (3 + activation * 2);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 64;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d")!;
-  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  gradient.addColorStop(0, `rgba(255, 255, 255, ${glowAlpha})`);
-  gradient.addColorStop(0.2, `rgba(255, 255, 255, ${glowAlpha * 0.5})`);
-  gradient.addColorStop(0.5, `rgba(255, 255, 255, ${glowAlpha * 0.12})`);
-  gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, 64, 64);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMaterial = new THREE.SpriteMaterial({
-    map: texture,
-    color: color,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const sprite = new THREE.Sprite(spriteMaterial);
-  sprite.scale.set(glowSize, glowSize, 1);
-
-  group.add(sprite);
-
-  return group;
-}
+// Tier system
+import { TierClassifier, type Tier } from "./graph/TierClassifier";
+import { FocusTierRenderer } from "./graph/FocusTierRenderer";
+import { ActiveTierRenderer } from "./graph/ActiveTierRenderer";
+import { DormantTierRenderer } from "./graph/DormantTierRenderer";
+import { SharedResources } from "./graph/SharedResources";
+import { AdjacencyMap } from "./graph/AdjacencyMap";
+import { AnimationBudget } from "./graph/AnimationBudget";
+import { DisposalRegistry } from "./graph/DisposalRegistry";
+import { useStableGraphData, useActivationRef, useNodeDataRef } from "../store/graphSelectors";
 
 const PULSE_DURATION_MS = 1500;
 const CASCADE_DELAY_MS = 300;
@@ -125,9 +30,20 @@ interface CascadeEntry {
   intensity: number;
 }
 
+type FgRef = {
+  d3Force: (name: string) => unknown;
+  emitParticle?: (link: unknown) => void;
+  scene?: () => THREE.Scene;
+  renderer?: () => THREE.WebGLRenderer;
+  camera?: () => THREE.Camera;
+  postProcessingComposer?: () => unknown;
+  graphData?: () => {
+    nodes: Array<Record<string, unknown>>;
+    links: Array<Record<string, unknown>>;
+  };
+} | null;
+
 export function GraphExplorer() {
-  const nodes = useEngramStore((s) => s.nodes);
-  const edges = useEngramStore((s) => s.edges);
   const isLoading = useEngramStore((s) => s.isLoading);
   const renderMode = useEngramStore((s) => s.renderMode);
   const showHeatmap = useEngramStore((s) => s.showActivationHeatmap);
@@ -135,26 +51,63 @@ export function GraphExplorer() {
   const selectNode = useEngramStore((s) => s.selectNode);
   const hoverNode = useEngramStore((s) => s.hoverNode);
   const expandNode = useEngramStore((s) => s.expandNode);
-  const fgRef = useRef<{
-    d3Force: (name: string) => unknown;
-    emitParticle?: (link: unknown) => void;
-    scene?: () => THREE.Scene;
-    renderer?: () => THREE.WebGLRenderer;
-    camera?: () => THREE.Camera;
-    postProcessingComposer?: () => unknown;
-  } | null>(null);
 
-  // Shallow-copy nodes/edges for ForceGraph mutation + assign random curve rotation per link
-  const graphData = useMemo(() => {
-    const nodeList = Object.values(nodes).map((n) => ({ ...n }));
-    const edgeList = Object.values(edges).map((e) => ({
-      ...e,
-      __curveRotation: Math.random() * Math.PI * 2,
-    }));
-    return { nodes: nodeList, links: edgeList };
-  }, [nodes, edges]);
+  const fgRef = useRef<FgRef>(null);
+  const graphData = useStableGraphData();
+  const activationRef = useActivationRef();
+  const nodeDataRef = useNodeDataRef();
 
-  // Tune force simulation
+  // ── Tier system refs (stable across renders) ──
+  const sharedRef = useRef<SharedResources | null>(null);
+  const registryRef = useRef<DisposalRegistry | null>(null);
+  const classifierRef = useRef<TierClassifier | null>(null);
+  const focusRendererRef = useRef<FocusTierRenderer | null>(null);
+  const activeRendererRef = useRef<ActiveTierRenderer | null>(null);
+  const dormantRendererRef = useRef<DormantTierRenderer | null>(null);
+  const adjacencyRef = useRef<AdjacencyMap | null>(null);
+  const budgetRef = useRef<AnimationBudget | null>(null);
+
+  // Track which nodes are in which tier for batch renderers
+  const nodeTierMapRef = useRef<Map<string, Tier>>(new Map());
+
+  // Initialize tier system
+  useEffect(() => {
+    const shared = new SharedResources();
+    const registry = new DisposalRegistry();
+    sharedRef.current = shared;
+    registryRef.current = registry;
+    classifierRef.current = new TierClassifier();
+    focusRendererRef.current = new FocusTierRenderer(shared, registry);
+    activeRendererRef.current = new ActiveTierRenderer(shared);
+    dormantRendererRef.current = new DormantTierRenderer();
+    adjacencyRef.current = new AdjacencyMap();
+    budgetRef.current = new AnimationBudget();
+
+    return () => {
+      registry.disposeAll();
+      shared.dispose();
+      activeRendererRef.current?.dispose();
+      dormantRendererRef.current?.dispose();
+      classifierRef.current?.clear();
+      adjacencyRef.current?.clear();
+      budgetRef.current?.reset();
+    };
+  }, []);
+
+  // Rebuild adjacency map when graph structure changes
+  useEffect(() => {
+    if (adjacencyRef.current && graphData.links) {
+      adjacencyRef.current.rebuild(graphData.links);
+    }
+  }, [graphData]);
+
+  // Batch renderers kept for future large-graph optimization but not scene-added.
+  // All tiers now return visible meshes from nodeThreeObject directly.
+
+  // Track previous node count for controlled reheat
+  const prevNodeCountRef = useRef(0);
+
+  // Tune force simulation + controlled reheat for incremental updates
   useEffect(() => {
     if (fgRef.current && renderMode === "3d") {
       const fg = fgRef.current as {
@@ -164,16 +117,34 @@ export function GraphExplorer() {
           | {
               strength?: (v: number) => unknown;
               distanceMax?: (v: number) => unknown;
+              alpha?: (v: number) => unknown;
             }
           | undefined;
+        d3ReheatSimulation?: () => void;
       };
       const charge = fg.d3Force("charge");
       if (charge?.strength) charge.strength(-40);
       if (charge?.distanceMax) charge.distanceMax(300);
+
+      // Controlled reheat: gentle nudge when new nodes arrive,
+      // skip on initial load (prevCount === 0) to let full layout settle naturally
+      const currentCount = graphData.nodes.length;
+      const prevCount = prevNodeCountRef.current;
+      if (prevCount > 0 && currentCount > prevCount && fg.d3ReheatSimulation) {
+        // d3ReheatSimulation sets alpha to 1.0 — we immediately tamp it down
+        // to a gentle 0.15 so existing nodes barely shift while new ones settle
+        fg.d3ReheatSimulation();
+        const sim = fg.d3Force("link") as { simulation?: () => { alpha: (v: number) => void } } | undefined;
+        // Access the underlying d3 simulation via the force-graph internals
+        if (sim?.simulation) {
+          sim.simulation().alpha(0.15);
+        }
+      }
+      prevNodeCountRef.current = currentCount;
     }
   }, [graphData, renderMode]);
 
-  // ── UnrealBloomPass — conservative glow, only fires on pulse peaks ──
+  // ── UnrealBloomPass ──
   const bloomAddedRef = useRef(false);
 
   useEffect(() => {
@@ -200,9 +171,9 @@ export function GraphExplorer() {
             renderer.domElement.width,
             renderer.domElement.height,
           ),
-          0.5, // strength — subtle
-          0.4, // radius — tight spread
-          0.6, // threshold — only bright emissives trigger
+          0.5,
+          0.4,
+          0.6,
         );
 
         if (fg.postProcessingComposer) {
@@ -231,9 +202,7 @@ export function GraphExplorer() {
     if (renderMode !== "3d") return;
 
     const addParticles = () => {
-      const fg = fgRef.current as {
-        scene?: () => THREE.Scene;
-      } | null;
+      const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
       if (!fg?.scene) return false;
       if (particlesRef.current) return true;
 
@@ -288,9 +257,7 @@ export function GraphExplorer() {
 
     return () => {
       if (particlesRef.current) {
-        const fg = fgRef.current as {
-          scene?: () => THREE.Scene;
-        } | null;
+        const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
         if (fg?.scene) {
           fg.scene().remove(particlesRef.current);
         }
@@ -301,7 +268,7 @@ export function GraphExplorer() {
     };
   }, [renderMode]);
 
-  // ── Neural pulse animation loop (with cascade & breathing) ──
+  // ── Optimized animation loop with tier-aware rendering ──
   const dirtyNodesRef = useRef<Set<string>>(new Set());
   const emittedPulsesRef = useRef<Set<string>>(new Set());
   const cascadeQueueRef = useRef<Map<string, CascadeEntry>>(new Map());
@@ -319,21 +286,13 @@ export function GraphExplorer() {
       const pulses = useEngramStore.getState().activationPulses;
       const now = Date.now();
       const time = now - startTime;
+      const fg = fgRef.current as FgRef;
 
-      const fg = fgRef.current as {
-        graphData?: () => {
-          nodes: Array<Record<string, unknown>>;
-          links: Array<Record<string, unknown>>;
-        };
-        emitParticle?: (link: unknown) => void;
-      } | null;
-
-      // ── Particle drift ──
+      // 1. Particle drift (unchanged — already efficient)
       if (particlesRef.current) {
         const positions = particlesRef.current.geometry.attributes.position;
         const posArray = positions.array as Float32Array;
-        const axes = particlesRef.current.userData
-          .driftAxes as THREE.Vector3[];
+        const axes = particlesRef.current.userData.driftAxes as THREE.Vector3[];
         const rotSpeed = 0.0001;
 
         for (let i = 0; i < axes.length; i++) {
@@ -349,41 +308,55 @@ export function GraphExplorer() {
         positions.needsUpdate = true;
       }
 
-      // Short-circuit if nothing pulsing — just do breathing
-      if (
-        pulses.length === 0 &&
-        dirtyNodesRef.current.size === 0 &&
-        cascadeQueueRef.current.size === 0
-      ) {
-        if (fg?.graphData) {
-          const gd = fg.graphData();
-          for (let idx = 0; idx < gd.nodes.length; idx++) {
-            const threeObj = gd.nodes[idx].__threeObj as
-              | THREE.Group
-              | undefined;
-            if (!threeObj) continue;
-
-            threeObj.traverse((child) => {
-              if (child instanceof THREE.Sprite) {
-                const baseScale =
-                  child.userData.baseScale ?? child.scale.x;
-                if (!child.userData.baseScale)
-                  child.userData.baseScale = baseScale;
-                const breath =
-                  1 + 0.05 * Math.sin(time * 0.001 + idx * 0.7);
-                child.scale.setScalar(baseScale * breath);
-              }
-            });
-          }
-        }
-        return;
-      }
-
       if (!fg?.graphData) return;
       const gd = fg.graphData();
-      const activePulseIds = new Set<string>();
 
-      // ── Fire queued cascades ──
+      const classifier = classifierRef.current;
+      const focusRenderer = focusRendererRef.current;
+      const adjacency = adjacencyRef.current;
+      const budget = budgetRef.current;
+
+      if (!classifier || !focusRenderer || !adjacency || !budget) return;
+
+      // 2. Classify all nodes and manage tier transitions
+      classifier.updateTransitions(now);
+
+      const activations = activationRef.current;
+      const nodePositionMap = new Map<string, { x?: number; y?: number; z?: number }>();
+      const activePulseIds = new Set<string>();
+      const focusNodeIds: string[] = [];
+
+      // Build position map + reclassify nodes
+      for (const node of gd.nodes) {
+        const id = node.id as string;
+        const activation = activations.get(id) ?? 0;
+        nodePositionMap.set(id, {
+          x: node.x as number | undefined,
+          y: node.y as number | undefined,
+          z: node.z as number | undefined,
+        });
+
+        const newTier = classifier.classify(id, activation);
+        const oldTier = nodeTierMapRef.current.get(id);
+
+        // Track tier transitions (nodeThreeObject handles visual creation)
+        if (oldTier !== newTier) {
+          nodeTierMapRef.current.set(id, newTier);
+        }
+
+        if (newTier === "focus") focusNodeIds.push(id);
+      }
+
+      // Clean up nodes that were removed from graph
+      for (const [id] of nodeTierMapRef.current) {
+        if (!activations.has(id) && !gd.nodes.some((n: Record<string, unknown>) => n.id === id)) {
+          registryRef.current?.disposeNode(id);
+          classifier.removeNode(id);
+          nodeTierMapRef.current.delete(id);
+        }
+      }
+
+      // 4. Fire queued cascades
       for (const [key, entry] of cascadeQueueRef.current) {
         if (now >= entry.fireAt) {
           cascadeQueueRef.current.delete(key);
@@ -397,6 +370,7 @@ export function GraphExplorer() {
         }
       }
 
+      // 5. Process pulses (using adjacency map for O(P * degree))
       for (const pulse of pulses) {
         const intensity =
           pulse.cascadeIntensity !== undefined ? pulse.cascadeIntensity : 1;
@@ -410,61 +384,29 @@ export function GraphExplorer() {
         const easeOut = 1 - (1 - t) * (1 - t);
         const fadeIntensity = (1 - easeOut) * intensity;
 
-        const graphNode = gd.nodes.find(
-          (n: Record<string, unknown>) => n.id === pulse.entityId,
-        );
-        if (!graphNode) continue;
-
-        const threeObj = graphNode.__threeObj as THREE.Group | undefined;
-        if (!threeObj) continue;
-
-        let sprite: THREE.Sprite | undefined;
-        let somaMesh: THREE.Mesh | undefined;
-        threeObj.traverse((child) => {
-          if (child instanceof THREE.Sprite) sprite = child;
-          else if (child instanceof THREE.Mesh) somaMesh = child;
-        });
-
-        if (sprite) {
-          const baseScale = sprite.userData.baseScale ?? sprite.scale.x;
-          sprite.userData.baseScale = baseScale;
-          sprite.scale.setScalar(baseScale * (1 + 1.5 * fadeIntensity));
-
-          const baseMat = sprite.material as THREE.SpriteMaterial;
-          const baseOpacity =
-            baseMat.userData?.baseOpacity ?? baseMat.opacity;
-          baseMat.userData = { baseOpacity };
-          baseMat.opacity = baseOpacity + 0.3 * fadeIntensity;
-        }
-
-        if (somaMesh) {
-          const mat = somaMesh.material as THREE.MeshBasicMaterial;
-          const baseColor = mat.userData?.baseColor
-            ? new THREE.Color(mat.userData.baseColor)
-            : mat.color.clone();
-          if (!mat.userData?.baseColor) {
-            mat.userData = { baseColor: mat.color.getHex() };
+        // Only animate pulse on Focus-tier nodes (they have full meshes)
+        const nodeTier = nodeTierMapRef.current.get(pulse.entityId);
+        if (nodeTier === "focus") {
+          const graphNode = gd.nodes.find(
+            (n: Record<string, unknown>) => n.id === pulse.entityId,
+          );
+          if (graphNode) {
+            const threeObj = graphNode.__threeObj as THREE.Group | undefined;
+            if (threeObj && threeObj.userData.tier === "focus") {
+              focusRenderer.animatePulse(threeObj, fadeIntensity);
+            }
           }
-          const white = new THREE.Color(0xffffff);
-          mat.color.copy(baseColor).lerp(white, 0.6 * fadeIntensity);
         }
 
-        // Emit edge particles + queue neighbor cascades (once per pulse)
+        // Emit edge particles + queue cascades using adjacency map
         const pulseKey = `${pulse.entityId}-${pulse.timestamp}`;
         if (!emittedPulsesRef.current.has(pulseKey) && fg.emitParticle) {
           emittedPulsesRef.current.add(pulseKey);
-          for (const link of gd.links) {
-            const src =
-              typeof link.source === "object"
-                ? (link.source as Record<string, unknown>).id
-                : link.source;
-            const tgt =
-              typeof link.target === "object"
-                ? (link.target as Record<string, unknown>).id
-                : link.target;
-            if (src === pulse.entityId || tgt === pulse.entityId) {
-              fg.emitParticle(link);
-            }
+
+          // O(degree) instead of O(E)
+          const neighbors = adjacency.getNeighbors(pulse.entityId);
+          for (const { linkRef } of neighbors) {
+            fg.emitParticle(linkRef);
           }
 
           // Queue 1-hop cascade (only from primary pulses)
@@ -474,93 +416,57 @@ export function GraphExplorer() {
             cascadeQueueRef.current.size < CASCADE_MAX_QUEUE
           ) {
             cascadedPulsesRef.current.add(pulseKey);
-            for (const link of gd.links) {
-              const src =
-                typeof link.source === "object"
-                  ? (link.source as Record<string, unknown>).id
-                  : link.source;
-              const tgt =
-                typeof link.target === "object"
-                  ? (link.target as Record<string, unknown>).id
-                  : link.target;
-
-              let neighborId: string | null = null;
-              if (src === pulse.entityId) neighborId = tgt as string;
-              else if (tgt === pulse.entityId) neighborId = src as string;
-
-              if (
-                neighborId &&
-                cascadeQueueRef.current.size < CASCADE_MAX_QUEUE
-              ) {
-                const cascadeKey = `${neighborId}-${pulse.timestamp}`;
-                if (!cascadeQueueRef.current.has(cascadeKey)) {
-                  cascadeQueueRef.current.set(cascadeKey, {
-                    targetId: neighborId,
-                    fireAt: now + CASCADE_DELAY_MS,
-                    intensity: CASCADE_INTENSITY,
-                  });
-                }
+            for (const { neighborId } of neighbors) {
+              if (cascadeQueueRef.current.size >= CASCADE_MAX_QUEUE) break;
+              const cascadeKey = `${neighborId}-${pulse.timestamp}`;
+              if (!cascadeQueueRef.current.has(cascadeKey)) {
+                cascadeQueueRef.current.set(cascadeKey, {
+                  targetId: neighborId,
+                  fireAt: now + CASCADE_DELAY_MS,
+                  intensity: CASCADE_INTENSITY,
+                });
               }
             }
           }
         }
       }
 
-      // Reset dirty nodes no longer pulsing
+      // 6. Reset dirty focus-tier nodes no longer pulsing
       for (const nodeId of dirtyNodesRef.current) {
         if (activePulseIds.has(nodeId)) continue;
 
-        const graphNode = gd.nodes.find(
-          (n: Record<string, unknown>) => n.id === nodeId,
-        );
-        if (!graphNode) {
-          dirtyNodesRef.current.delete(nodeId);
-          continue;
-        }
-
-        const threeObj = graphNode.__threeObj as THREE.Group | undefined;
-        if (!threeObj) {
-          dirtyNodesRef.current.delete(nodeId);
-          continue;
-        }
-
-        threeObj.traverse((child) => {
-          if (child instanceof THREE.Sprite) {
-            const baseScale = child.userData.baseScale;
-            if (baseScale != null) child.scale.setScalar(baseScale);
-            const baseMat = child.material as THREE.SpriteMaterial;
-            if (baseMat.userData?.baseOpacity != null) {
-              baseMat.opacity = baseMat.userData.baseOpacity;
-            }
-          } else if (child instanceof THREE.Mesh) {
-            const mat = child.material as THREE.MeshBasicMaterial;
-            if (mat.userData?.baseColor != null) {
-              mat.color.setHex(mat.userData.baseColor);
+        const nodeTier = nodeTierMapRef.current.get(nodeId);
+        if (nodeTier === "focus") {
+          const graphNode = gd.nodes.find(
+            (n: Record<string, unknown>) => n.id === nodeId,
+          );
+          if (graphNode) {
+            const threeObj = graphNode.__threeObj as THREE.Group | undefined;
+            if (threeObj && threeObj.userData.tier === "focus") {
+              focusRenderer.resetPulse(threeObj);
             }
           }
-        });
-
+        }
         dirtyNodesRef.current.delete(nodeId);
       }
 
-      // ── Breathing — subtle glow oscillation on idle nodes ──
-      for (let idx = 0; idx < gd.nodes.length; idx++) {
-        if (activePulseIds.has(gd.nodes[idx].id as string)) continue;
+      // 7. Budget-allocated breathing on Focus tier
+      const pulsingIds = Array.from(activePulseIds);
+      const animateIds = budget.allocate(pulsingIds, focusNodeIds);
 
-        const threeObj = gd.nodes[idx].__threeObj as
-          | THREE.Group
-          | undefined;
-        if (!threeObj) continue;
+      for (let i = 0; i < animateIds.length; i++) {
+        const id = animateIds[i];
+        if (activePulseIds.has(id)) continue; // Already animated by pulse
 
-        threeObj.traverse((child) => {
-          if (child instanceof THREE.Sprite) {
-            const baseScale = child.userData.baseScale ?? child.scale.x;
-            if (!child.userData.baseScale)
-              child.userData.baseScale = baseScale;
-            const breath = 1 + 0.05 * Math.sin(time * 0.001 + idx * 0.7);
-            child.scale.setScalar(baseScale * breath);
-          }
-        });
+        const graphNode = gd.nodes.find(
+          (n: Record<string, unknown>) => n.id === id,
+        );
+        if (!graphNode) continue;
+
+        const threeObj = graphNode.__threeObj as THREE.Group | undefined;
+        if (threeObj && threeObj.userData.tier === "focus") {
+          focusRenderer.animateBreathing(threeObj, time, i);
+        }
       }
 
       // Housekeeping
@@ -572,25 +478,115 @@ export function GraphExplorer() {
 
     rafId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafId);
-  }, [renderMode]);
+  }, [renderMode, activationRef, nodeDataRef]);
 
   const handleNodeClick = useCallback(
-    (node: { id?: string }) => selectNode(node.id ?? null),
+    (node: { id?: string | number }) => selectNode(node.id != null ? String(node.id) : null),
     [selectNode],
   );
   const handleNodeRightClick = useCallback(
-    (node: { id?: string }) => {
-      if (node.id) expandNode(node.id);
+    (node: { id?: string | number }) => {
+      if (node.id != null) expandNode(String(node.id));
     },
     [expandNode],
   );
   const handleNodeHover = useCallback(
-    (node: { id?: string } | null) => hoverNode(node?.id ?? null),
+    (node: { id?: string | number } | null) => hoverNode(node?.id != null ? String(node.id) : null),
     [hoverNode],
   );
 
+  // Tier-aware nodeThreeObject callback
+  const showHeatmapRef = useRef(showHeatmap);
+  showHeatmapRef.current = showHeatmap;
+
   const nodeThreeObject = useCallback(
-    (node: Record<string, unknown>) => createNodeObject(node, showHeatmap),
+    (node: Record<string, unknown>) => {
+      const id = node.id as string;
+      const activation = (node.activationCurrent as number) ?? 0;
+      const entityType = (node.entityType as string) ?? "Other";
+      const accessCount = (node.accessCount as number) ?? 0;
+
+      const classifier = classifierRef.current;
+      const focusRenderer = focusRendererRef.current;
+
+      if (!classifier || !focusRenderer) {
+        // Fallback: always render full neuron if tier system not ready
+        return createFallbackNode(node, showHeatmapRef.current);
+      }
+
+      const tier = classifier.classify(id, activation);
+      nodeTierMapRef.current.set(id, tier);
+
+      if (tier === "focus") {
+        // Full neuron mesh from FocusTierRenderer
+        return focusRenderer.createNodeObject(
+          id,
+          activation,
+          entityType,
+          accessCount,
+          showHeatmapRef.current,
+        );
+      }
+
+      // Active/Dormant: visible simple mesh (no batch renderer indirection)
+      const colorHex = showHeatmapRef.current
+        ? activationColor(activation)
+        : entityColor(entityType);
+      const color = new THREE.Color(colorHex);
+
+      if (tier === "active") {
+        // Medium sphere with glow sprite
+        const radius = 2 + activation * 4;
+        const somaMesh = new THREE.Mesh(
+          sharedRef.current!.activeSphereGeometry,
+          new THREE.MeshBasicMaterial({ color }),
+        );
+        somaMesh.scale.setScalar(radius);
+
+        const group = new THREE.Group();
+        group.add(somaMesh);
+
+        // Small glow sprite for visibility
+        const spriteMat = sharedRef.current!.createGlowSpriteMaterial(
+          color,
+          0.06 + activation * 0.08,
+        );
+        const sprite = new THREE.Sprite(spriteMat);
+        const glowSize = radius * 3;
+        sprite.scale.set(glowSize, glowSize, 1);
+        group.add(sprite);
+
+        group.userData.soma = somaMesh;
+        group.userData.sprite = sprite;
+        group.userData.tier = "active";
+        group.userData.nodeId = id;
+        group.userData.baseColor = color.getHex();
+        return group;
+      }
+
+      // Dormant: small sphere dot
+      const radius = 1.2 + activation * 2;
+      const somaMesh = new THREE.Mesh(
+        sharedRef.current!.somaGeometryLow,
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.7,
+        }),
+      );
+      somaMesh.scale.setScalar(radius);
+
+      const group = new THREE.Group();
+      group.add(somaMesh);
+
+      group.userData.soma = somaMesh;
+      group.userData.tier = "dormant";
+      group.userData.nodeId = id;
+      group.userData.baseColor = color.getHex();
+      return group;
+    },
+    // showHeatmap toggle triggers full rebuild via showHeatmapRef
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [showHeatmap],
   );
 
@@ -688,4 +684,30 @@ export function GraphExplorer() {
       <NodeTooltip />
     </div>
   );
+}
+
+/**
+ * Fallback: create a simple node object when tier system isn't initialized yet.
+ * Matches the original createNodeObject signature.
+ */
+function createFallbackNode(node: Record<string, unknown>, showHeatmap: boolean): THREE.Group {
+  const activation = (node.activationCurrent as number) ?? 0;
+  const type = (node.entityType as string) ?? "Other";
+  const colorHex = showHeatmap ? activationColor(activation) : entityColor(type);
+  const color = new THREE.Color(colorHex);
+  const coreRadius = 2 + activation * 6;
+
+  const somaGeometry = new THREE.IcosahedronGeometry(coreRadius, 1);
+  const somaMaterial = new THREE.MeshBasicMaterial({ color });
+  const somaMesh = new THREE.Mesh(somaGeometry, somaMaterial);
+
+  const group = new THREE.Group();
+  group.add(somaMesh);
+
+  // Store references for compatibility with animation loop
+  group.userData.soma = somaMesh;
+  group.userData.tier = "focus";
+  group.userData.baseColor = color.getHex();
+
+  return group;
 }

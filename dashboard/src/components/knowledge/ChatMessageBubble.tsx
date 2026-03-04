@@ -1,7 +1,14 @@
-import type { ChatMessage } from "../../store/types";
-import { entityColor } from "../../lib/colors";
+import { InlineEntityCard, type InlineEntitySource } from "./InlineEntityCard";
 
-export function ChatMessageBubble({ msg }: { msg: ChatMessage }) {
+interface LegacyChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: InlineEntitySource[];
+  timestamp: number;
+}
+
+export function ChatMessageBubble({ msg }: { msg: LegacyChatMessage }) {
   const isUser = msg.role === "user";
 
   return (
@@ -29,22 +36,9 @@ export function ChatMessageBubble({ msg }: { msg: ChatMessage }) {
         {msg.content}
 
         {msg.sources && msg.sources.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
             {msg.sources.map((src, i) => (
-              <span
-                key={i}
-                className="mono"
-                style={{
-                  fontSize: 9,
-                  padding: "2px 6px",
-                  borderRadius: 99,
-                  background: `${entityColor(src.entityType ?? "Other")}15`,
-                  color: entityColor(src.entityType ?? "Other"),
-                  border: `1px solid ${entityColor(src.entityType ?? "Other")}20`,
-                }}
-              >
-                {src.name}
-              </span>
+              <InlineEntityCard key={i} source={src} />
             ))}
           </div>
         )}

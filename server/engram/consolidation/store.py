@@ -9,6 +9,7 @@ import aiosqlite
 
 from engram.models.consolidation import (
     ConsolidationCycle,
+    DreamAssociationRecord,
     DreamRecord,
     InferredEdge,
     MergeRecord,
@@ -163,6 +164,28 @@ class SQLiteConsolidationStore:
         """)
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_triage_cycle ON consolidation_triage(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_dream_associations (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                source_entity_id TEXT NOT NULL,
+                target_entity_id TEXT NOT NULL,
+                source_entity_name TEXT NOT NULL,
+                target_entity_name TEXT NOT NULL,
+                source_domain TEXT NOT NULL,
+                target_domain TEXT NOT NULL,
+                surprise_score REAL NOT NULL,
+                embedding_similarity REAL NOT NULL,
+                structural_proximity REAL NOT NULL,
+                relationship_id TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_dream_assoc_cycle "
+            "ON consolidation_dream_associations(cycle_id)"
         )
         # Migrations: add columns for existing databases
         for migration_sql in [
@@ -572,6 +595,66 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_dream_association_record(self, record: DreamAssociationRecord) -> None:
+        """Insert a dream association audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_dream_associations "
+            "(id, cycle_id, group_id, source_entity_id, target_entity_id, "
+            "source_entity_name, target_entity_name, source_domain, target_domain, "
+            "surprise_score, embedding_similarity, structural_proximity, "
+            "relationship_id, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.source_entity_id,
+                record.target_entity_id,
+                record.source_entity_name,
+                record.target_entity_name,
+                record.source_domain,
+                record.target_domain,
+                record.surprise_score,
+                record.embedding_similarity,
+                record.structural_proximity,
+                record.relationship_id,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_dream_association_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[DreamAssociationRecord]:
+        """Fetch dream association records for a cycle, ordered by surprise score."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_dream_associations "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY surprise_score DESC",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            DreamAssociationRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                source_entity_id=r["source_entity_id"],
+                target_entity_id=r["target_entity_id"],
+                source_entity_name=r["source_entity_name"],
+                target_entity_name=r["target_entity_name"],
+                source_domain=r["source_domain"],
+                target_domain=r["target_domain"],
+                surprise_score=r["surprise_score"],
+                embedding_similarity=r["embedding_similarity"],
+                structural_proximity=r["structural_proximity"],
+                relationship_id=r["relationship_id"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def save_triage_record(self, record: TriageRecord) -> None:
         """Insert a triage audit record."""
         await self.db.execute(
@@ -658,6 +741,10 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_triage WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_dream_associations WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(
