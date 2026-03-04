@@ -37,7 +37,8 @@ COPY --from=builder /app/engram /app/engram
 # Non-root user
 RUN groupadd --gid 1001 engram && \
     useradd --uid 1001 --gid engram --create-home engram && \
-    chown -R engram:engram /app
+    mkdir -p /home/engram/.engram && \
+    chown -R engram:engram /app /home/engram/.engram
 USER engram
 
 # Ensure venv is on PATH
