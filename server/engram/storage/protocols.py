@@ -119,6 +119,10 @@ class GraphStore(Protocol):
     ) -> list[dict]: ...
     async def get_entity_type_counts(self, group_id: str | None = None) -> dict[str, int]: ...
 
+    async def find_entity_candidates(
+        self, name: str, group_id: str, limit: int = 30,
+    ) -> list[Entity]: ...
+
     # --- Consolidation methods ---
     async def get_co_occurring_entity_pairs(
         self,

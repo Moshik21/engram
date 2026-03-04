@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
@@ -11,8 +12,9 @@ from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.conflicts import is_exclusive_predicate
+from engram.extraction.discourse import classify_discourse
 from engram.extraction.extractor import EntityExtractor
-from engram.extraction.resolver import resolve_entity
+from engram.extraction.resolver import resolve_entity_fast
 from engram.extraction.temporal import resolve_temporal_hint
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeStatus
@@ -60,6 +62,28 @@ class GraphManager:
         else:
             self._working_memory = None
 
+    # Entity types where meta-summaries should be rejected (real-world entities)
+    _PROTECTED_ENTITY_TYPES = frozenset(
+        {"Person", "CreativeWork", "Location", "Event", "Organization"}
+    )
+
+    # Patterns that indicate a summary contains system-internal meta-commentary
+    _META_SUMMARY_PATTERN = re.compile(
+        r"activation[ _]?(?:score|current)|access[_ ]?count"
+        r"|knowledge graph|graph (?:node|entity|store)"
+        r"|retrieval|embedding|consolidation|triage"
+        r"|entity (?:resolution|extraction|in the)"
+        r"|cold session|test case|example case"
+        r"|MCP tool|episode worker|spreading activation"
+        r"|\b(?:ent|ep|rel|cyc)_[a-f0-9]",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _is_meta_summary(text: str) -> bool:
+        """Check if a summary fragment contains system-internal patterns."""
+        return bool(GraphManager._META_SUMMARY_PATTERN.search(text))
+
     @staticmethod
     def _merge_entity_attributes(
         existing: Entity,
@@ -72,7 +96,19 @@ class GraphManager:
 
         # Append summaries (capped at 500 chars)
         if new_summary and new_summary != existing.summary:
-            if existing.summary:
+            # Guard: reject meta-contaminated summaries for protected entity types
+            entity_type = getattr(existing, "entity_type", "Other") or "Other"
+            if (
+                GraphManager._is_meta_summary(new_summary)
+                and entity_type in GraphManager._PROTECTED_ENTITY_TYPES
+            ):
+                logger.warning(
+                    "Rejected meta-summary for %s entity %r: %s",
+                    entity_type,
+                    existing.name,
+                    new_summary[:80],
+                )
+            elif existing.summary:
                 merged = f"{existing.summary}; {new_summary}"
                 if len(merged) > 500:
                     merged = merged[:497] + "..."
@@ -137,19 +173,18 @@ class GraphManager:
         updates.update(extra)
         await self._graph.update_episode(episode_id, updates, group_id=group_id)
 
-    async def ingest_episode(
+    async def store_episode(
         self,
         content: str,
         group_id: str = "default",
         source: str | None = None,
         session_id: str | None = None,
     ) -> str:
-        """Ingest a text episode: store, extract, resolve, link.
+        """Store a raw episode without extraction. Fast path for bulk capture.
 
-        Returns the episode ID. In lite mode this is synchronous.
+        Returns the episode ID. The episode is created with QUEUED status.
+        Call project_episode() later to run extraction.
         """
-        start_ms = time.monotonic()
-
         episode_id = f"ep_{uuid.uuid4().hex[:12]}"
         episode = Episode(
             id=episode_id,
@@ -180,27 +215,56 @@ class GraphManager:
                 },
             },
         )
+        return episode_id
+
+    async def project_episode(
+        self,
+        episode_id: str,
+        group_id: str = "default",
+    ) -> None:
+        """Run extraction, resolution, and embedding on a stored episode.
+
+        Raises on failure after setting FAILED status.
+        """
+        episode = await self._graph.get_episode_by_id(episode_id, group_id)
+        if not episode:
+            raise ValueError(f"Episode not found: {episode_id}")
+
+        start_ms = time.monotonic()
+        content = episode.content
+
+        # Discourse gate: skip pure system meta-commentary
+        if classify_discourse(content) == "system":
+            logger.warning(
+                "project_episode: skipping system-discourse episode %s", episode_id
+            )
+            await self._update_episode_status(
+                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
+                skipped_meta=True,
+            )
+            return
 
         try:
             # Extraction
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.EXTRACTING,
-                group_id=group_id,
+                episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
             )
             result = await self._extractor.extract(content)
 
             # Resolution
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.RESOLVING,
-                group_id=group_id,
+                episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
             )
-            existing = await self._graph.find_entities(group_id=group_id, limit=1000)
-            entity_map: dict[str, str] = {}  # extracted_name -> entity_id
+            session_entities: dict[str, Entity] = {}
+            entity_map: dict[str, str] = {}
+
+            async def _get_candidates(name: str, gid: str) -> list[Entity]:
+                return await self._graph.find_entity_candidates(name, gid)
 
             now = time.time()
             new_entity_names: list[str] = []
+
+            meta_entity_names: set[str] = set()
 
             for ent_data in result.entities:
                 name = ent_data["name"]
@@ -209,7 +273,18 @@ class GraphManager:
                 pii_detected = ent_data.get("pii_detected", False)
                 pii_categories = ent_data.get("pii_categories")
 
-                existing_entity = await resolve_entity(name, entity_type, existing)
+                # Fix 5: skip entities tagged as meta by LLM
+                if ent_data.get("epistemic_mode") == "meta":
+                    logger.debug(
+                        "Skipping meta-tagged entity %r (type=%s)", name, entity_type
+                    )
+                    meta_entity_names.add(name)
+                    continue
+
+                existing_entity = await resolve_entity_fast(
+                    name, entity_type, _get_candidates, group_id,
+                    session_entities=session_entities,
+                )
 
                 if existing_entity:
                     entity_id = existing_entity.id
@@ -230,23 +305,33 @@ class GraphManager:
                         pii_categories=pii_categories,
                     )
                     await self._graph.create_entity(entity)
-                    existing.append(entity)
+                    session_entities[entity_id] = entity
                     new_entity_names.append(name)
 
                 entity_map[name] = entity_id
                 await self._graph.link_episode_entity(episode_id, entity_id)
-
-                # Record access for extracted entity
                 await self._activation.record_access(entity_id, now, group_id=group_id)
                 await self._publish_access_event(
                     entity_id, name, entity_type, group_id, "ingest"
                 )
 
             # Writing relationships
-            await self._update_episode_status(episode_id, EpisodeStatus.WRITING, group_id=group_id)
+            await self._update_episode_status(
+                episode_id, EpisodeStatus.WRITING, group_id=group_id,
+            )
             for rel_data in result.relationships:
                 source_name = rel_data.get("source") or rel_data.get("source_entity", "")
                 target_name = rel_data.get("target") or rel_data.get("target_entity", "")
+
+                # Skip relationships involving meta-tagged entities
+                if source_name in meta_entity_names or target_name in meta_entity_names:
+                    logger.debug(
+                        "Skipping relationship %s->%s (meta entity involved)",
+                        source_name,
+                        target_name,
+                    )
+                    continue
+
                 source_id = entity_map.get(source_name)
                 target_id = entity_map.get(target_name)
 
@@ -263,7 +348,6 @@ class GraphManager:
                     )
                     predicate = self._canonicalizer.canonicalize(predicate)
 
-                    # Parse temporal fields
                     valid_from_str = rel_data.get("valid_from")
                     valid_to_str = rel_data.get("valid_to")
                     temporal_hint = rel_data.get("temporal_hint")
@@ -273,7 +357,6 @@ class GraphManager:
                     valid_to = None
                     confidence = 1.0
 
-                    # Resolve valid_from
                     if valid_from_str:
                         try:
                             valid_from = datetime.fromisoformat(valid_from_str)
@@ -291,7 +374,6 @@ class GraphManager:
                         else:
                             confidence = 0.7
 
-                    # Resolve valid_to
                     if valid_to_str:
                         try:
                             valid_to = datetime.fromisoformat(valid_to_str)
@@ -303,13 +385,11 @@ class GraphManager:
                     if valid_from is None:
                         valid_from = dt_now
 
-                    # Conflict detection for exclusive predicates
                     if is_exclusive_predicate(predicate):
                         conflicts = await self._graph.find_conflicting_relationships(
                             source_id, predicate, group_id
                         )
                         for conflict in conflicts:
-                            # Don't invalidate if same target (not a real conflict)
                             if conflict.target_id == target_id:
                                 continue
                             await self._graph.invalidate_relationship(
@@ -337,7 +417,7 @@ class GraphManager:
                     )
                     await self._graph.create_relationship(rel)
 
-            # Publish graph changes with full node/edge data for incremental updates
+            # Publish graph changes
             serialized_nodes = []
             serialized_edges = []
             for ent_data in result.entities:
@@ -409,52 +489,38 @@ class GraphManager:
                 },
             )
 
-            # ── Embedding ──
+            # Embedding
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.EMBEDDING,
-                group_id=group_id,
+                episode_id, EpisodeStatus.EMBEDDING, group_id=group_id,
             )
             try:
-                # Index changed entities for vector search
                 for ent_data in result.entities:
                     eid = entity_map.get(ent_data["name"])
                     if eid:
                         ent = await self._graph.get_entity(eid, group_id)
                         if ent:
                             if self._cfg.structure_aware_embeddings:
-                                await self._index_entity_with_structure(
-                                    ent,
-                                    group_id,
-                                )
+                                await self._index_entity_with_structure(ent, group_id)
                             else:
                                 await self._search.index_entity(ent)
-                # Index episode content
                 ep = await self._graph.get_episode_by_id(episode_id, group_id)
                 if ep:
                     await self._search.index_episode(ep)
             except Exception as embed_err:
                 logger.warning(
                     "Embedding failed for episode %s (non-fatal): %s",
-                    episode_id,
-                    embed_err,
+                    episode_id, embed_err,
                 )
-                # Continue — FTS5 still works
 
-            # ── Activating ──
+            # Activating
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.ACTIVATING,
-                group_id=group_id,
+                episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
             )
-            # Activation recording already happens during entity extraction above
 
             # Complete
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.COMPLETED,
-                group_id=group_id,
+                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
                 processing_duration_ms=elapsed_ms,
             )
             self._publish(
@@ -468,32 +534,39 @@ class GraphManager:
                     "duration_ms": elapsed_ms,
                 },
             )
-
             logger.info(
                 "Ingested episode %s: %d entities, %d relationships",
-                episode_id,
-                len(result.entities),
-                len(result.relationships),
+                episode_id, len(result.entities), len(result.relationships),
             )
 
         except Exception as e:
             logger.error("Failed to process episode %s: %s", episode_id, e)
             await self._update_episode_status(
-                episode_id,
-                EpisodeStatus.FAILED,
-                group_id=group_id,
-                error=str(e),
+                episode_id, EpisodeStatus.FAILED, group_id=group_id, error=str(e),
             )
             self._publish(
                 group_id,
                 "episode.failed",
-                {
-                    "episodeId": episode_id,
-                    "status": "failed",
-                    "error": str(e),
-                },
+                {"episodeId": episode_id, "status": "failed", "error": str(e)},
             )
+            raise
 
+    async def ingest_episode(
+        self,
+        content: str,
+        group_id: str = "default",
+        source: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
+        """Ingest a text episode: store, extract, resolve, link.
+
+        Returns the episode ID. Thin wrapper over store_episode + project_episode.
+        """
+        episode_id = await self.store_episode(content, group_id, source, session_id)
+        try:
+            await self.project_episode(episode_id, group_id)
+        except Exception:
+            pass  # project_episode already sets FAILED status
         return episode_id
 
     async def _index_entity_with_structure(
@@ -695,6 +768,12 @@ class GraphManager:
                     entities.append(ent)
                 if len(entities) >= limit:
                     break
+
+            # Fallback: if search returned nothing, try direct name lookup
+            if not entities:
+                entities = await self._graph.find_entities(
+                    name=name, entity_type=entity_type, group_id=group_id, limit=limit
+                )
         else:
             # Type-only search
             entities = await self._graph.find_entities(

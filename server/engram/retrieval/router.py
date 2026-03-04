@@ -30,12 +30,19 @@ _FREQUENCY_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_CREATION_KEYWORDS = re.compile(
+    r"\b(wrote|written|authored|created|built|made|published|designed"
+    r"|composed|produced|founded|invented)\b",
+    re.IGNORECASE,
+)
+
 
 class QueryType(Enum):
     DIRECT_LOOKUP = "direct_lookup"
     TEMPORAL = "temporal"
     FREQUENCY = "frequency"
     ASSOCIATIVE = "associative"
+    CREATION = "creation"
     DEFAULT = "default"
 
 
@@ -44,6 +51,7 @@ _WEIGHT_PROFILES: dict[QueryType, tuple[float, float, float, float]] = {
     QueryType.TEMPORAL: (0.20, 0.55, 0.15, 0.10),
     QueryType.FREQUENCY: (0.15, 0.60, 0.15, 0.10),
     QueryType.ASSOCIATIVE: (0.55, 0.10, 0.20, 0.15),
+    QueryType.CREATION: (0.30, 0.10, 0.25, 0.30),
     QueryType.DEFAULT: (0.40, 0.25, 0.15, 0.15),
 }
 
@@ -71,6 +79,9 @@ async def classify_query(
 
     if _FREQUENCY_KEYWORDS.search(query):
         return QueryType.FREQUENCY
+
+    if _CREATION_KEYWORDS.search(query):
+        return QueryType.CREATION
 
     if _ASSOCIATIVE_KEYWORDS.search(query):
         return QueryType.ASSOCIATIVE

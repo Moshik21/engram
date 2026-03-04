@@ -4,12 +4,13 @@ import { SearchBar } from "./SearchBar";
 import { ConnectionStatus } from "./ConnectionStatus";
 
 const VIEWS: { id: DashboardView; label: string; icon: string }[] = [
-  { id: "graph", label: "Graph", icon: "◉" },
-  { id: "timeline", label: "Timeline", icon: "◷" },
-  { id: "feed", label: "Feed", icon: "☰" },
-  { id: "activation", label: "Activation", icon: "⚡" },
-  { id: "stats", label: "Stats", icon: "▤" },
-  { id: "consolidation", label: "Consolidate", icon: "⟳" },
+  { id: "knowledge", label: "Knowledge", icon: "\u25C8" },
+  { id: "graph", label: "Graph", icon: "\u25C9" },
+  { id: "timeline", label: "Timeline", icon: "\u25F7" },
+  { id: "feed", label: "Feed", icon: "\u2630" },
+  { id: "activation", label: "Activation", icon: "\u26A1" },
+  { id: "stats", label: "Stats", icon: "\u25A4" },
+  { id: "consolidation", label: "Consolidate", icon: "\u27F3" },
 ];
 
 export function Sidebar() {

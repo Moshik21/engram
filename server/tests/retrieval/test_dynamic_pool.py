@@ -90,6 +90,21 @@ class TestComputeDynamicLimits:
         assert no_type_limits == default_limits
 
 
+    def test_creation_boosts_graph_pool(self):
+        """CREATION query type should boost graph pool 2x (like ASSOCIATIVE)."""
+        cfg = ActivationConfig()
+        default_limits = compute_dynamic_limits(1000, cfg, QueryType.DEFAULT)
+        creation_limits = compute_dynamic_limits(1000, cfg, QueryType.CREATION)
+
+        # Graph should be 2x for CREATION
+        assert creation_limits["pool_graph_limit"] == min(
+            cfg.pool_graph_limit * 2,
+            100,
+        )
+        # Search should stay the same
+        assert creation_limits["pool_search_limit"] == default_limits["pool_search_limit"]
+
+
 class TestDynamicLimitsEdgeCases:
     def test_zero_entities_uses_floor(self):
         """0 entities should use floor of 1000 (scale=1.0)."""

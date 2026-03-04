@@ -11,6 +11,7 @@ import { createStatsSlice } from "./statsSlice";
 import { createWsSlice } from "./wsSlice";
 import { createActivationSlice } from "./activationSlice";
 import { createConsolidationSlice } from "./consolidationSlice";
+import { createKnowledgeSlice } from "./knowledgeSlice";
 
 export const useEngramStore = create<EngramStore>()(
   devtools(
@@ -25,6 +26,7 @@ export const useEngramStore = create<EngramStore>()(
         ...createWsSlice(...a),
         ...createActivationSlice(...a),
         ...createConsolidationSlice(...a),
+        ...createKnowledgeSlice(...a),
       })),
       {
         name: "engram-dashboard",

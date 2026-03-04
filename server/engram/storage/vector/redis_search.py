@@ -168,6 +168,71 @@ class RedisSearchIndex:
         except Exception as e:
             logger.warning("Failed to index episode %s: %s", episode.id, e)
 
+    async def _text_search(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Full-text search using the indexed TEXT field in Redis Search."""
+        filter_parts = []
+        if group_id:
+            filter_parts.append(f"@group_id:{{{group_id}}}")
+        filter_parts.append("@content_type:{entity}")
+
+        # Tokenize and escape query for Redis Search
+        tokens = [t.strip("?!.,;:'\"") for t in query.split() if len(t) > 2]
+        if not tokens:
+            return []
+        text_clause = "|".join(tokens)  # OR search
+        filter_parts.append(f"@text:({text_clause})")
+
+        ft_query = " ".join(filter_parts)
+
+        try:
+            result = await self._redis.execute_command(
+                "FT.SEARCH",
+                self.INDEX_NAME,
+                ft_query,
+                "LIMIT",
+                "0",
+                str(limit),
+                "RETURN",
+                "2",
+                "source_id",
+                "score",
+            )
+        except Exception as e:
+            logger.debug("Redis text search failed (non-fatal): %s", e)
+            return []
+
+        if not result or result[0] == 0:
+            return []
+
+        # Parse results — source_id with a fixed baseline score
+        results: list[tuple[str, float]] = []
+        i = 1
+        while i < len(result):
+            i += 1  # skip key
+            if i >= len(result):
+                break
+            fields = result[i]
+            i += 1
+            field_dict = {}
+            for j in range(0, len(fields), 2):
+                k = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
+                v = (
+                    fields[j + 1].decode()
+                    if isinstance(fields[j + 1], bytes)
+                    else fields[j + 1]
+                )
+                field_dict[k] = v
+            source_id = field_dict.get("source_id", "")
+            if source_id:
+                results.append((source_id, 0.5))  # baseline score for text match
+
+        return results
+
     async def search(
         self,
         query: str,
@@ -175,17 +240,31 @@ class RedisSearchIndex:
         group_id: str | None = None,
         limit: int = 20,
     ) -> list[tuple[str, float]]:
-        """KNN vector search with group_id TAG filter."""
+        """KNN vector search with group_id TAG filter, supplemented by text search."""
         if not self._embeddings_enabled:
-            return []
+            # Embeddings disabled — fall back to text-only search
+            try:
+                return await self._text_search(query, group_id=group_id, limit=limit)
+            except Exception:
+                return []
 
         try:
             query_vec = await self._provider.embed_query(query)
             if not query_vec:
-                return []
+                # Embedding failed — fall back to text search
+                try:
+                    return await self._text_search(
+                        query, group_id=group_id, limit=limit
+                    )
+                except Exception:
+                    return []
         except Exception as e:
             logger.warning("Failed to embed query: %s", e)
-            return []
+            # Embedding failed — fall back to text search
+            try:
+                return await self._text_search(query, group_id=group_id, limit=limit)
+            except Exception:
+                return []
 
         vec_bytes = pack_vector(query_vec)
 
@@ -256,6 +335,22 @@ class RedisSearchIndex:
 
             if source_id:
                 results.append((source_id, similarity))
+
+        # Supplement with text search results when KNN is sparse
+        if len(results) < limit:
+            try:
+                text_results = await self._text_search(
+                    query,
+                    group_id=group_id,
+                    limit=limit,
+                )
+                existing = {eid for eid, _ in results}
+                for eid, score in text_results:
+                    if eid not in existing:
+                        results.append((eid, score))
+                        existing.add(eid)
+            except Exception:
+                pass  # text search is best-effort
 
         return results
 

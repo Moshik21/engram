@@ -15,8 +15,15 @@ EXTRACTION_SYSTEM_PROMPT = (
     "    {\n"
     '      "name": "Entity Name",\n'
     '      "entity_type": "Person|Organization|Project|Technology|'
-    'Concept|Location|Event|Other",\n'
+    'Concept|Location|Event|CreativeWork|Article|Software|Other",\n'
+    "  Type guidance:\n"
+    "  - Project: work initiative, research project, business venture\n"
+    "  - CreativeWork: book, novel, song, film, artwork, story\n"
+    "  - Article: blog post, paper, news article, report\n"
+    "  - Software: application, library, CLI tool\n"
+    "  - Technology: programming language, framework, protocol\n"
     '      "summary": "Brief description of this entity based on the text",\n'
+    '      "epistemic_mode": "direct|meta",\n'
     '      "pii_detected": false,\n'
     '      "pii_categories": []\n'
     "    }\n"
@@ -38,13 +45,39 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- Entity names should be normalized "
     "(proper case, no abbreviations unless standard).\n"
     "- Predicates should be UPPER_SNAKE_CASE verbs "
-    "(e.g., WORKS_AT, USES, PART_OF, INTEGRATES_WITH).\n"
+    "(e.g., WORKS_AT, USES, PART_OF, CREATED, AUTHORED, "
+    "TEACHES, MEMBER_OF, LOCATED_IN, EXPERT_IN).\n"
     "- Weight is 1.0 for explicit statements, "
     "0.5 for inferred relationships.\n"
     "- Extract only entities and relationships clearly present "
     "in or inferable from the text.\n"
     "- Do not invent information not supported by the text.\n"
     "- Output valid JSON only, no markdown fences or commentary.\n"
+    "\n"
+    "Meta-context filter:\n"
+    "- Extract ONLY real-world facts about entities. Do NOT extract or summarize "
+    "information about how a memory system stores, retrieves, scores, or processes "
+    "an entity.\n"
+    "- NEVER include these system terms in entity summaries: activation score, "
+    "knowledge graph, retrieval, embedding, consolidation, entity resolution, "
+    "triage, cold session, access count, spreading activation.\n"
+    "- If the text is primarily about a memory system's behavior rather than "
+    "real-world facts, return empty entities and relationships.\n"
+    "\n"
+    "Examples of what NOT to extract:\n"
+    '- "Entity in the knowledge graph with activation score 0.91" -> skip\n'
+    '- "Used as example case for indirect retrieval testing" -> skip\n'
+    '- "Recall returned Alice with score 0.92" -> extract Alice only, ignore score\n'
+    "\n"
+    "Examples of what TO extract:\n"
+    '- "Alice is a data scientist at Acme" -> extract normally\n'
+    '- "The Wound Between Worlds is a fantasy novel" -> extract normally\n'
+    "\n"
+    "Epistemic mode tagging:\n"
+    '- "epistemic_mode": "direct" for real-world facts about the entity.\n'
+    '- "epistemic_mode": "meta" for statements about how this entity is stored, '
+    "retrieved, or processed within a memory/knowledge system.\n"
+    '- Default to "direct" when uncertain.\n'
     "\n"
     "Temporal extraction rules:\n"
     '- If a relationship has a known start date, set "valid_from" '

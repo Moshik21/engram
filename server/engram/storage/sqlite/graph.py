@@ -181,6 +181,56 @@ class SQLiteGraphStore:
         rows = await cursor.fetchall()
         return [self._row_to_entity(r, group_id) for r in rows]
 
+    async def find_entity_candidates(
+        self, name: str, group_id: str, limit: int = 30,
+    ) -> list[Entity]:
+        """Retrieve candidate entities for fuzzy resolution via exact + FTS5 match."""
+        seen_ids: set[str] = set()
+        results: list[Entity] = []
+
+        # Phase 1: Exact normalized name match
+        normalized = name.strip().lower().replace("_", " ").replace("-", " ")
+        cursor = await self.db.execute(
+            """SELECT * FROM entities
+               WHERE LOWER(REPLACE(REPLACE(TRIM(name), '_', ' '), '-', ' ')) = ?
+                 AND group_id = ? AND deleted_at IS NULL
+               LIMIT ?""",
+            (normalized, group_id, limit),
+        )
+        for row in await cursor.fetchall():
+            entity = self._row_to_entity(row, group_id)
+            if entity.id not in seen_ids:
+                seen_ids.add(entity.id)
+                results.append(entity)
+
+        if len(results) >= limit:
+            return results[:limit]
+
+        # Phase 2: FTS5 token search
+        tokens = [t for t in name.strip().split() if len(t) >= 2]
+        if tokens:
+            fts_query = " OR ".join(f'"{t}"' for t in tokens)
+            try:
+                remaining = limit - len(results)
+                fts_cursor = await self.db.execute(
+                    """SELECT e.* FROM entities_fts fts
+                       JOIN entities e ON e.rowid = fts.rowid
+                       WHERE entities_fts MATCH ?
+                         AND e.group_id = ? AND e.deleted_at IS NULL
+                       ORDER BY bm25(entities_fts)
+                       LIMIT ?""",
+                    (fts_query, group_id, remaining),
+                )
+                for row in await fts_cursor.fetchall():
+                    entity = self._row_to_entity(row, group_id)
+                    if entity.id not in seen_ids:
+                        seen_ids.add(entity.id)
+                        results.append(entity)
+            except Exception:
+                pass  # Malformed FTS5 query — fall through gracefully
+
+        return results[:limit]
+
     # --- Relationships ---
 
     async def create_relationship(self, rel: Relationship) -> str:

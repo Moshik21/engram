@@ -94,6 +94,47 @@ class TestExtract:
         assert result.entities == []
         assert result.relationships == [{"source": "A", "target": "B", "predicate": "KNOWS"}]
 
+    async def test_creative_work_entity_type_in_response(self):
+        """CreativeWork entity type parses correctly from extraction response."""
+        data = {
+            "entities": [
+                {"name": "The Agent of Fate", "entity_type": "CreativeWork"},
+            ],
+            "relationships": [
+                {"source": "Konner", "target": "The Agent of Fate", "predicate": "CREATED"},
+            ],
+        }
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        result = await extractor.extract("Konner wrote a fantasy book called The Agent of Fate")
+        assert len(result.entities) == 1
+        assert result.entities[0]["entity_type"] == "CreativeWork"
+        assert result.relationships[0]["predicate"] == "CREATED"
+
+    async def test_epistemic_mode_field_in_response(self):
+        """epistemic_mode field is preserved from extraction response."""
+        data = {
+            "entities": [
+                {
+                    "name": "Alice",
+                    "entity_type": "Person",
+                    "summary": "Data scientist",
+                    "epistemic_mode": "direct",
+                },
+                {
+                    "name": "Retrieval Pipeline",
+                    "entity_type": "Technology",
+                    "summary": "Scored 0.9 on Alice",
+                    "epistemic_mode": "meta",
+                },
+            ],
+            "relationships": [],
+        }
+        extractor = self._make_extractor_with_response(json.dumps(data))
+        result = await extractor.extract("test text")
+        assert len(result.entities) == 2
+        assert result.entities[0]["epistemic_mode"] == "direct"
+        assert result.entities[1]["epistemic_mode"] == "meta"
+
     async def test_empty_response_returns_empty(self):
         data = {"entities": [], "relationships": []}
         extractor = self._make_extractor_with_response(json.dumps(data))

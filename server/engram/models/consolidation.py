@@ -97,6 +97,20 @@ class PruneRecord:
 
 
 @dataclass
+class TriageRecord:
+    """Audit entry for a triaged episode."""
+
+    cycle_id: str
+    group_id: str
+    episode_id: str
+    score: float
+    decision: str  # "extract" | "skip"
+    score_breakdown: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"tri_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class CycleContext:
     """Mutable shared state passed through all phases in a single cycle."""
 
@@ -106,6 +120,7 @@ class CycleContext:
     pruned_entity_ids: set[str] = field(default_factory=set)
     replay_new_entity_ids: set[str] = field(default_factory=set)
     dream_seed_ids: set[str] = field(default_factory=set)
+    triage_promoted_ids: set[str] = field(default_factory=set)
 
 
 @dataclass

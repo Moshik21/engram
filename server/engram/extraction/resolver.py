@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from thefuzz import fuzz
 
 from engram.models.entity import Entity
@@ -61,6 +63,49 @@ async def resolve_entity(
         if entity.entity_type == entity_type:
             score = min(score + 0.05, 1.0)
 
+        if score > best_score:
+            best_score = score
+            best_match = entity
+
+    threshold = FUZZY_MATCH_THRESHOLD / 100.0
+    if best_score >= threshold and best_match is not None:
+        return best_match
+
+    return None
+
+
+async def resolve_entity_fast(
+    name: str,
+    entity_type: str,
+    get_candidates: Callable[[str, str], Awaitable[list[Entity]]],
+    group_id: str,
+    session_entities: dict[str, Entity] | None = None,
+) -> Entity | None:
+    """Resolve entity using indexed candidate retrieval instead of O(N) scan.
+
+    Checks session_entities first (within-episode dedup), then retrieves
+    ~30 candidates from the DB and fuzzy-matches only those.
+    """
+    # Check session cache first (entities created earlier in this episode)
+    if session_entities:
+        for entity in session_entities.values():
+            score = compute_similarity(name, entity.name)
+            if entity.entity_type == entity_type:
+                score = min(score + 0.05, 1.0)
+            if score >= FUZZY_MATCH_THRESHOLD / 100.0:
+                return entity
+
+    # Retrieve candidates from DB
+    candidates = await get_candidates(name, group_id)
+
+    # Run same fuzzy matching logic on candidate set
+    best_match: Entity | None = None
+    best_score = 0.0
+
+    for entity in candidates:
+        score = compute_similarity(name, entity.name)
+        if entity.entity_type == entity_type:
+            score = min(score + 0.05, 1.0)
         if score > best_score:
             best_score = score
             best_match = entity

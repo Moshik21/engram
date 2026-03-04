@@ -28,6 +28,15 @@ CANONICAL_MAP: dict[str, str] = {
     "DEVELOPED": "CREATED",
     "AUTHORED": "CREATED",
     "DESIGNED": "CREATED",
+    "WROTE": "CREATED",
+    "PUBLISHED": "CREATED",
+    "COMPOSED": "CREATED",
+    "PRODUCED": "CREATED",
+    "FOUNDED": "CREATED",
+    # Membership
+    "BELONGS_TO": "MEMBER_OF",
+    "JOINED": "MEMBER_OF",
+    "AFFILIATED_WITH": "MEMBER_OF",
     # Usage
     "UTILIZES": "USES",
     "EMPLOYS": "USES",

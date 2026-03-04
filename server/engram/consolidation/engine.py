@@ -13,6 +13,7 @@ from engram.consolidation.phases.merge import EntityMergePhase
 from engram.consolidation.phases.prune import PrunePhase
 from engram.consolidation.phases.reindex import ReindexPhase
 from engram.consolidation.phases.replay import EpisodeReplayPhase
+from engram.consolidation.phases.triage import TriagePhase
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
 from engram.models.consolidation import (
@@ -24,6 +25,7 @@ from engram.models.consolidation import (
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
+    TriageRecord,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ class ConsolidationEngine:
         event_bus: EventBus | None = None,
         extractor: object | None = None,
         llm_client: object | None = None,
+        graph_manager: object | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
@@ -53,6 +56,7 @@ class ConsolidationEngine:
         self._cancelled = False
 
         self._phases = [
+            TriagePhase(graph_manager=graph_manager),
             EpisodeReplayPhase(extractor=extractor),
             EntityMergePhase(),
             EdgeInferencePhase(llm_client=llm_client),
@@ -155,6 +159,8 @@ class ConsolidationEngine:
                                 await self._store.save_replay_record(record)
                             elif isinstance(record, DreamRecord):
                                 await self._store.save_dream_record(record)
+                            elif isinstance(record, TriageRecord):
+                                await self._store.save_triage_record(record)
 
                     self._publish(
                         group_id,

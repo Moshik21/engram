@@ -9,6 +9,7 @@ import { StatsPanel } from "./StatsPanel";
 import { TimelineView } from "./TimelineView";
 import { ActivationMonitor } from "./ActivationMonitor";
 import { ConsolidationPanel } from "./ConsolidationPanel";
+import { KnowledgePanel } from "./knowledge/KnowledgePanel";
 
 export function DashboardShell() {
   const error = useEngramStore((s) => s.error);
@@ -71,6 +72,15 @@ export function DashboardShell() {
             style={{ left: contentLeft, top: 54 }}
           >
             <ConsolidationPanel />
+          </div>
+        );
+      case "knowledge":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <KnowledgePanel />
           </div>
         );
       case "graph":

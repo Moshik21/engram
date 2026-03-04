@@ -210,12 +210,14 @@ class TestEnginePhaseOrder:
         )
 
     @pytest.mark.asyncio
-    async def test_engine_runs_7_phases(self, engine):
-        """Engine should now run 7 phases in correct order."""
+    async def test_engine_runs_8_phases(self, engine):
+        """Engine should now run 8 phases in correct order."""
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
-        assert len(cycle.phase_results) == 7
+        assert len(cycle.phase_results) == 8
         names = [pr.phase for pr in cycle.phase_results]
-        assert names == ["replay", "merge", "infer", "prune", "compact", "reindex", "dream"]
+        assert names == [
+            "triage", "replay", "merge", "infer", "prune", "compact", "reindex", "dream",
+        ]
 
     @pytest.mark.asyncio
     async def test_existing_phases_work_with_context_none(self):

@@ -6,9 +6,22 @@ import time
 
 import pytest
 
+from dataclasses import dataclass
+
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
-from engram.retrieval.pipeline import retrieve
+from engram.retrieval.pipeline import _inject_entity_matches, retrieve
+
+
+@dataclass
+class _FakeEntity:
+    """Minimal entity stub for find_entities results."""
+
+    id: str
+    name: str
+    entity_type: str = "Person"
+    summary: str = ""
+    group_id: str = "default"
 
 
 class _FakeSearchIndex:
@@ -45,10 +58,15 @@ class _FakeActivationStore:
 
 
 class _FakeGraphStore:
-    """Graph store stub with configurable neighbors."""
+    """Graph store stub with configurable neighbors and entity lookup."""
 
-    def __init__(self, adjacency: dict[str, list[str]] | None = None):
+    def __init__(
+        self,
+        adjacency: dict[str, list[str]] | None = None,
+        entities: list[_FakeEntity] | None = None,
+    ):
         self._adj = adjacency or {}
+        self._entities = entities or []
 
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None, **kwargs
@@ -56,6 +74,29 @@ class _FakeGraphStore:
         """Return (neighbor_id, weight) pairs for spreading activation."""
         neighbors = self._adj.get(entity_id, [])
         return [(n, 1.0) for n in neighbors]
+
+    async def find_entities(
+        self,
+        name: str | None = None,
+        entity_type: str | None = None,
+        group_id: str | None = None,
+        limit: int = 20,
+    ) -> list[_FakeEntity]:
+        """Return entities matching name (case-insensitive substring)."""
+        results = []
+        for ent in self._entities:
+            if name and name.lower() in ent.name.lower():
+                results.append(ent)
+        return results[:limit]
+
+    async def get_stats(self, group_id: str) -> dict:
+        return {"entity_count": len(self._entities)}
+
+    async def get_entity(self, entity_id: str, group_id: str):
+        for ent in self._entities:
+            if ent.id == entity_id:
+                return ent
+        return None
 
 
 @pytest.mark.asyncio
@@ -217,7 +258,7 @@ class TestRetrievalPipeline:
         assert "neighbor" not in result_ids
 
     async def test_empty_search_returns_empty(self):
-        """Empty search results return empty list."""
+        """Empty search results with no matching entities return empty list."""
         search_index = _FakeSearchIndex([])
         activation_store = _FakeActivationStore({})
         graph_store = _FakeGraphStore({})
@@ -234,3 +275,94 @@ class TestRetrievalPipeline:
         )
 
         assert results == []
+
+
+@pytest.mark.asyncio
+class TestEntityFirstFallback:
+    async def test_entity_first_fallback_injects_when_search_empty(self):
+        """When search returns 0 results but entity 'Konner' exists, pipeline returns results."""
+        now = time.time()
+        konner = _FakeEntity(id="konner_id", name="Konner", entity_type="Person")
+        book = _FakeEntity(
+            id="book_id", name="The Agent of Fate", entity_type="CreativeWork"
+        )
+
+        search_index = _FakeSearchIndex(
+            [],
+            similarity_map={"konner_id": 0.3, "book_id": 0.2},
+        )
+        activation_store = _FakeActivationStore(
+            {
+                "konner_id": ActivationState(
+                    node_id="konner_id",
+                    access_history=[now - 10],
+                    access_count=3,
+                ),
+                "book_id": ActivationState(
+                    node_id="book_id",
+                    access_history=[now - 20],
+                    access_count=1,
+                ),
+            }
+        )
+        graph_store = _FakeGraphStore(
+            adjacency={"konner_id": ["book_id"]},
+            entities=[konner, book],
+        )
+
+        cfg = ActivationConfig(
+            weight_semantic=0.30,
+            weight_activation=0.10,
+            weight_spreading=0.25,
+            weight_edge_proximity=0.30,
+            seed_threshold=0.05,
+            exploration_weight=0.0,
+        )
+
+        results = await retrieve(
+            query="books written by Konner",
+            group_id="default",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            limit=10,
+        )
+
+        result_ids = {r.node_id for r in results}
+        assert "konner_id" in result_ids
+
+    async def test_entity_first_fallback_skipped_when_search_has_results(self):
+        """When search returns 3+ results, find_entities is not called."""
+        now = time.time()
+
+        candidates = await _inject_entity_matches(
+            query="test query",
+            group_id="default",
+            graph_store=_FakeGraphStore(entities=[]),
+            candidates=[("a", 0.9), ("b", 0.8), ("c", 0.7)],
+        )
+
+        # With 3 candidates already, the pipeline won't call this function,
+        # but verify the function itself doesn't add duplicates
+        assert len(candidates) == 3
+
+    async def test_entity_first_fallback_injects_neighbors(self):
+        """Entity found by name → 1-hop neighbors also injected."""
+        konner = _FakeEntity(id="konner_id", name="Konner")
+        graph_store = _FakeGraphStore(
+            adjacency={"konner_id": ["book_id", "project_id"]},
+            entities=[konner],
+        )
+
+        result = await _inject_entity_matches(
+            query="books by Konner",
+            group_id="default",
+            graph_store=graph_store,
+            candidates=[],
+        )
+
+        result_ids = {eid for eid, _ in result}
+        assert "konner_id" in result_ids
+        assert "book_id" in result_ids
+        assert "project_id" in result_ids

@@ -272,13 +272,91 @@ class TestRedisSearchIndex:
         assert mapping["source_id"] == "ep_1"
         assert "Alice met Bob" in mapping["text"]
 
-    async def test_search_disabled_returns_empty(self):
-        """search returns empty when embeddings disabled (NoopProvider)."""
+    async def test_text_search_returns_keyword_matches(self):
+        """_text_search constructs correct FT.SEARCH query with text clause."""
         redis = make_redis_mock()
-        provider = NoopMockProvider()
+        provider = MockEmbeddingProvider(dim=4)
 
-        idx = RedisSearchIndex(redis, provider, make_config())
-        results = await idx.search("test")
+        # Mock FT.SEARCH response for text search
+        redis.execute_command.return_value = [
+            1,
+            b"engram:grp1:vec:entity:ent_1",
+            [b"source_id", b"ent_1", b"score", b"1.0"],
+        ]
+
+        idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
+        results = await idx._text_search("Konner books", group_id="grp1")
+
+        assert len(results) == 1
+        assert results[0][0] == "ent_1"
+        assert results[0][1] == 0.5  # baseline score
+
+        # Verify FT.SEARCH was called with text clause
+        call_args = redis.execute_command.call_args[0]
+        assert call_args[0] == "FT.SEARCH"
+        query_str = call_args[2]
+        assert "@text:" in query_str
+        assert "Konner" in query_str
+
+    async def test_search_supplements_with_text_when_knn_sparse(self):
+        """search merges text results when KNN returns fewer than limit."""
+        redis = make_redis_mock()
+        provider = MockEmbeddingProvider(dim=4)
+
+        # First call: KNN search returns 1 result
+        # Second call: text search returns 1 additional result
+        redis.execute_command.side_effect = [
+            [
+                1,
+                b"engram:grp1:vec:entity:ent_1",
+                [b"source_id", b"ent_1", b"score", b"0.2"],
+            ],
+            [
+                1,
+                b"engram:grp1:vec:entity:ent_2",
+                [b"source_id", b"ent_2", b"score", b"1.0"],
+            ],
+        ]
+
+        idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
+        results = await idx.search("Konner books", group_id="grp1", limit=20)
+
+        assert len(results) == 2
+        ids = {r[0] for r in results}
+        assert "ent_1" in ids  # from KNN
+        assert "ent_2" in ids  # from text search
+
+    async def test_text_search_handles_empty_query(self):
+        """_text_search returns empty for queries with only short tokens."""
+        redis = make_redis_mock()
+        provider = MockEmbeddingProvider(dim=4)
+
+        idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
+        results = await idx._text_search("a b", group_id="grp1")
 
         assert results == []
         redis.execute_command.assert_not_called()
+
+    async def test_search_disabled_falls_back_to_text(self):
+        """search falls back to text search when embeddings disabled (NoopProvider)."""
+        redis = make_redis_mock()
+        provider = NoopMockProvider()
+
+        # Text search returns a result
+        redis.execute_command.return_value = [
+            1,
+            b"engram:grp1:vec:entity:ent_1",
+            [b"source_id", b"ent_1", b"score", b"1.0"],
+        ]
+
+        idx = RedisSearchIndex(redis, provider, make_config())
+        results = await idx.search("test query", group_id="grp1")
+
+        # Should get text search result despite no embeddings
+        assert len(results) == 1
+        assert results[0][0] == "ent_1"
+
+        # FT.SEARCH was called (text search fallback)
+        call_args = redis.execute_command.call_args[0]
+        assert call_args[0] == "FT.SEARCH"
+        assert "@text:" in call_args[2]

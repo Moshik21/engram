@@ -16,6 +16,7 @@ from engram.models.consolidation import (
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
+    TriageRecord,
 )
 
 
@@ -147,6 +148,21 @@ class SQLiteConsolidationStore:
         """)
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_dreams_cycle ON consolidation_dreams(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_triage (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                episode_id TEXT NOT NULL,
+                score REAL NOT NULL,
+                decision TEXT NOT NULL,
+                score_breakdown_json TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_triage_cycle ON consolidation_triage(cycle_id)"
         )
         # Migrations: add columns for existing databases
         for migration_sql in [
@@ -556,6 +572,52 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_triage_record(self, record: TriageRecord) -> None:
+        """Insert a triage audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_triage "
+            "(id, cycle_id, group_id, episode_id, score, decision, "
+            "score_breakdown_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.episode_id,
+                record.score,
+                record.decision,
+                json.dumps(record.score_breakdown),
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_triage_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[TriageRecord]:
+        """Fetch triage records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_triage "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY score DESC",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            TriageRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                episode_id=r["episode_id"],
+                score=r["score"],
+                decision=r["decision"],
+                score_breakdown=json.loads(r["score_breakdown_json"] or "{}"),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def cleanup(self, ttl_days: int = 90) -> int:
         """Delete cycle records older than ttl_days. Returns count deleted."""
         cutoff = time.time() - (ttl_days * 86400)
@@ -592,6 +654,10 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_dreams WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_triage WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(

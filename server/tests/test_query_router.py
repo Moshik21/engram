@@ -109,6 +109,33 @@ class TestClassifyQuery:
         qt = await classify_query("What have I focused on recently?")
         assert qt == QueryType.TEMPORAL
 
+    async def test_creation_wrote(self):
+        """'written' keyword triggers CREATION."""
+        qt = await classify_query("books written by Konner")
+        assert qt == QueryType.CREATION
+
+    async def test_creation_authored(self):
+        """'authored' keyword triggers CREATION."""
+        qt = await classify_query("papers authored by Alice")
+        assert qt == QueryType.CREATION
+
+    async def test_creation_built(self):
+        """'built' keyword triggers CREATION."""
+        qt = await classify_query("apps built by team")
+        assert qt == QueryType.CREATION
+
+    async def test_creation_published_with_temporal(self):
+        """Temporal takes priority over CREATION when both present."""
+        qt = await classify_query("articles published last year")
+        assert qt == QueryType.TEMPORAL
+
+    async def test_creation_priority_after_frequency(self):
+        """CREATION checked after FREQUENCY, before ASSOCIATIVE."""
+        qt = await classify_query("things created between teams")
+        # "created" matches CREATION, "between" matches ASSOCIATIVE
+        # CREATION is checked first
+        assert qt == QueryType.CREATION
+
 
 class TestApplyRoute:
     def test_direct_lookup_weights(self):
@@ -166,6 +193,15 @@ class TestApplyRoute:
         assert routed.weight_activation == 0.60
         assert routed.weight_spreading == 0.15
         assert routed.weight_edge_proximity == 0.10
+
+    def test_creation_weights(self):
+        """CREATION overrides to 0.30/0.10/0.25/0.30."""
+        cfg = ActivationConfig()
+        routed = apply_route(QueryType.CREATION, cfg)
+        assert routed.weight_semantic == 0.30
+        assert routed.weight_activation == 0.10
+        assert routed.weight_spreading == 0.25
+        assert routed.weight_edge_proximity == 0.30
 
     def test_preserves_other_fields(self):
         """Non-weight fields are preserved from original config."""

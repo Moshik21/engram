@@ -88,12 +88,47 @@ export interface TimeRange {
 
 export type GraphRenderMode = "3d" | "2d";
 export type DashboardView =
+  | "knowledge"
   | "graph"
   | "timeline"
   | "feed"
   | "activation"
   | "stats"
   | "consolidation";
+
+export interface RecallResultEntity {
+  resultType: "entity";
+  entity: { id: string; name: string; entityType: string; summary: string };
+  score: number;
+  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+  relationships: Array<{ predicate: string; source_id: string; target_id: string; weight: number }>;
+}
+
+export interface RecallResultEpisode {
+  resultType: "episode";
+  episode: { id: string; content: string; source: string; createdAt: string };
+  score: number;
+  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+}
+
+export type RecallResult = RecallResultEntity | RecallResultEpisode;
+
+export interface FactResult {
+  subject: string;
+  predicate: string;
+  object: string;
+  validFrom: string | null;
+  validTo: string | null;
+  confidence: number | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: Array<{ name: string; entityType?: string; score?: number }>;
+  timestamp: number;
+}
 
 export interface GraphDelta {
   nodesAdded?: GraphNode[];
@@ -306,6 +341,32 @@ export interface ConsolidationPressure {
   entities_created: number;
 }
 
+export interface KnowledgeSlice {
+  knowledgeQuery: string;
+  knowledgeResults: RecallResult[];
+  isRecalling: boolean;
+  activeTypeFilter: string | null;
+  entityGroups: Record<string, SearchResult[]>;
+  isLoadingEntities: boolean;
+  expandedEntityId: string | null;
+  entityDetail: EntityDetail | null;
+  inputText: string;
+  isSending: boolean;
+  chatMessages: ChatMessage[];
+  isChatStreaming: boolean;
+  chatOpen: boolean;
+  setKnowledgeQuery: (q: string) => void;
+  executeRecall: (query: string) => Promise<void>;
+  loadEntityGroups: () => Promise<void>;
+  setActiveTypeFilter: (type: string | null) => void;
+  expandEntity: (id: string | null) => Promise<void>;
+  setInputText: (t: string) => void;
+  submitInput: (text: string) => Promise<void>;
+  sendChatMessage: (message: string) => Promise<void>;
+  toggleChat: () => void;
+  clearChat: () => void;
+}
+
 export interface ConsolidationSlice {
   cycles: ConsolidationCycleSummary[];
   isLoadingCycles: boolean;
@@ -331,4 +392,5 @@ export type EngramStore =
   StatsSlice &
   WebSocketSlice &
   ActivationSlice &
-  ConsolidationSlice;
+  ConsolidationSlice &
+  KnowledgeSlice;

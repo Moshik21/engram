@@ -71,6 +71,13 @@ async def _init() -> None:
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
 
+    # Background episode worker
+    from engram.worker import EpisodeWorker
+
+    if config.activation.worker_enabled:
+        _worker = EpisodeWorker(_manager, config.activation)
+        _worker.start(_group_id, event_bus)
+
     # In full mode, bridge events to Redis so the REST API/dashboard can see them
     if mode == EngineMode.FULL:
         from engram.events.redis_bridge import create_publisher
@@ -125,6 +132,37 @@ async def remember(content: str, source: str = "mcp") -> str:
             "status": "stored",
             "episode_id": episode_id,
             "message": "Memory received. Entities and relationships extracted.",
+        }
+    )
+
+
+@mcp.tool()
+async def observe(content: str, source: str = "mcp") -> str:
+    """Store raw text without extraction. Fast path for bulk capture.
+
+    Args:
+        content: The text to store (conversation excerpt, fact, note, etc.)
+        source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+
+    Returns:
+        JSON with status, episode_id, and message.
+    """
+    manager = _get_manager()
+    session = _get_session()
+    episode_id = await manager.store_episode(
+        content=content,
+        group_id=_group_id,
+        source=source,
+        session_id=session.session_id,
+    )
+    session.episode_count += 1
+    session.last_activity = datetime.utcnow()
+    return json.dumps(
+        {
+            "status": "stored",
+            "episode_id": episode_id,
+            "message": "Raw text stored. No extraction performed. "
+            "Use trigger_consolidation or remember for extraction.",
         }
     )
 
@@ -366,10 +404,21 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
         extractor=manager._extractor,
     )
 
+    # Get graph stats for context
+    graph_stats = await manager._graph.get_stats(_group_id)
+
     cycle = await engine.run_cycle(
         group_id=_group_id,
         trigger="mcp",
         dry_run=dry_run,
+    )
+
+    total_processed = sum(pr.items_processed for pr in cycle.phase_results)
+    total_affected = sum(pr.items_affected for pr in cycle.phase_results)
+    description = (
+        f"{'Dry run' if cycle.dry_run else 'Live'} cycle: "
+        f"{total_processed} items processed, {total_affected} affected "
+        f"across {len(cycle.phase_results)} phases"
     )
 
     return json.dumps(
@@ -377,6 +426,7 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
             "cycle_id": cycle.id,
             "status": cycle.status,
             "dry_run": cycle.dry_run,
+            "graph_stats": graph_stats,
             "phases": [
                 {
                     "phase": pr.phase,
@@ -387,6 +437,11 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
                 for pr in cycle.phase_results
             ],
             "total_duration_ms": cycle.total_duration_ms,
+            "summary": {
+                "total_processed": total_processed,
+                "total_affected": total_affected,
+                "description": description,
+            },
         }
     )
 

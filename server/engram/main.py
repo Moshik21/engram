@@ -16,6 +16,7 @@ from engram.api.entities import router as entities_router
 from engram.api.episodes import router as episodes_router
 from engram.api.graph import router as graph_router
 from engram.api.health import router as health_router
+from engram.api.knowledge import router as knowledge_router
 from engram.api.stats import router as stats_router
 from engram.api.websocket import router as ws_router
 from engram.config import EngramConfig
@@ -113,6 +114,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         consolidation_store=consolidation_store,
         event_bus=event_bus,
         extractor=extractor,
+        graph_manager=manager,
     )
 
     # Pressure accumulator (optional)
@@ -134,6 +136,14 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     )
     if config.activation.consolidation_enabled:
         consolidation_scheduler.start()
+
+    # Background episode worker
+    from engram.worker import EpisodeWorker
+
+    episode_worker = None
+    if config.activation.worker_enabled:
+        episode_worker = EpisodeWorker(manager, config.activation)
+        episode_worker.start(config.default_group_id, event_bus)
 
     # In full mode, subscribe to Redis events from MCP processes
     redis_subscriber = None
@@ -160,6 +170,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "consolidation_store": consolidation_store,
             "consolidation_scheduler": consolidation_scheduler,
             "pressure_accumulator": pressure_accumulator,
+            "episode_worker": episode_worker,
             "redis_subscriber": redis_subscriber,
         }
     )
@@ -177,6 +188,11 @@ async def _shutdown() -> None:
     redis_sub = _app_state.get("redis_subscriber")
     if redis_sub:
         await redis_sub.stop()
+
+    # Stop episode worker
+    worker = _app_state.get("episode_worker")
+    if worker:
+        await worker.stop()
 
     # Stop pressure accumulator
     pressure = _app_state.get("pressure_accumulator")
@@ -257,6 +273,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(consolidation_router)
     app.include_router(ws_router)
+    app.include_router(knowledge_router)
 
     @app.on_event("startup")
     async def startup():

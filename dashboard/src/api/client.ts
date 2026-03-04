@@ -8,6 +8,8 @@ import type {
   ConsolidationCycleSummary,
   ConsolidationCycleDetail,
   ConsolidationPressure,
+  RecallResult,
+  FactResult,
 } from "../store/types";
 
 export interface NeighborhoodResponse {
@@ -153,4 +155,49 @@ export const api = {
 
   triggerConsolidation: (dryRun = true) =>
     fetchJSON<{ status: string; cycle_id: string }>("/api/consolidation/trigger?dry_run=" + dryRun, { method: "POST" }),
+
+  // Knowledge API
+  recall: (params: { q: string; limit?: number }) => {
+    const sp = new URLSearchParams();
+    sp.set("q", params.q);
+    if (params.limit) sp.set("limit", String(params.limit));
+    return fetchJSON<{ items: RecallResult[]; query: string }>(`/api/knowledge/recall?${sp}`);
+  },
+
+  searchFacts: (params: { q: string; subject?: string; predicate?: string; limit?: number }) => {
+    const sp = new URLSearchParams();
+    sp.set("q", params.q);
+    if (params.subject) sp.set("subject", params.subject);
+    if (params.predicate) sp.set("predicate", params.predicate);
+    if (params.limit) sp.set("limit", String(params.limit));
+    return fetchJSON<{ items: FactResult[] }>(`/api/knowledge/facts?${sp}`);
+  },
+
+  getKnowledgeContext: (params?: { maxTokens?: number; topicHint?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.maxTokens) sp.set("max_tokens", String(params.maxTokens));
+    if (params?.topicHint) sp.set("topic_hint", params.topicHint);
+    return fetchJSON<{ context: string; entityCount: number; factCount: number; tokenEstimate: number }>(`/api/knowledge/context?${sp}`);
+  },
+
+  observe: (params: { content: string; source?: string }) =>
+    fetchJSON<{ status: string; episodeId: string }>("/api/knowledge/observe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
+  remember: (params: { content: string; source?: string }) =>
+    fetchJSON<{ status: string; episodeId: string }>("/api/knowledge/remember", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+
+  forget: (params: { entity_name?: string; fact?: { subject: string; predicate: string; object: string }; reason?: string }) =>
+    fetchJSON<{ status: string }>("/api/knowledge/forget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
 };

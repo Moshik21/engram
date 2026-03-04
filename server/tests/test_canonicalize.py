@@ -46,6 +46,22 @@ class TestPredicateCanonicalizer:
         )
         assert c.canonicalize("EMPLOYED_BY") == "HIRED_AT"
 
+    def test_wrote_maps_to_created(self):
+        """Creative-work predicates map to CREATED."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("WROTE") == "CREATED"
+        assert c.canonicalize("PUBLISHED") == "CREATED"
+        assert c.canonicalize("COMPOSED") == "CREATED"
+        assert c.canonicalize("PRODUCED") == "CREATED"
+        assert c.canonicalize("FOUNDED") == "CREATED"
+
+    def test_membership_mappings(self):
+        """Membership predicates map to MEMBER_OF."""
+        c = PredicateCanonicalizer()
+        assert c.canonicalize("BELONGS_TO") == "MEMBER_OF"
+        assert c.canonicalize("JOINED") == "MEMBER_OF"
+        assert c.canonicalize("AFFILIATED_WITH") == "MEMBER_OF"
+
     def test_all_map_entries_valid(self):
         """All values in CANONICAL_MAP should be uppercase with underscores."""
         for key, value in CANONICAL_MAP.items():

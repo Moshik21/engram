@@ -11,6 +11,7 @@ import { createStatsSlice } from "../store/statsSlice";
 import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
 import { createConsolidationSlice } from "../store/consolidationSlice";
+import { createKnowledgeSlice } from "../store/knowledgeSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -29,6 +30,12 @@ vi.mock("../api/client", () => ({
     getConsolidationHistory: vi.fn(),
     getConsolidationCycle: vi.fn(),
     triggerConsolidation: vi.fn(),
+    recall: vi.fn(),
+    searchFacts: vi.fn(),
+    getKnowledgeContext: vi.fn(),
+    observe: vi.fn(),
+    remember: vi.fn(),
+    forget: vi.fn(),
   },
 }));
 
@@ -48,6 +55,7 @@ function createTestStore() {
       ...createWsSlice(...a),
       ...createActivationSlice(...a),
       ...createConsolidationSlice(...a),
+      ...createKnowledgeSlice(...a),
     })),
   );
 }

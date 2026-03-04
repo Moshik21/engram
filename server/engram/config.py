@@ -207,6 +207,9 @@ class ActivationConfig(BaseModel):
     predicate_weight_default: float = Field(default=0.5, ge=0.0, le=1.0)
 
     # --- Memory consolidation ---
+    consolidation_profile: str = Field(
+        default="off", pattern="^(off|observe|conservative|standard)$",
+    )
     consolidation_enabled: bool = Field(default=False)
     consolidation_interval_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
     consolidation_dry_run: bool = Field(default=True)
@@ -270,6 +273,60 @@ class ActivationConfig(BaseModel):
     consolidation_pressure_weight_near_miss: float = Field(default=2.0, ge=0.0, le=100.0)
     consolidation_pressure_time_factor: float = Field(default=0.01, ge=0.0, le=1.0)
     consolidation_pressure_cooldown_seconds: float = Field(default=300.0, ge=30.0, le=86400.0)
+
+    # --- Triage (phase 0) ---
+    triage_enabled: bool = Field(default=False, description="Enable triage phase in consolidation")
+    triage_extract_ratio: float = Field(
+        default=0.35, ge=0.0, le=1.0,
+        description="Fraction of QUEUED episodes to extract (0.0-1.0)",
+    )
+    triage_min_score: float = Field(
+        default=0.2, ge=0.0, le=1.0,
+        description="Minimum score to consider for extraction",
+    )
+
+    # --- Background episode worker ---
+    worker_enabled: bool = Field(default=False, description="Enable background episode worker")
+
+    def model_post_init(self, __context: object) -> None:
+        """Apply consolidation profile presets."""
+        profile = self.consolidation_profile
+
+        def _set(field: str, value: object) -> None:
+            object.__setattr__(self, field, value)
+
+        if profile == "off":
+            return
+
+        if profile == "observe":
+            _set("consolidation_enabled", True)
+            _set("consolidation_dry_run", True)
+            _set("consolidation_replay_enabled", True)
+            _set("consolidation_dream_enabled", True)
+            _set("consolidation_infer_pmi_enabled", True)
+            _set("triage_enabled", True)
+            _set("worker_enabled", True)
+        elif profile == "conservative":
+            _set("consolidation_enabled", True)
+            _set("consolidation_dry_run", False)
+            _set("consolidation_merge_threshold", 0.92)
+            _set("consolidation_prune_min_age_days", 60)
+            _set("consolidation_replay_enabled", True)
+            _set("consolidation_dream_enabled", True)
+            _set("triage_enabled", True)
+            _set("triage_extract_ratio", 0.25)
+            _set("worker_enabled", True)
+        elif profile == "standard":
+            _set("consolidation_enabled", True)
+            _set("consolidation_dry_run", False)
+            _set("consolidation_replay_enabled", True)
+            _set("consolidation_dream_enabled", True)
+            _set("consolidation_infer_pmi_enabled", True)
+            _set("consolidation_infer_transitivity_enabled", True)
+            _set("consolidation_pressure_enabled", True)
+            _set("triage_enabled", True)
+            _set("triage_extract_ratio", 0.35)
+            _set("worker_enabled", True)
 
 
 class EngramConfig(BaseSettings):

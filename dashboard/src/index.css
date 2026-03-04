@@ -10,15 +10,15 @@
 }
 
 :root {
-  /* Void — deep indigo-black */
-  --void: #0a0a1a;
-  --void-elevated: #0e0e24;
+  /* Void — absolute dark */
+  --void: #030408;
+  --void-elevated: #080a12;
 
   /* Surface layers */
-  --surface: rgba(12, 12, 30, 0.85);
-  --surface-solid: #0e0e24;
-  --surface-hover: rgba(16, 16, 36, 0.9);
-  --surface-active: rgba(22, 22, 48, 0.95);
+  --surface: rgba(8, 10, 18, 0.82);
+  --surface-solid: #0a0c16;
+  --surface-hover: rgba(14, 17, 30, 0.9);
+  --surface-active: rgba(20, 24, 42, 0.95);
 
   /* Borders */
   --border: rgba(255, 255, 255, 0.04);
@@ -278,7 +278,7 @@ html, body, #root {
   inset: 0;
   z-index: 1;
   background:
-    radial-gradient(ellipse 120% 100% at center, transparent 40%, rgba(10, 10, 26, 0.7) 100%);
+    radial-gradient(ellipse 120% 100% at center, transparent 40%, rgba(3, 4, 8, 0.7) 100%);
 }
 
 /* ── Accent bar ──────────────────────────────────────── */

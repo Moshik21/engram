@@ -28,6 +28,7 @@ _POOL_MULTIPLIERS: dict[QueryType, tuple[float, float, float]] = {
     QueryType.FREQUENCY: (1.0, 3.0, 1.0),
     QueryType.DIRECT_LOOKUP: (2.0, 1.0, 1.0),
     QueryType.ASSOCIATIVE: (1.0, 1.0, 2.0),
+    QueryType.CREATION: (1.0, 1.0, 2.0),
     QueryType.DEFAULT: (1.0, 1.0, 1.0),
 }
 

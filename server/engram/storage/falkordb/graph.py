@@ -203,6 +203,50 @@ class FalkorDBGraphStore:
         )
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
 
+    async def find_entity_candidates(
+        self, name: str, group_id: str, limit: int = 30,
+    ) -> list[Entity]:
+        """Retrieve candidate entities for fuzzy resolution via CONTAINS search."""
+        seen_ids: set[str] = set()
+        results: list[Entity] = []
+
+        # Phase 1: Full name CONTAINS match (indexed on n.name)
+        result = await self._query(
+            """MATCH (n:Entity)
+               WHERE toLower(n.name) CONTAINS toLower($name)
+                 AND n.group_id = $gid AND n.deleted_at IS NULL
+               RETURN n LIMIT $limit""",
+            {"name": name, "gid": group_id, "limit": limit},
+        )
+        for row in result.result_set:
+            entity = self._node_to_entity(row[0], group_id)
+            if entity.id not in seen_ids:
+                seen_ids.add(entity.id)
+                results.append(entity)
+
+        if len(results) >= limit:
+            return results[:limit]
+
+        # Phase 2: Token fallback — search individual tokens >= 3 chars
+        tokens = [t for t in name.strip().split() if len(t) >= 3]
+        for token in tokens:
+            if len(results) >= limit:
+                break
+            token_result = await self._query(
+                """MATCH (n:Entity)
+                   WHERE toLower(n.name) CONTAINS toLower($token)
+                     AND n.group_id = $gid AND n.deleted_at IS NULL
+                   RETURN n LIMIT $remaining""",
+                {"token": token, "gid": group_id, "remaining": limit - len(results)},
+            )
+            for row in token_result.result_set:
+                entity = self._node_to_entity(row[0], group_id)
+                if entity.id not in seen_ids:
+                    seen_ids.add(entity.id)
+                    results.append(entity)
+
+        return results[:limit]
+
     # --- Relationships ---
 
     async def create_relationship(self, rel: Relationship) -> str:

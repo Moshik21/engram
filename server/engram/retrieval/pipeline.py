@@ -26,6 +26,62 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def _inject_entity_matches(
+    query: str,
+    group_id: str,
+    graph_store,
+    candidates: list[tuple[str, float]],
+    max_inject: int = 10,
+) -> list[tuple[str, float]]:
+    """Fallback: find entities by name match and inject with 1-hop neighbors.
+
+    When semantic search returns few candidates, this does a simple name-based
+    lookup to ensure known entities become spreading seeds.
+    """
+    if not hasattr(graph_store, "find_entities"):
+        return candidates
+
+    existing_ids = {eid for eid, _ in candidates}
+    injected = list(candidates)
+
+    # Tokenize query, try each token as a name search
+    tokens = [t.strip("?!.,;:'\"") for t in query.split() if len(t) > 2]
+
+    for token in tokens:
+        try:
+            entities = await graph_store.find_entities(
+                name=token,
+                group_id=group_id,
+                limit=3,
+            )
+        except Exception:
+            continue
+
+        for entity in entities:
+            if entity.id not in existing_ids:
+                # Inject with baseline similarity (will be re-scored)
+                injected.append((entity.id, 0.15))
+                existing_ids.add(entity.id)
+
+            # Also inject 1-hop neighbors
+            if not hasattr(graph_store, "get_active_neighbors_with_weights"):
+                continue
+            try:
+                neighbors = await graph_store.get_active_neighbors_with_weights(
+                    entity_id=entity.id,
+                    group_id=group_id,
+                )
+                for neighbor_info in neighbors[:max_inject]:
+                    nid = neighbor_info[0]
+                    if nid not in existing_ids:
+                        injected.append((nid, 0.10))
+                        existing_ids.add(nid)
+            except Exception:
+                continue
+
+    return injected
+
+
 def _scale_limit(base: int, total_entities: int, lo: int, hi: int) -> int:
     """Scale a limit by sqrt(total_entities / 1000), clamped to [lo, hi]."""
     scale = math.sqrt(max(total_entities, 1000) / 1000.0)
@@ -156,6 +212,15 @@ async def retrieve(
                 )
         except Exception as e:
             logger.warning("Episode search failed (non-fatal): %s", e)
+
+    # Step 1.8: Entity-first fallback when search finds few candidates
+    if len(candidates) < 3:
+        candidates = await _inject_entity_matches(
+            query,
+            group_id,
+            graph_store,
+            candidates,
+        )
 
     if not candidates:
         return []
