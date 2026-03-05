@@ -267,6 +267,26 @@ Uses [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (
 | **Cost per call** | ~$0.001-0.005 | ~$0.00001 | Free (CPU) |
 | **Without it** | Engram can't ingest memories | Falls back to keyword search | Falls back to keyword search |
 
+#### Where LLM Is Used (and Where It Isn't)
+
+Engram is designed to minimize LLM dependency. The only operation that *requires* an LLM is turning text into knowledge graph structure. Everything else — scoring, routing, merging, inferring, pruning, consolidating — is deterministic.
+
+| Operation | Uses LLM? | What Happens |
+|-----------|-----------|--------------|
+| **`observe`** (store episode) | No | Episode stored in ~5ms. Background worker scores it with 8 deterministic signals. |
+| **`remember`** (extract + store) | Yes | Claude Haiku extracts entities, relationships, attributes, temporal markers, polarity. |
+| **`recall`** (retrieve memories) | No | Pure DB: FTS5 search, ACT-R activation, spreading activation, re-ranking. Zero API calls. |
+| **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation for ~5% borderline cases. |
+| **Merge** (entity dedup) | No | 6-signal deterministic scorer + cross-encoder refinement. |
+| **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
+| **Replay** (re-extraction) | Yes | Re-runs Haiku extraction on recent episodes to recover missed entities. |
+| **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (recall, search_entities, search_facts). Rate-limited. |
+| **Briefing synthesis** | Yes | Haiku summarizes memory context into 2-3 sentences. Cached with prompt caching. |
+| **Dream** (offline consolidation) | No | Spreading activation + embedding similarity. Pure math. |
+| **Graph embeddings** | No | Node2Vec, TransE, GNN — all trained with numpy/torch locally. |
+
+**Cost in practice**: With the `standard` profile, a typical active user generates ~$0.50-2.00/day in Haiku costs, primarily from entity extraction. Consolidation scoring (triage, merge, infer) adds $0 — it's all deterministic. Knowledge chat adds ~$0.10-0.50/day depending on usage (rate-limited to 10 requests/minute).
+
 ### Data Flow
 
 Engram has two ingestion paths — a cheap fast path and a full extraction path:
@@ -448,16 +468,16 @@ The triage scorer evaluates whether an episode is worth extracting. It replaces 
 | Structural plausibility (triangle closure) | 0.10 | Shared neighbors = plausible edge |
 | Graph embedding similarity | 0.05 | Structural proximity (Node2Vec/TransE) |
 
-**Tiered architecture** — decisions flow through tiers until resolved:
+**Tiered architecture** — all consolidation decisions (triage, merge, infer) flow through tiers until resolved:
 
 | Tier | Method | Coverage | Latency | Cost |
 |------|--------|----------|---------|------|
-| **Tier 0** | Multi-signal rules (above) | ~85% | <10ms | $0 |
-| **Tier 1** | Cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`, already loaded) | ~10% | ~50ms | $0 |
-| **Tier 2** | Numpy classifier (future) | — | — | $0 |
-| **Tier 3** | LLM fallback (opt-in) | ~2% | ~500ms | API cost |
+| **Tier 0** | Multi-signal rules (triage 8 signals, merge 6 signals, infer 6 signals) | ~85% | <5ms | $0 |
+| **Tier 1** | Cross-encoder refinement (`Xenova/ms-marco-MiniLM-L-6-v2`, already loaded) | ~10% | ~50ms | $0 |
+| **Tier 2** | Self-improving calibration (online logistic regression, triage only) | built-in | <1ms | $0 |
+| **Tier 3** | LLM escalation (opt-in, borderline cases only) | ~5% | ~500ms | API cost |
 
-Uncertain cases from Tier 0 are refined by the cross-encoder (Tier 1), which blends its score with the multi-signal score. Remaining uncertain infer edges self-correct via Dream LTD decay (unused edges weaken) and Hebbian reinforcement (useful edges strengthen). LLM judges remain available as opt-in fallback via `consolidation_merge_llm_enabled` and `consolidation_infer_llm_enabled`.
+Uncertain cases from Tier 0 are refined by the cross-encoder (Tier 1), which blends its score with the multi-signal score. The triage scorer additionally feeds extraction outcomes back to an online calibrator (Tier 2) that learns which signal combinations predict successful extraction. Remaining uncertain infer edges self-correct via Dream LTD decay (unused edges weaken) and Hebbian reinforcement (useful edges strengthen). LLM judges remain available as opt-in fallback via `triage_llm_judge_enabled`, `consolidation_merge_llm_enabled`, and `consolidation_infer_llm_enabled`.
 
 ### Graph Embeddings
 
@@ -573,11 +593,13 @@ When enabled (any profile except `off`), the `EpisodeWorker` runs as a backgroun
 
 1. Subscribes to `episode.queued` events on the EventBus
 2. Filters system meta-commentary via discourse classifier (activation scores, pipeline terms, entity IDs)
-3. Scores each episode using heuristics or LLM judge (when `triage_llm_judge_enabled=true`)
-4. High-scoring episodes get immediate extraction (same as `remember`)
-5. Low-scoring episodes are stored but not extracted (still searchable via FTS)
+3. Scores each episode with the multi-signal scorer (8 signals, ~2ms, zero LLM calls)
+4. **Three-tier confidence routing:**
+   - **High confidence** (>0.70): Extract immediately (same pipeline as `remember`)
+   - **Mid confidence** (0.15–0.70): Defer to triage phase for batch scoring next cycle
+   - **Low confidence** (<0.15): Store without extraction (still searchable via FTS)
 
-This means you don't have to wait for a consolidation cycle — observed content that scores above threshold is extracted within seconds.
+This means obvious high-value content is extracted within seconds, obvious noise is skipped instantly, and uncertain content gets a more thorough evaluation during the next triage cycle — all without a single LLM API call.
 
 ## MCP Integration
 
