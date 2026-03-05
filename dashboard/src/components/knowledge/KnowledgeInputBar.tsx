@@ -8,8 +8,14 @@ export function KnowledgeInputBar() {
   const isSending = useEngramStore((s) => s.isSending);
   const setSearchOverlayOpen = useEngramStore((s) => s.setSearchOverlayOpen);
   const setBrowseOverlayOpen = useEngramStore((s) => s.setBrowseOverlayOpen);
+  const toggleSidebar = useEngramStore((s) => s.toggleConversationSidebar);
+  const sidebarOpen = useEngramStore((s) => s.conversationSidebarOpen);
+  const conversations = useEngramStore((s) => s.conversations);
 
   const { sendMessage, setMessages, messages, status } = useChatContext();
+
+  // Pulse the history button when there are conversations but sidebar is closed
+  const showPulse = !sidebarOpen && conversations.length > 0;
   const isStreaming = status === "streaming" || status === "submitted";
 
   const [input, setInput] = useState("");
@@ -79,6 +85,48 @@ export function KnowledgeInputBar() {
           background: "var(--surface-solid)",
         }}
       >
+        <button
+          onClick={toggleSidebar}
+          title="Conversation history"
+          style={{
+            position: "relative",
+            padding: "8px 10px",
+            background: "transparent",
+            border: `1px solid ${showPulse ? "var(--accent)" : "var(--border)"}`,
+            borderRadius: "var(--radius-sm)",
+            color: showPulse ? "var(--accent)" : "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 13,
+            lineHeight: 1,
+            transition: "all 0.15s ease",
+            animation: showPulse ? "history-nudge 3s ease-in-out infinite" : "none",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = "var(--accent)";
+            e.currentTarget.style.color = "var(--text-primary)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = showPulse ? "var(--accent)" : "var(--border)";
+            e.currentTarget.style.color = showPulse ? "var(--accent)" : "var(--text-muted)";
+          }}
+        >
+          {"\u2630"}
+          {showPulse && (
+            <span
+              style={{
+                position: "absolute",
+                top: -2,
+                right: -2,
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                boxShadow: "0 0 6px var(--accent-glow-strong)",
+                animation: "pulse-soft 2s ease-in-out infinite",
+              }}
+            />
+          )}
+        </button>
         <input
           ref={inputRef}
           value={input}

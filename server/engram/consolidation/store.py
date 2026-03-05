@@ -11,12 +11,16 @@ from engram.models.consolidation import (
     ConsolidationCycle,
     DreamAssociationRecord,
     DreamRecord,
+    GraphEmbedRecord,
     InferredEdge,
+    MaturationRecord,
     MergeRecord,
     PhaseResult,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
+    SchemaRecord,
+    SemanticTransitionRecord,
     TriageRecord,
 )
 
@@ -187,6 +191,78 @@ class SQLiteConsolidationStore:
             "CREATE INDEX IF NOT EXISTS idx_consol_dream_assoc_cycle "
             "ON consolidation_dream_associations(cycle_id)"
         )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_graph_embeds (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                method TEXT NOT NULL,
+                entities_trained INTEGER NOT NULL,
+                dimensions INTEGER NOT NULL,
+                training_duration_ms REAL NOT NULL,
+                full_retrain INTEGER NOT NULL DEFAULT 0,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_graph_embeds_cycle "
+            "ON consolidation_graph_embeds(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_maturation (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                entity_name TEXT NOT NULL,
+                old_tier TEXT NOT NULL,
+                new_tier TEXT NOT NULL,
+                maturity_score REAL NOT NULL,
+                source_diversity INTEGER NOT NULL,
+                temporal_span_days REAL NOT NULL,
+                relationship_richness INTEGER NOT NULL,
+                access_regularity REAL NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_maturation_cycle "
+            "ON consolidation_maturation(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_semantic_transitions (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                episode_id TEXT NOT NULL,
+                old_tier TEXT NOT NULL,
+                new_tier TEXT NOT NULL,
+                entity_coverage REAL NOT NULL,
+                consolidation_cycles INTEGER NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_sem_trans_cycle "
+            "ON consolidation_semantic_transitions(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_schemas (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                schema_entity_id TEXT NOT NULL,
+                schema_name TEXT NOT NULL,
+                instance_count INTEGER NOT NULL,
+                predicate_count INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_schemas_cycle "
+            "ON consolidation_schemas(cycle_id)"
+        )
         # Migrations: add columns for existing databases
         for migration_sql in [
             "ALTER TABLE consolidation_inferred_edges "
@@ -194,6 +270,10 @@ class SQLiteConsolidationStore:
             "ALTER TABLE consolidation_inferred_edges ADD COLUMN pmi_score REAL",
             "ALTER TABLE consolidation_inferred_edges ADD COLUMN llm_verdict TEXT",
             "ALTER TABLE consolidation_inferred_edges ADD COLUMN relationship_id TEXT",
+            "ALTER TABLE episodes ADD COLUMN encoding_context TEXT",
+            "ALTER TABLE episodes ADD COLUMN memory_tier TEXT DEFAULT 'episodic'",
+            "ALTER TABLE episodes ADD COLUMN consolidation_cycles INTEGER DEFAULT 0",
+            "ALTER TABLE episodes ADD COLUMN entity_coverage REAL DEFAULT 0.0",
         ]:
             try:
                 await self.db.execute(migration_sql)
@@ -701,6 +781,201 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_graph_embed_record(self, record: GraphEmbedRecord) -> None:
+        """Insert a graph embed audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_graph_embeds "
+            "(id, cycle_id, group_id, method, entities_trained, dimensions, "
+            "training_duration_ms, full_retrain, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.method,
+                record.entities_trained,
+                record.dimensions,
+                record.training_duration_ms,
+                1 if record.full_retrain else 0,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_graph_embed_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[GraphEmbedRecord]:
+        """Fetch graph embed records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_graph_embeds "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            GraphEmbedRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                method=r["method"],
+                entities_trained=r["entities_trained"],
+                dimensions=r["dimensions"],
+                training_duration_ms=r["training_duration_ms"],
+                full_retrain=bool(r["full_retrain"]),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_maturation_record(self, record: MaturationRecord) -> None:
+        """Insert a maturation audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_maturation "
+            "(id, cycle_id, group_id, entity_id, entity_name, old_tier, "
+            "new_tier, maturity_score, source_diversity, temporal_span_days, "
+            "relationship_richness, access_regularity, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.entity_id,
+                record.entity_name,
+                record.old_tier,
+                record.new_tier,
+                record.maturity_score,
+                record.source_diversity,
+                record.temporal_span_days,
+                record.relationship_richness,
+                record.access_regularity,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_maturation_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[MaturationRecord]:
+        """Fetch maturation records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_maturation "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY maturity_score DESC",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            MaturationRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                entity_id=r["entity_id"],
+                entity_name=r["entity_name"],
+                old_tier=r["old_tier"],
+                new_tier=r["new_tier"],
+                maturity_score=r["maturity_score"],
+                source_diversity=r["source_diversity"],
+                temporal_span_days=r["temporal_span_days"],
+                relationship_richness=r["relationship_richness"],
+                access_regularity=r["access_regularity"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_semantic_transition_record(self, record: SemanticTransitionRecord) -> None:
+        """Insert a semantic transition audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_semantic_transitions "
+            "(id, cycle_id, group_id, episode_id, old_tier, new_tier, "
+            "entity_coverage, consolidation_cycles, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.episode_id,
+                record.old_tier,
+                record.new_tier,
+                record.entity_coverage,
+                record.consolidation_cycles,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_semantic_transition_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[SemanticTransitionRecord]:
+        """Fetch semantic transition records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_semantic_transitions "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            SemanticTransitionRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                episode_id=r["episode_id"],
+                old_tier=r["old_tier"],
+                new_tier=r["new_tier"],
+                entity_coverage=r["entity_coverage"],
+                consolidation_cycles=r["consolidation_cycles"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_schema_record(self, record: SchemaRecord) -> None:
+        """Insert a schema formation audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_schemas "
+            "(id, cycle_id, group_id, schema_entity_id, schema_name, "
+            "instance_count, predicate_count, action, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.schema_entity_id,
+                record.schema_name,
+                record.instance_count,
+                record.predicate_count,
+                record.action,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_schema_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[SchemaRecord]:
+        """Fetch schema records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_schemas "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            SchemaRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                schema_entity_id=r["schema_entity_id"],
+                schema_name=r["schema_name"],
+                instance_count=r["instance_count"],
+                predicate_count=r["predicate_count"],
+                action=r["action"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def cleanup(self, ttl_days: int = 90) -> int:
         """Delete cycle records older than ttl_days. Returns count deleted."""
         cutoff = time.time() - (ttl_days * 86400)
@@ -745,6 +1020,22 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_dream_associations WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_graph_embeds WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_maturation WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_semantic_transitions WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_schemas WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(

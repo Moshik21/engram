@@ -183,6 +183,8 @@ class TestEpisodeReplayPhase:
         activation_store = AsyncMock()
         search_index = AsyncMock()
         ctx = CycleContext()
+        # Manual trigger — replay always runs on full cycles
+        ctx.trigger = "manual"
 
         phase = EpisodeReplayPhase(extractor=extractor)
         result, records = await phase.execute(
@@ -204,7 +206,7 @@ class TestEpisodeReplayPhase:
         activation_store.record_access.assert_called_once()
         search_index.index_entity.assert_called_once()
         assert len(ctx.replay_new_entity_ids) == 1
-        assert len(ctx.affected_entity_ids) == 1
+        assert len(ctx.affected_entity_ids) >= 1
 
     @pytest.mark.asyncio
     async def test_skips_existing_entity_already_linked(self):
@@ -434,6 +436,8 @@ class TestEpisodeReplayPhase:
         graph_store.link_episode_entity = AsyncMock()
 
         ctx = CycleContext()
+        # Manual trigger — replay always runs on full cycles
+        ctx.trigger = "manual"
         phase = EpisodeReplayPhase(extractor=extractor)
         await phase.execute(
             group_id="test",

@@ -158,6 +158,20 @@ def _collect_config() -> dict:
     cfg["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] = profile
     _check(f"Consolidation profile: {profile}")
 
+    # --- Recall Features ---
+    _section("Recall Features")
+    print(f"  {_DIM}off    = no smart recall{_RESET}")
+    print(f"  {_DIM}wave1  = auto-recall on observe/remember{_RESET}")
+    print(f"  {_DIM}wave2  = + conversation awareness (topic tracking, near-miss){_RESET}")
+    print(f"  {_DIM}wave3  = + proactive intelligence (surprise, priming, topic shift){_RESET}")
+    print(f"  {_DIM}all    = + prospective memory (trigger-based intentions){_RESET}")
+    recall_profile = _ask(
+        "Recall profile", default="off",
+        choices=["off", "wave1", "wave2", "wave3", "all"],
+    )
+    cfg["ENGRAM_ACTIVATION__RECALL_PROFILE"] = recall_profile
+    _check(f"Recall profile: {recall_profile}")
+
     # --- Security ---
     _section("Security (optional)")
     enable_auth = _ask("Enable bearer-token auth?", default="n", choices=["y", "n"])
@@ -224,6 +238,12 @@ def _generate_env(config: dict, env_path: Path) -> None:
             (
                 "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE",
                 config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"),
+            ),
+        ]),
+        ("Recall", [
+            (
+                "ENGRAM_ACTIVATION__RECALL_PROFILE",
+                config.get("ENGRAM_ACTIVATION__RECALL_PROFILE"),
             ),
         ]),
         ("Security", [
@@ -335,6 +355,13 @@ _SETTINGS: list[tuple[str, str, str, bool, list[str] | None]] = [
         "Profile",
         False,
         ["off", "observe", "conservative", "standard"],
+    ),
+    (
+        "ENGRAM_ACTIVATION__RECALL_PROFILE",
+        "Recall",
+        "Recall profile",
+        False,
+        ["off", "wave1", "wave2", "wave3", "all"],
     ),
     ("ENGRAM_AUTH__ENABLED", "Security", "Auth enabled", False, ["true", "false"]),
     ("ENGRAM_AUTH__BEARER_TOKEN", "Security", "Bearer token", True, None),
@@ -719,21 +746,6 @@ def setup(env_path: Path | None = None) -> None:
     _section("Generate Files")
     _generate_env(config, env_path)
     _print_mcp_config(config)
-
-    # AutoCapture hooks (Claude Code only)
-    _section("AutoCapture Hooks (Claude Code)")
-    print(f"  {_DIM}Automatically capture every user prompt and assistant{_RESET}")
-    print(f"  {_DIM}response into Engram — no AI reliance required.{_RESET}")
-    print(f"  {_DIM}Requires REST server running at localhost:8100.{_RESET}")
-    install_ac = _ask(
-        "Install AutoCapture hooks?", default="y", choices=["y", "n"],
-    )
-    if install_ac == "y":
-        install_hooks()
-        _check("AutoCapture hooks installed")
-    else:
-        hooks_cmd = "cd server && uv run python -m engram hooks"
-        _warn(f"Skipped. Install later: {hooks_cmd}")
 
     # Optional smoke test
     run_test = _ask("Run smoke test?", default="n", choices=["y", "n"])

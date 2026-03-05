@@ -172,8 +172,9 @@ def test_render_menu_shows_all_settings(capsys, tmp_path):
     assert "1." in out
     assert "Anthropic API key" in out
     # Should return all keys
-    assert len(keys) == 10
+    assert len(keys) == 11
     assert "ANTHROPIC_API_KEY" in keys
+    assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in keys
 
 
 def test_render_menu_shows_unsaved_indicator(capsys, tmp_path):

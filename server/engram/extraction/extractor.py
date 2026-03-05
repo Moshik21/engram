@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _CHARS_PER_TOKEN = 4
 _MIN_OUTPUT_TOKENS = 2048
 _MAX_OUTPUT_TOKENS = 8192
+_MAX_INPUT_CHARS = 8000  # Truncate very long episodes to save input tokens
 
 
 class ExtractionResult:
@@ -60,6 +61,13 @@ class EntityExtractor:
         response_text = ""
         try:
             client = self._get_client()
+            # Truncate very long input to save tokens
+            if len(text) > _MAX_INPUT_CHARS:
+                logger.info(
+                    "Truncating extraction input from %d to %d chars",
+                    len(text), _MAX_INPUT_CHARS,
+                )
+                text = text[:_MAX_INPUT_CHARS]
             max_tokens = self._estimate_max_tokens(text)
             message = client.messages.create(
                 model=self._model,

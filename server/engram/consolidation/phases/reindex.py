@@ -71,34 +71,63 @@ class ReindexPhase(ConsolidationPhase):
                 duration_ms=_elapsed_ms(t0),
             ), records
 
+        # Collect entities for batch embedding
+        entities_to_reindex = []
+        source_map: dict[str, str] = {}
+        for entity_id in to_reindex:
+            entity = await graph_store.get_entity(entity_id, group_id)
+            if entity:
+                entities_to_reindex.append(entity)
+                source_map[entity_id] = _source_phase(entity_id, context)
+            else:
+                logger.debug("Reindex: entity %s not found, skipping", entity_id)
+
+        # Batch embed + store (reduces O(N) API calls to O(N/batch_size))
         records = []
         errors = 0
-        for entity_id in to_reindex:
-            try:
-                entity = await graph_store.get_entity(entity_id, group_id)
-                if not entity:
-                    logger.debug("Reindex: entity %s not found, skipping", entity_id)
-                    continue
-
-                await search_index.index_entity(entity)
-
-                source = _source_phase(entity_id, context)
-                records.append(
-                    ReindexRecord(
-                        cycle_id=cycle_id,
-                        group_id=group_id,
-                        entity_id=entity_id,
-                        entity_name=entity.name,
-                        source_phase=source,
+        if entities_to_reindex:
+            use_batch = hasattr(search_index, "batch_index_entities")
+            if use_batch:
+                try:
+                    count = await search_index.batch_index_entities(entities_to_reindex)
+                    for entity in entities_to_reindex[:count]:
+                        records.append(
+                            ReindexRecord(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                entity_id=entity.id,
+                                entity_name=entity.name,
+                                source_phase=source_map.get(entity.id, "unknown"),
+                            )
+                        )
+                except Exception:
+                    errors += 1
+                    logger.warning(
+                        "Batch reindex failed, falling back to one-at-a-time",
+                        exc_info=True,
                     )
-                )
-            except Exception:
-                errors += 1
-                logger.warning(
-                    "Reindex failed for entity %s (non-fatal)",
-                    entity_id,
-                    exc_info=True,
-                )
+                    use_batch = False
+
+            if not use_batch:
+                for entity in entities_to_reindex:
+                    try:
+                        await search_index.index_entity(entity)
+                        records.append(
+                            ReindexRecord(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                entity_id=entity.id,
+                                entity_name=entity.name,
+                                source_phase=source_map.get(entity.id, "unknown"),
+                            )
+                        )
+                    except Exception:
+                        errors += 1
+                        logger.warning(
+                            "Reindex failed for entity %s (non-fatal)",
+                            entity.id,
+                            exc_info=True,
+                        )
 
         if errors:
             logger.info("Reindex: %d/%d entities had errors", errors, len(to_reindex))

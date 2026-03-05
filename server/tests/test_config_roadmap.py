@@ -28,17 +28,17 @@ class TestRoadmapConfigDefaults:
 
     def test_reranker_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.reranker_enabled is False
+        assert cfg.reranker_enabled is True
         assert cfg.reranker_top_n == 10
 
     def test_mmr_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.mmr_enabled is False
+        assert cfg.mmr_enabled is True
         assert cfg.mmr_lambda == 0.7
 
     def test_feedback_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.feedback_enabled is False
+        assert cfg.feedback_enabled is True
         assert cfg.feedback_ttl_days == 90
 
     def test_structure_aware_embeddings_default(self):
@@ -47,7 +47,7 @@ class TestRoadmapConfigDefaults:
 
     def test_community_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.community_spreading_enabled is False
+        assert cfg.community_spreading_enabled is True
         assert cfg.community_bridge_boost == 1.5
         assert cfg.community_intra_dampen == 0.7
         assert cfg.community_stale_seconds == 300.0
@@ -55,12 +55,12 @@ class TestRoadmapConfigDefaults:
 
     def test_context_gating_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.context_gating_enabled is False
+        assert cfg.context_gating_enabled is True
         assert cfg.context_gate_floor == 0.3
 
     def test_multi_pool_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.multi_pool_enabled is False
+        assert cfg.multi_pool_enabled is True
         assert cfg.pool_search_limit == 30
         assert cfg.pool_activation_limit == 20
         assert cfg.pool_graph_seed_count == 10

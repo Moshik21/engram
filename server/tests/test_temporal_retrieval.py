@@ -215,9 +215,10 @@ class TestTemporalBypassPipeline:
             graph_store=_mock_graph_store(),
             activation_store=activation_store,
             search_index=search_index,
-            cfg=ActivationConfig(),
+            cfg=ActivationConfig(multi_pool_enabled=False),
         )
         # get_top_activated should NOT be called for non-temporal queries
+        # (when multi-pool is disabled)
         activation_store.get_top_activated.assert_not_called()
 
     @pytest.mark.asyncio

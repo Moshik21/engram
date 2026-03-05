@@ -34,7 +34,19 @@ async def dashboard_ws(websocket: WebSocket) -> None:
     try:
         config = _app_state.get("config")
         auth_config = config.auth if config else AuthConfig()
-        tenant = await resolve_tenant_from_scope(websocket.headers, auth_config)
+        # Try headers first, then fall back to query param token (for browser WS)
+        try:
+            tenant = await resolve_tenant_from_scope(websocket.headers, auth_config)
+        except ValueError:
+            token = websocket.query_params.get("token", "")
+            if token:
+                # Build fake headers with the token for reuse of existing auth logic
+                from starlette.datastructures import Headers
+
+                fake_headers = Headers({"authorization": f"Bearer {token}"})
+                tenant = await resolve_tenant_from_scope(fake_headers, auth_config)
+            else:
+                raise
     except (ValueError, Exception):
         await websocket.close(code=4001, reason="Authentication required")
         return

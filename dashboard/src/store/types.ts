@@ -182,12 +182,14 @@ export interface PreferencesSlice {
   renderMode: GraphRenderMode;
   showActivationHeatmap: boolean;
   showEdgeLabels: boolean;
+  showFpsOverlay: boolean;
   darkMode: boolean;
   graphMaxNodes: number;
   setCurrentView: (view: DashboardView) => void;
   setRenderMode: (mode: GraphRenderMode) => void;
   toggleActivationHeatmap: () => void;
   toggleEdgeLabels: () => void;
+  toggleFpsOverlay: () => void;
   toggleDarkMode: () => void;
   setGraphMaxNodes: (n: number) => void;
 }
@@ -394,6 +396,25 @@ export interface KnowledgeSlice {
   deleteEntity: (id: string) => Promise<void>;
   setConfirmDialog: (dialog: ConfirmDialogState | null) => void;
   confirmAction: () => Promise<void>;
+
+  // Intention state (Wave 4 v2)
+  intentions: IntentionItem[];
+  handleIntentionEvent: (data: Record<string, unknown>) => void;
+  loadIntentions: () => Promise<void>;
+}
+
+export interface IntentionItem {
+  id: string;
+  triggerText: string;
+  actionText: string;
+  triggerType: string;
+  threshold: number;
+  fireCount: number;
+  maxFires: number;
+  enabled: boolean;
+  priority: string;
+  warmthRatio: number;
+  linkedEntityIds: string[];
 }
 
 export interface ConsolidationSlice {
@@ -414,6 +435,25 @@ export interface ConsolidationSlice {
   triggerCycle: (dryRun: boolean) => Promise<void>;
 }
 
+export interface ConversationSlice {
+  conversations: Array<{
+    id: string;
+    title: string | null;
+    sessionDate: string;
+    createdAt: string;
+    updatedAt: string;
+    entityIds: string[];
+  }>;
+  isLoadingConversations: boolean;
+  activeConversationId: string | null;
+  conversationSidebarOpen: boolean;
+  loadConversations: () => Promise<void>;
+  setActiveConversation: (id: string | null) => void;
+  setConversationId: (id: string | null) => void;
+  toggleConversationSidebar: () => void;
+  startNewConversation: () => void;
+}
+
 export type EngramStore =
   GraphSlice &
   SelectionSlice &
@@ -424,4 +464,5 @@ export type EngramStore =
   WebSocketSlice &
   ActivationSlice &
   ConsolidationSlice &
-  KnowledgeSlice;
+  KnowledgeSlice &
+  ConversationSlice;

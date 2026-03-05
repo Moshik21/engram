@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -15,7 +17,7 @@ from datetime import datetime
 
 from mcp.server.fastmcp import FastMCP
 
-from engram.config import EngramConfig
+from engram.config import ActivationConfig, EngramConfig
 from engram.events.bus import get_event_bus
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
@@ -43,21 +45,59 @@ class SessionState:
     """Tracks session-level metadata for the MCP server lifetime."""
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    group_id: str = "default"
+    group_id: str = field(default_factory=lambda: os.environ.get("ENGRAM_GROUP_ID", "default"))
     started_at: datetime = field(default_factory=datetime.utcnow)
     episode_count: int = 0
     last_activity: datetime = field(default_factory=datetime.utcnow)
+    auto_recall_primed: bool = False
+    last_recall_time: float = 0.0
+
+
+class RecallCooldown:
+    """Rate limiter + topic dedup for auto-recall."""
+
+    def __init__(self, max_per_minute: int = 3, cooldown_seconds: float = 60.0) -> None:
+        self._entries: deque[tuple[set[str], float]] = deque(maxlen=20)
+        self.max_per_minute = max_per_minute
+        self.cooldown_seconds = cooldown_seconds
+
+    def _tokenize(self, query: str) -> set[str]:
+        return {w.lower() for w in query.split() if len(w) > 2}
+
+    def is_throttled(self, query: str, now: float) -> bool:
+        # Rate limit: count entries in last 60s
+        recent = [t for _, t in self._entries if now - t < 60.0]
+        if len(recent) >= self.max_per_minute:
+            return True
+        # Topic dedup: check token overlap within cooldown window
+        tokens = self._tokenize(query)
+        if not tokens:
+            return False
+        for prev_tokens, ts in self._entries:
+            if now - ts > self.cooldown_seconds:
+                continue
+            if not prev_tokens:
+                continue
+            overlap = len(tokens & prev_tokens) / max(len(tokens | prev_tokens), 1)
+            if overlap > 0.5:
+                return True
+        return False
+
+    def record(self, query: str, now: float) -> None:
+        self._entries.append((self._tokenize(query), now))
 
 
 # Module-level state initialized on startup
 _manager: GraphManager | None = None
 _group_id: str = "default"
 _session: SessionState | None = None
+_recall_cooldown: RecallCooldown | None = None
+_activation_cfg: ActivationConfig | None = None
 
 
 async def _init() -> None:
     """Initialize storage and services."""
-    global _manager, _group_id, _session
+    global _manager, _group_id, _session, _recall_cooldown, _activation_cfg
 
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
@@ -78,6 +118,11 @@ async def _init() -> None:
     )
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
+    _activation_cfg = config.activation
+    _recall_cooldown = RecallCooldown(
+        max_per_minute=config.activation.auto_recall_max_per_minute,
+        cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
+    )
 
     # Background episode worker
     from engram.worker import EpisodeWorker
@@ -111,6 +156,123 @@ def _get_session() -> SessionState:
     return _session
 
 
+# ─── AutoRecall Helpers ──────────────────────────────────────────────
+
+
+def _extract_recall_query(content: str) -> str:
+    """Extract a recall query from content: proper nouns first, then first sentence."""
+    if len(content) < 20:
+        return ""
+    # Extract capitalized proper nouns
+    proper_nouns = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", content)
+    if proper_nouns:
+        return " ".join(proper_nouns)[:200]
+    # Fallback: first meaningful sentence
+    first_sentence = content.split(".")[0].strip()
+    return first_sentence[:200]
+
+
+async def _auto_recall(
+    content: str, manager: GraphManager, cfg: ActivationConfig,
+) -> dict | None:
+    """Piggyback lightweight recall on observe/remember calls."""
+    if not cfg.auto_recall_enabled:
+        return None
+
+    query = _extract_recall_query(content)
+    if not query:
+        return None
+
+    session = _get_session()
+    cooldown = _recall_cooldown
+
+    # Cooldown check
+    now = time.time()
+    if cooldown and cooldown.is_throttled(query, now):
+        return None
+
+    # Skip if explicit recall was recent (within 30s)
+    if session.last_recall_time and (now - session.last_recall_time) < 30.0:
+        return None
+
+    # Topic-shift-aware recall limit (Wave 3)
+    recall_limit = cfg.auto_recall_limit
+    if (cfg.conv_topic_shift_enabled
+            and hasattr(manager, '_conv_context') and manager._conv_context is not None
+            and manager._conv_context.detect_topic_shift()):
+        recall_limit = cfg.conv_topic_shift_recall_boost
+        manager._conv_context.acknowledge_shift()
+
+    try:
+        results = await manager.recall(
+            query=query, group_id=_group_id, limit=recall_limit,
+        )
+    except Exception:
+        logger.debug("auto_recall failed", exc_info=True)
+        return None
+
+    # Filter: skip episodes, skip below min_score
+    entities = []
+    for r in results:
+        if r.get("result_type") == "episode":
+            continue
+        if r.get("score", 0) < cfg.auto_recall_min_score:
+            continue
+        entity = r["entity"]
+        # Compact format — no expensive relationship resolution
+        facts = []
+        for rel in r.get("relationships", [])[:3]:
+            facts.append(f"{rel.get('predicate', '?')}")
+        entry: dict = {
+            "name": entity["name"],
+            "type": entity["type"],
+            "summary": (entity.get("summary") or "")[:100],
+        }
+        if facts:
+            entry["top_facts"] = facts
+        entities.append(entry)
+
+    if not entities:
+        return None
+
+    if cooldown:
+        cooldown.record(query, now)
+
+    return {
+        "source": "auto_recall",
+        "query_used": query,
+        "entities": entities,
+    }
+
+
+async def _session_prime(
+    content: str | None, manager: GraphManager, cfg: ActivationConfig,
+) -> dict | None:
+    """Auto-prime context on first tool call in a session."""
+    if not cfg.auto_recall_session_prime:
+        return None
+    session = _get_session()
+    if session.auto_recall_primed:
+        return None
+    session.auto_recall_primed = True
+
+    topic = None
+    if content:
+        topic = _extract_recall_query(content) or None
+
+    try:
+        result = await manager.get_context(
+            group_id=_group_id,
+            max_tokens=cfg.auto_recall_session_prime_max_tokens,
+            topic_hint=topic,
+            format="briefing",
+        )
+        return result
+    except Exception:
+        logger.debug("session_prime failed", exc_info=True)
+        return None
+
+
 # ─── Tools ──────────────────────────────────────────────────────────
 
 
@@ -127,6 +289,7 @@ async def remember(content: str, source: str = "mcp") -> str:
     """
     manager = _get_manager()
     session = _get_session()
+    cfg = _activation_cfg
     episode_id = await manager.ingest_episode(
         content=content,
         group_id=_group_id,
@@ -135,13 +298,36 @@ async def remember(content: str, source: str = "mcp") -> str:
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
-    return json.dumps(
-        {
-            "status": "stored",
-            "episode_id": episode_id,
-            "message": "Memory received. Entities and relationships extracted.",
-        }
-    )
+    # Update conversation context (Wave 2)
+    if hasattr(manager, '_conv_context') and manager._conv_context is not None:
+        manager._conv_context.add_turn(content)
+    response: dict = {
+        "status": "stored",
+        "episode_id": episode_id,
+        "message": "Memory received. Entities and relationships extracted.",
+    }
+    if cfg and cfg.auto_recall_on_remember:
+        prime = await _session_prime(content, manager, cfg)
+        if prime:
+            response["session_context"] = prime
+        recalled = await _auto_recall(content, manager, cfg)
+        if recalled:
+            response["recalled_context"] = recalled
+    # Surface triggered intentions (Wave 4)
+    if manager._triggered_intentions:
+        response["triggered_intentions"] = [
+            {
+                "trigger": m.trigger_text,
+                "action": m.action_text,
+                "similarity": round(m.similarity, 4),
+                "matched_via": m.matched_via,
+                **({"context": m.context} if m.context else {}),
+                **({"see_also": m.see_also} if m.see_also else {}),
+            }
+            for m in manager._triggered_intentions
+        ]
+        manager._triggered_intentions = []
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -157,6 +343,7 @@ async def observe(content: str, source: str = "mcp") -> str:
     """
     manager = _get_manager()
     session = _get_session()
+    cfg = _activation_cfg
     episode_id = await manager.store_episode(
         content=content,
         group_id=_group_id,
@@ -165,13 +352,36 @@ async def observe(content: str, source: str = "mcp") -> str:
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
-    return json.dumps(
-        {
-            "status": "stored",
-            "episode_id": episode_id,
-            "message": "Stored for background processing.",
-        }
-    )
+    # Update conversation context (Wave 2)
+    if hasattr(manager, '_conv_context') and manager._conv_context is not None:
+        manager._conv_context.add_turn(content)
+    response: dict = {
+        "status": "stored",
+        "episode_id": episode_id,
+        "message": "Stored for background processing.",
+    }
+    if cfg and cfg.auto_recall_on_observe:
+        prime = await _session_prime(content, manager, cfg)
+        if prime:
+            response["session_context"] = prime
+        recalled = await _auto_recall(content, manager, cfg)
+        if recalled:
+            response["recalled_context"] = recalled
+    # Surface triggered intentions (Wave 4)
+    if manager._triggered_intentions:
+        response["triggered_intentions"] = [
+            {
+                "trigger": m.trigger_text,
+                "action": m.action_text,
+                "similarity": round(m.similarity, 4),
+                "matched_via": m.matched_via,
+                **({"context": m.context} if m.context else {}),
+                **({"see_also": m.see_also} if m.see_also else {}),
+            }
+            for m in manager._triggered_intentions
+        ]
+        manager._triggered_intentions = []
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -186,9 +396,12 @@ async def recall(query: str, limit: int = 5) -> str:
         JSON with results array, total_candidates, and query_time_ms.
     """
     manager = _get_manager()
+    session = _get_session()
     t0 = time.perf_counter()
     results = await manager.recall(query=query, group_id=_group_id, limit=limit)
     query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
+    session.last_recall_time = time.time()
+    session.auto_recall_primed = True
 
     formatted = []
     for r in results:
@@ -225,13 +438,31 @@ async def recall(query: str, limit: int = 5) -> str:
             }
         )
 
-    return json.dumps(
-        {
-            "results": formatted,
-            "total_candidates": len(formatted),
-            "query_time_ms": query_time_ms,
-        }
-    )
+    response_dict: dict = {
+        "results": formatted,
+        "total_candidates": len(formatted),
+        "query_time_ms": query_time_ms,
+    }
+
+    # Append near-misses if available (Wave 2)
+    if hasattr(manager, '_last_near_misses') and manager._last_near_misses:
+        response_dict["near_misses"] = manager._last_near_misses
+
+    # Surface surprise connections (Wave 3)
+    if hasattr(manager, '_surprise_cache') and manager._surprise_cache is not None:
+        surprises = manager._surprise_cache.get(_group_id, time.time())
+        if surprises:
+            response_dict["surprise_connections"] = [
+                {
+                    "entity": s.entity_name,
+                    "connected_to": s.connected_to_name,
+                    "relationship": s.predicate,
+                    "surprise_score": round(s.surprise_score, 4),
+                }
+                for s in surprises[:3]
+            ]
+
+    return json.dumps(response_dict)
 
 
 @mcp.tool()
@@ -360,6 +591,35 @@ async def get_context(
         topic_hint=topic_hint,
         project_path=project_path,
         format=format,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def bootstrap_project(project_path: str) -> str:
+    """Auto-observe key project files and create a Project entity.
+
+    Reads README, package.json, pyproject.toml, Makefile, .env.example, and
+    CLAUDE.md from the project directory and stores them as episodes. Creates
+    a Project entity in the knowledge graph so spreading activation can reach
+    project-relevant entities.
+
+    Safe to call every session — files are only re-observed if the last
+    bootstrap was more than 24 hours ago (staleness check).
+
+    Args:
+        project_path: Absolute path to the project directory.
+
+    Returns:
+        JSON with status (bootstrapped/refreshed/already_bootstrapped),
+        project_entity_id, and files_observed.
+    """
+    manager = _get_manager()
+    session = _get_session()
+    result = await manager.bootstrap_project(
+        project_path=project_path,
+        group_id=_group_id,
+        session_id=session.session_id,
     )
     return json.dumps(result)
 
@@ -519,6 +779,180 @@ async def get_consolidation_status() -> str:
             "In MCP mode, cycles run synchronously.",
         }
     )
+
+
+# ─── Prospective Memory (Wave 4) ─────────────────────────────────────
+
+
+@mcp.tool()
+async def intend(
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str = "activation",
+    entity_names: list[str] | None = None,
+    threshold: float | None = None,
+    priority: str = "normal",
+    context: str | None = None,
+    see_also: list[str] | None = None,
+) -> str:
+    """Create a graph-embedded intention (prospective memory trigger).
+
+    The intention fires automatically during remember/observe when related
+    entities are activated in the knowledge graph. Use for "remind me when
+    X happens" or "next time I work on Y, tell me Z" behavior.
+
+    Args:
+        trigger_text: Natural language description of the trigger condition
+            (e.g., "auth module", "Python upgrades", "job interview")
+        action_text: What to surface when the trigger fires
+            (e.g., "Check the XSS fix before deploying")
+        trigger_type: "activation" (spreading activation threshold) or
+            "entity_mention" (fires when named entity appears in content)
+        entity_names: Entity names to link via TRIGGERED_BY edges. These
+            entities activate the intention through graph spreading.
+        threshold: Activation threshold override (0.0-1.0, default 0.5)
+        priority: "low", "normal", "high", or "critical" (affects ordering)
+        context: Rich background the agent needs at fire time. When provided,
+            the agent can act on the intention without additional recall/search.
+        see_also: Breadcrumb topic hints ("cliffhangers"). The agent will
+            mention these as conversational hooks rather than searching them.
+
+    Returns:
+        JSON with status, intention_id, linked entities, and threshold.
+    """
+    manager = _get_manager()
+    try:
+        intention_id = await manager.create_intention(
+            trigger_text=trigger_text,
+            action_text=action_text,
+            trigger_type=trigger_type,
+            entity_names=entity_names,
+            threshold=threshold,
+            priority=priority,
+            group_id=_group_id,
+            context=context,
+            see_also=see_also,
+        )
+        return json.dumps({
+            "status": "created",
+            "intention_id": intention_id,
+            "trigger_type": trigger_type,
+            "linked_entities": entity_names or [],
+            "threshold": threshold or manager._cfg.prospective_activation_threshold,
+            "message": f"Intention set: will fire when '{trigger_text}' activates.",
+        })
+    except ValueError as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool()
+async def dismiss_intention(intention_id: str, hard: bool = False) -> str:
+    """Dismiss (disable or delete) a prospective memory intention.
+
+    Args:
+        intention_id: The ID of the intention to dismiss.
+        hard: If true, permanently delete. If false (default), soft-disable.
+
+    Returns:
+        JSON with status and intention_id.
+    """
+    manager = _get_manager()
+    try:
+        await manager.dismiss_intention(intention_id, _group_id, hard=hard)
+        return json.dumps({
+            "status": "dismissed",
+            "intention_id": intention_id,
+            "hard": hard,
+            "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool()
+async def list_intentions(enabled_only: bool = True) -> str:
+    """List active prospective memory intentions with warmth info.
+
+    Args:
+        enabled_only: If true, only return enabled and non-expired intentions.
+
+    Returns:
+        JSON with intentions array and total count.
+    """
+    manager = _get_manager()
+    cfg = manager._cfg
+    intentions = await manager.list_intentions(
+        group_id=_group_id, enabled_only=enabled_only,
+    )
+
+    items = []
+    if cfg.prospective_graph_embedded:
+        from engram.activation.engine import compute_activation
+        from engram.models.prospective import IntentionMeta
+
+        now = time.time()
+        for entity in intentions:
+            attrs = entity.attributes or {}
+            try:
+                meta = IntentionMeta(**attrs)
+            except Exception:
+                continue
+
+            # Compute warmth ratio
+            state = await manager._activation.get_activation(entity.id)
+            activation = 0.0
+            if state:
+                activation = compute_activation(state.access_history, now, cfg)
+            warmth_ratio = (
+                activation / meta.activation_threshold
+                if meta.activation_threshold > 0 else 0.0
+            )
+
+            # Classify warmth
+            levels = cfg.prospective_warmth_levels
+            if warmth_ratio >= 1.0:
+                warmth_label = "hot"
+            elif warmth_ratio >= levels[2]:
+                warmth_label = "warm"
+            elif warmth_ratio >= levels[1]:
+                warmth_label = "warming"
+            elif warmth_ratio >= levels[0]:
+                warmth_label = "cool"
+            else:
+                warmth_label = "dormant"
+
+            items.append({
+                "id": entity.id,
+                "trigger_text": meta.trigger_text,
+                "action_text": meta.action_text,
+                "trigger_type": meta.trigger_type,
+                "threshold": meta.activation_threshold,
+                "fire_count": meta.fire_count,
+                "max_fires": meta.max_fires,
+                "enabled": meta.enabled,
+                "priority": meta.priority,
+                "expires_at": meta.expires_at,
+                "warmth_ratio": round(warmth_ratio, 4),
+                "warmth_label": warmth_label,
+                "linked_entity_ids": meta.trigger_entity_ids,
+            })
+    else:
+        # v1 fallback
+        for i in intentions:
+            items.append({
+                "id": i.id,
+                "trigger_text": i.trigger_text,
+                "action_text": i.action_text,
+                "trigger_type": i.trigger_type,
+                "entity_name": i.entity_name,
+                "threshold": i.threshold,
+                "fire_count": i.fire_count,
+                "max_fires": i.max_fires,
+                "enabled": i.enabled,
+                "expires_at": i.expires_at.isoformat() if i.expires_at else None,
+            })
+
+    return json.dumps({"intentions": items, "total": len(items)})
 
 
 # ─── Resources ──────────────────────────────────────────────────────

@@ -22,7 +22,21 @@ def _entity(name, entity_type="Person", group_id="test"):
     )
 
 
-def _make_llm_response(verdict: str, reason: str = "test"):
+def _make_llm_response(verdict: str, reason: str = "test", count: int = 1):
+    """Create a mock Anthropic API response (batched format for validation)."""
+    verdicts = [
+        {"rel": i, "verdict": verdict, "reason": reason}
+        for i in range(1, count + 1)
+    ]
+    content_block = MagicMock()
+    content_block.text = json.dumps(verdicts)
+    response = MagicMock()
+    response.content = [content_block]
+    return response
+
+
+def _make_escalation_response(verdict: str, reason: str = "test"):
+    """Create a mock escalation response (single-item format)."""
     content_block = MagicMock()
     content_block.text = json.dumps({"verdict": verdict, "reason": reason})
     response = MagicMock()
@@ -65,6 +79,7 @@ class TestInferEscalation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=False,
         )
@@ -96,12 +111,13 @@ class TestInferEscalation:
         haiku_client.messages.create.return_value = _make_llm_response("uncertain")
 
         sonnet_client = MagicMock()
-        sonnet_client.messages.create.return_value = _make_llm_response("approved")
+        sonnet_client.messages.create.return_value = _make_escalation_response("approved")
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )
@@ -135,12 +151,13 @@ class TestInferEscalation:
         haiku_client.messages.create.return_value = _make_llm_response("uncertain")
 
         sonnet_client = MagicMock()
-        sonnet_client.messages.create.return_value = _make_llm_response("rejected")
+        sonnet_client.messages.create.return_value = _make_escalation_response("rejected")
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )
@@ -177,6 +194,7 @@ class TestInferEscalation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )
@@ -216,15 +234,16 @@ class TestInferEscalation:
         gs = _mock_graph_store(pairs, entities)
 
         haiku_client = MagicMock()
-        haiku_client.messages.create.return_value = _make_llm_response("uncertain")
+        haiku_client.messages.create.return_value = _make_llm_response("uncertain", count=5)
 
         sonnet_client = MagicMock()
-        sonnet_client.messages.create.return_value = _make_llm_response("approved")
+        sonnet_client.messages.create.return_value = _make_escalation_response("approved")
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
             consolidation_infer_escalation_max_per_cycle=2,
@@ -264,6 +283,7 @@ class TestInferEscalation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )
@@ -295,12 +315,13 @@ class TestInferEscalation:
         haiku_client.messages.create.return_value = _make_llm_response("uncertain")
 
         sonnet_client = MagicMock()
-        sonnet_client.messages.create.return_value = _make_llm_response("approved")
+        sonnet_client.messages.create.return_value = _make_escalation_response("approved")
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
             consolidation_infer_escalation_model="claude-sonnet-4-6-20250514",
@@ -333,12 +354,13 @@ class TestInferEscalation:
         haiku_client.messages.create.return_value = _make_llm_response("uncertain")
 
         sonnet_client = MagicMock()
-        sonnet_client.messages.create.return_value = _make_llm_response("approved")
+        sonnet_client.messages.create.return_value = _make_escalation_response("approved")
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )
@@ -376,6 +398,7 @@ class TestInferEscalation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_escalation_enabled=True,
         )

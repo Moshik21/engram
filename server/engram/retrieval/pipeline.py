@@ -101,6 +101,9 @@ async def retrieve(
     working_memory: WorkingMemoryBuffer | None = None,
     community_store=None,
     predicate_cache=None,
+    conv_context=None,
+    priming_buffer: dict[str, tuple[float, float]] | None = None,
+    goal_cache=None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -187,6 +190,44 @@ async def retrieve(
                     candidates.append((item_id, 0.1 * recency_score))
                     existing_ids.add(item_id)
 
+    # Step 0.5: Multi-query decomposition (Wave 2)
+    if cfg.conv_multi_query_enabled and conv_context is not None:
+        import asyncio as _asyncio
+
+        turn_count = conv_context._turn_count
+        # Weight schedule: early sessions query-dominant, later context-dominant
+        if turn_count < 3:
+            w_topic, w_entity = 0.25, 0.15
+        else:
+            w_topic, w_entity = 0.35, 0.30
+
+        recent_turns = conv_context.get_recent_turns(cfg.conv_multi_query_turns)
+        topic_query = " ".join(recent_turns).strip()
+        top_ents = conv_context.get_top_entities(cfg.conv_multi_query_top_entities)
+        entity_query = " ".join(e.name for e in top_ents).strip()
+
+        sub_limit = min(cfg.retrieval_top_k // 2, 25)
+        sub_queries: list[tuple[str, float]] = []
+        if topic_query and topic_query != query:
+            sub_queries.append((topic_query, w_topic))
+        if entity_query and entity_query != query:
+            sub_queries.append((entity_query, w_entity))
+
+        if sub_queries:
+            tasks = [
+                search_index.search(query=sq, group_id=group_id, limit=sub_limit)
+                for sq, _ in sub_queries
+            ]
+            sub_results = await _asyncio.gather(*tasks, return_exceptions=True)
+            existing_scores = {eid: s for eid, s in candidates}
+            for (sq, sw), result in zip(sub_queries, sub_results):
+                if isinstance(result, list) and result:
+                    for eid, score in result:
+                        weighted = score * sw
+                        if eid not in existing_scores or weighted > existing_scores[eid]:
+                            existing_scores[eid] = weighted
+            candidates = list(existing_scores.items())
+
     # Step 1.1: Episode search (runs in both modes)
     episode_candidates: list[ScoredResult] = []
     if cfg.episode_retrieval_enabled and hasattr(search_index, "search_episodes"):
@@ -229,6 +270,19 @@ async def retrieve(
     entity_ids = [eid for eid, _ in candidates]
     activation_states = await activation_store.batch_get(entity_ids)
 
+    # Step 2.5: Goal priming (Brain Architecture)
+    goal_seeds: list[tuple[str, float]] = []
+    if cfg.goal_priming_enabled:
+        from engram.retrieval.goals import (
+            compute_goal_priming_seeds,
+            identify_active_goals,
+        )
+
+        active_goals = await identify_active_goals(
+            graph_store, activation_store, group_id, cfg, cache=goal_cache,
+        )
+        goal_seeds = compute_goal_priming_seeds(active_goals, cfg)
+
     # Step 3: Identify seeds (strategy-dependent)
     if cfg.spreading_strategy == "actr":
         # ACT-R: seeds come from working memory only (not search results)
@@ -258,6 +312,17 @@ async def retrieve(
                         seeds.append((item_id, energy))
                         seed_node_ids.add(item_id)
 
+        # Step 3.6: Session entity seed injection (Wave 2)
+        if (cfg.conv_session_entity_seeds_enabled and conv_context is not None):
+            for entry in conv_context.get_top_entities(cfg.conv_multi_query_top_entities):
+                if entry.entity_id not in seed_node_ids:
+                    energy = cfg.conv_session_entity_seed_energy * min(
+                        1.0, entry.mention_weight / 5.0,
+                    )
+                    if energy > 0.0:
+                        seeds.append((entry.entity_id, energy))
+                        seed_node_ids.add(entry.entity_id)
+
         # Step 3.7: Build context gate (if enabled)
         context_gate = None
         if cfg.context_gating_enabled and predicate_cache is not None:
@@ -266,6 +331,13 @@ async def retrieve(
                 from engram.activation.context_gate import build_context_gate
 
                 context_gate = build_context_gate(query_emb, predicate_cache, cfg)
+
+    # Step 3.9: Merge goal priming seeds
+    if goal_seeds:
+        for gid, energy in goal_seeds:
+            if gid not in seed_node_ids:
+                seeds.append((gid, energy))
+                seed_node_ids.add(gid)
 
     # Step 3.8: Build seed entity types for cross-domain penalty
     seed_entity_types: dict[str, str] | None = None
@@ -290,6 +362,20 @@ async def retrieve(
         seed_entity_types=seed_entity_types,
     )
 
+    # Step 4.1: Inhibitory spreading (Brain Architecture)
+    if cfg.inhibitory_spreading_enabled:
+        from engram.retrieval.inhibition import apply_inhibition
+
+        bonuses = await apply_inhibition(
+            bonuses=bonuses,
+            hop_distances=hop_distances,
+            seed_node_ids=seed_node_ids,
+            graph_store=graph_store,
+            search_index=search_index,
+            group_id=group_id,
+            cfg=cfg,
+        )
+
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
     existing_ids = {eid for eid, _ in candidates}
     new_ids = [nid for nid in bonuses if nid not in existing_ids and bonuses[nid] > 0.0]
@@ -303,6 +389,148 @@ async def retrieve(
         )
         candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
 
+    # Step 4.6: Fingerprint similarity computation (Wave 2)
+    conv_fingerprint_sim: dict[str, float] | None = None
+    if (cfg.conv_fingerprint_enabled and conv_context is not None
+            and cfg.conv_context_rerank_weight > 0.0):
+        fingerprint = conv_context.get_fingerprint()
+        if fingerprint is not None:
+            try:
+                all_ids = [eid for eid, _ in candidates]
+                conv_fingerprint_sim = await search_index.compute_similarity(
+                    query="",
+                    entity_ids=all_ids,
+                    group_id=group_id,
+                    query_embedding=fingerprint,
+                )
+            except Exception:
+                pass
+
+    # Step 4.7: Priming buffer boosts (Wave 3)
+    priming_boosts: dict[str, float] | None = None
+    if priming_buffer:
+        priming_boosts = {}
+        for eid, (boost, expiry) in priming_buffer.items():
+            if now < expiry:
+                priming_boosts[eid] = boost
+        if not priming_boosts:
+            priming_boosts = None
+
+    # Step 4.8: Graph structural similarity (when weight > 0)
+    # Compares graph embeddings between seed entities and candidates —
+    # both vectors live in the same structural embedding space.
+    graph_similarities: dict[str, float] | None = None
+    if cfg.weight_graph_structural > 0:
+        try:
+            all_candidate_ids = [eid for eid, _ in candidates]
+            # Determine preferred method: try enabled methods that have data
+            methods_to_try = []
+            if cfg.graph_embedding_node2vec_enabled:
+                methods_to_try.append("node2vec")
+            if cfg.graph_embedding_transe_enabled:
+                methods_to_try.append("transe")
+            if cfg.graph_embedding_gnn_enabled:
+                methods_to_try.append("gnn")
+
+            if methods_to_try and hasattr(search_index, "get_graph_embeddings"):
+                # Get seed entity IDs (from spreading activation seeds)
+                query_seed_ids = list(seed_node_ids) if seed_node_ids else []
+
+                for method in methods_to_try:
+                    if not query_seed_ids:
+                        # Fall back to top candidates as proxy seeds
+                        query_seed_ids = [
+                            eid for eid, _ in sorted(
+                                candidates, key=lambda x: x[1], reverse=True,
+                            )[:3]
+                        ]
+                        if not query_seed_ids:
+                            break
+
+                    # Fetch graph embeddings for seeds + candidates
+                    all_ids = list(set(query_seed_ids + all_candidate_ids))
+                    graph_embs = await search_index.get_graph_embeddings(
+                        all_ids, method=method, group_id=group_id,
+                    )
+                    if not graph_embs:
+                        continue
+
+                    # Find seed entities that have graph embeddings
+                    seed_embs = {
+                        sid: graph_embs[sid]
+                        for sid in query_seed_ids
+                        if sid in graph_embs
+                    }
+                    if not seed_embs:
+                        continue
+
+                    import numpy as np
+
+                    from engram.storage.sqlite.vectors import (
+                        cosine_similarity as _cos_sim,
+                    )
+
+                    seed_vecs = list(seed_embs.values())
+                    query_graph_vec = np.mean(seed_vecs, axis=0).tolist()
+
+                    graph_similarities = {}
+                    for eid, g_emb in graph_embs.items():
+                        if eid in seed_embs:
+                            continue  # Don't score seeds against themselves
+                        graph_similarities[eid] = max(
+                            0.0, _cos_sim(query_graph_vec, g_emb),
+                        )
+                    break  # Found a method with data
+
+                if not graph_similarities:
+                    graph_similarities = None
+        except Exception as e:
+            logger.warning("Graph similarity computation failed (non-fatal): %s", e)
+
+    # Step 4.9: Fetch entity attributes for emotional + state boosts
+    entity_attributes: dict[str, dict] | None = None
+    needs_attrs = cfg.emotional_salience_enabled or cfg.state_dependent_retrieval_enabled
+    if needs_attrs:
+        entity_attributes = {}
+        all_candidate_ids = [eid for eid, _ in candidates]
+        for eid in all_candidate_ids:
+            try:
+                ent = await graph_store.get_entity(eid, group_id)
+                if ent:
+                    attrs = (
+                        dict(ent.attributes)
+                        if isinstance(ent.attributes, dict)
+                        else {}
+                    )
+                    # Include entity_type for domain mapping
+                    if ent.entity_type:
+                        attrs["entity_type"] = ent.entity_type
+                    entity_attributes[eid] = attrs
+            except Exception:
+                pass
+        if not entity_attributes:
+            entity_attributes = None
+
+    # Step 4.95: State-dependent retrieval biases (Brain Architecture)
+    state_biases: dict[str, float] | None = None
+    if cfg.state_dependent_retrieval_enabled and conv_context is not None:
+        cog_state = getattr(conv_context, "cognitive_state", None)
+        if cog_state is not None and entity_attributes:
+            from engram.retrieval.state import compute_state_bias
+
+            state_biases = {}
+            for eid, _ in candidates:
+                attrs = entity_attributes.get(eid, {})
+                etype = attrs.get("entity_type", "Other")
+                bias = compute_state_bias(
+                    cog_state, attrs, etype, cfg,
+                    domain_groups=cfg.domain_groups,
+                )
+                if bias > 0:
+                    state_biases[eid] = bias
+            if not state_biases:
+                state_biases = None
+
     # Step 5: Score all candidates
     if cfg.ts_enabled:
         scored = score_candidates_thompson(
@@ -313,6 +541,11 @@ async def retrieve(
             activation_states=activation_states,
             now=now,
             cfg=cfg,
+            conv_fingerprint_sim=conv_fingerprint_sim,
+            priming_boosts=priming_boosts,
+            graph_similarities=graph_similarities,
+            entity_attributes=entity_attributes,
+            state_biases=state_biases,
         )
     else:
         scored = score_candidates(
@@ -323,6 +556,11 @@ async def retrieve(
             activation_states=activation_states,
             now=now,
             cfg=cfg,
+            conv_fingerprint_sim=conv_fingerprint_sim,
+            priming_boosts=priming_boosts,
+            graph_similarities=graph_similarities,
+            entity_attributes=entity_attributes,
+            state_biases=state_biases,
         )
 
     # Step 5.5: Cross-encoder re-ranking (if enabled)
@@ -386,6 +624,46 @@ async def retrieve(
             )
         except Exception as e:
             logger.warning("MMR diversity failed (non-fatal): %s", e)
+
+    # Step 5.7: GC-MMR (if enabled, replaces standard MMR)
+    if cfg.gc_mmr_enabled:
+        try:
+            from engram.retrieval.gc_mmr import apply_gc_mmr
+
+            # Reuse entity_embeddings from MMR block, or fetch if MMR was disabled
+            if not cfg.mmr_enabled:
+                entity_embeddings = {}
+                gc_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+                has_vecs = hasattr(search_index, "_vectors")
+                if has_vecs and hasattr(search_index, "_embeddings_enabled"):
+                    if search_index._embeddings_enabled:
+                        from engram.storage.sqlite.vectors import unpack_vector
+
+                        for eid in gc_ids:
+                            cursor = await search_index._vectors.db.execute(
+                                "SELECT embedding, dimensions FROM embeddings "
+                                "WHERE id = ? AND group_id = ?",
+                                (eid, group_id),
+                            )
+                            row = await cursor.fetchone()
+                            if row:
+                                entity_embeddings[eid] = unpack_vector(
+                                    row["embedding"],
+                                    row["dimensions"],
+                                )
+
+            scored = await apply_gc_mmr(
+                scored,
+                graph_store=graph_store,
+                group_id=group_id,
+                entity_embeddings=entity_embeddings,
+                lambda_rel=cfg.gc_mmr_lambda_relevance,
+                lambda_div=cfg.gc_mmr_lambda_diversity,
+                lambda_conn=cfg.gc_mmr_lambda_connectivity,
+                top_n=min(limit, cfg.retrieval_top_n),
+            )
+        except Exception as e:
+            logger.warning("GC-MMR failed (non-fatal): %s", e)
 
     # Step 6: Return top-N, mixing entities and episodes
     top_n = min(limit, cfg.retrieval_top_n)

@@ -11,8 +11,9 @@ export const createPreferencesSlice: StateCreator<
   renderMode: "3d",
   showActivationHeatmap: true,
   showEdgeLabels: false,
+  showFpsOverlay: false,
   darkMode: true,
-  graphMaxNodes: 200,
+  graphMaxNodes: 50000,
 
   setCurrentView: (view) =>
     set((s) => {
@@ -29,6 +30,10 @@ export const createPreferencesSlice: StateCreator<
   toggleEdgeLabels: () =>
     set((s) => {
       s.showEdgeLabels = !s.showEdgeLabels;
+    }),
+  toggleFpsOverlay: () =>
+    set((s) => {
+      s.showFpsOverlay = !s.showFpsOverlay;
     }),
   toggleDarkMode: () =>
     set((s) => {

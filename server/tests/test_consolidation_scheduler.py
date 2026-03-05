@@ -44,6 +44,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
         scheduler.start()
@@ -58,6 +59,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
         scheduler.start()
@@ -72,6 +74,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
         await scheduler.stop()  # Should not raise
@@ -84,6 +87,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
         scheduler.start()
@@ -101,6 +105,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=False,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
 
@@ -125,6 +130,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
 
@@ -148,6 +154,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(
             engine,
@@ -186,6 +193,7 @@ class TestConsolidationScheduler:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
         )
         scheduler = ConsolidationScheduler(engine, cfg)
 
@@ -219,6 +227,7 @@ class TestPressureTriggering:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=3600.0,
+            consolidation_tiered_enabled=False,
             consolidation_pressure_enabled=True,
             consolidation_pressure_threshold=100.0,
             consolidation_pressure_cooldown_seconds=30.0,
@@ -258,6 +267,7 @@ class TestPressureTriggering:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
             consolidation_pressure_enabled=True,
             consolidation_pressure_threshold=100.0,
             consolidation_pressure_cooldown_seconds=30.0,
@@ -295,6 +305,7 @@ class TestPressureTriggering:
         cfg = ActivationConfig(
             consolidation_enabled=True,
             consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
             consolidation_pressure_enabled=False,
         )
         scheduler = ConsolidationScheduler(

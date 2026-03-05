@@ -55,6 +55,12 @@ class _FakeActivationStore:
     async def batch_get(self, entity_ids: list[str]) -> dict[str, ActivationState]:
         return {eid: self._states[eid] for eid in entity_ids if eid in self._states}
 
+    async def get_activation(self, entity_id: str) -> ActivationState | None:
+        return self._states.get(entity_id)
+
+    async def set_activation(self, entity_id: str, state: ActivationState) -> None:
+        self._states[entity_id] = state
+
 
 class _FakeGraphStore:
     """Graph store stub with configurable neighbors and entity lookup."""

@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 _LLM_VALIDATION_PROMPT = (
     "You are a knowledge graph quality validator.\n"
-    "Given two entities and a proposed relationship, determine if it makes semantic sense.\n"
-    "Respond with JSON only: "
-    '{"verdict": "approved"|"rejected"|"uncertain", "reason": "brief explanation"}'
+    "Given one or more proposed relationships, determine if each makes semantic sense.\n"
+    "Respond with a JSON array of verdicts, one per relationship:\n"
+    '[{"rel": 1, "verdict": "approved"|"rejected"|"uncertain", "reason": "brief explanation"}, ...]'
 )
 
 _LLM_VALIDATION_SYSTEM_CACHED = [
@@ -30,6 +30,8 @@ _LLM_VALIDATION_SYSTEM_CACHED = [
         "cache_control": {"type": "ephemeral"},
     }
 ]
+
+_INFER_BATCH_SIZE = 5
 
 _LLM_ESCALATION_PROMPT = (
     "You are a senior knowledge graph quality reviewer.\n"
@@ -230,8 +232,12 @@ class EdgeInferencePhase(ConsolidationPhase):
             )
             records.extend(trans_records)
 
-        # --- LLM validation pass (Tier 3) ---
-        if cfg.consolidation_infer_llm_enabled:
+        # --- Multi-signal auto-validation (replaces LLM when enabled) ---
+        if cfg.consolidation_infer_auto_validation_enabled:
+            await self._run_auto_validation_pass(
+                records, graph_store, search_index, cfg, group_id, dry_run,
+            )
+        elif cfg.consolidation_infer_llm_enabled:
             await self._run_llm_validation_pass(
                 records,
                 graph_store,
@@ -257,6 +263,123 @@ class EdgeInferencePhase(ConsolidationPhase):
             duration_ms=_elapsed_ms(t0),
         ), records
 
+    async def _run_auto_validation_pass(
+        self,
+        records: list[InferredEdge],
+        graph_store,
+        search_index,
+        cfg: ActivationConfig,
+        group_id: str,
+        dry_run: bool,
+    ) -> None:
+        """Validate inferred edges using multi-signal scoring (no LLM)."""
+        from engram.consolidation.scorers.infer_scorer import score_infer_pair
+
+        # Same candidate selection as LLM path
+        threshold = cfg.consolidation_infer_llm_confidence_threshold
+        max_validations = cfg.consolidation_infer_llm_max_per_cycle
+        candidates = [
+            r
+            for r in records
+            if r.confidence >= threshold
+            and r.infer_type in ("co_occurrence", "co_occurrence_pmi")
+        ][:max_validations]
+
+        if not candidates:
+            return
+
+        if dry_run:
+            for rec in candidates:
+                rec.llm_verdict = "dry_run_skipped"
+            return
+
+        # Need episode counts for ubiquity scoring
+        all_ids: set[str] = set()
+        for rec in candidates:
+            all_ids.add(rec.source_id)
+            all_ids.add(rec.target_id)
+        ep_counts = await graph_store.get_entity_episode_counts(group_id, list(all_ids))
+        stats = await graph_store.get_stats(group_id)
+        total_episodes = stats.get("total_episodes", 0)
+
+        for rec in candidates:
+            try:
+                # Get entity objects for type info
+                entity_a = await graph_store.get_entity(rec.source_id, group_id)
+                entity_b = await graph_store.get_entity(rec.target_id, group_id)
+                if not entity_a or not entity_b:
+                    continue
+
+                verdict, _score, _signals = await score_infer_pair(
+                    entity_a_id=rec.source_id,
+                    entity_b_id=rec.target_id,
+                    entity_a_name=rec.source_name,
+                    entity_b_name=rec.target_name,
+                    entity_a_type=entity_a.entity_type,
+                    entity_b_type=entity_b.entity_type,
+                    co_occurrence_count=rec.co_occurrence_count,
+                    pmi_confidence=rec.confidence,
+                    ep_count_a=ep_counts.get(rec.source_id, 0),
+                    ep_count_b=ep_counts.get(rec.target_id, 0),
+                    total_episodes=total_episodes,
+                    search_index=search_index,
+                    graph_store=graph_store,
+                    group_id=group_id,
+                    domain_groups=cfg.domain_groups if hasattr(cfg, "domain_groups") else None,
+                    approve_threshold=cfg.consolidation_infer_auto_approve_threshold,
+                    reject_threshold=cfg.consolidation_infer_auto_reject_threshold,
+                )
+
+                if verdict == "approved":
+                    rec.infer_type = "auto_validated"
+                    rec.llm_verdict = "auto_approved"
+                elif verdict == "rejected":
+                    rec.infer_type = "auto_rejected"
+                    rec.llm_verdict = "auto_rejected"
+                    if rec.relationship_id:
+                        await graph_store.invalidate_relationship(
+                            rec.relationship_id,
+                            datetime.utcnow(),
+                            group_id,
+                        )
+                else:
+                    # Uncertain: try cross-encoder (Tier 1)
+                    ce_on = getattr(cfg, "consolidation_cross_encoder_enabled", True)
+                    if not ce_on:
+                        rec.llm_verdict = "auto_uncertain"
+                        continue
+                    try:
+                        from engram.consolidation.scorers.cross_encoder import (
+                            refine_infer_verdict,
+                        )
+
+                        ce_verdict, ce_score = await refine_infer_verdict(
+                            entity_a, entity_b,
+                            rec.predicate or "MENTIONED_WITH",
+                            _score,
+                            approve_threshold=cfg.consolidation_infer_auto_approve_threshold,
+                            reject_threshold=cfg.consolidation_infer_auto_reject_threshold,
+                        )
+                        if ce_verdict == "approved":
+                            rec.infer_type = "cross_encoder_approved"
+                            rec.llm_verdict = "ce_approved"
+                        elif ce_verdict == "rejected":
+                            rec.infer_type = "cross_encoder_rejected"
+                            rec.llm_verdict = "ce_rejected"
+                            if rec.relationship_id:
+                                await graph_store.invalidate_relationship(
+                                    rec.relationship_id,
+                                    datetime.utcnow(),
+                                    group_id,
+                                )
+                        else:
+                            rec.llm_verdict = "auto_uncertain"
+                    except Exception:
+                        rec.llm_verdict = "auto_uncertain"
+            except Exception as exc:
+                logger.warning("Auto-validation failed for %s: %s", rec.source_name, exc)
+                rec.llm_verdict = "error"
+
     async def _run_llm_validation_pass(
         self,
         records: list[InferredEdge],
@@ -265,7 +388,7 @@ class EdgeInferencePhase(ConsolidationPhase):
         group_id: str,
         dry_run: bool,
     ) -> None:
-        """Validate high-confidence inferred edges via LLM."""
+        """Validate high-confidence inferred edges via LLM (batched)."""
         threshold = cfg.consolidation_infer_llm_confidence_threshold
         max_validations = cfg.consolidation_infer_llm_max_per_cycle
 
@@ -294,43 +417,70 @@ class EdgeInferencePhase(ConsolidationPhase):
                 logger.warning("Could not create Anthropic client for LLM validation")
                 return
 
-        for rec in candidates:
+        # Process candidates in batches
+        for batch_start in range(0, len(candidates), _INFER_BATCH_SIZE):
+            batch = candidates[batch_start : batch_start + _INFER_BATCH_SIZE]
             try:
-                user_msg = (
-                    f"Entity A: {rec.source_name} (ID: {rec.source_id})\n"
-                    f"Entity B: {rec.target_name} (ID: {rec.target_id})\n"
-                    f"Proposed relationship: MENTIONED_WITH\n"
-                    f"Co-occurrence count: {rec.co_occurrence_count}\n"
-                    f"Statistical confidence: {rec.confidence}"
-                )
+                # Build numbered user message for the batch
+                parts: list[str] = []
+                for idx, rec in enumerate(batch, 1):
+                    parts.append(
+                        f"Relationship {idx}:\n"
+                        f"Entity A: {rec.source_name} (ID: {rec.source_id})\n"
+                        f"Entity B: {rec.target_name} (ID: {rec.target_id})\n"
+                        f"Proposed relationship: MENTIONED_WITH\n"
+                        f"Co-occurrence count: {rec.co_occurrence_count}\n"
+                        f"Statistical confidence: {rec.confidence}"
+                    )
+                user_msg = "\n\n".join(parts)
+
                 response = client.messages.create(
                     model=cfg.consolidation_infer_llm_model,
-                    max_tokens=256,
+                    max_tokens=256 * len(batch),
                     system=_LLM_VALIDATION_SYSTEM_CACHED,
                     messages=[{"role": "user", "content": user_msg}],
                 )
                 text = response.content[0].text.strip()
                 parsed = json.loads(text)
-                verdict = parsed.get("verdict", "uncertain")
 
-                if verdict == "approved":
-                    rec.infer_type = "llm_validated"
-                    rec.llm_verdict = "approved"
-                elif verdict == "rejected":
-                    rec.infer_type = "llm_rejected"
-                    rec.llm_verdict = "rejected"
-                    # Invalidate the created relationship
-                    if rec.relationship_id:
-                        await graph_store.invalidate_relationship(
-                            rec.relationship_id,
-                            datetime.utcnow(),
-                            group_id,
-                        )
-                else:
-                    rec.llm_verdict = "uncertain"
+                # Normalise: accept both a bare list and a dict wrapping one
+                if isinstance(parsed, dict):
+                    # Handle single-item response for batch of 1
+                    parsed = [parsed]
+
+                # Build lookup by rel number (1-indexed)
+                verdict_map: dict[int, dict] = {}
+                for item in parsed:
+                    rel_num = item.get("rel", 0)
+                    verdict_map[rel_num] = item
+
+                # Apply verdicts to corresponding records
+                for idx, rec in enumerate(batch, 1):
+                    item = verdict_map.get(idx)
+                    if item is None:
+                        rec.llm_verdict = "error"
+                        continue
+                    verdict = item.get("verdict", "uncertain")
+                    if verdict == "approved":
+                        rec.infer_type = "llm_validated"
+                        rec.llm_verdict = "approved"
+                    elif verdict == "rejected":
+                        rec.infer_type = "llm_rejected"
+                        rec.llm_verdict = "rejected"
+                        if rec.relationship_id:
+                            await graph_store.invalidate_relationship(
+                                rec.relationship_id,
+                                datetime.utcnow(),
+                                group_id,
+                            )
+                    else:
+                        rec.llm_verdict = "uncertain"
+
             except Exception as exc:
-                logger.warning("LLM validation failed for %s: %s", rec.id, exc)
-                rec.llm_verdict = "error"
+                batch_ids = [r.id for r in batch]
+                logger.warning("LLM batch validation failed for %s: %s", batch_ids, exc)
+                for rec in batch:
+                    rec.llm_verdict = "error"
 
     async def _run_escalation_pass(
         self,

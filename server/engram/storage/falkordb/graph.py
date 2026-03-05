@@ -13,6 +13,7 @@ from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
+from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,16 @@ class FalkorDBGraphStore:
         from falkordb import FalkorDB
 
         password = self._config.password or None
-        self._db = await asyncio.to_thread(
-            FalkorDB,
-            host=self._config.host,
-            port=self._config.port,
-            password=password,
-        )
+        kwargs: dict = {
+            "host": self._config.host,
+            "port": self._config.port,
+            "password": password,
+        }
+        if self._config.ssl:
+            kwargs["ssl"] = True
+            if self._config.ssl_ca_cert:
+                kwargs["ssl_ca_certs"] = self._config.ssl_ca_cert
+        self._db = await asyncio.to_thread(FalkorDB, **kwargs)
         self._graph = await asyncio.to_thread(self._db.select_graph, self._config.graph_name)
 
         # Create indexes — FalkorDB errors on duplicate, so wrap each in try/except
@@ -71,6 +76,8 @@ class FalkorDBGraphStore:
             "CREATE INDEX FOR ()-[r:RELATES_TO]-() ON (r.valid_to)",
             "CREATE INDEX FOR ()-[r:RELATES_TO]-() ON (r.group_id)",
             "CREATE INDEX FOR ()-[r:RELATES_TO]-() ON (r.source_id)",
+            "CREATE INDEX FOR (n:Intention) ON (n.id)",
+            "CREATE INDEX FOR (n:Intention) ON (n.group_id)",
         ]
         for idx in indexes:
             try:
@@ -380,6 +387,28 @@ class FalkorDBGraphStore:
         )
         return [self._edge_to_relationship(row[0]) for row in result.result_set]
 
+    async def find_existing_relationship(
+        self,
+        source_id: str,
+        target_id: str,
+        predicate: str,
+        group_id: str,
+    ) -> Relationship | None:
+        """Find an active relationship matching (source, target, predicate)."""
+        now = datetime.utcnow().isoformat()
+        result = await self._query(
+            """MATCH (s:Entity {id: $src})-[r:RELATES_TO]->(t:Entity {id: $tgt})
+               WHERE r.predicate = $predicate
+                 AND r.group_id = $gid
+                 AND (r.valid_to IS NULL OR r.valid_to > $now)
+               RETURN r LIMIT 1""",
+            {"src": source_id, "tgt": target_id, "predicate": predicate,
+             "gid": group_id, "now": now},
+        )
+        if result.result_set:
+            return self._edge_to_relationship(result.result_set[0][0])
+        return None
+
     async def get_relationships_at(
         self,
         entity_id: str,
@@ -474,6 +503,41 @@ class FalkorDBGraphStore:
 
         return results
 
+    async def get_all_edges(
+        self,
+        group_id: str,
+        entity_ids: set[str] | None = None,
+        limit: int = 10000,
+    ) -> list[Relationship]:
+        """Return all active edges for a group, optionally filtered to a set of entity IDs."""
+        now_str = datetime.utcnow().isoformat()
+        conditions = [
+            "(edge.valid_to IS NULL OR edge.valid_to > $now)",
+            "edge.group_id = $group_id",
+        ]
+        params: dict = {"now": now_str, "group_id": group_id, "limit": limit}
+
+        if entity_ids is not None:
+            ids_list = list(entity_ids)
+            conditions.append("a.id IN $ids AND b.id IN $ids")
+            params["ids"] = ids_list
+
+        where = " AND ".join(conditions)
+        result = await self._query(
+            f"""MATCH (a:Entity)-[edge:RELATES_TO]->(b:Entity)
+                WHERE {where}
+                RETURN DISTINCT edge
+                LIMIT $limit""",
+            params,
+            timeout=15000,
+        )
+
+        results = []
+        for row in result.result_set:
+            rel = self._edge_to_relationship(row[0])
+            results.append(rel)
+        return results
+
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
     ) -> list[tuple[str, float, str, str]]:
@@ -506,7 +570,8 @@ class FalkorDBGraphStore:
                 session_id: $session_id, created_at: $created_at,
                 updated_at: $updated_at, error: $error,
                 retry_count: $retry_count,
-                processing_duration_ms: $processing_duration_ms
+                processing_duration_ms: $processing_duration_ms,
+                encoding_context: $encoding_context
             })""",
             {
                 "id": episode.id,
@@ -520,6 +585,7 @@ class FalkorDBGraphStore:
                 "error": episode.error,
                 "retry_count": episode.retry_count,
                 "processing_duration_ms": episode.processing_duration_ms,
+                "encoding_context": episode.encoding_context,
             },
         )
         return episode.id
@@ -805,13 +871,14 @@ class FalkorDBGraphStore:
         group_id: str,
         min_age_days: int = 30,
         limit: int = 100,
+        max_access_count: int = 0,
     ) -> list[Entity]:
-        """Find entities with zero relationships and zero access."""
+        """Find entities with no relationships and low access."""
         cutoff = (datetime.utcnow() - timedelta(days=min_age_days)).isoformat()
         result = await self._query(
             """MATCH (n:Entity {group_id: $gid})
                WHERE n.deleted_at IS NULL
-                 AND n.access_count = 0
+                 AND n.access_count <= $max_access
                  AND n.created_at < $cutoff
                  AND (n.identity_core IS NULL OR n.identity_core = false)
                OPTIONAL MATCH (n)-[r:RELATES_TO]-()
@@ -819,9 +886,10 @@ class FalkorDBGraphStore:
                WITH n, r
                WHERE r IS NULL
                RETURN n
+               ORDER BY n.access_count ASC, n.created_at ASC
                LIMIT $limit""",
             {
-                "gid": group_id, "cutoff": cutoff,
+                "gid": group_id, "cutoff": cutoff, "max_access": max_access_count,
                 "limit": limit, "now": datetime.utcnow().isoformat(),
             },
         )
@@ -860,30 +928,52 @@ class FalkorDBGraphStore:
         for row in out_result.result_set:
             old_rel = self._edge_to_relationship(row[0])
             target_id = row[1]
-            new_id = f"rel_{uuid.uuid4().hex[:12]}"
-            await self._query(
-                """MATCH (k:Entity {id: $keep_id}), (t:Entity {id: $tgt_id})
-                   CREATE (k)-[:RELATES_TO {
-                       id: $new_id, source_id: $keep_id, target_id: $tgt_id,
-                       predicate: $predicate, weight: $weight,
-                       valid_from: $valid_from, valid_to: $valid_to,
-                       created_at: $created_at, confidence: $confidence,
-                       source_episode: $source_episode, group_id: $gid
-                   }]->(t)""",
-                {
-                    "keep_id": keep_id,
-                    "tgt_id": target_id,
-                    "new_id": new_id,
-                    "predicate": old_rel.predicate,
-                    "weight": old_rel.weight,
-                    "valid_from": old_rel.valid_from.isoformat() if old_rel.valid_from else None,
-                    "valid_to": old_rel.valid_to.isoformat() if old_rel.valid_to else None,
-                    "created_at": old_rel.created_at.isoformat() if old_rel.created_at else None,
-                    "confidence": old_rel.confidence,
-                    "source_episode": old_rel.source_episode,
-                    "gid": group_id,
-                },
+            # Check if keeper already has the same edge — skip if duplicate
+            existing = await self.find_existing_relationship(
+                keep_id, target_id, old_rel.predicate, group_id,
             )
+            if existing:
+                # Update weight if new is higher
+                if old_rel.weight > existing.weight:
+                    await self.update_relationship_weight(
+                        keep_id, target_id,
+                        old_rel.weight - existing.weight,
+                        group_id=group_id,
+                    )
+            else:
+                new_id = f"rel_{uuid.uuid4().hex[:12]}"
+                await self._query(
+                    """MATCH (k:Entity {id: $keep_id}), (t:Entity {id: $tgt_id})
+                       CREATE (k)-[:RELATES_TO {
+                           id: $new_id, source_id: $keep_id, target_id: $tgt_id,
+                           predicate: $predicate, weight: $weight,
+                           valid_from: $valid_from, valid_to: $valid_to,
+                           created_at: $created_at, confidence: $confidence,
+                           source_episode: $source_episode, group_id: $gid
+                       }]->(t)""",
+                    {
+                        "keep_id": keep_id,
+                        "tgt_id": target_id,
+                        "new_id": new_id,
+                        "predicate": old_rel.predicate,
+                        "weight": old_rel.weight,
+                        "valid_from": (
+                            old_rel.valid_from.isoformat()
+                            if old_rel.valid_from else None
+                        ),
+                        "valid_to": (
+                            old_rel.valid_to.isoformat()
+                            if old_rel.valid_to else None
+                        ),
+                        "created_at": (
+                            old_rel.created_at.isoformat()
+                            if old_rel.created_at else None
+                        ),
+                        "confidence": old_rel.confidence,
+                        "source_episode": old_rel.source_episode,
+                        "gid": group_id,
+                    },
+                )
             # Delete the old edge
             await self._query(
                 """MATCH ()-[r:RELATES_TO {id: $rid}]->()
@@ -902,30 +992,51 @@ class FalkorDBGraphStore:
         for row in in_result.result_set:
             old_rel = self._edge_to_relationship(row[0])
             source_id = row[1]
-            new_id = f"rel_{uuid.uuid4().hex[:12]}"
-            await self._query(
-                """MATCH (s:Entity {id: $src_id}), (k:Entity {id: $keep_id})
-                   CREATE (s)-[:RELATES_TO {
-                       id: $new_id, source_id: $src_id, target_id: $keep_id,
-                       predicate: $predicate, weight: $weight,
-                       valid_from: $valid_from, valid_to: $valid_to,
-                       created_at: $created_at, confidence: $confidence,
-                       source_episode: $source_episode, group_id: $gid
-                   }]->(k)""",
-                {
-                    "src_id": source_id,
-                    "keep_id": keep_id,
-                    "new_id": new_id,
-                    "predicate": old_rel.predicate,
-                    "weight": old_rel.weight,
-                    "valid_from": old_rel.valid_from.isoformat() if old_rel.valid_from else None,
-                    "valid_to": old_rel.valid_to.isoformat() if old_rel.valid_to else None,
-                    "created_at": old_rel.created_at.isoformat() if old_rel.created_at else None,
-                    "confidence": old_rel.confidence,
-                    "source_episode": old_rel.source_episode,
-                    "gid": group_id,
-                },
+            # Check if keeper already has the same incoming edge
+            existing = await self.find_existing_relationship(
+                source_id, keep_id, old_rel.predicate, group_id,
             )
+            if existing:
+                if old_rel.weight > existing.weight:
+                    await self.update_relationship_weight(
+                        source_id, keep_id,
+                        old_rel.weight - existing.weight,
+                        group_id=group_id,
+                    )
+            else:
+                new_id = f"rel_{uuid.uuid4().hex[:12]}"
+                await self._query(
+                    """MATCH (s:Entity {id: $src_id}), (k:Entity {id: $keep_id})
+                       CREATE (s)-[:RELATES_TO {
+                           id: $new_id, source_id: $src_id, target_id: $keep_id,
+                           predicate: $predicate, weight: $weight,
+                           valid_from: $valid_from, valid_to: $valid_to,
+                           created_at: $created_at, confidence: $confidence,
+                           source_episode: $source_episode, group_id: $gid
+                       }]->(k)""",
+                    {
+                        "src_id": source_id,
+                        "keep_id": keep_id,
+                        "new_id": new_id,
+                        "predicate": old_rel.predicate,
+                        "weight": old_rel.weight,
+                        "valid_from": (
+                            old_rel.valid_from.isoformat()
+                            if old_rel.valid_from else None
+                        ),
+                        "valid_to": (
+                            old_rel.valid_to.isoformat()
+                            if old_rel.valid_to else None
+                        ),
+                        "created_at": (
+                            old_rel.created_at.isoformat()
+                            if old_rel.created_at else None
+                        ),
+                        "confidence": old_rel.confidence,
+                        "source_episode": old_rel.source_episode,
+                        "gid": group_id,
+                    },
+                )
             await self._query(
                 """MATCH ()-[r:RELATES_TO {id: $rid}]->()
                    WHERE r.group_id = $gid DELETE r""",
@@ -957,19 +1068,28 @@ class FalkorDBGraphStore:
             keep_count = keep_result.result_set[0][1] or 0
             remove_count = remove_result.result_set[0][1] or 0
             if remove_summary and remove_summary not in keep_summary:
-                merged_summary = f"{keep_summary} {remove_summary}".strip()
-                await self._query(
-                    """MATCH (n:Entity {id: $id, group_id: $gid})
-                       SET n.summary = $summary, n.access_count = $count,
-                           n.updated_at = $now""",
-                    {
-                        "id": keep_id,
-                        "gid": group_id,
-                        "summary": merged_summary,
-                        "count": keep_count + remove_count,
-                        "now": datetime.utcnow().isoformat(),
-                    },
-                )
+                if is_meta_summary(remove_summary):
+                    logger.warning(
+                        "Rejected meta-contaminated summary during merge into %s: %s",
+                        keep_id, remove_summary[:80],
+                    )
+                else:
+                    merged_summary = f"{keep_summary} {remove_summary}".strip()
+                    if len(merged_summary) > 500:
+                        merged_summary = merged_summary[:497] + "..."
+                    keep_summary = merged_summary
+            await self._query(
+                """MATCH (n:Entity {id: $id, group_id: $gid})
+                   SET n.summary = $summary, n.access_count = $count,
+                       n.updated_at = $now""",
+                {
+                    "id": keep_id,
+                    "gid": group_id,
+                    "summary": keep_summary,
+                    "count": keep_count + remove_count,
+                    "now": datetime.utcnow().isoformat(),
+                },
+            )
 
         # 5. Soft-delete loser
         await self._query(
@@ -1127,4 +1247,164 @@ class FalkorDBGraphStore:
             error=props.get("error"),
             retry_count=props.get("retry_count", 0) or 0,
             processing_duration_ms=props.get("processing_duration_ms"),
+        )
+
+    @staticmethod
+    def _node_to_intention(node):
+        """Convert a FalkorDB :Intention node to an Intention model."""
+        from engram.models.prospective import Intention
+
+        props = node.properties
+        return Intention(
+            id=props["id"],
+            trigger_text=props["trigger_text"],
+            action_text=props["action_text"],
+            trigger_type=props.get("trigger_type", "semantic"),
+            entity_name=props.get("entity_name"),
+            threshold=props.get("threshold", 0.7),
+            max_fires=props.get("max_fires", 5),
+            fire_count=props.get("fire_count", 0),
+            enabled=bool(props.get("enabled", True)),
+            group_id=props.get("group_id", "default"),
+            created_at=_parse_dt(props.get("created_at")) or datetime.utcnow(),
+            updated_at=_parse_dt(props.get("updated_at")) or datetime.utcnow(),
+            expires_at=_parse_dt(props.get("expires_at")),
+        )
+
+    # --- Schema Formation (Brain Architecture Phase 3) stubs ---
+
+    async def get_schema_members(
+        self, schema_entity_id: str, group_id: str,
+    ) -> list[dict]:
+        """Stub — FalkorDB schema members not yet implemented."""
+        return []
+
+    async def save_schema_members(
+        self, schema_entity_id: str, members: list[dict], group_id: str,
+    ) -> None:
+        """Stub — FalkorDB schema members not yet implemented."""
+
+    async def find_entities_by_type(
+        self, entity_type: str, group_id: str, limit: int = 100,
+    ) -> list[Entity]:
+        """Return non-deleted entities of a specific type."""
+        result = await self._query(
+            """MATCH (n:Entity {entity_type: $etype, group_id: $gid})
+               WHERE n.deleted_at IS NULL
+               RETURN n LIMIT $limit""",
+            {"etype": entity_type, "gid": group_id, "limit": limit},
+        )
+        return [self._node_to_entity(row[0], group_id) for row in result.result_set]
+
+    # --- Intention methods (Wave 4 prospective memory) ---
+
+    async def create_intention(self, intention: object) -> str:
+        """Store a new intention as a :Intention node."""
+        from engram.models.prospective import Intention
+
+        i: Intention = intention  # type: ignore[assignment]
+        await self._query(
+            """CREATE (n:Intention {
+                id: $id, trigger_text: $trigger_text, action_text: $action_text,
+                trigger_type: $trigger_type, entity_name: $entity_name,
+                threshold: $threshold, max_fires: $max_fires, fire_count: $fire_count,
+                enabled: $enabled, group_id: $group_id,
+                created_at: $created_at, updated_at: $updated_at, expires_at: $expires_at
+            })""",
+            {
+                "id": i.id,
+                "trigger_text": i.trigger_text,
+                "action_text": i.action_text,
+                "trigger_type": i.trigger_type,
+                "entity_name": i.entity_name,
+                "threshold": i.threshold,
+                "max_fires": i.max_fires,
+                "fire_count": i.fire_count,
+                "enabled": i.enabled,
+                "group_id": i.group_id,
+                "created_at": i.created_at.isoformat(),
+                "updated_at": i.updated_at.isoformat(),
+                "expires_at": i.expires_at.isoformat() if i.expires_at else None,
+            },
+        )
+        return i.id
+
+    async def get_intention(self, id: str, group_id: str) -> object | None:
+        """Get a single intention by ID and group."""
+        result = await self._query(
+            "MATCH (n:Intention {id: $id, group_id: $gid}) RETURN n",
+            {"id": id, "gid": group_id},
+        )
+        if not result.result_set:
+            return None
+        return self._node_to_intention(result.result_set[0][0])
+
+    async def list_intentions(
+        self, group_id: str, enabled_only: bool = True,
+    ) -> list:
+        """List intentions for a group, filtering expired and optionally disabled."""
+        if enabled_only:
+            now = datetime.utcnow().isoformat()
+            result = await self._query(
+                """MATCH (n:Intention {group_id: $gid})
+                   WHERE n.enabled = true
+                     AND (n.expires_at IS NULL OR n.expires_at > $now)
+                   RETURN n ORDER BY n.created_at DESC""",
+                {"gid": group_id, "now": now},
+            )
+        else:
+            result = await self._query(
+                """MATCH (n:Intention {group_id: $gid})
+                   RETURN n ORDER BY n.created_at DESC""",
+                {"gid": group_id},
+            )
+        return [self._node_to_intention(row[0]) for row in result.result_set]
+
+    async def update_intention(
+        self, id: str, updates: dict, group_id: str,
+    ) -> None:
+        """Update intention fields."""
+        allowed = {"trigger_text", "action_text", "threshold", "max_fires", "enabled", "expires_at"}
+        set_parts = []
+        params: dict = {"id": id, "gid": group_id}
+        for key, val in updates.items():
+            if key not in allowed:
+                continue
+            param_name = f"u_{key}"
+            set_parts.append(f"n.{key} = ${param_name}")
+            params[param_name] = val
+        if not set_parts:
+            return
+        set_parts.append("n.updated_at = $updated_at")
+        params["updated_at"] = datetime.utcnow().isoformat()
+        cypher = (
+            f"MATCH (n:Intention {{id: $id, group_id: $gid}}) "
+            f"SET {', '.join(set_parts)}"
+        )
+        await self._query(cypher, params)
+
+    async def delete_intention(
+        self, id: str, group_id: str, soft: bool = True,
+    ) -> None:
+        """Delete an intention (soft = disable, hard = remove)."""
+        if soft:
+            await self._query(
+                """MATCH (n:Intention {id: $id, group_id: $gid})
+                   SET n.enabled = false, n.updated_at = $now""",
+                {"id": id, "gid": group_id, "now": datetime.utcnow().isoformat()},
+            )
+        else:
+            await self._query(
+                "MATCH (n:Intention {id: $id, group_id: $gid}) DELETE n",
+                {"id": id, "gid": group_id},
+            )
+
+    async def increment_intention_fire_count(
+        self, id: str, group_id: str,
+    ) -> None:
+        """Increment fire_count by 1."""
+        await self._query(
+            """MATCH (n:Intention {id: $id, group_id: $gid})
+               SET n.fire_count = n.fire_count + 1, n.updated_at = $now""",
+            {"id": id, "gid": group_id, "now": datetime.utcnow().isoformat()},
         )

@@ -37,6 +37,8 @@ vi.mock("../api/client", () => ({
     getActivationSnapshot: vi.fn(),
     getActivationCurve: vi.fn(),
   },
+  getAuthToken: vi.fn().mockResolvedValue(null),
+  setAuthTokenGetter: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -73,12 +75,15 @@ afterEach(() => {
 });
 
 // Must import after mocks are set up
-import { useWebSocket } from "../hooks/useWebSocket";
+import { useWebSocket, _flushActivationBatch } from "../hooks/useWebSocket";
 import { useEngramStore } from "../store";
 
 describe("useWebSocket", () => {
-  it("connects on mount and disconnects on unmount", () => {
+  it("connects on mount and disconnects on unmount", async () => {
     const { unmount } = renderHook(() => useWebSocket());
+
+    // Flush the async connect() (awaits getAuthToken)
+    await act(async () => {});
 
     // Should have created a WebSocket
     expect(wsInstances).toHaveLength(1);
@@ -98,8 +103,11 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().readyState).toBe("disconnected");
   });
 
-  it("reconnects with exponential backoff on close", () => {
+  it("reconnects with exponential backoff on close", async () => {
     renderHook(() => useWebSocket());
+
+    // Flush the async connect()
+    await act(async () => {});
 
     // Simulate open then close
     act(() => {
@@ -114,7 +122,8 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().readyState).toBe("disconnected");
 
     // Advance past the first backoff delay (BASE_DELAY=1000ms + jitter)
-    act(() => {
+    // The reconnect calls async connect() again, so flush microtasks too
+    await act(async () => {
       vi.advanceTimersByTime(2000);
     });
 
@@ -122,8 +131,11 @@ describe("useWebSocket", () => {
     expect(wsInstances.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("routes incoming messages to correct store actions", () => {
+  it("routes incoming messages to correct store actions", async () => {
     renderHook(() => useWebSocket());
+
+    // Flush the async connect()
+    await act(async () => {});
 
     // Simulate open
     act(() => {
@@ -161,8 +173,11 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().episodes[0].episodeId).toBe("ep1");
   });
 
-  it("routes activation.access to addActivationPulse", () => {
+  it("routes activation.access to addActivationPulse", async () => {
     renderHook(() => useWebSocket());
+
+    // Flush the async connect()
+    await act(async () => {});
 
     act(() => {
       wsInstances[0].readyState = 1;
@@ -187,6 +202,12 @@ describe("useWebSocket", () => {
     });
 
     expect(useEngramStore.getState().lastSeq).toBe(2);
+
+    // Activation updates are batched via requestAnimationFrame — flush synchronously
+    act(() => {
+      _flushActivationBatch();
+    });
+
     const pulses = useEngramStore.getState().activationPulses;
     expect(pulses).toHaveLength(1);
     expect(pulses[0].entityId).toBe("ent_abc");
@@ -194,8 +215,11 @@ describe("useWebSocket", () => {
     expect(pulses[0].accessedVia).toBe("recall");
   });
 
-  it("routes graph.nodes_added with full data to mergeGraphDelta", () => {
+  it("routes graph.nodes_added with full data to mergeGraphDelta", async () => {
     renderHook(() => useWebSocket());
+
+    // Flush the async connect()
+    await act(async () => {});
 
     act(() => {
       wsInstances[0].readyState = 1;
@@ -236,7 +260,7 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().nodes["ent_react"].name).toBe("React");
   });
 
-  it("routes activation.snapshot to updateNodeActivations", () => {
+  it("routes activation.snapshot to updateNodeActivations", async () => {
     renderHook(() => useWebSocket());
 
     // Pre-populate a node in the graph
@@ -255,6 +279,9 @@ describe("useWebSocket", () => {
         },
       ],
     });
+
+    // Flush the async connect()
+    await act(async () => {});
 
     act(() => {
       wsInstances[0].readyState = 1;

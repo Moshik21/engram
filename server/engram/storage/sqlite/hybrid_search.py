@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from engram.config import ActivationConfig
-from engram.embeddings.provider import EmbeddingProvider
+from engram.embeddings.provider import EmbeddingProvider, truncate_vectors
 from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.storage.sqlite.search import FTS5SearchIndex
@@ -30,6 +30,9 @@ class HybridSearchIndex:
         fts_weight: float = 0.3,
         vec_weight: float = 0.7,
         cfg: ActivationConfig | None = None,
+        storage_dim: int = 0,
+        embed_provider: str = "",
+        embed_model: str = "",
     ) -> None:
         self._fts = fts
         self._vectors = vector_store
@@ -39,16 +42,18 @@ class HybridSearchIndex:
         self._embeddings_enabled = provider.dimension() > 0
         self._cfg = cfg or ActivationConfig()
         self._last_query_vec: list[float] | None = None
+        self._storage_dim = storage_dim
+        self._embed_provider = embed_provider
+        self._embed_model = embed_model
 
     async def initialize(self, db=None) -> None:
         """Initialize both FTS5 and vector store."""
         await self._fts.initialize(db=db)
         await self._vectors.initialize(db=db)
+        await self._check_embedding_version()
 
     async def index_entity(self, entity: Entity) -> None:
         """Index an entity for both FTS5 and vector search."""
-        # FTS5 is maintained via triggers — no-op
-        # Embed entity name + summary if provider available
         if self._embeddings_enabled and entity.name:
             try:
                 text = entity.name
@@ -56,8 +61,12 @@ class HybridSearchIndex:
                     text = f"{entity.name}: {entity.summary}"
                 embeddings = await self._provider.embed([text])
                 if embeddings:
+                    if self._storage_dim > 0:
+                        embeddings = truncate_vectors(embeddings, self._storage_dim)
                     await self._vectors.upsert(
-                        entity.id, "entity", entity.group_id, text, embeddings[0]
+                        entity.id, "entity", entity.group_id, text, embeddings[0],
+                        embed_provider=self._embed_provider,
+                        embed_model=self._embed_model,
                     )
             except Exception as e:
                 logger.warning("Failed to embed entity %s: %s", entity.id, e)
@@ -68,11 +77,46 @@ class HybridSearchIndex:
             try:
                 embeddings = await self._provider.embed([episode.content])
                 if embeddings:
+                    if self._storage_dim > 0:
+                        embeddings = truncate_vectors(embeddings, self._storage_dim)
                     await self._vectors.upsert(
-                        episode.id, "episode", episode.group_id, episode.content, embeddings[0]
+                        episode.id, "episode", episode.group_id, episode.content,
+                        embeddings[0],
+                        embed_provider=self._embed_provider,
+                        embed_model=self._embed_model,
                     )
             except Exception as e:
                 logger.warning("Failed to embed episode %s: %s", episode.id, e)
+
+    async def batch_index_entities(self, entities: list[Entity]) -> int:
+        """Batch-embed and index multiple entities. Returns count indexed."""
+        if not self._embeddings_enabled or not entities:
+            return 0
+        texts, valid = [], []
+        for e in entities:
+            if e.name:
+                t = e.name
+                if e.summary:
+                    t = f"{e.name}: {e.summary}"
+                texts.append(t)
+                valid.append(e)
+        if not texts:
+            return 0
+        embeddings = await self._provider.embed(texts)
+        if not embeddings:
+            return 0
+        if self._storage_dim > 0:
+            embeddings = truncate_vectors(embeddings, self._storage_dim)
+        items = [
+            (e.id, "entity", e.group_id, t, vec)
+            for e, t, vec in zip(valid, texts, embeddings)
+        ]
+        await self._vectors.batch_upsert(
+            items,
+            embed_provider=self._embed_provider,
+            embed_model=self._embed_model,
+        )
+        return len(items)
 
     async def search(
         self,
@@ -123,12 +167,16 @@ class HybridSearchIndex:
         if not query_vec:
             return fts_results[:limit]
 
+        # Truncate query vector to storage dimension for consistent comparison
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
         self._last_query_vec = query_vec
 
         # Vector search uses the pre-computed query embedding
         try:
             vec_results = await self._vectors.search(
-                query_vec, group_id or "default", content_type="entity", limit=limit * 2
+                query_vec, group_id or "default", content_type="entity",
+                limit=limit * 2, storage_dim=self._storage_dim,
             )
         except Exception as e:
             logger.warning("Vector search failed, falling back to FTS5: %s", e)
@@ -246,6 +294,10 @@ class HybridSearchIndex:
             except Exception:
                 return {}
 
+        # Truncate query vector to storage dimension
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
+
         results: dict[str, float] = {}
         for eid in entity_ids:
             cursor = await self._vectors.db.execute(
@@ -255,6 +307,9 @@ class HybridSearchIndex:
             row = await cursor.fetchone()
             if row:
                 vec = unpack_vector(row["embedding"], row["dimensions"])
+                # Truncate stored vector if it's larger than storage_dim
+                if self._storage_dim > 0 and len(vec) > self._storage_dim:
+                    vec = vec[:self._storage_dim]
                 results[eid] = max(0.0, cosine_similarity(query_vec, vec))
         return results
 
@@ -306,6 +361,10 @@ class HybridSearchIndex:
         if not query_vec:
             return fts_results[:limit]
 
+        # Truncate query vector to storage dimension
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
+
         # Vector search for episodes
         try:
             vec_results = await self._vectors.search(
@@ -313,6 +372,7 @@ class HybridSearchIndex:
                 group_id or "default",
                 content_type="episode",
                 limit=limit * 2,
+                storage_dim=self._storage_dim,
             )
         except Exception as e:
             logger.warning("Vector episode search failed, falling back to FTS5: %s", e)
@@ -348,7 +408,51 @@ class HybridSearchIndex:
             results[row["id"]] = vec
         return results
 
+    async def get_graph_embeddings(
+        self,
+        entity_ids: list[str],
+        method: str = "node2vec",
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """Retrieve graph structural embeddings for entities."""
+        if not entity_ids:
+            return {}
+        from engram.embeddings.graph.storage import GraphEmbeddingStore
+
+        store = GraphEmbeddingStore()
+        return await store.get_embeddings(
+            self._vectors.db, entity_ids, method, group_id or "default",
+        )
+
     async def remove(self, entity_id: str) -> None:
         """Remove entity from both FTS5 and vector store."""
         await self._fts.remove(entity_id)
         await self._vectors.remove(entity_id)
+
+    async def _check_embedding_version(self) -> None:
+        """Warn if stored embeddings have different dimensions or provider."""
+        if not self._embeddings_enabled:
+            return
+        try:
+            cursor = await self._vectors.db.execute(
+                "SELECT dimensions, embed_provider, embed_model, COUNT(*) as cnt "
+                "FROM embeddings GROUP BY dimensions, embed_provider, embed_model"
+            )
+            rows = await cursor.fetchall()
+            current_dim = self._storage_dim or self._provider.dimension()
+            for row in rows:
+                if row["dimensions"] != current_dim and row["cnt"] > 0:
+                    logger.warning(
+                        "Embedding dimension mismatch: %d vectors with dim=%d "
+                        "(current=%d). Run consolidation reindex to update.",
+                        row["cnt"], row["dimensions"], current_dim,
+                    )
+                stored_provider = row["embed_provider"] if "embed_provider" in row.keys() else ""
+                if stored_provider and stored_provider != self._embed_provider and row["cnt"] > 0:
+                    logger.warning(
+                        "Embedding provider mismatch: %d vectors from '%s' "
+                        "(current='%s'). Run consolidation reindex to update.",
+                        row["cnt"], stored_provider, self._embed_provider,
+                    )
+        except Exception:
+            pass  # Non-fatal — table may not have versioning columns yet

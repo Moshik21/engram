@@ -76,6 +76,8 @@ services:
       - ENGRAM_ENCRYPTION__MASTER_KEY=${ENGRAM_ENCRYPTION_MASTER_KEY:-}
       - ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
       - ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
+    volumes:
+      - engram_server_data:/home/engram/.engram
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
       interval: 15s
@@ -116,3 +118,4 @@ networks:
 volumes:
   engram_falkordb_data:
   engram_redis_data:
+  engram_server_data:

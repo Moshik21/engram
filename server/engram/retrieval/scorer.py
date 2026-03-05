@@ -22,8 +22,22 @@ class ScoredResult:
     spreading: float
     edge_proximity: float
     exploration_bonus: float = 0.0
+    graph_structural: float = 0.0
+    emotional_boost: float = 0.0
+    state_boost: float = 0.0
     hop_distance: int | None = None
     result_type: str = "entity"
+
+
+def _tier_to_decay(mat_tier: str | None, cfg: ActivationConfig) -> float | None:
+    """Map memory tier to decay exponent override."""
+    if not cfg.memory_maturation_enabled:
+        return None
+    if mat_tier == "semantic":
+        return cfg.decay_exponent_semantic
+    if mat_tier == "transitional":
+        return (cfg.decay_exponent_episodic + cfg.decay_exponent_semantic) / 2.0
+    return None  # use default
 
 
 def score_candidates(
@@ -34,6 +48,11 @@ def score_candidates(
     activation_states: dict[str, ActivationState],
     now: float,
     cfg: ActivationConfig,
+    conv_fingerprint_sim: dict[str, float] | None = None,
+    priming_boosts: dict[str, float] | None = None,
+    graph_similarities: dict[str, float] | None = None,
+    entity_attributes: dict[str, dict] | None = None,
+    state_biases: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score and rank candidate nodes.
 
@@ -49,8 +68,15 @@ def score_candidates(
     for node_id, sem_sim in candidates:
         # Compute activation lazily from access_history
         state = activation_states.get(node_id)
+        # Differential decay: semantic memories decay slower
+        decay = None
+        if entity_attributes is not None:
+            decay = _tier_to_decay(entity_attributes.get(node_id, {}).get("mat_tier"), cfg)
         if state and state.access_history:
-            base_act = compute_activation(state.access_history, now, cfg)
+            base_act = compute_activation(
+                state.access_history, now, cfg,
+                state.consolidated_strength, decay,
+            )
         else:
             base_act = 0.0
 
@@ -85,13 +111,40 @@ def score_candidates(
             )
             exploration += rediscovery
 
-        # Composite score with 4 weighted signals
+        # Conversation context boost
+        ctx_boost = 0.0
+        if conv_fingerprint_sim is not None:
+            ctx_boost = cfg.conv_context_rerank_weight * conv_fingerprint_sim.get(node_id, 0.0)
+
+        # Retrieval priming boost (Wave 3)
+        prime_boost = 0.0
+        if priming_boosts is not None:
+            prime_boost = priming_boosts.get(node_id, 0.0)
+
+        # Graph structural similarity
+        graph_sim = graph_similarities.get(node_id, 0.0) if graph_similarities else 0.0
+
+        # Emotional retrieval boost
+        emo_boost = 0.0
+        if entity_attributes is not None and cfg.emotional_salience_enabled:
+            attrs = entity_attributes.get(node_id, {})
+            emo_boost = cfg.emotional_retrieval_boost * attrs.get("emo_composite", 0.0)
+
+        # State-dependent retrieval boost
+        s_boost = state_biases.get(node_id, 0.0) if state_biases else 0.0
+
+        # Composite score
         score = (
             cfg.weight_semantic * sem_sim
             + cfg.weight_activation * base_act
             + cfg.weight_spreading * spread
             + cfg.weight_edge_proximity * edge_prox
+            + cfg.weight_graph_structural * graph_sim
             + exploration
+            + ctx_boost
+            + prime_boost
+            + emo_boost
+            + s_boost
         )
 
         # Hop distance: 0 for seeds, from hop_distances dict, or None
@@ -111,6 +164,9 @@ def score_candidates(
                 spreading=spread,
                 edge_proximity=edge_prox,
                 exploration_bonus=exploration,
+                graph_structural=graph_sim,
+                emotional_boost=emo_boost,
+                state_boost=s_boost,
                 hop_distance=hop_dist,
             )
         )
@@ -128,6 +184,11 @@ def score_candidates_thompson(
     now: float,
     cfg: ActivationConfig,
     rng_seed: int | None = None,
+    conv_fingerprint_sim: dict[str, float] | None = None,
+    priming_boosts: dict[str, float] | None = None,
+    graph_similarities: dict[str, float] | None = None,
+    entity_attributes: dict[str, dict] | None = None,
+    state_biases: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score candidates using Thompson Sampling for exploration.
 
@@ -139,8 +200,15 @@ def score_candidates_thompson(
 
     for node_id, sem_sim in candidates:
         state = activation_states.get(node_id)
+        # Differential decay: semantic memories decay slower
+        decay = None
+        if entity_attributes is not None:
+            decay = _tier_to_decay(entity_attributes.get(node_id, {}).get("mat_tier"), cfg)
         if state and state.access_history:
-            base_act = compute_activation(state.access_history, now, cfg)
+            base_act = compute_activation(
+                state.access_history, now, cfg,
+                state.consolidated_strength, decay,
+            )
         else:
             base_act = 0.0
 
@@ -175,12 +243,39 @@ def score_candidates_thompson(
             )
             exploration += rediscovery
 
+        # Conversation context boost
+        ctx_boost = 0.0
+        if conv_fingerprint_sim is not None:
+            ctx_boost = cfg.conv_context_rerank_weight * conv_fingerprint_sim.get(node_id, 0.0)
+
+        # Retrieval priming boost (Wave 3)
+        prime_boost = 0.0
+        if priming_boosts is not None:
+            prime_boost = priming_boosts.get(node_id, 0.0)
+
+        # Graph structural similarity
+        graph_sim = graph_similarities.get(node_id, 0.0) if graph_similarities else 0.0
+
+        # Emotional retrieval boost
+        emo_boost = 0.0
+        if entity_attributes is not None and cfg.emotional_salience_enabled:
+            attrs = entity_attributes.get(node_id, {})
+            emo_boost = cfg.emotional_retrieval_boost * attrs.get("emo_composite", 0.0)
+
+        # State-dependent retrieval boost
+        s_boost = state_biases.get(node_id, 0.0) if state_biases else 0.0
+
         score = (
             cfg.weight_semantic * sem_sim
             + cfg.weight_activation * base_act
             + cfg.weight_spreading * spread
             + cfg.weight_edge_proximity * edge_prox
+            + cfg.weight_graph_structural * graph_sim
             + exploration
+            + ctx_boost
+            + prime_boost
+            + emo_boost
+            + s_boost
         )
 
         if node_id in seed_node_ids:
@@ -199,9 +294,23 @@ def score_candidates_thompson(
                 spreading=spread,
                 edge_proximity=edge_prox,
                 exploration_bonus=exploration,
+                graph_structural=graph_sim,
+                emotional_boost=emo_boost,
+                state_boost=s_boost,
                 hop_distance=hop_dist_t,
             )
         )
 
     results.sort(key=lambda r: r.score, reverse=True)
     return results
+
+
+def extract_near_misses(
+    all_scored: list[ScoredResult],
+    top_n: int,
+    window: int = 5,
+) -> list[ScoredResult]:
+    """Return candidates just outside top-N (positions [top_n, top_n+window))."""
+    if len(all_scored) <= top_n:
+        return []
+    return all_scored[top_n: top_n + window]

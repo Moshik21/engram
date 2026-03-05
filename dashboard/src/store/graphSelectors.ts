@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngramStore } from "./index";
 import { useShallow } from "zustand/shallow";
 
@@ -15,6 +15,28 @@ export function useGraphStructure() {
       return { nodeIds, edgeIds };
     }),
   );
+}
+
+/**
+ * Returns node count without subscribing to the full nodes object.
+ * Only triggers re-render when count changes.
+ */
+export function useNodeCount(): number {
+  return useEngramStore((s) => Object.keys(s.nodes).length);
+}
+
+/**
+ * Returns edge count without subscribing to the full edges object.
+ */
+export function useEdgeCount(): number {
+  return useEngramStore((s) => Object.keys(s.edges).length);
+}
+
+/**
+ * Returns a single node by ID. Only re-renders when that specific node changes.
+ */
+export function useNodeById(nodeId: string | null) {
+  return useEngramStore((s) => (nodeId ? s.nodes[nodeId] ?? null : null));
 }
 
 /**
@@ -86,6 +108,35 @@ export function useNodeDataRef(): React.MutableRefObject<
 const SIM_KEYS = ["x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz", "__threeObj"] as const;
 
 /**
+ * Structural fingerprint that only changes when nodes/edges are added or removed.
+ * Uses a store subscription + ref to avoid re-rendering on activation changes.
+ */
+function useStructuralFingerprint() {
+  const prevNodeFp = useRef("");
+  const prevEdgeFp = useRef("");
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const unsub = useEngramStore.subscribe((state) => {
+      const nodeFp = Object.keys(state.nodes).sort().join(",");
+      const edgeFp = Object.keys(state.edges).sort().join(",");
+      if (nodeFp !== prevNodeFp.current || edgeFp !== prevEdgeFp.current) {
+        prevNodeFp.current = nodeFp;
+        prevEdgeFp.current = edgeFp;
+        setVersion((v) => v + 1);
+      }
+    });
+    // Initialize
+    const state = useEngramStore.getState();
+    prevNodeFp.current = Object.keys(state.nodes).sort().join(",");
+    prevEdgeFp.current = Object.keys(state.edges).sort().join(",");
+    return unsub;
+  }, []);
+
+  return version;
+}
+
+/**
  * Graph data memo that only depends on structural changes (node/edge add/remove),
  * not on activation value changes.
  *
@@ -94,18 +145,15 @@ const SIM_KEYS = ["x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz", "__threeObj
  * a connected neighbor instead of at a random position.
  */
 export function useStableGraphData() {
-  const nodes = useEngramStore((s) => s.nodes);
-  const edges = useEngramStore((s) => s.edges);
-
-  // Structural fingerprint: sorted keys joined
-  const nodeFingerprint = useMemo(() => Object.keys(nodes).sort().join(","), [nodes]);
-  const edgeFingerprint = useMemo(() => Object.keys(edges).sort().join(","), [edges]);
+  const structureVersion = useStructuralFingerprint();
 
   // Stable caches — persist across renders so simulation-written fields survive
   const nodeCacheRef = useRef<Map<string, Record<string, unknown>>>(new Map());
   const edgeCacheRef = useRef<Map<string, Record<string, unknown>>>(new Map());
 
   return useMemo(() => {
+    const nodes = useEngramStore.getState().nodes;
+    const edges = useEngramStore.getState().edges;
     const nodeCache = nodeCacheRef.current;
     const edgeCache = edgeCacheRef.current;
     const currentNodeIds = new Set(Object.keys(nodes));
@@ -194,5 +242,5 @@ export function useStableGraphData() {
     const nodeList = Array.from(nodeCache.values());
     return { nodes: nodeList, links: edgeList, _newCount: newNodeIds.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodeFingerprint, edgeFingerprint]);
+  }, [structureVersion]);
 }

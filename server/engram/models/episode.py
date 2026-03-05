@@ -40,3 +40,7 @@ class Episode(BaseModel):
     error: str | None = None
     retry_count: int = 0
     processing_duration_ms: int | None = None
+    encoding_context: str | None = None
+    memory_tier: str = "episodic"  # "episodic" | "transitional" | "semantic"
+    consolidation_cycles: int = 0
+    entity_coverage: float = 0.0

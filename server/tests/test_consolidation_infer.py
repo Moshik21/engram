@@ -809,10 +809,14 @@ class TestPMIScoring:
 # ---------------------------------------------------------------------------
 
 
-def _make_llm_response(verdict: str, reason: str = "test"):
-    """Create a mock Anthropic API response."""
+def _make_llm_response(verdict: str, reason: str = "test", count: int = 1):
+    """Create a mock Anthropic API response (batched format)."""
+    verdicts = [
+        {"rel": i, "verdict": verdict, "reason": reason}
+        for i in range(1, count + 1)
+    ]
     content_block = MagicMock()
-    content_block.text = json.dumps({"verdict": verdict, "reason": reason})
+    content_block.text = json.dumps(verdicts)
     response = MagicMock()
     response.content = [content_block]
     return response
@@ -866,6 +870,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -902,6 +907,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -938,6 +944,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -973,6 +980,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -1009,6 +1017,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.5,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.95,  # Higher than possible
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -1043,6 +1052,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -1078,6 +1088,7 @@ class TestLLMValidation:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
         )
         phase = EdgeInferencePhase(llm_client=mock_client)
@@ -1114,12 +1125,13 @@ class TestLLMValidation:
             total_episodes=0,
         )
         mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("approved")
+        mock_client.messages.create.return_value = _make_llm_response("approved", count=2)
 
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_confidence_floor=0.7,
             consolidation_infer_llm_enabled=True,
+            consolidation_infer_auto_validation_enabled=False,
             consolidation_infer_llm_confidence_threshold=0.5,
             consolidation_infer_llm_max_per_cycle=2,
         )
@@ -1136,7 +1148,8 @@ class TestLLMValidation:
         # Only 2 should be LLM-validated
         validated = [r for r in records if r.llm_verdict == "approved"]
         assert len(validated) == 2
-        assert mock_client.messages.create.call_count == 2
+        # 2 candidates fit in 1 batch (batch size = 5)
+        assert mock_client.messages.create.call_count == 1
 
 
 # ---------------------------------------------------------------------------

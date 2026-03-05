@@ -109,9 +109,9 @@ async def test_worker_ignores_non_queued_events():
 
 @pytest.mark.asyncio
 async def test_worker_scores_and_skips_low():
-    """With triage enabled, low-score episodes are marked completed."""
+    """With triage enabled (heuristic mode), low-score episodes are marked completed."""
     manager = _make_manager()
-    cfg = _make_cfg(triage_enabled=True, triage_min_score=0.5)
+    cfg = _make_cfg(triage_enabled=True, triage_min_score=0.5, triage_multi_signal_enabled=False)
     bus = EventBus()
 
     worker = EpisodeWorker(manager, cfg)
@@ -137,9 +137,14 @@ async def test_worker_scores_and_skips_low():
 
 @pytest.mark.asyncio
 async def test_worker_scores_and_extracts_high():
-    """With triage enabled, high-score episodes are extracted."""
+    """With triage enabled (heuristic mode), high-score episodes are extracted."""
     manager = _make_manager()
-    cfg = _make_cfg(triage_enabled=True, triage_min_score=0.2)
+    # Disable multi-signal to use legacy heuristic path with triage_min_score
+    cfg = _make_cfg(
+        triage_enabled=True,
+        triage_min_score=0.2,
+        triage_multi_signal_enabled=False,
+    )
     bus = EventBus()
 
     worker = EpisodeWorker(manager, cfg)
@@ -156,6 +161,95 @@ async def test_worker_scores_and_extracts_high():
     await asyncio.sleep(0.1)
 
     manager.project_episode.assert_called_once_with("ep_high", "default")
+    manager._graph.update_episode.assert_not_called()
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_confidence_routing_extract():
+    """Multi-signal scorer: high-confidence episodes extracted immediately."""
+    manager = _make_manager()
+    cfg = _make_cfg(
+        triage_enabled=True,
+        triage_multi_signal_enabled=True,
+        worker_extract_threshold=0.30,  # Low threshold for test
+        worker_skip_threshold=0.05,
+    )
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    # Rich content with proper names + relationship verbs
+    content = (
+        "Alice works at Anthropic in San Francisco. "
+        "Bob moved to Berlin and married Charlie last January. "
+        "David graduated from Stanford and joined Google."
+    )
+    event = _queued_event(episode_id="ep_rich", content=content)
+    bus.publish("default", "episode.queued", event["payload"])
+
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_called_once_with("ep_rich", "default")
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_confidence_routing_skip():
+    """Multi-signal scorer: low-confidence episodes skipped immediately."""
+    manager = _make_manager()
+    cfg = _make_cfg(
+        triage_enabled=True,
+        triage_multi_signal_enabled=True,
+        worker_extract_threshold=0.90,
+        worker_skip_threshold=0.80,  # Very high skip threshold
+    )
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    event = _queued_event(episode_id="ep_skip", content="ok sure")
+    bus.publish("default", "episode.queued", event["payload"])
+
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_not_called()
+    manager._graph.update_episode.assert_called_once_with(
+        "ep_skip",
+        {"status": "completed", "skipped_triage": True},
+        group_id="default",
+    )
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_confidence_routing_defer():
+    """Multi-signal scorer: mid-confidence episodes deferred to triage."""
+    manager = _make_manager()
+    cfg = _make_cfg(
+        triage_enabled=True,
+        triage_multi_signal_enabled=True,
+        worker_extract_threshold=0.99,  # Almost nothing extracts
+        worker_skip_threshold=0.01,  # Almost nothing skips
+    )
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    content = "Alice mentioned Python yesterday."
+    event = _queued_event(episode_id="ep_defer", content=content)
+    bus.publish("default", "episode.queued", event["payload"])
+
+    await asyncio.sleep(0.1)
+
+    # Neither extracted nor skipped — left in QUEUED for triage
+    manager.project_episode.assert_not_called()
     manager._graph.update_episode.assert_not_called()
 
     await worker.stop()

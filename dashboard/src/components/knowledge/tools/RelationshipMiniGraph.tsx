@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { entityColor } from "../../../lib/colors";
 
@@ -23,22 +23,40 @@ interface GraphData {
 
 export function RelationshipMiniGraph({ data }: { data: GraphData }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(400);
 
-  const graphData = {
-    nodes: data.nodes.map((n) => ({ ...n, color: entityColor(n.type) })),
-    links: data.edges.map((e) => ({
-      source: e.source,
-      target: e.target,
-      label: e.predicate,
-      weight: e.weight,
-    })),
-  };
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w && w > 0) setWidth(Math.round(w));
+    });
+    ro.observe(containerRef.current);
+    const w = containerRef.current.getBoundingClientRect().width;
+    if (w > 0) setWidth(Math.round(w));
+    return () => ro.disconnect();
+  }, []);
+
+  const graphData = useMemo(
+    () => ({
+      nodes: data.nodes.map((n) => ({ ...n, color: entityColor(n.type) })),
+      links: data.edges.map((e) => ({
+        source: e.source,
+        target: e.target,
+        label: e.predicate,
+        weight: e.weight,
+      })),
+    }),
+    [data.nodes, data.edges],
+  );
+
+  const centralNodeId = data.nodes.find((n) => n.name === data.centralEntity)?.id;
 
   const nodeCanvasObject = useCallback(
     (node: Record<string, unknown>, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const label = (node.name as string) || "";
       const fontSize = Math.max(10 / globalScale, 2);
-      const r = node.id === data.nodes.find((n) => n.name === data.centralEntity)?.id ? 6 : 4;
+      const r = node.id === centralNodeId ? 6 : 4;
       const color = (node.color as string) || "#94a3b8";
 
       // Node circle
@@ -46,6 +64,15 @@ export function RelationshipMiniGraph({ data }: { data: GraphData }) {
       ctx.arc(node.x as number, node.y as number, r, 0, 2 * Math.PI);
       ctx.fillStyle = color;
       ctx.fill();
+
+      // Glow for central
+      if (node.id === centralNodeId) {
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
       ctx.strokeStyle = color + "60";
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -57,7 +84,7 @@ export function RelationshipMiniGraph({ data }: { data: GraphData }) {
       ctx.fillStyle = "#e2e8f0";
       ctx.fillText(label, node.x as number, (node.y as number) + r + 2);
     },
-    [data.centralEntity, data.nodes],
+    [centralNodeId],
   );
 
   const linkCanvasObject = useCallback(
@@ -92,7 +119,7 @@ export function RelationshipMiniGraph({ data }: { data: GraphData }) {
       ref={containerRef}
       style={{
         width: "100%",
-        height: 200,
+        height: 220,
         borderRadius: "var(--radius-sm)",
         border: "1px solid var(--border)",
         background: "rgba(0, 0, 0, 0.2)",
@@ -101,8 +128,8 @@ export function RelationshipMiniGraph({ data }: { data: GraphData }) {
     >
       <ForceGraph2D
         graphData={graphData}
-        width={400}
-        height={200}
+        width={width}
+        height={220}
         backgroundColor="transparent"
         nodeCanvasObject={nodeCanvasObject}
         linkCanvasObject={linkCanvasObject}

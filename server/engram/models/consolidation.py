@@ -117,6 +117,7 @@ class TriageRecord:
 class CycleContext:
     """Mutable shared state passed through all phases in a single cycle."""
 
+    trigger: str = "manual"
     affected_entity_ids: set[str] = field(default_factory=set)
     merge_survivor_ids: set[str] = field(default_factory=set)
     inferred_edge_entity_ids: set[str] = field(default_factory=set)
@@ -125,6 +126,9 @@ class CycleContext:
     dream_seed_ids: set[str] = field(default_factory=set)
     dream_association_ids: set[str] = field(default_factory=set)
     triage_promoted_ids: set[str] = field(default_factory=set)
+    matured_entity_ids: set[str] = field(default_factory=set)
+    transitioned_episode_ids: set[str] = field(default_factory=set)
+    schema_entity_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -170,6 +174,21 @@ class DreamRecord:
 
 
 @dataclass
+class GraphEmbedRecord:
+    """Audit entry for a graph embedding training run."""
+
+    cycle_id: str
+    group_id: str
+    method: str
+    entities_trained: int
+    dimensions: int
+    training_duration_ms: float
+    full_retrain: bool
+    id: str = field(default_factory=lambda: f"gemb_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class DreamAssociationRecord:
     """Audit entry for a dream-discovered cross-domain association."""
 
@@ -186,4 +205,53 @@ class DreamAssociationRecord:
     structural_proximity: float
     relationship_id: str | None = None
     id: str = field(default_factory=lambda: f"dra_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class MaturationRecord:
+    """Audit entry for a matured entity."""
+
+    cycle_id: str
+    group_id: str
+    entity_id: str
+    entity_name: str
+    old_tier: str
+    new_tier: str
+    maturity_score: float
+    source_diversity: int
+    temporal_span_days: float
+    relationship_richness: int
+    access_regularity: float
+    id: str = field(default_factory=lambda: f"mat_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class SchemaRecord:
+    """Audit entry for a discovered or reinforced schema."""
+
+    cycle_id: str
+    group_id: str
+    schema_entity_id: str
+    schema_name: str
+    instance_count: int
+    predicate_count: int
+    action: str  # "created" | "reinforced"
+    id: str = field(default_factory=lambda: f"sch_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class SemanticTransitionRecord:
+    """Audit entry for an episode tier transition."""
+
+    cycle_id: str
+    group_id: str
+    episode_id: str
+    old_tier: str
+    new_tier: str
+    entity_coverage: float
+    consolidation_cycles: int
+    id: str = field(default_factory=lambda: f"sem_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)

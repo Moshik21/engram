@@ -10,6 +10,7 @@ import type {
   ConsolidationPressure,
   RecallResult,
   FactResult,
+  IntentionItem,
 } from "../store/types";
 
 export interface NeighborhoodResponse {
@@ -20,13 +21,49 @@ export interface NeighborhoodResponse {
   totalInNeighborhood: number;
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string | null;
+  sessionDate: string;
+  createdAt: string;
+  updatedAt: string;
+  entityIds: string[];
+}
+
+export interface ConversationMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  partsJson: string | null;
+  createdAt: string;
+}
+
 export interface EpisodesResponse {
   items: Episode[];
   nextCursor: string | null;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
+// Auth token getter — set by auth provider (e.g. Clerk)
+let _getToken: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenGetter(fn: () => Promise<string | null>) {
+  _getToken = fn;
+}
+
+export async function getAuthToken(): Promise<string | null> {
+  return _getToken ? _getToken() : null;
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const fullUrl = url.startsWith("/") ? `${API_BASE}${url}` : url;
+  const headers = new Headers(init?.headers);
+  if (_getToken) {
+    const token = await _getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(fullUrl, { ...init, headers });
   if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -41,7 +78,7 @@ export const api = {
     const sp = new URLSearchParams();
     if (params.center) sp.set("center", params.center);
     if (params.depth) sp.set("depth", String(params.depth));
-    if (params.maxNodes) sp.set("max_nodes", String(params.maxNodes));
+    if (params.maxNodes != null) sp.set("max_nodes", String(params.maxNodes));
     if (params.minActivation)
       sp.set("min_activation", String(params.minActivation));
     return fetchJSON<NeighborhoodResponse>(
@@ -199,5 +236,37 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
+    }),
+
+  getIntentions: (enabledOnly = true) => {
+    const sp = new URLSearchParams();
+    sp.set("enabled_only", String(enabledOnly));
+    return fetchJSON<{ intentions: IntentionItem[]; total: number }>(`/api/knowledge/intentions?${sp}`);
+  },
+
+  // Conversations API
+  listConversations: (limit = 50) =>
+    fetchJSON<{ conversations: ConversationSummary[] }>(`/api/conversations/?limit=${limit}`),
+
+  getConversationMessages: (convId: string) =>
+    fetchJSON<{ messages: ConversationMessage[] }>(`/api/conversations/${convId}/messages`),
+
+  appendConversationMessages: (convId: string, messages: Array<{ role: string; content: string; partsJson?: string }>) =>
+    fetchJSON<{ ids: string[] }>(`/api/conversations/${convId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    }),
+
+  updateConversation: (convId: string, body: { title?: string }) =>
+    fetchJSON<{ status: string }>(`/api/conversations/${convId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  deleteConversation: (convId: string) =>
+    fetchJSON<{ status: string }>(`/api/conversations/${convId}`, {
+      method: "DELETE",
     }),
 };

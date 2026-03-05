@@ -566,7 +566,7 @@ class TestCommunityConfig:
     def test_community_config_defaults(self):
         """Default community config values."""
         cfg = ActivationConfig()
-        assert cfg.community_spreading_enabled is False
+        assert cfg.community_spreading_enabled is True
         assert cfg.community_bridge_boost == 1.5
         assert cfg.community_intra_dampen == 0.7
         assert cfg.community_stale_seconds == 300.0

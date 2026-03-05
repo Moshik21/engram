@@ -8,26 +8,34 @@ import time
 from engram.config import ActivationConfig
 from engram.consolidation.phases.compact import AccessHistoryCompactionPhase
 from engram.consolidation.phases.dream import DreamSpreadingPhase
+from engram.consolidation.phases.graph_embed import GraphEmbedPhase
 from engram.consolidation.phases.infer import EdgeInferencePhase
+from engram.consolidation.phases.maturation import MaturationPhase
 from engram.consolidation.phases.merge import EntityMergePhase
 from engram.consolidation.phases.prune import PrunePhase
 from engram.consolidation.phases.reindex import ReindexPhase
 from engram.consolidation.phases.replay import EpisodeReplayPhase
+from engram.consolidation.phases.schema_formation import SchemaFormationPhase
+from engram.consolidation.phases.semantic_transition import SemanticTransitionPhase
 from engram.consolidation.phases.triage import TriagePhase
-from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
 from engram.models.consolidation import (
     ConsolidationCycle,
     CycleContext,
     DreamAssociationRecord,
     DreamRecord,
+    GraphEmbedRecord,
     InferredEdge,
+    MaturationRecord,
     MergeRecord,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
+    SchemaRecord,
+    SemanticTransitionRecord,
     TriageRecord,
 )
+from engram.storage.protocols import ConsolidationStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +49,7 @@ class ConsolidationEngine:
         activation_store,
         search_index,
         cfg: ActivationConfig,
-        consolidation_store: SQLiteConsolidationStore | None = None,
+        consolidation_store: ConsolidationStore | None = None,
         event_bus: EventBus | None = None,
         extractor: object | None = None,
         llm_client: object | None = None,
@@ -58,12 +66,16 @@ class ConsolidationEngine:
 
         self._phases = [
             TriagePhase(graph_manager=graph_manager),
-            EpisodeReplayPhase(extractor=extractor),
             EntityMergePhase(llm_client=llm_client),
             EdgeInferencePhase(llm_client=llm_client, escalation_client=llm_client),
+            EpisodeReplayPhase(extractor=extractor),
             PrunePhase(),
             AccessHistoryCompactionPhase(),
+            MaturationPhase(),
+            SemanticTransitionPhase(),
+            SchemaFormationPhase(),
             ReindexPhase(),
+            GraphEmbedPhase(),
             DreamSpreadingPhase(),
         ]
 
@@ -80,8 +92,13 @@ class ConsolidationEngine:
         group_id: str,
         trigger: str = "manual",
         dry_run: bool | None = None,
+        phase_names: set[str] | None = None,
     ) -> ConsolidationCycle:
-        """Execute a full consolidation cycle.
+        """Execute a consolidation cycle.
+
+        Args:
+            phase_names: If set, only run phases whose name is in this set.
+                         If None, run all phases (full cycle).
 
         Returns the completed cycle with phase results.
         """
@@ -105,7 +122,7 @@ class ConsolidationEngine:
         if self._store:
             await self._store.save_cycle(cycle)
 
-        context = CycleContext()
+        context = CycleContext(trigger=trigger)
 
         self._publish(
             group_id,
@@ -122,6 +139,10 @@ class ConsolidationEngine:
                 if self._cancelled:
                     cycle.status = "cancelled"
                     break
+
+                # Skip phases not in the requested set (tiered scheduling)
+                if phase_names is not None and phase.name not in phase_names:
+                    continue
 
                 self._publish(
                     group_id,
@@ -164,6 +185,28 @@ class ConsolidationEngine:
                                 await self._store.save_dream_record(record)
                             elif isinstance(record, TriageRecord):
                                 await self._store.save_triage_record(record)
+                            elif isinstance(record, GraphEmbedRecord):
+                                await self._store.save_graph_embed_record(record)
+                            elif isinstance(record, MaturationRecord):
+                                await self._store.save_maturation_record(record)
+                            elif isinstance(record, SemanticTransitionRecord):
+                                await self._store.save_semantic_transition_record(record)
+                            elif isinstance(record, SchemaRecord):
+                                await self._store.save_schema_record(record)
+
+                    # Notify dashboard of removed nodes (prune/merge)
+                    removed_ids: list[str] = []
+                    for record in records:
+                        if isinstance(record, PruneRecord):
+                            removed_ids.append(record.entity_id)
+                        elif isinstance(record, MergeRecord):
+                            removed_ids.append(record.remove_id)
+                    if removed_ids and not dry_run:
+                        self._publish(
+                            group_id,
+                            "graph.delta",
+                            {"nodesRemoved": removed_ids},
+                        )
 
                     self._publish(
                         group_id,

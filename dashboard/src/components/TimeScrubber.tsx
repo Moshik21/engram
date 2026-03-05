@@ -1,26 +1,46 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEngramStore } from "../store";
 
+/**
+ * Extracts only the min createdAt timestamp from nodes.
+ * Only re-renders when node set changes (structural), not on activation updates.
+ */
+function useNodeTimeRange() {
+  const [minTs, setMinTs] = useState(() => Date.now() - 86400000);
+
+  useEffect(() => {
+    const compute = () => {
+      const nodes = useEngramStore.getState().nodes;
+      const timestamps = Object.values(nodes)
+        .map((n) => new Date(n.createdAt).getTime())
+        .filter((t) => !isNaN(t));
+      return timestamps.length > 0 ? Math.min(...timestamps) : Date.now() - 86400000;
+    };
+    setMinTs(compute());
+
+    // Only recompute when structure changes (keys)
+    let prevKeys = Object.keys(useEngramStore.getState().nodes).sort().join(",");
+    const unsub = useEngramStore.subscribe((state) => {
+      const keys = Object.keys(state.nodes).sort().join(",");
+      if (keys !== prevKeys) {
+        prevKeys = keys;
+        setMinTs(compute());
+      }
+    });
+    return unsub;
+  }, []);
+
+  return useMemo(() => ({ min: minTs, max: Date.now() }), [minTs]);
+}
+
 export function TimeScrubber() {
-  const nodes = useEngramStore((s) => s.nodes);
+  const timeRange = useNodeTimeRange();
   const timePosition = useEngramStore((s) => s.timePosition);
   const setTimePosition = useEngramStore((s) => s.setTimePosition);
   const setIsTimeScrubbing = useEngramStore((s) => s.setIsTimeScrubbing);
   const loadGraphAt = useEngramStore((s) => s.loadGraphAt);
   const loadInitialGraph = useEngramStore((s) => s.loadInitialGraph);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const timeRange = useMemo(() => {
-    const timestamps = Object.values(nodes)
-      .map((n) => new Date(n.createdAt).getTime())
-      .filter((t) => !isNaN(t));
-    if (timestamps.length === 0)
-      return { min: Date.now() - 86400000, max: Date.now() };
-    return {
-      min: Math.min(...timestamps),
-      max: Date.now(),
-    };
-  }, [nodes]);
 
   const currentValue = timePosition
     ? new Date(timePosition).getTime()

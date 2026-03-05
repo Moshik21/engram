@@ -1,9 +1,11 @@
 import { useRef, useEffect } from "react";
+import { useEngramStore } from "../../store";
 import { useChatContext } from "./ChatProvider";
 import { ChatMessageRenderer } from "./ChatMessageRenderer";
 
 export function KnowledgeChatStream() {
   const { messages, status, setMessages } = useChatContext();
+  const startNewConversation = useEngramStore((s) => s.startNewConversation);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isStreaming = status === "streaming" || status === "submitted";
@@ -14,7 +16,10 @@ export function KnowledgeChatStream() {
     }
   }, [messages]);
 
-  const clearChat = () => setMessages([]);
+  const clearChat = () => {
+    setMessages([]);
+    startNewConversation();
+  };
 
   return (
     <div

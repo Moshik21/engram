@@ -1,7 +1,17 @@
-"""Triage phase: score QUEUED episodes and selectively extract the top fraction."""
+"""Triage phase: score QUEUED episodes and selectively extract the top fraction.
+
+Supports three scoring modes (checked in priority order):
+1. Multi-signal scorer (triage_multi_signal_enabled) — 8 deterministic signals, ~2ms/ep
+2. LLM judge (triage_llm_judge_enabled) — Haiku API call per episode
+3. Heuristic fallback — length + keywords + novelty + emotional salience
+
+When multi-signal is enabled, borderline episodes (score in escalation band)
+can optionally be escalated to LLM for a second opinion.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +24,7 @@ from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.discourse import classify_discourse
 from engram.extraction.prompts import TRIAGE_JUDGE_SYSTEM_CACHED
 from engram.models.consolidation import CycleContext, PhaseResult, TriageRecord
+from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +92,14 @@ class TriagePhase(ConsolidationPhase):
 
     def __init__(self, graph_manager: Any | None = None) -> None:
         self._manager = graph_manager
+        self._scorer = None  # Lazy-initialized TriageScorer
+
+    def _get_scorer(self, cfg: ActivationConfig):
+        """Lazy-init multi-signal scorer (preserves EMA state across cycles)."""
+        if self._scorer is None:
+            from engram.retrieval.triage_scorer import TriageScorer
+            self._scorer = TriageScorer(cfg)
+        return self._scorer
 
     @property
     def name(self) -> str:
@@ -150,20 +169,73 @@ class TriagePhase(ConsolidationPhase):
             else:
                 world_episodes.append(ep)
 
-        # 3. Score each remaining episode (LLM judge or heuristic)
+        # 2b. Identify active goals for triage boost
+        goals = await identify_active_goals(
+            graph_store, activation_store, group_id, cfg,
+        )
+
+        # 3. Score each remaining episode
         llm_metadata: dict[str, dict] = {}  # episode_id → judge result
-        if cfg.triage_llm_judge_enabled:
+
+        if cfg.triage_multi_signal_enabled:
+            # --- Multi-signal scoring (primary path) ---
+            scorer = self._get_scorer(cfg)
             scored = []
+            for ep in world_episodes:
+                ep_content = getattr(ep, "content", "") or ""
+                signals = await scorer.score(
+                    content=ep_content,
+                    search_index=search_index,
+                    graph_store=graph_store,
+                    activation_store=activation_store,
+                    group_id=group_id,
+                    goals=goals,
+                )
+                scored.append((ep, signals.composite, signals))
+
+            # LLM escalation for borderline episodes
+            if cfg.triage_llm_escalation_enabled and os.environ.get("ANTHROPIC_API_KEY"):
+                escalated = 0
+                for i, (ep, score, signals) in enumerate(scored):
+                    if escalated >= cfg.triage_llm_escalation_max_per_cycle:
+                        break
+                    if cfg.triage_llm_escalation_low <= score <= cfg.triage_llm_escalation_high:
+                        ep_content = getattr(ep, "content", "") or ""
+                        judge_result = await asyncio.to_thread(
+                            _llm_judge_score, ep_content, cfg.triage_llm_judge_model,
+                        )
+                        llm_metadata[ep.id] = judge_result
+                        # Override composite with LLM score
+                        scored[i] = (ep, judge_result["score"], signals)
+                        escalated += 1
+                        logger.debug(
+                            "Triage: LLM escalation for %s (multi-signal=%.3f, llm=%.3f)",
+                            ep.id, score, judge_result["score"],
+                        )
+
+            # Convert to (ep, score) for sorting
+            scored_pairs = [(ep, score) for ep, score, _signals in scored]
+
+        elif cfg.triage_llm_judge_enabled:
+            # --- Pure LLM judge ---
+            scored_pairs = []
             for ep in world_episodes:
                 ep_content = getattr(ep, "content", "") or ""
                 judge_result = _llm_judge_score(ep_content, cfg.triage_llm_judge_model)
                 llm_metadata[ep.id] = judge_result
-                scored.append((ep, judge_result["score"]))
+                score = judge_result["score"]
+                score += compute_goal_triage_boost(ep_content, goals, cfg)
+                scored_pairs.append((ep, score))
         else:
-            scored = [(ep, self._score_episode(ep, cfg)) for ep in world_episodes]
-        scored.sort(key=lambda x: x[1], reverse=True)
+            # --- Heuristic fallback ---
+            scored_pairs = []
+            for ep in world_episodes:
+                score = await self._score_episode_async(ep, cfg, search_index, group_id, goals)
+                scored_pairs.append((ep, score))
 
-        if not scored:
+        scored_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        if not scored_pairs:
             return PhaseResult(
                 phase=self.name,
                 items_processed=len(episodes),
@@ -172,9 +244,9 @@ class TriagePhase(ConsolidationPhase):
             ), records
 
         # 4. Determine cutoff
-        extract_count = max(1, int(len(scored) * cfg.triage_extract_ratio))
+        extract_count = max(1, int(len(scored_pairs) * cfg.triage_extract_ratio))
 
-        for i, (ep, score) in enumerate(scored):
+        for i, (ep, score) in enumerate(scored_pairs):
             decision = "extract" if i < extract_count else "skip"
             judge_meta = llm_metadata.get(ep.id, {})
             records.append(
@@ -212,36 +284,109 @@ class TriagePhase(ConsolidationPhase):
 
         return PhaseResult(
             phase=self.name,
-            items_processed=len(scored),
+            items_processed=len(scored_pairs),
             items_affected=promoted,
             duration_ms=_elapsed_ms(t0),
         ), records
 
     @staticmethod
-    def _score_episode(episode: Any, cfg: ActivationConfig) -> float:
-        """Lightweight scoring based on length, keyword density, novelty, and personal boost."""
+    async def _score_episode_async(
+        episode: Any,
+        cfg: ActivationConfig,
+        search_index: Any = None,
+        group_id: str = "default",
+        goals: list | None = None,
+    ) -> float:
+        """Score episode using length, keyword density, novelty, emotional salience, and goal boost.
+
+        Novelty is computed by searching for similar existing episodes. If the
+        top match has a high FTS/vector score, the content is redundant (low
+        novelty). If no similar episodes exist, novelty is high.
+        """
         content = getattr(episode, "content", "") or ""
         if not content:
             return 0.0
 
-        # Length signal (0-0.3): longer content more likely to contain extractable info
-        length_score = min(len(content) / 500, 1.0) * 0.3
+        # Length signal (0-0.25)
+        length_score = min(len(content) / 500, 1.0) * 0.25
 
-        # Keyword density (0-0.3): capitalized words, numbers, quoted strings
+        # Keyword density (0-0.20)
         caps = len(re.findall(r"\b[A-Z][a-z]+\b", content))
         numbers = len(re.findall(r"\b\d+\b", content))
         quoted = len(re.findall(r'"[^"]+"|\'[^\']+\'', content))
         keyword_count = caps + numbers + quoted
-        keyword_score = min(keyword_count / 10, 1.0) * 0.3
+        keyword_score = min(keyword_count / 10, 1.0) * 0.20
 
-        # Base novelty signal (0-0.4): without DB lookup, use moderate default
-        # Full novelty would compare against existing episodes via FTS5
-        novelty_score = 0.2
+        # Novelty signal (0-0.30): search for similar episodes
+        novelty_score = 0.15  # Default fallback
+        if search_index and hasattr(search_index, "search_episodes"):
+            try:
+                # Use first 200 chars as query (enough for topic matching)
+                query = content[:200].strip()
+                if query:
+                    matches = await search_index.search_episodes(
+                        query, group_id=group_id, limit=3,
+                    )
+                    if matches:
+                        # Top match score indicates redundancy
+                        # FTS5 scores vary but higher = more similar
+                        top_score = matches[0][1]
+                        # Normalize: high FTS score -> low novelty
+                        # FTS5 scores are typically 0-20+, cap at 10 for normalization
+                        similarity = min(top_score / 10.0, 1.0)
+                        novelty_score = (1.0 - similarity) * 0.30
+                    else:
+                        # No similar episodes -- very novel
+                        novelty_score = 0.30
+            except Exception:
+                novelty_score = 0.15  # Fallback on error
 
-        # Personal narrative boost (0-0.15): prevent personal content from being deprioritized
-        personal_score = personal_narrative_boost(content, cfg)
+        # Emotional salience signal
+        emotional_score = 0.0
+        if cfg.emotional_salience_enabled:
+            from engram.extraction.salience import compute_emotional_salience
 
-        return length_score + keyword_score + novelty_score + personal_score
+            salience = compute_emotional_salience(content)
+            emotional_score = salience.composite * cfg.emotional_triage_weight
+            # Personal floor: guarantee extraction for personal content
+            base_score = length_score + keyword_score + novelty_score + emotional_score
+            if salience.composite >= cfg.triage_personal_floor_threshold:
+                return max(base_score, cfg.triage_personal_floor)
+
+        base_score = length_score + keyword_score + novelty_score + emotional_score
+
+        # Goal-relevance boost
+        if goals:
+            base_score += compute_goal_triage_boost(content, goals, cfg)
+
+        return base_score
+
+    @staticmethod
+    def _score_episode(episode: Any, cfg: ActivationConfig) -> float:
+        """Synchronous scoring fallback (no novelty lookup)."""
+        content = getattr(episode, "content", "") or ""
+        if not content:
+            return 0.0
+        length_score = min(len(content) / 500, 1.0) * 0.25
+        caps = len(re.findall(r"\b[A-Z][a-z]+\b", content))
+        numbers = len(re.findall(r"\b\d+\b", content))
+        quoted = len(re.findall(r'"[^"]+"|\'[^\']+\'', content))
+        keyword_count = caps + numbers + quoted
+        keyword_score = min(keyword_count / 10, 1.0) * 0.20
+        novelty_score = 0.15
+
+        # Emotional salience signal
+        emotional_score = 0.0
+        if cfg.emotional_salience_enabled:
+            from engram.extraction.salience import compute_emotional_salience
+
+            salience = compute_emotional_salience(content)
+            emotional_score = salience.composite * cfg.emotional_triage_weight
+            base_score = length_score + keyword_score + novelty_score + emotional_score
+            if salience.composite >= cfg.triage_personal_floor_threshold:
+                return max(base_score, cfg.triage_personal_floor)
+
+        return length_score + keyword_score + novelty_score + emotional_score
 
 
 def _elapsed_ms(t0: float) -> float:

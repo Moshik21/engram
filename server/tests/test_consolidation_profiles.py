@@ -1,5 +1,7 @@
 """Tests for consolidation profile presets in ActivationConfig."""
 
+from unittest.mock import patch
+
 import pytest
 
 from engram.config import ActivationConfig
@@ -24,10 +26,11 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_enabled is True
         assert cfg.consolidation_dry_run is False
         assert cfg.consolidation_merge_threshold == 0.92
-        assert cfg.consolidation_prune_min_age_days == 60
+        assert cfg.consolidation_prune_min_age_days == 30
         assert cfg.consolidation_replay_enabled is True
         assert cfg.consolidation_dream_enabled is True
 
+    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_standard_profile(self):
         cfg = ActivationConfig(consolidation_profile="standard")
         assert cfg.consolidation_enabled is True
@@ -37,12 +40,16 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_infer_pmi_enabled is True
         assert cfg.consolidation_infer_transitivity_enabled is True
         assert cfg.consolidation_pressure_enabled is True
-        # LLM features enabled in standard
-        assert cfg.triage_llm_judge_enabled is True
-        assert cfg.consolidation_infer_llm_enabled is True
-        assert cfg.consolidation_infer_escalation_enabled is True
-        assert cfg.consolidation_merge_llm_enabled is True
-        assert cfg.consolidation_merge_escalation_enabled is True
+        # Multi-signal scorers replace LLM judges (zero API cost)
+        assert cfg.consolidation_merge_multi_signal_enabled is True
+        assert cfg.consolidation_infer_auto_validation_enabled is True
+        assert cfg.triage_multi_signal_enabled is True
+        # LLM judges disabled when multi-signal active (opt-in fallback)
+        assert cfg.triage_llm_judge_enabled is False
+        assert cfg.consolidation_infer_llm_enabled is False
+        assert cfg.consolidation_infer_escalation_enabled is False
+        assert cfg.consolidation_merge_llm_enabled is False
+        assert cfg.consolidation_merge_escalation_enabled is False
 
     def test_default_is_off(self):
         cfg = ActivationConfig()

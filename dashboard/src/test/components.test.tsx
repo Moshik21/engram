@@ -110,7 +110,7 @@ function resetStore() {
     showActivationHeatmap: true,
     showEdgeLabels: false,
     darkMode: true,
-    graphMaxNodes: 200,
+    graphMaxNodes: 2000,
     timePosition: null,
     timeRange: null,
     isTimeScrubbing: false,

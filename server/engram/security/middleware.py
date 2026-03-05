@@ -14,6 +14,23 @@ logger = logging.getLogger(__name__)
 
 EXEMPT_PATHS = {"/health", "/metrics"}
 
+# Module-level OIDC validator — initialized lazily when OIDC is enabled
+_oidc_validator = None
+
+
+def _get_oidc_validator(config: AuthConfig):
+    """Lazily create and cache OIDCValidator singleton."""
+    global _oidc_validator
+    if _oidc_validator is None and config.oidc_enabled:
+        from engram.security.oidc import OIDCValidator
+
+        _oidc_validator = OIDCValidator(
+            issuer=config.oidc_issuer,
+            audience=config.oidc_audience,
+            group_claim=config.oidc_group_claim,
+        )
+    return _oidc_validator
+
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
     """Resolves auth credentials into a TenantContext.
@@ -61,6 +78,24 @@ async def resolve_tenant_from_scope(
         )
 
     auth_header = headers.get("authorization", "")
+
+    # OIDC JWT validation (Clerk)
+    if config.oidc_enabled and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        validator = _get_oidc_validator(config)
+        if validator:
+            try:
+                claims = await validator.validate_token(token)
+                return TenantContext(
+                    group_id=claims.get("group_id", config.default_group_id),
+                    user_id=claims.get("sub"),
+                    role="owner",
+                    auth_method="oidc",
+                )
+            except ValueError:
+                raise ValueError("Invalid or expired JWT token")
+
+    # Bearer token fallback
     if auth_header.startswith("Bearer ") and config.bearer_token:
         token = auth_header[7:]
         if token == config.bearer_token:

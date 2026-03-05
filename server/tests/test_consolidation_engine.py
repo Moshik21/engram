@@ -60,11 +60,13 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 8
+        assert len(cycle.phase_results) == 12
         assert cycle.total_duration_ms > 0
         phase_names = [pr.phase for pr in cycle.phase_results]
         assert phase_names == [
-            "triage", "replay", "merge", "infer", "prune", "compact", "reindex", "dream",
+            "triage", "merge", "infer", "replay", "prune",
+            "compact", "mature", "semanticize", "schema",
+            "reindex", "graph_embed", "dream",
         ]
 
     @pytest.mark.asyncio
@@ -82,7 +84,9 @@ class TestConsolidationEngine:
 
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
-            "triage", "replay", "merge", "infer", "prune", "compact", "reindex", "dream",
+            "triage", "merge", "infer", "replay", "prune",
+            "compact", "mature", "semanticize", "schema",
+            "reindex", "graph_embed", "dream",
         ]
 
     @pytest.mark.asyncio
@@ -134,7 +138,7 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 8
+        assert len(cycle.phase_results) == 12
         assert cycle.phase_results[0].status == "error"
         assert "Simulated merge failure" in cycle.phase_results[0].error
         # Other phases should succeed or be skipped (dream is disabled by default)
@@ -173,7 +177,7 @@ class TestConsolidationEngine:
         fetched = await consol_store.get_cycle(cycle.id, "test")
         assert fetched is not None
         assert fetched.status == "completed"
-        assert len(fetched.phase_results) == 8
+        assert len(fetched.phase_results) == 12
 
     @pytest.mark.asyncio
     async def test_is_running_property(self, engine):
@@ -181,6 +185,70 @@ class TestConsolidationEngine:
         # After cycle completes, should be false again
         await engine.run_cycle(group_id="test")
         assert engine.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_graph_embed_record_persisted(self, store, activation, search, consol_store):
+        """GraphEmbedRecord should be persisted to audit tables after a cycle."""
+        cfg = ActivationConfig(
+            graph_embedding_node2vec_enabled=True,
+            graph_embedding_node2vec_min_entities=10,
+            graph_embedding_node2vec_dimensions=16,
+            graph_embedding_node2vec_num_walks=1,
+            graph_embedding_node2vec_walk_length=5,
+            graph_embedding_node2vec_epochs=1,
+        )
+        bus = EventBus()
+
+        # Create enough entities for node2vec
+        from engram.models.entity import Entity
+        for i in range(20):
+            entity = Entity(
+                id=f"ent_{i}",
+                name=f"Entity_{i}",
+                entity_type="Concept",
+                summary=f"Test entity {i}",
+                group_id="test",
+            )
+            await store.create_entity(entity)
+
+        engine = ConsolidationEngine(
+            store,
+            activation,
+            search,
+            cfg=cfg,
+            consolidation_store=consol_store,
+            event_bus=bus,
+        )
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+
+        assert cycle.status == "completed"
+        # Find the graph_embed phase result
+        ge_result = next(
+            (pr for pr in cycle.phase_results if pr.phase == "graph_embed"),
+            None,
+        )
+        assert ge_result is not None
+
+    @pytest.mark.asyncio
+    async def test_replay_after_merge_infer(self, engine):
+        """Replay phase should run after merge and infer phases."""
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+        names = [pr.phase for pr in cycle.phase_results]
+        merge_idx = names.index("merge")
+        infer_idx = names.index("infer")
+        replay_idx = names.index("replay")
+        assert merge_idx < replay_idx, "merge must run before replay"
+        assert infer_idx < replay_idx, "infer must run before replay"
+
+    @pytest.mark.asyncio
+    async def test_replay_skipped_without_graph_changes(self, engine):
+        """Replay should be skipped when merge/infer produce no changes."""
+        cfg = ActivationConfig(consolidation_replay_enabled=True)
+        engine._cfg = cfg
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+        replay_result = next(pr for pr in cycle.phase_results if pr.phase == "replay")
+        assert replay_result.status == "skipped"
 
     @pytest.mark.asyncio
     async def test_dry_run_default_from_config(self, store, activation, search, consol_store):

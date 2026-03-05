@@ -90,6 +90,38 @@ class CohereReranker(RerankerProvider):
         await self._client.aclose()
 
 
+class FastEmbedReranker(RerankerProvider):
+    """Local cross-encoder reranker via fastembed (ONNX runtime)."""
+
+    def __init__(self, model: str = "Xenova/ms-marco-MiniLM-L-6-v2") -> None:
+        from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+        self._model = TextCrossEncoder(model_name=model)
+        logger.info("FastEmbedReranker ready: model=%s", model)
+
+    async def rerank(
+        self,
+        query: str,
+        documents: list[tuple[str, str]],
+        top_n: int = 10,
+    ) -> list[tuple[str, float]]:
+        if not documents:
+            return []
+
+        import asyncio
+
+        top_n = min(top_n, len(documents))
+        texts = [text for _, text in documents]
+
+        scores = await asyncio.to_thread(
+            lambda: list(self._model.rerank(query, texts))
+        )
+
+        paired = [(documents[i][0], scores[i]) for i in range(len(documents))]
+        paired.sort(key=lambda x: x[1], reverse=True)
+        return paired[:top_n]
+
+
 class NoopReranker(RerankerProvider):
     """Pass-through reranker that preserves original order."""
 
@@ -108,11 +140,16 @@ class NoopReranker(RerankerProvider):
 def create_reranker(
     api_key: str | None = None,
     model: str = "rerank-v3.5",
+    provider: str = "cohere",
+    local_model: str = "Xenova/ms-marco-MiniLM-L-6-v2",
 ) -> RerankerProvider:
-    """Factory to create a reranker provider.
-
-    Returns CohereReranker if API key provided, otherwise NoopReranker.
-    """
-    if api_key:
+    """Factory to create a reranker provider."""
+    if provider == "local":
+        try:
+            return FastEmbedReranker(model=local_model)
+        except ImportError:
+            logger.warning("fastembed not installed — falling back to NoopReranker")
+            return NoopReranker()
+    if provider == "cohere" and api_key:
         return CohereReranker(api_key=api_key, model=model)
     return NoopReranker()

@@ -148,7 +148,7 @@ async def get_entity_neighbors(
     request: Request,
     entity_id: str,
     depth: int = Query(2, ge=1, le=5),
-    max_nodes: int = Query(200, ge=1, le=1000),
+    max_nodes: int = Query(50000, ge=1, le=100000),
     min_activation: float = Query(0.0, ge=0.0, le=1.0),
 ) -> JSONResponse:
     """Get neighborhood subgraph centered on this entity."""

@@ -128,6 +128,17 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 )
             )
 
+        # 3b. Apply LTD (Long-Term Depression) to unboosted edges of seed entities
+        edges_decayed = 0
+        if cfg.consolidation_dream_ltd_enabled and seeds and not dry_run:
+            edges_decayed = await self._apply_ltd_decay(
+                seeds=seeds,
+                boosted_edges=edge_boosts,
+                graph_store=graph_store,
+                group_id=group_id,
+                cfg=cfg,
+            )
+
         # 4. Dream associations: discover cross-domain creative connections
         assoc_count = 0
         if cfg.consolidation_dream_associations_enabled:
@@ -148,7 +159,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             phase=self.name,
             status="success",
             items_processed=len(seeds or []),
-            items_affected=edges_boosted + assoc_count,
+            items_affected=edges_boosted + assoc_count + edges_decayed,
             duration_ms=round(elapsed, 1),
         ), records
 
@@ -248,6 +259,66 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         return edge_boosts
 
+    async def _apply_ltd_decay(
+        self,
+        seeds: list[tuple[str, float]],
+        boosted_edges: dict[tuple[str, str], float],
+        graph_store,
+        group_id: str,
+        cfg: ActivationConfig,
+    ) -> int:
+        """Apply Long-Term Depression to edges NOT activated during spreading.
+
+        Biological analog: synapses that don't fire during sleep replay
+        weaken slightly, maintaining discriminability and preventing
+        monotonic weight inflation from Hebbian boosting alone.
+
+        Only decays edges connected to seed entities (scope of this dream cycle).
+        DREAM_ASSOCIATED edges are excluded (managed by TTL, not LTD).
+        """
+        decay = cfg.consolidation_dream_ltd_decay
+        min_weight = cfg.consolidation_dream_ltd_min_weight
+        decayed = 0
+
+        # Collect all seed entity IDs
+        seed_ids = {sid for sid, _ in seeds}
+
+        for seed_id in seed_ids:
+            neighbors = await graph_store.get_active_neighbors_with_weights(
+                seed_id, group_id=group_id,
+            )
+            for neighbor_id, weight, predicate, *_rest in neighbors:
+                # Skip DREAM_ASSOCIATED edges (TTL-managed)
+                if predicate == "DREAM_ASSOCIATED":
+                    continue
+
+                # Skip edges below the floor
+                if weight <= min_weight:
+                    continue
+
+                # Check if this edge was boosted
+                edge_key = (min(seed_id, neighbor_id), max(seed_id, neighbor_id))
+                if edge_key in boosted_edges:
+                    continue
+
+                # Apply decay (negative delta)
+                capped_decay = min(decay, weight - min_weight)
+                if capped_decay <= 0:
+                    continue
+
+                await graph_store.update_relationship_weight(
+                    seed_id,
+                    neighbor_id,
+                    -capped_decay,
+                    max_weight=cfg.consolidation_dream_max_edge_weight,
+                    group_id=group_id,
+                )
+                decayed += 1
+
+        if decayed:
+            logger.info("Dream LTD: decayed %d unboosted edges by %.4f", decayed, decay)
+        return decayed
+
     # ------------------------------------------------------------------
     # Dream Associations
     # ------------------------------------------------------------------
@@ -297,15 +368,31 @@ class DreamSpreadingPhase(ConsolidationPhase):
         if len(domain_names) < 2:
             return []
 
-        # 3. Batch retrieve embeddings
+        # 3. Batch retrieve embeddings (text + optional graph structural)
         all_ids = [e.id for e in eligible]
         embeddings = await search_index.get_entity_embeddings(all_ids, group_id=group_id)
         if not embeddings:
             return []
 
+        # 3b. Blend graph embeddings if available (richer structural similarity)
+        graph_embeddings: dict[str, list[float]] | None = None
+        if hasattr(search_index, "get_graph_embeddings"):
+            # Try each method in priority order
+            for method in ("node2vec", "transe", "gnn"):
+                try:
+                    g_embs = await search_index.get_graph_embeddings(
+                        all_ids, method=method, group_id=group_id,
+                    )
+                    if g_embs and len(g_embs) > cfg.consolidation_dream_assoc_min_graph_embeddings:
+                        graph_embeddings = g_embs
+                        break
+                except Exception:
+                    continue
+
         # 4. Compute cross-domain similarities
         candidates = self._compute_cross_domain_similarities(
-            domain_buckets, embeddings, cfg
+            domain_buckets, embeddings, cfg,
+            graph_embeddings=graph_embeddings,
         )
 
         # 5. Filter and create associations
@@ -432,14 +519,23 @@ class DreamSpreadingPhase(ConsolidationPhase):
         domain_buckets: dict[str, list],
         embeddings: dict[str, list[float]],
         cfg: ActivationConfig,
+        graph_embeddings: dict[str, list[float]] | None = None,
     ) -> list[tuple[str, str, str, str, float]]:
         """Compute cosine similarities between entities in different domains.
 
-        Uses numpy matrix multiplication for efficiency.
+        Uses numpy matrix multiplication for efficiency. When graph_embeddings
+        are available, blends text and graph similarities (70/30 text/graph)
+        for richer cross-domain discovery.
+
         Returns sorted list of (src_id, tgt_id, src_domain, tgt_domain, similarity).
         """
         domain_names = list(domain_buckets.keys())
         candidates: list[tuple[str, str, str, str, float]] = []
+
+        # Blending weight for graph embeddings (graph captures structural
+        # similarity that text misses — same position, different names)
+        graph_blend = 0.3 if graph_embeddings else 0.0
+        text_blend = 1.0 - graph_blend
 
         for i in range(len(domain_names)):
             for j in range(i + 1, len(domain_names)):
@@ -447,7 +543,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 entities_a = domain_buckets[d1]
                 entities_b = domain_buckets[d2]
 
-                # Build embedding matrices
+                # Build text embedding matrices
                 ids_a = [e.id for e in entities_a if e.id in embeddings]
                 ids_b = [e.id for e in entities_b if e.id in embeddings]
                 if not ids_a or not ids_b:
@@ -456,7 +552,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 mat_a = np.array([embeddings[eid] for eid in ids_a], dtype=np.float32)
                 mat_b = np.array([embeddings[eid] for eid in ids_b], dtype=np.float32)
 
-                # Normalize rows for cosine similarity
+                # Normalize for cosine similarity
                 norms_a = np.linalg.norm(mat_a, axis=1, keepdims=True)
                 norms_b = np.linalg.norm(mat_b, axis=1, keepdims=True)
                 norms_a = np.where(norms_a > 0, norms_a, 1.0)
@@ -464,13 +560,51 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 mat_a = mat_a / norms_a
                 mat_b = mat_b / norms_b
 
-                # Cosine similarity matrix via dot product
-                sim_matrix = mat_a @ mat_b.T
+                text_sim = mat_a @ mat_b.T
 
-                # Extract candidates above pre-filter threshold
+                # Blend with graph embeddings if available
+                if graph_embeddings:
+                    g_ids_a = [eid for eid in ids_a if eid in graph_embeddings]
+                    g_ids_b = [eid for eid in ids_b if eid in graph_embeddings]
+
+                    if g_ids_a and g_ids_b:
+                        g_mat_a = np.array(
+                            [graph_embeddings[eid] for eid in g_ids_a], dtype=np.float32,
+                        )
+                        g_mat_b = np.array(
+                            [graph_embeddings[eid] for eid in g_ids_b], dtype=np.float32,
+                        )
+                        g_norms_a = np.linalg.norm(g_mat_a, axis=1, keepdims=True)
+                        g_norms_b = np.linalg.norm(g_mat_b, axis=1, keepdims=True)
+                        g_norms_a = np.where(g_norms_a > 0, g_norms_a, 1.0)
+                        g_norms_b = np.where(g_norms_b > 0, g_norms_b, 1.0)
+                        g_mat_a = g_mat_a / g_norms_a
+                        g_mat_b = g_mat_b / g_norms_b
+
+                        g_sim = g_mat_a @ g_mat_b.T
+
+                        # Build combined sim for entities that have graph embeddings
+                        g_a_map = {eid: gi for gi, eid in enumerate(g_ids_a)}
+                        g_b_map = {eid: gi for gi, eid in enumerate(g_ids_b)}
+
+                        for ai in range(len(ids_a)):
+                            for bi in range(len(ids_b)):
+                                t_sim = float(text_sim[ai, bi])
+                                if ids_a[ai] in g_a_map and ids_b[bi] in g_b_map:
+                                    gs = float(g_sim[g_a_map[ids_a[ai]], g_b_map[ids_b[bi]]])
+                                    combined = text_blend * t_sim + graph_blend * gs
+                                else:
+                                    combined = t_sim
+                                if combined >= 0.2:
+                                    candidates.append(
+                                        (ids_a[ai], ids_b[bi], d1, d2, combined),
+                                    )
+                        continue  # Skip the non-blended path below
+
+                # Non-blended path (no graph embeddings for this pair)
                 for ai in range(len(ids_a)):
                     for bi in range(len(ids_b)):
-                        sim = float(sim_matrix[ai, bi])
+                        sim = float(text_sim[ai, bi])
                         if sim >= 0.2:
                             candidates.append((ids_a[ai], ids_b[bi], d1, d2, sim))
 

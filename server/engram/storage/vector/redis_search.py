@@ -6,7 +6,7 @@ import logging
 import struct
 
 from engram.config import EmbeddingConfig
-from engram.embeddings.provider import EmbeddingProvider
+from engram.embeddings.provider import EmbeddingProvider, truncate_vectors
 from engram.models.entity import Entity
 from engram.models.episode import Episode
 
@@ -31,11 +31,17 @@ class RedisSearchIndex:
         redis,
         provider: EmbeddingProvider,
         config: EmbeddingConfig,
+        storage_dim: int = 0,
+        embed_provider: str = "",
+        embed_model: str = "",
     ) -> None:
         self._redis = redis
         self._provider = provider
         self._config = config
         self._embeddings_enabled = provider.dimension() > 0
+        self._storage_dim = storage_dim
+        self._embed_provider = embed_provider
+        self._embed_model = embed_model
 
     async def initialize(self) -> None:
         """Create the FT.CREATE index idempotently."""
@@ -51,7 +57,7 @@ class RedisSearchIndex:
         except Exception:
             pass  # Index does not exist, create it
 
-        dim = self._provider.dimension()
+        dim = self._storage_dim if self._storage_dim > 0 else self._provider.dimension()
         m = self._config.hnsw_m
         ef_construction = self._config.hnsw_ef_construction
 
@@ -119,6 +125,8 @@ class RedisSearchIndex:
             embeddings = await self._provider.embed([text])
             if not embeddings:
                 return
+            if self._storage_dim > 0:
+                embeddings = truncate_vectors(embeddings, self._storage_dim)
 
             key = self._hash_key(entity.group_id, "entity", entity.id)
             vec_bytes = pack_vector(embeddings[0])
@@ -134,6 +142,8 @@ class RedisSearchIndex:
                     "entity_type": entity.entity_type or "",
                     "created_at": str(created_ts),
                     "embedding": vec_bytes,
+                    "embed_provider": self._embed_provider,
+                    "embed_model": self._embed_model,
                 },
             )
         except Exception as e:
@@ -148,6 +158,8 @@ class RedisSearchIndex:
             embeddings = await self._provider.embed([episode.content])
             if not embeddings:
                 return
+            if self._storage_dim > 0:
+                embeddings = truncate_vectors(embeddings, self._storage_dim)
 
             key = self._hash_key(episode.group_id, "episode", episode.id)
             vec_bytes = pack_vector(embeddings[0])
@@ -163,6 +175,8 @@ class RedisSearchIndex:
                     "entity_type": "",
                     "created_at": str(created_ts),
                     "embedding": vec_bytes,
+                    "embed_provider": self._embed_provider,
+                    "embed_model": self._embed_model,
                 },
             )
         except Exception as e:
@@ -266,6 +280,9 @@ class RedisSearchIndex:
             except Exception:
                 return []
 
+        # Truncate query vector to storage dimension
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
         vec_bytes = pack_vector(query_vec)
 
         # Build filter
@@ -370,6 +387,10 @@ class RedisSearchIndex:
         except Exception:
             return {}
 
+        # Truncate query vector to storage dimension
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
+
         results: dict[str, float] = {}
         gid = group_id or "default"
 
@@ -390,6 +411,51 @@ class RedisSearchIndex:
                 continue
 
         return results
+
+    async def batch_index_entities(self, entities: list[Entity]) -> int:
+        """Batch-embed and index multiple entities via Redis pipeline."""
+        if not self._embeddings_enabled or not entities:
+            return 0
+        texts, valid = [], []
+        for e in entities:
+            if e.name:
+                t = e.name
+                if e.summary:
+                    t = f"{e.name}: {e.summary}"
+                texts.append(t)
+                valid.append(e)
+        if not texts:
+            return 0
+        try:
+            embeddings = await self._provider.embed(texts)
+            if not embeddings:
+                return 0
+            if self._storage_dim > 0:
+                embeddings = truncate_vectors(embeddings, self._storage_dim)
+            pipe = self._redis.pipeline(transaction=False)
+            for e, t, vec in zip(valid, texts, embeddings):
+                key = self._hash_key(e.group_id, "entity", e.id)
+                vec_bytes = pack_vector(vec)
+                created_ts = e.created_at.timestamp() if e.created_at else 0.0
+                pipe.hset(
+                    key,
+                    mapping={
+                        "group_id": e.group_id,
+                        "content_type": "entity",
+                        "source_id": e.id,
+                        "text": t,
+                        "entity_type": e.entity_type or "",
+                        "created_at": str(created_ts),
+                        "embedding": vec_bytes,
+                        "embed_provider": self._embed_provider,
+                        "embed_model": self._embed_model,
+                    },
+                )
+            await pipe.execute()
+            return len(valid)
+        except Exception as e:
+            logger.warning("Batch index entities failed: %s", e)
+            return 0
 
     async def close(self) -> None:
         """No-op — Redis client lifecycle is managed externally."""

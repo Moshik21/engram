@@ -13,6 +13,7 @@ def compute_base_level(
     now: float,
     cfg: ActivationConfig,
     consolidated_strength: float = 0.0,
+    decay_override: float | None = None,
 ) -> float:
     """Compute raw ACT-R base-level activation B_i(t).
 
@@ -24,12 +25,13 @@ def compute_base_level(
     if not access_history and consolidated_strength <= 0.0:
         return -10.0
 
+    d = decay_override if decay_override is not None else cfg.decay_exponent
     total = consolidated_strength
     for t_j in access_history:
         age = now - t_j
         if age < cfg.min_age_seconds:
             age = cfg.min_age_seconds
-        total += age ** (-cfg.decay_exponent)
+        total += age ** (-d)
 
     return math.log(total) if total > 0 else -10.0
 
@@ -50,9 +52,10 @@ def compute_activation(
     now: float,
     cfg: ActivationConfig,
     consolidated_strength: float = 0.0,
+    decay_override: float | None = None,
 ) -> float:
     """Full pipeline: access_history -> normalized activation in [0, 1]."""
-    raw = compute_base_level(access_history, now, cfg, consolidated_strength)
+    raw = compute_base_level(access_history, now, cfg, consolidated_strength, decay_override)
     return normalize_activation(raw, cfg)
 
 

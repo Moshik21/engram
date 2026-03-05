@@ -95,11 +95,24 @@ class RedisActivationStore:
     async def batch_set(self, states: dict[str, ActivationState]) -> None:
         if not states:
             return
+        from engram.activation.engine import compute_activation
+
+        now = time.time()
         pipe = self._redis.pipeline()
         for eid, state in states.items():
             key = self._key(eid)
-            pipe.hset(key, mapping=self._serialize(state))
+            serialized = self._serialize(state)
+            group_id = serialized.get("group_id", "")
+            pipe.hset(key, mapping=serialized)
             pipe.expire(key, self._ttl_seconds)
+            # Update sorted set index for get_top_activated
+            if group_id:
+                act = compute_activation(
+                    state.access_history, now, self._cfg, state.consolidated_strength,
+                )
+                zkey = f"act_group:{group_id}"
+                pipe.zadd(zkey, {eid: act})
+                pipe.expire(zkey, self._ttl_seconds)
         await pipe.execute()
 
     async def record_access(
@@ -131,10 +144,31 @@ class RedisActivationStore:
         limit: int = 20,
         now: float | None = None,
     ) -> list[tuple[str, ActivationState]]:
-        """Scan all activation keys, filter by group, compute activation, sort."""
+        """Get top activated entities, using sorted set index when possible."""
         from engram.activation.engine import compute_activation
 
         now = now if now is not None else time.time()
+
+        # Fast path: use sorted set index if group_id is specified
+        if group_id:
+            zkey = f"act_group:{group_id}"
+            # Get top candidates from sorted set (fetch extra for re-scoring)
+            candidates = await self._redis.zrevrange(zkey, 0, limit * 2 - 1)
+            if candidates:
+                entity_ids = [
+                    c.decode() if isinstance(c, bytes) else c for c in candidates
+                ]
+                states = await self.batch_get(entity_ids)
+                scored = []
+                for eid, state in states.items():
+                    act = compute_activation(
+                        state.access_history, now, self._cfg, state.consolidated_strength,
+                    )
+                    scored.append((eid, state, act))
+                scored.sort(key=lambda x: x[2], reverse=True)
+                return [(eid, state) for eid, state, _ in scored[:limit]]
+
+        # Fallback: SCAN all keys (original behavior for no group_id)
         scored = []
 
         async for key in self._redis.scan_iter(match="act:*", count=100):
@@ -142,10 +176,8 @@ class RedisActivationStore:
             if not data:
                 continue
 
-            # Decode key
             key_str = key.decode() if isinstance(key, bytes) else key
 
-            # Check group_id filter
             if group_id:
                 raw_gid = data.get(b"group_id", data.get("group_id", b""))
                 gid = raw_gid.decode() if isinstance(raw_gid, bytes) else raw_gid
@@ -156,10 +188,7 @@ class RedisActivationStore:
             if state:
                 entity_id = key_str.removeprefix("act:")
                 act = compute_activation(
-                    state.access_history,
-                    now,
-                    self._cfg,
-                    state.consolidated_strength,
+                    state.access_history, now, self._cfg, state.consolidated_strength,
                 )
                 scored.append((entity_id, state, act))
 

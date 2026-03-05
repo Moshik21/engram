@@ -62,7 +62,9 @@ class SQLiteVectorStore:
                 embedding BLOB NOT NULL,
                 dimensions INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                embed_provider TEXT NOT NULL DEFAULT '',
+                embed_model TEXT NOT NULL DEFAULT ''
             )
         """)
         await self.db.execute(
@@ -70,6 +72,37 @@ class SQLiteVectorStore:
         )
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_embeddings_type ON embeddings(content_type)"
+        )
+        # Migration: add versioning columns for existing databases
+        for col in ("embed_provider", "embed_model"):
+            try:
+                await self.db.execute(
+                    f"ALTER TABLE embeddings ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+                )
+            except Exception:
+                pass  # column already exists
+
+        # Graph embeddings table (structural embeddings from Node2Vec/TransE/GNN)
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS graph_embeddings (
+                id         TEXT NOT NULL,
+                group_id   TEXT NOT NULL,
+                embedding  BLOB NOT NULL,
+                dimensions INTEGER NOT NULL,
+                method     TEXT NOT NULL,
+                model_version TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (id, method, group_id)
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_group "
+            "ON graph_embeddings(group_id)"
+        )
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_method "
+            "ON graph_embeddings(method)"
         )
         await self.db.commit()
 
@@ -86,6 +119,8 @@ class SQLiteVectorStore:
         group_id: str,
         text_content: str | None,
         embedding: list[float],
+        embed_provider: str = "",
+        embed_model: str = "",
     ) -> None:
         """Insert or update a vector embedding."""
         now = datetime.utcnow().isoformat()
@@ -93,21 +128,27 @@ class SQLiteVectorStore:
         await self.db.execute(
             """INSERT INTO embeddings
                 (id, content_type, group_id, text_content,
-                 embedding, dimensions, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 embedding, dimensions, created_at, updated_at,
+                 embed_provider, embed_model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text_content = excluded.text_content,
                 embedding = excluded.embedding,
                 dimensions = excluded.dimensions,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                embed_provider = excluded.embed_provider,
+                embed_model = excluded.embed_model
             """,
-            (item_id, content_type, group_id, text_content, blob, len(embedding), now, now),
+            (item_id, content_type, group_id, text_content, blob, len(embedding),
+             now, now, embed_provider, embed_model),
         )
         await self.db.commit()
 
     async def batch_upsert(
         self,
         items: list[tuple[str, str, str, str | None, list[float]]],
+        embed_provider: str = "",
+        embed_model: str = "",
     ) -> None:
         """Batch upsert vectors.
 
@@ -127,19 +168,24 @@ class SQLiteVectorStore:
                     len(embedding),
                     now,
                     now,
+                    embed_provider,
+                    embed_model,
                 )
             )
 
         await self.db.executemany(
             """INSERT INTO embeddings
                 (id, content_type, group_id, text_content,
-                 embedding, dimensions, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 embedding, dimensions, created_at, updated_at,
+                 embed_provider, embed_model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 text_content = excluded.text_content,
                 embedding = excluded.embedding,
                 dimensions = excluded.dimensions,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                embed_provider = excluded.embed_provider,
+                embed_model = excluded.embed_model
             """,
             rows,
         )
@@ -151,10 +197,12 @@ class SQLiteVectorStore:
         group_id: str,
         content_type: str = "entity",
         limit: int = 20,
+        storage_dim: int = 0,
     ) -> list[tuple[str, float]]:
         """Search for nearest vectors by cosine similarity.
 
         Returns (item_id, similarity_score) pairs sorted by score descending.
+        When storage_dim > 0, truncates old full-dim vectors to match.
         """
         cursor = await self.db.execute(
             "SELECT id, embedding, dimensions FROM embeddings "
@@ -166,17 +214,23 @@ class SQLiteVectorStore:
         if not rows:
             return []
 
-        ids = [row["id"] for row in rows]
+        ids = []
+        vecs = []
+        for row in rows:
+            vec = unpack_vector(row["embedding"], row["dimensions"])
+            # Truncate old full-dim vectors to storage_dim for consistent comparison
+            if storage_dim > 0 and len(vec) > storage_dim:
+                vec = vec[:storage_dim]
+            ids.append(row["id"])
+            vecs.append(vec)
+
         query_np = np.asarray(query_vector, dtype=np.float32)
         qn = np.linalg.norm(query_np)
         if qn == 0.0:
             return []
         query_np = query_np / qn
 
-        mat = np.array(
-            [unpack_vector(row["embedding"], row["dimensions"]) for row in rows],
-            dtype=np.float32,
-        )
+        mat = np.array(vecs, dtype=np.float32)
         norms = np.linalg.norm(mat, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1, norms)
         mat = mat / norms

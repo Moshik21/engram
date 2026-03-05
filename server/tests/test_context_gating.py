@@ -429,7 +429,7 @@ class TestPPRContextGate:
 class TestContextGatingConfig:
     def test_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.context_gating_enabled is False
+        assert cfg.context_gating_enabled is True
         assert cfg.context_gate_floor == 0.3
 
     def test_validation(self):

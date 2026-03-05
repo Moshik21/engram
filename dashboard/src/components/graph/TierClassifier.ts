@@ -9,6 +9,12 @@
  * No Deep tier — every node in the graph is always rendered.
  * Hysteresis prevents flicker at tier boundaries.
  * 300ms crossfade transitions for smooth visual handoff.
+ *
+ * LOD integration: when a detailLevel is provided (from LODController),
+ * it caps the maximum tier a node can achieve:
+ *   detailLevel 0 → all dormant (point cloud)
+ *   detailLevel 1 → max active (no dendrites/glow)
+ *   detailLevel 2 → full focus tier available
  */
 
 export type Tier = "focus" | "active" | "dormant";
@@ -32,10 +38,22 @@ interface NodeTierState {
 export class TierClassifier {
   private states = new Map<string, NodeTierState>();
 
-  /** Classify a node and return its tier. Updates internal state with hysteresis. */
-  classify(nodeId: string, activation: number): Tier {
+  /**
+   * Classify a node and return its tier. Updates internal state with hysteresis.
+   * @param detailLevel Optional LOD cap: 0=dormant only, 1=max active, 2=full focus
+   */
+  classify(nodeId: string, activation: number, detailLevel?: number): Tier {
     const state = this.states.get(nodeId);
-    const newTier = this.computeTier(activation, state?.currentTier ?? null);
+    let newTier = this.computeTier(activation, state?.currentTier ?? null);
+
+    // Apply LOD cap if provided
+    if (detailLevel != null) {
+      if (detailLevel === 0) {
+        newTier = "dormant";
+      } else if (detailLevel === 1 && newTier === "focus") {
+        newTier = "active";
+      }
+    }
 
     if (!state) {
       this.states.set(nodeId, {

@@ -3,6 +3,13 @@
 Subscribes to episode.queued events via EventBus,
 scores each episode, and selectively runs extraction.
 Supports adjacent turn batching for auto-captured content.
+
+Three-tier confidence routing (when multi-signal enabled):
+  - High confidence (>worker_extract_threshold): extract immediately
+  - Low confidence (<worker_skip_threshold): skip immediately
+  - Middle: leave as QUEUED for triage phase to batch-process
+
+Worker NEVER calls LLM — all scoring is deterministic.
 """
 
 from __future__ import annotations
@@ -13,10 +20,10 @@ import re
 import time
 
 from engram.config import ActivationConfig
-from engram.consolidation.phases.triage import _llm_judge_score, personal_narrative_boost
 from engram.events.bus import EventBus
 from engram.extraction.discourse import classify_discourse
 from engram.graph_manager import GraphManager
+from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +60,15 @@ class EpisodeWorker:
         # Batch buffer for auto-captured turns
         self._batch_buffer: list[_PendingEpisode] = []
         self._batch_timer: asyncio.Task | None = None
+        # Multi-signal scorer (lazy-init, shared with triage phase via same config)
+        self._scorer = None
+
+    def _get_scorer(self):
+        """Lazy-init multi-signal scorer."""
+        if self._scorer is None and self._cfg.triage_multi_signal_enabled:
+            from engram.retrieval.triage_scorer import TriageScorer
+            self._scorer = TriageScorer(self._cfg)
+        return self._scorer
 
     def start(self, group_id: str, event_bus: EventBus) -> None:
         """Subscribe to events and start processing."""
@@ -131,23 +147,54 @@ class EpisodeWorker:
                     await self._process(episode_id, group_id)
                     continue
 
-                # Score the episode content
-                score = await self._score(content)
+                # Score and route the episode
+                score = await self._score(content, group_id)
 
-                if score >= self._cfg.triage_min_score:
-                    await self._process(episode_id, group_id)
+                if self._cfg.triage_multi_signal_enabled:
+                    # Three-tier confidence routing
+                    await self._route_episode(episode_id, score, group_id)
                 else:
-                    # Mark as completed without extraction
-                    await self._manager._graph.update_episode(
-                        episode_id,
-                        {"status": "completed", "skipped_triage": True},
-                        group_id=group_id,
-                    )
+                    # Legacy: binary extract/skip based on triage_min_score
+                    if score >= self._cfg.triage_min_score:
+                        await self._process(episode_id, group_id)
+                    else:
+                        await self._manager._graph.update_episode(
+                            episode_id,
+                            {"status": "completed", "skipped_triage": True},
+                            group_id=group_id,
+                        )
 
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.warning("Episode worker error", exc_info=True)
+
+    async def _route_episode(
+        self, episode_id: str, score: float, group_id: str,
+    ) -> None:
+        """Three-tier confidence routing: extract / defer / skip."""
+        if score >= self._cfg.worker_extract_threshold:
+            # High confidence → extract immediately
+            logger.debug(
+                "Worker: extract immediately %s (score=%.3f)", episode_id, score,
+            )
+            await self._process(episode_id, group_id)
+        elif score < self._cfg.worker_skip_threshold:
+            # Low confidence → skip
+            logger.debug(
+                "Worker: skip %s (score=%.3f)", episode_id, score,
+            )
+            await self._manager._graph.update_episode(
+                episode_id,
+                {"status": "completed", "skipped_triage": True},
+                group_id=group_id,
+            )
+        else:
+            # Middle → leave as QUEUED for triage phase to batch-process
+            logger.debug(
+                "Worker: defer to triage %s (score=%.3f)", episode_id, score,
+            )
+            # Episode remains in QUEUED status — triage picks it up next cycle
 
     def _schedule_batch_flush(self, group_id: str) -> None:
         """Schedule a batch flush after the batching window."""
@@ -195,8 +242,10 @@ class EpisodeWorker:
 
         # Score the merged content
         if self._cfg.triage_enabled:
-            score = await self._score(merged_content)
-            if score >= self._cfg.triage_min_score:
+            score = await self._score(merged_content, group_id)
+            if self._cfg.triage_multi_signal_enabled:
+                await self._route_episode(primary.episode_id, score, group_id)
+            elif score >= self._cfg.triage_min_score:
                 await self._process(primary.episode_id, group_id)
             else:
                 await self._manager._graph.update_episode(
@@ -223,8 +272,10 @@ class EpisodeWorker:
     ) -> None:
         """Process a single auto-captured episode with triage."""
         if self._cfg.triage_enabled:
-            score = await self._score(ep.content)
-            if score >= self._cfg.triage_min_score:
+            score = await self._score(ep.content, group_id)
+            if self._cfg.triage_multi_signal_enabled:
+                await self._route_episode(ep.episode_id, score, group_id)
+            elif score >= self._cfg.triage_min_score:
                 await self._process(ep.episode_id, group_id)
             else:
                 await self._manager._graph.update_episode(
@@ -244,21 +295,54 @@ class EpisodeWorker:
                 "Worker: extraction failed for %s", episode_id, exc_info=True
             )
 
-    async def _score(self, content: str) -> float:
-        """Score episode content using LLM judge or heuristics."""
+    async def _score(self, content: str, group_id: str = "default") -> float:
+        """Score episode content. Multi-signal scorer preferred, heuristic fallback.
+
+        Worker NEVER calls LLM — that's reserved for triage phase escalation.
+        """
         if not content:
             return 0.0
 
-        if self._cfg.triage_llm_judge_enabled:
-            result = await asyncio.to_thread(
-                _llm_judge_score, content, self._cfg.triage_llm_judge_model,
+        # Multi-signal scorer (preferred path)
+        scorer = self._get_scorer()
+        if scorer is not None:
+            signals = await scorer.score(
+                content=content,
+                search_index=getattr(self._manager, "_search", None),
+                graph_store=getattr(self._manager, "_graph", None),
+                activation_store=getattr(self._manager, "_activation", None),
+                group_id=group_id,
             )
-            return result["score"]
+            return signals.composite
 
-        # Lightweight heuristic scoring (same as TriagePhase)
-        length_score = min(len(content) / 500, 1.0) * 0.3
+        # Lightweight heuristic scoring (fallback when multi-signal disabled)
+        length_score = min(len(content) / 500, 1.0) * 0.25
         caps = len(re.findall(r"\b[A-Z][a-z]+\b", content))
-        keyword_score = min(caps / 10, 1.0) * 0.3
-        novelty_score = 0.2
-        personal_score = personal_narrative_boost(content, self._cfg)
-        return length_score + keyword_score + novelty_score + personal_score
+        keyword_score = min(caps / 10, 1.0) * 0.20
+        novelty_score = 0.15
+
+        # Emotional salience signal
+        emotional_score = 0.0
+        if self._cfg.emotional_salience_enabled:
+            from engram.extraction.salience import compute_emotional_salience
+
+            salience = compute_emotional_salience(content)
+            emotional_score = salience.composite * self._cfg.emotional_triage_weight
+            base_score = length_score + keyword_score + novelty_score + emotional_score
+            if salience.composite >= self._cfg.triage_personal_floor_threshold:
+                return max(base_score, self._cfg.triage_personal_floor)
+
+        base_score = length_score + keyword_score + novelty_score + emotional_score
+
+        # Goal-relevance boost
+        if self._cfg.goal_priming_enabled:
+            try:
+                goals = await identify_active_goals(
+                    self._manager._graph, self._manager._activation,
+                    group_id, self._cfg,
+                )
+                base_score += compute_goal_triage_boost(content, goals, self._cfg)
+            except Exception:
+                logger.debug("Worker: goal boost failed", exc_info=True)
+
+        return base_score

@@ -97,6 +97,7 @@ METHOD_PURE_SEARCH = RetrievalMethod(
         weight_edge_proximity=0.00,
         exploration_weight=0.00,
         rediscovery_weight=0.00,
+        ts_enabled=False,
     ),
     spreading_enabled=False,
 )

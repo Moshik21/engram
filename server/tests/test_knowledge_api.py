@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -328,24 +328,16 @@ class TestForget:
 # ─── Chat ────────────────────────────────────────────────────────
 
 
-def _make_stream_mock(text_chunks):
-    """Create a mock async context manager that yields text chunks."""
-    mock_stream_ctx = MagicMock()
+def _make_create_response(text: str, stop_reason: str = "end_turn"):
+    """Create a mock response from messages.create() with a text block."""
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = text
 
-    async def aenter(*_args):
-        return mock_stream_ctx
-
-    async def aexit(*_args):
-        return False
-
-    async def text_gen():
-        for chunk in text_chunks:
-            yield chunk
-
-    mock_stream_ctx.__aenter__ = aenter
-    mock_stream_ctx.__aexit__ = aexit
-    mock_stream_ctx.text_stream = text_gen()
-    return mock_stream_ctx
+    response = MagicMock()
+    response.stop_reason = stop_reason
+    response.content = [text_block]
+    return response
 
 
 class TestChat:
@@ -362,10 +354,10 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_streams_sse(self, knowledge_client):
         """POST /chat returns AI SDK v6 UIMessageStream protocol."""
-        mock_stream_ctx = _make_stream_mock(["Hello", " world"])
+        mock_response = _make_create_response("Hello world")
 
         mock_client = MagicMock()
-        mock_client.messages.stream.return_value = mock_stream_ctx
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
         with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
             resp = await knowledge_client.post(
@@ -383,10 +375,13 @@ class TestChat:
         assert events[1]["type"] == "start-step"
 
         # Should have text-start, text-delta(s), text-end
+        text_starts = [e for e in events if e["type"] == "text-start"]
+        assert len(text_starts) == 1
         text_deltas = [e for e in events if e["type"] == "text-delta"]
-        assert len(text_deltas) >= 2
-        assert text_deltas[0]["delta"] == "Hello"
-        assert text_deltas[1]["delta"] == " world"
+        assert len(text_deltas) >= 1
+        # Reconstruct full text from deltas
+        full_text = "".join(e["delta"] for e in text_deltas)
+        assert full_text == "Hello world"
 
         # Should end with finish-step + finish
         assert events[-2]["type"] == "finish-step"
@@ -396,10 +391,10 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_with_history(self, knowledge_client):
         """POST /chat accepts conversation history."""
-        mock_stream_ctx = _make_stream_mock(["OK"])
+        mock_response = _make_create_response("OK")
 
         mock_client = MagicMock()
-        mock_client.messages.stream.return_value = mock_stream_ctx
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
         with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
             resp = await knowledge_client.post(
@@ -416,25 +411,14 @@ class TestChat:
         assert resp.status_code == 200
 
         # Verify messages passed to Claude include history
-        call_kwargs = mock_client.messages.stream.call_args[1]
+        call_kwargs = mock_client.messages.create.call_args[1]
         assert len(call_kwargs["messages"]) == 3  # 2 history + 1 new
 
     @pytest.mark.asyncio
     async def test_chat_error_handling(self, knowledge_client):
         """POST /chat handles API errors gracefully."""
-        mock_stream_ctx = MagicMock()
-
-        async def aenter_error(*_args):
-            raise Exception("API key invalid")
-
-        async def aexit_noop(*_args):
-            return False
-
-        mock_stream_ctx.__aenter__ = aenter_error
-        mock_stream_ctx.__aexit__ = aexit_noop
-
         mock_client = MagicMock()
-        mock_client.messages.stream.return_value = mock_stream_ctx
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API key invalid"))
 
         with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
             resp = await knowledge_client.post(
@@ -453,3 +437,46 @@ class TestChat:
         finish_events = [e for e in events if e["type"] == "finish"]
         assert len(finish_events) == 1
         assert finish_events[0]["finishReason"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_chat_tool_use_loop(self, knowledge_client):
+        """POST /chat executes agentic tool-use loop before final response."""
+        # First call returns tool_use, second returns final text
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.name = "search_facts"
+        tool_block.input = {"subject": "Alice", "predicate": "WORKS_AT"}
+        tool_block.id = "tu_1"
+
+        tool_response = MagicMock()
+        tool_response.stop_reason = "tool_use"
+        tool_response.content = [tool_block]
+
+        final_response = _make_create_response("Alice works at Acme Corp.")
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=[tool_response, final_response],
+        )
+
+        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+            resp = await knowledge_client.post(
+                "/api/knowledge/chat",
+                json={"message": "Where does Alice work?"},
+            )
+
+        assert resp.status_code == 200
+        events = self._parse_sse_events(resp.text)
+
+        # Should have called create twice (tool turn + final)
+        assert mock_client.messages.create.call_count == 2
+
+        # Second call should include tool results
+        second_call = mock_client.messages.create.call_args_list[1][1]
+        # Messages should have: user + assistant (tool_use) + user (tool_result)
+        assert len(second_call["messages"]) == 3
+
+        # Final text should be streamed
+        text_deltas = [e for e in events if e["type"] == "text-delta"]
+        full_text = "".join(e["delta"] for e in text_deltas)
+        assert full_text == "Alice works at Acme Corp."

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { entityColor } from "../../lib/colors";
 import type { SharedResources } from "./SharedResources";
 
-const MAX_INSTANCES = 512;
+const MAX_INSTANCES = 2048;
 const DUMMY_MATRIX = new THREE.Matrix4();
 const TEMP_COLOR = new THREE.Color();
 
@@ -109,6 +109,21 @@ export class ActiveTierRenderer {
 
     if (needsUpdate) {
       this.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Set color for a specific node instance */
+  setNodeColor(nodeId: string, r: number, g: number, b: number): void {
+    const slot = this.slotMap.get(nodeId);
+    if (slot === undefined) return;
+    this.mesh.instanceColor!.setXYZ(slot, r, g, b);
+    this.mesh.instanceColor!.needsUpdate = true;
+  }
+
+  /** Iterate all tracked nodes (for bulk color updates) */
+  forEachNode(callback: (nodeId: string, slot: number) => void): void {
+    for (const [nodeId, slot] of this.slotMap) {
+      callback(nodeId, slot);
     }
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useEngramStore } from "../store";
+import { getAuthToken } from "../api/client";
 import type { Episode, EpisodeStatus, GraphDelta, GraphNode, GraphEdge } from "../store/types";
 
 const BASE_DELAY = 1000;
@@ -15,6 +16,8 @@ function backoffDelay(attempt: number): number {
 }
 
 function getWsUrl(): string {
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) return `${envUrl}/ws/dashboard`;
   const loc = window.location;
   const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${loc.host}/ws/dashboard`;
@@ -48,6 +51,50 @@ interface WsEvent {
       accessCount: number;
     }>;
   };
+}
+
+// ── Activation update batching ──
+// Instead of updating the store on every activation.access event,
+// batch updates and flush once per animation frame.
+let _pendingActivationUpdates: Array<{
+  entityId: string;
+  name: string;
+  entityType: string;
+  activation: number;
+  accessedVia: string;
+}> = [];
+let _activationRafId: number | null = null;
+
+/** Exported for testing — flushes pending activation updates synchronously */
+export function _flushActivationBatch() {
+  _activationRafId = null;
+  if (_pendingActivationUpdates.length === 0) return;
+
+  const batch = _pendingActivationUpdates;
+  _pendingActivationUpdates = [];
+
+  const s = useEngramStore.getState();
+  // Add pulses
+  for (const u of batch) {
+    s.addActivationPulse({
+      entityId: u.entityId,
+      name: u.name,
+      entityType: u.entityType,
+      activation: u.activation,
+      accessedVia: u.accessedVia,
+    });
+  }
+  // Batch all node activation updates into one store call
+  s.updateNodeActivations(
+    batch.map((u) => ({ entityId: u.entityId, activation: u.activation })),
+  );
+}
+
+function _queueActivationUpdate(update: typeof _pendingActivationUpdates[0]) {
+  _pendingActivationUpdates.push(update);
+  if (_activationRafId === null) {
+    _activationRafId = requestAnimationFrame(_flushActivationBatch);
+  }
 }
 
 // Exported ref for components to send commands
@@ -102,16 +149,13 @@ function routeEvent(data: WsEvent) {
       break;
     case "activation.access":
       if (data.entityId) {
-        s.addActivationPulse({
+        _queueActivationUpdate({
           entityId: data.entityId,
           name: data.name ?? "",
           entityType: data.entityType ?? "Other",
           activation: data.activation ?? 0,
           accessedVia: data.accessedVia ?? "unknown",
         });
-        s.updateNodeActivations([
-          { entityId: data.entityId, activation: data.activation ?? 0 },
-        ]);
       }
       break;
     case "activation.snapshot":
@@ -145,6 +189,13 @@ function routeEvent(data: WsEvent) {
       s.loadStatus();
       s.loadCycles();
       break;
+    case "intention.created":
+    case "intention.dismissed":
+    case "intention.triggered":
+      if (s.handleIntentionEvent) {
+        s.handleIntentionEvent(data as unknown as Record<string, unknown>);
+      }
+      break;
     case "pong":
       break;
     default:
@@ -165,14 +216,22 @@ export function useWebSocket() {
   useEffect(() => {
     mountedRef.current = true;
 
-    function connect() {
+    async function connect() {
       if (!mountedRef.current) return;
 
       const store = useEngramStore.getState();
       store.setReadyState(attemptRef.current === 0 ? "connecting" : "reconnecting");
       store.setReconnectAttempt(attemptRef.current);
 
-      const ws = new WebSocket(getWsUrl());
+      // Attach auth token as query param (browser WS can't set headers)
+      let wsUrl = getWsUrl();
+      const token = await getAuthToken();
+      if (token) {
+        const sep = wsUrl.includes("?") ? "&" : "?";
+        wsUrl = `${wsUrl}${sep}token=${encodeURIComponent(token)}`;
+      }
+
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       _wsInstance = ws;
 

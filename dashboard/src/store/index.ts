@@ -12,6 +12,7 @@ import { createWsSlice } from "./wsSlice";
 import { createActivationSlice } from "./activationSlice";
 import { createConsolidationSlice } from "./consolidationSlice";
 import { createKnowledgeSlice } from "./knowledgeSlice";
+import { createConversationSlice } from "./conversationSlice";
 
 export const useEngramStore = create<EngramStore>()(
   devtools(
@@ -27,9 +28,19 @@ export const useEngramStore = create<EngramStore>()(
         ...createActivationSlice(...a),
         ...createConsolidationSlice(...a),
         ...createKnowledgeSlice(...a),
+        ...createConversationSlice(...a),
       })),
       {
         name: "engram-dashboard",
+        version: 2,
+        migrate: (persisted: unknown, version: number) => {
+          const state = persisted as Record<string, unknown>;
+          if (version < 2) {
+            // Raise graphMaxNodes — LOD now handles visibility budgeting
+            state.graphMaxNodes = 50000;
+          }
+          return state;
+        },
         partialize: (s) => ({
           currentView: s.currentView,
           renderMode: s.renderMode,

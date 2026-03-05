@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -25,17 +26,28 @@ class FalkorDBConfig(BaseModel):
     port: int = 6380
     password: str = ""
     graph_name: str = "engram"
+    ssl: bool = False
+    ssl_ca_cert: str = ""
 
 
 class RedisConfig(BaseModel):
     url: str = "redis://localhost:6381/0"
     password: str = ""
+    ssl_cert_reqs: str = ""  # "required" | "optional" | "none"
+
+
+class PostgreSQLConfig(BaseModel):
+    dsn: str = ""  # postgresql://user:pass@host:5432/engram
+    min_pool_size: int = 2
+    max_pool_size: int = 10
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "voyage"
+    provider: str = "voyage"  # "voyage" | "local" | "noop"
     model: str = "voyage-4-lite"
+    local_model: str = "nomic-ai/nomic-embed-text-v1.5"  # fastembed model
     dimensions: int = 1024
+    storage_dimensions: int = 0  # 0 = same as native dimension (no truncation)
     api_key: str = ""
     batch_size: int = 64
     fts_weight: float = 0.3
@@ -49,6 +61,20 @@ class AuthConfig(BaseModel):
     enabled: bool = False
     bearer_token: str = ""
     default_group_id: str = "default"
+    # OIDC (Clerk) settings
+    oidc_enabled: bool = False
+    oidc_issuer: str = ""  # https://clerk.your-app.com
+    oidc_audience: str = ""  # engram-api
+    oidc_group_claim: str = "org_id"  # JWT claim → group_id
+
+
+class RateLimitConfig(BaseModel):
+    enabled: bool = False
+    observe_per_min: int = 100
+    remember_per_min: int = 20
+    recall_per_min: int = 60
+    trigger_per_hour: int = 2
+    chat_per_min: int = 10
 
 
 class EncryptionConfig(BaseModel):
@@ -60,6 +86,7 @@ class CORSConfig(BaseModel):
     allowed_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://localhost:5173"]
     )
+    production_origin: str = ""  # e.g. "https://engram-dashboard.vercel.app"
 
 
 class ActivationConfig(BaseModel):
@@ -98,7 +125,7 @@ class ActivationConfig(BaseModel):
     ppr_expansion_hops: int = Field(default=3, ge=1, le=6)
 
     # --- Thompson Sampling ---
-    ts_enabled: bool = Field(default=False)
+    ts_enabled: bool = Field(default=True)
     ts_weight: float = Field(default=0.08, ge=0.0, le=0.5)
     ts_positive_increment: float = Field(default=1.0, gt=0.0)
     ts_negative_increment: float = Field(default=1.0, gt=0.0)
@@ -116,14 +143,14 @@ class ActivationConfig(BaseModel):
     use_rrf: bool = Field(default=True)
 
     # --- Community-aware spreading ---
-    community_spreading_enabled: bool = Field(default=False)
+    community_spreading_enabled: bool = Field(default=True)
     community_bridge_boost: float = Field(default=1.5, ge=1.0, le=3.0)
     community_intra_dampen: float = Field(default=0.7, ge=0.1, le=1.0)
     community_stale_seconds: float = Field(default=300.0, ge=10.0, le=3600.0)
     community_max_iterations: int = Field(default=10, ge=1, le=50)
 
     # --- Multi-pool candidate generation ---
-    multi_pool_enabled: bool = Field(default=False)
+    multi_pool_enabled: bool = Field(default=True)
     pool_search_limit: int = Field(default=30, ge=5, le=200)
     pool_activation_limit: int = Field(default=20, ge=5, le=100)
     pool_graph_seed_count: int = Field(default=10, ge=1, le=50)
@@ -134,19 +161,21 @@ class ActivationConfig(BaseModel):
     pool_total_limit: int = Field(default=80, ge=20, le=1000)
 
     # --- Re-ranker ---
-    reranker_enabled: bool = Field(default=False)
+    reranker_enabled: bool = Field(default=True)
+    reranker_provider: str = Field(default="local", pattern="^(cohere|local|noop)$")
+    reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")
     reranker_top_n: int = Field(default=10, ge=1, le=50)
 
     # --- MMR diversity ---
-    mmr_enabled: bool = Field(default=False)
+    mmr_enabled: bool = Field(default=True)
     mmr_lambda: float = Field(default=0.7, ge=0.0, le=1.0)
 
     # --- Implicit feedback ---
-    feedback_enabled: bool = Field(default=False)
+    feedback_enabled: bool = Field(default=True)
     feedback_ttl_days: int = Field(default=90, ge=1, le=365)
 
     # --- Context-gated spreading ---
-    context_gating_enabled: bool = Field(default=False)
+    context_gating_enabled: bool = Field(default=True)
     context_gate_floor: float = Field(default=0.3, ge=0.0, le=1.0)
 
     # --- Structure-aware embeddings ---
@@ -184,6 +213,7 @@ class ActivationConfig(BaseModel):
             "PARENT_OF": "parent of",
             "CHILD_OF": "child of",
             "TREATS": "treats",
+            "TRIGGERED_BY": "triggered by",
         }
     )
     structure_max_relationships: int = Field(default=15, ge=1, le=50)
@@ -232,6 +262,7 @@ class ActivationConfig(BaseModel):
             "PARENT_OF": 0.8,
             "CHILD_OF": 0.8,
             "TREATS": 0.8,
+            "TRIGGERED_BY": 0.9,
         }
     )
     predicate_weight_default: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -243,10 +274,42 @@ class ActivationConfig(BaseModel):
     consolidation_enabled: bool = Field(default=False)
     consolidation_interval_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
     consolidation_dry_run: bool = Field(default=True)
+
+    # --- Three-tier scheduling ---
+    consolidation_tiered_enabled: bool = Field(
+        default=True,
+        description="Run phases at different frequencies (hot/warm/cold tiers)",
+    )
+    consolidation_tier_hot_seconds: float = Field(
+        default=900.0, ge=60.0, le=86400.0,
+        description="Hot tier interval (triage, compact): 15 min default",
+    )
+    consolidation_tier_warm_seconds: float = Field(
+        default=7200.0, ge=300.0, le=86400.0,
+        description="Warm tier interval (merge, infer, reindex): 2 hours default",
+    )
+    consolidation_tier_cold_seconds: float = Field(
+        default=21600.0, ge=1800.0, le=86400.0,
+        description="Cold tier interval (replay, prune, graph_embed, dream): 6 hours default",
+    )
     consolidation_merge_threshold: float = Field(default=0.88, ge=0.5, le=1.0)
     consolidation_merge_max_per_cycle: int = Field(default=50, ge=1, le=500)
     consolidation_merge_require_same_type: bool = Field(default=True)
     consolidation_merge_block_size: int = Field(default=500, ge=50, le=5000)
+
+    # --- Embedding-based merge (ANN candidate pre-filtering) ---
+    consolidation_merge_use_embeddings: bool = Field(
+        default=True,
+        description="Use embedding cosine similarity for merge pre-filtering",
+    )
+    consolidation_merge_embedding_threshold: float = Field(
+        default=0.85, ge=0.5, le=1.0,
+        description="Min cosine similarity to consider entities as merge candidates",
+    )
+    consolidation_merge_embedding_min_coverage: float = Field(
+        default=0.5, ge=0.0, le=1.0,
+        description="Min fraction of entities with embeddings to use ANN approach",
+    )
 
     # --- LLM-assisted merge (borderline candidates) ---
     consolidation_merge_llm_enabled: bool = Field(default=False)
@@ -254,9 +317,28 @@ class ActivationConfig(BaseModel):
     consolidation_merge_llm_model: str = Field(default="claude-haiku-4-5-20251001")
     consolidation_merge_escalation_enabled: bool = Field(default=False)
     consolidation_merge_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
+    consolidation_merge_ann_llm_max: int = Field(
+        default=20, ge=1, le=100,
+        description="Max ANN semantic candidates to send to LLM merge judge per cycle",
+    )
+
+    # --- Multi-signal merge scorer (replaces LLM judge) ---
+    consolidation_merge_multi_signal_enabled: bool = Field(
+        default=True,
+        description="Use multi-signal deterministic scorer instead of LLM for merge decisions",
+    )
+    consolidation_merge_auto_threshold: float = Field(
+        default=0.82, ge=0.5, le=1.0,
+        description="Confidence threshold for auto-merge in multi-signal scorer",
+    )
+    consolidation_merge_reject_threshold: float = Field(
+        default=0.55, ge=0.0, le=1.0,
+        description="Confidence below this = auto-reject in multi-signal scorer",
+    )
+
     consolidation_prune_activation_floor: float = Field(default=0.05, ge=0.0, le=0.5)
-    consolidation_prune_min_age_days: int = Field(default=30, ge=1, le=365)
-    consolidation_prune_min_access_count: int = Field(default=0, ge=0, le=100)
+    consolidation_prune_min_age_days: int = Field(default=14, ge=1, le=365)
+    consolidation_prune_min_access_count: int = Field(default=2, ge=0, le=100)
     consolidation_prune_max_per_cycle: int = Field(default=100, ge=1, le=1000)
     consolidation_infer_cooccurrence_min: int = Field(default=3, ge=2, le=20)
     consolidation_infer_confidence_floor: float = Field(default=0.6, ge=0.1, le=1.0)
@@ -283,6 +365,26 @@ class ActivationConfig(BaseModel):
     consolidation_infer_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
     consolidation_infer_escalation_max_per_cycle: int = Field(default=5, ge=1, le=50)
 
+    # --- Multi-signal infer validation (replaces LLM judge) ---
+    consolidation_infer_auto_validation_enabled: bool = Field(
+        default=True,
+        description="Use multi-signal deterministic scorer instead of LLM for edge validation",
+    )
+    consolidation_infer_auto_approve_threshold: float = Field(
+        default=0.65, ge=0.0, le=1.0,
+        description="Score threshold for auto-approving inferred edges",
+    )
+    consolidation_infer_auto_reject_threshold: float = Field(
+        default=0.40, ge=0.0, le=1.0,
+        description="Score below this = auto-reject inferred edges",
+    )
+
+    # --- Cross-encoder refinement (Tier 1) ---
+    consolidation_cross_encoder_enabled: bool = Field(
+        default=True,
+        description="Use cross-encoder to refine uncertain merge/infer decisions",
+    )
+
     consolidation_compaction_horizon_days: int = Field(default=90, ge=30, le=365)
     consolidation_compaction_keep_min: int = Field(default=10, ge=5, le=50)
     consolidation_compaction_logarithmic: bool = Field(default=True)
@@ -307,6 +409,20 @@ class ActivationConfig(BaseModel):
     consolidation_dream_max_edge_weight: float = Field(default=3.0, ge=1.0, le=10.0)
     consolidation_dream_min_boost: float = Field(default=0.005, ge=0.0, le=0.1)
 
+    # --- Dream LTD (Long-Term Depression) ---
+    consolidation_dream_ltd_enabled: bool = Field(
+        default=True,
+        description="Decay unboosted edges during dream (LTD analog)",
+    )
+    consolidation_dream_ltd_decay: float = Field(
+        default=0.005, ge=0.001, le=0.1,
+        description="Weight subtracted per cycle from unboosted seed-connected edges",
+    )
+    consolidation_dream_ltd_min_weight: float = Field(
+        default=0.1, ge=0.01, le=1.0,
+        description="Floor weight below which edges are not decayed",
+    )
+
     # --- Dream associations (cross-domain creative connections) ---
     consolidation_dream_associations_enabled: bool = Field(default=False)
     consolidation_dream_assoc_max_per_cycle: int = Field(default=10, ge=1, le=100)
@@ -318,6 +434,10 @@ class ActivationConfig(BaseModel):
     consolidation_dream_assoc_structural_max_hops: int = Field(default=3, ge=1, le=6)
     consolidation_dream_assoc_max_duration_ms: int = Field(default=5000, ge=500, le=30000)
     consolidation_dream_assoc_top_n_per_domain: int = Field(default=20, ge=5, le=200)
+    consolidation_dream_assoc_min_graph_embeddings: int = Field(
+        default=10, ge=0,
+        description="Min graph embeddings required for structural blending in dream associations",
+    )
 
     # --- Pressure-based triggering ---
     consolidation_pressure_enabled: bool = Field(default=False)
@@ -361,6 +481,51 @@ class ActivationConfig(BaseModel):
         description="Model for LLM triage judge",
     )
 
+    # --- Multi-signal triage scorer (replaces LLM judge) ---
+    triage_multi_signal_enabled: bool = Field(
+        default=True,
+        description="Use multi-signal scorer instead of LLM for triage (overrides triage_llm_judge_enabled)",
+    )
+    triage_scorer_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "embedding_surprise": 0.25,
+            "structural_extractability": 0.20,
+            "entity_candidate_count": 0.15,
+            "knowledge_gap": 0.10,
+            "yield_prediction": 0.10,
+            "emotional_salience": 0.10,
+            "novelty": 0.05,
+            "goal_boost": 0.05,
+        },
+        description="Signal weights for multi-signal triage scorer (must sum to ~1.0)",
+    )
+    triage_llm_escalation_enabled: bool = Field(
+        default=True,
+        description="Escalate borderline scores to LLM judge (only when multi-signal enabled)",
+    )
+    triage_llm_escalation_low: float = Field(
+        default=0.35, ge=0.0, le=1.0,
+        description="Lower bound of borderline band for LLM escalation",
+    )
+    triage_llm_escalation_high: float = Field(
+        default=0.55, ge=0.0, le=1.0,
+        description="Upper bound of borderline band for LLM escalation",
+    )
+    triage_llm_escalation_max_per_cycle: int = Field(
+        default=5, ge=0, le=50,
+        description="Max episodes per triage cycle to escalate to LLM",
+    )
+
+    # --- Worker confidence routing ---
+    worker_extract_threshold: float = Field(
+        default=0.70, ge=0.0, le=1.0,
+        description="Worker extracts immediately above this score (no triage needed)",
+    )
+    worker_skip_threshold: float = Field(
+        default=0.15, ge=0.0, le=1.0,
+        description="Worker skips below this score (no triage needed)",
+    )
+
     # --- Identity core ---
     identity_core_enabled: bool = Field(
         default=True, description="Enable identity core protected entity subgraph",
@@ -383,7 +548,7 @@ class ActivationConfig(BaseModel):
     )
     domain_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
-            "personal": ["Person", "Event", "Emotion", "Goal", "Preference", "Habit"],
+            "personal": ["Person", "Event", "Emotion", "Goal", "Preference", "Habit", "Intention"],
             "technical": ["Technology", "Software", "Project"],
             "creative": ["CreativeWork", "Article"],
             "knowledge": ["Concept"],
@@ -391,6 +556,90 @@ class ActivationConfig(BaseModel):
             "spatial": ["Organization", "Location"],
         },
         description="Entity type to topic domain mapping for cross-domain penalty",
+    )
+
+    # --- Inhibitory spreading (Brain Architecture) ---
+    inhibitory_spreading_enabled: bool = Field(
+        default=False, description="Enable inhibitory spreading activation",
+    )
+    inhibit_strength: float = Field(
+        default=0.3, ge=0.0, le=1.0, description="Strength of lateral inhibition",
+    )
+    inhibit_similarity_threshold: float = Field(
+        default=0.6, ge=0.0, le=1.0, description="Min cosine similarity for lateral inhibition",
+    )
+    inhibit_max_seed_anchors: int = Field(
+        default=5, ge=1, le=20, description="Max seed entities for inhibition anchoring",
+    )
+    inhibition_predicate_suppression: bool = Field(
+        default=True, description="Suppress contradictory predicate groups",
+    )
+
+    # --- Goal-relevance gating (Brain Architecture) ---
+    goal_priming_enabled: bool = Field(
+        default=False, description="Enable goal-priming in retrieval and triage",
+    )
+    goal_priming_boost: float = Field(
+        default=0.10, ge=0.0, le=0.5, description="Spreading activation boost for goal neighbors",
+    )
+    goal_priming_activation_floor: float = Field(
+        default=0.15, ge=0.0, le=1.0,
+        description="Min activation for a goal to be considered active",
+    )
+    goal_priming_max_goals: int = Field(
+        default=5, ge=1, le=20, description="Max active goals to consider",
+    )
+    goal_priming_max_neighbors: int = Field(
+        default=10, ge=1, le=50, description="Max 1-hop neighbors per goal",
+    )
+    goal_priming_cache_ttl_seconds: float = Field(
+        default=60.0, ge=5.0, le=600.0, description="TTL for goal priming cache",
+    )
+    goal_triage_weight: float = Field(
+        default=0.10, ge=0.0, le=0.5, description="Triage score boost for goal-relevant content",
+    )
+    goal_prune_protection: bool = Field(
+        default=True, description="Protect goal-related entities from pruning",
+    )
+
+    # --- Emotional salience (Brain Architecture) ---
+    emotional_salience_enabled: bool = Field(
+        default=True, description="Enable emotional salience scoring (pure regex, no LLM)",
+    )
+    emotional_triage_weight: float = Field(
+        default=0.25, ge=0.0, le=1.0,
+        description="Weight for emotional composite in triage scoring",
+    )
+    emotional_prune_resistance: float = Field(
+        default=0.15, ge=0.0, le=1.0, description="Activation floor boost for emotional entities",
+    )
+    emotional_retrieval_boost: float = Field(
+        default=0.08, ge=0.0, le=0.5, description="Retrieval score boost scaled by emo_composite",
+    )
+    triage_personal_floor: float = Field(
+        default=0.45, ge=0.0, le=1.0, description="Minimum triage score for personal content",
+    )
+    triage_personal_floor_threshold: float = Field(
+        default=0.15, ge=0.0, le=1.0,
+        description="Emotional composite threshold to activate personal floor",
+    )
+
+    # --- State-dependent retrieval (Brain Architecture) ---
+    state_dependent_retrieval_enabled: bool = Field(
+        default=False,
+        description="Enable cognitive state biasing in retrieval",
+    )
+    state_domain_weight: float = Field(
+        default=0.06, ge=0.0, le=0.3,
+        description="Weight for domain affinity bias",
+    )
+    state_arousal_match_weight: float = Field(
+        default=0.04, ge=0.0, le=0.3,
+        description="Weight for arousal level matching",
+    )
+    state_arousal_ema_alpha: float = Field(
+        default=0.3, ge=0.0, le=1.0,
+        description="EMA decay for session arousal tracking",
     )
 
     # --- Context tiers ---
@@ -418,18 +667,276 @@ class ActivationConfig(BaseModel):
         default=300, description="Max tokens for briefing response",
     )
 
+    # --- Recall profile (enables Wave 1-4 features) ---
+    recall_profile: str = Field(
+        default="off", pattern="^(off|wave1|wave2|wave3|wave4|all)$",
+    )
+
     # --- Background episode worker ---
     worker_enabled: bool = Field(default=False, description="Enable background episode worker")
 
+    # --- AutoRecall (piggyback on observe/remember) ---
+    auto_recall_enabled: bool = Field(
+        default=False, description="Enable auto-recall on observe/remember",
+    )
+    auto_recall_limit: int = Field(
+        default=3, ge=1, le=10, description="Max entities returned",
+    )
+    auto_recall_min_score: float = Field(
+        default=0.3, ge=0.0, le=1.0, description="Min composite score",
+    )
+    auto_recall_cooldown_seconds: float = Field(
+        default=60.0, ge=10.0, le=300.0, description="Topic dedup cooldown",
+    )
+    auto_recall_max_per_minute: int = Field(
+        default=3, ge=1, le=10, description="Rate limit per minute",
+    )
+    auto_recall_on_observe: bool = Field(
+        default=True, description="Run auto-recall on observe",
+    )
+    auto_recall_on_remember: bool = Field(
+        default=True, description="Run auto-recall on remember",
+    )
+    auto_recall_session_prime: bool = Field(
+        default=True, description="Auto-prime context on first call",
+    )
+    auto_recall_session_prime_max_tokens: int = Field(
+        default=500, ge=100, le=2000, description="Session prime token budget",
+    )
+
+    # --- Conversation Awareness (Wave 2) ---
+    conv_context_enabled: bool = Field(
+        default=False, description="Enable conversation-context-aware retrieval",
+    )
+    conv_fingerprint_enabled: bool = Field(
+        default=False, description="Enable rolling EMA fingerprint",
+    )
+    conv_fingerprint_alpha: float = Field(
+        default=0.85, ge=0.0, le=1.0, description="EMA decay per turn",
+    )
+    conv_multi_query_enabled: bool = Field(
+        default=False, description="Enable multi-query decomposition",
+    )
+    conv_multi_query_turns: int = Field(
+        default=3, ge=1, le=10, description="Recent turns for topic sub-query",
+    )
+    conv_multi_query_top_entities: int = Field(
+        default=5, ge=1, le=20, description="Top session entities for entity sub-query",
+    )
+    conv_session_entity_seeds_enabled: bool = Field(
+        default=False, description="Inject session entities as spreading seeds",
+    )
+    conv_session_entity_seed_energy: float = Field(
+        default=0.2, ge=0.0, le=1.0, description="Base seed energy for session entities",
+    )
+    conv_near_miss_enabled: bool = Field(
+        default=False, description="Enable near-miss detection",
+    )
+    conv_near_miss_window: int = Field(
+        default=5, ge=1, le=20, description="Number of near-miss candidates to track",
+    )
+    conv_context_rerank_weight: float = Field(
+        default=0.05, ge=0.0, le=0.3, description="Weight for fingerprint context boost",
+    )
+
+    # --- Topic Shift Detection (Wave 3) ---
+    conv_topic_shift_enabled: bool = Field(
+        default=False, description="Enable topic shift detection in conversation",
+    )
+    conv_topic_shift_threshold: float = Field(
+        default=0.60, ge=0.0, le=1.0,
+        description="Cosine similarity threshold below which a topic shift is detected",
+    )
+    conv_topic_shift_recall_boost: int = Field(
+        default=5, ge=3, le=20,
+        description="Number of recall hints on topic shift",
+    )
+
+    # --- Surprise Detection (Wave 3) ---
+    surprise_detection_enabled: bool = Field(
+        default=False, description="Enable surprise connection detection",
+    )
+    surprise_activation_floor: float = Field(
+        default=0.2, ge=0.0, le=1.0,
+        description="Max activation for a neighbor to be considered a surprise",
+    )
+    surprise_dormancy_days: int = Field(
+        default=7, ge=1, le=90,
+        description="Min days since last access for dormancy check",
+    )
+    surprise_edge_weight_min: float = Field(
+        default=0.3, ge=0.0, le=1.0,
+        description="Min edge weight for surprise detection",
+    )
+    surprise_max_per_episode: int = Field(
+        default=3, ge=1, le=10,
+        description="Max surprise connections to cache per episode",
+    )
+    surprise_cache_ttl_seconds: float = Field(
+        default=300.0, ge=30.0, le=3600.0,
+        description="TTL for surprise cache entries",
+    )
+
+    # --- Retrieval Priming (Wave 3) ---
+    retrieval_priming_enabled: bool = Field(
+        default=False, description="Enable retrieval priming (boost 1-hop neighbors)",
+    )
+    retrieval_priming_top_n: int = Field(
+        default=3, ge=1, le=10,
+        description="Number of top results to prime from",
+    )
+    retrieval_priming_boost: float = Field(
+        default=0.15, ge=0.01, le=0.5,
+        description="Base boost for primed entities",
+    )
+    retrieval_priming_ttl_seconds: float = Field(
+        default=30.0, ge=5.0, le=300.0,
+        description="TTL for priming boosts",
+    )
+    retrieval_priming_max_neighbors: int = Field(
+        default=5, ge=1, le=20,
+        description="Max neighbors to prime per result entity",
+    )
+
+    # --- Prospective Memory (Wave 4) ---
+    prospective_memory_enabled: bool = Field(
+        default=False, description="Enable prospective memory trigger matching",
+    )
+    prospective_similarity_threshold: float = Field(
+        default=0.7, ge=0.0, le=1.0, description="Default cosine similarity threshold",
+    )
+    prospective_max_fires: int = Field(
+        default=5, ge=1, le=50, description="Default max fires per intention",
+    )
+    prospective_ttl_days: int = Field(
+        default=90, ge=1, le=365, description="Default TTL for intentions",
+    )
+    prospective_max_per_episode: int = Field(
+        default=3, ge=1, le=10, description="Max triggered intentions per episode",
+    )
+    prospective_activation_threshold: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Default activation threshold for v2 intentions",
+    )
+    prospective_graph_embedded: bool = Field(
+        default=True, description="Use v2 graph-embedded intentions (vs v1 flat table)",
+    )
+    prospective_cooldown_seconds: float = Field(
+        default=300.0, ge=0.0, le=86400.0, description="Min seconds between fires for an intention",
+    )
+    prospective_warmth_levels: list[float] = Field(
+        default_factory=lambda: [0.3, 0.6, 0.8],
+        description="Warmth thresholds: [cool, warming, warm] (>=1.0 is hot)",
+    )
+
+    # --- Graph structural embeddings ---
+    weight_graph_structural: float = Field(default=0.1, ge=0.0, le=1.0)
+
+    # --- Graph embedding training control ---
+    graph_embedding_retrain_threshold: float = Field(
+        default=0.05, ge=0.0, le=1.0,
+        description="Fraction of entities that must be affected to trigger full retrain",
+    )
+    graph_embedding_stagger_transe: int = Field(
+        default=3, ge=1, le=10,
+        description="Run TransE every Nth consolidation cycle",
+    )
+    graph_embedding_stagger_gnn: int = Field(
+        default=5, ge=1, le=10,
+        description="Run GNN every Nth consolidation cycle",
+    )
+
+    # Node2Vec
+    graph_embedding_node2vec_enabled: bool = Field(default=True)
+    graph_embedding_node2vec_dimensions: int = Field(default=64, ge=16, le=256)
+    graph_embedding_node2vec_walk_length: int = Field(default=20, ge=5, le=100)
+    graph_embedding_node2vec_num_walks: int = Field(default=10, ge=1, le=50)
+    graph_embedding_node2vec_p: float = Field(default=1.0, ge=0.1, le=10.0)
+    graph_embedding_node2vec_q: float = Field(default=1.0, ge=0.1, le=10.0)
+    graph_embedding_node2vec_window: int = Field(default=5, ge=2, le=15)
+    graph_embedding_node2vec_epochs: int = Field(default=5, ge=1, le=20)
+    graph_embedding_node2vec_min_entities: int = Field(default=50, ge=10)
+
+    # TransE
+    graph_embedding_transe_enabled: bool = Field(default=True)
+    graph_embedding_transe_dimensions: int = Field(default=64, ge=16, le=256)
+    graph_embedding_transe_margin: float = Field(default=1.0, ge=0.1, le=10.0)
+    graph_embedding_transe_lr: float = Field(default=0.01, ge=0.001, le=0.1)
+    graph_embedding_transe_epochs: int = Field(default=100, ge=10, le=1000)
+    graph_embedding_transe_negative_samples: int = Field(default=10, ge=1, le=50)
+    graph_embedding_transe_batch_size: int = Field(default=128, ge=32, le=1024)
+    graph_embedding_transe_min_triples: int = Field(default=100, ge=20)
+
+    # GNN (GraphSAGE)
+    graph_embedding_gnn_enabled: bool = Field(default=True)
+    graph_embedding_gnn_hidden_dim: int = Field(default=128, ge=32, le=512)
+    graph_embedding_gnn_output_dim: int = Field(default=64, ge=16, le=256)
+    graph_embedding_gnn_layers: int = Field(default=2, ge=1, le=4)
+    graph_embedding_gnn_lr: float = Field(default=0.001, ge=0.0001, le=0.01)
+    graph_embedding_gnn_epochs: int = Field(default=50, ge=5, le=500)
+    graph_embedding_gnn_min_entities: int = Field(default=200, ge=50)
+
+    # --- Memory maturation (Brain Architecture Phase 2A) ---
+    memory_maturation_enabled: bool = False
+    maturation_transitional_threshold: float = 0.42
+    maturation_semantic_threshold: float = 0.70
+    maturation_min_age_days: int = 7
+    maturation_min_cycles: int = 5
+    maturation_max_per_cycle: int = 50
+    maturation_source_weight: float = 0.30
+    maturation_temporal_weight: float = 0.25
+    maturation_richness_weight: float = 0.25
+    maturation_regularity_weight: float = 0.20
+    # Differential decay
+    decay_exponent_episodic: float = 0.5
+    decay_exponent_semantic: float = 0.3
+    # Episode transition
+    episode_transition_enabled: bool = False
+    episode_transitional_coverage: float = 0.50
+    episode_semantic_coverage: float = 0.85
+    episode_transitional_min_cycles: int = 2
+    episode_semantic_min_cycles: int = 5
+    episode_transition_max_per_cycle: int = 20
+    # Prune interaction
+    episodic_prune_age_days: int = 14
+    semantic_prune_age_days: int = 180
+
+    # --- Reconsolidation (Brain Architecture Phase 2B) ---
+    reconsolidation_enabled: bool = False
+    reconsolidation_window_seconds: float = 300.0
+    reconsolidation_max_modifications: int = 3
+    reconsolidation_max_entries: int = 50
+    reconsolidation_overlap_threshold: float = 0.10
+
+    # --- Schema Formation (Brain Architecture Phase 3) ---
+    schema_formation_enabled: bool = False
+    schema_min_instances: int = 5
+    schema_min_edges: int = 2
+    schema_max_per_cycle: int = 5
+    schema_max_entities_scan: int = 500
+
+    # --- GC-MMR (Wave 3) ---
+    gc_mmr_enabled: bool = Field(
+        default=False, description="Enable graph-connected MMR re-ranking",
+    )
+    gc_mmr_lambda_relevance: float = Field(
+        default=0.7, ge=0.0, le=1.0,
+        description="Relevance weight in GC-MMR",
+    )
+    gc_mmr_lambda_diversity: float = Field(
+        default=0.2, ge=0.0, le=1.0,
+        description="Diversity penalty weight in GC-MMR",
+    )
+    gc_mmr_lambda_connectivity: float = Field(
+        default=0.1, ge=0.0, le=1.0,
+        description="Graph connectivity bonus weight in GC-MMR",
+    )
+
     def model_post_init(self, __context: object) -> None:
-        """Apply consolidation profile presets."""
+        """Apply consolidation and recall profile presets."""
         profile = self.consolidation_profile
 
         def _set(field: str, value: object) -> None:
             object.__setattr__(self, field, value)
-
-        if profile == "off":
-            return
 
         if profile == "observe":
             _set("consolidation_enabled", True)
@@ -440,16 +947,22 @@ class ActivationConfig(BaseModel):
             _set("consolidation_dream_associations_enabled", True)
             _set("triage_enabled", True)
             _set("worker_enabled", True)
+            _set("auto_recall_enabled", True)
         elif profile == "conservative":
             _set("consolidation_enabled", True)
             _set("consolidation_dry_run", False)
             _set("consolidation_merge_threshold", 0.92)
-            _set("consolidation_prune_min_age_days", 60)
+            _set("consolidation_prune_min_age_days", 30)
             _set("consolidation_replay_enabled", True)
             _set("consolidation_dream_enabled", True)
             _set("triage_enabled", True)
             _set("triage_extract_ratio", 0.25)
             _set("worker_enabled", True)
+            _set("inhibitory_spreading_enabled", True)
+            _set("goal_priming_enabled", True)
+            _set("state_dependent_retrieval_enabled", True)
+            _set("memory_maturation_enabled", True)
+            _set("episode_transition_enabled", True)
         elif profile == "standard":
             _set("consolidation_enabled", True)
             _set("consolidation_dry_run", False)
@@ -461,13 +974,65 @@ class ActivationConfig(BaseModel):
             _set("triage_enabled", True)
             _set("triage_extract_ratio", 0.35)
             _set("worker_enabled", True)
-            # LLM features
-            _set("triage_llm_judge_enabled", True)
-            _set("consolidation_infer_llm_enabled", True)
-            _set("consolidation_infer_escalation_enabled", True)
-            _set("consolidation_merge_llm_enabled", True)
-            _set("consolidation_merge_escalation_enabled", True)
+            _set("auto_recall_enabled", True)
+            _set("inhibitory_spreading_enabled", True)
+            _set("goal_priming_enabled", True)
+            _set("state_dependent_retrieval_enabled", True)
+            # Multi-signal triage replaces LLM judge (zero API cost)
+            _set("triage_multi_signal_enabled", True)
+            _set("triage_llm_judge_enabled", False)
+            _set("triage_llm_escalation_enabled", True)
+            # Multi-signal scorers replace LLM judges (zero API cost)
+            _set("consolidation_merge_multi_signal_enabled", True)
+            _set("consolidation_infer_auto_validation_enabled", True)
+            # LLM judges disabled when multi-signal is active (kept as opt-in fallback)
+            _set("consolidation_merge_llm_enabled", False)
+            _set("consolidation_merge_escalation_enabled", False)
+            _set("consolidation_infer_llm_enabled", False)
+            _set("consolidation_infer_escalation_enabled", False)
             _set("consolidation_dream_associations_enabled", True)
+            _set("graph_embedding_node2vec_enabled", True)
+            _set("weight_graph_structural", 0.1)
+            _set("memory_maturation_enabled", True)
+            _set("episode_transition_enabled", True)
+            _set("reconsolidation_enabled", True)
+            _set("schema_formation_enabled", True)
+
+        # --- Recall profile presets (cumulative) ---
+        rp = self.recall_profile
+        if rp != "off":
+            # Wave 1: AutoRecall
+            _set("auto_recall_enabled", True)
+            _set("auto_recall_on_observe", True)
+            _set("auto_recall_on_remember", True)
+            _set("auto_recall_session_prime", True)
+
+        if rp in ("wave2", "wave3", "wave4", "all"):
+            # Wave 2: Conversation Awareness
+            _set("conv_context_enabled", True)
+            _set("conv_fingerprint_enabled", True)
+            _set("conv_multi_query_enabled", True)
+            _set("conv_session_entity_seeds_enabled", True)
+            _set("conv_near_miss_enabled", True)
+
+        if rp in ("wave3", "wave4", "all"):
+            # Wave 3: Proactive Intelligence
+            _set("conv_topic_shift_enabled", True)
+            _set("surprise_detection_enabled", True)
+            _set("retrieval_priming_enabled", True)
+            _set("gc_mmr_enabled", True)
+
+        if rp in ("wave4", "all"):
+            # Wave 4: Prospective Memory
+            _set("prospective_memory_enabled", True)
+
+        # --- Guard: disable LLM features if no API key (only for profile-set) ---
+        if profile in ("standard",) and not os.environ.get("ANTHROPIC_API_KEY"):
+            _set("triage_llm_judge_enabled", False)
+            _set("consolidation_infer_llm_enabled", False)
+            _set("consolidation_infer_escalation_enabled", False)
+            _set("consolidation_merge_llm_enabled", False)
+            _set("consolidation_merge_escalation_enabled", False)
 
 
 class EngramConfig(BaseSettings):
@@ -492,10 +1057,12 @@ class EngramConfig(BaseSettings):
     sqlite: SQLiteConfig = Field(default_factory=SQLiteConfig)
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    postgres: PostgreSQLConfig = Field(default_factory=PostgreSQLConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     encryption: EncryptionConfig = Field(default_factory=EncryptionConfig)
     cors: CORSConfig = Field(default_factory=CORSConfig)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     activation: ActivationConfig = Field(default_factory=ActivationConfig)
 
     def get_sqlite_path(self) -> Path:

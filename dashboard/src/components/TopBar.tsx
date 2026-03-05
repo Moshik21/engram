@@ -1,13 +1,14 @@
 import { useEngramStore } from "../store";
+import { useNodeCount, useEdgeCount, useNodeById } from "../store/graphSelectors";
 import { GraphControls } from "./GraphControls";
 import { TimeScrubber } from "./TimeScrubber";
 
 export function TopBar() {
   const centerNodeId = useEngramStore((s) => s.centerNodeId);
-  const nodes = useEngramStore((s) => s.nodes);
-  const edges = useEngramStore((s) => s.edges);
+  const nodeCount = useNodeCount();
+  const edgeCount = useEdgeCount();
   const currentView = useEngramStore((s) => s.currentView);
-  const centerNode = centerNodeId ? nodes[centerNodeId] : null;
+  const centerNode = useNodeById(centerNodeId);
 
   const showGraphControls =
     currentView === "graph" || currentView === "timeline";
@@ -85,7 +86,7 @@ export function TopBar() {
           className="mono tabular-nums"
           style={{ fontSize: 11, color: "var(--accent)", fontWeight: 500 }}
         >
-          {Object.keys(nodes).length}
+          {nodeCount}
         </span>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           nodes
@@ -97,7 +98,7 @@ export function TopBar() {
           className="mono tabular-nums"
           style={{ fontSize: 11, color: "var(--info)", fontWeight: 500 }}
         >
-          {Object.keys(edges).length}
+          {edgeCount}
         </span>
         <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
           edges

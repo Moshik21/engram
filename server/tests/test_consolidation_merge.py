@@ -361,3 +361,165 @@ class TestEntityMergePhase:
         survivor_state = await activation.get_activation(survivor_id)
         # Survivor (e2, higher access_count) should have combined cs
         assert survivor_state.consolidated_strength == pytest.approx(2.5 + 3.7)
+
+
+class TestMergeANNEmbeddings:
+    """Tests for embedding-based ANN candidate pre-filtering."""
+
+    @pytest.mark.asyncio
+    async def test_ann_finds_duplicates_via_embeddings(self, store, activation, search):
+        """When embeddings are available, ANN path should find duplicates."""
+        e1 = _entity("John Smith")
+        e2 = _entity("john smith")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        # Mock search index that returns embeddings — similar entities get similar vectors
+        class MockSearchWithEmbeddings:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def get_entity_embeddings(self, entity_ids, group_id=None):
+                result = {}
+                for eid in entity_ids:
+                    if eid == e1.id:
+                        result[eid] = [1.0, 0.0, 0.0] * 10  # 30-dim
+                    elif eid == e2.id:
+                        result[eid] = [0.99, 0.01, 0.0] * 10  # Very similar
+                return result
+
+            async def remove(self, entity_id):
+                await self._inner.remove(entity_id)
+
+        mock_search = MockSearchWithEmbeddings(search)
+        cfg = ActivationConfig(
+            consolidation_merge_threshold=0.85,
+            consolidation_merge_use_embeddings=True,
+            consolidation_merge_embedding_threshold=0.85,
+            consolidation_merge_embedding_min_coverage=0.5,
+        )
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=mock_search,
+            cfg=cfg,
+            cycle_id="cyc_ann",
+            dry_run=False,
+        )
+
+        assert result.items_affected == 1
+        assert len(records) == 1
+
+    @pytest.mark.asyncio
+    async def test_ann_skips_dissimilar_entities(self, store, activation, search):
+        """ANN should not return pairs with low embedding similarity."""
+        e1 = _entity("Alice Johnson")
+        e2 = _entity("Bob Williams")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        class MockSearchWithEmbeddings:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def get_entity_embeddings(self, entity_ids, group_id=None):
+                result = {}
+                for eid in entity_ids:
+                    if eid == e1.id:
+                        result[eid] = [1.0, 0.0, 0.0] * 10  # Orthogonal
+                    elif eid == e2.id:
+                        result[eid] = [0.0, 1.0, 0.0] * 10
+                return result
+
+            async def remove(self, entity_id):
+                await self._inner.remove(entity_id)
+
+        mock_search = MockSearchWithEmbeddings(search)
+        cfg = ActivationConfig(
+            consolidation_merge_threshold=0.85,
+            consolidation_merge_use_embeddings=True,
+            consolidation_merge_embedding_threshold=0.85,
+        )
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=mock_search,
+            cfg=cfg,
+            cycle_id="cyc_ann2",
+            dry_run=False,
+        )
+
+        # Embeddings are orthogonal — no candidates, no merges
+        assert result.items_affected == 0
+        assert result.items_processed == 0
+
+    @pytest.mark.asyncio
+    async def test_ann_falls_back_on_low_coverage(self, store, activation, search):
+        """Should fall back to O(N²) when embedding coverage is too low."""
+        e1 = _entity("John Smith")
+        e2 = _entity("john smith")
+        e3 = _entity("Alice Jones")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+        await store.create_entity(e3)
+
+        class MockSearchLowCoverage:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def get_entity_embeddings(self, entity_ids, group_id=None):
+                # Only 1 out of 3 entities has embeddings (33% < 50%)
+                return {e1.id: [1.0, 0.0, 0.0] * 10}
+
+            async def remove(self, entity_id):
+                await self._inner.remove(entity_id)
+
+        mock_search = MockSearchLowCoverage(search)
+        cfg = ActivationConfig(
+            consolidation_merge_threshold=0.85,
+            consolidation_merge_use_embeddings=True,
+            consolidation_merge_embedding_min_coverage=0.5,
+        )
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=mock_search,
+            cfg=cfg,
+            cycle_id="cyc_fallback",
+            dry_run=False,
+        )
+
+        # Should fall back to O(N²) and still find the duplicate
+        assert result.items_affected == 1
+
+    @pytest.mark.asyncio
+    async def test_ann_disabled_uses_fallback(self, store, activation, search):
+        """When use_embeddings=False, should use O(N²) path."""
+        e1 = _entity("John Smith")
+        e2 = _entity("john smith")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        cfg = ActivationConfig(
+            consolidation_merge_threshold=0.85,
+            consolidation_merge_use_embeddings=False,
+        )
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_disabled",
+            dry_run=False,
+        )
+
+        assert result.items_affected == 1
+        assert result.items_processed > 0  # O(N²) pairs checked

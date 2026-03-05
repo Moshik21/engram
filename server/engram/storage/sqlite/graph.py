@@ -13,6 +13,7 @@ from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
+from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +342,25 @@ class SQLiteGraphStore:
         rows = await cursor.fetchall()
         return [self._row_to_relationship(r) for r in rows]
 
+    async def find_existing_relationship(
+        self,
+        source_id: str,
+        target_id: str,
+        predicate: str,
+        group_id: str,
+    ) -> Relationship | None:
+        """Find an active relationship matching (source, target, predicate)."""
+        cursor = await self.db.execute(
+            """SELECT * FROM relationships
+               WHERE source_id = ? AND target_id = ? AND predicate = ?
+                 AND group_id = ?
+                 AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))
+               LIMIT 1""",
+            (source_id, target_id, predicate, group_id),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_relationship(row) if row else None
+
     async def get_relationships_at(
         self,
         entity_id: str,
@@ -441,6 +461,61 @@ class SQLiteGraphStore:
             results.append((entity, rel))
         return results
 
+    async def get_all_edges(
+        self,
+        group_id: str,
+        entity_ids: set[str] | None = None,
+        limit: int = 10000,
+    ) -> list[Relationship]:
+        """Return all active edges for a group, optionally filtered to a set of entity IDs."""
+        conditions = [
+            "(valid_to IS NULL OR datetime(valid_to) > datetime('now'))",
+            "group_id = ?",
+        ]
+        params: list = [group_id]
+
+        if entity_ids is not None:
+            placeholders = ",".join("?" for _ in entity_ids)
+            conditions.append(f"source_id IN ({placeholders})")
+            conditions.append(f"target_id IN ({placeholders})")
+            params.extend(entity_ids)
+            params.extend(entity_ids)
+
+        params.append(limit)
+        where = " AND ".join(conditions)
+        cursor = await self.db.execute(
+            f"""SELECT id, source_id, target_id, predicate, weight,
+                       valid_from, valid_to, created_at, source_episode,
+                       group_id, confidence, polarity
+                FROM relationships
+                WHERE {where}
+                LIMIT ?""",
+            params,
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            polarity = "positive"
+            if "polarity" in row.keys() and row["polarity"]:
+                polarity = row["polarity"]
+            results.append(
+                Relationship(
+                    id=row["id"],
+                    source_id=row["source_id"],
+                    target_id=row["target_id"],
+                    predicate=row["predicate"],
+                    weight=row["weight"],
+                    valid_from=_parse_dt(row["valid_from"]),
+                    valid_to=_parse_dt(row["valid_to"]),
+                    created_at=_parse_dt(row["created_at"]) or datetime.utcnow(),
+                    confidence=row["confidence"] if "confidence" in row.keys() else 1.0,
+                    polarity=polarity,
+                    source_episode=row["source_episode"],
+                    group_id=row["group_id"],
+                )
+            )
+        return results
+
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
     ) -> list[tuple[str, float, str, str]]:
@@ -491,8 +566,10 @@ class SQLiteGraphStore:
         await self.db.execute(
             """INSERT INTO episodes
                (id, content, source, status, group_id, session_id, created_at,
-                updated_at, error, retry_count, processing_duration_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                updated_at, error, retry_count, processing_duration_ms,
+                encoding_context, memory_tier, consolidation_cycles,
+                entity_coverage)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 episode.id,
                 content,
@@ -505,6 +582,10 @@ class SQLiteGraphStore:
                 episode.error,
                 episode.retry_count,
                 episode.processing_duration_ms,
+                episode.encoding_context,
+                episode.memory_tier,
+                episode.consolidation_cycles,
+                episode.entity_coverage,
             ),
         )
         await self.db.commit()
@@ -792,8 +873,9 @@ class SQLiteGraphStore:
         group_id: str,
         min_age_days: int = 30,
         limit: int = 100,
+        max_access_count: int = 0,
     ) -> list[Entity]:
-        """Find entities with zero relationships and zero access."""
+        """Find entities with no relationships and low access."""
         cutoff = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         from datetime import timedelta
 
@@ -806,14 +888,16 @@ class SQLiteGraphStore:
             AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now')) AND r.group_id = ?
         WHERE e.group_id = ?
           AND e.deleted_at IS NULL
-          AND e.access_count = 0
+          AND e.access_count <= ?
           AND e.created_at < ?
           AND COALESCE(e.identity_core, 0) = 0
           AND r.id IS NULL
-        ORDER BY e.created_at ASC
+        ORDER BY e.access_count ASC, e.created_at ASC
         LIMIT ?
         """
-        cursor = await self.db.execute(sql, (group_id, group_id, cutoff, limit))
+        cursor = await self.db.execute(
+            sql, (group_id, group_id, max_access_count, cutoff, limit),
+        )
         rows = await cursor.fetchall()
         return [self._row_to_entity(r, group_id) for r in rows]
 
@@ -827,6 +911,46 @@ class SQLiteGraphStore:
         )
         rows = await cursor.fetchall()
         return [self._row_to_entity(r, group_id) for r in rows]
+
+    async def get_entity_episode_count(self, entity_id: str, group_id: str) -> int:
+        """Count episodes that mention this entity."""
+        cursor = await self.db.execute(
+            """SELECT COUNT(*) FROM episode_entities ee
+               JOIN episodes e ON e.id = ee.episode_id
+               WHERE ee.entity_id = ? AND e.group_id = ?""",
+            (entity_id, group_id),
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def get_entity_temporal_span(
+        self, entity_id: str, group_id: str,
+    ) -> tuple[str | None, str | None]:
+        """Return (min_created_at, max_created_at) for episodes mentioning this entity."""
+        cursor = await self.db.execute(
+            """SELECT MIN(e.created_at), MAX(e.created_at)
+               FROM episode_entities ee
+               JOIN episodes e ON e.id = ee.episode_id
+               WHERE ee.entity_id = ? AND e.group_id = ?""",
+            (entity_id, group_id),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return (row[0], row[1])
+        return (None, None)
+
+    async def get_entity_relationship_types(
+        self, entity_id: str, group_id: str,
+    ) -> list[str]:
+        """Return distinct predicates connected to this entity."""
+        cursor = await self.db.execute(
+            """SELECT DISTINCT predicate FROM relationships
+               WHERE (source_id = ? OR target_id = ?) AND group_id = ?
+                 AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))""",
+            (entity_id, entity_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [r[0] for r in rows]
 
     async def merge_entities(
         self,
@@ -854,6 +978,17 @@ class SQLiteGraphStore:
         await self.db.execute(
             "DELETE FROM relationships WHERE source_id = ? AND target_id = ? AND group_id = ?",
             (keep_id, keep_id, group_id),
+        )
+        # Collapse duplicate (source_id, target_id, predicate) triples — keep oldest
+        await self.db.execute(
+            """DELETE FROM relationships WHERE id NOT IN (
+                   SELECT MIN(id) FROM relationships
+                   WHERE (source_id = ? OR target_id = ?) AND group_id = ?
+                     AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))
+                   GROUP BY source_id, target_id, predicate
+               ) AND (source_id = ? OR target_id = ?) AND group_id = ?
+                 AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))""",
+            (keep_id, keep_id, group_id, keep_id, keep_id, group_id),
         )
         # Count transferred relationships
         cursor = await self.db.execute(
@@ -889,14 +1024,23 @@ class SQLiteGraphStore:
         if keep_data and remove_data:
             keep_summary = keep_data["summary"] or ""
             remove_summary = remove_data["summary"] or ""
+            merged_count = keep_data["access_count"] + remove_data["access_count"]
             if remove_summary and remove_summary not in keep_summary:
-                merged = f"{keep_summary} {remove_summary}".strip()
-                merged_count = keep_data["access_count"] + remove_data["access_count"]
-                await self.db.execute(
-                    "UPDATE entities SET summary = ?, access_count = ?, updated_at = ? "
-                    "WHERE id = ? AND group_id = ?",
-                    (merged, merged_count, datetime.utcnow().isoformat(), keep_id, group_id),
-                )
+                if is_meta_summary(remove_summary):
+                    logger.warning(
+                        "Rejected meta-contaminated summary during merge into %s: %s",
+                        keep_id, remove_summary[:80],
+                    )
+                else:
+                    merged = f"{keep_summary} {remove_summary}".strip()
+                    if len(merged) > 500:
+                        merged = merged[:497] + "..."
+                    keep_summary = merged
+            await self.db.execute(
+                "UPDATE entities SET summary = ?, access_count = ?, updated_at = ? "
+                "WHERE id = ? AND group_id = ?",
+                (keep_summary, merged_count, datetime.utcnow().isoformat(), keep_id, group_id),
+            )
 
         # Soft-delete the loser
         await self.db.execute(
@@ -1067,6 +1211,190 @@ class SQLiteGraphStore:
             group_id=row["group_id"],
         )
 
+    # --- Schema Formation (Brain Architecture Phase 3) ---
+
+    async def get_schema_members(
+        self, schema_entity_id: str, group_id: str,
+    ) -> list[dict]:
+        """Fetch schema member definitions for a schema entity."""
+        cursor = await self.db.execute(
+            """SELECT role_label, member_type, member_predicate
+               FROM schema_members
+               WHERE schema_entity_id = ? AND group_id = ?""",
+            (schema_entity_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "role_label": r["role_label"],
+                "member_type": r["member_type"],
+                "member_predicate": r["member_predicate"],
+            }
+            for r in rows
+        ]
+
+    async def save_schema_members(
+        self, schema_entity_id: str, members: list[dict], group_id: str,
+    ) -> None:
+        """Insert or replace schema member rows."""
+        for m in members:
+            await self.db.execute(
+                """INSERT OR REPLACE INTO schema_members
+                   (schema_entity_id, role_label, member_type, member_predicate, group_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    schema_entity_id,
+                    m["role_label"],
+                    m["member_type"],
+                    m["member_predicate"],
+                    group_id,
+                ),
+            )
+        await self.db.commit()
+
+    async def find_entities_by_type(
+        self, entity_type: str, group_id: str, limit: int = 100,
+    ) -> list[Entity]:
+        """Return non-deleted entities of a specific type."""
+        cursor = await self.db.execute(
+            """SELECT * FROM entities
+               WHERE entity_type = ? AND group_id = ? AND deleted_at IS NULL
+               LIMIT ?""",
+            (entity_type, group_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_entity(r, group_id) for r in rows]
+
+    # --- Prospective memory (Wave 4) ---
+
+    async def create_intention(self, intention: object) -> str:
+        """Store a new intention."""
+        from engram.models.prospective import Intention
+
+        i: Intention = intention  # type: ignore[assignment]
+        await self.db.execute(
+            """INSERT INTO intentions
+               (id, trigger_text, action_text, trigger_type, entity_name,
+                threshold, max_fires, fire_count, enabled, group_id,
+                created_at, updated_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                i.id, i.trigger_text, i.action_text, i.trigger_type,
+                i.entity_name, i.threshold, i.max_fires, i.fire_count,
+                1 if i.enabled else 0, i.group_id,
+                i.created_at.isoformat(), i.updated_at.isoformat(),
+                i.expires_at.isoformat() if i.expires_at else None,
+            ),
+        )
+        await self.db.commit()
+        return i.id
+
+    async def get_intention(self, id: str, group_id: str) -> object | None:
+        """Get a single intention by ID and group."""
+        cursor = await self.db.execute(
+            "SELECT * FROM intentions WHERE id = ? AND group_id = ?",
+            (id, group_id),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return self._row_to_intention(row)
+
+    async def list_intentions(
+        self, group_id: str, enabled_only: bool = True,
+    ) -> list:
+        """List intentions for a group, filtering expired and optionally disabled."""
+        if enabled_only:
+            cursor = await self.db.execute(
+                """SELECT * FROM intentions
+                   WHERE group_id = ? AND enabled = 1
+                     AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))
+                   ORDER BY created_at DESC""",
+                (group_id,),
+            )
+        else:
+            cursor = await self.db.execute(
+                "SELECT * FROM intentions WHERE group_id = ? ORDER BY created_at DESC",
+                (group_id,),
+            )
+        rows = await cursor.fetchall()
+        return [self._row_to_intention(r) for r in rows]
+
+    async def update_intention(
+        self, id: str, updates: dict, group_id: str,
+    ) -> None:
+        """Update intention fields."""
+        allowed = {"trigger_text", "action_text", "threshold", "max_fires", "enabled", "expires_at"}
+        parts = []
+        values = []
+        for key, val in updates.items():
+            if key not in allowed:
+                continue
+            if key == "enabled":
+                val = 1 if val else 0
+            parts.append(f"{key} = ?")
+            values.append(val)
+        if not parts:
+            return
+        parts.append("updated_at = ?")
+        values.append(datetime.utcnow().isoformat())
+        values.extend([id, group_id])
+        sql = f"UPDATE intentions SET {', '.join(parts)} WHERE id = ? AND group_id = ?"
+        await self.db.execute(sql, values)
+        await self.db.commit()
+
+    async def delete_intention(
+        self, id: str, group_id: str, soft: bool = True,
+    ) -> None:
+        """Delete an intention (soft = disable, hard = remove)."""
+        if soft:
+            await self.db.execute(
+                "UPDATE intentions SET enabled = 0, updated_at = ? WHERE id = ? AND group_id = ?",
+                (datetime.utcnow().isoformat(), id, group_id),
+            )
+        else:
+            await self.db.execute(
+                "DELETE FROM intentions WHERE id = ? AND group_id = ?",
+                (id, group_id),
+            )
+        await self.db.commit()
+
+    async def increment_intention_fire_count(
+        self, id: str, group_id: str,
+    ) -> None:
+        """Increment fire_count by 1."""
+        await self.db.execute(
+            """UPDATE intentions
+               SET fire_count = fire_count + 1, updated_at = ?
+               WHERE id = ? AND group_id = ?""",
+            (datetime.utcnow().isoformat(), id, group_id),
+        )
+        await self.db.commit()
+
+    def _row_to_intention(self, row) -> object:
+        """Convert a database row to an Intention model."""
+        from engram.models.prospective import Intention
+
+        expires_at = None
+        if row["expires_at"]:
+            expires_at = _parse_dt(row["expires_at"])
+
+        return Intention(
+            id=row["id"],
+            trigger_text=row["trigger_text"],
+            action_text=row["action_text"],
+            trigger_type=row["trigger_type"],
+            entity_name=row["entity_name"],
+            threshold=row["threshold"],
+            max_fires=row["max_fires"],
+            fire_count=row["fire_count"],
+            enabled=bool(row["enabled"]),
+            group_id=row["group_id"],
+            created_at=_parse_dt(row["created_at"]) or datetime.utcnow(),
+            updated_at=_parse_dt(row["updated_at"]) or datetime.utcnow(),
+            expires_at=expires_at,
+        )
+
     def _row_to_episode(self, row, group_id: str | None = None) -> Episode:
         row_group = row["group_id"]
         decrypt_group = group_id or row_group
@@ -1090,6 +1418,22 @@ class SQLiteGraphStore:
             ),
             processing_duration_ms=(
                 row["processing_duration_ms"] if "processing_duration_ms" in keys else None
+            ),
+            encoding_context=(
+                row["encoding_context"] if "encoding_context" in keys else None
+            ),
+            memory_tier=(
+                row["memory_tier"] if "memory_tier" in keys and row["memory_tier"] else "episodic"
+            ),
+            consolidation_cycles=(
+                row["consolidation_cycles"]
+                if "consolidation_cycles" in keys and row["consolidation_cycles"] is not None
+                else 0
+            ),
+            entity_coverage=(
+                row["entity_coverage"]
+                if "entity_coverage" in keys and row["entity_coverage"] is not None
+                else 0.0
             ),
         )
 

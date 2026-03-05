@@ -23,15 +23,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+local = ["fastembed>=0.5.0"]
+gnn = ["torch>=2.0.0"]
 full = [
     "redis[hiredis]>=5.0.0",
     "falkordb>=1.0.0",
     "voyageai>=0.3.0",
+    "asyncpg>=0.29.0",
+    "python-jose[cryptography]>=3.3.0",
+    "prometheus-client>=0.21.0",
+    "torch>=2.0.0",
 ]
 
 [dependency-groups]
 dev = [
-    "engram[full]",
+    "engram[full,local]",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
@@ -67,4 +73,5 @@ testpaths = ["tests"]
 markers = [
     "requires_docker: marks tests requiring Docker services",
     "requires_api_key: marks tests requiring external API keys",
+    "requires_local_embeddings: marks tests requiring fastembed",
 ]

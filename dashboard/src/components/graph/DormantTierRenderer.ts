@@ -31,9 +31,8 @@ export class DormantTierRenderer {
       size: 6,
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.5,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
       vertexColors: true,
     });
 
@@ -106,6 +105,23 @@ export class DormantTierRenderer {
 
     if (needsUpdate) {
       this.points.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  /** Set color for a specific node */
+  setNodeColor(nodeId: string, r: number, g: number, b: number): void {
+    const slot = this.slotMap.get(nodeId);
+    if (slot === undefined) return;
+    this.colors[slot * 3] = r;
+    this.colors[slot * 3 + 1] = g;
+    this.colors[slot * 3 + 2] = b;
+    this.points.geometry.attributes.color.needsUpdate = true;
+  }
+
+  /** Iterate all tracked nodes (for bulk color updates) */
+  forEachNode(callback: (nodeId: string, slot: number) => void): void {
+    for (const [nodeId, slot] of this.slotMap) {
+      callback(nodeId, slot);
     }
   }
 

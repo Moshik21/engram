@@ -143,7 +143,11 @@ class TestTriagePhaseWithLLMJudge:
         manager.project_episode = AsyncMock()
 
         phase = TriagePhase(graph_manager=manager)
-        cfg = _make_cfg(triage_llm_judge_enabled=True, triage_extract_ratio=1.0)
+        cfg = _make_cfg(
+            triage_llm_judge_enabled=True,
+            triage_multi_signal_enabled=False,
+            triage_extract_ratio=1.0,
+        )
 
         result, records = await phase.execute(
             group_id="default",
@@ -200,7 +204,11 @@ class TestTriagePhaseWithLLMJudge:
         manager.project_episode = AsyncMock()
 
         phase = TriagePhase(graph_manager=manager)
-        cfg = _make_cfg(triage_llm_judge_enabled=True, triage_extract_ratio=1.0)
+        cfg = _make_cfg(
+            triage_llm_judge_enabled=True,
+            triage_multi_signal_enabled=False,
+            triage_extract_ratio=1.0,
+        )
 
         result, records = await phase.execute(
             group_id="default",

@@ -30,8 +30,8 @@ class TestConsolidationConfigDefaults:
     def test_prune_defaults(self):
         cfg = ActivationConfig()
         assert cfg.consolidation_prune_activation_floor == 0.05
-        assert cfg.consolidation_prune_min_age_days == 30
-        assert cfg.consolidation_prune_min_access_count == 0
+        assert cfg.consolidation_prune_min_age_days == 14
+        assert cfg.consolidation_prune_min_access_count == 2
         assert cfg.consolidation_prune_max_per_cycle == 100
 
     def test_infer_defaults(self):

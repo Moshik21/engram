@@ -12,12 +12,55 @@ from engram.storage.resolver import EngineMode
 logger = logging.getLogger(__name__)
 
 
+def _create_embedding_provider(config: EngramConfig):
+    """Resolve embedding provider from config with automatic fallback."""
+    from engram.embeddings.provider import NoopProvider, VoyageProvider
+
+    provider_type = config.embedding.provider.lower()
+
+    if provider_type == "voyage":
+        api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
+        if api_key:
+            logger.info("Embedding provider: VoyageProvider (%s)", config.embedding.model)
+            return VoyageProvider(
+                api_key=api_key,
+                model=config.embedding.model,
+                dimensions=config.embedding.dimensions,
+                batch_size=config.embedding.batch_size,
+            )
+        # Fallback: try local if fastembed available
+        logger.warning("No VOYAGE_API_KEY — falling back to local embeddings")
+        provider_type = "local"
+
+    if provider_type == "local":
+        try:
+            from engram.embeddings.provider import FastEmbedProvider
+
+            provider = FastEmbedProvider(model=config.embedding.local_model)
+            # Override dimensions so downstream (e.g. Redis HNSW) uses correct value
+            config.embedding.dimensions = provider.dimension()
+            logger.info(
+                "Embedding provider: FastEmbedProvider (%s, %dd)",
+                config.embedding.local_model,
+                provider.dimension(),
+            )
+            return provider
+        except ImportError:
+            logger.warning(
+                "fastembed not installed — vector search disabled. "
+                "Install with: pip install engram[local]"
+            )
+
+    # noop or fallback
+    logger.info("Embedding provider: NoopProvider (vector search disabled)")
+    return NoopProvider()
+
+
 def create_stores(
     mode: EngineMode, config: EngramConfig
 ) -> tuple[GraphStore, ActivationStore, SearchIndex]:
     """Create the storage backend triple based on mode."""
     if mode == EngineMode.LITE:
-        from engram.embeddings.provider import NoopProvider, VoyageProvider
         from engram.storage.memory.activation import MemoryActivationStore
         from engram.storage.sqlite.graph import SQLiteGraphStore
         from engram.storage.sqlite.hybrid_search import HybridSearchIndex
@@ -32,23 +75,28 @@ def create_stores(
 
             encryptor = FieldEncryptor(config.encryption.master_key)
 
-        # Resolve embedding API key
-        api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
+        provider = _create_embedding_provider(config)
 
-        if api_key:
-            provider = VoyageProvider(
-                api_key=api_key,
-                model=config.embedding.model,
-                dimensions=config.embedding.dimensions,
-                batch_size=config.embedding.batch_size,
-            )
-            logger.info("Embedding provider: VoyageProvider (%s)", config.embedding.model)
-        else:
-            provider = NoopProvider()
+        # Compute effective storage dimension
+        storage_dim = config.embedding.storage_dimensions
+        if storage_dim > 0 and storage_dim >= provider.dimension():
+            storage_dim = 0  # no truncation if storage >= native
+        if storage_dim > 0 and config.embedding.provider == "voyage":
             logger.warning(
-                "No VOYAGE_API_KEY found — vector search disabled. "
-                "Set VOYAGE_API_KEY or ENGRAM_EMBEDDING__API_KEY to enable."
+                "Matryoshka truncation (storage_dimensions=%d) is not supported "
+                "by Voyage models. Only Nomic Embed v1.5 supports this. "
+                "Set ENGRAM_EMBEDDING__STORAGE_DIMENSIONS=0 or use provider=local.",
+                storage_dim,
             )
+
+        # Embedding metadata for versioning
+        provider_type = config.embedding.provider.lower()
+        embed_meta_provider = provider_type
+        embed_meta_model = (
+            config.embedding.model if provider_type == "voyage"
+            else config.embedding.local_model if provider_type == "local"
+            else "noop"
+        )
 
         fts = FTS5SearchIndex(db_path)
         vectors = SQLiteVectorStore(db_path)
@@ -59,6 +107,9 @@ def create_stores(
             provider=provider,
             fts_weight=config.embedding.fts_weight,
             vec_weight=config.embedding.vec_weight,
+            storage_dim=storage_dim,
+            embed_provider=embed_meta_provider,
+            embed_model=embed_meta_model,
         )
 
         return (
@@ -69,7 +120,6 @@ def create_stores(
     else:  # EngineMode.FULL
         import redis.asyncio as aioredis
 
-        from engram.embeddings.provider import NoopProvider, VoyageProvider
         from engram.storage.falkordb.graph import FalkorDBGraphStore
         from engram.storage.redis.activation import RedisActivationStore
         from engram.storage.vector.redis_search import RedisSearchIndex
@@ -83,28 +133,48 @@ def create_stores(
         # Shared Redis client (activation + vector search use same Redis instance)
         # decode_responses=False because embedding vectors are raw bytes
         redis_url = config.redis.url
-        redis_client = aioredis.from_url(redis_url, decode_responses=False)
+        redis_kwargs: dict = {"decode_responses": False}
+        if config.redis.ssl_cert_reqs:
+            import ssl as _ssl
 
-        # Embedding provider (same VoyageProvider/NoopProvider logic as lite mode)
-        api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
-
-        if api_key:
-            provider = VoyageProvider(
-                api_key=api_key,
-                model=config.embedding.model,
-                dimensions=config.embedding.dimensions,
-                batch_size=config.embedding.batch_size,
+            reqs_map = {
+                "required": _ssl.CERT_REQUIRED,
+                "optional": _ssl.CERT_OPTIONAL,
+                "none": _ssl.CERT_NONE,
+            }
+            redis_kwargs["ssl_cert_reqs"] = reqs_map.get(
+                config.redis.ssl_cert_reqs, _ssl.CERT_REQUIRED,
             )
-            logger.info("Embedding provider: VoyageProvider (%s)", config.embedding.model)
-        else:
-            provider = NoopProvider()
+        redis_client = aioredis.from_url(redis_url, **redis_kwargs)
+
+        provider = _create_embedding_provider(config)
+
+        # Compute effective storage dimension
+        storage_dim = config.embedding.storage_dimensions
+        if storage_dim > 0 and storage_dim >= provider.dimension():
+            storage_dim = 0
+        if storage_dim > 0 and config.embedding.provider == "voyage":
             logger.warning(
-                "No VOYAGE_API_KEY found — vector search disabled. "
-                "Set VOYAGE_API_KEY or ENGRAM_EMBEDDING__API_KEY to enable."
+                "Matryoshka truncation (storage_dimensions=%d) is not supported "
+                "by Voyage models. Use provider=local for Matryoshka support.",
+                storage_dim,
             )
+
+        provider_type = config.embedding.provider.lower()
+        embed_meta_provider = provider_type
+        embed_meta_model = (
+            config.embedding.model if provider_type == "voyage"
+            else config.embedding.local_model if provider_type == "local"
+            else "noop"
+        )
 
         return (
             FalkorDBGraphStore(config.falkordb, encryptor=encryptor),
             RedisActivationStore(redis_client, cfg=config.activation),
-            RedisSearchIndex(redis_client, provider=provider, config=config.embedding),
+            RedisSearchIndex(
+                redis_client, provider=provider, config=config.embedding,
+                storage_dim=storage_dim,
+                embed_provider=embed_meta_provider,
+                embed_model=embed_meta_model,
+            ),
         )

@@ -12,6 +12,7 @@ import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
 import { createConsolidationSlice } from "../store/consolidationSlice";
 import { createKnowledgeSlice } from "../store/knowledgeSlice";
+import { createConversationSlice } from "../store/conversationSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -36,6 +37,9 @@ vi.mock("../api/client", () => ({
     observe: vi.fn(),
     remember: vi.fn(),
     forget: vi.fn(),
+    listConversations: vi.fn(),
+    getConversationMessages: vi.fn(),
+    appendConversationMessages: vi.fn(),
   },
 }));
 
@@ -56,6 +60,7 @@ function createTestStore() {
       ...createActivationSlice(...a),
       ...createConsolidationSlice(...a),
       ...createKnowledgeSlice(...a),
+      ...createConversationSlice(...(a as Parameters<typeof createConversationSlice>)),
     })),
   );
 }

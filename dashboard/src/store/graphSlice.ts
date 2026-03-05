@@ -47,7 +47,7 @@ export const createGraphSlice: StateCreator<
 
   expandNode: async (nodeId: string) => {
     try {
-      const data = await api.getNeighbors(nodeId, { depth: 1, maxNodes: 50 });
+      const data = await api.getNeighbors(nodeId, { depth: 1, maxNodes: Math.min(100, get().graphMaxNodes) });
       set((s) => {
         for (const n of data.nodes) {
           if (!s.nodes[n.id]) s.nodes[n.id] = n;

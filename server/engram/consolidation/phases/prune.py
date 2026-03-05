@@ -41,7 +41,20 @@ class PrunePhase(ConsolidationPhase):
             group_id=group_id,
             min_age_days=min_age_days,
             limit=max_prunes,
+            max_access_count=cfg.consolidation_prune_min_access_count,
         )
+
+        # Goal prune protection: identify goal-related entities
+        goal_neighbor_ids: set[str] = set()
+        if cfg.goal_priming_enabled and cfg.goal_prune_protection:
+            from engram.retrieval.goals import identify_active_goals
+
+            active_goals = await identify_active_goals(
+                graph_store, activation_store, group_id, cfg,
+            )
+            for goal in active_goals:
+                goal_neighbor_ids.add(goal.entity_id)
+                goal_neighbor_ids.update(goal.neighbor_ids)
 
         records: list[PruneRecord] = []
         for entity in candidates:
@@ -51,6 +64,10 @@ class PrunePhase(ConsolidationPhase):
             # Skip identity core entities (should already be excluded by query,
             # but double-check in case of storage backend differences)
             if getattr(entity, "identity_core", False) is True:
+                continue
+
+            # Skip goal-related entities
+            if entity.id in goal_neighbor_ids:
                 continue
 
             # Double-check activation (graph store access_count may be stale)
@@ -66,6 +83,35 @@ class PrunePhase(ConsolidationPhase):
                 )
                 if act_level > activation_floor:
                     continue
+
+                # Emotional prune resistance: emotional entities survive with lower activation
+                if cfg.emotional_salience_enabled and cfg.emotional_prune_resistance > 0:
+                    ent_data = await graph_store.get_entity(entity.id, group_id)
+                    if ent_data:
+                        attrs = ent_data.attributes if isinstance(ent_data.attributes, dict) else {}
+                        emo_composite = attrs.get("emo_composite", 0.0)
+                        if isinstance(emo_composite, (int, float)) and emo_composite > 0.5:
+                            adjusted_floor = activation_floor - cfg.emotional_prune_resistance
+                            if act_level > adjusted_floor:
+                                continue
+
+            # Memory tier prune resistance
+            if cfg.memory_maturation_enabled:
+                ent_data_mat = await graph_store.get_entity(entity.id, group_id)
+                if ent_data_mat:
+                    mat_attrs = (
+                        ent_data_mat.attributes
+                        if isinstance(ent_data_mat.attributes, dict)
+                        else {}
+                    )
+                    mat_tier = mat_attrs.get("mat_tier", "episodic")
+                    entity_age_days = (now - entity.created_at.timestamp()) / 86400
+                    if mat_tier == "semantic":
+                        if entity_age_days < cfg.semantic_prune_age_days:
+                            continue
+                    elif mat_tier == "transitional":
+                        if entity_age_days < cfg.episodic_prune_age_days * 2:
+                            continue
 
             if not dry_run:
                 await graph_store.delete_entity(entity.id, soft=True, group_id=group_id)

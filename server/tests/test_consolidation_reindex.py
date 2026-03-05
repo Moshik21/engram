@@ -44,6 +44,9 @@ def activation_store():
 def search_index():
     idx = AsyncMock()
     idx.index_entity = AsyncMock()
+    idx.batch_index_entities = AsyncMock(
+        side_effect=lambda entities: len(entities),
+    )
     return idx
 
 
@@ -121,7 +124,10 @@ class TestReindexPhase:
             context=ctx,
         )
         assert result.items_affected == 1
-        search_index.index_entity.assert_called_once_with(entity)
+        search_index.batch_index_entities.assert_called_once()
+        batch_args = search_index.batch_index_entities.call_args[0][0]
+        assert len(batch_args) == 1
+        assert batch_args[0].id == "ent_1"
         assert records[0].source_phase == "merge"
         assert records[0].entity_name == "Alice"
 
@@ -153,7 +159,9 @@ class TestReindexPhase:
             context=ctx,
         )
         assert result.items_affected == 2
-        assert search_index.index_entity.call_count == 2
+        search_index.batch_index_entities.assert_called_once()
+        batch_args = search_index.batch_index_entities.call_args[0][0]
+        assert len(batch_args) == 2
         phases = {r.source_phase for r in records}
         assert phases == {"infer"}
 
@@ -249,7 +257,8 @@ class TestReindexPhase:
         )
         assert result.items_processed == 2
         assert result.items_affected == 2
-        assert search_index.index_entity.call_count == 2
+        search_index.batch_index_entities.assert_called_once()
+        assert len(search_index.batch_index_entities.call_args[0][0]) == 2
 
     @pytest.mark.asyncio
     async def test_entity_not_found_skipped(
@@ -296,6 +305,11 @@ class TestReindexPhase:
 
         graph_store.get_entity = AsyncMock(
             side_effect=lambda eid, gid: _make_entity(eid),
+        )
+
+        # Force batch to fail so it falls back to one-at-a-time
+        search_index.batch_index_entities = AsyncMock(
+            side_effect=RuntimeError("Batch embedding failed"),
         )
 
         call_count = 0
@@ -351,7 +365,8 @@ class TestReindexPhase:
             context=ctx,
         )
         assert result.items_affected == 1
-        assert search_index.index_entity.call_count == 1
+        search_index.batch_index_entities.assert_called_once()
+        assert len(search_index.batch_index_entities.call_args[0][0]) == 1
         # Source should be "merge" since it's in merge_survivor_ids
         assert records[0].source_phase == "merge"
 

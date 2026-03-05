@@ -106,6 +106,60 @@ class VoyageProvider(EmbeddingProvider):
         await self._client.aclose()
 
 
+class FastEmbedProvider(EmbeddingProvider):
+    """Local embeddings via fastembed (ONNX runtime). No API key required."""
+
+    CACHE_MAX_SIZE = 256
+
+    def __init__(self, model: str = "nomic-ai/nomic-embed-text-v1.5") -> None:
+        from fastembed import TextEmbedding
+
+        self._model = TextEmbedding(model_name=model)
+        self._dimensions: int = self._model.embedding_size  # type: ignore[attr-defined]
+        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
+        logger.info(
+            "FastEmbedProvider ready: model=%s, dim=%d", model, self._dimensions,
+        )
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed texts locally via ONNX. Run in thread pool (CPU-bound)."""
+        if not texts:
+            return []
+        import asyncio
+
+        return await asyncio.to_thread(self._embed_sync, texts)
+
+    def _embed_sync(self, texts: list[str]) -> list[list[float]]:
+        return [vec.tolist() for vec in self._model.embed(texts)]
+
+    async def embed_query(self, text: str) -> list[float]:
+        """Embed query with LRU cache."""
+        if text in self._query_cache:
+            self._query_cache.move_to_end(text)
+            return self._query_cache[text]
+        results = await self.embed([text])
+        vec = results[0] if results else []
+        if vec:
+            self._query_cache[text] = vec
+            if len(self._query_cache) > self.CACHE_MAX_SIZE:
+                self._query_cache.popitem(last=False)
+        return vec
+
+    def dimension(self) -> int:
+        return self._dimensions
+
+
+def truncate_vectors(vectors: list[list[float]], target_dim: int) -> list[list[float]]:
+    """Truncate vectors to target dimension (Matryoshka truncation).
+
+    Only safe for models trained with Matryoshka representation learning
+    (e.g. Nomic Embed v1.5). Voyage vectors do NOT support this.
+    """
+    if not vectors or target_dim <= 0 or target_dim >= len(vectors[0]):
+        return vectors
+    return [v[:target_dim] for v in vectors]
+
+
 class NoopProvider(EmbeddingProvider):
     """Fallback when no API key is configured. Returns empty lists → disables vector search."""
 

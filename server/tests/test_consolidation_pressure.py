@@ -317,6 +317,7 @@ class TestSchedulerPressureIntegration:
 
         cfg = ActivationConfig(
             consolidation_enabled=True,
+            consolidation_tiered_enabled=False,
             consolidation_pressure_enabled=True,
             consolidation_pressure_threshold=10000.0,  # Very high — won't trigger
             consolidation_pressure_cooldown_seconds=30.0,

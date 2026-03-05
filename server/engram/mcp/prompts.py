@@ -29,6 +29,15 @@ this at the start of conversations.
 pruned. When the user shares core personal identity (family members, \
 workplace, home location, persistent preferences), these entities are \
 automatically protected. Use this tool to manually mark/unmark entities.
+- **intend**: Create a graph-embedded intention ("remind me when..."). \
+Example: intend("auth module", "Check XSS fix before deploying", \
+entity_names=["Auth Module"]). Intentions fire via spreading activation \
+when related entities light up during remember/observe.
+- **dismiss_intention**: Disable or permanently delete an intention by ID.
+- **list_intentions**: List active prospective memory intentions with warmth \
+info (how close they are to firing).
+- **bootstrap_project**: Auto-observe key project files (README, Makefile, etc.) \
+and create a Project entity. Idempotent — safe to call multiple times.
 
 ## When to Observe vs Remember
 
@@ -81,6 +90,25 @@ memory context before your first response. Pass a `topic_hint` if the user's fir
 message suggests a clear topic, or `project_path` to auto-derive it from the project \
 directory name. Use `format="briefing"` for a concise LLM-synthesized narrative \
 instead of structured markdown.
+
+## Automatic Context
+
+When you call `observe` or `remember`, the response may include:
+- `session_context`: A briefing of what you know about this user (first call only)
+- `recalled_context`: Related memories surfaced automatically
+- `triggered_intentions`: Prospective memory triggers that fired automatically
+
+When `triggered_intentions` is present, act on the `action` naturally. Do not \
+announce that a memory triggered.
+
+If `context` is provided in an intention, use it as-is — do not search for \
+additional context on that topic. The context field already contains what you need.
+
+If `see_also` is provided, mention those topics as conversational hooks if relevant. \
+Do not proactively search them unless the user asks.
+
+Use this context naturally in your responses. Do not say "my memory system found..." \
+— just integrate the information smoothly. Ignore irrelevant results silently.
 
 ## Corrections
 

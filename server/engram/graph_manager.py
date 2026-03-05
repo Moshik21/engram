@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
-import re
 import time
 import uuid
 from datetime import datetime
@@ -11,7 +11,10 @@ from datetime import datetime
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.extraction.canonicalize import PredicateCanonicalizer
-from engram.extraction.conflicts import is_exclusive_predicate
+from engram.extraction.conflicts import (
+    get_contradictory_predicates,
+    is_exclusive_predicate,
+)
 from engram.extraction.discourse import classify_discourse
 from engram.extraction.extractor import EntityExtractor
 from engram.extraction.resolver import resolve_entity_fast
@@ -56,6 +59,57 @@ class GraphManager:
         # Briefing cache: (group_id, topic_hint) -> (timestamp, text)
         self._briefing_cache: dict[tuple[str, str | None], tuple[float, str]] = {}
 
+        # Content dedup: track hashes of recently extracted content to skip duplicates
+        self._content_hashes: set[str] = set()
+
+        # Conversation context (Wave 2)
+        if self._cfg.conv_context_enabled:
+            from engram.retrieval.context import ConversationContext
+
+            self._conv_context: ConversationContext | None = ConversationContext(
+                alpha=self._cfg.conv_fingerprint_alpha,
+            )
+        else:
+            self._conv_context = None
+        self._last_near_misses: list[dict] = []
+
+        # Surprise cache (Wave 3)
+        if self._cfg.surprise_detection_enabled:
+            from engram.retrieval.surprise import SurpriseCache
+
+            self._surprise_cache: object | None = SurpriseCache(
+                ttl_seconds=self._cfg.surprise_cache_ttl_seconds,
+            )
+        else:
+            self._surprise_cache = None
+
+        # Priming buffer (Wave 3): {entity_id: (boost, expiry_time)}
+        self._priming_buffer: dict[str, tuple[float, float]] = {}
+
+        # Prospective memory (Wave 4): triggered intentions consumed on read
+        self._triggered_intentions: list = []
+
+        # Goal priming cache (Brain Architecture)
+        if self._cfg.goal_priming_enabled:
+            from engram.retrieval.goals import GoalPrimingCache
+
+            self._goal_priming_cache: object | None = GoalPrimingCache(
+                ttl_seconds=self._cfg.goal_priming_cache_ttl_seconds,
+            )
+        else:
+            self._goal_priming_cache = None
+
+        # Reconsolidation tracker (Brain Architecture Phase 2B)
+        if self._cfg.reconsolidation_enabled:
+            from engram.retrieval.reconsolidation import LabileWindowTracker
+
+            self._labile_tracker: LabileWindowTracker | None = LabileWindowTracker(
+                ttl=self._cfg.reconsolidation_window_seconds,
+                max_entries=self._cfg.reconsolidation_max_entries,
+            )
+        else:
+            self._labile_tracker = None
+
         # Working memory buffer
         if self._cfg.working_memory_enabled:
             self._working_memory: WorkingMemoryBuffer | None = WorkingMemoryBuffer(
@@ -65,28 +119,11 @@ class GraphManager:
         else:
             self._working_memory = None
 
-    # Entity types where meta-summaries should be rejected (real-world entities)
-    _PROTECTED_ENTITY_TYPES = frozenset(
-        {"Person", "CreativeWork", "Location", "Event", "Organization",
-         "Emotion", "Goal", "Preference"}
-    )
-
-    # Patterns that indicate a summary contains system-internal meta-commentary
-    _META_SUMMARY_PATTERN = re.compile(
-        r"activation[ _]?(?:score|current)|access[_ ]?count"
-        r"|knowledge graph|graph (?:node|entity|store)"
-        r"|retrieval|embedding|consolidation|triage"
-        r"|entity (?:resolution|extraction|in the)"
-        r"|cold session|test case|example case"
-        r"|MCP tool|episode worker|spreading activation"
-        r"|\b(?:ent|ep|rel|cyc)_[a-f0-9]",
-        re.IGNORECASE,
-    )
-
     @staticmethod
     def _is_meta_summary(text: str) -> bool:
         """Check if a summary fragment contains system-internal patterns."""
-        return bool(GraphManager._META_SUMMARY_PATTERN.search(text))
+        from engram.utils.text_guards import is_meta_summary
+        return is_meta_summary(text)
 
     @staticmethod
     def _merge_entity_attributes(
@@ -101,12 +138,9 @@ class GraphManager:
 
         # Append summaries (capped at 500 chars)
         if new_summary and new_summary != existing.summary:
-            # Guard: reject meta-contaminated summaries for protected entity types
-            entity_type = getattr(existing, "entity_type", "Other") or "Other"
-            if (
-                GraphManager._is_meta_summary(new_summary)
-                and entity_type in GraphManager._PROTECTED_ENTITY_TYPES
-            ):
+            # Guard: reject meta-contaminated summaries for all entity types
+            if GraphManager._is_meta_summary(new_summary):
+                entity_type = getattr(existing, "entity_type", "Other") or "Other"
                 logger.warning(
                     "Rejected meta-summary for %s entity %r: %s",
                     entity_type,
@@ -254,6 +288,20 @@ class GraphManager:
         start_ms = time.monotonic()
         content = episode.content
 
+        # Content dedup: skip if identical content was already extracted
+        content_hash = hashlib.sha256((content or "").encode()).hexdigest()[:16]
+        if content_hash in self._content_hashes:
+            logger.info(
+                "project_episode: skipping duplicate content for episode %s",
+                episode_id,
+            )
+            await self._update_episode_status(
+                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
+                skipped_triage=True,
+            )
+            return
+        self._content_hashes.add(content_hash)
+
         # Discourse gate: skip pure system meta-commentary
         if classify_discourse(content) == "system":
             logger.warning(
@@ -316,6 +364,49 @@ class GraphManager:
                     )
                     if updates:
                         await self._graph.update_entity(entity_id, updates, group_id=group_id)
+
+                    # Reconsolidation: if entity is labile, attempt update
+                    if self._labile_tracker is not None:
+                        from engram.retrieval.reconsolidation import attempt_reconsolidation
+
+                        labile = self._labile_tracker.get_labile(existing_entity.id)
+                        if labile and not self._labile_tracker.is_budget_exceeded(
+                            existing_entity.id,
+                            self._cfg.reconsolidation_max_modifications,
+                        ):
+                            recon_updates = attempt_reconsolidation(
+                                existing_entity, content, labile, self._cfg,
+                            )
+                            if recon_updates is not None:
+                                await self._graph.update_entity(
+                                    existing_entity.id, recon_updates, group_id,
+                                )
+                                self._labile_tracker.record_modification(existing_entity.id)
+                                await self._activation.record_access(
+                                    existing_entity.id, now, group_id=group_id,
+                                )
+                                # Track recon count in attributes
+                                import json as _json
+
+                                recon_attrs = (
+                                    existing_entity.attributes
+                                    if isinstance(existing_entity.attributes, dict)
+                                    else {}
+                                )
+                                recon_attrs["recon_count"] = recon_attrs.get("recon_count", 0) + 1
+                                recon_attrs["recon_last"] = now
+                                await self._graph.update_entity(
+                                    existing_entity.id,
+                                    {"attributes": _json.dumps(recon_attrs)},
+                                    group_id,
+                                )
+                                self._publish(
+                                    group_id, "entity.reconsolidated",
+                                    {
+                                        "entity_id": existing_entity.id,
+                                        "entity_name": existing_entity.name,
+                                    },
+                                )
                 else:
                     entity_id = f"ent_{uuid.uuid4().hex[:12]}"
                     entity = Entity(
@@ -338,6 +429,42 @@ class GraphManager:
                 await self._publish_access_event(
                     entity_id, name, entity_type, group_id, "ingest"
                 )
+
+                # Track session entity (Wave 2)
+                if self._conv_context is not None and self._cfg.conv_session_entity_seeds_enabled:
+                    self._conv_context.add_session_entity(
+                        entity_id=entity_id, name=name,
+                        entity_type=entity_type, weight_increment=1.0, now=now,
+                    )
+
+            # Create PART_OF edges for bootstrap-sourced episodes
+            if episode.source == "auto:bootstrap" and entity_map:
+                import re as _re
+                _bs_match = _re.match(
+                    r"\[project-bootstrap\|([^|]+)\|",
+                    episode.content or "",
+                )
+                if _bs_match:
+                    _bs_project_name = _bs_match.group(1)
+                    _bs_projects = await self._graph.find_entities(
+                        name=_bs_project_name, entity_type="Project",
+                        group_id=group_id, limit=1,
+                    )
+                    if _bs_projects:
+                        _bs_project_id = _bs_projects[0].id
+                        for _bs_eid in entity_map.values():
+                            if _bs_eid == _bs_project_id:
+                                continue
+                            rel = Relationship(
+                                id=f"rel_{uuid.uuid4().hex[:12]}",
+                                source_id=_bs_eid,
+                                target_id=_bs_project_id,
+                                predicate="PART_OF",
+                                weight=0.8,
+                                source_episode=episode_id,
+                                group_id=group_id,
+                            )
+                            await self._graph.create_relationship(rel)
 
             # Writing relationships
             await self._update_episode_status(
@@ -460,6 +587,52 @@ class GraphManager:
                                 conflict.predicate,
                             )
 
+                    # Contradictory predicates: LIKES invalidates DISLIKES
+                    # on the same source→target pair, and vice versa.
+                    if polarity == "positive":
+                        contra_preds = get_contradictory_predicates(predicate)
+                        for contra in contra_preds:
+                            contra_rels = await self._graph.get_relationships(
+                                source_id,
+                                direction="outgoing",
+                                predicate=contra,
+                                active_only=True,
+                                group_id=group_id,
+                            )
+                            for contra_rel in contra_rels:
+                                if contra_rel.target_id == target_id:
+                                    await self._graph.invalidate_relationship(
+                                        contra_rel.id, dt_now, group_id=group_id
+                                    )
+                                    logger.info(
+                                        "Contradictory invalidated %s (%s → %s via %s) "
+                                        "due to new %s edge",
+                                        contra_rel.id,
+                                        contra_rel.source_id,
+                                        contra_rel.target_id,
+                                        contra_rel.predicate,
+                                        predicate,
+                                    )
+
+                    # Dedup: skip if an active relationship already exists
+                    if polarity == "positive":
+                        existing_rel = await self._graph.find_existing_relationship(
+                            source_id, target_id, predicate, group_id,
+                        )
+                        if existing_rel:
+                            # Bump weight if new is higher
+                            if rel_weight > existing_rel.weight:
+                                await self._graph.update_relationship_weight(
+                                    source_id, target_id,
+                                    rel_weight - existing_rel.weight,
+                                    group_id=group_id,
+                                )
+                            logger.debug(
+                                "Skipped duplicate relationship %s → %s via %s",
+                                source_id, target_id, predicate,
+                            )
+                            continue
+
                     rel = Relationship(
                         id=f"rel_{uuid.uuid4().hex[:12]}",
                         source_id=source_id,
@@ -489,6 +662,96 @@ class GraphManager:
                                 )
                             except Exception:
                                 pass  # May fail if entity already marked
+
+            # Surprise detection (Wave 3)
+            if (self._cfg.surprise_detection_enabled
+                    and self._surprise_cache is not None and entity_map):
+                try:
+                    from engram.retrieval.surprise import detect_surprises
+
+                    surprises = await detect_surprises(
+                        entity_ids=list(entity_map.values()),
+                        graph_store=self._graph,
+                        activation_store=self._activation,
+                        cfg=self._cfg,
+                        group_id=group_id,
+                        now=now,
+                    )
+                    if surprises:
+                        self._surprise_cache.put(
+                            group_id,
+                            surprises[:self._cfg.surprise_max_per_episode],
+                            now,
+                        )
+                except Exception as surprise_err:
+                    logger.debug("Surprise detection failed (non-fatal): %s", surprise_err)
+
+            # Prospective memory trigger matching (Wave 4)
+            if self._cfg.prospective_memory_enabled and entity_map:
+                try:
+                    if self._cfg.prospective_graph_embedded:
+                        # v2: activation-based triggering via graph-embedded intentions
+                        intention_entities = await self.list_intentions(group_id)
+                        if intention_entities:
+                            from engram.activation.spreading import spread_activation
+                            from engram.retrieval.prospective import (
+                                check_intention_activations,
+                            )
+
+                            # Mini spreading pass from extracted entities
+                            seeds = [(eid, 0.5) for eid in entity_map.values()]
+                            spreading_bonuses, _ = await spread_activation(
+                                seeds, self._graph, self._cfg, group_id,
+                            )
+
+                            # Batch-fetch activation states for intentions
+                            intention_ids = [e.id for e in intention_entities]
+                            states = await self._activation.batch_get(intention_ids)
+
+                            trigger_matches = await check_intention_activations(
+                                spreading_results=spreading_bonuses,
+                                activation_states=states,
+                                intention_entities=intention_entities,
+                                extracted_entity_ids=set(entity_map.values()),
+                                now=time.time(),
+                                cfg=self._cfg,
+                                max_per_episode=self._cfg.prospective_max_per_episode,
+                            )
+                            if trigger_matches:
+                                self._triggered_intentions = trigger_matches
+                                for m in self._triggered_intentions:
+                                    await self._update_intention_fire(
+                                        m.intention_id, group_id, episode_id,
+                                    )
+                    else:
+                        # v1 fallback: brute-force cosine similarity
+                        intentions = await self._graph.list_intentions(group_id)
+                        if intentions:
+                            from engram.retrieval.prospective import check_triggers
+
+                            embed_fn = None
+                            provider = getattr(self._search, '_provider', None)
+                            if provider and hasattr(provider, 'embed_query'):
+                                embed_fn = provider.embed_query
+
+                            trigger_matches = await check_triggers(
+                                content=content,
+                                entity_names=list(entity_map.keys()),
+                                intentions=intentions,
+                                embed_fn=embed_fn,
+                            )
+                            if trigger_matches:
+                                self._triggered_intentions = (
+                                    trigger_matches[:self._cfg.prospective_max_per_episode]
+                                )
+                                for m in self._triggered_intentions:
+                                    await self._graph.increment_intention_fire_count(
+                                        m.intention_id, group_id,
+                                    )
+                except Exception as prosp_err:
+                    logger.debug(
+                        "Prospective trigger check failed (non-fatal): %s", prosp_err,
+                    )
 
             # Publish graph changes
             serialized_nodes = []
@@ -590,6 +853,41 @@ class GraphManager:
                 episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
             )
 
+            # Store encoding context with emotional salience
+            if self._cfg.emotional_salience_enabled:
+                import json as _json
+
+                from engram.extraction.salience import compute_emotional_salience
+
+                salience = compute_emotional_salience(content)
+                encoding_ctx = _json.dumps({
+                    "arousal": round(salience.arousal, 4),
+                    "self_reference": round(salience.self_reference, 4),
+                    "social_density": round(salience.social_density, 4),
+                    "narrative_tension": round(salience.narrative_tension, 4),
+                    "composite": round(salience.composite, 4),
+                })
+                await self._graph.update_episode(
+                    episode_id, {"encoding_context": encoding_ctx}, group_id=group_id,
+                )
+
+                # Set emotional attributes on entities created for this episode
+                for _ent_name, ent_id in entity_map.items():
+                    try:
+                        ent = await self._graph.get_entity(ent_id, group_id)
+                        if ent:
+                            raw = ent.attributes
+                            attrs = dict(raw) if isinstance(raw, dict) else {}
+                            attrs["emo_arousal"] = round(salience.arousal, 4)
+                            attrs["emo_self_ref"] = round(salience.self_reference, 4)
+                            attrs["emo_social"] = round(salience.social_density, 4)
+                            attrs["emo_composite"] = round(salience.composite, 4)
+                            await self._graph.update_entity(
+                                ent_id, {"attributes": _json.dumps(attrs)}, group_id=group_id,
+                            )
+                    except Exception:
+                        pass
+
             # Complete
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
             await self._update_episode_status(
@@ -642,6 +940,165 @@ class GraphManager:
         except Exception:
             pass  # project_episode already sets FAILED status
         return episode_id
+
+    # ─── Project Bootstrap ──────────────────────────────────────────
+
+    # Files to auto-observe on project bootstrap (filename → max chars)
+    _BOOTSTRAP_FILES: list[tuple[str, int]] = [
+        ("README.md", 2000),
+        ("package.json", 3000),
+        ("pyproject.toml", 3000),
+        ("Makefile", 3000),
+        (".env.example", 2000),
+        ("CLAUDE.md", 2000),
+    ]
+
+    # How long before a bootstrapped project is considered stale (seconds)
+    _BOOTSTRAP_STALE_SECONDS = 86400  # 24 hours
+
+    async def bootstrap_project(
+        self,
+        project_path: str,
+        group_id: str = "default",
+        session_id: str | None = None,
+    ) -> dict:
+        """Bootstrap a project: create Project entity and observe key files.
+
+        Idempotent — if the Project entity exists and was bootstrapped
+        within the last 24 hours, returns early. Otherwise re-observes
+        files to pick up changes (cheap store_episode, no LLM).
+        """
+        from pathlib import Path as _Path
+
+        p = _Path(project_path).expanduser()
+        project_name = p.name
+        if not project_name or str(p) in (str(_Path.home()), "/"):
+            return {"status": "skipped", "reason": "invalid_path"}
+
+        now_iso = datetime.utcnow().isoformat()
+
+        # Check for existing Project entity
+        existing = await self._graph.find_entities(
+            name=project_name, entity_type="Project",
+            group_id=group_id, limit=1,
+        )
+
+        if existing:
+            entity = existing[0]
+            entity_id = entity.id
+            attrs = entity.attributes or {}
+            last_bs = attrs.get("last_bootstrapped")
+
+            # Check staleness
+            if last_bs:
+                try:
+                    last_dt = datetime.fromisoformat(last_bs)
+                    age_seconds = (
+                        datetime.utcnow() - last_dt
+                    ).total_seconds()
+                    if age_seconds < self._BOOTSTRAP_STALE_SECONDS:
+                        return {
+                            "status": "already_bootstrapped",
+                            "project_entity_id": entity_id,
+                        }
+                except (ValueError, TypeError):
+                    pass  # Malformed timestamp — refresh
+
+            # Stale or never timestamped — refresh files
+            files_observed = await self._observe_project_files(
+                p, project_name, group_id, session_id,
+            )
+
+            # Update timestamp
+            import json as _json
+            merged_attrs = {**attrs, "last_bootstrapped": now_iso}
+            await self._graph.update_entity(
+                entity_id,
+                {"attributes": _json.dumps(merged_attrs)},
+                group_id=group_id,
+            )
+            await self._activation.record_access(
+                entity_id, time.time(), group_id=group_id,
+            )
+
+            self._publish(group_id, "project.refreshed", {
+                "project_name": project_name,
+                "project_entity_id": entity_id,
+                "files_observed": files_observed,
+            })
+
+            return {
+                "status": "refreshed",
+                "project_entity_id": entity_id,
+                "files_observed": files_observed,
+            }
+
+        # Create Project entity
+        entity_id = f"ent_{uuid.uuid4().hex[:12]}"
+        entity = Entity(
+            id=entity_id,
+            name=project_name,
+            entity_type="Project",
+            summary=f"Software project at {project_path}",
+            attributes={
+                "project_path": str(p),
+                "last_bootstrapped": now_iso,
+            },
+            group_id=group_id,
+        )
+        await self._graph.create_entity(entity)
+        await self._index_entity_with_structure(entity, group_id)
+        await self._activation.record_access(
+            entity_id, time.time(), group_id=group_id,
+        )
+
+        files_observed = await self._observe_project_files(
+            p, project_name, group_id, session_id,
+        )
+
+        self._publish(group_id, "project.bootstrapped", {
+            "project_name": project_name,
+            "project_entity_id": entity_id,
+            "files_observed": files_observed,
+        })
+
+        return {
+            "status": "bootstrapped",
+            "project_entity_id": entity_id,
+            "files_observed": files_observed,
+        }
+
+    async def _observe_project_files(
+        self,
+        project_dir: object,  # Path
+        project_name: str,
+        group_id: str,
+        session_id: str | None,
+    ) -> list[str]:
+        """Read and store key project files as episodes. Returns filenames observed."""
+        files_observed: list[str] = []
+        for filename, max_chars in self._BOOTSTRAP_FILES:
+            filepath = project_dir / filename  # type: ignore[operator]
+            if not filepath.is_file():
+                continue
+            try:
+                content = filepath.read_text(
+                    encoding="utf-8", errors="replace",
+                )[:max_chars]
+            except OSError:
+                continue
+            tagged = (
+                f"[project-bootstrap|{project_name}|{filename}]\n"
+                f"{content}"
+            )
+            await self.store_episode(
+                content=tagged,
+                group_id=group_id,
+                source="auto:bootstrap",
+                session_id=session_id,
+            )
+            files_observed.append(filename)
+        return files_observed
 
     async def _index_entity_with_structure(
         self,
@@ -705,6 +1162,11 @@ class GraphManager:
         limit: int = 10,
     ) -> list[dict]:
         """Retrieve relevant entities and their context using activation-aware scoring."""
+        # Request extra results for near-miss detection (Wave 2)
+        fetch_limit = limit
+        if self._cfg.conv_near_miss_enabled and self._conv_context is not None:
+            fetch_limit = limit + self._cfg.conv_near_miss_window
+
         scored_results = await retrieve(
             query=query,
             group_id=group_id,
@@ -712,16 +1174,23 @@ class GraphManager:
             activation_store=self._activation,
             search_index=self._search,
             cfg=self._cfg,
-            limit=limit,
+            limit=fetch_limit,
             working_memory=self._working_memory,
             reranker=self._reranker,
             community_store=self._community_store,
             predicate_cache=self._predicate_cache,
+            conv_context=self._conv_context,
+            priming_buffer=self._priming_buffer if self._cfg.retrieval_priming_enabled else None,
+            goal_cache=self._goal_priming_cache,
         )
+
+        # Split primary results and near-misses (Wave 2)
+        primary_results = scored_results[:limit]
+        near_miss_results = scored_results[limit:] if self._cfg.conv_near_miss_enabled else []
 
         now = time.time()
         results = []
-        for sr in scored_results:
+        for sr in primary_results:
             if sr.result_type == "episode":
                 # Fetch episode data — do NOT record access for episodes
                 ep = await self._graph.get_episode_by_id(sr.node_id, group_id)
@@ -768,6 +1237,13 @@ class GraphManager:
                         sr.node_id, entity.name, entity.entity_type, group_id, "recall"
                     )
 
+                    # Mark as labile for reconsolidation (Brain Architecture Phase 2B)
+                    if self._labile_tracker is not None:
+                        self._labile_tracker.mark_labile(
+                            entity.id, entity.name, entity.entity_type,
+                            entity.summary or "", query,
+                        )
+
                     # Populate working memory buffer for entities
                     if self._working_memory is not None:
                         self._working_memory.add(
@@ -778,37 +1254,108 @@ class GraphManager:
                             now,
                         )
 
-                    results.append(
-                        {
-                            "entity": {
-                                "id": entity.id,
-                                "name": entity.name,
-                                "type": entity.entity_type,
-                                "summary": entity.summary,
-                            },
-                            "score": sr.score,
-                            "score_breakdown": {
-                                "semantic": sr.semantic_similarity,
-                                "activation": sr.activation,
-                                "edge_proximity": sr.edge_proximity,
-                                "exploration_bonus": sr.exploration_bonus,
-                                "hop_distance": sr.hop_distance,
-                            },
-                            "relationships": [
-                                {
-                                    "predicate": r.predicate,
-                                    "source_id": r.source_id,
-                                    "target_id": r.target_id,
-                                    "weight": r.weight,
-                                }
-                                for r in rels[:5]
-                            ],
-                        }
-                    )
+                    result_dict = {
+                        "entity": {
+                            "id": entity.id,
+                            "name": entity.name,
+                            "type": entity.entity_type,
+                            "summary": entity.summary,
+                        },
+                        "score": sr.score,
+                        "score_breakdown": {
+                            "semantic": sr.semantic_similarity,
+                            "activation": sr.activation,
+                            "edge_proximity": sr.edge_proximity,
+                            "exploration_bonus": sr.exploration_bonus,
+                            "hop_distance": sr.hop_distance,
+                        },
+                        "relationships": [
+                            {
+                                "predicate": r.predicate,
+                                "source_id": r.source_id,
+                                "target_id": r.target_id,
+                                "weight": r.weight,
+                            }
+                            for r in rels[:5]
+                        ],
+                    }
+
+                    # Add warmth metadata for Intention entities
+                    if (
+                        entity.entity_type == "Intention"
+                        and self._cfg.prospective_graph_embedded
+                    ):
+                        try:
+                            from engram.models.prospective import IntentionMeta
+
+                            meta = IntentionMeta(**(entity.attributes or {}))
+                            warmth_ratio = (
+                                sr.activation / meta.activation_threshold
+                                if meta.activation_threshold > 0
+                                else 0.0
+                            )
+                            result_dict["intention_meta"] = {
+                                "warmth_ratio": round(warmth_ratio, 4),
+                                "fire_count": meta.fire_count,
+                                "max_fires": meta.max_fires,
+                                "action_text": meta.action_text,
+                                "priority": meta.priority,
+                            }
+                        except Exception:
+                            pass
+
+                    results.append(result_dict)
 
         # Track the query in working memory
         if self._working_memory is not None:
             self._working_memory.add_query(query, now)
+
+        # Retrieval priming (Wave 3): boost 1-hop neighbors for follow-up queries
+        if self._cfg.retrieval_priming_enabled and results:
+            priming_now = time.time()
+            expiry = priming_now + self._cfg.retrieval_priming_ttl_seconds
+            for r in results[:self._cfg.retrieval_priming_top_n]:
+                if r.get("result_type") == "episode":
+                    continue
+                entity_id = r.get("entity", {}).get("id")
+                if not entity_id:
+                    continue
+                try:
+                    neighbors = await self._graph.get_active_neighbors_with_weights(
+                        entity_id, group_id,
+                    )
+                    for neighbor_info in neighbors[:self._cfg.retrieval_priming_max_neighbors]:
+                        nid = neighbor_info[0]
+                        weight = neighbor_info[1]
+                        self._priming_buffer[nid] = (
+                            self._cfg.retrieval_priming_boost * weight,
+                            expiry,
+                        )
+                except Exception:
+                    pass
+
+        # Build near-miss list (Wave 2)
+        self._last_near_misses = []
+        if near_miss_results:
+            for nm in near_miss_results:
+                if nm.result_type == "episode":
+                    continue
+                entity = await self._graph.get_entity(nm.node_id, group_id)
+                if entity:
+                    self._last_near_misses.append({
+                        "entity": {"name": entity.name, "type": entity.entity_type},
+                        "score": round(nm.score, 4),
+                    })
+
+        # Update conversation fingerprint (Wave 2)
+        if self._conv_context is not None and self._cfg.conv_fingerprint_enabled:
+            from engram.retrieval.context import ConversationFingerprinter
+
+            embed_fn = None
+            provider = getattr(self._search, '_provider', None)
+            if provider and hasattr(provider, 'embed_query'):
+                embed_fn = provider.embed_query
+            await ConversationFingerprinter.ingest_turn(self._conv_context, query, embed_fn)
 
         return results
 
@@ -1058,6 +1605,268 @@ class GraphManager:
             "message": f"Fact '{subject_name} {predicate} {object_name}' has been forgotten.",
         }
 
+    # ─── Prospective memory (Wave 4) ────────────────────────────────
+
+    async def create_intention(
+        self,
+        trigger_text: str,
+        action_text: str,
+        trigger_type: str = "activation",
+        entity_name: str | None = None,
+        entity_names: list[str] | None = None,
+        threshold: float | None = None,
+        priority: str = "normal",
+        group_id: str = "default",
+        context: str | None = None,
+        see_also: list[str] | None = None,
+    ) -> str:
+        """Create a new prospective memory intention.
+
+        In v2 (graph-embedded), creates an Entity node with type 'Intention'
+        and TRIGGERED_BY edges to related entities. Falls back to flat table
+        when prospective_graph_embedded=False.
+        """
+        if not self._cfg.prospective_graph_embedded:
+            # v1 fallback: flat table — map v2 trigger_type to v1 equivalent
+            v1_type = "semantic" if trigger_type == "activation" else trigger_type
+            return await self._create_intention_v1(
+                trigger_text, action_text, v1_type, entity_name, threshold, group_id,
+            )
+
+        if trigger_type not in ("activation", "entity_mention"):
+            raise ValueError(f"Invalid trigger_type: {trigger_type}")
+        if trigger_type == "entity_mention" and not entity_names and not entity_name:
+            raise ValueError("entity_names (or entity_name) required for entity_mention trigger")
+
+        from datetime import timedelta
+
+        from engram.models.prospective import IntentionMeta
+
+        now = datetime.utcnow()
+        intention_id = f"int_{uuid.uuid4().hex[:12]}"
+
+        # Resolve entity_names to IDs and create TRIGGERED_BY edges
+        linked_entity_ids: list[str] = []
+        resolved_names = entity_names or ([entity_name] if entity_name else [])
+        for name in resolved_names:
+            candidates = await self._graph.find_entity_candidates(name, group_id)
+            if candidates:
+                linked_entity_ids.append(candidates[0].id)
+
+        meta = IntentionMeta(
+            trigger_text=trigger_text,
+            action_text=action_text,
+            trigger_type=trigger_type,
+            activation_threshold=threshold or self._cfg.prospective_activation_threshold,
+            max_fires=self._cfg.prospective_max_fires,
+            fire_count=0,
+            enabled=True,
+            expires_at=(now + timedelta(days=self._cfg.prospective_ttl_days)).isoformat(),
+            trigger_entity_ids=linked_entity_ids,
+            cooldown_seconds=self._cfg.prospective_cooldown_seconds,
+            priority=priority,
+            origin="explicit",
+            context=context,
+            see_also=see_also,
+        )
+
+        # Create as Entity node
+        entity = Entity(
+            id=intention_id,
+            name=trigger_text,
+            entity_type="Intention",
+            summary=action_text,
+            group_id=group_id,
+            attributes=meta.model_dump(),
+            created_at=now,
+            updated_at=now,
+        )
+        await self._graph.create_entity(entity)
+
+        # Index for FTS5 + vector search
+        await self._search.index_entity(entity)
+
+        # Create TRIGGERED_BY edges
+        for eid in linked_entity_ids:
+            rel = Relationship(
+                id=f"rel_{uuid.uuid4().hex[:12]}",
+                source_id=intention_id,
+                target_id=eid,
+                predicate="TRIGGERED_BY",
+                weight=0.9,
+                group_id=group_id,
+                episode_id=None,
+            )
+            await self._graph.create_relationship(rel)
+
+        # Record initial access
+        await self._activation.record_access(intention_id, time.time(), group_id=group_id)
+
+        # Publish event
+        self._publish(group_id, "intention.created", {
+            "intentionId": intention_id,
+            "triggerText": trigger_text,
+            "actionText": action_text,
+            "linkedEntityIds": linked_entity_ids,
+            "threshold": meta.activation_threshold,
+        })
+
+        logger.info("Created graph-embedded intention %s: %s", intention_id, trigger_text)
+        return intention_id
+
+    async def _create_intention_v1(
+        self,
+        trigger_text: str,
+        action_text: str,
+        trigger_type: str = "semantic",
+        entity_name: str | None = None,
+        threshold: float | None = None,
+        group_id: str = "default",
+    ) -> str:
+        """v1 fallback: create intention in flat table."""
+        from engram.models.prospective import Intention
+
+        if trigger_type not in ("semantic", "entity_mention"):
+            raise ValueError(f"Invalid trigger_type: {trigger_type}")
+        if trigger_type == "entity_mention" and not entity_name:
+            raise ValueError("entity_name required for entity_mention trigger")
+
+        from datetime import timedelta
+
+        now = datetime.utcnow()
+        intention = Intention(
+            id=f"int_{uuid.uuid4().hex[:12]}",
+            trigger_text=trigger_text,
+            action_text=action_text,
+            trigger_type=trigger_type,
+            entity_name=entity_name,
+            threshold=threshold or self._cfg.prospective_similarity_threshold,
+            max_fires=self._cfg.prospective_max_fires,
+            fire_count=0,
+            enabled=True,
+            group_id=group_id,
+            created_at=now,
+            updated_at=now,
+            expires_at=now + timedelta(days=self._cfg.prospective_ttl_days),
+        )
+        return await self._graph.create_intention(intention)
+
+    async def list_intentions(
+        self, group_id: str = "default", enabled_only: bool = True,
+    ) -> list:
+        """List intentions. v2 uses Entity nodes, v1 uses flat table."""
+        if not self._cfg.prospective_graph_embedded:
+            return await self._graph.list_intentions(group_id, enabled_only=enabled_only)
+
+        from engram.models.prospective import IntentionMeta
+
+        entities = await self._graph.find_entities(
+            entity_type="Intention", group_id=group_id, limit=100,
+        )
+
+        result = []
+        now = datetime.utcnow()
+        for entity in entities:
+            attrs = entity.attributes or {}
+            try:
+                meta = IntentionMeta(**attrs)
+            except Exception:
+                continue
+
+            if enabled_only:
+                if not meta.enabled:
+                    continue
+                if meta.fire_count >= meta.max_fires:
+                    continue
+                if meta.expires_at:
+                    try:
+                        exp = datetime.fromisoformat(meta.expires_at)
+                        if exp <= now:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+            result.append(entity)
+        return result
+
+    async def dismiss_intention(
+        self, intention_id: str, group_id: str = "default", hard: bool = False,
+    ) -> None:
+        """Dismiss an intention. Soft-delete disables it; hard-delete removes the entity."""
+        if not self._cfg.prospective_graph_embedded:
+            await self._graph.delete_intention(intention_id, group_id, soft=not hard)
+            return
+
+        if hard:
+            await self._graph.delete_entity(intention_id, group_id)
+        else:
+            entity = await self._graph.get_entity(intention_id, group_id)
+            if entity:
+                attrs = dict(entity.attributes or {})
+                attrs["enabled"] = False
+                await self._graph.update_entity(
+                    intention_id, {"attributes": attrs}, group_id=group_id,
+                )
+
+        self._publish(group_id, "intention.dismissed", {
+            "intentionId": intention_id,
+            "hard": hard,
+        })
+
+    async def delete_intention(
+        self, intention_id: str, group_id: str = "default",
+    ) -> None:
+        """Soft-delete an intention (backward compat)."""
+        await self.dismiss_intention(intention_id, group_id, hard=False)
+
+    async def migrate_flat_intentions(self, group_id: str = "default") -> int:
+        """Migrate flat-table intentions to graph-embedded Entity nodes.
+
+        Returns the number of migrated intentions.
+        """
+        flat_intentions = await self._graph.list_intentions(group_id, enabled_only=False)
+        migrated = 0
+        for intention in flat_intentions:
+            try:
+                await self.create_intention(
+                    trigger_text=intention.trigger_text,
+                    action_text=intention.action_text,
+                    trigger_type=(
+                        "entity_mention" if intention.trigger_type == "entity_mention"
+                        else "activation"
+                    ),
+                    entity_name=intention.entity_name,
+                    group_id=group_id,
+                )
+                # Disable old flat-table entry
+                await self._graph.delete_intention(intention.id, group_id, soft=True)
+                migrated += 1
+            except Exception:
+                logger.warning("Failed to migrate intention %s", intention.id, exc_info=True)
+        logger.info("Migrated %d flat-table intentions to graph-embedded", migrated)
+        return migrated
+
+    async def _update_intention_fire(
+        self, intention_id: str, group_id: str, episode_id: str | None = None,
+    ) -> None:
+        """Increment fire count and update last_fired for a graph-embedded intention."""
+        entity = await self._graph.get_entity(intention_id, group_id)
+        if not entity:
+            return
+        attrs = dict(entity.attributes or {})
+        attrs["fire_count"] = attrs.get("fire_count", 0) + 1
+        attrs["last_fired"] = datetime.utcnow().isoformat()
+        await self._graph.update_entity(
+            intention_id, {"attributes": attrs}, group_id=group_id,
+        )
+        self._publish(group_id, "intention.triggered", {
+            "intentionId": intention_id,
+            "triggerText": attrs.get("trigger_text", ""),
+            "actionText": attrs.get("action_text", ""),
+            "activation": 0.0,
+            "episodeId": episode_id,
+        })
+
     # ─── Get context ────────────────────────────────────────────────
 
     async def _entity_to_context_data(
@@ -1189,13 +1998,17 @@ class GraphManager:
                 resp = client.messages.create(
                     model=self._cfg.briefing_model,
                     max_tokens=self._cfg.briefing_max_tokens,
-                    system=(
-                        "You synthesize memory context into a brief, natural-sounding "
-                        "summary for an AI assistant about to start a conversation. "
-                        "Write 2-3 sentences: who the user is, what they're working on, "
-                        "and relevant recent context. Be concise and conversational. "
-                        "Do not mention activation scores or system internals."
-                    ),
+                    system=[{
+                        "type": "text",
+                        "text": (
+                            "You synthesize memory context into a brief, natural-sounding "
+                            "summary for an AI assistant about to start a conversation. "
+                            "Write 2-3 sentences: who the user is, what they're working on, "
+                            "and relevant recent context. Be concise and conversational. "
+                            "Do not mention activation scores or system internals."
+                        ),
+                        "cache_control": {"type": "ephemeral"},
+                    }],
                     messages=[{"role": "user", "content": structured_context}],
                 )
                 return resp.content[0].text
@@ -1230,10 +2043,32 @@ class GraphManager:
         seen_ids: set[str] = set()
 
         # Derive topic_hint from project_path if not provided
-        if project_path and not topic_hint:
+        project_entity_id: str | None = None
+        if project_path:
             p = Path(project_path).expanduser()
             if p.name and str(p) != str(Path.home()):
-                topic_hint = p.name
+                if not topic_hint:
+                    topic_hint = p.name
+                # Auto-create Project entity if missing
+                existing_projects = await self._graph.find_entities(
+                    name=p.name, entity_type="Project", group_id=group_id, limit=1,
+                )
+                if existing_projects:
+                    project_entity_id = existing_projects[0].id
+                else:
+                    project_entity_id = f"ent_{uuid.uuid4().hex[:12]}"
+                    proj_entity = Entity(
+                        id=project_entity_id,
+                        name=p.name,
+                        entity_type="Project",
+                        summary=f"Software project at {project_path}",
+                        attributes={"project_path": str(p)},
+                        group_id=group_id,
+                    )
+                    await self._graph.create_entity(proj_entity)
+                    await self._activation.record_access(
+                        project_entity_id, now, group_id=group_id,
+                    )
 
         # ── Layer 1: Identity Core ──
         layer1_entities: list[dict] = []
@@ -1285,6 +2120,29 @@ class GraphManager:
                 layer2_entities.append(ed)
                 layer2_facts.extend(ed["facts"])
                 seen_ids.add(ent["id"])
+
+        # Inject Project entity neighbors (PART_OF-connected entities)
+        if project_entity_id:
+            try:
+                neighbors = await self._graph.get_neighbors(
+                    project_entity_id, hops=1, group_id=group_id,
+                )
+                for neighbor_ent, _rel in neighbors:
+                    if neighbor_ent.id in seen_ids:
+                        continue
+                    ed = await self._entity_to_context_data(
+                        neighbor_ent.id, neighbor_ent.name,
+                        neighbor_ent.entity_type,
+                        neighbor_ent.summary or "", group_id, now,
+                        detail_level="summary",
+                    )
+                    layer2_entities.append(ed)
+                    layer2_facts.extend(ed["facts"])
+                    seen_ids.add(neighbor_ent.id)
+            except Exception:
+                logger.debug("Project neighbor injection failed (non-fatal)", exc_info=True)
+
+        if layer2_entities:
             layer2_entities.sort(key=lambda x: x["activation"], reverse=True)
 
         if layer2_entities:
@@ -1319,6 +2177,55 @@ class GraphManager:
         layer3_entities.sort(key=lambda x: x["activation"], reverse=True)
         layer3_text = self._render_tier("## Recent Activity", layer3_entities, layer3_facts)
 
+        # ── Layer 4: Active Intentions ──
+        layer4_text = ""
+        if self._cfg.prospective_memory_enabled and self._cfg.prospective_graph_embedded:
+            try:
+                from engram.models.prospective import IntentionMeta
+
+                intention_entities = await self.list_intentions(group_id)
+                intention_lines: list[str] = []
+                for ie in intention_entities:
+                    attrs = ie.attributes or {}
+                    try:
+                        meta = IntentionMeta(**attrs)
+                    except Exception:
+                        continue
+
+                    state = await self._activation.get_activation(ie.id)
+                    act = 0.0
+                    if state:
+                        act = compute_activation(state.access_history, now, self._cfg)
+                    warmth_ratio = (
+                        act / meta.activation_threshold
+                        if meta.activation_threshold > 0 else 0.0
+                    )
+
+                    # Filter out dormant intentions (below lowest warmth level)
+                    levels = self._cfg.prospective_warmth_levels
+                    if warmth_ratio < levels[0]:
+                        continue
+
+                    if warmth_ratio >= 1.0:
+                        label = "HOT"
+                    elif warmth_ratio >= levels[2]:
+                        label = "warm"
+                    elif warmth_ratio >= levels[1]:
+                        label = "warming"
+                    else:
+                        label = "cool"
+
+                    intention_lines.append(
+                        f"- [{label}] {meta.trigger_text} → {meta.action_text} "
+                        f"(fires: {meta.fire_count}/{meta.max_fires})"
+                    )
+                    seen_ids.add(ie.id)
+
+                if intention_lines:
+                    layer4_text = "## Active Intentions\n\n" + "\n".join(intention_lines)
+            except Exception:
+                logger.debug("Intention tier in get_context failed (non-fatal)", exc_info=True)
+
         # ── Assemble ──
         all_entities = layer1_entities + layer2_entities + layer3_entities
         all_facts = layer1_facts + layer2_facts + layer3_facts
@@ -1330,7 +2237,7 @@ class GraphManager:
                 seen_facts.add(f)
                 unique_facts.append(f)
 
-        sections = [s for s in [layer1_text, layer2_text, layer3_text] if s]
+        sections = [s for s in [layer1_text, layer2_text, layer3_text, layer4_text] if s]
         context_text = (
             "\n\n".join(sections)
             if sections

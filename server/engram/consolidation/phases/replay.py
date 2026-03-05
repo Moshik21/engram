@@ -55,6 +55,24 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 duration_ms=_elapsed_ms(t0),
             ), []
 
+        # Skip replay if no graph changes occurred (tiered scheduling only)
+        # Manual/pressure/scheduled triggers always run all phases fully
+        if context is not None and context.trigger.startswith("tiered"):
+            has_changes = bool(
+                context.merge_survivor_ids
+                or context.inferred_edge_entity_ids
+                or context.replay_new_entity_ids
+            )
+            if not has_changes:
+                logger.info("Replay: skipping — no graph changes from merge/infer")
+                return PhaseResult(
+                    phase=self.name,
+                    status="skipped",
+                    items_processed=0,
+                    items_affected=0,
+                    duration_ms=_elapsed_ms(t0),
+                ), []
+
         if self._extractor is None:
             logger.warning("Replay phase: no EntityExtractor provided, skipping")
             return PhaseResult(
@@ -95,6 +113,20 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 items_affected=0,
                 duration_ms=_elapsed_ms(t0),
             ), []
+
+        # If we have affected entity IDs from merge/infer, prioritize episodes linked to them
+        if context and context.affected_entity_ids:
+            affected_episodes = []
+            for ep in eligible:
+                try:
+                    linked = set(await graph_store.get_episode_entities(ep.id))
+                    if linked & context.affected_entity_ids:
+                        affected_episodes.append(ep)
+                except Exception:
+                    pass
+            if affected_episodes:
+                eligible = affected_episodes[:max_per_cycle]
+            # If no episodes overlap with affected entities, that's fine — use all eligible
 
         # Load existing entities once for resolution across all replays
         existing_entities = await graph_store.find_entities(
@@ -161,6 +193,18 @@ class EpisodeReplayPhase(ConsolidationPhase):
         existing_entities: list[Entity],
     ) -> ReplayRecord:
         """Re-extract a single episode and add genuinely new info."""
+        # Skip re-extraction if episode's linked entities have no new neighbors
+        # (no graph changes affect this episode's context)
+        if context and context.affected_entity_ids:
+            linked = set(await graph_store.get_episode_entities(episode.id))
+            if linked and not (linked & context.affected_entity_ids):
+                return ReplayRecord(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    episode_id=episode.id,
+                    skipped_reason="no_context_change",
+                )
+
         result = await self._extractor.extract(episode.content)
 
         if not result.entities and not result.relationships:

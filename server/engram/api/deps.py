@@ -64,6 +64,16 @@ def get_pressure_accumulator() -> PressureAccumulator | None:
     return _app_state.get("pressure_accumulator")
 
 
+def get_conversation_store():
+    """Retrieve the ConversationStore from app state."""
+    from engram.main import _app_state
+
+    store = _app_state.get("conversation_store")
+    if not store:
+        raise RuntimeError("ConversationStore not initialized")
+    return store
+
+
 def get_config() -> EngramConfig:
     """Retrieve the EngramConfig from app state."""
     from engram.main import _app_state

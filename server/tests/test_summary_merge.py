@@ -108,30 +108,29 @@ class TestMergeEntityAttributes:
         )
         assert "summary" not in updates
 
-    def test_allows_meta_summary_for_technology(self):
-        """Technology entities might legitimately discuss technical terms."""
+    def test_rejects_meta_summary_for_technology(self):
+        """All entity types now reject meta-summaries."""
         entity = _make_entity(
             name="Entity Resolution", entity_type="Technology"
         )
         updates = GraphManager._merge_entity_attributes(
             entity, "A technique for entity resolution in knowledge graphs"
         )
-        # Should be allowed since Technology is not a protected type
-        assert "summary" in updates
+        assert "summary" not in updates
 
-    def test_allows_meta_summary_for_concept(self):
+    def test_rejects_meta_summary_for_concept(self):
         entity = _make_entity(name="Spreading Activation", entity_type="Concept")
         updates = GraphManager._merge_entity_attributes(
             entity, "Spreading activation is used in cognitive architectures"
         )
-        assert "summary" in updates
+        assert "summary" not in updates
 
-    def test_allows_meta_summary_for_software(self):
+    def test_rejects_meta_summary_for_software(self):
         entity = _make_entity(name="Engram", entity_type="Software")
         updates = GraphManager._merge_entity_attributes(
             entity, "Uses retrieval pipeline for memory search"
         )
-        assert "summary" in updates
+        assert "summary" not in updates
 
     def test_allows_normal_summary_for_person(self):
         """Normal real-world summaries should always be accepted."""

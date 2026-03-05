@@ -29,6 +29,7 @@ export const createKnowledgeSlice: StateCreator<
   browseOverlayOpen: false,
   intentMode: null,
   confirmDialog: null,
+  intentions: [],
 
   setKnowledgeQuery: (q) => {
     set((s) => {
@@ -303,6 +304,40 @@ export const createKnowledgeSlice: StateCreator<
       }
     } else {
       set((s) => { s.confirmDialog = null; });
+    }
+  },
+
+  handleIntentionEvent: (data: Record<string, unknown>) => {
+    const type = data.type as string;
+    if (type === "intention.created") {
+      // Reload intentions list
+      get().loadIntentions();
+    } else if (type === "intention.dismissed") {
+      set((s) => {
+        s.intentions = s.intentions.filter(
+          (i) => i.id !== (data.intentionId as string),
+        );
+      });
+    } else if (type === "intention.triggered") {
+      set((s) => {
+        const idx = s.intentions.findIndex(
+          (i) => i.id === (data.intentionId as string),
+        );
+        if (idx >= 0) {
+          s.intentions[idx].fireCount += 1;
+        }
+      });
+    }
+  },
+
+  loadIntentions: async () => {
+    try {
+      const res = await api.getIntentions();
+      set((s) => {
+        s.intentions = res.intentions ?? [];
+      });
+    } catch {
+      // Non-critical — intentions may not be available yet
     }
   },
 });

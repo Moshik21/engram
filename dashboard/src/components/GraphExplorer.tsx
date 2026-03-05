@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useState, lazy, Suspense } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import ForceGraph2D from "react-force-graph-2d";
 import * as THREE from "three";
@@ -7,6 +7,9 @@ import { useEngramStore } from "../store";
 import { activationColor, entityColor } from "../lib/colors";
 import { NodeTooltip } from "./NodeTooltip";
 import { EmptyState } from "./EmptyState";
+import { Stats } from "../lib/stats";
+
+const StressTestPanel = lazy(() => import("./StressTestPanel"));
 
 // Tier system
 import { TierClassifier, type Tier } from "./graph/TierClassifier";
@@ -15,8 +18,10 @@ import { ActiveTierRenderer } from "./graph/ActiveTierRenderer";
 import { DormantTierRenderer } from "./graph/DormantTierRenderer";
 import { SharedResources } from "./graph/SharedResources";
 import { AdjacencyMap } from "./graph/AdjacencyMap";
+import { EdgeLineRenderer } from "./graph/EdgeLineRenderer";
 import { AnimationBudget } from "./graph/AnimationBudget";
 import { DisposalRegistry } from "./graph/DisposalRegistry";
+import { LODController } from "./graph/LODController";
 import { useStableGraphData, useActivationRef, useNodeDataRef } from "../store/graphSelectors";
 
 const PULSE_DURATION_MS = 1500;
@@ -37,10 +42,6 @@ type FgRef = {
   renderer?: () => THREE.WebGLRenderer;
   camera?: () => THREE.Camera;
   postProcessingComposer?: () => unknown;
-  graphData?: () => {
-    nodes: Array<Record<string, unknown>>;
-    links: Array<Record<string, unknown>>;
-  };
 } | null;
 
 export function GraphExplorer() {
@@ -48,14 +49,70 @@ export function GraphExplorer() {
   const renderMode = useEngramStore((s) => s.renderMode);
   const showHeatmap = useEngramStore((s) => s.showActivationHeatmap);
   const showEdgeLabels = useEngramStore((s) => s.showEdgeLabels);
+  const showFpsOverlay = useEngramStore((s) => s.showFpsOverlay);
+  const toggleFpsOverlay = useEngramStore((s) => s.toggleFpsOverlay);
   const selectNode = useEngramStore((s) => s.selectNode);
   const hoverNode = useEngramStore((s) => s.hoverNode);
   const expandNode = useEngramStore((s) => s.expandNode);
 
+  const [showStressTest, setShowStressTest] = useState(false);
   const fgRef = useRef<FgRef>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const graphData = useStableGraphData();
   const activationRef = useActivationRef();
   const nodeDataRef = useNodeDataRef();
+
+  // ── Stats.js FPS overlay ──
+  const statsRef = useRef<Stats | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (showFpsOverlay) {
+      const stats = new Stats();
+      container.appendChild(stats.dom);
+      statsRef.current = stats;
+      return () => {
+        container.removeChild(stats.dom);
+        statsRef.current = null;
+      };
+    } else {
+      if (statsRef.current) {
+        container.removeChild(statsRef.current.dom);
+        statsRef.current = null;
+      }
+    }
+  }, [showFpsOverlay]);
+
+  // ── 2D mode passive FPS loop ──
+  useEffect(() => {
+    if (renderMode !== "2d" || !showFpsOverlay) return;
+    let rafId: number;
+    const tick = () => {
+      statsRef.current?.begin();
+      statsRef.current?.end();
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [renderMode, showFpsOverlay]);
+
+  // ── Keyboard shortcuts ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.key === "F") {
+        e.preventDefault();
+        toggleFpsOverlay();
+      }
+      if (import.meta.env.DEV && e.shiftKey && e.key === "T") {
+        e.preventDefault();
+        setShowStressTest((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleFpsOverlay]);
 
   // ── Tier system refs (stable across renders) ──
   const sharedRef = useRef<SharedResources | null>(null);
@@ -66,9 +123,15 @@ export function GraphExplorer() {
   const dormantRendererRef = useRef<DormantTierRenderer | null>(null);
   const adjacencyRef = useRef<AdjacencyMap | null>(null);
   const budgetRef = useRef<AnimationBudget | null>(null);
+  const lodRef = useRef<LODController | null>(null);
+  const edgeRendererRef = useRef<EdgeLineRenderer | null>(null);
+  const batchRenderersAddedRef = useRef(false);
 
   // Track which nodes are in which tier for batch renderers
   const nodeTierMapRef = useRef<Map<string, Tier>>(new Map());
+
+  // Cache Three.js node objects — only recreate when tier changes
+  const nodeObjectCacheRef = useRef<Map<string, { tier: Tier; obj: THREE.Group }>>(new Map());
 
   // Initialize tier system
   useEffect(() => {
@@ -82,27 +145,74 @@ export function GraphExplorer() {
     dormantRendererRef.current = new DormantTierRenderer();
     adjacencyRef.current = new AdjacencyMap();
     budgetRef.current = new AnimationBudget();
+    lodRef.current = new LODController();
+    edgeRendererRef.current = new EdgeLineRenderer();
 
     return () => {
       registry.disposeAll();
       shared.dispose();
       activeRendererRef.current?.dispose();
       dormantRendererRef.current?.dispose();
+      edgeRendererRef.current?.dispose();
       classifierRef.current?.clear();
       adjacencyRef.current?.clear();
       budgetRef.current?.reset();
+      nodeObjectCacheRef.current.clear();
+      batchRenderersAddedRef.current = false;
     };
   }, []);
 
-  // Rebuild adjacency map when graph structure changes
+  // Rebuild adjacency map + edge renderer + invalidate LOD visibility when graph structure changes
   useEffect(() => {
     if (adjacencyRef.current && graphData.links) {
       adjacencyRef.current.rebuild(graphData.links);
     }
+    if (edgeRendererRef.current && graphData.links) {
+      edgeRendererRef.current.rebuild(
+        graphData.links as Array<{
+          source?: string | { id?: string };
+          target?: string | { id?: string };
+        }>,
+      );
+    }
+    lodRef.current?.invalidateVisibility();
   }, [graphData]);
 
-  // Batch renderers kept for future large-graph optimization but not scene-added.
-  // All tiers now return visible meshes from nodeThreeObject directly.
+  // Add batch renderers + edge renderer to scene once fg.scene() is available
+  useEffect(() => {
+    if (renderMode !== "3d") return;
+
+    const addToScene = () => {
+      const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
+      if (!fg?.scene) return false;
+      if (batchRenderersAddedRef.current) return true;
+
+      const scene = fg.scene();
+      if (activeRendererRef.current) scene.add(activeRendererRef.current.mesh);
+      if (dormantRendererRef.current) scene.add(dormantRendererRef.current.points);
+      if (edgeRendererRef.current) scene.add(edgeRendererRef.current.lineSegments);
+      batchRenderersAddedRef.current = true;
+      return true;
+    };
+
+    if (!addToScene()) {
+      const id = setInterval(() => {
+        if (addToScene()) clearInterval(id);
+      }, 200);
+      return () => clearInterval(id);
+    }
+
+    return () => {
+      const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
+      if (fg?.scene && batchRenderersAddedRef.current) {
+        const scene = fg.scene();
+        if (activeRendererRef.current) scene.remove(activeRendererRef.current.mesh);
+        if (dormantRendererRef.current) scene.remove(dormantRendererRef.current.points);
+        if (edgeRendererRef.current) scene.remove(edgeRendererRef.current.lineSegments);
+        batchRenderersAddedRef.current = false;
+      }
+    };
+  }, [renderMode]);
 
   // Track previous node count for controlled reheat
   const prevNodeCountRef = useRef(0);
@@ -123,8 +233,19 @@ export function GraphExplorer() {
         d3ReheatSimulation?: () => void;
       };
       const charge = fg.d3Force("charge");
-      if (charge?.strength) charge.strength(-40);
-      if (charge?.distanceMax) charge.distanceMax(300);
+      if (charge?.strength && charge?.distanceMax) {
+        const nodeCount = graphData.nodes.length;
+        if (nodeCount > 1000) {
+          charge.strength(-20);
+          charge.distanceMax(200);
+        } else if (nodeCount > 500) {
+          charge.strength(-30);
+          charge.distanceMax(250);
+        } else {
+          charge.strength(-40);
+          charge.distanceMax(300);
+        }
+      }
 
       // Controlled reheat: gentle nudge when new nodes arrive,
       // skip on initial load (prevCount === 0) to let full layout settle naturally
@@ -168,12 +289,12 @@ export function GraphExplorer() {
         const renderer = fg.renderer();
         const bloomPass = new UnrealBloomPass(
           new THREE.Vector2(
-            renderer.domElement.width,
-            renderer.domElement.height,
+            renderer.domElement.width * 0.5,
+            renderer.domElement.height * 0.5,
           ),
-          0.5,
-          0.4,
-          0.6,
+          0.4,   // strength
+          0.4,   // radius
+          0.85,  // threshold — only brightest objects bloom
         );
 
         if (fg.postProcessingComposer) {
@@ -268,11 +389,12 @@ export function GraphExplorer() {
     };
   }, [renderMode]);
 
-  // ── Optimized animation loop with tier-aware rendering ──
+  // ── Optimized animation loop with tier-aware rendering + LOD ──
   const dirtyNodesRef = useRef<Set<string>>(new Set());
   const emittedPulsesRef = useRef<Set<string>>(new Set());
   const cascadeQueueRef = useRef<Map<string, CascadeEntry>>(new Map());
   const cascadedPulsesRef = useRef<Set<string>>(new Set());
+  const centroidFrameRef = useRef(0);
 
   useEffect(() => {
     if (renderMode !== "3d") return;
@@ -282,6 +404,7 @@ export function GraphExplorer() {
 
     const animate = () => {
       rafId = requestAnimationFrame(animate);
+      statsRef.current?.begin();
 
       const pulses = useEngramStore.getState().activationPulses;
       const now = Date.now();
@@ -308,63 +431,121 @@ export function GraphExplorer() {
         positions.needsUpdate = true;
       }
 
-      if (!fg?.graphData) return;
-      const gd = fg.graphData();
-
       const classifier = classifierRef.current;
       const focusRenderer = focusRendererRef.current;
       const adjacency = adjacencyRef.current;
       const budget = budgetRef.current;
+      const lod = lodRef.current;
 
-      if (!classifier || !focusRenderer || !adjacency || !budget) return;
+      if (!classifier || !focusRenderer || !adjacency || !budget || !lod) return;
+
+      // Get scene and main graph group (contains node + link objects)
+      if (!fg?.scene) return;
+      const scene = fg.scene();
+      const mainGroup = scene.children.find(
+        (c: THREE.Object3D) => c.type === "Group" && c.children.length > 10,
+      ) as THREE.Group | undefined;
+      if (!mainGroup) return;
+
+      // ── LOD: Update camera distance + zoom tier ──
+      if (fg.camera) {
+        const cam = fg.camera();
+        lod.updateCamera(cam.position.x, cam.position.y, cam.position.z, now);
+      }
+
+      // Pre-build O(1) lookup map from scene node objects (__data has x,y,z from d3-force)
+      const nodeById = new Map<string, Record<string, unknown>>();
+      const allNodeIds: string[] = [];
+      for (const child of mainGroup.children) {
+        const data = (child as unknown as Record<string, unknown>).__data as Record<string, unknown> | undefined;
+        if (!data || typeof data.id !== "string") continue;
+        // Skip link objects (they have source/target, not entityType)
+        if ("source" in data && "target" in data && !("entityType" in data)) continue;
+        const id = data.id;
+        // Attach __threeObj reference for pulse animations
+        data.__threeObj = child;
+        nodeById.set(id, data);
+        allNodeIds.push(id);
+      }
+
+      // Update centroid every ~30 frames (not every frame)
+      centroidFrameRef.current++;
+      if (centroidFrameRef.current % 30 === 0) {
+        lod.updateCentroid(
+          allNodeIds.map((id) => nodeById.get(id)) as Array<{ x?: number; y?: number; z?: number }>,
+        );
+      }
+
+      // Rebuild LOD visibility when tier changes or periodically
+      const activations = activationRef.current;
+      if (centroidFrameRef.current % 15 === 0 || lod.alpha < 1) {
+        lod.rebuildVisibility(activations, allNodeIds);
+      }
 
       // 2. Classify all nodes and manage tier transitions
       classifier.updateTransitions(now);
 
-      const activations = activationRef.current;
-      const nodePositionMap = new Map<string, { x?: number; y?: number; z?: number }>();
       const activePulseIds = new Set<string>();
       const focusNodeIds: string[] = [];
 
-      // Build position map + reclassify nodes
-      for (const node of gd.nodes) {
-        const id = node.id as string;
+      // Reclassify nodes with LOD-aware detail level
+      for (const [id, node] of nodeById) {
         const activation = activations.get(id) ?? 0;
-        nodePositionMap.set(id, {
-          x: node.x as number | undefined,
-          y: node.y as number | undefined,
-          z: node.z as number | undefined,
-        });
 
-        const newTier = classifier.classify(id, activation);
+        // LOD determines max detail level for this node
+        const detailLevel = lod.getNodeDetailLevel(id, activation);
+        const newTier = classifier.classify(id, activation, detailLevel);
         const oldTier = nodeTierMapRef.current.get(id);
 
-        // Track tier transitions (nodeThreeObject handles visual creation)
         if (oldTier !== newTier) {
           nodeTierMapRef.current.set(id, newTier);
+          // Remove from old batch renderer
+          if (oldTier === "active") activeRendererRef.current?.removeNode(id);
+          if (oldTier === "dormant") dormantRendererRef.current?.removeNode(id);
+          // Add to new batch renderer (focus tier uses real meshes, not batched)
+          if (newTier === "active") {
+            activeRendererRef.current?.addNode(id, (node.entityType as string) ?? "Other");
+          }
+          if (newTier === "dormant") {
+            dormantRendererRef.current?.addNode(id, (node.entityType as string) ?? "Other");
+          }
+          // Force nodeThreeObject rebuild when transitioning to/from focus
+          if (oldTier === "focus" || newTier === "focus") {
+            nodeObjectCacheRef.current.delete(id);
+          }
         }
 
         if (newTier === "focus") focusNodeIds.push(id);
       }
 
-      // Clean up nodes that were removed from graph
+      // Clean up nodes that were removed from graph — O(M) where M = tracked nodes
       for (const [id] of nodeTierMapRef.current) {
-        if (!activations.has(id) && !gd.nodes.some((n: Record<string, unknown>) => n.id === id)) {
+        if (!nodeById.has(id)) {
           registryRef.current?.disposeNode(id);
           classifier.removeNode(id);
+          activeRendererRef.current?.removeNode(id);
+          dormantRendererRef.current?.removeNode(id);
           nodeTierMapRef.current.delete(id);
+          nodeObjectCacheRef.current.delete(id);
         }
       }
 
-      // 4. Fire queued cascades
+      // 4. Fire queued cascades (batched to avoid per-cascade store updates)
+      const pendingCascades: Array<{ entityId: string; intensity: number }> = [];
       for (const [key, entry] of cascadeQueueRef.current) {
         if (now >= entry.fireAt) {
           cascadeQueueRef.current.delete(key);
-          useEngramStore.getState().addActivationPulse({
-            entityId: entry.targetId,
+          pendingCascades.push({ entityId: entry.targetId, intensity: entry.intensity });
+        }
+      }
+      if (pendingCascades.length > 0) {
+        const store = useEngramStore.getState();
+        for (const c of pendingCascades) {
+          store.addActivationPulse({
+            entityId: c.entityId,
             name: "",
             entityType: "",
-            activation: entry.intensity,
+            activation: c.intensity,
             accessedVia: "cascade",
           });
         }
@@ -387,9 +568,7 @@ export function GraphExplorer() {
         // Only animate pulse on Focus-tier nodes (they have full meshes)
         const nodeTier = nodeTierMapRef.current.get(pulse.entityId);
         if (nodeTier === "focus") {
-          const graphNode = gd.nodes.find(
-            (n: Record<string, unknown>) => n.id === pulse.entityId,
-          );
+          const graphNode = nodeById.get(pulse.entityId);
           if (graphNode) {
             const threeObj = graphNode.__threeObj as THREE.Group | undefined;
             if (threeObj && threeObj.userData.tier === "focus") {
@@ -437,9 +616,7 @@ export function GraphExplorer() {
 
         const nodeTier = nodeTierMapRef.current.get(nodeId);
         if (nodeTier === "focus") {
-          const graphNode = gd.nodes.find(
-            (n: Record<string, unknown>) => n.id === nodeId,
-          );
+          const graphNode = nodeById.get(nodeId);
           if (graphNode) {
             const threeObj = graphNode.__threeObj as THREE.Group | undefined;
             if (threeObj && threeObj.userData.tier === "focus") {
@@ -458,9 +635,7 @@ export function GraphExplorer() {
         const id = animateIds[i];
         if (activePulseIds.has(id)) continue; // Already animated by pulse
 
-        const graphNode = gd.nodes.find(
-          (n: Record<string, unknown>) => n.id === id,
-        );
+        const graphNode = nodeById.get(id);
         if (!graphNode) continue;
 
         const threeObj = graphNode.__threeObj as THREE.Group | undefined;
@@ -469,11 +644,25 @@ export function GraphExplorer() {
         }
       }
 
+      // 8. Update batch renderer positions
+      if (batchRenderersAddedRef.current) {
+        activeRendererRef.current?.updatePositions(
+          nodeById as Map<string, { x?: number; y?: number; z?: number }>,
+          activations,
+        );
+        dormantRendererRef.current?.updatePositions(
+          nodeById as Map<string, { x?: number; y?: number; z?: number }>,
+        );
+        edgeRendererRef.current?.updatePositions(nodeById);
+      }
+
       // Housekeeping
       if (emittedPulsesRef.current.size > 200)
         emittedPulsesRef.current.clear();
       if (cascadedPulsesRef.current.size > 200)
         cascadedPulsesRef.current.clear();
+
+      statsRef.current?.end();
     };
 
     rafId = requestAnimationFrame(animate);
@@ -495,9 +684,36 @@ export function GraphExplorer() {
     [hoverNode],
   );
 
-  // Tier-aware nodeThreeObject callback
+  // ── LOD-aware node visibility callback ──
+  // Hides nodes entirely when they're outside the visibility budget.
+  // This is the biggest performance win — hidden nodes skip all rendering.
+  const nodeVisibility = useCallback(
+    (node: Record<string, unknown>) => {
+      const lod = lodRef.current;
+      if (!lod) return true;
+      return lod.isVisible(node.id as string);
+    },
+    [],
+  );
+
+  // ── LOD-aware link visibility callback ──
+  const linkVisibility = useCallback(
+    () => {
+      const lod = lodRef.current;
+      if (!lod) return true;
+      return lod.config.showEdges;
+    },
+    [],
+  );
+
+  // Tier-aware nodeThreeObject callback with caching
   const showHeatmapRef = useRef(showHeatmap);
   showHeatmapRef.current = showHeatmap;
+
+  // Invalidate cache when heatmap toggle changes
+  useEffect(() => {
+    nodeObjectCacheRef.current.clear();
+  }, [showHeatmap]);
 
   const nodeThreeObject = useCallback(
     (node: Record<string, unknown>) => {
@@ -508,84 +724,54 @@ export function GraphExplorer() {
 
       const classifier = classifierRef.current;
       const focusRenderer = focusRendererRef.current;
+      const lod = lodRef.current;
 
       if (!classifier || !focusRenderer) {
-        // Fallback: always render full neuron if tier system not ready
         return createFallbackNode(node, showHeatmapRef.current);
       }
 
-      const tier = classifier.classify(id, activation);
+      // LOD-aware classification: cap detail based on zoom level
+      const detailLevel = lod?.getNodeDetailLevel(id, activation) ?? 2;
+      const tier = classifier.classify(id, activation, detailLevel);
       nodeTierMapRef.current.set(id, tier);
 
+      // Return cached object if tier hasn't changed
+      const cached = nodeObjectCacheRef.current.get(id);
+      if (cached && cached.tier === tier) {
+        return cached.obj;
+      }
+
+      // Tier changed or new node — create fresh object
+      let obj: THREE.Group;
+
       if (tier === "focus") {
-        // Full neuron mesh from FocusTierRenderer
-        return focusRenderer.createNodeObject(
+        obj = focusRenderer.createNodeObject(
           id,
           activation,
           entityType,
           accessCount,
           showHeatmapRef.current,
         );
+      } else if (tier === "active") {
+        // Active tier — batch rendered via ActiveTierRenderer (InstancedMesh)
+        activeRendererRef.current?.addNode(id, entityType);
+        obj = new THREE.Group();
+        obj.userData.tier = "active";
+        obj.userData.nodeId = id;
+        obj.userData.batchRendered = true;
+      } else {
+        // Dormant tier — batch rendered via DormantTierRenderer (Points cloud)
+        dormantRendererRef.current?.addNode(id, entityType);
+        obj = new THREE.Group();
+        obj.userData.tier = "dormant";
+        obj.userData.nodeId = id;
+        obj.userData.batchRendered = true;
       }
 
-      // Active/Dormant: visible simple mesh (no batch renderer indirection)
-      const colorHex = showHeatmapRef.current
-        ? activationColor(activation)
-        : entityColor(entityType);
-      const color = new THREE.Color(colorHex);
-
-      if (tier === "active") {
-        // Medium sphere with glow sprite
-        const radius = 2 + activation * 4;
-        const somaMesh = new THREE.Mesh(
-          sharedRef.current!.activeSphereGeometry,
-          new THREE.MeshBasicMaterial({ color }),
-        );
-        somaMesh.scale.setScalar(radius);
-
-        const group = new THREE.Group();
-        group.add(somaMesh);
-
-        // Small glow sprite for visibility
-        const spriteMat = sharedRef.current!.createGlowSpriteMaterial(
-          color,
-          0.06 + activation * 0.08,
-        );
-        const sprite = new THREE.Sprite(spriteMat);
-        const glowSize = radius * 3;
-        sprite.scale.set(glowSize, glowSize, 1);
-        group.add(sprite);
-
-        group.userData.soma = somaMesh;
-        group.userData.sprite = sprite;
-        group.userData.tier = "active";
-        group.userData.nodeId = id;
-        group.userData.baseColor = color.getHex();
-        return group;
-      }
-
-      // Dormant: small sphere dot
-      const radius = 1.2 + activation * 2;
-      const somaMesh = new THREE.Mesh(
-        sharedRef.current!.somaGeometryLow,
-        new THREE.MeshBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.7,
-        }),
-      );
-      somaMesh.scale.setScalar(radius);
-
-      const group = new THREE.Group();
-      group.add(somaMesh);
-
-      group.userData.soma = somaMesh;
-      group.userData.tier = "dormant";
-      group.userData.nodeId = id;
-      group.userData.baseColor = color.getHex();
-      return group;
+      nodeObjectCacheRef.current.set(id, { tier, obj });
+      return obj;
     },
-    // showHeatmap toggle triggers full rebuild via showHeatmapRef
+    // showHeatmap toggle triggers full rebuild via cache clear above
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [showHeatmap],
   );
@@ -595,7 +781,12 @@ export function GraphExplorer() {
   const is3D = renderMode === "3d";
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={containerRef} className="relative h-full w-full">
+      {import.meta.env.DEV && showStressTest && (
+        <Suspense fallback={null}>
+          <StressTestPanel />
+        </Suspense>
+      )}
       {isLoading && (
         <div
           className="absolute inset-0 z-10 flex items-center justify-center"
@@ -621,30 +812,30 @@ export function GraphExplorer() {
           nodeId="id"
           nodeLabel="name"
           nodeThreeObject={nodeThreeObject}
+          nodeVisibility={nodeVisibility}
+          linkVisibility={linkVisibility}
           linkSource="source"
           linkTarget="target"
-          linkCurvature={0.25}
-          linkCurveRotation={(link: Record<string, unknown>) =>
-            (link.__curveRotation as number) ?? 0
-          }
-          linkResolution={12}
-          linkWidth={(link: Record<string, unknown>) =>
-            Math.max(0.4, ((link.weight as number) ?? 1) * 1.2)
-          }
+          linkCurvature={0}
+          linkCurveRotation={0}
+          linkResolution={6}
+          linkWidth={() => 0}
           linkLabel={
             showEdgeLabels
               ? (link: Record<string, unknown>) => link.predicate as string
               : undefined
           }
           linkColor={() => "rgba(100, 160, 255, 0.5)"}
-          linkDirectionalParticles={1}
+          linkDirectionalParticles={0}
           linkDirectionalParticleWidth={2.0}
           linkDirectionalParticleColor={() => "#c4b5fd"}
           linkDirectionalParticleSpeed={0.002}
-          linkOpacity={0.6}
+          linkOpacity={0}
           onNodeClick={handleNodeClick}
           onNodeRightClick={handleNodeRightClick}
           onNodeHover={handleNodeHover}
+          cooldownTicks={200}
+          d3AlphaDecay={0.03}
           backgroundColor="#030408"
           showNavInfo={false}
         />
@@ -678,10 +869,95 @@ export function GraphExplorer() {
           onNodeClick={handleNodeClick}
           onNodeRightClick={handleNodeRightClick}
           onNodeHover={handleNodeHover}
+          cooldownTicks={200}
+          d3AlphaDecay={0.03}
           backgroundColor="#030408"
         />
       )}
       <NodeTooltip />
+      <ZoomIndicator lodRef={lodRef} nodeCount={graphData.nodes.length} />
+      {import.meta.env.DEV && (
+        <button
+          onClick={() => setShowStressTest((v) => !v)}
+          className={showStressTest ? "pill pill-active" : "pill"}
+          style={{
+            position: "absolute",
+            bottom: 12,
+            right: 12,
+            zIndex: 50,
+            fontSize: 11,
+          }}
+        >
+          Stress
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Zoom tier indicator overlay */
+function ZoomIndicator({
+  lodRef,
+  nodeCount,
+}: {
+  lodRef: React.RefObject<LODController | null>;
+  nodeCount: number;
+}) {
+  const [info, setInfo] = useState({ tier: "neighborhood" as string, visible: 0, total: 0 });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const lod = lodRef.current;
+      if (!lod) return;
+      const cfg = lod.config;
+      const visibleBudget = Math.min(cfg.visibilityBudget, nodeCount);
+      setInfo((prev) => {
+        if (prev.tier === lod.tier && prev.total === nodeCount && prev.visible === visibleBudget) return prev;
+        return { tier: lod.tier, visible: visibleBudget, total: nodeCount };
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [lodRef, nodeCount]);
+
+  if (info.total === 0) return null;
+
+  const tierLabels: Record<string, string> = {
+    macro: "Macro",
+    region: "Region",
+    neighborhood: "Neighborhood",
+    detail: "Detail",
+    synapse: "Synapse",
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: 12,
+        left: 12,
+        zIndex: 40,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "4px 10px",
+        borderRadius: 6,
+        background: "rgba(3, 4, 8, 0.7)",
+        backdropFilter: "blur(4px)",
+        fontSize: 11,
+        color: "rgba(148, 163, 184, 0.8)",
+        fontFamily: "var(--font-mono)",
+        pointerEvents: "none",
+      }}
+    >
+      <span style={{ color: "var(--accent)", fontWeight: 600 }}>
+        {tierLabels[info.tier] ?? info.tier}
+      </span>
+      <span>{info.total.toLocaleString()} nodes</span>
+      {info.visible < info.total && (
+        <span style={{ opacity: 0.6 }}>
+          ({info.visible.toLocaleString()} visible)
+        </span>
+      )}
     </div>
   );
 }

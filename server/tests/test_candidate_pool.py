@@ -369,7 +369,7 @@ class TestGenerateCandidates:
 class TestMultiPoolConfig:
     def test_defaults(self):
         cfg = ActivationConfig()
-        assert cfg.multi_pool_enabled is False
+        assert cfg.multi_pool_enabled is True
         assert cfg.pool_search_limit == 30
         assert cfg.pool_activation_limit == 20
         assert cfg.pool_graph_seed_count == 10

@@ -1,13 +1,13 @@
 import { useEngramStore } from "../store";
+import { useNodeById } from "../store/graphSelectors";
 import { entityColor, activationColor } from "../lib/colors";
 import { formatRelativeTime } from "../lib/utils";
 
 export function NodeTooltip() {
   const hoveredNodeId = useEngramStore((s) => s.hoveredNodeId);
-  const nodes = useEngramStore((s) => s.nodes);
+  const node = useNodeById(hoveredNodeId);
 
   if (!hoveredNodeId) return null;
-  const node = nodes[hoveredNodeId];
   if (!node) return null;
 
   const typeColor = entityColor(node.entityType);

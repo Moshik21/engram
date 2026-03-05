@@ -54,6 +54,8 @@ backups/
 # Internal analysis / dev notes
 CONSOLIDATION_HEALTH_ANALYSIS.md
 CROSS_TOPIC_ANALYSIS.md
+ROADMAP.md
+docs/SAAS_NEXT_STEPS.md
 
 # AI tool configs
 CLAUDE.md

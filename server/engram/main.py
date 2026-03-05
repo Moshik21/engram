@@ -12,6 +12,7 @@ from engram import __version__
 from engram.api.activation import router as activation_router
 from engram.api.admin import router as admin_router
 from engram.api.consolidation import router as consolidation_router
+from engram.api.conversations import router as conversations_router
 from engram.api.entities import router as entities_router
 from engram.api.episodes import router as episodes_router
 from engram.api.graph import router as graph_router
@@ -60,7 +61,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         from engram.retrieval.reranker import create_reranker
 
         cohere_key = os.environ.get("COHERE_API_KEY", "")
-        reranker = create_reranker(api_key=cohere_key or None)
+        reranker = create_reranker(
+            api_key=cohere_key or None,
+            provider=config.activation.reranker_provider,
+            local_model=config.activation.reranker_local_model,
+        )
 
     # Optional community store (B2)
     community_store = None
@@ -96,15 +101,26 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         predicate_cache=predicate_cache,
     )
 
-    # Consolidation engine + store
+    # Consolidation engine + store (Postgres when DSN is set, otherwise SQLite)
     from engram.consolidation.engine import ConsolidationEngine
-    from engram.consolidation.store import SQLiteConsolidationStore
 
-    consolidation_store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await consolidation_store.initialize(db=graph_store._db)
-    else:
+    if config.postgres.dsn:
+        from engram.storage.postgres.consolidation import PostgresConsolidationStore
+
+        consolidation_store = PostgresConsolidationStore(
+            config.postgres.dsn,
+            min_pool_size=config.postgres.min_pool_size,
+            max_pool_size=config.postgres.max_pool_size,
+        )
         await consolidation_store.initialize()
+    else:
+        from engram.consolidation.store import SQLiteConsolidationStore
+
+        consolidation_store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
+        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+            await consolidation_store.initialize(db=graph_store._db)
+        else:
+            await consolidation_store.initialize()
 
     consolidation_engine = ConsolidationEngine(
         graph_store,
@@ -145,6 +161,40 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         episode_worker = EpisodeWorker(manager, config.activation)
         episode_worker.start(config.default_group_id, event_bus)
 
+    # Rate limiter + usage meter (Redis-backed in full mode)
+    from engram.security.rate_limit import RateLimiter
+    from engram.security.usage import UsageMeter
+
+    redis_for_metering = None
+    if mode == EngineMode.FULL:
+        import redis.asyncio as _aioredis
+
+        metering_kwargs: dict = {"decode_responses": False}
+        if config.redis.ssl_cert_reqs:
+            import ssl as _ssl
+
+            _reqs_map = {
+                "required": _ssl.CERT_REQUIRED,
+                "optional": _ssl.CERT_OPTIONAL,
+                "none": _ssl.CERT_NONE,
+            }
+            metering_kwargs["ssl_cert_reqs"] = _reqs_map.get(
+                config.redis.ssl_cert_reqs, _ssl.CERT_REQUIRED,
+            )
+        redis_for_metering = _aioredis.from_url(config.redis.url, **metering_kwargs)
+
+    rate_limiter = RateLimiter(
+        redis_client=redis_for_metering if config.rate_limit.enabled else None,
+        limits={
+            "observe": (config.rate_limit.observe_per_min, 60),
+            "remember": (config.rate_limit.remember_per_min, 60),
+            "recall": (config.rate_limit.recall_per_min, 60),
+            "trigger": (config.rate_limit.trigger_per_hour, 3600),
+            "chat": (config.rate_limit.chat_per_min, 60),
+        } if config.rate_limit.enabled else None,
+    )
+    usage_meter = UsageMeter(redis_client=redis_for_metering)
+
     # In full mode, subscribe to Redis events from MCP processes
     redis_subscriber = None
     if mode == EngineMode.FULL:
@@ -156,9 +206,19 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         if redis_subscriber:
             await redis_subscriber.start()
 
+    # Conversation store (shares SQLite connection in lite mode)
+    from engram.storage.sqlite.conversations import SQLiteConversationStore
+
+    conversation_store = SQLiteConversationStore(str(config.get_sqlite_path()))
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await conversation_store.initialize(db=graph_store._db)
+    else:
+        await conversation_store.initialize()
+
     _app_state.update(
         {
             "config": config,
+            "conversation_store": conversation_store,
             "mode": mode.value,
             "graph_store": graph_store,
             "activation_store": activation_store,
@@ -172,6 +232,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "pressure_accumulator": pressure_accumulator,
             "episode_worker": episode_worker,
             "redis_subscriber": redis_subscriber,
+            "rate_limiter": rate_limiter,
+            "usage_meter": usage_meter,
+            "redis_metering": redis_for_metering,
         }
     )
 
@@ -221,6 +284,22 @@ async def _shutdown() -> None:
             except Exception:
                 logger.warning("Shutdown consolidation failed", exc_info=True)
 
+    # Close metering Redis client
+    redis_metering = _app_state.get("redis_metering")
+    if redis_metering and hasattr(redis_metering, "aclose"):
+        await redis_metering.aclose()
+
+    # Close consolidation store (asyncpg pool in Postgres mode)
+    consolidation_store = _app_state.get("consolidation_store")
+    if consolidation_store and hasattr(consolidation_store, "close"):
+        await consolidation_store.close()
+
+    # Close OIDC validator (httpx client)
+    from engram.security.middleware import _oidc_validator
+
+    if _oidc_validator and hasattr(_oidc_validator, "close"):
+        await _oidc_validator.close()
+
     # Close embedding provider
     provider = _app_state.get("embedding_provider")
     if provider and hasattr(provider, "close"):
@@ -252,9 +331,12 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     )
 
     # CORS
+    origins = list(config.cors.allowed_origins)
+    if config.cors.production_origin:
+        origins.append(config.cors.production_origin)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.cors.allowed_origins,
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Authorization", "X-API-Key", "Content-Type"],
@@ -274,6 +356,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(consolidation_router)
     app.include_router(ws_router)
     app.include_router(knowledge_router)
+    app.include_router(conversations_router)
 
     @app.on_event("startup")
     async def startup():
