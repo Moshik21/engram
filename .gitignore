@@ -52,9 +52,13 @@ coverage.xml
 backups/
 
 # Internal analysis / dev notes
+BRAIN_ARCHITECTURE.md
 CONSOLIDATION_HEALTH_ANALYSIS.md
 CROSS_TOPIC_ANALYSIS.md
 ROADMAP.md
+SYSTEM_MAP.md
+Tech_Spec_v2.md
+docs/RECALL_REDESIGN.md
 docs/SAAS_NEXT_STEPS.md
 
 # AI tool configs
