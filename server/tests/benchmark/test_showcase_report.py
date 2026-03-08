@@ -46,7 +46,13 @@ def test_report_contains_fairness_executive_and_appendix_sections():
         fairness_contract=FairnessContract(
             track="all",
             strict_fairness=True,
-            scenario_budgets={"temporal_override": {"retrieval_limit": 5, "evidence_max_tokens": 80, "answer_budget_tokens": 70}},
+            scenario_budgets={
+                "temporal_override": {
+                    "retrieval_limit": 5,
+                    "evidence_max_tokens": 80,
+                    "answer_budget_tokens": 70,
+                },
+            },
             vector_provider_family="local",
             answer_model="deterministic",
             answer_provider="deterministic",
@@ -138,7 +144,13 @@ def test_report_marks_no_winner_when_all_primary_baselines_fail():
         fairness_contract=FairnessContract(
             track="showcase",
             strict_fairness=False,
-            scenario_budgets={"negation_correction": {"retrieval_limit": 5, "evidence_max_tokens": 120, "answer_budget_tokens": 70}},
+            scenario_budgets={
+                "negation_correction": {
+                    "retrieval_limit": 5,
+                    "evidence_max_tokens": 120,
+                    "answer_budget_tokens": 70,
+                },
+            },
             vector_provider_family="none",
             answer_model=None,
             answer_provider=None,

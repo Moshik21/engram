@@ -235,7 +235,10 @@ async def test_answer_track_skips_cleanly_without_model(tmp_path: Path):
 
     assert result.answer_results
     assert all(answer.available is False for answer in result.answer_results)
-    assert all(answer.availability_reason == "answer model not configured" for answer in result.answer_results)
+    assert all(
+        answer.availability_reason == "answer model not configured"
+        for answer in result.answer_results
+    )
     answer_track = next(summary for summary in result.track_summaries if summary.track == "answer")
     assert answer_track.available is False
     assert answer_track.availability_reason == "answer model not configured"
@@ -288,7 +291,10 @@ async def test_external_track_status_writes_appendix_artifact(tmp_path: Path):
 
     assert result.external_track_results
     assert (tmp_path / "external" / "external_tracks.json").exists()
-    external_track = next(summary for summary in result.track_summaries if summary.track == "external")
+    external_track = next(
+        summary for summary in result.track_summaries
+        if summary.track == "external"
+    )
     assert external_track.executed is True
 
 

@@ -77,7 +77,10 @@ async def main(args: argparse.Namespace) -> None:
     for summary in result.track_summaries:
         if summary.track == "showcase":
             continue
-        status = "available" if summary.available else f"unavailable ({summary.availability_reason})"
+        status = (
+            "available" if summary.available
+            else f"unavailable ({summary.availability_reason})"
+        )
         print(
             f"- track={summary.track}: executed={summary.executed}, "
             f"{status}"

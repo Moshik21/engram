@@ -46,7 +46,10 @@ def test_scale_mode_focuses_long_horizon_scenarios():
 
 
 def test_scenarios_expose_answer_and_budget_metadata():
-    scenarios = {scenario.id: scenario for scenario in build_showcase_scenarios(mode="quick", seed=7)}
+    scenarios = {
+        scenario.id: scenario
+        for scenario in build_showcase_scenarios(mode="quick", seed=7)
+    }
 
     cue = scenarios["cue_delayed_relevance"]
     assert cue.answer_task is not None

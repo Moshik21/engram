@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, is_dataclass
 from typing import Any, Literal
 
-
 TurnAction = Literal["observe", "remember", "project", "intend", "dismiss_intention"]
 ProbeOperation = Literal["recall", "get_context"]
 TrackName = Literal["showcase", "answer", "external", "all"]
+BaselineStatus = Literal["measured", "spec_only"]
+BaselineGroup = Literal["headline", "control", "appendix", "ablation", "spec_only"]
 
 
 def estimate_tokens(text: str) -> int:
@@ -277,6 +278,24 @@ class ExternalTrackResult:
     recommended_command: str | None = None
 
 
+@dataclass(frozen=True)
+class BaselineCatalogEntry:
+    """Single baseline definition shared by runner, report, and website exports."""
+
+    baseline_id: str
+    display_name: str
+    comparison_group: BaselineGroup
+    status: BaselineStatus
+    family: str
+    accent: str = "#67e8f9"
+    external_technology_label: str | None = None
+    archetype: str = ""
+    description: str = ""
+    fairness_notes: str = ""
+    known_limitations: str = ""
+    why_included: str = ""
+
+
 @dataclass
 class FairnessContract:
     """Frozen benchmark contract reported with every run."""
@@ -327,3 +346,7 @@ class ShowcaseRunResult:
     supporting_artifacts: dict[str, str] = field(default_factory=dict)
     artifact_paths: dict[str, str] = field(default_factory=dict)
     readme_snippet: str | None = None
+    headline_baselines: list[str] = field(default_factory=list)
+    control_baselines: list[str] = field(default_factory=list)
+    spec_only_baselines: list[str] = field(default_factory=list)
+    baseline_catalog: dict[str, BaselineCatalogEntry] = field(default_factory=dict)

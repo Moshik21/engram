@@ -591,7 +591,8 @@ class TestGraphManagerRecallEpisodes:
 
     @pytest.mark.asyncio
     async def test_recall_current_state_queries_prefer_entities_over_episodes(self):
-        """Current-state queries should suppress historical episode hits when entity state exists."""
+        """Current-state queries should suppress historical episode hits
+        when entity state exists."""
         from engram.graph_manager import GraphManager
 
         graph = _mock_graph_store()
@@ -610,7 +611,10 @@ class TestGraphManagerRecallEpisodes:
         )
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 
-        results = await gm.recall("Which framework does Falcon Dashboard use now?", group_id="default")
+        results = await gm.recall(
+            "Which framework does Falcon Dashboard use now?",
+            group_id="default",
+        )
 
         assert results
         assert all(result["result_type"] == "entity" for result in results)

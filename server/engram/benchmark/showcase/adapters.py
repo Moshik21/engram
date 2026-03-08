@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from engram.benchmark.showcase.answering import synthesize_answer
 from engram.benchmark.showcase.models import (
     AdapterCostStats,
     AnswerTask,
@@ -20,7 +21,6 @@ from engram.benchmark.showcase.models import (
     ScenarioTurn,
     estimate_tokens,
 )
-from engram.benchmark.showcase.answering import synthesize_answer
 from engram.config import ActivationConfig
 from engram.embeddings.provider import EmbeddingProvider, FastEmbedProvider, VoyageProvider
 from engram.extraction.extractor import ExtractionResult
@@ -29,8 +29,7 @@ from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.hybrid_search import HybridSearchIndex
 from engram.storage.sqlite.search import FTS5SearchIndex
-from engram.storage.sqlite.vectors import cosine_similarity
-from engram.storage.sqlite.vectors import SQLiteVectorStore
+from engram.storage.sqlite.vectors import SQLiteVectorStore, cosine_similarity
 
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 _STOP_WORDS = {
@@ -461,7 +460,8 @@ def _extract_structured_facts(text: str) -> dict[str, str]:
 
 def _extract_correction(text: str) -> tuple[str, str, str] | None:
     base_url = re.search(
-        r"(?:Correction:\s*)?(?P<subject>.+?) now uses (?P<value>[A-Za-z0-9._-]+) as (?:its )?base URL\.?$",
+        r"(?:Correction:\s*)?(?P<subject>.+?) now uses "
+        r"(?P<value>[A-Za-z0-9._-]+) as (?:its )?base URL\.?$",
         text,
         re.IGNORECASE,
     )
@@ -475,7 +475,8 @@ def _extract_correction(text: str) -> tuple[str, str, str] | None:
         )
 
     stopped_using = re.search(
-        r"(?P<subject>.+?) stopped using (?P<old>[A-Za-z0-9._-]+) and now uses (?P<new>[A-Za-z0-9._-]+)\.?",
+        r"(?P<subject>.+?) stopped using (?P<old>[A-Za-z0-9._-]+) "
+        r"and now uses (?P<new>[A-Za-z0-9._-]+)\.?",
         text,
         re.IGNORECASE,
     )

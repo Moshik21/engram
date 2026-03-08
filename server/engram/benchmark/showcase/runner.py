@@ -146,7 +146,9 @@ def _transcript_hashes(scenarios) -> dict[str, str]:
     return hashes
 
 
-def _overall_vector_provider_family(selected_baselines: list[str], engram_vector_provider: str) -> str:
+def _overall_vector_provider_family(
+    selected_baselines: list[str], engram_vector_provider: str,
+) -> str:
     vector_families: set[str] = set()
     for baseline in selected_baselines:
         if baseline in {"hybrid_rag_temporal", "vector_rag"}:
@@ -263,11 +265,13 @@ def _validate_fairness(contract: FairnessContract) -> None:
     for baseline_name, details in contract.baseline_contracts.items():
         if details.get("evidence_budget_source") != "scenario_probe":
             raise ValueError(
-                f"Fairness violation: {baseline_name} does not honor scenario probe evidence budgets"
+                f"Fairness violation: {baseline_name} does not honor"
+                " scenario probe evidence budgets"
             )
         if details.get("retrieval_limit_source") != "scenario_probe":
             raise ValueError(
-                f"Fairness violation: {baseline_name} does not honor scenario probe retrieval limits"
+                f"Fairness violation: {baseline_name} does not honor"
+                " scenario probe retrieval limits"
             )
 
     vector_families = {
@@ -277,7 +281,8 @@ def _validate_fairness(contract: FairnessContract) -> None:
     }
     if len(vector_families) > 1:
         raise ValueError(
-            f"Fairness violation: multiple vector provider families in comparable baselines: {sorted(vector_families)}"
+            "Fairness violation: multiple vector provider families"
+            f" in comparable baselines: {sorted(vector_families)}"
         )
 
 
@@ -670,7 +675,9 @@ async def run_showcase_benchmark(
                         probe_results = []
                         answer_probe = (
                             _build_answer_probe(scenario)
-                            if run_answer and scenario.answer_task is not None and answer_reason is None
+                            if run_answer
+                            and scenario.answer_task is not None
+                            and answer_reason is None
                             else None
                         )
                         answer_recorded = False

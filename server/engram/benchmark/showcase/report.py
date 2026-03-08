@@ -132,7 +132,10 @@ def _aggregate_primary_scenarios(run_result: ShowcaseRunResult) -> list[dict]:
 def _winner_note(winner: str, tags: set[str], why: str) -> str:
     if winner == "engram_full":
         if "prospective" in tags:
-            return "Prospective retrieval surfaced the right intention from related entity activity."
+            return (
+                "Prospective retrieval surfaced the right intention"
+                " from related entity activity."
+            )
         if "temporal" in tags or "negation" in tags:
             return "Current-state memory won without leaking stale or negated facts."
         if "association" in tags or "graph" in tags:
@@ -184,7 +187,9 @@ def _render_fairness(lines: list[str], run_result: ShowcaseRunResult) -> None:
     )
     for scenario_id, budget in fairness.scenario_budgets.items():
         lines.append(
-            f"| {scenario_id} | {budget['retrieval_limit']} | {budget['evidence_max_tokens']} | {budget['answer_budget_tokens']} |"
+            f"| {scenario_id} | {budget['retrieval_limit']}"
+            f" | {budget['evidence_max_tokens']}"
+            f" | {budget['answer_budget_tokens']} |"
         )
 
 
@@ -196,7 +201,9 @@ def _render_executive(lines: list[str], run_result: ShowcaseRunResult) -> None:
             "",
             "## Executive Table",
             "",
-            "| Baseline | Available | Scenario Pass | False Recall | Temporal | Negation | Open Loop | Prospective | Answer Pass | Answer Score | p50 ms | p95 ms |",
+            "| Baseline | Available | Scenario Pass | False Recall"
+            " | Temporal | Negation | Open Loop | Prospective"
+            " | Answer Pass | Answer Score | p50 ms | p95 ms |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
@@ -286,7 +293,10 @@ def _render_scenario_rows(lines: list[str], run_result: ShowcaseRunResult) -> No
         lines.append("")
         lines.append(f"- Why it matters: {row['why_it_matters']}")
         lines.append("")
-        lines.append("| Baseline | Evidence Pass | Answer Pass | Answer Score | Avg Tokens | Avg Latency ms |")
+        lines.append(
+            "| Baseline | Evidence Pass | Answer Pass"
+            " | Answer Score | Avg Tokens | Avg Latency ms |"
+        )
         lines.append("|---|---:|---:|---:|---:|---:|")
         for entry in row["entries"]:
             lines.append(
@@ -456,10 +466,12 @@ def _render_takeaways(lines: list[str], run_result: ShowcaseRunResult) -> None:
             f"- Headline showcase pass rate: `{_fmt(engram.scenario_pass_rate)}` for Engram Full."
         )
         lines.append(
-            f"- Lower or equal false recall versus: {', '.join(lower_false) if lower_false else 'none'}."
+            "- Lower or equal false recall versus: "
+            f"{', '.join(lower_false) if lower_false else 'none'}."
         )
         lines.append(
-            f"- Higher scenario pass rate versus: {', '.join(higher_pass) if higher_pass else 'none'}."
+            "- Higher scenario pass rate versus: "
+            f"{', '.join(higher_pass) if higher_pass else 'none'}."
         )
 
     primary_rows = _aggregate_primary_scenarios(run_result)

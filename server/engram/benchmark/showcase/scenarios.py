@@ -9,8 +9,8 @@ from engram.benchmark.showcase.models import (
     BudgetProfile,
     ExtractionSpec,
     ScenarioProbe,
-    ShowcaseScenario,
     ScenarioTurn,
+    ShowcaseScenario,
 )
 
 _QUICK_SCENARIOS = {
@@ -359,7 +359,10 @@ def _negation_correction(seed: int) -> ShowcaseScenario:
     return ShowcaseScenario(
         id="negation_correction",
         title="Negation And Correction",
-        why_it_matters="Negative polarity should suppress stale relationships instead of appending noise.",
+        why_it_matters=(
+            "Negative polarity should suppress stale relationships"
+            " instead of appending noise."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["temporal", "negation"],
@@ -415,7 +418,10 @@ def _open_loop_recovery(seed: int, history_multiplier: int) -> ShowcaseScenario:
     return ShowcaseScenario(
         id="open_loop_recovery",
         title="Open Loop Recovery",
-        why_it_matters="Latent unresolved work should return later without keeping full history in prompt.",
+        why_it_matters=(
+            "Latent unresolved work should return later"
+            " without keeping full history in prompt."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["open_loop"],
@@ -527,7 +533,10 @@ def _prospective_trigger(seed: int) -> ShowcaseScenario:
     return ShowcaseScenario(
         id="prospective_trigger",
         title="Prospective Trigger",
-        why_it_matters="Intentions should fire from related entity activity rather than raw lexical overlap alone.",
+        why_it_matters=(
+            "Intentions should fire from related entity activity"
+            " rather than raw lexical overlap alone."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["prospective"],
@@ -548,7 +557,10 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
             content="Bearer Validation is part of Sentinel Mesh.",
             extraction=ExtractionSpec(
                 entities=[
-                    _entity("Bearer Validation", "Capability", summary="Validation path for bearer credentials."),
+                    _entity(
+                        "Bearer Validation", "Capability",
+                        summary="Validation path for bearer credentials.",
+                    ),
                     _entity("Sentinel Mesh", "Project", summary="Internal security routing mesh."),
                 ],
                 relationships=[
@@ -619,7 +631,10 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
             required_evidence_result_types=["entity"],
             expected_result_types=["entity"],
             capability_tags=["association", "graph"],
-            note="Graph spreading should connect lexically distant but structurally linked entities.",
+            note=(
+                "Graph spreading should connect lexically distant"
+                " but structurally linked entities."
+            ),
         )
     ]
     answer_task = _answer_task(
@@ -629,7 +644,10 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
     return ShowcaseScenario(
         id="cross_cluster_association",
         title="Cross Cluster Association",
-        why_it_matters="Graph-aware retrieval should outperform flat lexical retrieval on associative queries.",
+        why_it_matters=(
+            "Graph-aware retrieval should outperform flat lexical"
+            " retrieval on associative queries."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["association", "graph"],
@@ -646,13 +664,19 @@ def _latent_open_loop_cue(seed: int, history_multiplier: int) -> ShowcaseScenari
         ScenarioTurn(
             id="canary_open_loop",
             action="observe",
-            content="Rina mentioned the canary rollout still needs canary keys rotated before Tuesday.",
+            content=(
+                "Rina mentioned the canary rollout still needs"
+                " canary keys rotated before Tuesday."
+            ),
             source="showcase:meeting",
         ),
         ScenarioTurn(
             id="canary_open_loop_followup",
             action="observe",
-            content="Follow-up from Rina: the canary rollout still needs canary keys rotated before Tuesday.",
+            content=(
+                "Follow-up from Rina: the canary rollout still needs"
+                " canary keys rotated before Tuesday."
+            ),
             source="showcase:meeting",
         ),
         ScenarioTurn(
@@ -681,7 +705,10 @@ def _latent_open_loop_cue(seed: int, history_multiplier: int) -> ShowcaseScenari
             required_evidence_result_types=["cue_episode"],
             expected_result_types=["cue_episode"],
             capability_tags=["cue", "open_loop"],
-            note="A latent unresolved task should come back as cue evidence instead of raw log replay.",
+            note=(
+                "A latent unresolved task should come back as cue"
+                " evidence instead of raw log replay."
+            ),
         ),
     ]
     answer_task = _answer_task(
@@ -691,7 +718,10 @@ def _latent_open_loop_cue(seed: int, history_multiplier: int) -> ShowcaseScenari
     return ShowcaseScenario(
         id="latent_open_loop_cue",
         title="Latent Open Loop Cue",
-        why_it_matters="Unfinished work should resurface through latent cue recall, not only through exact lexical search.",
+        why_it_matters=(
+            "Unfinished work should resurface through latent cue recall,"
+            " not only through exact lexical search."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["cue", "open_loop"],
@@ -759,7 +789,10 @@ def _multi_session_continuity(seed: int, history_multiplier: int) -> ShowcaseSce
     return ShowcaseScenario(
         id="multi_session_continuity",
         title="Multi Session Continuity",
-        why_it_matters="Durable project state should survive beyond the immediate conversation window.",
+        why_it_matters=(
+            "Durable project state should survive beyond the"
+            " immediate conversation window."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["continuity"],
@@ -835,7 +868,10 @@ def _context_budget_compression(seed: int, history_multiplier: int) -> ShowcaseS
     return ShowcaseScenario(
         id="context_budget_compression",
         title="Context Budget Compression",
-        why_it_matters="Structured memory should keep the key facts even when raw notes get truncated.",
+        why_it_matters=(
+            "Structured memory should keep the key facts even"
+            " when raw notes get truncated."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["compression"],
@@ -875,7 +911,10 @@ def _meta_contamination_resistance(seed: int) -> ShowcaseScenario:
         ScenarioTurn(
             id="konner_summary_noise",
             action="observe",
-            content="Assistant scratchpad: maybe Konner likes long-form status narratives? confidence=0.12",
+            content=(
+                "Assistant scratchpad: maybe Konner likes"
+                " long-form status narratives? confidence=0.12"
+            ),
             source="showcase:meta",
         ),
     ]
@@ -919,7 +958,10 @@ def _selective_extraction_efficiency(seed: int, history_multiplier: int) -> Show
         ScenarioTurn(
             id="sparrow_board_note",
             action="observe",
-            content="Board decision: Sparrow Feature should sunset next quarter after the migration.",
+            content=(
+                "Board decision: Sparrow Feature should sunset"
+                " next quarter after the migration."
+            ),
             extraction=ExtractionSpec(
                 entities=[
                     _entity(
@@ -973,7 +1015,10 @@ def _selective_extraction_efficiency(seed: int, history_multiplier: int) -> Show
     return ShowcaseScenario(
         id="selective_extraction_efficiency",
         title="Selective Extraction Efficiency",
-        why_it_matters="Engram should answer later questions without projecting every observed turn.",
+        why_it_matters=(
+            "Engram should answer later questions without"
+            " projecting every observed turn."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["efficiency"],
@@ -1126,7 +1171,10 @@ def _summary_drift_resistance(seed: int, history_multiplier: int) -> ShowcaseSce
             disallowed_result_types=["episode"],
             historical_evidence_allowed=False,
             capability_tags=["meta", "temporal"],
-            note="Paraphrases and exploratory notes should not distort the canonical current style.",
+            note=(
+                "Paraphrases and exploratory notes should not"
+                " distort the canonical current style."
+            ),
         )
     ]
     answer_task = _answer_task(
@@ -1136,7 +1184,10 @@ def _summary_drift_resistance(seed: int, history_multiplier: int) -> ShowcaseSce
     return ShowcaseScenario(
         id="summary_drift_resistance",
         title="Summary Drift Resistance",
-        why_it_matters="Repeated paraphrases and exploratory chatter should not rewrite current truth.",
+        why_it_matters=(
+            "Repeated paraphrases and exploratory chatter"
+            " should not rewrite current truth."
+        ),
         turns=turns,
         probes=probes,
         capability_tags=["meta", "temporal"],
