@@ -9,6 +9,7 @@ from engram.config import ActivationConfig
 from engram.embeddings.provider import EmbeddingProvider, truncate_vectors
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 from engram.storage.sqlite.search import FTS5SearchIndex
 from engram.storage.sqlite.vectors import SQLiteVectorStore, cosine_similarity, unpack_vector
 
@@ -87,6 +88,34 @@ class HybridSearchIndex:
                     )
             except Exception as e:
                 logger.warning("Failed to embed episode %s: %s", episode.id, e)
+
+    async def index_episode_cue(self, cue: EpisodeCue) -> None:
+        """Index cue text for vector search."""
+        if not self._embeddings_enabled:
+            return
+        if not cue.cue_text:
+            try:
+                await self._vectors.remove(cue.episode_id, content_type="episode_cue")
+            except Exception as e:
+                logger.warning("Failed to remove cue embedding %s: %s", cue.episode_id, e)
+            return
+        try:
+            embeddings = await self._provider.embed([cue.cue_text])
+            if not embeddings:
+                return
+            if self._storage_dim > 0:
+                embeddings = truncate_vectors(embeddings, self._storage_dim)
+            await self._vectors.upsert(
+                cue.episode_id,
+                "episode_cue",
+                cue.group_id,
+                cue.cue_text,
+                embeddings[0],
+                embed_provider=self._embed_provider,
+                embed_model=self._embed_model,
+            )
+        except Exception as e:
+            logger.warning("Failed to embed cue %s: %s", cue.episode_id, e)
 
     async def batch_index_entities(self, entities: list[Entity]) -> int:
         """Batch-embed and index multiple entities. Returns count indexed."""
@@ -376,6 +405,54 @@ class HybridSearchIndex:
             )
         except Exception as e:
             logger.warning("Vector episode search failed, falling back to FTS5: %s", e)
+            return fts_results[:limit]
+
+        if not vec_results:
+            return fts_results[:limit]
+
+        return self._merge_results(fts_results, vec_results, limit)
+
+    async def search_episode_cues(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Search episode cues using hybrid FTS5 + vector scoring."""
+        if not self._embeddings_enabled:
+            return await self._fts.search_episode_cues(query=query, group_id=group_id, limit=limit)
+
+        if group_id and not await self._vectors.has_embeddings(group_id):
+            return await self._fts.search_episode_cues(query=query, group_id=group_id, limit=limit)
+
+        try:
+            fts_results, query_vec = await asyncio.gather(
+                self._fts.search_episode_cues(
+                    query=query,
+                    group_id=group_id,
+                    limit=limit * 2,
+                ),
+                self._provider.embed_query(query),
+            )
+        except Exception as e:
+            logger.warning("Parallel cue search failed, falling back to FTS5: %s", e)
+            return await self._fts.search_episode_cues(query=query, group_id=group_id, limit=limit)
+
+        if not query_vec:
+            return fts_results[:limit]
+        if self._storage_dim > 0:
+            query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
+
+        try:
+            vec_results = await self._vectors.search(
+                query_vec,
+                group_id or "default",
+                content_type="episode_cue",
+                limit=limit * 2,
+                storage_dim=self._storage_dim,
+            )
+        except Exception as e:
+            logger.warning("Vector cue search failed, falling back to FTS5: %s", e)
             return fts_results[:limit]
 
         if not vec_results:

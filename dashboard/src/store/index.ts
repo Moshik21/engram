@@ -32,12 +32,15 @@ export const useEngramStore = create<EngramStore>()(
       })),
       {
         name: "engram-dashboard",
-        version: 2,
+        version: 4,
         migrate: (persisted: unknown, version: number) => {
           const state = persisted as Record<string, unknown>;
-          if (version < 2) {
-            // Raise graphMaxNodes — LOD now handles visibility budgeting
-            state.graphMaxNodes = 50000;
+          if (version < 3) {
+            state.graphMaxNodes = 1500;
+          }
+          if (version < 4) {
+            state.lastAtlasVisitAt = null;
+            state.lastAtlasSnapshotId = null;
           }
           return state;
         },
@@ -48,6 +51,8 @@ export const useEngramStore = create<EngramStore>()(
           showEdgeLabels: s.showEdgeLabels,
           darkMode: s.darkMode,
           graphMaxNodes: s.graphMaxNodes,
+          lastAtlasVisitAt: s.lastAtlasVisitAt,
+          lastAtlasSnapshotId: s.lastAtlasSnapshotId,
         }),
       },
     ),

@@ -9,6 +9,13 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_ENV_FILES = (
+    str(Path.home() / ".engram" / ".env"),  # global config
+    str(_REPO_ROOT / ".env"),               # repo-root local config
+    ".env",                                 # cwd override
+)
+
 
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
@@ -228,6 +235,58 @@ class ActivationConfig(BaseModel):
     episode_retrieval_enabled: bool = Field(default=True)
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
     episode_retrieval_max: int = Field(default=3, ge=0, le=20)
+    cue_recall_enabled: bool = Field(
+        default=False,
+        description="Allow cue-backed latent episodes to participate in recall",
+    )
+    cue_recall_weight: float = Field(default=0.65, ge=0.0, le=1.0)
+    cue_recall_max: int = Field(default=2, ge=0, le=20)
+    cue_recall_hit_threshold: int = Field(
+        default=2, ge=1, le=20,
+        description="Promote cue-backed episodes to scheduled projection after this many hits",
+    )
+    cue_policy_learning_enabled: bool = Field(
+        default=False,
+        description="Adapt cue projection scheduling from recall feedback signals",
+    )
+    cue_policy_schedule_threshold: float = Field(
+        default=0.9, ge=0.0, le=2.0,
+        description="Feedback policy score threshold for scheduling projection",
+    )
+    cue_policy_surface_weight: float = Field(
+        default=0.08, ge=0.0, le=1.0,
+        description="Weight assigned to surfaced cue interactions",
+    )
+    cue_policy_select_weight: float = Field(
+        default=0.18, ge=0.0, le=1.0,
+        description="Weight assigned to selected cue interactions",
+    )
+    cue_policy_use_weight: float = Field(
+        default=0.35, ge=0.0, le=1.0,
+        description="Weight assigned to used cue interactions",
+    )
+    cue_policy_near_miss_weight: float = Field(
+        default=0.12, ge=0.0, le=1.0,
+        description="Weight assigned to repeated cue near-miss interactions",
+    )
+    cue_policy_score_cap: float = Field(
+        default=1.5, ge=0.5, le=5.0,
+        description="Upper bound for accumulated cue policy score",
+    )
+    cue_policy_source_boosts: dict[str, float] = Field(
+        default_factory=lambda: {
+            "remember": 0.20,
+            "auto:bootstrap": 0.10,
+        },
+        description="Optional source-specific boosts for initial cue policy score",
+    )
+    cue_policy_discourse_boosts: dict[str, float] = Field(
+        default_factory=lambda: {
+            "world": 0.05,
+            "hybrid": 0.02,
+        },
+        description="Optional discourse-class boosts for initial cue policy score",
+    )
 
     # --- Typed edge weighting ---
     predicate_weights: dict[str, float] = Field(
@@ -271,6 +330,15 @@ class ActivationConfig(BaseModel):
     consolidation_profile: str = Field(
         default="off", pattern="^(off|observe|conservative|standard)$",
     )
+    integration_profile: str = Field(
+        default="off",
+        pattern="^(off|rework)$",
+        description=(
+            "Coherent preset for the reworked extraction/recall/consolidation loop. "
+            "'rework' normalizes to consolidation_profile=standard, "
+            "recall_profile=all, and enables the cue/projection rollout bundle."
+        ),
+    )
     consolidation_enabled: bool = Field(default=False)
     consolidation_interval_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
     consolidation_dry_run: bool = Field(default=True)
@@ -282,15 +350,21 @@ class ActivationConfig(BaseModel):
     )
     consolidation_tier_hot_seconds: float = Field(
         default=900.0, ge=60.0, le=86400.0,
-        description="Hot tier interval (triage, compact): 15 min default",
+        description="Hot tier interval (triage): 15 min default",
     )
     consolidation_tier_warm_seconds: float = Field(
         default=7200.0, ge=300.0, le=86400.0,
-        description="Warm tier interval (merge, infer, reindex): 2 hours default",
+        description=(
+            "Warm tier interval (merge, infer, compact, mature, semanticize, "
+            "reindex): 2 hours default"
+        ),
     )
     consolidation_tier_cold_seconds: float = Field(
         default=21600.0, ge=1800.0, le=86400.0,
-        description="Cold tier interval (replay, prune, graph_embed, dream): 6 hours default",
+        description=(
+            "Cold tier interval (replay, prune, schema, graph_embed, dream): "
+            "6 hours default"
+        ),
     )
     consolidation_merge_threshold: float = Field(default=0.88, ge=0.5, le=1.0)
     consolidation_merge_max_per_cycle: int = Field(default=50, ge=1, le=500)
@@ -335,6 +409,25 @@ class ActivationConfig(BaseModel):
         default=0.55, ge=0.0, le=1.0,
         description="Confidence below this = auto-reject in multi-signal scorer",
     )
+    consolidation_merge_structural_min_neighbors: int = Field(
+        default=3, ge=2, le=10,
+        description="Min shared neighbors for structural merge candidate discovery",
+    )
+    consolidation_identifier_review_enabled: bool = Field(
+        default=True,
+        description=(
+            "Persist quarantined review records for suspicious identifier-like merge "
+            "candidates that were blocked by policy"
+        ),
+    )
+    consolidation_identifier_review_min_similarity: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description="Min raw name similarity before a blocked identifier pair is queued for review",
+    )
+    consolidation_identifier_review_max_per_cycle: int = Field(
+        default=100, ge=1, le=1000,
+        description="Max suspicious identifier review records to persist per cycle",
+    )
 
     consolidation_prune_activation_floor: float = Field(default=0.05, ge=0.0, le=0.5)
     consolidation_prune_min_age_days: int = Field(default=14, ge=1, le=365)
@@ -356,7 +449,7 @@ class ActivationConfig(BaseModel):
 
     # --- LLM validation (Tier 3) ---
     consolidation_infer_llm_enabled: bool = Field(default=False)
-    consolidation_infer_llm_confidence_threshold: float = Field(default=0.7, ge=0.1, le=1.0)
+    consolidation_infer_llm_confidence_threshold: float = Field(default=0.5, ge=0.1, le=1.0)
     consolidation_infer_llm_max_per_cycle: int = Field(default=20, ge=1, le=100)
     consolidation_infer_llm_model: str = Field(default="claude-haiku-4-5-20251001")
 
@@ -377,6 +470,28 @@ class ActivationConfig(BaseModel):
     consolidation_infer_auto_reject_threshold: float = Field(
         default=0.40, ge=0.0, le=1.0,
         description="Score below this = auto-reject inferred edges",
+    )
+
+    # --- Distillation and calibration ---
+    consolidation_distillation_enabled: bool = Field(
+        default=True,
+        description="Persist teacher/student examples from consolidation audit history",
+    )
+    consolidation_calibration_enabled: bool = Field(
+        default=True,
+        description="Compute rolling calibration snapshots from recent consolidation cycles",
+    )
+    consolidation_calibration_window_cycles: int = Field(
+        default=25, ge=1, le=500,
+        description="How many recent cycles to include in calibration summaries",
+    )
+    consolidation_calibration_min_examples: int = Field(
+        default=10, ge=1, le=1000,
+        description="Minimum labeled examples required before reporting calibration metrics",
+    )
+    consolidation_calibration_bins: int = Field(
+        default=5, ge=2, le=20,
+        description="Number of confidence buckets for calibration summaries",
     )
 
     # --- Cross-encoder refinement (Tier 1) ---
@@ -484,7 +599,7 @@ class ActivationConfig(BaseModel):
     # --- Multi-signal triage scorer (replaces LLM judge) ---
     triage_multi_signal_enabled: bool = Field(
         default=True,
-        description="Use multi-signal scorer instead of LLM for triage (overrides triage_llm_judge_enabled)",
+        description="Use multi-signal scorer instead of LLM for triage",
     )
     triage_scorer_weights: dict[str, float] = Field(
         default_factory=lambda: {
@@ -526,6 +641,52 @@ class ActivationConfig(BaseModel):
         description="Worker skips below this score (no triage needed)",
     )
 
+    # --- Progressive projection / cue layer ---
+    cue_layer_enabled: bool = Field(
+        default=False,
+        description="Generate deterministic episode cues on store_episode",
+    )
+    cue_vector_index_enabled: bool = Field(
+        default=True,
+        description="Index cue text for vector search when cue layer is enabled",
+    )
+    targeted_projection_enabled: bool = Field(
+        default=True,
+        description="Allow long episodes to use targeted span selection before extraction",
+    )
+    projector_v2_enabled: bool = Field(
+        default=True,
+        description="Enable the progressive planner/projector pipeline for episode projection",
+    )
+    projection_max_retries: int = Field(
+        default=2, ge=0, le=10,
+        description="Max retryable projection attempts before dead-letter state",
+    )
+    projection_planner_enabled: bool = Field(
+        default=True,
+        description="Use deterministic span planning before extractor calls",
+    )
+    projection_span_target_chars: int = Field(
+        default=1400, ge=200, le=8000,
+        description="Target span size for projection planning",
+    )
+    projection_span_max_chars: int = Field(
+        default=2200, ge=400, le=8000,
+        description="Hard cap for an individual planned span",
+    )
+    projection_min_span_chars: int = Field(
+        default=300, ge=50, le=4000,
+        description="Minimum planned span size before emitting a chunk",
+    )
+    projection_span_budget: int = Field(
+        default=3, ge=1, le=10,
+        description="Maximum number of primary spans to select per projection",
+    )
+    projection_neighbor_span_radius: int = Field(
+        default=1, ge=0, le=3,
+        description="Number of adjacent spans to include for context expansion",
+    )
+
     # --- Identity core ---
     identity_core_enabled: bool = Field(
         default=True, description="Enable identity core protected entity subgraph",
@@ -549,7 +710,7 @@ class ActivationConfig(BaseModel):
     domain_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "personal": ["Person", "Event", "Emotion", "Goal", "Preference", "Habit", "Intention"],
-            "technical": ["Technology", "Software", "Project"],
+            "technical": ["Technology", "Software", "Project", "Identifier"],
             "creative": ["CreativeWork", "Article"],
             "knowledge": ["Concept"],
             "health": ["HealthCondition", "BodyPart"],
@@ -702,6 +863,138 @@ class ActivationConfig(BaseModel):
     )
     auto_recall_session_prime_max_tokens: int = Field(
         default=500, ge=100, le=2000, description="Session prime token budget",
+    )
+    recall_need_analyzer_enabled: bool = Field(
+        default=False, description="Enable heuristic memory-need analysis before recall",
+    )
+    recall_need_graph_probe_enabled: bool = Field(
+        default=False,
+        description="Enable graph-grounded recall-need resonance probing",
+    )
+    recall_need_structural_enabled: bool = Field(
+        default=False,
+        description="Enable structural recall-need patterns in live gating",
+    )
+    recall_need_shift_enabled: bool = Field(
+        default=False,
+        description="Enable shift-aware recall-need scoring",
+    )
+    recall_need_impoverishment_enabled: bool = Field(
+        default=False,
+        description="Enable impoverishment-aware recall-need scoring",
+    )
+    recall_need_shift_shadow_only: bool = Field(
+        default=True,
+        description="Emit shift recall-need telemetry without affecting recall decisions",
+    )
+    recall_need_impoverishment_shadow_only: bool = Field(
+        default=True,
+        description="Emit impoverishment recall-need telemetry without affecting recall decisions",
+    )
+    recall_need_adaptive_thresholds_enabled: bool = Field(
+        default=False,
+        description="Adjust recall-need thresholds from rolling runtime outcomes",
+    )
+    recall_need_target_use_rate: float = Field(
+        default=0.55,
+        ge=0.1,
+        le=1.0,
+        description="Target fraction of recall triggers that lead to useful usage",
+    )
+    recall_need_threshold_window: int = Field(
+        default=100,
+        ge=10,
+        le=500,
+        description="Rolling window size for recall-need runtime metrics",
+    )
+    recall_need_adaptive_min_samples: int = Field(
+        default=30,
+        ge=5,
+        le=500,
+        description="Minimum trigger samples before adaptive threshold changes apply",
+    )
+    recall_need_graph_override_enabled: bool = Field(
+        default=False,
+        description="Allow high-confidence graph resonance to trigger bounded recall override",
+    )
+    recall_need_graph_override_resonance_threshold: float = Field(
+        default=0.72,
+        ge=0.4,
+        le=1.0,
+        description="Minimum graph resonance required for graph-only override",
+    )
+    recall_need_post_response_safety_net_enabled: bool = Field(
+        default=False,
+        description=(
+            "Retry knowledge-chat replies once when memory-needed turns get "
+            "a generic response"
+        ),
+    )
+    epistemic_routing_enabled: bool = Field(
+        default=False,
+        description="Enable epistemic routing across memory, artifacts, and runtime sources",
+    )
+    artifact_bootstrap_enabled: bool = Field(
+        default=False,
+        description="Enable project artifact bootstrapping for parity across surfaces",
+    )
+    artifact_recall_enabled: bool = Field(
+        default=False,
+        description="Allow artifact substrate participation in routed answers",
+    )
+    epistemic_runtime_executor_enabled: bool = Field(
+        default=False,
+        description="Enable runtime/config evidence executor for inspect/reconcile questions",
+    )
+    decision_graph_enabled: bool = Field(
+        default=False,
+        description="Materialize decision and artifact externalization semantics in the graph",
+    )
+    epistemic_reconcile_enabled: bool = Field(
+        default=False,
+        description="Enable multi-source reconciliation between memory and artifacts",
+    )
+    answer_contract_enabled: bool = Field(
+        default=False,
+        description="Enable answer-contract resolution on top of epistemic routing",
+    )
+    claim_state_modeling_enabled: bool = Field(
+        default=False,
+        description="Annotate routed evidence with deterministic claim-state labels",
+    )
+    artifact_bootstrap_stale_seconds: int = Field(
+        default=86400,
+        ge=300,
+        le=604800,
+        description="How long bootstrapped project artifacts stay fresh before refresh",
+    )
+    recall_telemetry_enabled: bool = Field(
+        default=False, description="Emit structured recall telemetry events",
+    )
+    recall_usage_feedback_enabled: bool = Field(
+        default=False,
+        description="Enable surfaced/selected/used feedback semantics for recall",
+    )
+    recall_planner_enabled: bool = Field(
+        default=False, description="Enable planner-driven multi-intent recall",
+    )
+    recall_planner_max_intents: int = Field(
+        default=4, ge=1, le=8, description="Max intents emitted by the recall planner",
+    )
+    recall_planner_subquery_limit: int = Field(
+        default=25, ge=5, le=100, description="Per-intent semantic search budget",
+    )
+    recall_packets_enabled: bool = Field(
+        default=True, description="Return packetized memory alongside raw recall results",
+    )
+    recall_packet_auto_limit: int = Field(
+        default=2, ge=1, le=5, description="Max packets for auto-surfaced recall",
+    )
+    recall_packet_explicit_limit: int = Field(
+        default=3, ge=1, le=8, description="Max packets for explicit recall surfaces",
+    )
+    recall_packet_chat_limit: int = Field(
+        default=2, ge=1, le=5, description="Max packets for chat tool recall output",
     )
 
     # --- Conversation Awareness (Wave 2) ---
@@ -932,11 +1225,19 @@ class ActivationConfig(BaseModel):
     )
 
     def model_post_init(self, __context: object) -> None:
-        """Apply consolidation and recall profile presets."""
+        """Apply consolidation, recall, and integration profile presets."""
         profile = self.consolidation_profile
+        recall_profile = self.recall_profile
+        integration_profile = self.integration_profile
 
         def _set(field: str, value: object) -> None:
             object.__setattr__(self, field, value)
+
+        if integration_profile == "rework":
+            profile = "standard"
+            recall_profile = "all"
+            _set("consolidation_profile", profile)
+            _set("recall_profile", recall_profile)
 
         if profile == "observe":
             _set("consolidation_enabled", True)
@@ -999,24 +1300,34 @@ class ActivationConfig(BaseModel):
             _set("schema_formation_enabled", True)
 
         # --- Recall profile presets (cumulative) ---
-        rp = self.recall_profile
+        rp = recall_profile
         if rp != "off":
             # Wave 1: AutoRecall
             _set("auto_recall_enabled", True)
             _set("auto_recall_on_observe", True)
             _set("auto_recall_on_remember", True)
             _set("auto_recall_session_prime", True)
+            _set("recall_need_analyzer_enabled", True)
+            _set("recall_need_structural_enabled", True)
+            _set("recall_telemetry_enabled", True)
+            _set("recall_usage_feedback_enabled", True)
 
         if rp in ("wave2", "wave3", "wave4", "all"):
             # Wave 2: Conversation Awareness
+            _set("recall_need_graph_probe_enabled", True)
             _set("conv_context_enabled", True)
             _set("conv_fingerprint_enabled", True)
             _set("conv_multi_query_enabled", True)
             _set("conv_session_entity_seeds_enabled", True)
             _set("conv_near_miss_enabled", True)
+            _set("recall_planner_enabled", True)
 
         if rp in ("wave3", "wave4", "all"):
             # Wave 3: Proactive Intelligence
+            _set("recall_need_shift_enabled", True)
+            _set("recall_need_impoverishment_enabled", True)
+            _set("recall_need_shift_shadow_only", False)
+            _set("recall_need_impoverishment_shadow_only", False)
             _set("conv_topic_shift_enabled", True)
             _set("surprise_detection_enabled", True)
             _set("retrieval_priming_enabled", True)
@@ -1025,6 +1336,34 @@ class ActivationConfig(BaseModel):
         if rp in ("wave4", "all"):
             # Wave 4: Prospective Memory
             _set("prospective_memory_enabled", True)
+
+        if integration_profile == "rework":
+            _set("cue_layer_enabled", True)
+            _set("cue_vector_index_enabled", True)
+            _set("cue_recall_enabled", True)
+            _set("cue_policy_learning_enabled", True)
+            _set("targeted_projection_enabled", True)
+            _set("projector_v2_enabled", True)
+            _set("projection_planner_enabled", True)
+            _set("recall_need_analyzer_enabled", True)
+            _set("recall_need_graph_probe_enabled", True)
+            _set("recall_need_structural_enabled", True)
+            _set("recall_need_shift_enabled", True)
+            _set("recall_need_impoverishment_enabled", True)
+            _set("recall_need_shift_shadow_only", False)
+            _set("recall_need_impoverishment_shadow_only", False)
+            _set("recall_usage_feedback_enabled", True)
+            _set("recall_planner_enabled", True)
+            _set("epistemic_routing_enabled", True)
+            _set("artifact_bootstrap_enabled", True)
+            _set("artifact_recall_enabled", True)
+            _set("epistemic_runtime_executor_enabled", True)
+            _set("decision_graph_enabled", True)
+            _set("epistemic_reconcile_enabled", True)
+            _set("answer_contract_enabled", True)
+            _set("claim_state_modeling_enabled", True)
+            _set("memory_maturation_enabled", True)
+            _set("episode_transition_enabled", True)
 
         # --- Guard: disable LLM features if no API key (only for profile-set) ---
         if profile in ("standard",) and not os.environ.get("ANTHROPIC_API_KEY"):
@@ -1041,10 +1380,7 @@ class EngramConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ENGRAM_",
         env_nested_delimiter="__",
-        env_file=(
-            str(Path.home() / ".engram" / ".env"),  # global config
-            ".env",  # local override
-        ),
+        env_file=DEFAULT_ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
     )

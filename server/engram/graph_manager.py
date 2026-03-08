@@ -3,30 +3,81 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
-from engram.extraction.canonicalize import PredicateCanonicalizer
-from engram.extraction.conflicts import (
-    get_contradictory_predicates,
-    is_exclusive_predicate,
+from engram.extraction.apply import (
+    ApplyEngine,
+    apply_relationship_fact,
+    merge_entity_attributes,
+    resolve_relationship_temporals,
 )
+from engram.extraction.canonicalize import PredicateCanonicalizer
+from engram.extraction.cues import build_episode_cue
 from engram.extraction.discourse import classify_discourse
 from engram.extraction.extractor import EntityExtractor
-from engram.extraction.resolver import resolve_entity_fast
-from engram.extraction.temporal import resolve_temporal_hint
+from engram.extraction.models import ApplyOutcome, ProjectionBundle
+from engram.extraction.planner import ProjectionPlanner, summarize_plan
+from engram.extraction.policy import ProjectionPolicy
+from engram.extraction.post_apply import ProjectionPostProcessor
+from engram.extraction.projector import EpisodeProjector
+from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeStatus
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
+from engram.models.episode_cue import EpisodeCue
+from engram.models.epistemic import ArtifactHit, EpistemicBundle, EvidenceClaim
+from engram.models.recall import MemoryInteractionEvent
 from engram.models.relationship import Relationship
+from engram.retrieval.control import RecallNeedController, RecallNeedThresholds
+from engram.retrieval.epistemic import (
+    EpistemicRoutingController,
+    apply_answer_contract_to_evidence_plan,
+    apply_claim_states,
+    artifact_class_for_path,
+    build_evidence_plan,
+    build_memory_claims,
+    build_runtime_claims,
+    extract_artifact_claims,
+    extract_decision_claims,
+    infer_claim_state,
+    reconcile_claims,
+    resolve_answer_contract,
+    should_materialize_conversation_decision,
+    summarize_claim_states,
+)
+from engram.retrieval.epistemic import (
+    route_question as build_question_frame,
+)
+from engram.retrieval.feedback import publish_memory_interaction
 from engram.retrieval.pipeline import retrieve
 from engram.retrieval.working_memory import WorkingMemoryBuffer
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
+from engram.utils.dates import utc_now, utc_now_iso
 
 logger = logging.getLogger(__name__)
+
+_EPISTEMIC_FACT_PREDICATES = {
+    "DECIDED_IN",
+    "DOCUMENTED_IN",
+    "IMPLEMENTED_BY",
+    "ANNOUNCED_AS",
+    "SUPERSEDED_BY",
+}
+
+
+class ProjectionError(RuntimeError):
+    """Typed projection failure that distinguishes retryable failures."""
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class GraphManager:
@@ -44,6 +95,7 @@ class GraphManager:
         reranker: object | None = None,
         community_store: object | None = None,
         predicate_cache: object | None = None,
+        runtime_mode: str | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
@@ -55,12 +107,17 @@ class GraphManager:
         self._reranker = reranker
         self._community_store = community_store
         self._predicate_cache = predicate_cache
+        self._runtime_mode = runtime_mode or "unknown"
+        self._projection_planner = ProjectionPlanner(self._cfg)
+        self._projection_policy = ProjectionPolicy(self._cfg)
+        self._projector = EpisodeProjector(self._extractor)
 
         # Briefing cache: (group_id, topic_hint) -> (timestamp, text)
         self._briefing_cache: dict[tuple[str, str | None], tuple[float, str]] = {}
 
         # Content dedup: track hashes of recently extracted content to skip duplicates
         self._content_hashes: set[str] = set()
+        self._content_hashes_inflight: set[str] = set()
 
         # Conversation context (Wave 2)
         if self._cfg.conv_context_enabled:
@@ -99,6 +156,9 @@ class GraphManager:
         else:
             self._goal_priming_cache = None
 
+        self._recall_need_controller = RecallNeedController(self._cfg)
+        self._epistemic_controller = EpistemicRoutingController(self._cfg)
+
         # Reconsolidation tracker (Brain Architecture Phase 2B)
         if self._cfg.reconsolidation_enabled:
             from engram.retrieval.reconsolidation import LabileWindowTracker
@@ -119,6 +179,27 @@ class GraphManager:
         else:
             self._working_memory = None
 
+        self._apply_engine = ApplyEngine(
+            graph_store=self._graph,
+            activation_store=self._activation,
+            cfg=self._cfg,
+            canonicalizer=self._canonicalizer,
+            publish_access_event=self._publish_access_event,
+            conv_context=self._conv_context,
+            labile_tracker=self._labile_tracker,
+            event_publisher=self._publish,
+        )
+        self._post_processor = ProjectionPostProcessor(
+            graph_store=self._graph,
+            activation_store=self._activation,
+            search_index=self._search,
+            cfg=self._cfg,
+            update_episode_status=self._update_episode_status,
+            index_entity_with_structure=self._index_entity_with_structure,
+            list_intentions=self.list_intentions,
+            update_intention_fire=self._update_intention_fire,
+        )
+
     @staticmethod
     def _is_meta_summary(text: str) -> bool:
         """Check if a summary fragment contains system-internal patterns."""
@@ -134,53 +215,62 @@ class GraphManager:
         new_attributes: dict | None = None,
     ) -> dict:
         """Merge new attributes into an existing entity. Returns update dict."""
-        updates: dict = {}
+        return merge_entity_attributes(
+            existing,
+            new_summary,
+            new_pii,
+            new_pii_categories,
+            new_attributes,
+        )
 
-        # Append summaries (capped at 500 chars)
-        if new_summary and new_summary != existing.summary:
-            # Guard: reject meta-contaminated summaries for all entity types
-            if GraphManager._is_meta_summary(new_summary):
-                entity_type = getattr(existing, "entity_type", "Other") or "Other"
-                logger.warning(
-                    "Rejected meta-summary for %s entity %r: %s",
-                    entity_type,
-                    existing.name,
-                    new_summary[:80],
-                )
-            elif existing.summary:
-                merged = f"{existing.summary}; {new_summary}"
-                if len(merged) > 500:
-                    merged = merged[:497] + "..."
-                updates["summary"] = merged
-            else:
-                updates["summary"] = new_summary[:500]
+    @staticmethod
+    def _resolve_relationship_temporals(
+        rel_data: dict,
+        dt_now: datetime,
+    ) -> tuple[datetime, datetime | None, float]:
+        """Resolve temporal fields for an extracted relationship."""
+        return resolve_relationship_temporals(rel_data, dt_now)
 
-        # Structured attributes: new values overwrite old for same key
-        if new_attributes:
-            merged_attrs = {**(existing.attributes or {}), **new_attributes}
-            if merged_attrs != (existing.attributes or {}):
-                import json
-
-                updates["attributes"] = json.dumps(merged_attrs)
-
-        # PII: once flagged, always flagged
-        if new_pii and not existing.pii_detected:
-            updates["pii_detected"] = 1
-
-        if new_pii_categories:
-            existing_cats = existing.pii_categories or []
-            merged_cats = list(set(existing_cats + new_pii_categories))
-            if merged_cats != existing_cats:
-                import json
-
-                updates["pii_categories"] = json.dumps(merged_cats)
-
-        return updates
+    @staticmethod
+    async def _apply_relationship_fact(
+        graph_store: GraphStore,
+        canonicalizer: PredicateCanonicalizer,
+        cfg: ActivationConfig,
+        rel_data: dict,
+        entity_map: dict[str, str],
+        group_id: str,
+        source_episode: str,
+    ) -> RelationshipApplyResult:
+        return await apply_relationship_fact(
+            graph_store=graph_store,
+            canonicalizer=canonicalizer,
+            cfg=cfg,
+            rel_data=rel_data,
+            entity_map=entity_map,
+            group_id=group_id,
+            source_episode=source_episode,
+        )
 
     def _publish(self, group_id: str, event_type: str, payload: dict | None = None) -> None:
         """Publish event if bus is configured."""
         if self._event_bus:
             self._event_bus.publish(group_id, event_type, payload)
+
+    def get_recall_need_thresholds(self, group_id: str = "default") -> RecallNeedThresholds:
+        """Return active recall-need thresholds for a group."""
+        return self._recall_need_controller.get_thresholds(group_id)
+
+    def record_memory_need_analysis(self, group_id: str, need) -> None:
+        """Track a memory-need analyzer decision in the runtime controller."""
+        self._recall_need_controller.record_analysis(group_id, need)
+
+    def get_recall_metrics(self, group_id: str = "default") -> dict:
+        """Return rolling recall metrics for stats surfaces."""
+        return self._recall_need_controller.snapshot(group_id)
+
+    def get_epistemic_metrics(self, group_id: str = "default") -> dict:
+        """Return rolling epistemic routing metrics for stats surfaces."""
+        return self._epistemic_controller.snapshot(group_id)
 
     async def _publish_access_event(
         self,
@@ -212,6 +302,154 @@ class GraphManager:
             },
         )
 
+    async def _record_entity_access(
+        self,
+        entity: Entity,
+        *,
+        group_id: str,
+        query: str,
+        source: str,
+        timestamp: float | None = None,
+    ) -> None:
+        """Record a true access event and open a reconsolidation window."""
+        now = timestamp if timestamp is not None else time.time()
+        await self._activation.record_access(entity.id, now, group_id=group_id)
+        await self._publish_access_event(
+            entity.id,
+            entity.name,
+            entity.entity_type,
+            group_id,
+            source,
+        )
+
+        if self._labile_tracker is not None:
+            self._labile_tracker.mark_labile(
+                entity.id,
+                entity.name,
+                entity.entity_type,
+                entity.summary or "",
+                query,
+            )
+
+    async def apply_memory_interaction(
+        self,
+        memory_ids: list[str],
+        *,
+        interaction_type: str,
+        group_id: str = "default",
+        query: str = "",
+        source: str = "recall_feedback",
+        result_lookup: dict[str, dict] | None = None,
+    ) -> None:
+        """Apply post-recall interaction semantics to a set of entities."""
+        if not memory_ids:
+            return
+
+        valid_types = {
+            "surfaced",
+            "selected",
+            "used",
+            "confirmed",
+            "dismissed",
+            "corrected",
+        }
+        if interaction_type not in valid_types:
+            raise ValueError(f"Unknown interaction_type: {interaction_type}")
+
+        should_record_access = interaction_type in {"used", "confirmed"}
+        should_record_positive = interaction_type == "confirmed" and self._cfg.ts_enabled
+        should_record_negative = interaction_type == "corrected" and self._cfg.ts_enabled
+        should_publish = (
+            self._cfg.recall_telemetry_enabled
+            or self._cfg.recall_usage_feedback_enabled
+        )
+
+        seen_ids: set[str] = set()
+        now = time.time()
+        for memory_id in memory_ids:
+            if not memory_id or memory_id in seen_ids:
+                continue
+            seen_ids.add(memory_id)
+
+            metadata = result_lookup.get(memory_id, {}) if result_lookup else {}
+            result_type = metadata.get("result_type")
+            if result_type is None and isinstance(memory_id, str) and memory_id.startswith("cue:"):
+                result_type = "cue_episode"
+            if result_type == "cue_episode":
+                episode_id = metadata.get("episode_id")
+                if not episode_id and isinstance(memory_id, str) and memory_id.startswith("cue:"):
+                    episode_id = memory_id.split(":", 1)[1]
+                if not episode_id:
+                    continue
+                episode = await self._graph.get_episode_by_id(episode_id, group_id)
+                if episode is None:
+                    continue
+                cue_score = metadata.get("score")
+                await self._record_cue_hit(
+                    episode,
+                    float(cue_score) if cue_score is not None else 0.0,
+                    query,
+                    interaction_type=interaction_type,
+                    count_hit=bool(metadata.get("count_hit", False)),
+                )
+                self._recall_need_controller.record_interaction(
+                    group_id,
+                    interaction_type,
+                    result_type="cue_episode",
+                )
+                continue
+
+            entity_name = metadata.get("entity_name")
+            entity_type = metadata.get("entity_type")
+            score = metadata.get("score")
+
+            entity = await self._graph.get_entity(memory_id, group_id)
+            if entity is not None:
+                entity_name = entity.name
+                entity_type = entity.entity_type
+
+            recorded_access = False
+            if should_record_access and entity is not None:
+                await self._record_entity_access(
+                    entity,
+                    group_id=group_id,
+                    query=query,
+                    source=source,
+                    timestamp=now,
+                )
+                recorded_access = True
+
+            if should_record_positive:
+                from engram.activation.feedback import record_positive_feedback
+
+                await record_positive_feedback(memory_id, self._activation, self._cfg)
+
+            if should_record_negative:
+                from engram.activation.feedback import record_negative_feedback
+
+                await record_negative_feedback(memory_id, self._activation, self._cfg)
+
+            if should_publish:
+                publish_memory_interaction(
+                    self._event_bus,
+                    MemoryInteractionEvent(
+                        group_id=group_id,
+                        entity_id=memory_id,
+                        entity_name=entity_name,
+                        entity_type=entity_type,
+                        interaction_type=interaction_type,
+                        source=source,
+                        query=query,
+                        score=score,
+                        recorded_access=recorded_access,
+                    ),
+                )
+            self._recall_need_controller.record_interaction(
+                group_id,
+                interaction_type,
+                result_type="entity",
+            )
+
     async def _update_episode_status(
         self, episode_id: str, status: EpisodeStatus, group_id: str = "default", **extra: object
     ) -> None:
@@ -219,6 +457,295 @@ class GraphManager:
         updates: dict = {"status": status.value}
         updates.update(extra)
         await self._graph.update_episode(episode_id, updates, group_id=group_id)
+
+    async def _update_projection_state(
+        self,
+        episode_id: str,
+        state: EpisodeProjectionState,
+        group_id: str = "default",
+        *,
+        reason: str | None = None,
+        last_projected_at: datetime | None = None,
+    ) -> None:
+        updates: dict[str, object] = {"projection_state": state.value}
+        if reason is not None:
+            updates["last_projection_reason"] = reason
+        if last_projected_at is not None:
+            updates["last_projected_at"] = last_projected_at.isoformat()
+        await self._graph.update_episode(episode_id, updates, group_id=group_id)
+
+    async def _update_episode_cue(
+        self,
+        episode_id: str,
+        group_id: str,
+        updates: dict,
+    ) -> None:
+        if hasattr(self._graph, "update_episode_cue"):
+            await self._graph.update_episode_cue(episode_id, updates, group_id=group_id)
+
+    async def _get_episode_cue(
+        self,
+        episode_id: str,
+        group_id: str,
+    ) -> EpisodeCue | None:
+        getter = getattr(self._graph, "get_episode_cue", None)
+        if getter is None or not callable(getter):
+            return None
+        cue = await getter(episode_id, group_id)
+        return cue if isinstance(cue, EpisodeCue) else None
+
+    @staticmethod
+    def _episode_projection_state_value(episode: object | None) -> str | None:
+        """Normalize episode projection state to its string value."""
+        if episode is None:
+            return None
+        state = getattr(episode, "projection_state", None)
+        return state.value if hasattr(state, "value") else state
+
+    @staticmethod
+    def _cue_result_payload(cue: EpisodeCue, *, hit_increment: int = 0) -> dict[str, object]:
+        projection_state = (
+            cue.projection_state.value
+            if hasattr(cue.projection_state, "value")
+            else cue.projection_state
+        )
+        return {
+            "episode_id": cue.episode_id,
+            "cue_text": cue.cue_text,
+            "supporting_spans": cue.first_spans,
+            "projection_state": projection_state,
+            "route_reason": cue.route_reason,
+            "hit_count": (cue.hit_count or 0) + hit_increment,
+            "surfaced_count": cue.surfaced_count,
+            "selected_count": cue.selected_count,
+            "used_count": cue.used_count,
+            "near_miss_count": cue.near_miss_count,
+            "policy_score": cue.policy_score,
+            "last_feedback_at": (
+                cue.last_feedback_at.isoformat() if cue.last_feedback_at else None
+            ),
+            "last_projected_at": (
+                cue.last_projected_at.isoformat() if cue.last_projected_at else None
+            ),
+        }
+
+    async def _apply_bootstrap_part_of_edges(
+        self,
+        episode: Episode,
+        entity_map: dict[str, str],
+        group_id: str,
+    ) -> None:
+        await self._post_processor.apply_bootstrap_part_of_edges(
+            episode,
+            entity_map,
+            group_id,
+        )
+
+    async def _run_surprise_detection(
+        self,
+        *,
+        entity_map: dict[str, str],
+        group_id: str,
+        now: float,
+    ) -> None:
+        await self._post_processor.run_surprise_detection(
+            entity_map=entity_map,
+            group_id=group_id,
+            now=now,
+            surprise_cache=self._surprise_cache,
+        )
+
+    async def _run_prospective_memory(
+        self,
+        *,
+        content: str,
+        entity_map: dict[str, str],
+        group_id: str,
+        episode_id: str,
+    ) -> None:
+        trigger_matches = await self._post_processor.run_prospective_memory(
+            content=content,
+            entity_map=entity_map,
+            group_id=group_id,
+            episode_id=episode_id,
+        )
+        if trigger_matches:
+            self._triggered_intentions = trigger_matches
+
+    async def _publish_projection_graph_changes(
+        self,
+        *,
+        bundle: ProjectionBundle,
+        apply_outcome: ApplyOutcome,
+        group_id: str,
+        episode_id: str,
+    ) -> None:
+        await self._post_processor.publish_graph_changes(
+            bundle=bundle,
+            apply_outcome=apply_outcome,
+            group_id=group_id,
+            episode_id=episode_id,
+            publish_event=self._publish,
+        )
+
+    async def _index_projected_bundle(
+        self,
+        *,
+        bundle: ProjectionBundle,
+        entity_map: dict[str, str],
+        group_id: str,
+        episode_id: str,
+    ) -> None:
+        await self._post_processor.index_projected_bundle(
+            bundle=bundle,
+            entity_map=entity_map,
+            group_id=group_id,
+            episode_id=episode_id,
+        )
+
+    async def _store_emotional_encoding_context(
+        self,
+        *,
+        episode_id: str,
+        content: str,
+        entity_map: dict[str, str],
+        group_id: str,
+    ) -> None:
+        await self._post_processor.store_emotional_encoding_context(
+            episode_id=episode_id,
+            content=content,
+            entity_map=entity_map,
+            group_id=group_id,
+        )
+
+    async def _record_cue_hit(
+        self,
+        episode: Episode,
+        score: float,
+        query: str,
+        *,
+        interaction_type: str | None = None,
+        near_miss: bool = False,
+        count_hit: bool = True,
+    ) -> None:
+        """Track cue feedback and promote hot cues into scheduled projection."""
+        cue = await self._get_episode_cue(episode.id, episode.group_id)
+        if cue is None:
+            return
+
+        now_dt = utc_now()
+        feedback_type = "near_miss" if near_miss else (interaction_type or "surfaced")
+        feedback = self._projection_policy.apply_feedback(
+            cue,
+            interaction_type=feedback_type,
+            score=score,
+            count_hit=count_hit,
+        )
+        cue_updates: dict[str, object] = dict(feedback.updates)
+        cue_updates["last_feedback_at"] = now_dt
+        if not near_miss and "hit_count" in cue_updates:
+            cue_updates["last_hit_at"] = now_dt
+
+        current_projection_state = (
+            episode.projection_state.value
+            if hasattr(episode.projection_state, "value")
+            else episode.projection_state
+        )
+        event_payload = {
+            "episodeId": episode.id,
+            "projectionState": current_projection_state,
+            "interactionType": feedback_type,
+            "score": round(score, 4),
+            "query": query[:200],
+        }
+        if "hit_count" in cue_updates:
+            event_payload["hitCount"] = cue_updates["hit_count"]
+        if "policy_score" in cue_updates:
+            event_payload["policyScore"] = cue_updates["policy_score"]
+        self._publish(
+            episode.group_id,
+            "cue.hit" if not near_miss else "cue.near_miss",
+            event_payload,
+        )
+        if not near_miss and interaction_type in {"surfaced", "selected"}:
+            self._recall_need_controller.record_interaction(
+                episode.group_id,
+                interaction_type,
+                result_type="cue_episode",
+            )
+
+        episode_projection_state = (
+            episode.projection_state.value
+            if hasattr(episode.projection_state, "value")
+            else episode.projection_state
+        )
+        promotable_states = {
+            EpisodeProjectionState.CUED.value,
+            EpisodeProjectionState.CUE_ONLY.value,
+            EpisodeProjectionState.QUEUED.value,
+            EpisodeProjectionState.FAILED.value,
+        }
+        hit_count = int(cue_updates.get("hit_count", cue.hit_count or 0))
+        should_promote = (
+            (
+                hit_count >= self._cfg.cue_recall_hit_threshold
+                or feedback.should_promote
+            )
+            and episode_projection_state in promotable_states
+        )
+        if should_promote:
+            promotion_reason = (
+                "cue_recall_hits"
+                if hit_count >= self._cfg.cue_recall_hit_threshold
+                else (feedback.promotion_reason or "cue_policy")
+            )
+            await self._update_episode_status(
+                episode.id,
+                EpisodeStatus.QUEUED,
+                group_id=episode.group_id,
+                error=None,
+            )
+            cue_updates["projection_state"] = EpisodeProjectionState.SCHEDULED
+            cue_updates["route_reason"] = promotion_reason
+            await self._update_projection_state(
+                episode.id,
+                EpisodeProjectionState.SCHEDULED,
+                group_id=episode.group_id,
+                reason=promotion_reason,
+            )
+            self._publish(
+                episode.group_id,
+                "cue.promoted",
+                {
+                    "episodeId": episode.id,
+                    "hitCount": hit_count,
+                    "reason": promotion_reason,
+                    "score": round(score, 4),
+                    "policyScore": cue_updates.get("policy_score", cue.policy_score),
+                },
+            )
+            self._publish(
+                episode.group_id,
+                "episode.projection_scheduled",
+                {
+                    "episodeId": episode.id,
+                    "reason": promotion_reason,
+                    "hitCount": hit_count,
+                },
+            )
+        elif self._cfg.cue_policy_learning_enabled and "policy_score" in cue_updates:
+            self._publish(
+                episode.group_id,
+                "cue.policy_updated",
+                {
+                    "episodeId": episode.id,
+                    "interactionType": feedback_type,
+                    "policyScore": cue_updates["policy_score"],
+                    "projectionState": current_projection_state,
+                },
+            )
+
+        await self._update_episode_cue(episode.id, episode.group_id, cue_updates)
 
     async def store_episode(
         self,
@@ -238,9 +765,10 @@ class GraphManager:
             content=content,
             source=source,
             status=EpisodeStatus.QUEUED,
+            projection_state=EpisodeProjectionState.QUEUED,
             group_id=group_id,
             session_id=session_id,
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
         await self._graph.create_episode(episode)
         self._publish(
@@ -270,6 +798,66 @@ class GraphManager:
                 },
             },
         )
+
+        if self._cfg.cue_layer_enabled:
+            try:
+                cue = build_episode_cue(episode, self._cfg)
+                if cue is not None and hasattr(self._graph, "upsert_episode_cue"):
+                    await self._graph.upsert_episode_cue(cue)
+                    if (
+                        self._cfg.cue_vector_index_enabled
+                        and hasattr(self._search, "index_episode_cue")
+                    ):
+                        await self._search.index_episode_cue(cue)
+                    await self._update_projection_state(
+                        episode_id,
+                        cue.projection_state,
+                        group_id=group_id,
+                        reason=cue.route_reason,
+                    )
+                    self._publish(
+                        group_id,
+                        "episode.cued",
+                        {
+                            "episodeId": episode_id,
+                            "projectionState": cue.projection_state.value,
+                            "cueScore": cue.cue_score,
+                            "projectionPriority": cue.projection_priority,
+                            "routeReason": cue.route_reason,
+                        },
+                    )
+                    if cue.projection_state == EpisodeProjectionState.SCHEDULED:
+                        self._publish(
+                            group_id,
+                            "episode.projection_scheduled",
+                            {
+                                "episodeId": episode_id,
+                                "reason": cue.route_reason,
+                                "projectionState": cue.projection_state.value,
+                            },
+                        )
+                elif cue is None:
+                    await self._update_projection_state(
+                        episode_id,
+                        EpisodeProjectionState.CUE_ONLY,
+                        group_id=group_id,
+                        reason="system_discourse",
+                    )
+            except Exception:
+                logger.warning("Failed to generate/store episode cue", exc_info=True)
+        if (
+            self._cfg.decision_graph_enabled
+            and source != "auto:bootstrap"
+            and content.strip()
+        ):
+            try:
+                await self._materialize_conversation_decisions(
+                    content,
+                    episode_id=episode_id,
+                    group_id=group_id,
+                )
+            except Exception:
+                logger.warning("Failed to materialize conversation decisions", exc_info=True)
         return episode_id
 
     async def project_episode(
@@ -290,7 +878,7 @@ class GraphManager:
 
         # Content dedup: skip if identical content was already extracted
         content_hash = hashlib.sha256((content or "").encode()).hexdigest()[:16]
-        if content_hash in self._content_hashes:
+        if content_hash in self._content_hashes or content_hash in self._content_hashes_inflight:
             logger.info(
                 "project_episode: skipping duplicate content for episode %s",
                 episode_id,
@@ -299,8 +887,13 @@ class GraphManager:
                 episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
                 skipped_triage=True,
             )
+            await self._update_projection_state(
+                episode_id,
+                EpisodeProjectionState.CUE_ONLY,
+                group_id=group_id,
+                reason="duplicate_content",
+            )
             return
-        self._content_hashes.add(content_hash)
 
         # Discourse gate: skip pure system meta-commentary
         if classify_discourse(content) == "system":
@@ -311,615 +904,205 @@ class GraphManager:
                 episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
                 skipped_meta=True,
             )
+            self._content_hashes.add(content_hash)
+            await self._update_projection_state(
+                episode_id,
+                EpisodeProjectionState.CUE_ONLY,
+                group_id=group_id,
+                reason="system_discourse",
+            )
+            await self._update_episode_cue(
+                episode_id,
+                group_id,
+                {
+                    "projection_state": EpisodeProjectionState.CUE_ONLY,
+                    "route_reason": "system_discourse",
+                },
+            )
             return
 
+        self._content_hashes_inflight.add(content_hash)
+
         try:
-            # Extraction
-            await self._update_episode_status(
-                episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
+            await self._update_projection_state(
+                episode_id,
+                EpisodeProjectionState.PROJECTING,
+                group_id=group_id,
+                reason="projection_started",
             )
-            result = await self._extractor.extract(content)
-
-            # Resolution
-            await self._update_episode_status(
-                episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+            await self._update_episode_cue(
+                episode_id,
+                group_id,
+                {"projection_state": EpisodeProjectionState.PROJECTING},
             )
-            session_entities: dict[str, Entity] = {}
-            entity_map: dict[str, str] = {}
-
-            async def _get_candidates(name: str, gid: str) -> list[Entity]:
-                return await self._graph.find_entity_candidates(name, gid)
-
-            now = time.time()
-            new_entity_names: list[str] = []
-
-            meta_entity_names: set[str] = set()
-
-            for ent_data in result.entities:
-                name = ent_data["name"]
-                entity_type = ent_data.get("entity_type", "Other")
-                summary = ent_data.get("summary")
-                attributes = ent_data.get("attributes") or None
-                pii_detected = ent_data.get("pii_detected", False)
-                pii_categories = ent_data.get("pii_categories")
-
-                # Fix 5: skip entities tagged as meta by LLM
-                if ent_data.get("epistemic_mode") == "meta":
-                    logger.debug(
-                        "Skipping meta-tagged entity %r (type=%s)", name, entity_type
-                    )
-                    meta_entity_names.add(name)
-                    continue
-
-                existing_entity = await resolve_entity_fast(
-                    name, entity_type, _get_candidates, group_id,
-                    session_entities=session_entities,
-                )
-
-                if existing_entity:
-                    entity_id = existing_entity.id
-                    updates = self._merge_entity_attributes(
-                        existing_entity, summary, pii_detected, pii_categories,
-                        new_attributes=attributes,
-                    )
-                    if updates:
-                        await self._graph.update_entity(entity_id, updates, group_id=group_id)
-
-                    # Reconsolidation: if entity is labile, attempt update
-                    if self._labile_tracker is not None:
-                        from engram.retrieval.reconsolidation import attempt_reconsolidation
-
-                        labile = self._labile_tracker.get_labile(existing_entity.id)
-                        if labile and not self._labile_tracker.is_budget_exceeded(
-                            existing_entity.id,
-                            self._cfg.reconsolidation_max_modifications,
-                        ):
-                            recon_updates = attempt_reconsolidation(
-                                existing_entity, content, labile, self._cfg,
-                            )
-                            if recon_updates is not None:
-                                await self._graph.update_entity(
-                                    existing_entity.id, recon_updates, group_id,
-                                )
-                                self._labile_tracker.record_modification(existing_entity.id)
-                                await self._activation.record_access(
-                                    existing_entity.id, now, group_id=group_id,
-                                )
-                                # Track recon count in attributes
-                                import json as _json
-
-                                recon_attrs = (
-                                    existing_entity.attributes
-                                    if isinstance(existing_entity.attributes, dict)
-                                    else {}
-                                )
-                                recon_attrs["recon_count"] = recon_attrs.get("recon_count", 0) + 1
-                                recon_attrs["recon_last"] = now
-                                await self._graph.update_entity(
-                                    existing_entity.id,
-                                    {"attributes": _json.dumps(recon_attrs)},
-                                    group_id,
-                                )
-                                self._publish(
-                                    group_id, "entity.reconsolidated",
-                                    {
-                                        "entity_id": existing_entity.id,
-                                        "entity_name": existing_entity.name,
-                                    },
-                                )
-                else:
-                    entity_id = f"ent_{uuid.uuid4().hex[:12]}"
-                    entity = Entity(
-                        id=entity_id,
-                        name=name,
-                        entity_type=entity_type,
-                        summary=summary,
-                        attributes=attributes,
-                        group_id=group_id,
-                        pii_detected=pii_detected,
-                        pii_categories=pii_categories,
-                    )
-                    await self._graph.create_entity(entity)
-                    session_entities[entity_id] = entity
-                    new_entity_names.append(name)
-
-                entity_map[name] = entity_id
-                await self._graph.link_episode_entity(episode_id, entity_id)
-                await self._activation.record_access(entity_id, now, group_id=group_id)
-                await self._publish_access_event(
-                    entity_id, name, entity_type, group_id, "ingest"
-                )
-
-                # Track session entity (Wave 2)
-                if self._conv_context is not None and self._cfg.conv_session_entity_seeds_enabled:
-                    self._conv_context.add_session_entity(
-                        entity_id=entity_id, name=name,
-                        entity_type=entity_type, weight_increment=1.0, now=now,
-                    )
-
-            # Create PART_OF edges for bootstrap-sourced episodes
-            if episode.source == "auto:bootstrap" and entity_map:
-                import re as _re
-                _bs_match = _re.match(
-                    r"\[project-bootstrap\|([^|]+)\|",
-                    episode.content or "",
-                )
-                if _bs_match:
-                    _bs_project_name = _bs_match.group(1)
-                    _bs_projects = await self._graph.find_entities(
-                        name=_bs_project_name, entity_type="Project",
-                        group_id=group_id, limit=1,
-                    )
-                    if _bs_projects:
-                        _bs_project_id = _bs_projects[0].id
-                        for _bs_eid in entity_map.values():
-                            if _bs_eid == _bs_project_id:
-                                continue
-                            rel = Relationship(
-                                id=f"rel_{uuid.uuid4().hex[:12]}",
-                                source_id=_bs_eid,
-                                target_id=_bs_project_id,
-                                predicate="PART_OF",
-                                weight=0.8,
-                                source_episode=episode_id,
-                                group_id=group_id,
-                            )
-                            await self._graph.create_relationship(rel)
-
-            # Writing relationships
-            await self._update_episode_status(
-                episode_id, EpisodeStatus.WRITING, group_id=group_id,
-            )
-            for rel_data in result.relationships:
-                source_name = rel_data.get("source") or rel_data.get("source_entity", "")
-                target_name = rel_data.get("target") or rel_data.get("target_entity", "")
-
-                # Skip relationships involving meta-tagged entities
-                if source_name in meta_entity_names or target_name in meta_entity_names:
-                    logger.debug(
-                        "Skipping relationship %s->%s (meta entity involved)",
-                        source_name,
-                        target_name,
-                    )
-                    continue
-
-                source_id = entity_map.get(source_name)
-                target_id = entity_map.get(target_name)
-
-                if source_id and target_id:
-                    predicate = (
-                        (
-                            rel_data.get("predicate")
-                            or rel_data.get("relationship_type")
-                            or rel_data.get("type")
-                            or "RELATES_TO"
-                        )
-                        .upper()
-                        .replace(" ", "_")
-                    )
-                    predicate = self._canonicalizer.canonicalize(predicate)
-
-                    valid_from_str = rel_data.get("valid_from")
-                    valid_to_str = rel_data.get("valid_to")
-                    temporal_hint = rel_data.get("temporal_hint")
-
-                    dt_now = datetime.utcnow()
-                    valid_from = None
-                    valid_to = None
-                    confidence = 1.0
-
-                    if valid_from_str:
-                        try:
-                            valid_from = datetime.fromisoformat(valid_from_str)
-                            confidence = 1.0
-                        except (ValueError, TypeError):
-                            resolved = resolve_temporal_hint(valid_from_str, dt_now)
-                            if resolved:
-                                valid_from = resolved
-                                confidence = 0.8
-                    elif temporal_hint:
-                        resolved = resolve_temporal_hint(temporal_hint, dt_now)
-                        if resolved:
-                            valid_from = resolved
-                            confidence = 0.8
-                        else:
-                            confidence = 0.7
-
-                    if valid_to_str:
-                        try:
-                            valid_to = datetime.fromisoformat(valid_to_str)
-                        except (ValueError, TypeError):
-                            resolved = resolve_temporal_hint(valid_to_str, dt_now)
-                            if resolved:
-                                valid_to = resolved
-
-                    if valid_from is None:
-                        valid_from = dt_now
-
-                    # Polarity handling
-                    polarity = rel_data.get("polarity", "positive")
-                    if polarity not in ("positive", "negative", "uncertain"):
-                        polarity = "positive"
-
-                    rel_weight = float(rel_data.get("weight", 1.0))
-
-                    if polarity == "negative":
-                        # Invalidate existing positive relationships with same
-                        # source+target+predicate
-                        existing_rels = await self._graph.get_relationships(
-                            source_id,
-                            direction="outgoing",
-                            predicate=predicate,
-                            active_only=True,
-                            group_id=group_id,
-                        )
-                        for existing_rel in existing_rels:
-                            if existing_rel.target_id == target_id:
-                                await self._graph.invalidate_relationship(
-                                    existing_rel.id, dt_now, group_id=group_id
-                                )
-                                logger.info(
-                                    "Negation invalidated relationship %s "
-                                    "(%s → %s via %s)",
-                                    existing_rel.id,
-                                    existing_rel.source_id,
-                                    existing_rel.target_id,
-                                    existing_rel.predicate,
-                                )
-                    elif polarity == "uncertain":
-                        rel_weight *= 0.5
-
-                    if is_exclusive_predicate(predicate):
-                        conflicts = await self._graph.find_conflicting_relationships(
-                            source_id, predicate, group_id
-                        )
-                        for conflict in conflicts:
-                            if conflict.target_id == target_id:
-                                continue
-                            await self._graph.invalidate_relationship(
-                                conflict.id, valid_from, group_id=group_id
-                            )
-                            logger.info(
-                                "Invalidated conflicting relationship %s (%s → %s via %s)",
-                                conflict.id,
-                                conflict.source_id,
-                                conflict.target_id,
-                                conflict.predicate,
-                            )
-
-                    # Contradictory predicates: LIKES invalidates DISLIKES
-                    # on the same source→target pair, and vice versa.
-                    if polarity == "positive":
-                        contra_preds = get_contradictory_predicates(predicate)
-                        for contra in contra_preds:
-                            contra_rels = await self._graph.get_relationships(
-                                source_id,
-                                direction="outgoing",
-                                predicate=contra,
-                                active_only=True,
-                                group_id=group_id,
-                            )
-                            for contra_rel in contra_rels:
-                                if contra_rel.target_id == target_id:
-                                    await self._graph.invalidate_relationship(
-                                        contra_rel.id, dt_now, group_id=group_id
-                                    )
-                                    logger.info(
-                                        "Contradictory invalidated %s (%s → %s via %s) "
-                                        "due to new %s edge",
-                                        contra_rel.id,
-                                        contra_rel.source_id,
-                                        contra_rel.target_id,
-                                        contra_rel.predicate,
-                                        predicate,
-                                    )
-
-                    # Dedup: skip if an active relationship already exists
-                    if polarity == "positive":
-                        existing_rel = await self._graph.find_existing_relationship(
-                            source_id, target_id, predicate, group_id,
-                        )
-                        if existing_rel:
-                            # Bump weight if new is higher
-                            if rel_weight > existing_rel.weight:
-                                await self._graph.update_relationship_weight(
-                                    source_id, target_id,
-                                    rel_weight - existing_rel.weight,
-                                    group_id=group_id,
-                                )
-                            logger.debug(
-                                "Skipped duplicate relationship %s → %s via %s",
-                                source_id, target_id, predicate,
-                            )
-                            continue
-
-                    rel = Relationship(
-                        id=f"rel_{uuid.uuid4().hex[:12]}",
-                        source_id=source_id,
-                        target_id=target_id,
-                        predicate=predicate,
-                        weight=rel_weight,
-                        polarity=polarity,
-                        valid_from=valid_from,
-                        valid_to=valid_to,
-                        confidence=confidence,
-                        source_episode=episode_id,
-                        group_id=group_id,
-                    )
-                    await self._graph.create_relationship(rel)
-
-                    # Auto-detect identity core entities via identity predicates
-                    if (
-                        self._cfg.identity_core_enabled
-                        and predicate in self._cfg.identity_predicates
-                    ):
-                        for eid_to_mark in (source_id, target_id):
-                            try:
-                                await self._graph.update_entity(
-                                    eid_to_mark,
-                                    {"identity_core": 1},
-                                    group_id=group_id,
-                                )
-                            except Exception:
-                                pass  # May fail if entity already marked
-
-            # Surprise detection (Wave 3)
-            if (self._cfg.surprise_detection_enabled
-                    and self._surprise_cache is not None and entity_map):
-                try:
-                    from engram.retrieval.surprise import detect_surprises
-
-                    surprises = await detect_surprises(
-                        entity_ids=list(entity_map.values()),
-                        graph_store=self._graph,
-                        activation_store=self._activation,
-                        cfg=self._cfg,
-                        group_id=group_id,
-                        now=now,
-                    )
-                    if surprises:
-                        self._surprise_cache.put(
-                            group_id,
-                            surprises[:self._cfg.surprise_max_per_episode],
-                            now,
-                        )
-                except Exception as surprise_err:
-                    logger.debug("Surprise detection failed (non-fatal): %s", surprise_err)
-
-            # Prospective memory trigger matching (Wave 4)
-            if self._cfg.prospective_memory_enabled and entity_map:
-                try:
-                    if self._cfg.prospective_graph_embedded:
-                        # v2: activation-based triggering via graph-embedded intentions
-                        intention_entities = await self.list_intentions(group_id)
-                        if intention_entities:
-                            from engram.activation.spreading import spread_activation
-                            from engram.retrieval.prospective import (
-                                check_intention_activations,
-                            )
-
-                            # Mini spreading pass from extracted entities
-                            seeds = [(eid, 0.5) for eid in entity_map.values()]
-                            spreading_bonuses, _ = await spread_activation(
-                                seeds, self._graph, self._cfg, group_id,
-                            )
-
-                            # Batch-fetch activation states for intentions
-                            intention_ids = [e.id for e in intention_entities]
-                            states = await self._activation.batch_get(intention_ids)
-
-                            trigger_matches = await check_intention_activations(
-                                spreading_results=spreading_bonuses,
-                                activation_states=states,
-                                intention_entities=intention_entities,
-                                extracted_entity_ids=set(entity_map.values()),
-                                now=time.time(),
-                                cfg=self._cfg,
-                                max_per_episode=self._cfg.prospective_max_per_episode,
-                            )
-                            if trigger_matches:
-                                self._triggered_intentions = trigger_matches
-                                for m in self._triggered_intentions:
-                                    await self._update_intention_fire(
-                                        m.intention_id, group_id, episode_id,
-                                    )
-                    else:
-                        # v1 fallback: brute-force cosine similarity
-                        intentions = await self._graph.list_intentions(group_id)
-                        if intentions:
-                            from engram.retrieval.prospective import check_triggers
-
-                            embed_fn = None
-                            provider = getattr(self._search, '_provider', None)
-                            if provider and hasattr(provider, 'embed_query'):
-                                embed_fn = provider.embed_query
-
-                            trigger_matches = await check_triggers(
-                                content=content,
-                                entity_names=list(entity_map.keys()),
-                                intentions=intentions,
-                                embed_fn=embed_fn,
-                            )
-                            if trigger_matches:
-                                self._triggered_intentions = (
-                                    trigger_matches[:self._cfg.prospective_max_per_episode]
-                                )
-                                for m in self._triggered_intentions:
-                                    await self._graph.increment_intention_fire_count(
-                                        m.intention_id, group_id,
-                                    )
-                except Exception as prosp_err:
-                    logger.debug(
-                        "Prospective trigger check failed (non-fatal): %s", prosp_err,
-                    )
-
-            # Publish graph changes
-            serialized_nodes = []
-            serialized_edges = []
-            for ent_data in result.entities:
-                eid = entity_map.get(ent_data["name"])
-                if eid:
-                    ent_obj = await self._graph.get_entity(eid, group_id)
-                    if ent_obj:
-                        serialized_nodes.append(
-                            {
-                                "id": ent_obj.id,
-                                "name": ent_obj.name,
-                                "entityType": ent_obj.entity_type,
-                                "summary": ent_obj.summary,
-                                "activationCurrent": 0.0,
-                                "accessCount": 0,
-                                "lastAccessed": None,
-                                "createdAt": (
-                                    ent_obj.created_at.isoformat()
-                                    if ent_obj.created_at
-                                    else None
-                                ),
-                                "updatedAt": (
-                                    ent_obj.updated_at.isoformat()
-                                    if ent_obj.updated_at
-                                    else None
-                                ),
-                            }
-                        )
-            for rel_data in result.relationships:
-                src_name = rel_data.get("source") or rel_data.get("source_entity", "")
-                tgt_name = rel_data.get("target") or rel_data.get("target_entity", "")
-                src_id = entity_map.get(src_name)
-                tgt_id = entity_map.get(tgt_name)
-                if src_id and tgt_id:
-                    rels = await self._graph.get_relationships(
-                        src_id, direction="outgoing", group_id=group_id
-                    )
-                    for r in rels:
-                        if r.target_id == tgt_id:
-                            serialized_edges.append(
-                                {
-                                    "id": r.id,
-                                    "source": r.source_id,
-                                    "target": r.target_id,
-                                    "predicate": r.predicate,
-                                    "weight": r.weight,
-                                    "validFrom": (
-                                        r.valid_from.isoformat() if r.valid_from else None
-                                    ),
-                                    "validTo": (
-                                        r.valid_to.isoformat() if r.valid_to else None
-                                    ),
-                                    "createdAt": (
-                                        r.created_at.isoformat() if r.created_at else None
-                                    ),
-                                }
-                            )
-                            break
+            cue = await self._get_episode_cue(episode_id, group_id)
+            plan = self._projection_planner.plan(episode, cue)
+            plan_summary = summarize_plan(plan)
+            if plan.warnings:
+                plan_summary["warnings"] = list(plan.warnings)
             self._publish(
                 group_id,
-                "graph.nodes_added",
+                "episode.projection_started",
                 {
-                    "episode_id": episode_id,
-                    "entity_count": len(result.entities),
-                    "relationship_count": len(result.relationships),
-                    "new_entities": new_entity_names,
-                    "nodes": serialized_nodes,
-                    "edges": serialized_edges,
+                    "episodeId": episode_id,
+                    **plan_summary,
                 },
             )
 
-            # Embedding
             await self._update_episode_status(
-                episode_id, EpisodeStatus.EMBEDDING, group_id=group_id,
+                episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
             )
-            try:
-                for ent_data in result.entities:
-                    eid = entity_map.get(ent_data["name"])
-                    if eid:
-                        ent = await self._graph.get_entity(eid, group_id)
-                        if ent:
-                            if self._cfg.structure_aware_embeddings:
-                                await self._index_entity_with_structure(ent, group_id)
-                            else:
-                                await self._search.index_entity(ent)
-                ep = await self._graph.get_episode_by_id(episode_id, group_id)
-                if ep:
-                    await self._search.index_episode(ep)
-            except Exception as embed_err:
-                logger.warning(
-                    "Embedding failed for episode %s (non-fatal): %s",
-                    episode_id, embed_err,
+            bundle = await self._projector.project(plan)
+            if bundle.is_error:
+                raise ProjectionError(
+                    f"extractor_{bundle.extractor_status}: "
+                    f"{bundle.extractor_error or 'unknown_error'}",
+                    retryable=bundle.retryable,
                 )
 
-            # Activating
+            await self._update_episode_status(
+                episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+            )
+            now = time.time()
+            apply_outcome = await self._apply_engine.apply_entities(
+                bundle.entities,
+                episode,
+                group_id,
+                recall_content=plan.selected_text,
+            )
+            entity_map = apply_outcome.entity_map
+            await self._apply_bootstrap_part_of_edges(episode, entity_map, group_id)
+
+            await self._update_episode_status(
+                episode_id, EpisodeStatus.WRITING, group_id=group_id,
+            )
+            apply_outcome.relationship_results = await self._apply_engine.apply_relationships(
+                bundle.claims,
+                entity_map=entity_map,
+                meta_entity_names=apply_outcome.meta_entity_names,
+                group_id=group_id,
+                source_episode=episode_id,
+            )
+
+            await self._run_surprise_detection(
+                entity_map=entity_map,
+                group_id=group_id,
+                now=now,
+            )
+            await self._run_prospective_memory(
+                content=content,
+                entity_map=entity_map,
+                group_id=group_id,
+                episode_id=episode_id,
+            )
+            await self._publish_projection_graph_changes(
+                bundle=bundle,
+                apply_outcome=apply_outcome,
+                group_id=group_id,
+                episode_id=episode_id,
+            )
+            await self._index_projected_bundle(
+                bundle=bundle,
+                entity_map=entity_map,
+                group_id=group_id,
+                episode_id=episode_id,
+            )
+
             await self._update_episode_status(
                 episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
             )
+            await self._store_emotional_encoding_context(
+                episode_id=episode_id,
+                content=content,
+                entity_map=entity_map,
+                group_id=group_id,
+            )
 
-            # Store encoding context with emotional salience
-            if self._cfg.emotional_salience_enabled:
-                import json as _json
-
-                from engram.extraction.salience import compute_emotional_salience
-
-                salience = compute_emotional_salience(content)
-                encoding_ctx = _json.dumps({
-                    "arousal": round(salience.arousal, 4),
-                    "self_reference": round(salience.self_reference, 4),
-                    "social_density": round(salience.social_density, 4),
-                    "narrative_tension": round(salience.narrative_tension, 4),
-                    "composite": round(salience.composite, 4),
-                })
-                await self._graph.update_episode(
-                    episode_id, {"encoding_context": encoding_ctx}, group_id=group_id,
-                )
-
-                # Set emotional attributes on entities created for this episode
-                for _ent_name, ent_id in entity_map.items():
-                    try:
-                        ent = await self._graph.get_entity(ent_id, group_id)
-                        if ent:
-                            raw = ent.attributes
-                            attrs = dict(raw) if isinstance(raw, dict) else {}
-                            attrs["emo_arousal"] = round(salience.arousal, 4)
-                            attrs["emo_self_ref"] = round(salience.self_reference, 4)
-                            attrs["emo_social"] = round(salience.social_density, 4)
-                            attrs["emo_composite"] = round(salience.composite, 4)
-                            await self._graph.update_entity(
-                                ent_id, {"attributes": _json.dumps(attrs)}, group_id=group_id,
-                            )
-                    except Exception:
-                        pass
-
-            # Complete
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
             await self._update_episode_status(
                 episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
                 processing_duration_ms=elapsed_ms,
             )
+            projected_at = utc_now()
+            await self._update_projection_state(
+                episode_id,
+                EpisodeProjectionState.PROJECTED,
+                group_id=group_id,
+                reason="projected",
+                last_projected_at=projected_at,
+            )
+            await self._update_episode_cue(
+                episode_id,
+                group_id,
+                {
+                    "projection_state": EpisodeProjectionState.PROJECTED,
+                    "projection_attempts": (episode.retry_count or 0) + 1,
+                    "last_projected_at": projected_at,
+                },
+            )
+            self._content_hashes_inflight.discard(content_hash)
+            self._content_hashes.add(content_hash)
             self._publish(
                 group_id,
                 "episode.completed",
                 {
                     "episodeId": episode_id,
                     "status": "completed",
-                    "entity_count": len(result.entities),
-                    "relationship_count": len(result.relationships),
+                    "entity_count": len(bundle.entities),
+                    "relationship_count": len(bundle.claims),
                     "duration_ms": elapsed_ms,
                 },
             )
             logger.info(
                 "Ingested episode %s: %d entities, %d relationships",
-                episode_id, len(result.entities), len(result.relationships),
+                episode_id, len(bundle.entities), len(bundle.claims),
             )
             self.invalidate_briefing_cache(group_id)
 
         except Exception as e:
+            self._content_hashes_inflight.discard(content_hash)
             logger.error("Failed to process episode %s: %s", episode_id, e)
+            retry_count = (episode.retry_count or 0) + 1
+            retryable = isinstance(e, ProjectionError) and e.retryable
+            if retryable and retry_count <= self._cfg.projection_max_retries:
+                fail_status = EpisodeStatus.RETRYING
+                fail_projection_state = EpisodeProjectionState.FAILED
+            elif retryable:
+                fail_status = EpisodeStatus.DEAD_LETTER
+                fail_projection_state = EpisodeProjectionState.DEAD_LETTER
+            else:
+                fail_status = EpisodeStatus.FAILED
+                fail_projection_state = EpisodeProjectionState.FAILED
             await self._update_episode_status(
-                episode_id, EpisodeStatus.FAILED, group_id=group_id, error=str(e),
+                episode_id,
+                fail_status,
+                group_id=group_id,
+                error=str(e),
+                retry_count=retry_count,
+            )
+            await self._update_projection_state(
+                episode_id,
+                fail_projection_state,
+                group_id=group_id,
+                reason=str(e),
+            )
+            await self._update_episode_cue(
+                episode_id,
+                group_id,
+                {
+                    "projection_state": fail_projection_state,
+                    "projection_attempts": retry_count,
+                },
             )
             self._publish(
                 group_id,
                 "episode.failed",
-                {"episodeId": episode_id, "status": "failed", "error": str(e)},
+                {
+                    "episodeId": episode_id,
+                    "status": fail_status.value,
+                    "error": str(e),
+                    "retry_count": retry_count,
+                },
             )
             raise
 
@@ -943,18 +1126,19 @@ class GraphManager:
 
     # ─── Project Bootstrap ──────────────────────────────────────────
 
-    # Files to auto-observe on project bootstrap (filename → max chars)
+    # Files to bootstrap into the artifact substrate (pattern → max chars)
     _BOOTSTRAP_FILES: list[tuple[str, int]] = [
         ("README.md", 2000),
         ("package.json", 3000),
         ("pyproject.toml", 3000),
         ("Makefile", 3000),
         (".env.example", 2000),
-        ("CLAUDE.md", 2000),
+        ("docker-compose.yml", 3000),
+        ("CLAUDE.md", 2500),
+        ("docs/design/**/*.md", 4000),
+        ("docs/vision/**/*.md", 4000),
+        ("skills/**/SKILL.md", 3500),
     ]
-
-    # How long before a bootstrapped project is considered stale (seconds)
-    _BOOTSTRAP_STALE_SECONDS = 86400  # 24 hours
 
     async def bootstrap_project(
         self,
@@ -975,7 +1159,7 @@ class GraphManager:
         if not project_name or str(p) in (str(_Path.home()), "/"):
             return {"status": "skipped", "reason": "invalid_path"}
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = utc_now_iso()
 
         # Check for existing Project entity
         existing = await self._graph.find_entities(
@@ -994,9 +1178,9 @@ class GraphManager:
                 try:
                     last_dt = datetime.fromisoformat(last_bs)
                     age_seconds = (
-                        datetime.utcnow() - last_dt
+                        utc_now() - last_dt
                     ).total_seconds()
-                    if age_seconds < self._BOOTSTRAP_STALE_SECONDS:
+                    if age_seconds < self._cfg.artifact_bootstrap_stale_seconds:
                         return {
                             "status": "already_bootstrapped",
                             "project_entity_id": entity_id,
@@ -1075,30 +1259,855 @@ class GraphManager:
         group_id: str,
         session_id: str | None,
     ) -> list[str]:
-        """Read and store key project files as episodes. Returns filenames observed."""
+        """Read, index, and optionally store bootstrapped project artifacts."""
         files_observed: list[str] = []
-        for filename, max_chars in self._BOOTSTRAP_FILES:
-            filepath = project_dir / filename  # type: ignore[operator]
-            if not filepath.is_file():
+        project_path = str(project_dir)
+        project_entity_id = await self._resolve_project_entity_id(project_name, group_id)
+        now_iso = utc_now_iso()
+        seen_rel_paths: set[str] = set()
+
+        for filepath, rel_path, max_chars in self._iter_bootstrap_files(project_dir):  # type: ignore[arg-type]
+            if rel_path in seen_rel_paths:
                 continue
+            seen_rel_paths.add(rel_path)
             try:
-                content = filepath.read_text(
-                    encoding="utf-8", errors="replace",
-                )[:max_chars]
+                raw_content = filepath.read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
             except OSError:
                 continue
-            tagged = (
-                f"[project-bootstrap|{project_name}|{filename}]\n"
-                f"{content}"
+
+            truncated = raw_content[:max_chars]
+            artifact_class = artifact_class_for_path(rel_path)
+            content_hash = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
+            claims = extract_artifact_claims(
+                truncated,
+                rel_path=rel_path,
+                artifact_class=artifact_class,
+                project_name=project_name,
+                timestamp=now_iso,
             )
-            await self.store_episode(
-                content=tagged,
+            artifact_entity, changed = await self._upsert_artifact_entity(
+                project_name=project_name,
+                project_path=project_path,
+                rel_path=rel_path,
+                artifact_class=artifact_class,
+                content=truncated,
+                content_hash=content_hash,
+                claims=claims,
                 group_id=group_id,
-                source="auto:bootstrap",
-                session_id=session_id,
+                now_iso=now_iso,
             )
-            files_observed.append(filename)
+            if project_entity_id is not None:
+                await self._ensure_relationship(
+                    artifact_entity.id,
+                    project_entity_id,
+                    "PART_OF",
+                    group_id=group_id,
+                )
+            if changed:
+                tagged = (
+                    f"[project-bootstrap|{project_name}|{rel_path}]\n"
+                    f"{truncated}"
+                )
+                episode_id = await self.store_episode(
+                    content=tagged,
+                    group_id=group_id,
+                    source="auto:bootstrap",
+                    session_id=session_id,
+                )
+                await self._graph.update_entity(
+                    artifact_entity.id,
+                    {"attributes": json.dumps(self._merge_attributes(
+                        artifact_entity.attributes,
+                        {"last_episode_id": episode_id},
+                    ))},
+                    group_id=group_id,
+                )
+            if self._cfg.decision_graph_enabled and claims:
+                await self._materialize_artifact_decisions(
+                    artifact_entity,
+                    claims,
+                    group_id=group_id,
+                )
+            files_observed.append(rel_path)
         return files_observed
+
+    def _iter_bootstrap_files(
+        self,
+        project_dir: Path,
+    ) -> list[tuple[Path, str, int]]:
+        """Expand bootstrap patterns into concrete files."""
+        matches: list[tuple[Path, str, int]] = []
+        for pattern, max_chars in self._BOOTSTRAP_FILES:
+            for filepath in sorted(project_dir.glob(pattern)):
+                if not filepath.is_file():
+                    continue
+                try:
+                    rel_path = filepath.relative_to(project_dir).as_posix()
+                except ValueError:
+                    continue
+                matches.append((filepath, rel_path, max_chars))
+        return matches
+
+    async def _resolve_project_entity_id(
+        self,
+        project_name: str,
+        group_id: str,
+    ) -> str | None:
+        existing = await self._graph.find_entities(
+            name=project_name,
+            entity_type="Project",
+            group_id=group_id,
+            limit=1,
+        )
+        if existing:
+            return existing[0].id
+        return None
+
+    async def _upsert_artifact_entity(
+        self,
+        *,
+        project_name: str,
+        project_path: str,
+        rel_path: str,
+        artifact_class: str,
+        content: str,
+        content_hash: str,
+        claims: list[EvidenceClaim],
+        group_id: str,
+        now_iso: str,
+    ) -> tuple[Entity, bool]:
+        """Create or update a bootstrapped Artifact entity."""
+        artifact_key = f"{group_id}:{project_path}:{rel_path}"
+        artifact_id = f"art_{hashlib.sha256(artifact_key.encode()).hexdigest()[:12]}"
+        attributes = {
+            "project_path": project_path,
+            "rel_path": rel_path,
+            "artifact_class": artifact_class,
+            "content_hash": content_hash,
+            "last_observed_at": now_iso,
+            "stale_after": self._cfg.artifact_bootstrap_stale_seconds,
+            "snippet": self._artifact_snippet(content),
+            "claims": [self._claim_to_attr(claim) for claim in claims],
+        }
+        entity = await self._graph.get_entity(artifact_id, group_id)
+        if not isinstance(entity, Entity):
+            entity = None
+        if entity is None:
+            entity = Entity(
+                id=artifact_id,
+                name=rel_path,
+                entity_type="Artifact",
+                summary=self._artifact_summary(project_name, rel_path, content, claims),
+                attributes=attributes,
+                group_id=group_id,
+            )
+            await self._graph.create_entity(entity)
+            await self._index_entity_with_structure(entity, group_id)
+            await self._activation.record_access(entity.id, time.time(), group_id=group_id)
+            return entity, True
+
+        current_hash = (entity.attributes or {}).get("content_hash")
+        changed = current_hash != content_hash
+        merged_attrs = self._merge_attributes(entity.attributes, attributes)
+        updates: dict[str, object] = {"attributes": json.dumps(merged_attrs)}
+        if changed:
+            updates["summary"] = self._artifact_summary(project_name, rel_path, content, claims)
+        await self._graph.update_entity(entity.id, updates, group_id=group_id)
+        entity.attributes = merged_attrs
+        if changed:
+            entity.summary = str(updates["summary"])
+            await self._index_entity_with_structure(entity, group_id)
+        return entity, changed
+
+    @staticmethod
+    def _claim_to_attr(claim: EvidenceClaim) -> dict:
+        return {
+            "subject": claim.subject,
+            "predicate": claim.predicate,
+            "object": claim.object,
+            "source_type": claim.source_type,
+            "authority_type": claim.authority_type,
+            "externalization_state": claim.externalization_state,
+            "timestamp": claim.timestamp,
+            "confidence": claim.confidence,
+            "provenance": claim.provenance,
+        }
+
+    @staticmethod
+    def _merge_attributes(existing: dict | None, updates: dict) -> dict:
+        merged = dict(existing or {})
+        merged.update(updates)
+        return merged
+
+    @staticmethod
+    def _artifact_snippet(content: str) -> str:
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped:
+                return stripped[:240]
+        return content[:240]
+
+    @staticmethod
+    def _artifact_summary(
+        project_name: str,
+        rel_path: str,
+        content: str,
+        claims: list[EvidenceClaim],
+    ) -> str:
+        summary_parts = [f"{project_name} artifact {rel_path}"]
+        if claims:
+            summary_parts.append(
+                "; ".join(f"{claim.predicate}={claim.object}" for claim in claims[:3])
+            )
+        else:
+            summary_parts.append(GraphManager._artifact_snippet(content))
+        return " — ".join(part for part in summary_parts if part)[:500]
+
+    async def _list_project_artifacts(
+        self,
+        *,
+        group_id: str,
+        project_path: str | None = None,
+        limit: int = 200,
+    ) -> list[Entity]:
+        artifacts = await self._graph.find_entities(
+            entity_type="Artifact",
+            group_id=group_id,
+            limit=limit,
+        )
+        if project_path is None:
+            return artifacts
+        return [
+            entity
+            for entity in artifacts
+            if (entity.attributes or {}).get("project_path") == project_path
+        ]
+
+    @staticmethod
+    def _artifact_is_stale(entity: Entity, stale_seconds: int) -> bool:
+        attrs = entity.attributes or {}
+        last_observed = attrs.get("last_observed_at")
+        if not last_observed:
+            return True
+        try:
+            observed_dt = datetime.fromisoformat(last_observed)
+        except (TypeError, ValueError):
+            return True
+        return (utc_now() - observed_dt).total_seconds() >= stale_seconds
+
+    async def search_artifacts(
+        self,
+        *,
+        query: str,
+        group_id: str = "default",
+        project_path: str | None = None,
+        limit: int = 5,
+    ) -> list[ArtifactHit]:
+        """Search bootstrapped project artifacts by semantic or name match."""
+        if project_path and self._cfg.artifact_bootstrap_enabled:
+            await self.bootstrap_project(project_path, group_id=group_id)
+
+        hits: list[ArtifactHit] = []
+        seen_ids: set[str] = set()
+        scored_ids = await self._search.search(
+            query=query,
+            entity_types=["Artifact"],
+            group_id=group_id,
+            limit=max(limit * 4, 10),
+        )
+        if not scored_ids:
+            fallback = await self._graph.find_entities(
+                name=query,
+                entity_type="Artifact",
+                group_id=group_id,
+                limit=max(limit * 2, 10),
+            )
+            scored_ids = [(entity.id, 0.4) for entity in fallback]
+
+        for entity_id, score in scored_ids:
+            if entity_id in seen_ids:
+                continue
+            seen_ids.add(entity_id)
+            entity = await self._graph.get_entity(entity_id, group_id)
+            if entity is None:
+                continue
+            attrs = entity.attributes or {}
+            if project_path and attrs.get("project_path") != project_path:
+                continue
+            claims = [
+                self._claim_from_attr(claim_data)
+                for claim_data in attrs.get("claims", [])[:4]
+                if isinstance(claim_data, dict)
+            ]
+            hits.append(
+                ArtifactHit(
+                    artifact_id=entity.id,
+                    path=str(attrs.get("rel_path") or entity.name),
+                    artifact_class=str(attrs.get("artifact_class") or "artifact"),
+                    snippet=str(attrs.get("snippet") or entity.summary or ""),
+                    last_observed_at=attrs.get("last_observed_at"),
+                    score=score,
+                    stale=self._artifact_is_stale(
+                        entity,
+                        int(attrs.get("stale_after") or self._cfg.artifact_bootstrap_stale_seconds),
+                    ),
+                    supporting_claims=claims,
+                )
+            )
+            if len(hits) >= limit:
+                break
+        return hits
+
+    async def get_runtime_state(
+        self,
+        *,
+        group_id: str = "default",
+        project_path: str | None = None,
+    ) -> dict:
+        """Return effective runtime/config state plus artifact freshness."""
+        artifacts = await self._list_project_artifacts(
+            group_id=group_id,
+            project_path=project_path,
+        )
+        stale_seconds = int(self._cfg.artifact_bootstrap_stale_seconds)
+        stale_count = sum(
+            1 for artifact in artifacts
+            if self._artifact_is_stale(artifact, stale_seconds)
+        )
+        fresh_count = max(0, len(artifacts) - stale_count)
+        last_observed = None
+        for artifact in artifacts:
+            observed = (artifact.attributes or {}).get("last_observed_at")
+            if observed and (last_observed is None or observed > last_observed):
+                last_observed = observed
+        return {
+            "projectName": Path(project_path).name if project_path else "Engram",
+            "runtime": {
+                "mode": self._runtime_mode,
+            },
+            "activation": {
+                "consolidationProfile": self._cfg.consolidation_profile,
+                "recallProfile": self._cfg.recall_profile,
+                "integrationProfile": self._cfg.integration_profile,
+            },
+            "features": {
+                "epistemicRoutingEnabled": self._cfg.epistemic_routing_enabled,
+                "artifactBootstrapEnabled": self._cfg.artifact_bootstrap_enabled,
+                "artifactRecallEnabled": self._cfg.artifact_recall_enabled,
+                "runtimeExecutorEnabled": self._cfg.epistemic_runtime_executor_enabled,
+                "decisionGraphEnabled": self._cfg.decision_graph_enabled,
+                "epistemicReconcileEnabled": self._cfg.epistemic_reconcile_enabled,
+                "answerContractEnabled": self._cfg.answer_contract_enabled,
+                "claimStateModelingEnabled": self._cfg.claim_state_modeling_enabled,
+                "recallNeedAnalyzerEnabled": self._cfg.recall_need_analyzer_enabled,
+                "recallNeedGraphProbeEnabled": self._cfg.recall_need_graph_probe_enabled,
+            },
+            "artifactBootstrap": {
+                "enabled": self._cfg.artifact_bootstrap_enabled,
+                "projectPath": project_path,
+                "artifactCount": len(artifacts),
+                "freshArtifactCount": fresh_count,
+                "staleArtifactCount": stale_count,
+                "lastObservedAt": last_observed,
+                "staleAfterSeconds": stale_seconds,
+            },
+            "stats": {
+                "recallMetrics": self.get_recall_metrics(group_id),
+                "epistemicMetrics": self.get_epistemic_metrics(group_id),
+            },
+            "generatedAt": utc_now_iso(),
+        }
+
+    async def _build_epistemic_route(
+        self,
+        question: str,
+        *,
+        group_id: str = "default",
+        project_path: str | None = None,
+        recent_turns: list[str] | None = None,
+        session_entity_names: list[str] | None = None,
+        surface: str = "rest",
+        memory_need=None,
+    ):
+        """Create the question frame and evidence plan for a turn."""
+        if memory_need is None:
+            from engram.retrieval.graph_probe import GraphProbe
+            from engram.retrieval.need import analyze_memory_need
+
+            graph_probe = None
+            if self._cfg.recall_need_graph_probe_enabled:
+                graph_probe = getattr(self, "_recall_need_graph_probe", None)
+                if not isinstance(graph_probe, GraphProbe):
+                    graph_probe = GraphProbe(self._graph, self._activation)
+                    self._recall_need_graph_probe = graph_probe
+            memory_need = await analyze_memory_need(
+                question,
+                recent_turns=recent_turns or [],
+                session_entity_names=session_entity_names or [],
+                mode="chat" if surface == "rest" else "auto_recall",
+                graph_probe=graph_probe,
+                group_id=group_id,
+                conv_context=self._conv_context,
+                cfg=self._cfg,
+                thresholds=self.get_recall_need_thresholds(group_id),
+            )
+
+        surface_capabilities = self._surface_capabilities(surface, project_path)
+        frame = build_question_frame(
+            question,
+            memory_need=memory_need,
+            recent_turns=recent_turns,
+            project_path=project_path,
+            surface_capabilities=surface_capabilities,
+        )
+        plan = build_evidence_plan(
+            frame,
+            surface_capabilities=surface_capabilities,
+            cfg=self._cfg,
+        )
+        answer_contract = resolve_answer_contract(
+            question,
+            frame=frame,
+            plan=plan,
+            claims=[],
+        )
+        plan = apply_answer_contract_to_evidence_plan(
+            question,
+            frame=frame,
+            plan=plan,
+            answer_contract=answer_contract,
+            memory_need=memory_need,
+        )
+        self._epistemic_controller.record_route(
+            group_id,
+            frame.mode,
+            operator=answer_contract.operator,
+            scopes=answer_contract.relevant_scopes,
+        )
+        return frame, plan, memory_need, answer_contract
+
+    async def route_question(
+        self,
+        question: str,
+        *,
+        group_id: str = "default",
+        project_path: str | None = None,
+        recent_turns: list[str] | None = None,
+        session_entity_names: list[str] | None = None,
+        surface: str = "rest",
+        memory_need=None,
+    ) -> dict:
+        """Return a routed question frame and evidence plan."""
+        frame, plan, routed_need, answer_contract = await self._build_epistemic_route(
+            question,
+            group_id=group_id,
+            project_path=project_path,
+            recent_turns=recent_turns,
+            session_entity_names=session_entity_names,
+            surface=surface,
+            memory_need=memory_need,
+        )
+        payload = {
+            "questionFrame": frame.to_dict(),
+            "evidencePlan": plan.to_dict(),
+            "answerContract": answer_contract.to_dict(),
+            "recommendedNextSources": plan.recommended_next_sources,
+        }
+        if routed_need is not None:
+            payload["memoryNeed"] = routed_need.to_payload(
+                source="epistemic_route",
+                mode=surface,
+                turn_preview=question[:160],
+            )
+        return payload
+
+    async def gather_epistemic_evidence(
+        self,
+        question: str,
+        *,
+        group_id: str = "default",
+        project_path: str | None = None,
+        recent_turns: list[str] | None = None,
+        session_entity_names: list[str] | None = None,
+        surface: str = "rest",
+        memory_need=None,
+    ) -> EpistemicBundle:
+        """Route a question, gather planned evidence, and reconcile it."""
+        frame, plan, routed_need, _initial_contract = await self._build_epistemic_route(
+            question,
+            group_id=group_id,
+            project_path=project_path,
+            recent_turns=recent_turns,
+            session_entity_names=session_entity_names,
+            surface=surface,
+            memory_need=memory_need,
+        )
+
+        query_text = getattr(routed_need, "query_hint", None) or question
+        memory_query = plan.source_queries.get("memory") or query_text
+        artifact_query = plan.source_queries.get("artifacts") or query_text
+
+        if plan.use_artifacts and project_path and self._cfg.artifact_bootstrap_enabled:
+            await self.bootstrap_project(project_path, group_id=group_id)
+
+        memory_results: list[dict] = []
+        artifact_hits: list[ArtifactHit] = []
+        runtime_state: dict | None = None
+
+        if plan.use_memory:
+            memory_results = await self.recall(
+                query=memory_query,
+                group_id=group_id,
+                limit=max(1, plan.memory_budget),
+                record_access=False,
+            )
+        if plan.use_artifacts:
+            artifact_hits = await self.search_artifacts(
+                query=artifact_query,
+                group_id=group_id,
+                project_path=project_path,
+                limit=max(1, plan.artifact_budget),
+            )
+        if plan.use_runtime or plan.use_implementation:
+            runtime_state = await self.get_runtime_state(
+                group_id=group_id,
+                project_path=project_path,
+            )
+
+        memory_claims = build_memory_claims(memory_results)
+        artifact_claims = [
+            claim
+            for hit in artifact_hits
+            for claim in hit.supporting_claims
+        ]
+        runtime_claims = build_runtime_claims(runtime_state or {})
+        implementation_claims: list[EvidenceClaim] = []
+        all_claims = apply_claim_states(
+            memory_claims + artifact_claims + runtime_claims + implementation_claims
+        )
+        claim_state_summary = summarize_claim_states(all_claims)
+        answer_contract = resolve_answer_contract(
+            question,
+            frame=frame,
+            plan=plan,
+            claims=all_claims,
+        )
+
+        reconciliation = reconcile_claims(
+            frame,
+            memory_claims=memory_claims,
+            artifact_claims=artifact_claims,
+            runtime_claims=runtime_claims,
+            implementation_claims=implementation_claims,
+            answer_contract=answer_contract,
+        )
+        answer_contract = resolve_answer_contract(
+            question,
+            frame=frame,
+            plan=plan,
+            claims=all_claims,
+            reconciliation=reconciliation,
+        )
+        reconciliation = reconcile_claims(
+            frame,
+            memory_claims=memory_claims,
+            artifact_claims=artifact_claims,
+            runtime_claims=runtime_claims,
+            implementation_claims=implementation_claims,
+            answer_contract=answer_contract,
+        )
+
+        artifact_stale_miss = bool(
+            runtime_state
+            and runtime_state.get("artifactBootstrap", {}).get("staleArtifactCount", 0)
+            and not artifact_hits
+        )
+        self._epistemic_controller.record_execution(
+            group_id,
+            reconciliation,
+            plan,
+            answer_contract=answer_contract,
+            artifact_stale_miss=artifact_stale_miss,
+        )
+
+        return EpistemicBundle(
+            question_frame=frame,
+            evidence_plan=plan,
+            reconciliation=reconciliation,
+            answer_contract=answer_contract,
+            memory_claims=memory_claims,
+            artifact_claims=artifact_claims,
+            runtime_claims=runtime_claims,
+            implementation_claims=implementation_claims,
+            artifact_hits=artifact_hits,
+            memory_results=memory_results,
+            runtime_state=runtime_state,
+            claim_state_summary=claim_state_summary,
+        )
+
+    @staticmethod
+    def _surface_capabilities(surface: str, project_path: str | None) -> dict[str, bool]:
+        return {
+            "workspace_available": surface == "mcp" and bool(project_path),
+            "native_workspace_search": surface == "mcp" and bool(project_path),
+            "artifact_bootstrap": bool(project_path),
+        }
+
+    @staticmethod
+    def _claim_from_attr(claim_data: dict) -> EvidenceClaim:
+        return EvidenceClaim(
+            subject=str(claim_data.get("subject", "")),
+            predicate=str(claim_data.get("predicate", "")),
+            object=str(claim_data.get("object", "")),
+            source_type=str(
+                claim_data.get("source_type")
+                or claim_data.get("sourceType")
+                or "artifact"
+            ),
+            authority_type=str(
+                claim_data.get("authority_type")
+                or claim_data.get("authorityType")
+                or "canonical"
+            ),
+            externalization_state=str(
+                claim_data.get("externalization_state")
+                or claim_data.get("externalizationState")
+                or "documented"
+            ),
+            claim_state=str(
+                claim_data.get("claim_state")
+                or claim_data.get("claimState")
+                or "mentioned"
+            ),
+            timestamp=claim_data.get("timestamp"),
+            confidence=float(claim_data.get("confidence", 0.0) or 0.0),
+            provenance=dict(claim_data.get("provenance") or {}),
+        )
+
+    async def _materialize_artifact_decisions(
+        self,
+        artifact_entity: Entity,
+        claims: list[EvidenceClaim],
+        *,
+        group_id: str,
+    ) -> None:
+        attrs = artifact_entity.attributes or {}
+        artifact_class = str(attrs.get("artifact_class") or "design_doc")
+        link_predicate = "DOCUMENTED_IN"
+        if artifact_class == "config":
+            link_predicate = "IMPLEMENTED_BY"
+        elif artifact_class in {"readme", "skill"}:
+            link_predicate = "ANNOUNCED_AS"
+        for claim in claims:
+            if not self._is_decision_claim(claim):
+                continue
+            decision = await self._upsert_decision_entity(claim, group_id=group_id)
+            await self._ensure_relationship(
+                decision.id,
+                artifact_entity.id,
+                link_predicate,
+                group_id=group_id,
+            )
+
+    async def _materialize_conversation_decisions(
+        self,
+        content: str,
+        *,
+        episode_id: str,
+        group_id: str,
+    ) -> None:
+        subject = self._infer_decision_subject(content)
+        if subject is None:
+            return
+        claims: list[EvidenceClaim] = []
+        for chunk in re.split(r"[\n.!?]+", content):
+            if not should_materialize_conversation_decision(chunk):
+                continue
+            claims.extend(
+                extract_decision_claims(
+                    chunk,
+                    subject=subject,
+                    source_type="memory",
+                    authority_type="historical",
+                    externalization_state="discussed",
+                    provenance={"episode_id": episode_id},
+                )
+            )
+        filtered_claims: list[EvidenceClaim] = []
+        for claim in claims:
+            if not self._is_decision_claim(claim):
+                continue
+            claim.claim_state = infer_claim_state(claim)
+            if claim.claim_state != "decided":
+                continue
+            filtered_claims.append(claim)
+        claims = filtered_claims
+        if not claims:
+            return
+        artifact = await self._upsert_conversation_artifact(
+            content,
+            episode_id=episode_id,
+            group_id=group_id,
+        )
+        for claim in claims:
+            decision = await self._upsert_decision_entity(claim, group_id=group_id)
+            await self._ensure_relationship(
+                decision.id,
+                artifact.id,
+                "DECIDED_IN",
+                group_id=group_id,
+                source_episode=episode_id,
+            )
+
+    async def _upsert_conversation_artifact(
+        self,
+        content: str,
+        *,
+        episode_id: str,
+        group_id: str,
+    ) -> Entity:
+        artifact_id = f"art_conv_{episode_id.split('_')[-1]}"
+        existing = await self._graph.get_entity(artifact_id, group_id)
+        if existing is not None:
+            return existing
+        artifact = Entity(
+            id=artifact_id,
+            name=f"conversation:{episode_id}",
+            entity_type="Artifact",
+            summary=f"Conversation record for decision provenance: {content[:180]}",
+            attributes={
+                "artifact_class": "conversation_record",
+                "source_episode": episode_id,
+                "snippet": content[:240],
+                "last_observed_at": utc_now_iso(),
+                "stale_after": self._cfg.artifact_bootstrap_stale_seconds,
+            },
+            group_id=group_id,
+        )
+        await self._graph.create_entity(artifact)
+        await self._index_entity_with_structure(artifact, group_id)
+        return artifact
+
+    async def _upsert_decision_entity(
+        self,
+        claim: EvidenceClaim,
+        *,
+        group_id: str,
+    ) -> Entity:
+        prefix = f"{claim.subject}:{claim.predicate}"
+        existing = await self._graph.find_entities(
+            name=prefix,
+            entity_type="Decision",
+            group_id=group_id,
+            limit=20,
+        )
+        for candidate in existing:
+            attrs = candidate.attributes or {}
+            if (
+                attrs.get("canonical_predicate") == claim.predicate
+                and attrs.get("subject") == claim.subject
+                and attrs.get("decision_object") == claim.object
+            ):
+                merged_attrs = self._merge_attributes(
+                    attrs,
+                    {
+                        "last_seen_at": utc_now_iso(),
+                        "authority_type": claim.authority_type,
+                        "externalization_state": claim.externalization_state,
+                        "source_type": claim.source_type,
+                    },
+                )
+                await self._graph.update_entity(
+                    candidate.id,
+                    {"attributes": json.dumps(merged_attrs)},
+                    group_id=group_id,
+                )
+                candidate.attributes = merged_attrs
+                return candidate
+
+        decision = Entity(
+            id=f"dec_{uuid.uuid4().hex[:12]}",
+            name=f"{claim.subject}:{claim.predicate}:{claim.object[:80]}",
+            entity_type="Decision",
+            summary=f"{claim.subject} -> {claim.predicate} -> {claim.object}"[:500],
+            attributes={
+                "subject": claim.subject,
+                "canonical_predicate": claim.predicate,
+                "decision_object": claim.object,
+                "authority_type": claim.authority_type,
+                "externalization_state": claim.externalization_state,
+                "source_type": claim.source_type,
+                "last_seen_at": utc_now_iso(),
+            },
+            group_id=group_id,
+        )
+        await self._graph.create_entity(decision)
+        await self._index_entity_with_structure(decision, group_id)
+        for candidate in existing:
+            attrs = candidate.attributes or {}
+            if (
+                attrs.get("canonical_predicate") == claim.predicate
+                and attrs.get("subject") == claim.subject
+                and attrs.get("decision_object") != claim.object
+            ):
+                await self._ensure_relationship(
+                    candidate.id,
+                    decision.id,
+                    "SUPERSEDED_BY",
+                    group_id=group_id,
+                )
+        return decision
+
+    async def _ensure_relationship(
+        self,
+        source_id: str,
+        target_id: str,
+        predicate: str,
+        *,
+        group_id: str,
+        source_episode: str | None = None,
+    ) -> None:
+        existing = await self._graph.find_existing_relationship(
+            source_id,
+            target_id,
+            predicate,
+            group_id,
+        )
+        if existing is not None:
+            return
+        await self._graph.create_relationship(
+            Relationship(
+                id=f"rel_{uuid.uuid4().hex[:12]}",
+                source_id=source_id,
+                target_id=target_id,
+                predicate=predicate,
+                group_id=group_id,
+                source_episode=source_episode,
+            )
+        )
+
+    @staticmethod
+    def _is_decision_claim(claim: EvidenceClaim) -> bool:
+        return claim.predicate in {
+            "public_launch_path",
+            "full_mode_default_behavior",
+            "integration_profile",
+            "recall_profile",
+            "consolidation_profile",
+            "decision_statement",
+        } or claim.predicate.startswith("config:engram_activation__")
+
+    @staticmethod
+    def _infer_decision_subject(content: str) -> str | None:
+        lowered = content.lower()
+        if "engram" in lowered or "openclaw" in lowered or "full mode" in lowered:
+            return "Engram"
+        if "project" in lowered or "repo" in lowered:
+            return "Project"
+        return None
 
     async def _index_entity_with_structure(
         self,
@@ -1160,12 +2169,24 @@ class GraphManager:
         query: str,
         group_id: str = "default",
         limit: int = 10,
+        *,
+        record_access: bool = True,
+        interaction_type: str | None = None,
+        interaction_source: str = "recall",
+        memory_need=None,
     ) -> list[dict]:
         """Retrieve relevant entities and their context using activation-aware scoring."""
         # Request extra results for near-miss detection (Wave 2)
         fetch_limit = limit
         if self._cfg.conv_near_miss_enabled and self._conv_context is not None:
             fetch_limit = limit + self._cfg.conv_near_miss_window
+
+        # Ranking feedback should only learn from true usage, not passive surfacing.
+        record_feedback = record_access
+        if interaction_type in {"surfaced", "selected", "dismissed", "corrected"}:
+            record_feedback = False
+        elif interaction_type in {"used", "confirmed"}:
+            record_feedback = True
 
         scored_results = await retrieve(
             query=query,
@@ -1182,6 +2203,8 @@ class GraphManager:
             conv_context=self._conv_context,
             priming_buffer=self._priming_buffer if self._cfg.retrieval_priming_enabled else None,
             goal_cache=self._goal_priming_cache,
+            record_feedback=record_feedback,
+            memory_need=memory_need,
         )
 
         # Split primary results and near-misses (Wave 2)
@@ -1190,11 +2213,20 @@ class GraphManager:
 
         now = time.time()
         results = []
+        seen_episode_ids: set[str] = set()
         for sr in primary_results:
-            if sr.result_type == "episode":
+            if sr.result_type in {"episode", "cue_episode"}:
+                if sr.node_id in seen_episode_ids:
+                    continue
                 # Fetch episode data — do NOT record access for episodes
                 ep = await self._graph.get_episode_by_id(sr.node_id, group_id)
                 if ep:
+                    if (
+                        self._episode_projection_state_value(ep)
+                        == EpisodeProjectionState.MERGED.value
+                    ):
+                        continue
+                    seen_episode_ids.add(ep.id)
                     linked_entities = await self._graph.get_episode_entities(sr.node_id)
 
                     # Populate working memory buffer for episodes
@@ -1206,6 +2238,45 @@ class GraphManager:
                             query,
                             now,
                         )
+
+                    if sr.result_type == "cue_episode":
+                        cue = None
+                        if hasattr(self._graph, "get_episode_cue"):
+                            cue = await self._graph.get_episode_cue(sr.node_id, group_id)
+                        if cue is None:
+                            continue
+
+                        await self._record_cue_hit(
+                            ep,
+                            sr.score,
+                            query,
+                            interaction_type=interaction_type,
+                        )
+                        cue = await self._get_episode_cue(ep.id, group_id) or cue
+                        results.append(
+                            {
+                                "cue": self._cue_result_payload(cue, hit_increment=1),
+                                "episode": {
+                                    "id": ep.id,
+                                    "source": ep.source,
+                                    "created_at": (
+                                        ep.created_at.isoformat()
+                                        if ep.created_at
+                                        else None
+                                    ),
+                                },
+                                "score": sr.score,
+                                "score_breakdown": {
+                                    "semantic": sr.semantic_similarity,
+                                    "activation": sr.activation,
+                                    "edge_proximity": sr.edge_proximity,
+                                    "exploration_bonus": sr.exploration_bonus,
+                                },
+                                "result_type": "cue_episode",
+                                "linked_entities": linked_entities,
+                            }
+                        )
+                        continue
 
                     results.append(
                         {
@@ -1231,17 +2302,14 @@ class GraphManager:
                 if entity:
                     rels = await self._graph.get_relationships(sr.node_id, group_id=group_id)
 
-                    # Record access for returned entities
-                    await self._activation.record_access(sr.node_id, now, group_id=group_id)
-                    await self._publish_access_event(
-                        sr.node_id, entity.name, entity.entity_type, group_id, "recall"
-                    )
-
-                    # Mark as labile for reconsolidation (Brain Architecture Phase 2B)
-                    if self._labile_tracker is not None:
-                        self._labile_tracker.mark_labile(
-                            entity.id, entity.name, entity.entity_type,
-                            entity.summary or "", query,
+                    # Record access only for true recall usage, not passive surfacing.
+                    if record_access:
+                        await self._record_entity_access(
+                            entity,
+                            group_id=group_id,
+                            query=query,
+                            source=interaction_source,
+                            timestamp=now,
                         )
 
                     # Populate working memory buffer for entities
@@ -1255,6 +2323,7 @@ class GraphManager:
                         )
 
                     result_dict = {
+                        "result_type": "entity",
                         "entity": {
                             "id": entity.id,
                             "name": entity.name,
@@ -1268,17 +2337,24 @@ class GraphManager:
                             "edge_proximity": sr.edge_proximity,
                             "exploration_bonus": sr.exploration_bonus,
                             "hop_distance": sr.hop_distance,
+                            "planner_support": sr.planner_support,
                         },
                         "relationships": [
                             {
+                                "id": r.id,
                                 "predicate": r.predicate,
                                 "source_id": r.source_id,
                                 "target_id": r.target_id,
                                 "weight": r.weight,
+                                "polarity": r.polarity,
                             }
                             for r in rels[:5]
                         ],
                     }
+                    if sr.planner_intents:
+                        result_dict["supporting_intents"] = sr.planner_intents
+                    if sr.recall_trace:
+                        result_dict["recall_trace"] = sr.recall_trace
 
                     # Add warmth metadata for Intention entities
                     if (
@@ -1304,7 +2380,42 @@ class GraphManager:
                         except Exception:
                             pass
 
+                    if interaction_type and (
+                        self._cfg.recall_telemetry_enabled
+                        or self._cfg.recall_usage_feedback_enabled
+                    ):
+                        publish_memory_interaction(
+                            self._event_bus,
+                            MemoryInteractionEvent(
+                                group_id=group_id,
+                                entity_id=entity.id,
+                                entity_name=entity.name,
+                                entity_type=entity.entity_type,
+                                interaction_type=interaction_type,
+                                source=interaction_source,
+                                query=query,
+                                score=sr.score,
+                                recorded_access=record_access,
+                            ),
+                        )
+                    if interaction_type:
+                        self._recall_need_controller.record_interaction(
+                            group_id,
+                            interaction_type,
+                            result_type="entity",
+                        )
+
                     results.append(result_dict)
+
+        if self._query_prefers_current_state(query) and any(
+            result.get("result_type") == "entity"
+            for result in results
+        ):
+            results = [
+                result
+                for result in results
+                if result.get("result_type") not in {"episode", "cue_episode"}
+            ]
 
         # Track the query in working memory
         if self._working_memory is not None:
@@ -1315,7 +2426,7 @@ class GraphManager:
             priming_now = time.time()
             expiry = priming_now + self._cfg.retrieval_priming_ttl_seconds
             for r in results[:self._cfg.retrieval_priming_top_n]:
-                if r.get("result_type") == "episode":
+                if r.get("result_type") != "entity":
                     continue
                 entity_id = r.get("entity", {}).get("id")
                 if not entity_id:
@@ -1338,14 +2449,44 @@ class GraphManager:
         self._last_near_misses = []
         if near_miss_results:
             for nm in near_miss_results:
-                if nm.result_type == "episode":
+                if nm.result_type == "entity":
+                    entity = await self._graph.get_entity(nm.node_id, group_id)
+                    if entity:
+                        self._last_near_misses.append({
+                            "result_type": "entity",
+                            "entity": {"name": entity.name, "type": entity.entity_type},
+                            "score": round(nm.score, 4),
+                        })
                     continue
-                entity = await self._graph.get_entity(nm.node_id, group_id)
-                if entity:
-                    self._last_near_misses.append({
-                        "entity": {"name": entity.name, "type": entity.entity_type},
+
+                if nm.result_type != "cue_episode":
+                    continue
+
+                episode = await self._graph.get_episode_by_id(nm.node_id, group_id)
+                cue = await self._get_episode_cue(nm.node_id, group_id)
+                if episode is None or cue is None:
+                    continue
+                if (
+                    self._episode_projection_state_value(episode)
+                    == EpisodeProjectionState.MERGED.value
+                ):
+                    continue
+
+                await self._record_cue_hit(
+                    episode,
+                    nm.score,
+                    query,
+                    interaction_type=interaction_type,
+                    near_miss=True,
+                )
+                cue = await self._get_episode_cue(episode.id, group_id) or cue
+                self._last_near_misses.append(
+                    {
+                        "result_type": "cue_episode",
+                        "cue": self._cue_result_payload(cue),
                         "score": round(nm.score, 4),
-                    })
+                    }
+                )
 
         # Update conversation fingerprint (Wave 2)
         if self._conv_context is not None and self._cfg.conv_fingerprint_enabled:
@@ -1355,9 +2496,22 @@ class GraphManager:
             provider = getattr(self._search, '_provider', None)
             if provider and hasattr(provider, 'embed_query'):
                 embed_fn = provider.embed_query
-            await ConversationFingerprinter.ingest_turn(self._conv_context, query, embed_fn)
+            await ConversationFingerprinter.ingest_turn(
+                self._conv_context,
+                query,
+                embed_fn,
+                source=f"recall_query:{interaction_source}",
+                update_fingerprint=False,
+            )
 
         return results
+
+    def _query_prefers_current_state(self, query: str) -> bool:
+        """Detect narrow queries asking for the current/latest state."""
+        tokens = {match.group(0) for match in re.finditer(r"[a-z]+", query.lower())}
+        if not tokens:
+            return False
+        return bool(tokens & {"now", "current", "currently"})
 
     # ─── Entity name resolution ─────────────────────────────────────
 
@@ -1420,6 +2574,9 @@ class GraphManager:
                     "name": entity.name,
                     "entity_type": entity.entity_type,
                     "summary": entity.summary,
+                    "lexical_regime": entity.lexical_regime,
+                    "canonical_identifier": entity.canonical_identifier,
+                    "identifier_label": entity.identifier_label,
                     "activation_score": round(activation_score, 4),
                     "created_at": entity.created_at.isoformat() if entity.created_at else None,
                     "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
@@ -1438,6 +2595,7 @@ class GraphManager:
         subject: str | None = None,
         predicate: str | None = None,
         include_expired: bool = False,
+        include_epistemic: bool = False,
         limit: int = 10,
     ) -> list[dict]:
         """Search for relationships/facts. Resolves entity names."""
@@ -1492,7 +2650,12 @@ class GraphManager:
 
         # Resolve entity names and format results
         result = []
-        for r in relationships[:limit]:
+        for r in relationships:
+            if not include_epistemic and await self._relationship_is_epistemic(
+                r,
+                group_id=group_id,
+            ):
+                continue
             source_name = await self.resolve_entity_name(r.source_id, group_id)
             target_name = await self.resolve_entity_name(r.target_id, group_id)
             result.append(
@@ -1500,6 +2663,7 @@ class GraphManager:
                     "subject": source_name,
                     "predicate": r.predicate,
                     "object": target_name,
+                    "polarity": r.polarity,
                     "valid_from": r.valid_from.isoformat() if r.valid_from else None,
                     "valid_to": r.valid_to.isoformat() if r.valid_to else None,
                     "confidence": r.confidence,
@@ -1507,8 +2671,27 @@ class GraphManager:
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
             )
+            if len(result) >= limit:
+                break
 
         return result
+
+    async def _relationship_is_epistemic(
+        self,
+        relationship: Relationship,
+        *,
+        group_id: str,
+    ) -> bool:
+        if relationship.predicate in _EPISTEMIC_FACT_PREDICATES:
+            return True
+        source_entity = await self._graph.get_entity(relationship.source_id, group_id)
+        target_entity = await self._graph.get_entity(relationship.target_id, group_id)
+        source_type = getattr(source_entity, "entity_type", None)
+        target_type = getattr(target_entity, "entity_type", None)
+        return source_type in {"Decision", "Artifact"} or target_type in {
+            "Decision",
+            "Artifact",
+        }
 
     # ─── Forget entity ──────────────────────────────────────────────
 
@@ -1532,7 +2715,7 @@ class GraphManager:
             "status": "forgotten",
             "target_type": "entity",
             "target": entity.name,
-            "valid_to": datetime.utcnow().isoformat(),
+            "valid_to": utc_now_iso(),
             "message": f"Entity '{entity.name}' has been forgotten.",
         }
 
@@ -1585,7 +2768,7 @@ class GraphManager:
             }
 
         await self._graph.invalidate_relationship(
-            target_rel.id, datetime.utcnow(), group_id=group_id
+            target_rel.id, utc_now(), group_id=group_id
         )
 
         logger.info(
@@ -1601,7 +2784,7 @@ class GraphManager:
             "subject": subject_name,
             "predicate": predicate,
             "object": object_name,
-            "valid_to": datetime.utcnow().isoformat(),
+            "valid_to": utc_now_iso(),
             "message": f"Fact '{subject_name} {predicate} {object_name}' has been forgotten.",
         }
 
@@ -1642,7 +2825,7 @@ class GraphManager:
 
         from engram.models.prospective import IntentionMeta
 
-        now = datetime.utcnow()
+        now = utc_now()
         intention_id = f"int_{uuid.uuid4().hex[:12]}"
 
         # Resolve entity_names to IDs and create TRIGGERED_BY edges
@@ -1733,7 +2916,7 @@ class GraphManager:
 
         from datetime import timedelta
 
-        now = datetime.utcnow()
+        now = utc_now()
         intention = Intention(
             id=f"int_{uuid.uuid4().hex[:12]}",
             trigger_text=trigger_text,
@@ -1765,7 +2948,7 @@ class GraphManager:
         )
 
         result = []
-        now = datetime.utcnow()
+        now = utc_now()
         for entity in entities:
             attrs = entity.attributes or {}
             try:
@@ -1798,7 +2981,7 @@ class GraphManager:
             return
 
         if hard:
-            await self._graph.delete_entity(intention_id, group_id)
+            await self._graph.delete_entity(intention_id, group_id=group_id)
         else:
             entity = await self._graph.get_entity(intention_id, group_id)
             if entity:
@@ -1855,7 +3038,7 @@ class GraphManager:
             return
         attrs = dict(entity.attributes or {})
         attrs["fire_count"] = attrs.get("fire_count", 0) + 1
-        attrs["last_fired"] = datetime.utcnow().isoformat()
+        attrs["last_fired"] = utc_now_iso()
         await self._graph.update_entity(
             intention_id, {"attributes": attrs}, group_id=group_id,
         )
@@ -2329,6 +3512,8 @@ class GraphManager:
 
         stats["active_entities"] = active_count
         stats["dormant_entities"] = dormant_count
+        stats["recall_metrics"] = self.get_recall_metrics(group_id)
+        stats["epistemic_metrics"] = self.get_epistemic_metrics(group_id)
 
         result: dict = {
             "stats": stats,

@@ -3,6 +3,7 @@
 from engram.models.consolidation import (
     ConsolidationCycle,
     ConsolidationStatus,
+    IdentifierReviewRecord,
     InferredEdge,
     MergeRecord,
     PhaseResult,
@@ -41,8 +42,28 @@ class TestConsolidationModels:
             similarity=0.92,
         )
         assert m.id.startswith("mrg_")
+        assert m.decision_confidence is None
+        assert m.decision_source is None
+        assert m.decision_reason is None
         assert m.relationships_transferred == 0
         assert m.timestamp > 0
+
+    def test_identifier_review_record_auto_id(self):
+        review = IdentifierReviewRecord(
+            cycle_id="cyc_abc",
+            group_id="test",
+            entity_a_id="e1",
+            entity_b_id="e2",
+            entity_a_name="1712061",
+            entity_b_name="1712018",
+            entity_a_type="Identifier",
+            entity_b_type="Identifier",
+            raw_similarity=0.86,
+            decision_reason="identifier_mismatch",
+        )
+        assert review.id.startswith("idr_")
+        assert review.review_status == "quarantined"
+        assert review.metadata == {}
 
     def test_inferred_edge_auto_id(self):
         e = InferredEdge(

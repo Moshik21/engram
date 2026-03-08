@@ -58,8 +58,13 @@ CROSS_TOPIC_ANALYSIS.md
 ROADMAP.md
 SYSTEM_MAP.md
 Tech_Spec_v2.md
+docs/design/
 docs/RECALL_REDESIGN.md
 docs/SAAS_NEXT_STEPS.md
+docs/vision/homepage-product-page.md
+docs/vision/x-thread.md
+docs/vision/launch-post.md
+docs/vision/openclaw-distribution-strategy.md
 
 # AI tool configs
 CLAUDE.md

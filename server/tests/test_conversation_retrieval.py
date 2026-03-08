@@ -111,6 +111,15 @@ class TestConversationContext:
         assert ctx.get_top_entities() == []
         assert ctx.get_recent_turns() == []
 
+    def test_recall_queries_do_not_count_as_live_turns(self):
+        ctx = ConversationContext()
+        ctx.add_turn("user turn", source="chat_user")
+        ctx.add_turn("planner query", source="recall_query:auto", update_fingerprint=False)
+        assert ctx._turn_count == 1
+        assert ctx.get_recent_turns(5) == ["user turn"]
+        all_entries = ctx.get_recent_turn_entries(5, live_only=False)
+        assert [entry.source for entry in all_entries] == ["chat_user", "recall_query:auto"]
+
 
 # ─── TestConversationFingerprinter ───────────────────────────────────────
 
@@ -144,6 +153,37 @@ class TestConversationFingerprinter:
         await ConversationFingerprinter.ingest_turn(ctx, "hello", embed_fn=embed)
         assert ctx._turn_count == 1
         assert ctx.get_fingerprint() is None  # graceful fallback
+
+    @pytest.mark.asyncio
+    async def test_recall_query_does_not_update_fingerprint(self):
+        ctx = ConversationContext()
+
+        async def embed(text):
+            if text == "live turn":
+                return [1.0, 0.0]
+            return [0.0, 1.0]
+
+        await ConversationFingerprinter.ingest_turn(
+            ctx,
+            "live turn",
+            embed_fn=embed,
+            source="chat_user",
+        )
+        fingerprint_before = ctx.get_fingerprint()
+        assert fingerprint_before is not None
+
+        await ConversationFingerprinter.ingest_turn(
+            ctx,
+            "recall query",
+            embed_fn=embed,
+            source="recall_query:explicit",
+            update_fingerprint=False,
+        )
+
+        assert ctx.get_fingerprint() == fingerprint_before
+        assert ctx.get_recent_turns(5) == ["live turn"]
+        all_entries = ctx.get_recent_turn_entries(5, live_only=False)
+        assert all_entries[-1].source == "recall_query:explicit"
 
 
 # ─── TestNearMissDetection ───────────────────────────────────────────────

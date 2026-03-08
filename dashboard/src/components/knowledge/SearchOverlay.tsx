@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { startTransition, useState, useRef, useEffect } from "react";
 import { useEngramStore } from "../../store";
 import { api } from "../../api/client";
 import { entityColor, entityColorDim } from "../../lib/colors";
-import { debounce } from "../../lib/utils";
 import type { SearchResult } from "../../store/types";
 import { useChatContext } from "./ChatProvider";
 
@@ -15,35 +14,64 @@ export function SearchOverlay() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchRequestRef = useRef(0);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const doSearch = useCallback(
-    debounce(async (q: string) => {
-      if (!q.trim()) {
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    searchRequestRef.current += 1;
+    const requestId = searchRequestRef.current;
+
+    if (!trimmedQuery) {
+      startTransition(() => {
         setResults([]);
-        setIsSearching(false);
-        return;
-      }
+      });
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
       setIsSearching(true);
       try {
-        const data = await api.searchEntities({ q, limit: 10 });
-        setResults(data);
-      } catch {
-        setResults([]);
+        const data = await api.searchEntities({
+          q: trimmedQuery,
+          limit: 10,
+          signal: controller.signal,
+        });
+        if (
+          controller.signal.aborted ||
+          requestId !== searchRequestRef.current
+        ) {
+          return;
+        }
+        startTransition(() => {
+          setResults(data);
+        });
+      } catch (error: unknown) {
+        if ((error as DOMException)?.name === "AbortError") return;
+        if (requestId !== searchRequestRef.current) return;
+        startTransition(() => {
+          setResults([]);
+        });
       } finally {
-        setIsSearching(false);
+        if (
+          !controller.signal.aborted &&
+          requestId === searchRequestRef.current
+        ) {
+          setIsSearching(false);
+        }
       }
-    }, 200),
-    [],
-  );
+    }, 200);
 
-  const handleChange = (value: string) => {
-    setQuery(value);
-    doSearch(value);
-  };
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [query]);
 
   const close = () => setSearchOverlayOpen(false);
 
@@ -79,7 +107,7 @@ export function SearchOverlay() {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => handleChange(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") close();
               if (e.key === "Enter" && query.trim()) {

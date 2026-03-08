@@ -2,7 +2,8 @@
 """Echo chamber benchmark CLI.
 
 Measures whether activation creates filter bubbles by running sequential
-queries and tracking coverage, Gini coefficient, and top-10 stability.
+queries and tracking coverage, Gini coefficient, top-10 stability, and
+surfaced-vs-used recall behavior.
 
 Usage:
     cd server && uv run python scripts/benchmark_echo_chamber.py --queries 200
@@ -68,6 +69,7 @@ async def main(args: argparse.Namespace) -> None:
         diverse_queries = [q.query_text for q in corpus.ground_truth[5:]]
 
     corpus_entity_ids = [e.id for e in corpus.entities]
+    benchmark_group_id = corpus.entities[0].group_id if corpus.entities else "benchmark"
 
     # Run benchmark
     result = await run_echo_chamber(
@@ -78,6 +80,7 @@ async def main(args: argparse.Namespace) -> None:
         activation_store=activation_store,
         search_index=search_index,
         cfg=cfg,
+        group_id=benchmark_group_id,
         total_queries=args.queries,
         snapshot_interval=args.snapshot_interval,
     )
@@ -93,6 +96,9 @@ async def main(args: argparse.Namespace) -> None:
     print(f"Final coverage:      {result.final_coverage:.1%}")
     print(f"Final Gini:          {result.final_gini:.3f}")
     print(f"Final top-10 Jaccard:{result.final_top10_jaccard:.3f}")
+    print(f"Surfaced results:    {result.final_surfaced_count}")
+    print(f"Used results:        {result.final_used_count}")
+    print(f"Surfaced/used ratio: {result.final_surfaced_to_used_ratio:.3f}")
     print(f"Coverage target:     {'PASS' if result.pass_coverage else 'FAIL'} (> 40%)")
     print(f"Gini target:         {'PASS' if result.pass_gini else 'FAIL'} (< 0.70)")
     print(f"Elapsed:             {elapsed:.1f}s")
@@ -104,7 +110,9 @@ async def main(args: argparse.Namespace) -> None:
                 f"  Q{s.query_index:>4d}: "
                 f"coverage={s.coverage:.1%} "
                 f"gini={s.gini:.3f} "
-                f"jaccard={s.top10_jaccard:.3f}"
+                f"jaccard={s.top10_jaccard:.3f} "
+                f"surfaced={s.surfaced_count} "
+                f"used={s.used_count}"
             )
 
     # Save JSON if requested
@@ -115,6 +123,9 @@ async def main(args: argparse.Namespace) -> None:
             "final_coverage": result.final_coverage,
             "final_gini": result.final_gini,
             "final_top10_jaccard": result.final_top10_jaccard,
+            "final_surfaced_count": result.final_surfaced_count,
+            "final_used_count": result.final_used_count,
+            "final_surfaced_to_used_ratio": result.final_surfaced_to_used_ratio,
             "pass_coverage": result.pass_coverage,
             "pass_gini": result.pass_gini,
             "elapsed_seconds": elapsed,
@@ -124,6 +135,9 @@ async def main(args: argparse.Namespace) -> None:
                     "coverage": s.coverage,
                     "gini": s.gini,
                     "top10_jaccard": s.top10_jaccard,
+                    "surfaced_count": s.surfaced_count,
+                    "used_count": s.used_count,
+                    "surfaced_to_used_ratio": s.surfaced_to_used_ratio,
                     "top10_ids": s.top10_ids,
                 }
                 for s in result.snapshots

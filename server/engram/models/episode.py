@@ -7,6 +7,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from engram.utils.dates import utc_now
+
 
 class EpisodeStatus(str, Enum):
     # Granular pipeline states
@@ -26,6 +28,18 @@ class EpisodeStatus(str, Enum):
     FAILED = "failed"
 
 
+class EpisodeProjectionState(str, Enum):
+    QUEUED = "queued"
+    CUED = "cued"
+    CUE_ONLY = "cue_only"
+    SCHEDULED = "scheduled"
+    PROJECTING = "projecting"
+    PROJECTED = "projected"
+    MERGED = "merged"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+
+
 class Episode(BaseModel):
     """A raw memory episode — the input text from a conversation or event."""
 
@@ -35,7 +49,7 @@ class Episode(BaseModel):
     status: EpisodeStatus = EpisodeStatus.PENDING
     group_id: str = "default"
     session_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime | None = None
     error: str | None = None
     retry_count: int = 0
@@ -44,3 +58,6 @@ class Episode(BaseModel):
     memory_tier: str = "episodic"  # "episodic" | "transitional" | "semantic"
     consolidation_cycles: int = 0
     entity_coverage: float = 0.0
+    projection_state: EpisodeProjectionState = EpisodeProjectionState.QUEUED
+    last_projection_reason: str | None = None
+    last_projected_at: datetime | None = None

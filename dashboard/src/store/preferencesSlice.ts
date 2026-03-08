@@ -13,7 +13,9 @@ export const createPreferencesSlice: StateCreator<
   showEdgeLabels: false,
   showFpsOverlay: false,
   darkMode: true,
-  graphMaxNodes: 50000,
+  graphMaxNodes: 1500,
+  lastAtlasVisitAt: null,
+  lastAtlasSnapshotId: null,
 
   setCurrentView: (view) =>
     set((s) => {
@@ -42,5 +44,11 @@ export const createPreferencesSlice: StateCreator<
   setGraphMaxNodes: (n) =>
     set((s) => {
       s.graphMaxNodes = n;
+    }),
+  recordAtlasVisit: ({ generatedAt, snapshotId }) =>
+    set((s) => {
+      if (!generatedAt) return;
+      s.lastAtlasVisitAt = generatedAt;
+      s.lastAtlasSnapshotId = snapshotId ?? null;
     }),
 });

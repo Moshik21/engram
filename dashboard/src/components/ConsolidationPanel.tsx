@@ -31,6 +31,44 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatPct(value: number | null | undefined): string | null {
+  if (value == null) return null;
+  return `${(value * 100).toFixed(0)}%`;
+}
+
+function formatMergeReason(reason: string | null | undefined): string | null {
+  if (!reason || reason === "threshold_met" || reason === "multi_signal_accepted") return null;
+  const labels: Record<string, string> = {
+    identifier_exact_match: "identifier exact",
+    hybrid_code_match: "code match",
+    identifier_mismatch: "identifier mismatch",
+    hybrid_code_mismatch: "code mismatch",
+    code_anchor_missing: "code missing",
+    transitive_union: "transitive",
+    llm_merge: "llm",
+  };
+  return labels[reason] ?? reason.replace(/_/g, " ");
+}
+
+function formatMergeSource(source: string | null | undefined): string | null {
+  if (!source) return null;
+  const labels: Record<string, string> = {
+    ann_fuzzy: "ann",
+    fuzzy_threshold: "fuzzy",
+    identifier_policy: "policy",
+    llm: "llm",
+    multi_signal: "multi",
+    structural_multi_signal: "structural",
+    transitive_union: "transitive",
+  };
+  return labels[source] ?? source.replace(/_/g, " ");
+}
+
+function formatReviewStatus(status: string | null | undefined): string | null {
+  if (!status) return null;
+  return status.replace(/_/g, " ");
+}
+
 function PressureGauge({ value, threshold }: { value: number; threshold: number }) {
   const pct = Math.min((value / threshold) * 100, 100);
   const color = pct > 80 ? "#f87171" : pct > 50 ? "#fbbf24" : "#34d399";
@@ -426,13 +464,89 @@ export function ConsolidationPanel() {
               {cycleDetail.merges.length > 0 && (
                 <AuditSection title="Merges" count={cycleDetail.merges.length}>
                   {cycleDetail.merges.map((m) => (
-                    <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "center", padding: "3px 0" }}>
-                      <span style={{ fontSize: 11, color: "#34d399" }}>{m.keep_name}</span>
-                      <span style={{ fontSize: 9, color: "var(--text-muted)" }}>&larr;</span>
-                      <span style={{ fontSize: 11, color: "#f87171", textDecoration: "line-through", opacity: 0.7 }}>{m.remove_name}</span>
-                      <span className="mono tabular-nums" style={{ fontSize: 9, color: "var(--text-muted)", marginLeft: "auto" }}>
-                        {(m.similarity * 100).toFixed(0)}%
-                      </span>
+                    <div key={m.id} style={{ display: "flex", gap: 6, alignItems: "flex-start", padding: "3px 0" }}>
+                      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+                          <span style={{ fontSize: 11, color: "#34d399" }}>{m.keep_name}</span>
+                          <span style={{ fontSize: 9, color: "var(--text-muted)" }}>&larr;</span>
+                          <span style={{ fontSize: 11, color: "#f87171", textDecoration: "line-through", opacity: 0.7 }}>{m.remove_name}</span>
+                        </div>
+                        {(formatMergeSource(m.decision_source) || formatMergeReason(m.decision_reason)) && (
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            {formatMergeSource(m.decision_source) && (
+                              <span className="mono" style={{ fontSize: 8, color: "var(--accent)" }}>
+                                {formatMergeSource(m.decision_source)}
+                              </span>
+                            )}
+                            {formatMergeReason(m.decision_reason) && (
+                              <span style={{ fontSize: 8, color: "var(--text-muted)" }}>
+                                {formatMergeReason(m.decision_reason)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                        {formatPct(m.decision_confidence) && (
+                          <span className="mono tabular-nums" style={{ fontSize: 9, color: "var(--text-secondary)" }}>
+                            decision {formatPct(m.decision_confidence)}
+                          </span>
+                        )}
+                        <span className="mono tabular-nums" style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                          name {formatPct(m.similarity)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </AuditSection>
+              )}
+
+              {cycleDetail.identifier_reviews?.length > 0 && (
+                <AuditSection title="Identifier Reviews" count={cycleDetail.identifier_reviews.length}>
+                  {cycleDetail.identifier_reviews.map((review) => (
+                    <div key={review.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "4px 0" }}>
+                      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+                          <span style={{ fontSize: 11, color: "#fbbf24" }}>{review.entity_a_name}</span>
+                          <span style={{ fontSize: 9, color: "var(--text-muted)" }}>&times;</span>
+                          <span style={{ fontSize: 11, color: "#fbbf24" }}>{review.entity_b_name}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <span className="mono" style={{ fontSize: 8, color: "var(--text-muted)" }}>
+                            {review.entity_a_type}/{review.entity_b_type}
+                          </span>
+                          {formatMergeSource(review.decision_source) && (
+                            <span className="mono" style={{ fontSize: 8, color: "var(--accent)" }}>
+                              {formatMergeSource(review.decision_source)}
+                            </span>
+                          )}
+                          {formatMergeReason(review.decision_reason) && (
+                            <span style={{ fontSize: 8, color: "var(--text-muted)" }}>
+                              {formatMergeReason(review.decision_reason)}
+                            </span>
+                          )}
+                          {formatReviewStatus(review.review_status) && (
+                            <span className="pill" style={{ fontSize: 7, padding: "1px 4px", borderColor: "#fbbf2440", color: "#fbbf24" }}>
+                              {formatReviewStatus(review.review_status)}
+                            </span>
+                          )}
+                        </div>
+                        {(review.canonical_identifier_a || review.canonical_identifier_b) && (
+                          <div className="mono" style={{ fontSize: 8, color: "var(--text-muted)" }}>
+                            {review.canonical_identifier_a ?? "?"} / {review.canonical_identifier_b ?? "?"}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                        <span className="mono tabular-nums" style={{ fontSize: 9, color: "var(--text-secondary)" }}>
+                          raw {formatPct(review.raw_similarity)}
+                        </span>
+                        {formatPct(review.adjusted_similarity) && (
+                          <span className="mono tabular-nums" style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                            seen {formatPct(review.adjusted_similarity)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </AuditSection>

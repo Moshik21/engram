@@ -2,6 +2,7 @@
 
 from engram.setup import (
     _ask,
+    _collect_config,
     _generate_env,
     _load_env,
     _mask_value,
@@ -67,6 +68,7 @@ def test_generate_env_writes_keys(tmp_path):
         "ENGRAM_FALKORDB__PASSWORD": None,
         "ENGRAM_REDIS__URL": None,
         "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "off",
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "off",
         "ENGRAM_AUTH__ENABLED": None,
         "ENGRAM_AUTH__BEARER_TOKEN": None,
         "ENGRAM_ENCRYPTION__ENABLED": None,
@@ -76,6 +78,7 @@ def test_generate_env_writes_keys(tmp_path):
     content = env_path.read_text()
     assert "ANTHROPIC_API_KEY=sk-test-123" in content
     assert "ENGRAM_MODE=lite" in content
+    assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE=off" in content
     # Unconfigured values should be commented
     assert "# VOYAGE_API_KEY=" in content
 
@@ -92,6 +95,7 @@ def test_generate_env_backs_up_existing(tmp_path):
         "ENGRAM_FALKORDB__PASSWORD": None,
         "ENGRAM_REDIS__URL": None,
         "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "off",
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "off",
         "ENGRAM_AUTH__ENABLED": None,
         "ENGRAM_AUTH__BEARER_TOKEN": None,
         "ENGRAM_ENCRYPTION__ENABLED": None,
@@ -109,14 +113,50 @@ def test_generate_env_backs_up_existing(tmp_path):
 
 def test_mcp_config_output(capsys):
     """MCP config output contains correct structure."""
-    config = {"ANTHROPIC_API_KEY": "sk-test-xyz", "VOYAGE_API_KEY": None}
+    config = {
+        "ANTHROPIC_API_KEY": "sk-test-xyz",
+        "VOYAGE_API_KEY": None,
+        "ENGRAM_MODE": "auto",
+        "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard",
+        "ENGRAM_ACTIVATION__RECALL_PROFILE": "all",
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "rework",
+    }
     _print_mcp_config(config)
     out = capsys.readouterr().out
     assert "mcpServers" in out
     assert "engram.mcp.server" in out
     assert "sk-test-xyz" in out
+    assert "ENGRAM_MODE" in out
+    assert "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE" in out
+    assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in out
+    assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE" in out
     assert "Claude Desktop" in out
     assert "Claude Code" in out
+
+
+def test_collect_config_defaults_are_recall_ready(monkeypatch):
+    """Wizard defaults should produce a practical end-to-end MCP setup."""
+    responses = iter(
+        [
+            "auto",        # mode
+            "engram_dev",  # Falkor password
+            "engram_dev",  # Redis password
+            "",            # consolidation profile -> default standard
+            "",            # recall profile -> default all
+            "",            # integration profile -> default rework
+            "n",           # auth
+            "n",           # encryption
+        ]
+    )
+    monkeypatch.setattr("engram.setup.getpass.getpass", lambda _: "secret123")
+    monkeypatch.setattr("builtins.input", lambda _: next(responses))
+
+    config = _collect_config()
+
+    assert config["ENGRAM_MODE"] == "auto"
+    assert config["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] == "standard"
+    assert config["ENGRAM_ACTIVATION__RECALL_PROFILE"] == "all"
+    assert config["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] == "rework"
 
 
 # --- Config editor tests ---
@@ -172,9 +212,10 @@ def test_render_menu_shows_all_settings(capsys, tmp_path):
     assert "1." in out
     assert "Anthropic API key" in out
     # Should return all keys
-    assert len(keys) == 11
+    assert len(keys) == 12
     assert "ANTHROPIC_API_KEY" in keys
     assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in keys
+    assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE" in keys
 
 
 def test_render_menu_shows_unsaved_indicator(capsys, tmp_path):

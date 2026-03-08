@@ -335,6 +335,7 @@ class TestGraphEmbedIncremental:
         node2vec_rec = [r for r in records if r.method == "node2vec"]
         assert len(node2vec_rec) == 1
         assert node2vec_rec[0].full_retrain is False
+        assert node2vec_rec[0].entities_trained == 2
 
     @pytest.mark.asyncio
     async def test_full_retrain_above_threshold(self):
@@ -433,3 +434,67 @@ class TestGraphEmbedIncremental:
 
         # At least one should have been skipped due to staggering
         assert skipped_count >= 1, f"Expected staggering to skip at least 1 cycle, ran={ran_count}"
+
+    @pytest.mark.asyncio
+    async def test_partial_cycle_transe_reports_full_retrain(self):
+        """TransE still retrains globally on partial cycles and should report that honestly."""
+        cfg = ActivationConfig(
+            graph_embedding_node2vec_enabled=False,
+            graph_embedding_transe_enabled=True,
+            graph_embedding_transe_min_triples=20,
+            graph_embedding_transe_dimensions=16,
+            graph_embedding_transe_epochs=10,
+            graph_embedding_gnn_enabled=False,
+            graph_embedding_retrain_threshold=0.50,
+            graph_embedding_stagger_transe=1,
+        )
+        phase = GraphEmbedPhase()
+
+        n = 30
+        entities = [type("E", (), {"id": f"e{i}"})() for i in range(n)]
+
+        def make_rel(src, tgt, pred):
+            return type("R", (), {
+                "source_id": src,
+                "target_id": tgt,
+                "predicate": pred,
+            })()
+
+        relationships = {}
+        for i in range(n):
+            rels = []
+            if i < n - 1:
+                rels.append(make_rel(f"e{i}", f"e{i+1}", "NEXT"))
+            if i % 2 == 0 and i + 2 < n:
+                rels.append(make_rel(f"e{i}", f"e{i+2}", "SKIP"))
+            relationships[f"e{i}"] = rels
+
+        class MockGraph:
+            async def find_entities(self, group_id, limit):
+                return entities
+
+            async def get_active_neighbors_with_weights(self, eid, group_id):
+                idx = int(eid[1:])
+                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+
+            async def get_relationships(self, eid, direction, group_id):
+                return relationships.get(eid, [])
+
+        context = CycleContext(trigger="tiered:cold")
+        context.affected_entity_ids.add("e0")
+
+        result, records = await phase.execute(
+            group_id="default",
+            graph_store=MockGraph(),
+            activation_store=None,
+            search_index=type("SI", (), {})(),
+            cfg=cfg,
+            cycle_id="test_cycle",
+            dry_run=True,
+            context=context,
+        )
+
+        assert result.status == "success"
+        transe_rec = [r for r in records if r.method == "transe"]
+        assert len(transe_rec) == 1
+        assert transe_rec[0].full_retrain is True

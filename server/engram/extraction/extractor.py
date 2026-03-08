@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+from enum import Enum
 
 from engram.extraction.prompts import EXTRACTION_SYSTEM_CACHED
 
@@ -15,6 +17,7 @@ _CHARS_PER_TOKEN = 4
 _MIN_OUTPUT_TOKENS = 2048
 _MAX_OUTPUT_TOKENS = 8192
 _MAX_INPUT_CHARS = 8000  # Truncate very long episodes to save input tokens
+MAX_EXTRACTION_INPUT_CHARS = _MAX_INPUT_CHARS
 
 
 class ExtractionResult:
@@ -24,9 +27,39 @@ class ExtractionResult:
         self,
         entities: list[dict],
         relationships: list[dict],
+        status: ExtractionStatus | None = None,
+        error: str | None = None,
     ) -> None:
         self.entities = entities
         self.relationships = relationships
+        self.status = status or (
+            ExtractionStatus.OK if entities or relationships else ExtractionStatus.EMPTY
+        )
+        self.error = error
+
+    @property
+    def is_error(self) -> bool:
+        return self.status in {
+            ExtractionStatus.PARSE_ERROR,
+            ExtractionStatus.API_ERROR,
+            ExtractionStatus.TRUNCATED,
+        }
+
+    @property
+    def retryable(self) -> bool:
+        return self.status in {
+            ExtractionStatus.PARSE_ERROR,
+            ExtractionStatus.API_ERROR,
+            ExtractionStatus.TRUNCATED,
+        }
+
+
+class ExtractionStatus(str, Enum):
+    OK = "ok"
+    EMPTY = "empty"
+    PARSE_ERROR = "parse_error"
+    API_ERROR = "api_error"
+    TRUNCATED = "truncated"
 
 
 class EntityExtractor:
@@ -69,7 +102,8 @@ class EntityExtractor:
                 )
                 text = text[:_MAX_INPUT_CHARS]
             max_tokens = self._estimate_max_tokens(text)
-            message = client.messages.create(
+            message = await asyncio.to_thread(
+                client.messages.create,
                 model=self._model,
                 max_tokens=max_tokens,
                 system=EXTRACTION_SYSTEM_CACHED,
@@ -88,7 +122,8 @@ class EntityExtractor:
                 )
                 # Retry once with maximum budget
                 if max_tokens < _MAX_OUTPUT_TOKENS:
-                    message = client.messages.create(
+                    message = await asyncio.to_thread(
+                        client.messages.create,
                         model=self._model,
                         max_tokens=_MAX_OUTPUT_TOKENS,
                         system=EXTRACTION_SYSTEM_CACHED,
@@ -101,6 +136,12 @@ class EntityExtractor:
                             "Input too large (%d chars).",
                             _MAX_OUTPUT_TOKENS,
                             len(text),
+                        )
+                        return ExtractionResult(
+                            entities=[],
+                            relationships=[],
+                            status=ExtractionStatus.TRUNCATED,
+                            error="response_truncated",
                         )
 
             response_text = self._strip_markdown_fences(response_text)
@@ -115,13 +156,28 @@ class EntityExtractor:
                 len(text),
             )
 
-            return ExtractionResult(entities=entities, relationships=relationships)
+            status = ExtractionStatus.OK if entities or relationships else ExtractionStatus.EMPTY
+            return ExtractionResult(
+                entities=entities,
+                relationships=relationships,
+                status=status,
+            )
         except json.JSONDecodeError as e:
             logger.error("Failed to parse extraction response as JSON: %s\n%s", e, response_text)
-            return ExtractionResult(entities=[], relationships=[])
+            return ExtractionResult(
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.PARSE_ERROR,
+                error=str(e),
+            )
         except Exception as e:
             logger.error("Entity extraction failed: %s", e)
-            return ExtractionResult(entities=[], relationships=[])
+            return ExtractionResult(
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.API_ERROR,
+                error=str(e),
+            )
 
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:

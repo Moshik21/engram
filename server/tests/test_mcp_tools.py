@@ -150,6 +150,29 @@ async def rich_manager_with_expired(tmp_path):
     await graph_store.close()
 
 
+@pytest_asyncio.fixture
+async def decision_manager(tmp_path):
+    """GraphManager with decision graph materialization enabled."""
+    db_path = str(tmp_path / "decision_tools_test.db")
+    graph_store = SQLiteGraphStore(db_path)
+    await graph_store.initialize()
+    activation_store = MemoryActivationStore(
+        cfg=ActivationConfig(decision_graph_enabled=True),
+    )
+    search_index = FTS5SearchIndex(db_path)
+    await search_index.initialize(db=graph_store._db)
+
+    manager = GraphManager(
+        graph_store,
+        activation_store,
+        search_index,
+        MockExtractor(),
+        cfg=ActivationConfig(decision_graph_enabled=True),
+    )
+    yield manager
+    await graph_store.close()
+
+
 # ─── TestSearchEntities ──────────────────────────────────────────────
 
 
@@ -312,6 +335,57 @@ class TestSearchFacts:
             query="NonExistentXYZ",
         )
         assert facts == []
+
+    @pytest.mark.asyncio
+    async def test_search_hides_epistemic_facts_by_default(self, decision_manager):
+        await decision_manager.store_episode(
+            "we decided the plan is to launch Engram through OpenClaw",
+            group_id=GROUP,
+            source="dashboard",
+        )
+
+        hidden = await decision_manager.search_facts(
+            group_id=GROUP,
+            query="OpenClaw",
+        )
+        assert hidden == []
+
+        visible = await decision_manager.search_facts(
+            group_id=GROUP,
+            query="OpenClaw",
+            include_epistemic=True,
+        )
+        assert any(fact["predicate"] == "DECIDED_IN" for fact in visible)
+
+    @pytest.mark.asyncio
+    async def test_question_form_does_not_materialize_decision_entity(self, decision_manager):
+        await decision_manager.store_episode(
+            "what did we decide about launching Engram publicly?",
+            group_id=GROUP,
+            source="dashboard",
+        )
+
+        decisions = await decision_manager._graph.find_entities(
+            entity_type="Decision",
+            group_id=GROUP,
+            limit=20,
+        )
+        assert decisions == []
+
+    @pytest.mark.asyncio
+    async def test_explicit_commitment_materializes_decision_entity(self, decision_manager):
+        await decision_manager.store_episode(
+            "we decided the plan is to launch Engram through OpenClaw",
+            group_id=GROUP,
+            source="dashboard",
+        )
+
+        decisions = await decision_manager._graph.find_entities(
+            entity_type="Decision",
+            group_id=GROUP,
+            limit=20,
+        )
+        assert len(decisions) == 1
 
 
 # ─── TestForgetEntity ────────────────────────────────────────────────
@@ -538,6 +612,76 @@ class TestGetGraphState:
         assert "Technology" in dist
         assert dist["Technology"] == 2
         assert dist["Location"] == 2
+
+
+class TestEpistemicArtifacts:
+    @pytest.mark.asyncio
+    async def test_bootstrap_creates_searchable_artifacts(self, rich_manager, tmp_path):
+        (tmp_path / "README.md").write_text(
+            "# Engram\nPublic launch path: OpenClaw distribution first.\n"
+        )
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "design").mkdir()
+        (tmp_path / "docs" / "design" / "launch.md").write_text(
+            "# Launch\nWe decided to prioritize OpenClaw.\n"
+        )
+
+        result = await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+        assert result["status"] == "bootstrapped"
+
+        hits = await rich_manager.search_artifacts(
+            query="OpenClaw launch",
+            group_id=GROUP,
+            project_path=str(tmp_path),
+            limit=5,
+        )
+        assert hits
+        assert any("README.md" in hit.path or "launch.md" in hit.path for hit in hits)
+        assert any(
+            any(
+                claim.object == "OpenClaw" or "OpenClaw" in claim.object
+                for claim in hit.supporting_claims
+            )
+            for hit in hits
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_runtime_state_reports_artifact_freshness(self, rich_manager, tmp_path):
+        (tmp_path / "README.md").write_text("# Engram\nCurrent default is rework.\n")
+        await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+
+        state = await rich_manager.get_runtime_state(
+            group_id=GROUP,
+            project_path=str(tmp_path),
+        )
+        assert state["artifactBootstrap"]["artifactCount"] >= 1
+        assert "epistemicMetrics" in state["stats"]
+
+    @pytest.mark.asyncio
+    async def test_gather_epistemic_evidence_prefers_artifacts_for_project_truth(
+        self,
+        rich_manager,
+        tmp_path,
+    ):
+        rich_manager._cfg.artifact_bootstrap_enabled = True
+        rich_manager._cfg.artifact_recall_enabled = True
+        rich_manager._cfg.epistemic_runtime_executor_enabled = True
+        rich_manager._cfg.epistemic_reconcile_enabled = True
+        (tmp_path / "README.md").write_text(
+            "# Engram\nThe public launch / distribution path is OpenClaw.\n"
+        )
+        await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+
+        bundle = await rich_manager.gather_epistemic_evidence(
+            "what did we decide about launching Engram publicly?",
+            group_id=GROUP,
+            project_path=str(tmp_path),
+            surface="rest",
+        )
+
+        assert bundle.question_frame.mode == "reconcile"
+        assert bundle.reconciliation.status in {"artifact_only", "confirmed"}
+        assert bundle.artifact_hits
 
 
 # ─── TestSessionTracking ────────────────────────────────────────────

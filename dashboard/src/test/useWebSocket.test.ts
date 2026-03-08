@@ -19,6 +19,56 @@ let wsInstances: MockWs[];
 
 vi.mock("../api/client", () => ({
   api: {
+    getHealth: vi.fn(),
+    getGraphAtlas: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "atlas",
+        layout: "precomputed",
+        representedEntityCount: 0,
+        representedEdgeCount: 0,
+        displayedNodeCount: 0,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      regions: [],
+      bridges: [],
+      stats: {
+        totalEntities: 0,
+        totalRelationships: 0,
+        totalRegions: 0,
+        hottestRegionId: null,
+        fastestGrowingRegionId: null,
+      },
+    }),
+    getGraphAtlasHistory: vi.fn().mockResolvedValue({ items: [] }),
+    getGraphRegion: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "region",
+        layout: "precomputed",
+        representedEntityCount: 0,
+        representedEdgeCount: 0,
+        displayedNodeCount: 0,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      region: {
+        id: "region:test",
+        label: "People",
+        subtitle: null,
+        kind: "mixed",
+        memberCount: 0,
+        activationScore: 0,
+        growth7d: 0,
+        growth30d: 0,
+        latestEntityCreatedAt: null,
+      },
+      nodes: [],
+      edges: [],
+      topEntities: [],
+      memberIds: [],
+    }),
     getNeighborhood: vi.fn().mockResolvedValue({
       centerId: "n1",
       nodes: [],
@@ -72,6 +122,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 // Must import after mocks are set up
@@ -101,6 +152,17 @@ describe("useWebSocket", () => {
     unmount();
     expect(wsInstances[0].close).toHaveBeenCalled();
     expect(useEngramStore.getState().readyState).toBe("disconnected");
+  });
+
+  it("normalizes VITE_WS_URL values that already include /ws", async () => {
+    vi.stubEnv("VITE_WS_URL", "ws://localhost:8100/ws");
+
+    renderHook(() => useWebSocket());
+
+    await act(async () => {});
+
+    expect(wsInstances).toHaveLength(1);
+    expect(wsInstances[0].url).toBe("ws://localhost:8100/ws/dashboard");
   });
 
   it("reconnects with exponential backoff on close", async () => {
@@ -215,7 +277,7 @@ describe("useWebSocket", () => {
     expect(pulses[0].accessedVia).toBe("recall");
   });
 
-  it("routes graph.nodes_added with full data to mergeGraphDelta", async () => {
+  it("routes graph.nodes_added with full data to mergeGraphDelta in neighborhood scope", async () => {
     renderHook(() => useWebSocket());
 
     // Flush the async connect()
@@ -224,6 +286,21 @@ describe("useWebSocket", () => {
     act(() => {
       wsInstances[0].readyState = 1;
       wsInstances[0].onopen?.(new Event("open"));
+    });
+
+    act(() => {
+      useEngramStore.setState({
+        brainMapScope: "neighborhood",
+        representation: {
+          scope: "neighborhood",
+          layout: "force",
+          representedEntityCount: 0,
+          representedEdgeCount: 0,
+          displayedNodeCount: 0,
+          displayedEdgeCount: 0,
+          truncated: false,
+        },
+      });
     });
 
     act(() => {

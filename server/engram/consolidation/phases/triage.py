@@ -1,12 +1,13 @@
 """Triage phase: score QUEUED episodes and selectively extract the top fraction.
 
 Supports three scoring modes (checked in priority order):
-1. Multi-signal scorer (triage_multi_signal_enabled) — 8 deterministic signals, ~2ms/ep
+1. Multi-signal scorer (triage_multi_signal_enabled) — deterministic utility features
 2. LLM judge (triage_llm_judge_enabled) — Haiku API call per episode
 3. Heuristic fallback — length + keywords + novelty + emotional salience
 
-When multi-signal is enabled, borderline episodes (score in escalation band)
-can optionally be escalated to LLM for a second opinion.
+When multi-signal is enabled, borderline episodes can optionally be escalated
+to the LLM for a second opinion. Durable corrections, explicit preferences,
+and stable profile facts bypass the ratio gate and are always extracted.
 """
 
 from __future__ import annotations
@@ -17,44 +18,39 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.discourse import classify_discourse
 from engram.extraction.prompts import TRIAGE_JUDGE_SYSTEM_CACHED
-from engram.models.consolidation import CycleContext, PhaseResult, TriageRecord
+from engram.models.consolidation import (
+    CycleContext,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    PhaseResult,
+    TriageRecord,
+)
+from engram.models.episode import EpisodeProjectionState
 from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
+from engram.retrieval.triage_policy import TriageDecision, apply_episode_utility_policy
 
 logger = logging.getLogger(__name__)
 
-_PERSONAL_PATTERNS = re.compile(
-    r"\b(?:mom|dad|mother|father|brother|sister|wife|husband|partner|"
-    r"family|daughter|son|child|children|friend|"
-    r"birthday|wedding|funeral|anniversary|holiday|vacation|"
-    r"diagnosed|hospital|surgery|illness|health|cancer|"
-    r"love|miss|afraid|excited|proud|grateful|worried|happy|sad|"
-    r"home|moved|married|divorced|born|died|retired|graduated)\b",
-    re.IGNORECASE,
-)
 
+@dataclass
+class _ScoredEpisode:
+    """Episode plus its utility decision and optional scorer signals."""
 
-def personal_narrative_boost(content: str, cfg: ActivationConfig) -> float:
-    """Return boost if personal narrative keywords found above threshold."""
-    if not cfg.triage_personal_boost_enabled:
-        return 0.0
-    matches = len(_PERSONAL_PATTERNS.findall(content))
-    if matches >= cfg.triage_personal_min_matches:
-        return cfg.triage_personal_boost
-    return 0.0
+    episode: Any
+    decision: TriageDecision
+    discourse_class: str
+    signals: Any | None = None
 
 
 def _llm_judge_score(content: str, model: str) -> dict:
-    """Call LLM to judge episode content. Returns parsed JSON dict.
-
-    Synchronous — intended to be called from async context via asyncio.to_thread
-    or directly from consolidation phase.
-    """
+    """Call LLM to judge episode content. Returns parsed JSON dict."""
     try:
         import anthropic
 
@@ -68,7 +64,6 @@ def _llm_judge_score(content: str, model: str) -> dict:
             messages=[{"role": "user", "content": content}],
         )
         text = response.content[0].text.strip()
-        # Strip markdown fences if present
         if text.startswith("```"):
             first_nl = text.index("\n")
             text = text[first_nl + 1:]
@@ -92,18 +87,25 @@ class TriagePhase(ConsolidationPhase):
 
     def __init__(self, graph_manager: Any | None = None) -> None:
         self._manager = graph_manager
-        self._scorer = None  # Lazy-initialized TriageScorer
+        self._scorer = None
 
     def _get_scorer(self, cfg: ActivationConfig):
-        """Lazy-init multi-signal scorer (preserves EMA state across cycles)."""
+        """Reuse the shared scorer so calibration state survives across callers."""
         if self._scorer is None:
-            from engram.retrieval.triage_scorer import TriageScorer
-            self._scorer = TriageScorer(cfg)
+            from engram.retrieval.triage_scorer import get_shared_triage_scorer
+
+            self._scorer = get_shared_triage_scorer(cfg)
         return self._scorer
 
     @property
     def name(self) -> str:
         return "triage"
+
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        methods = {"get_episodes_paginated", "update_episode"}
+        if cfg.triage_multi_signal_enabled and self._manager is not None:
+            methods.add("get_episode_entities")
+        return methods
 
     async def execute(
         self,
@@ -125,13 +127,11 @@ class TriagePhase(ConsolidationPhase):
                 duration_ms=_elapsed_ms(t0),
             ), []
 
-        # 1. Query QUEUED episodes
         episodes, _cursor = await graph_store.get_episodes_paginated(
             group_id=group_id,
             status="queued",
             limit=100,
         )
-
         if not episodes:
             return PhaseResult(
                 phase=self.name,
@@ -142,9 +142,7 @@ class TriagePhase(ConsolidationPhase):
 
         records: list[TriageRecord] = []
         promoted = 0
-        skipped = 0
 
-        # 2. Filter out system-discourse episodes
         world_episodes = []
         for ep in episodes:
             ep_content = getattr(ep, "content", "") or ""
@@ -152,7 +150,12 @@ class TriagePhase(ConsolidationPhase):
                 if not dry_run:
                     await graph_store.update_episode(
                         ep.id,
-                        {"status": "completed", "skipped_meta": True},
+                        {
+                            "status": "completed",
+                            "skipped_meta": True,
+                            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+                            "last_projection_reason": "triage_skip_meta",
+                        },
                         group_id=group_id,
                     )
                 records.append(
@@ -162,27 +165,24 @@ class TriagePhase(ConsolidationPhase):
                         episode_id=ep.id,
                         score=0.0,
                         decision="skip_meta",
+                        score_breakdown={"discourse_class": "system"},
                     )
                 )
-                skipped += 1
-                logger.debug("Triage: skipped meta-discourse episode %s", ep.id)
             else:
                 world_episodes.append(ep)
 
-        # 2b. Identify active goals for triage boost
         goals = await identify_active_goals(
             graph_store, activation_store, group_id, cfg,
         )
 
-        # 3. Score each remaining episode
-        llm_metadata: dict[str, dict] = {}  # episode_id → judge result
+        llm_metadata: dict[str, dict] = {}
+        scored_episodes: list[_ScoredEpisode] = []
 
         if cfg.triage_multi_signal_enabled:
-            # --- Multi-signal scoring (primary path) ---
             scorer = self._get_scorer(cfg)
-            scored = []
             for ep in world_episodes:
                 ep_content = getattr(ep, "content", "") or ""
+                discourse_class = classify_discourse(ep_content)
                 signals = await scorer.score(
                     content=ep_content,
                     search_index=search_index,
@@ -191,51 +191,103 @@ class TriagePhase(ConsolidationPhase):
                     group_id=group_id,
                     goals=goals,
                 )
-                scored.append((ep, signals.composite, signals))
+                decision = apply_episode_utility_policy(
+                    ep_content,
+                    cfg,
+                    signals.composite,
+                    discourse_class=discourse_class,
+                    mode="phase",
+                    score_source="multi_signal",
+                )
+                _merge_breakdown(decision.score_breakdown, signals)
+                scored_episodes.append(
+                    _ScoredEpisode(
+                        episode=ep,
+                        decision=decision,
+                        discourse_class=discourse_class,
+                        signals=signals,
+                    )
+                )
 
-            # LLM escalation for borderline episodes
             if cfg.triage_llm_escalation_enabled and os.environ.get("ANTHROPIC_API_KEY"):
                 escalated = 0
-                for i, (ep, score, signals) in enumerate(scored):
+                for scored in scored_episodes:
                     if escalated >= cfg.triage_llm_escalation_max_per_cycle:
                         break
-                    if cfg.triage_llm_escalation_low <= score <= cfg.triage_llm_escalation_high:
-                        ep_content = getattr(ep, "content", "") or ""
-                        judge_result = await asyncio.to_thread(
-                            _llm_judge_score, ep_content, cfg.triage_llm_judge_model,
-                        )
-                        llm_metadata[ep.id] = judge_result
-                        # Override composite with LLM score
-                        scored[i] = (ep, judge_result["score"], signals)
-                        escalated += 1
-                        logger.debug(
-                            "Triage: LLM escalation for %s (multi-signal=%.3f, llm=%.3f)",
-                            ep.id, score, judge_result["score"],
-                        )
-
-            # Convert to (ep, score) for sorting
-            scored_pairs = [(ep, score) for ep, score, _signals in scored]
+                    if scored.decision.guard_reasons:
+                        continue
+                    if not (
+                        cfg.triage_llm_escalation_low
+                        <= scored.decision.score
+                        <= cfg.triage_llm_escalation_high
+                    ):
+                        continue
+                    ep_content = getattr(scored.episode, "content", "") or ""
+                    judge_result = await asyncio.to_thread(
+                        _llm_judge_score, ep_content, cfg.triage_llm_judge_model,
+                    )
+                    llm_metadata[scored.episode.id] = judge_result
+                    decision = apply_episode_utility_policy(
+                        ep_content,
+                        cfg,
+                        judge_result["score"],
+                        discourse_class=scored.discourse_class,
+                        mode="phase",
+                        score_source="llm_escalation",
+                    )
+                    _merge_breakdown(decision.score_breakdown, scored.signals)
+                    decision.score_breakdown["llm_escalated"] = 1.0
+                    scored.decision = decision
+                    escalated += 1
 
         elif cfg.triage_llm_judge_enabled:
-            # --- Pure LLM judge ---
-            scored_pairs = []
             for ep in world_episodes:
                 ep_content = getattr(ep, "content", "") or ""
+                discourse_class = classify_discourse(ep_content)
                 judge_result = _llm_judge_score(ep_content, cfg.triage_llm_judge_model)
                 llm_metadata[ep.id] = judge_result
-                score = judge_result["score"]
-                score += compute_goal_triage_boost(ep_content, goals, cfg)
-                scored_pairs.append((ep, score))
+                score = min(
+                    1.0,
+                    judge_result["score"] + compute_goal_triage_boost(ep_content, goals, cfg),
+                )
+                decision = apply_episode_utility_policy(
+                    ep_content,
+                    cfg,
+                    score,
+                    discourse_class=discourse_class,
+                    mode="phase",
+                    score_source="llm",
+                )
+                scored_episodes.append(
+                    _ScoredEpisode(
+                        episode=ep,
+                        decision=decision,
+                        discourse_class=discourse_class,
+                    )
+                )
         else:
-            # --- Heuristic fallback ---
-            scored_pairs = []
             for ep in world_episodes:
+                ep_content = getattr(ep, "content", "") or ""
+                discourse_class = classify_discourse(ep_content)
                 score = await self._score_episode_async(ep, cfg, search_index, group_id, goals)
-                scored_pairs.append((ep, score))
+                decision = apply_episode_utility_policy(
+                    ep_content,
+                    cfg,
+                    score,
+                    discourse_class=discourse_class,
+                    mode="phase",
+                    score_source="heuristic",
+                )
+                scored_episodes.append(
+                    _ScoredEpisode(
+                        episode=ep,
+                        decision=decision,
+                        discourse_class=discourse_class,
+                    )
+                )
 
-        scored_pairs.sort(key=lambda x: x[1], reverse=True)
-
-        if not scored_pairs:
+        scored_episodes.sort(key=lambda item: item.decision.score, reverse=True)
+        if not scored_episodes:
             return PhaseResult(
                 phase=self.name,
                 items_processed=len(episodes),
@@ -243,51 +295,161 @@ class TriagePhase(ConsolidationPhase):
                 duration_ms=_elapsed_ms(t0),
             ), records
 
-        # 4. Determine cutoff
-        extract_count = max(1, int(len(scored_pairs) * cfg.triage_extract_ratio))
+        guarded_ids = {
+            item.episode.id for item in scored_episodes if item.decision.guard_reasons
+        }
+        eligible = [
+            item for item in scored_episodes
+            if item.decision.action == "extract" and item.episode.id not in guarded_ids
+        ]
+        extract_budget = 0
+        if cfg.triage_extract_ratio > 0 and eligible:
+            extract_budget = max(1, int(len(scored_episodes) * cfg.triage_extract_ratio))
+            extract_budget = min(extract_budget, len(eligible))
 
-        for i, (ep, score) in enumerate(scored_pairs):
-            decision = "extract" if i < extract_count else "skip"
+        selected_ids = set(guarded_ids)
+        selected_ids.update(item.episode.id for item in eligible[:extract_budget])
+
+        for item in scored_episodes:
+            ep = item.episode
             judge_meta = llm_metadata.get(ep.id, {})
+            decision = "extract" if ep.id in selected_ids else "skip"
+            decision_source = item.decision.decision_source
+            threshold_band = item.decision.threshold_band
+            trace = None
+            if decision == "skip" and item.decision.action == "extract":
+                decision_source = "capacity_policy"
+                threshold_band = "capacity_skip"
+
+            score_breakdown = dict(item.decision.score_breakdown)
+            if judge_meta:
+                score_breakdown["llm_reason"] = judge_meta.get("reason")
+                score_breakdown["llm_tags"] = judge_meta.get("tags", [])
+
             records.append(
                 TriageRecord(
                     cycle_id=cycle_id,
                     group_id=group_id,
                     episode_id=ep.id,
-                    score=round(score, 4),
+                    score=item.decision.score,
                     decision=decision,
+                    score_breakdown=score_breakdown,
                     llm_reason=judge_meta.get("reason"),
                     llm_tags=judge_meta.get("tags", []),
                 )
             )
 
-            if not dry_run:
-                if decision == "extract" and self._manager:
-                    try:
-                        await self._manager.project_episode(ep.id, group_id)
-                        promoted += 1
-                        if context:
-                            context.triage_promoted_ids.add(ep.id)
-                    except Exception:
-                        logger.warning(
-                            "Triage: extraction failed for %s",
-                            ep.id,
-                            exc_info=True,
-                        )
-                elif decision == "skip":
-                    await graph_store.update_episode(
-                        ep.id,
-                        {"status": "completed", "skipped_triage": True},
+            if context is not None:
+                trace = DecisionTrace(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="episode",
+                    candidate_id=ep.id,
+                    decision=decision,
+                    decision_source=decision_source,
+                    confidence=item.decision.score,
+                    threshold_band=threshold_band,
+                    features=score_breakdown,
+                    constraints_hit=list(item.decision.guard_reasons),
+                    policy_version="utility_v1",
+                )
+                context.add_decision_trace(trace)
+                context.add_decision_outcome_label(
+                    DecisionOutcomeLabel(
+                        cycle_id=cycle_id,
                         group_id=group_id,
+                        phase=self.name,
+                        decision_trace_id=trace.id,
+                        outcome_type="routing",
+                        label=decision,
+                        value=item.decision.score,
+                        metadata={"threshold_band": threshold_band},
                     )
-                    skipped += 1
+                )
+
+            if dry_run:
+                continue
+
+            if decision == "extract" and self._manager:
+                try:
+                    await self._manager.project_episode(ep.id, group_id)
+                    promoted += 1
+                    extracted_entities = await self._record_projection_outcome(graph_store, item)
+                    if context is not None and trace is not None:
+                        context.add_decision_outcome_label(
+                            DecisionOutcomeLabel(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                phase=self.name,
+                                decision_trace_id=trace.id,
+                                outcome_type="projection_yield",
+                                label="useful" if extracted_entities > 0 else "empty",
+                                value=float(extracted_entities),
+                                metadata={"episode_id": ep.id},
+                            )
+                        )
+                    if context is not None:
+                        context.triage_promoted_ids.add(ep.id)
+                except Exception:
+                    logger.warning("Triage: extraction failed for %s", ep.id, exc_info=True)
+                    if context is not None and trace is not None:
+                        context.add_decision_outcome_label(
+                            DecisionOutcomeLabel(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                phase=self.name,
+                                decision_trace_id=trace.id,
+                                outcome_type="projection_yield",
+                                label="failed",
+                                value=0.0,
+                                metadata={"episode_id": ep.id},
+                            )
+                        )
+            elif decision == "skip":
+                await graph_store.update_episode(
+                    ep.id,
+                    {
+                        "status": "completed",
+                        "skipped_triage": True,
+                        "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+                        "last_projection_reason": "triage_ratio_skip",
+                    },
+                    group_id=group_id,
+                )
 
         return PhaseResult(
             phase=self.name,
-            items_processed=len(scored_pairs),
+            items_processed=len(scored_episodes),
             items_affected=promoted,
             duration_ms=_elapsed_ms(t0),
         ), records
+
+    async def _record_projection_outcome(
+        self,
+        graph_store: Any,
+        scored: _ScoredEpisode,
+    ) -> int:
+        """Feed observed extraction yield back into the shared scorer."""
+        if scored.signals is None:
+            return 0
+        get_episode_entities = getattr(graph_store, "get_episode_entities", None)
+        if get_episode_entities is None:
+            return 0
+        try:
+            entity_ids = await get_episode_entities(scored.episode.id)
+        except Exception:
+            return 0
+        count = len(entity_ids) if isinstance(entity_ids, list) else 0
+        if isinstance(entity_ids, list):
+            scorer_cfg = getattr(self._manager, "_cfg", None) if self._manager else None
+            if not isinstance(scorer_cfg, ActivationConfig):
+                scorer_cfg = ActivationConfig()
+            self._get_scorer(scorer_cfg).record_outcome(
+                scored.signals,
+                count,
+            )
+        return count
 
     @staticmethod
     async def _score_episode_async(
@@ -297,68 +459,49 @@ class TriagePhase(ConsolidationPhase):
         group_id: str = "default",
         goals: list | None = None,
     ) -> float:
-        """Score episode using length, keyword density, novelty, emotional salience, and goal boost.
-
-        Novelty is computed by searching for similar existing episodes. If the
-        top match has a high FTS/vector score, the content is redundant (low
-        novelty). If no similar episodes exist, novelty is high.
-        """
+        """Score episode using lightweight heuristic features."""
         content = getattr(episode, "content", "") or ""
         if not content:
             return 0.0
 
-        # Length signal (0-0.25)
         length_score = min(len(content) / 500, 1.0) * 0.25
 
-        # Keyword density (0-0.20)
         caps = len(re.findall(r"\b[A-Z][a-z]+\b", content))
         numbers = len(re.findall(r"\b\d+\b", content))
         quoted = len(re.findall(r'"[^"]+"|\'[^\']+\'', content))
         keyword_count = caps + numbers + quoted
         keyword_score = min(keyword_count / 10, 1.0) * 0.20
 
-        # Novelty signal (0-0.30): search for similar episodes
-        novelty_score = 0.15  # Default fallback
+        novelty_score = 0.15
         if search_index and hasattr(search_index, "search_episodes"):
             try:
-                # Use first 200 chars as query (enough for topic matching)
                 query = content[:200].strip()
                 if query:
                     matches = await search_index.search_episodes(
                         query, group_id=group_id, limit=3,
                     )
                     if matches:
-                        # Top match score indicates redundancy
-                        # FTS5 scores vary but higher = more similar
                         top_score = matches[0][1]
-                        # Normalize: high FTS score -> low novelty
-                        # FTS5 scores are typically 0-20+, cap at 10 for normalization
                         similarity = min(top_score / 10.0, 1.0)
                         novelty_score = (1.0 - similarity) * 0.30
                     else:
-                        # No similar episodes -- very novel
                         novelty_score = 0.30
             except Exception:
-                novelty_score = 0.15  # Fallback on error
+                novelty_score = 0.15
 
-        # Emotional salience signal
         emotional_score = 0.0
         if cfg.emotional_salience_enabled:
             from engram.extraction.salience import compute_emotional_salience
 
             salience = compute_emotional_salience(content)
             emotional_score = salience.composite * cfg.emotional_triage_weight
-            # Personal floor: guarantee extraction for personal content
             base_score = length_score + keyword_score + novelty_score + emotional_score
             if salience.composite >= cfg.triage_personal_floor_threshold:
                 return max(base_score, cfg.triage_personal_floor)
 
         base_score = length_score + keyword_score + novelty_score + emotional_score
-
-        # Goal-relevance boost
         if goals:
             base_score += compute_goal_triage_boost(content, goals, cfg)
-
         return base_score
 
     @staticmethod
@@ -375,7 +518,6 @@ class TriagePhase(ConsolidationPhase):
         keyword_score = min(keyword_count / 10, 1.0) * 0.20
         novelty_score = 0.15
 
-        # Emotional salience signal
         emotional_score = 0.0
         if cfg.emotional_salience_enabled:
             from engram.extraction.salience import compute_emotional_salience
@@ -391,3 +533,11 @@ class TriagePhase(ConsolidationPhase):
 
 def _elapsed_ms(t0: float) -> float:
     return round((time.perf_counter() - t0) * 1000, 1)
+
+
+def _merge_breakdown(target: dict[str, Any], signals: Any | None) -> None:
+    """Flatten signal dataclasses into score-breakdown dictionaries."""
+    if signals is None:
+        return
+    for key, value in vars(signals).items():
+        target[key] = value

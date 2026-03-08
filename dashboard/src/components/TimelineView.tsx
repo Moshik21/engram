@@ -1,34 +1,28 @@
 import { useMemo } from "react";
 import { useEngramStore } from "../store";
 import { entityColor } from "../lib/colors";
+import { useTimelineNodes } from "../store/graphSelectors";
 
 export function TimelineView() {
-  const nodes = useEngramStore((s) => s.nodes);
   const selectNode = useEngramStore((s) => s.selectNode);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
+  const activeRegionId = useEngramStore((s) => s.activeRegionId);
   const setCurrentView = useEngramStore((s) => s.setCurrentView);
-
-  const sortedNodes = useMemo(() => {
-    return Object.values(nodes)
-      .filter((n) => n.createdAt)
-      .sort(
-        (a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
-  }, [nodes]);
+  const sortedNodes = useTimelineNodes();
 
   const timeRange = useMemo(() => {
-    if (sortedNodes.length === 0)
-      return { min: Date.now(), max: Date.now() };
+    if (sortedNodes.length === 0) {
+      return { min: 0, max: 0 };
+    }
     return {
-      min: new Date(sortedNodes[0].createdAt).getTime(),
-      max: new Date(sortedNodes[sortedNodes.length - 1].createdAt).getTime(),
+      min: sortedNodes[0].createdAtMs,
+      max: sortedNodes[sortedNodes.length - 1].createdAtMs,
     };
   }, [sortedNodes]);
 
   const handleDotClick = (nodeId: string) => {
     selectNode(nodeId);
-    loadNeighborhood(nodeId);
+    void loadNeighborhood(nodeId, undefined, { regionId: activeRegionId });
     setCurrentView("graph");
   };
 
@@ -45,7 +39,7 @@ export function TimelineView() {
     }
     const seen = new Set<string>();
     for (const node of sortedNodes) {
-      const d = new Date(node.createdAt);
+      const d = new Date(node.createdAtMs);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       if (!seen.has(key)) {
         seen.add(key);
@@ -119,7 +113,7 @@ export function TimelineView() {
             const pct =
               range === 0
                 ? 50
-                : ((new Date(node.createdAt).getTime() - timeRange.min) /
+                : ((node.createdAtMs - timeRange.min) /
                     range) *
                   100;
             return (

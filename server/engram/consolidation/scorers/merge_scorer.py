@@ -10,6 +10,7 @@ import re
 
 import numpy as np
 
+from engram.entity_dedup_policy import dedup_policy, policy_aware_similarity, policy_features
 from engram.extraction.resolver import compute_similarity
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,9 @@ COMPATIBLE_CROSS_TYPES = {
     frozenset({"Habit", "Preference"}),
     frozenset({"Location", "Organization"}),
     frozenset({"HealthCondition", "Concept"}),
+    frozenset({"Identifier", "Technology"}),
+    frozenset({"Identifier", "Software"}),
+    frozenset({"Identifier", "Concept"}),
 }
 
 _SUMMARY_STOP = {
@@ -211,8 +215,11 @@ def canonical_match(a: str, b: str) -> float:
 
 def compute_name_score(a: str, b: str) -> float:
     """Return the max of all name matchers including existing compute_similarity."""
+    decision, base_score = policy_aware_similarity(a, b, compute_similarity)
+    if not decision.allowed or decision.exact_identifier_match:
+        return base_score
     return max(
-        compute_similarity(a, b),
+        base_score,
         acronym_match(a, b),
         numeronym_match(a, b),
         containment_match(a, b),
@@ -272,14 +279,34 @@ async def score_merge_pair(
     merge_threshold = 0.82
     reject_threshold = 0.55
 
-    # Signal 1: Name analysis
-    name_score = compute_name_score(ea.name, eb.name)
-    if ea.entity_type == eb.entity_type:
-        name_score = min(name_score + 0.03, 1.0)
-
     # Signal 2: Type gate
     if not type_compatible(ea.entity_type, eb.entity_type):
         return "keep_separate", 0.0, {"reason": "incompatible_types"}
+
+    policy = dedup_policy(ea.name, eb.name)
+    policy_summary = policy_features(policy)
+    if not policy.allowed:
+        return "keep_separate", 0.0, {"reason": policy.reason, **policy_summary}
+
+    # Signal 1: Name analysis
+    name_score = compute_name_score(ea.name, eb.name)
+    if ea.entity_type == eb.entity_type and not policy.exact_identifier_match:
+        name_score = min(name_score + 0.03, 1.0)
+
+    if policy.exact_identifier_match:
+        signals = {
+            "name": 1.0,
+            "embedding": 0.0,
+            "neighbor_overlap": 0.0,
+            "summary_overlap": round(
+                summary_overlap(getattr(ea, "summary", None), getattr(eb, "summary", None)),
+                4,
+            ),
+            "exclusivity": 0.0,
+            "reason": policy.reason,
+            **policy_summary,
+        }
+        return "merge", 0.99, signals
 
     # Signal 3: Embedding similarity (rescaled)
     emb_score = 0.0
@@ -318,13 +345,41 @@ async def score_merge_pair(
         getattr(eb, "summary", None),
     )
 
+    # Signal 6: Referential exclusivity (complementary distribution)
+    # Entities that never co-occur in episodes but share neighbors = likely same entity
+    # Entities that frequently co-occur = provably distinct
+    exclusivity_score = 0.0
+    try:
+        cooccurrence = await graph_store.get_episode_cooccurrence_count(
+            ea.id, eb.id, group_id,
+        )
+        if cooccurrence == 0:
+            # Never co-occur — strong positive signal for merge
+            # Scale by neighbor overlap (need shared context to be meaningful)
+            if nbr_score > 0:
+                exclusivity_score = 0.8 + 0.2 * nbr_score
+            else:
+                exclusivity_score = 0.3  # No shared neighbors, weak signal
+        elif cooccurrence <= 2:
+            exclusivity_score = 0.2  # Rare co-occurrence, mild positive
+        else:
+            # Frequent co-occurrence = anti-merge signal (penalty)
+            exclusivity_score = -0.3
+    except Exception:
+        pass
+
     # Ensemble
     confidence = (
-        0.40 * name_score
-        + 0.30 * emb_score
+        0.35 * name_score
+        + 0.25 * emb_score
         + 0.15 * nbr_score
-        + 0.15 * sum_score
+        + 0.10 * sum_score
+        + 0.15 * max(exclusivity_score, 0.0)  # Only positive contribution in ensemble
     )
+
+    # Anti-merge penalty from co-occurrence (applied separately)
+    if exclusivity_score < 0:
+        confidence += exclusivity_score * 0.15  # Up to -0.045 penalty
 
     # Booster rules for high-confidence combinations
     if name_score >= 0.93 and emb_score >= 0.80:
@@ -333,12 +388,27 @@ async def score_merge_pair(
         confidence = max(confidence, 0.90)
     if emb_score >= 0.95 and sum_score >= 0.60:
         confidence = max(confidence, 0.88)
+    # Person first-name/full-name: high fuzzy + high embedding
+    if (
+        ea.entity_type == eb.entity_type == "Person"
+        and name_score >= 0.70
+        and emb_score >= 0.70
+    ):
+        confidence = max(confidence, 0.85)
+    # Structural equivalence: high neighbor overlap + never co-occur = same entity
+    if nbr_score >= 0.40 and exclusivity_score >= 0.7 and emb_score >= 0.50:
+        confidence = max(confidence, 0.88)
+    # Strong structural with high embedding even without exclusivity data
+    if nbr_score >= 0.60 and emb_score >= 0.70:
+        confidence = max(confidence, 0.85)
 
     signals = {
         "name": round(name_score, 4),
         "embedding": round(emb_score, 4),
         "neighbor_overlap": round(nbr_score, 4),
         "summary_overlap": round(sum_score, 4),
+        "exclusivity": round(exclusivity_score, 4),
+        **policy_summary,
     }
 
     if confidence >= merge_threshold:

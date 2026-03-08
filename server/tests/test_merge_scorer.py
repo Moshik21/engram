@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -19,7 +19,6 @@ from engram.consolidation.scorers.merge_scorer import (
     summary_overlap,
     type_compatible,
 )
-
 
 # ---------------------------------------------------------------------------
 # Mock entity
@@ -255,6 +254,8 @@ class TestScoreMergePair:
         else:
             graph_store.get_active_neighbors_with_weights.return_value = []
 
+        graph_store.get_episode_cooccurrence_count.return_value = 0
+
         return search_index, graph_store
 
     async def test_merge_identical_names(self):
@@ -394,3 +395,39 @@ class TestScoreMergePair:
         )
         assert verdict == "merge"
         assert signals["neighbor_overlap"] == 1.0
+
+    async def test_identifier_mismatch_rejected_even_with_high_embedding(self):
+        ea = MockEntity(id="e1", name="1712061", entity_type="Thing")
+        eb = MockEntity(id="e2", name="1712018", entity_type="Thing")
+
+        vec = np.ones(64, dtype=np.float32)
+        vec = vec / np.linalg.norm(vec)
+        embeddings = {"e1": vec.tolist(), "e2": vec.tolist()}
+        neighbors = [("shared", "USES", 1.0, "Entity")]
+
+        search_index, graph_store = await self._make_mocks(
+            embeddings=embeddings,
+            neighbors_a=neighbors,
+            neighbors_b=neighbors,
+        )
+        graph_store.get_episode_cooccurrence_count.return_value = 0
+
+        verdict, conf, signals = await score_merge_pair(
+            ea, eb, search_index, graph_store, "default",
+        )
+        assert verdict == "keep_separate"
+        assert conf == 0.0
+        assert signals["reason"] == "identifier_mismatch"
+
+    async def test_identifier_exact_match_merges_without_embedding_support(self):
+        ea = MockEntity(id="e1", name="1712061", entity_type="Thing")
+        eb = MockEntity(id="e2", name="SKU 1712061", entity_type="Thing")
+
+        search_index, graph_store = await self._make_mocks()
+
+        verdict, conf, signals = await score_merge_pair(
+            ea, eb, search_index, graph_store, "default",
+        )
+        assert verdict == "merge"
+        assert conf >= 0.99
+        assert signals["reason"] == "identifier_exact_match"

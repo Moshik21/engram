@@ -14,7 +14,20 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store, get_manager
+from engram.events.bus import get_event_bus
+from engram.models.recall import MemoryNeed, MemoryPacket
+from engram.retrieval.context import ConversationContext, ConversationFingerprinter
+from engram.retrieval.epistemic import render_epistemic_summary
+from engram.retrieval.feedback import (
+    extract_recall_targets,
+    partition_recall_targets_by_usage,
+    publish_memory_need_analysis,
+)
+from engram.retrieval.graph_probe import GraphProbe
+from engram.retrieval.need import analyze_memory_need
+from engram.retrieval.packets import assemble_memory_packets
 from engram.security.middleware import get_tenant
+from engram.storage.sqlite.conversations import ConversationNotFoundError
 from engram.utils.offline_queue import drain_queue
 
 logger = logging.getLogger(__name__)
@@ -104,6 +117,127 @@ class ChatBody(BaseModel):
     history: list[ChatMessage] | None = None
     conversation_id: str | None = None
     session_date: str | None = None
+
+
+class RouteBody(BaseModel):
+    question: str
+    project_path: str | None = None
+    history: list[ChatMessage] | None = None
+
+
+async def _analyze_chat_memory_need(
+    message: str,
+    manager,
+    history: list[ChatMessage] | None = None,
+    session_entity_names: list[str] | None = None,
+    group_id: str = "default",
+) -> MemoryNeed:
+    """Analyze whether this chat turn likely needs memory."""
+    recent_turns = [msg.content for msg in (history or []) if msg.content.strip()][-6:]
+    cfg = manager._cfg
+    return await analyze_memory_need(
+        message,
+        recent_turns=recent_turns,
+        session_entity_names=session_entity_names or [],
+        mode="chat",
+        graph_probe=_get_graph_probe(manager) if cfg.recall_need_graph_probe_enabled else None,
+        group_id=group_id,
+        conv_context=_get_conv_context(manager),
+        cfg=cfg,
+        thresholds=manager.get_recall_need_thresholds(group_id),
+    )
+
+
+def _build_chat_memory_guidance(need: MemoryNeed) -> str:
+    """Produce a short system-prompt hint for memory usage on this turn."""
+    if not need.should_recall:
+        return (
+            "Memory does not look required for this turn. Answer directly unless you need "
+            "specific prior facts, commitments, or project history."
+        )
+    return (
+        f"Memory is likely relevant for this turn ({need.need_type}). "
+        "Use recall/search tools before answering when prior context could change the answer."
+    )
+
+
+def _get_conv_context(manager) -> ConversationContext | None:
+    """Return the manager conversation context when enabled."""
+    conv_context = getattr(manager, "_conv_context", None)
+    if isinstance(conv_context, ConversationContext):
+        return conv_context
+    return None
+
+
+def _get_conv_embed_fn(manager):
+    """Return the embedding function for live conversation turns when available."""
+    provider = getattr(manager._search, "_provider", None)
+    if provider and hasattr(provider, "embed_query"):
+        return provider.embed_query
+    return None
+
+
+def _get_graph_probe(manager) -> GraphProbe:
+    probe = getattr(manager, "_recall_need_graph_probe", None)
+    if isinstance(probe, GraphProbe):
+        return probe
+    probe = GraphProbe(manager._graph, manager._activation)
+    manager._recall_need_graph_probe = probe
+    return probe
+
+
+async def _hydrate_chat_context(manager, history: list[ChatMessage] | None, message: str) -> None:
+    """Ground conversation context in live chat turns before recall/tool use."""
+    conv_context = _get_conv_context(manager)
+    if conv_context is None:
+        return
+    embed_fn = _get_conv_embed_fn(manager)
+    if conv_context._turn_count == 0 and history:
+        history_slice = history[-MAX_HISTORY_MESSAGES:]
+        for msg in history_slice:
+            source = "chat_user" if msg.role == "user" else "chat_assistant"
+            await ConversationFingerprinter.ingest_turn(
+                conv_context,
+                msg.content,
+                embed_fn,
+                source=source,
+            )
+    await ConversationFingerprinter.ingest_turn(
+        conv_context,
+        message,
+        embed_fn,
+        source="chat_user",
+    )
+
+
+async def _record_chat_assistant_turn(manager, message: str) -> None:
+    """Record the assistant reply as a live conversation turn."""
+    conv_context = _get_conv_context(manager)
+    if conv_context is None or not message.strip():
+        return
+    await ConversationFingerprinter.ingest_turn(
+        conv_context,
+        message,
+        _get_conv_embed_fn(manager),
+        source="chat_assistant",
+    )
+
+
+def _packet_to_api_dict(packet: MemoryPacket) -> dict:
+    """Convert a packet model to camelCase API shape."""
+    return {
+        "packetType": packet.packet_type,
+        "title": packet.title,
+        "summary": packet.summary,
+        "whyNow": packet.why_now,
+        "confidence": round(packet.confidence, 4),
+        "entityIds": packet.entity_ids,
+        "relationshipIds": packet.relationship_ids,
+        "episodeIds": packet.episode_ids,
+        "evidenceLines": packet.evidence_lines,
+        "provenance": packet.provenance,
+        "supportingIntents": packet.supporting_intents,
+    }
 
 
 # ─── Endpoints ───────────────────────────────────────────────────
@@ -218,8 +352,37 @@ async def recall(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
+    cfg = manager._cfg
 
-    results = await manager.recall(query=q, group_id=group_id, limit=limit)
+    results = await manager.recall(
+        query=q,
+        group_id=group_id,
+        limit=limit,
+        interaction_type="used",
+        interaction_source="api_recall",
+    )
+    packets: list[dict] = []
+    if cfg.recall_packets_enabled:
+        packet_need = await analyze_memory_need(
+            q,
+            mode="explicit_recall",
+            cfg=cfg,
+            thresholds=manager.get_recall_need_thresholds(group_id),
+        )
+        packets = [
+            _packet_to_api_dict(packet)
+            for packet in await assemble_memory_packets(
+                results,
+                q,
+                mode="explicit_recall",
+                memory_need=packet_need,
+                max_packets=cfg.recall_packet_explicit_limit,
+                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                    entity_id,
+                    group_id,
+                ),
+            )
+        ]
 
     items = []
     for r in results:
@@ -231,6 +394,39 @@ async def recall(
                 "episode": {
                     "id": ep["id"],
                     "content": ep["content"],
+                    "source": ep.get("source"),
+                    "createdAt": ep.get("created_at"),
+                },
+                "score": r["score"],
+                "scoreBreakdown": {
+                    "semantic": r["score_breakdown"]["semantic"],
+                    "activation": r["score_breakdown"]["activation"],
+                    "edgeProximity": r["score_breakdown"]["edge_proximity"],
+                    "explorationBonus": r["score_breakdown"]["exploration_bonus"],
+                },
+            })
+        elif result_type == "cue_episode":
+            cue = r["cue"]
+            ep = r.get("episode", {})
+            items.append({
+                "resultType": "cue_episode",
+                "cue": {
+                    "episodeId": cue.get("episode_id"),
+                    "cueText": cue.get("cue_text"),
+                    "supportingSpans": cue.get("supporting_spans", []),
+                    "projectionState": cue.get("projection_state"),
+                    "routeReason": cue.get("route_reason"),
+                    "hitCount": cue.get("hit_count"),
+                    "surfacedCount": cue.get("surfaced_count"),
+                    "selectedCount": cue.get("selected_count"),
+                    "usedCount": cue.get("used_count"),
+                    "nearMissCount": cue.get("near_miss_count"),
+                    "policyScore": cue.get("policy_score"),
+                    "lastFeedbackAt": cue.get("last_feedback_at"),
+                    "lastProjectedAt": cue.get("last_projected_at"),
+                },
+                "episode": {
+                    "id": ep.get("id"),
                     "source": ep.get("source"),
                     "createdAt": ep.get("created_at"),
                 },
@@ -262,7 +458,7 @@ async def recall(
                 "relationships": r.get("relationships", []),
             })
 
-    return JSONResponse(content={"items": items, "query": q})
+    return JSONResponse(content={"items": items, "packets": packets, "query": q})
 
 
 @router.get("/facts")
@@ -272,6 +468,10 @@ async def search_facts(
     subject: str | None = Query(None, description="Filter by subject entity"),
     predicate: str | None = Query(None, description="Filter by predicate"),
     include_expired: bool = Query(False, description="Include expired facts"),
+    include_epistemic: bool = Query(
+        False,
+        description="Include internal epistemic graph facts such as decision/documentation edges",
+    ),
     limit: int = Query(10, ge=1, le=100, description="Max results"),
 ) -> JSONResponse:
     """Search for facts/relationships in the knowledge graph."""
@@ -285,6 +485,7 @@ async def search_facts(
         subject=subject,
         predicate=predicate,
         include_expired=include_expired,
+        include_epistemic=include_epistemic,
         limit=limit,
     )
 
@@ -380,6 +581,76 @@ async def bootstrap_project(request: Request, body: BootstrapBody) -> JSONRespon
 
     status_code = 200 if result.get("status") != "skipped" else 400
     return JSONResponse(status_code=status_code, content=result)
+
+
+@router.post("/route")
+async def route_knowledge_question(request: Request, body: RouteBody) -> JSONResponse:
+    """Return the deterministic epistemic route for a question."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+
+    history = [msg.content for msg in (body.history or []) if msg.content.strip()]
+    session_entity_names: list[str] = []
+    conv_context = _get_conv_context(manager)
+    if conv_context is not None:
+        session_entity_names = [
+            entry.name
+            for entry in conv_context.get_top_entities(manager._cfg.conv_multi_query_top_entities)
+        ]
+
+    result = await manager.route_question(
+        body.question,
+        group_id=group_id,
+        project_path=body.project_path,
+        recent_turns=history[-6:],
+        session_entity_names=session_entity_names,
+        surface="rest",
+    )
+    return JSONResponse(content=result)
+
+
+@router.get("/artifacts/search")
+async def search_artifacts(
+    request: Request,
+    q: str = Query(..., min_length=1, description="Artifact search query"),
+    project_path: str | None = Query(None, description="Optional project path filter"),
+    limit: int = Query(5, ge=1, le=20),
+) -> JSONResponse:
+    """Search bootstrapped project artifacts."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    hits = await manager.search_artifacts(
+        query=q,
+        project_path=project_path,
+        limit=limit,
+        group_id=group_id,
+    )
+    return JSONResponse(
+        content={
+            "query": q,
+            "projectPath": project_path,
+            "items": [hit.to_dict() for hit in hits],
+            "total": len(hits),
+        }
+    )
+
+
+@router.get("/runtime")
+async def get_runtime_state(
+    request: Request,
+    project_path: str | None = Query(None, description="Optional project path context"),
+) -> JSONResponse:
+    """Return effective runtime/config state and artifact freshness."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    result = await manager.get_runtime_state(
+        group_id=group_id,
+        project_path=project_path,
+    )
+    return JSONResponse(content=result)
 
 
 @router.post("/intentions")
@@ -579,7 +850,8 @@ CHAT_TOOLS = [
         "description": (
             "Search for relationships/facts in the knowledge graph. "
             "Can filter by subject entity name and/or predicate type "
-            "(e.g., PARENT_OF, WORKS_AT, LIVES_IN)."
+            "(e.g., PARENT_OF, WORKS_AT, LIVES_IN). Internal epistemic "
+            "decision/artifact edges stay hidden unless include_epistemic=true."
         ),
         "input_schema": {
             "type": "object",
@@ -602,6 +874,14 @@ CHAT_TOOLS = [
                     "description": "Max results",
                     "default": 10,
                 },
+                "include_epistemic": {
+                    "type": "boolean",
+                    "description": (
+                        "Debug-only: include decision/artifact graph facts. "
+                        "Do not use this as the primary path for project reconcile answers."
+                    ),
+                    "default": False,
+                },
             },
         },
     },
@@ -612,11 +892,62 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
     """Execute a chat tool call against the manager. Returns JSON string."""
     logger.info("Chat tool call: %s(%s)", tool_name, json.dumps(tool_input))
     if tool_name == "recall":
+        cfg = getattr(manager, "_cfg", None)
+        usage_feedback_enabled = bool(
+            getattr(cfg, "recall_usage_feedback_enabled", False),
+        )
+        telemetry_enabled = bool(getattr(cfg, "recall_telemetry_enabled", False))
+        packets_enabled = bool(getattr(cfg, "recall_packets_enabled", True))
+        packet_limit = int(getattr(cfg, "recall_packet_chat_limit", 2))
+
+        record_access = True
+        interaction_type = None
+        interaction_source = "chat_tool_use"
+        if usage_feedback_enabled:
+            record_access = False
+            interaction_type = "selected"
+            interaction_source = "chat_tool_select"
+        elif telemetry_enabled:
+            interaction_type = "used"
+
         results = await manager.recall(
             query=tool_input["query"],
             group_id=group_id,
             limit=min(tool_input.get("limit", 5), 20),
+            record_access=record_access,
+            interaction_type=interaction_type,
+            interaction_source=interaction_source,
         )
+        packets = []
+        if packets_enabled:
+            packet_need = await analyze_memory_need(
+                tool_input["query"],
+                mode="chat",
+                cfg=manager._cfg,
+                thresholds=manager.get_recall_need_thresholds(group_id),
+            )
+            packets = [
+                {
+                    "packetType": packet.packet_type,
+                    "title": packet.title,
+                    "summary": packet.summary,
+                    "whyNow": packet.why_now,
+                    "confidence": round(packet.confidence, 3),
+                    "evidence": packet.evidence_lines[:3],
+                    "provenance": packet.provenance[:4],
+                }
+                for packet in await assemble_memory_packets(
+                    results,
+                    tool_input["query"],
+                    mode="chat_tool_use",
+                    memory_need=packet_need,
+                    max_packets=packet_limit,
+                    resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                        entity_id,
+                        group_id,
+                    ),
+                )
+            ]
         # Summarize for the LLM
         items = []
         for r in results:
@@ -625,6 +956,19 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
                 items.append({
                     "type": "episode",
                     "content": ep["content"][:300],
+                    "source": ep.get("source"),
+                    "score": round(r["score"], 3),
+                })
+            elif r.get("result_type") == "cue_episode":
+                cue = r["cue"]
+                ep = r.get("episode", {})
+                items.append({
+                    "type": "cue_episode",
+                    "cueText": cue.get("cue_text", "")[:240],
+                    "supportingSpans": cue.get("supporting_spans", [])[:2],
+                    "projectionState": cue.get("projection_state"),
+                    "policyScore": cue.get("policy_score"),
+                    "episodeId": cue.get("episode_id"),
                     "source": ep.get("source"),
                     "score": round(r["score"], 3),
                 })
@@ -644,11 +988,12 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
                             "predicate": rel.get("predicate"),
                             "target": rel.get("target_name", rel.get("target_id", "")),
                             "source": rel.get("source_name", rel.get("source_id", "")),
+                            "polarity": rel.get("polarity", "positive"),
                         }
                         for rel in r.get("relationships", [])[:10]
                     ],
                 })
-        return json.dumps({"results": items, "total": len(items)})
+        return json.dumps({"packets": packets, "results": items, "total": len(items)})
 
     elif tool_name == "search_entities":
         results = await manager.search_entities(
@@ -676,6 +1021,7 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
             query=tool_input.get("query", ""),
             subject=tool_input.get("subject"),
             predicate=tool_input.get("predicate"),
+            include_epistemic=bool(tool_input.get("include_epistemic", False)),
             limit=requested_limit * 2,  # over-fetch to survive duplicates
         )
         seen: set[tuple[str, str, str]] = set()
@@ -703,6 +1049,136 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
 
+async def _apply_chat_recall_feedback(
+    manager,
+    *,
+    group_id: str,
+    query: str,
+    response_text: str,
+    recall_results: list[dict],
+) -> None:
+    """Upgrade selected memories to used/dismissed based on the final response."""
+    if not getattr(manager._cfg, "recall_usage_feedback_enabled", False):
+        return
+    if not response_text or not recall_results:
+        return
+
+    target_lookup = {
+        target["lookup_id"]: target
+        for target in extract_recall_targets(recall_results)
+    }
+    if not target_lookup:
+        return
+
+    used_targets, dismissed_targets = partition_recall_targets_by_usage(
+        response_text,
+        recall_results,
+    )
+    if used_targets:
+        await manager.apply_memory_interaction(
+            [target["lookup_id"] for target in used_targets],
+            group_id=group_id,
+            interaction_type="used",
+            source="chat_response",
+            query=query,
+            result_lookup=target_lookup,
+        )
+    if dismissed_targets:
+        await manager.apply_memory_interaction(
+            [target["lookup_id"] for target in dismissed_targets],
+            group_id=group_id,
+            interaction_type="dismissed",
+            source="chat_response",
+            query=query,
+            result_lookup=target_lookup,
+        )
+
+
+def _is_generic_memory_free_response(response_text: str) -> bool:
+    """Detect generic chat replies that likely failed to use memory."""
+    lowered = " ".join(response_text.lower().split())
+    if not lowered:
+        return False
+    generic_prefixes = (
+        "that makes sense",
+        "got it",
+        "understood",
+        "thanks for sharing",
+        "that sounds",
+        "i understand",
+        "you're right",
+        "it makes sense",
+    )
+    generic_fragments = (
+        "let me know if you want help",
+        "if you'd like, i can help",
+        "happy to help",
+        "we can work through it",
+    )
+    if len(lowered.split()) > 80:
+        return False
+    if any(lowered.startswith(prefix) for prefix in generic_prefixes):
+        return True
+    return any(fragment in lowered for fragment in generic_fragments)
+
+
+def _should_retry_chat_response(
+    manager,
+    *,
+    chat_need: MemoryNeed | None,
+    response_text: str,
+    recall_results: list[dict],
+) -> bool:
+    """Whether the knowledge-chat safety net should retry once."""
+    if not getattr(manager._cfg, "recall_need_post_response_safety_net_enabled", False):
+        return False
+    if chat_need is None or not chat_need.should_recall:
+        return False
+    if not _is_generic_memory_free_response(response_text):
+        return False
+    used_targets, _dismissed_targets = partition_recall_targets_by_usage(
+        response_text,
+        recall_results,
+    )
+    return not used_targets
+
+
+async def _retry_memory_grounded_response(
+    client,
+    *,
+    system_prompt: list[dict],
+    loop_messages: list[dict],
+    chat_need: MemoryNeed,
+    prior_response: str,
+) -> str:
+    """Retry once with a stronger memory-grounding instruction."""
+    retry_system = list(system_prompt)
+    retry_system.append(
+        {
+            "type": "text",
+            "text": (
+                "The previous draft stayed too generic for a memory-relevant turn. "
+                "Revise once and ground the answer in specific remembered facts, "
+                "people, timelines, or project state when available. If memory "
+                "still does not help, say that plainly instead of giving a generic "
+                f"reassurance. Need type: {chat_need.need_type}. Prior draft: "
+                f"{prior_response[:400]}"
+            ),
+        }
+    )
+    retry_response = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1024,
+        system=retry_system,
+        messages=loop_messages,
+    )
+    retry_text = ""
+    for block in retry_response.content:
+        if hasattr(block, "text"):
+            retry_text += block.text
+    return retry_text or prior_response
+
+
 def _build_tool_events(recall_results: list, facts: list) -> str:
     """Analyze recall results and emit synthetic tool events for rich components."""
     lines = ""
@@ -711,7 +1187,7 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
     # --- show_entities: when recall has entity results ---
     entities = []
     for r in recall_results:
-        if r.get("result_type") != "episode":
+        if r.get("result_type") == "entity":
             ent = r["entity"]
             entities.append({
                 "id": ent["id"],
@@ -728,7 +1204,7 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
 
     # --- show_relationship_graph: entity with 3+ relationships ---
     for r in recall_results:
-        if r.get("result_type") == "episode":
+        if r.get("result_type") != "entity":
             continue
         rels = r.get("relationships", [])
         if len(rels) >= 3:
@@ -796,6 +1272,17 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
                 "createdAt": ep.get("created_at"),
                 "score": round(r["score"], 3),
             })
+        elif r.get("result_type") == "cue_episode":
+            cue = r.get("cue", {})
+            ep = r.get("episode", {})
+            episodes.append({
+                "id": cue.get("episode_id") or ep.get("id"),
+                "content": (cue.get("cue_text") or "")[:200],
+                "source": ep.get("source"),
+                "createdAt": ep.get("created_at"),
+                "score": round(r["score"], 3),
+                "latent": True,
+            })
 
     if episodes:
         tc_idx += 1
@@ -827,24 +1314,105 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             )
 
     manager = get_manager()
+    cfg = manager._cfg
+
+    conversation_id = body.conversation_id
+    try:
+        conv_store = get_conversation_store()
+    except RuntimeError:
+        conv_store = None
+
+    if conv_store and conversation_id:
+        try:
+            await conv_store.get_conversation(conversation_id, group_id)
+        except ConversationNotFoundError:
+            return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
+    elif conv_store and not conversation_id:
+        title = body.message[:60].strip()
+        conversation_id = await conv_store.create_conversation(
+            group_id=group_id,
+            session_date=body.session_date,
+            title=title,
+        )
+
+    await _hydrate_chat_context(manager, body.history, body.message)
+
+    chat_need: MemoryNeed | None = None
+    epistemic_bundle = None
+    topic_hint = body.message
+    if cfg.recall_need_analyzer_enabled:
+        session_entity_names: list[str] = []
+        if hasattr(manager, "_conv_context") and manager._conv_context is not None:
+            session_entity_names = [
+                entry.name
+                for entry in manager._conv_context.get_top_entities(
+                    cfg.conv_multi_query_top_entities,
+                )
+            ]
+        chat_need = await _analyze_chat_memory_need(
+            body.message,
+            manager,
+            body.history,
+            session_entity_names=session_entity_names,
+            group_id=group_id,
+        )
+        manager.record_memory_need_analysis(group_id, chat_need)
+        if cfg.recall_telemetry_enabled:
+            publish_memory_need_analysis(
+                get_event_bus(),
+                group_id,
+                chat_need,
+                source="knowledge_chat",
+                mode="chat",
+                turn_text=body.message,
+            )
+        topic_hint = chat_need.query_hint if chat_need.should_recall else None
+
+    if cfg.epistemic_routing_enabled:
+        session_entity_names: list[str] = []
+        if hasattr(manager, "_conv_context") and manager._conv_context is not None:
+            session_entity_names = [
+                entry.name
+                for entry in manager._conv_context.get_top_entities(
+                    cfg.conv_multi_query_top_entities,
+                )
+            ]
+        epistemic_bundle = await manager.gather_epistemic_evidence(
+            body.message,
+            group_id=group_id,
+            project_path=None,
+            recent_turns=[msg.content for msg in (body.history or []) if msg.content.strip()][-6:],
+            session_entity_names=session_entity_names,
+            surface="rest",
+            memory_need=chat_need,
+        )
 
     # Baseline context for the system prompt (1000 token budget to control costs)
     context_result = await manager.get_context(
         group_id=group_id,
         max_tokens=1000,
-        topic_hint=body.message,
+        topic_hint=topic_hint,
     )
 
     # Build system prompt with memory context + tool-use guidance
+    memory_guidance = (
+        _build_chat_memory_guidance(chat_need)
+        if chat_need is not None
+        else (
+            "Use memory tools when prior context matters. Do not guess when tools "
+            "can provide precise answers."
+        )
+    )
     static_preamble = (
         "You are a helpful assistant with access to the user's memory graph. "
         "You have tools to search the graph — use them to answer questions accurately.\n\n"
         "Guidelines:\n"
-        "- Use search_facts to find specific relationships (e.g., family members, work history)\n"
+        "- Use search_facts for user-facing relationships like family members or work history\n"
+        "- Do not use search_facts as the primary path for project reconcile questions "
+        "when artifacts or runtime are required\n"
         "- Use search_entities to find entities by name\n"
         "- Use recall for general semantic search\n"
-        "- Always search before answering. Do not guess from context alone when tools "
-        "can provide precise answers.\n\n"
+        f"- {memory_guidance}\n\n"
         "Below is baseline context about the user:\n\n"
     )
     system_prompt = [
@@ -858,6 +1426,21 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             "text": context_result["context"],
         },
     ]
+    if epistemic_bundle is not None:
+        contract_guidance = "\n".join(
+            f"- {item}" for item in epistemic_bundle.answer_contract.guidance[:4]
+        )
+        system_prompt.append(
+            {
+                "type": "text",
+                "text": (
+                    "Epistemic routing and gathered evidence for this turn:\n\n"
+                    f"{render_epistemic_summary(epistemic_bundle)}\n\n"
+                    "Answer-contract guidance for this turn:\n"
+                    f"{contract_guidance}"
+                ),
+            }
+        )
 
     # Build messages (sliding window to control token costs)
     messages: list[dict] = []
@@ -869,21 +1452,6 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": body.message})
 
-    # Resolve or create conversation
-    conversation_id = body.conversation_id
-    try:
-        conv_store = get_conversation_store()
-    except RuntimeError:
-        conv_store = None
-
-    if conv_store and not conversation_id:
-        title = body.message[:60].strip()
-        conversation_id = await conv_store.create_conversation(
-            group_id=group_id,
-            session_date=body.session_date,
-            title=title,
-        )
-
     text_part_id = "text_0"
 
     async def event_stream():
@@ -894,7 +1462,9 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             client = anthropic.AsyncAnthropic()
 
             # Accumulate tool results for UI components
-            all_recall_results: list[dict] = []
+            all_recall_results: list[dict] = list(
+                getattr(epistemic_bundle, "memory_results", []) or []
+            )
             all_facts: list[dict] = []
 
             # --- Agentic tool-use loop (non-streaming) ---
@@ -972,6 +1542,27 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
                     final_text += block.text
 
             if final_text:
+                if _should_retry_chat_response(
+                    manager,
+                    chat_need=chat_need,
+                    response_text=final_text,
+                    recall_results=all_recall_results,
+                ):
+                    final_text = await _retry_memory_grounded_response(
+                        client,
+                        system_prompt=system_prompt,
+                        loop_messages=loop_messages,
+                        chat_need=chat_need,
+                        prior_response=final_text,
+                    )
+                await _apply_chat_recall_feedback(
+                    manager,
+                    group_id=group_id,
+                    query=body.message,
+                    response_text=final_text,
+                    recall_results=all_recall_results,
+                )
+                await _record_chat_assistant_turn(manager, final_text)
                 yield _sse({"type": "text-start", "id": text_part_id})
                 # Emit in chunks for streaming feel
                 chunk_size = 20
@@ -994,19 +1585,27 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             if conv_store and conversation_id and final_text:
                 async def _persist():
                     try:
-                        await conv_store.add_messages_bulk(conversation_id, [
-                            {"role": "user", "content": body.message},
-                            {"role": "assistant", "content": final_text},
-                        ])
+                        await conv_store.add_messages_bulk(
+                            conversation_id,
+                            [
+                                {"role": "user", "content": body.message},
+                                {"role": "assistant", "content": final_text},
+                            ],
+                            group_id=group_id,
+                        )
                         # Tag entities discovered during tool use
                         entity_ids: set[str] = set()
                         for r in all_recall_results:
-                            if r.get("result_type") != "episode":
+                            if r.get("result_type") == "entity":
                                 eid = r.get("entity", {}).get("id")
                                 if eid:
                                     entity_ids.add(eid)
                         for eid in entity_ids:
-                            await conv_store.tag_entity(conversation_id, eid)
+                            await conv_store.tag_entity(
+                                conversation_id,
+                                eid,
+                                group_id=group_id,
+                            )
                     except Exception:
                         logger.warning("Failed to persist chat messages", exc_info=True)
                 asyncio.create_task(_persist())
@@ -1043,6 +1642,28 @@ def _to_raw_recall(item: dict) -> dict:
                 "exploration_bonus": 0,
             },
         }
+    if item.get("type") == "cue_episode":
+        return {
+            "result_type": "cue_episode",
+            "cue": {
+                "episode_id": item.get("episodeId", ""),
+                "cue_text": item.get("cueText", ""),
+                "supporting_spans": item.get("supportingSpans", []),
+                "projection_state": item.get("projectionState"),
+            },
+            "episode": {
+                "id": item.get("episodeId", ""),
+                "source": item.get("source"),
+                "created_at": None,
+            },
+            "score": item.get("score", 0),
+            "score_breakdown": {
+                "semantic": 0,
+                "activation": 0,
+                "edge_proximity": 0,
+                "exploration_bonus": 0,
+            },
+        }
     else:
         return {
             "result_type": "entity",
@@ -1064,6 +1685,7 @@ def _to_raw_recall(item: dict) -> dict:
                     "predicate": rel.get("predicate"),
                     "target_id": rel.get("target", ""),
                     "source_id": rel.get("source", ""),
+                    "polarity": rel.get("polarity", "positive"),
                 }
                 for rel in item.get("relationships", [])
             ],

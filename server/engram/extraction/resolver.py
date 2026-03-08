@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 
 from thefuzz import fuzz
 
+from engram.entity_dedup_policy import policy_aware_similarity
 from engram.models.entity import Entity
 
 FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (thefuzz uses integers)
@@ -57,10 +58,12 @@ async def resolve_entity(
     best_score = 0.0
 
     for entity in existing_entities:
-        score = compute_similarity(name, entity.name)
+        decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
+        if not decision.allowed:
+            continue
 
         # Boost same-type matches
-        if entity.entity_type == entity_type:
+        if entity.entity_type == entity_type and not decision.exact_identifier_match:
             score = min(score + 0.05, 1.0)
 
         if score > best_score:
@@ -89,8 +92,10 @@ async def resolve_entity_fast(
     # Check session cache first (entities created earlier in this episode)
     if session_entities:
         for entity in session_entities.values():
-            score = compute_similarity(name, entity.name)
-            if entity.entity_type == entity_type:
+            decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
+            if not decision.allowed:
+                continue
+            if entity.entity_type == entity_type and not decision.exact_identifier_match:
                 score = min(score + 0.05, 1.0)
             if score >= FUZZY_MATCH_THRESHOLD / 100.0:
                 return entity
@@ -103,8 +108,10 @@ async def resolve_entity_fast(
     best_score = 0.0
 
     for entity in candidates:
-        score = compute_similarity(name, entity.name)
-        if entity.entity_type == entity_type:
+        decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
+        if not decision.allowed:
+            continue
+        if entity.entity_type == entity_type and not decision.exact_identifier_match:
             score = min(score + 0.05, 1.0)
         if score > best_score:
             best_score = score

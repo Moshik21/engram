@@ -124,8 +124,8 @@ describe("LODController", () => {
     });
 
     it("filters by activation floor", () => {
-      // Region tier has activationFloor=0.08
-      lod.updateCamera(0, 0, 1000, Date.now());
+      // Region tier has activationFloor=0.08 (enter threshold=1200)
+      lod.updateCamera(0, 0, 1200, Date.now());
       lod.invalidateVisibility();
 
       const activations = new Map([

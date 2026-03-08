@@ -57,7 +57,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
   },
   region: {
     visibilityBudget: 500,
-    activationFloor: 0.0,
+    activationFloor: 0.08,
     showLabels: false,
     showEdges: true,
     detailLevel: 0,

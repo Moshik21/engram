@@ -1,6 +1,11 @@
 """A/B benchmark framework for Engram retrieval methods."""
 
 from engram.benchmark.corpus import CorpusGenerator, CorpusScale, CorpusSpec, GroundTruthQuery
+from engram.benchmark.memory_need import (
+    MemoryNeedFixture,
+    MemoryNeedFixtureSummary,
+    evaluate_memory_need_fixtures,
+)
 from engram.benchmark.methods import (
     ALL_METHODS,
     METHOD_ACTR_SPREADING,
@@ -24,12 +29,24 @@ from engram.benchmark.methods import (
     run_retrieval,
 )
 from engram.benchmark.metrics import (
+    RecallEvalSample,
+    RecallEvaluationSummary,
+    SessionContinuitySample,
     bootstrap_ci,
+    false_recall_rate,
+    memory_need_precision,
     ndcg_at_k,
+    open_loop_recovery_rate,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
+    session_continuity_lift,
+    summarize_recall_evaluation,
+    surfaced_to_used_ratio,
+    temporal_correctness,
+    useful_packet_rate,
 )
+from engram.benchmark.showcase import build_showcase_scenarios, run_showcase_benchmark
 
 __all__ = [
     "ALL_METHODS",
@@ -37,6 +54,8 @@ __all__ = [
     "CorpusScale",
     "CorpusSpec",
     "GroundTruthQuery",
+    "MemoryNeedFixture",
+    "MemoryNeedFixtureSummary",
     "METHOD_ACTR_SPREADING",
     "METHOD_COMMUNITY",
     "METHOD_CONTEXT_GATED",
@@ -55,10 +74,24 @@ __all__ = [
     "METHOD_SEARCH_RECENCY",
     "METHOD_THOMPSON",
     "RetrievalMethod",
+    "RecallEvalSample",
+    "RecallEvaluationSummary",
+    "SessionContinuitySample",
     "bootstrap_ci",
+    "false_recall_rate",
+    "memory_need_precision",
     "ndcg_at_k",
+    "open_loop_recovery_rate",
     "precision_at_k",
     "recall_at_k",
     "reciprocal_rank",
     "run_retrieval",
+    "evaluate_memory_need_fixtures",
+    "session_continuity_lift",
+    "summarize_recall_evaluation",
+    "surfaced_to_used_ratio",
+    "temporal_correctness",
+    "useful_packet_rate",
+    "build_showcase_scenarios",
+    "run_showcase_benchmark",
 ]

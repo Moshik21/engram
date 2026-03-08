@@ -9,6 +9,7 @@ import pytest_asyncio
 
 from engram.embeddings.provider import NoopProvider
 from engram.models.entity import Entity
+from engram.models.episode_cue import EpisodeCue
 from engram.storage.sqlite.hybrid_search import HybridSearchIndex
 from engram.storage.sqlite.search import FTS5SearchIndex
 from engram.storage.sqlite.vectors import SQLiteVectorStore
@@ -128,3 +129,42 @@ class TestHybridWithMockProvider:
         results = await hybrid.search("language", group_id="default", limit=10)
         for _, score in results:
             assert 0.0 <= score <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_blank_cue_removes_vector_entry(self, fts):
+        """Retired cues delete their vector entry instead of staying searchable."""
+        fts_index, graph = fts
+        vectors = SQLiteVectorStore(graph._db_path)
+        await vectors.initialize(db=graph._db)
+
+        mock_provider = MagicMock()
+        mock_provider.dimension.return_value = 3
+        mock_provider.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
+
+        hybrid = HybridSearchIndex(
+            fts=fts_index,
+            vector_store=vectors,
+            provider=mock_provider,
+        )
+
+        await hybrid.index_episode_cue(
+            EpisodeCue(
+                episode_id="ep_cue_1",
+                group_id="default",
+                cue_text="spreading activation",
+            ),
+        )
+        assert await vectors.search([1.0, 0.0, 0.0], "default", content_type="episode_cue")
+
+        await hybrid.index_episode_cue(
+            EpisodeCue(
+                episode_id="ep_cue_1",
+                group_id="default",
+                cue_text="",
+            ),
+        )
+        assert not await vectors.search(
+            [1.0, 0.0, 0.0],
+            "default",
+            content_type="episode_cue",
+        )

@@ -60,8 +60,8 @@ class TestEchoChamberSmoke:
             await graph_store.create_relationship(rel)
 
         # Build query pools from ground truth
-        hot = [q.query_text for q in corpus.ground_truth[:3]]
-        diverse = [q.query_text for q in corpus.ground_truth[3:6]]
+        hot = [entity.name for entity in corpus.entities[:3]]
+        diverse = [entity.name for entity in corpus.entities[3:6]]
         entity_ids = [e.id for e in corpus.entities]
 
         result = await run_echo_chamber(
@@ -80,10 +80,71 @@ class TestEchoChamberSmoke:
         assert len(result.snapshots) >= 2  # at q10 and q20
         assert 0.0 <= result.final_coverage <= 1.0
         assert 0.0 <= result.final_gini <= 1.0
+        assert result.final_surfaced_count >= result.final_used_count
         # Verify snapshot structure
         for s in result.snapshots:
             assert s.query_index > 0
             assert len(s.top10_ids) <= 10
             assert 0.0 <= s.top10_jaccard <= 1.0
+            assert s.surfaced_count >= s.used_count
+            assert s.surfaced_to_used_ratio >= 0.0
+
+        await graph_store.close()
+
+    @pytest.mark.asyncio
+    async def test_usage_policy_tracks_surfaced_vs_used(self, tmp_path):
+        """Custom usage policies should reduce reinforcement below surfaced volume."""
+        from engram.benchmark.corpus import generate_corpus
+        from engram.benchmark.echo_chamber import run_echo_chamber
+        from engram.config import ActivationConfig
+        from engram.storage.memory.activation import MemoryActivationStore
+        from engram.storage.sqlite.graph import SQLiteGraphStore
+        from engram.storage.sqlite.search import FTS5SearchIndex
+
+        db_path = str(tmp_path / "echo_usage.db")
+        graph_store = SQLiteGraphStore(db_path)
+        await graph_store.initialize()
+        search_index = FTS5SearchIndex(db_path)
+        await search_index.initialize(db=graph_store._db)
+        cfg = ActivationConfig()
+        activation_store = MemoryActivationStore(cfg)
+
+        corpus = generate_corpus(seed=7)
+        for entity in corpus.entities:
+            await graph_store.create_entity(entity)
+            await search_index.index_entity(entity)
+        for rel in corpus.relationships:
+            await graph_store.create_relationship(rel)
+
+        hot = [entity.name for entity in corpus.entities[:3]]
+        diverse = [entity.name for entity in corpus.entities[3:6]]
+        entity_ids = [e.id for e in corpus.entities]
+
+        def usage_policy(_query: str, results: list) -> set[str]:
+            for result in results:
+                if result.result_type == "entity":
+                    return {result.node_id}
+            return set()
+
+        result = await run_echo_chamber(
+            hot_queries=hot,
+            diverse_queries=diverse,
+            corpus_entity_ids=entity_ids,
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            group_id="benchmark",
+            total_queries=20,
+            snapshot_interval=10,
+            usage_policy=usage_policy,
+        )
+
+        assert result.final_surfaced_count > 0
+        assert result.final_used_count > 0
+        assert result.final_surfaced_count >= result.final_used_count
+        assert result.final_surfaced_to_used_ratio >= 1.0
+        assert result.snapshots[-1].surfaced_count == result.final_surfaced_count
+        assert result.snapshots[-1].used_count == result.final_used_count
 
         await graph_store.close()

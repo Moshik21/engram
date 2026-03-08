@@ -9,6 +9,7 @@ from engram.config import EmbeddingConfig
 from engram.embeddings.provider import EmbeddingProvider, truncate_vectors
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class RedisSearchIndex:
     """
 
     INDEX_NAME = "engram_vectors"
+    KEY_PREFIX = "engram:"
 
     def __init__(
         self,
@@ -34,6 +36,9 @@ class RedisSearchIndex:
         storage_dim: int = 0,
         embed_provider: str = "",
         embed_model: str = "",
+        *,
+        index_name: str | None = None,
+        key_prefix: str | None = None,
     ) -> None:
         self._redis = redis
         self._provider = provider
@@ -42,6 +47,9 @@ class RedisSearchIndex:
         self._storage_dim = storage_dim
         self._embed_provider = embed_provider
         self._embed_model = embed_model
+        self._index_name = index_name or self.INDEX_NAME
+        prefix = key_prefix or self.KEY_PREFIX
+        self._key_prefix = prefix if prefix.endswith(":") else f"{prefix}:"
 
     async def initialize(self) -> None:
         """Create the FT.CREATE index idempotently."""
@@ -51,8 +59,8 @@ class RedisSearchIndex:
 
         # Check if index already exists
         try:
-            await self._redis.execute_command("FT.INFO", self.INDEX_NAME)
-            logger.info("RedisSearchIndex: index '%s' already exists", self.INDEX_NAME)
+            await self._redis.execute_command("FT.INFO", self._index_name)
+            logger.info("RedisSearchIndex: index '%s' already exists", self._index_name)
             return
         except Exception:
             pass  # Index does not exist, create it
@@ -64,12 +72,12 @@ class RedisSearchIndex:
         try:
             await self._redis.execute_command(
                 "FT.CREATE",
-                self.INDEX_NAME,
+                self._index_name,
                 "ON",
                 "HASH",
                 "PREFIX",
                 "1",
-                "engram:",
+                self._key_prefix,
                 "SCHEMA",
                 "group_id",
                 "TAG",
@@ -101,7 +109,7 @@ class RedisSearchIndex:
             )
             logger.info(
                 "RedisSearchIndex: created index '%s' (dim=%d, M=%d, ef=%d)",
-                self.INDEX_NAME,
+                self._index_name,
                 dim,
                 m,
                 ef_construction,
@@ -110,7 +118,7 @@ class RedisSearchIndex:
             logger.warning("RedisSearchIndex: FT.CREATE failed: %s", e)
 
     def _hash_key(self, group_id: str, content_type: str, item_id: str) -> str:
-        return f"engram:{group_id}:vec:{content_type}:{item_id}"
+        return f"{self._key_prefix}{group_id}:vec:{content_type}:{item_id}"
 
     async def index_entity(self, entity: Entity) -> None:
         """Embed and index an entity."""
@@ -182,17 +190,100 @@ class RedisSearchIndex:
         except Exception as e:
             logger.warning("Failed to index episode %s: %s", episode.id, e)
 
+    async def index_episode_cue(self, cue: EpisodeCue) -> None:
+        """Embed and index cue text."""
+        key = self._hash_key(cue.group_id, "episode_cue", cue.episode_id)
+        if not cue.cue_text:
+            try:
+                await self._redis.delete(key)
+            except Exception as e:
+                logger.warning("Failed to remove cue %s: %s", cue.episode_id, e)
+            return
+        if not self._embeddings_enabled:
+            return
+
+        try:
+            embeddings = await self._provider.embed([cue.cue_text])
+            if not embeddings:
+                return
+            if self._storage_dim > 0:
+                embeddings = truncate_vectors(embeddings, self._storage_dim)
+
+            vec_bytes = pack_vector(embeddings[0])
+            created_ts = cue.created_at.timestamp() if cue.created_at else 0.0
+
+            await self._redis.hset(
+                key,
+                mapping={
+                    "group_id": cue.group_id,
+                    "content_type": "episode_cue",
+                    "source_id": cue.episode_id,
+                    "text": cue.cue_text,
+                    "entity_type": "",
+                    "created_at": str(created_ts),
+                    "embedding": vec_bytes,
+                    "embed_provider": self._embed_provider,
+                    "embed_model": self._embed_model,
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to index cue %s: %s", cue.episode_id, e)
+
+    @staticmethod
+    def _decode_value(value) -> str:
+        if isinstance(value, bytes):
+            return value.decode()
+        return str(value)
+
+    def _build_filter(
+        self,
+        *,
+        content_type: str,
+        group_id: str | None = None,
+        entity_types: list[str] | None = None,
+    ) -> str:
+        parts = []
+        if group_id:
+            parts.append(f"@group_id:{{{group_id}}}")
+        if entity_types:
+            parts.append(f"@entity_type:{{{'|'.join(entity_types)}}}")
+        parts.append(f"@content_type:{{{content_type}}}")
+        return " ".join(parts) if parts else "*"
+
+    def _parse_ft_rows(self, result) -> list[dict[str, str]]:
+        if not result or result[0] == 0:
+            return []
+
+        rows: list[dict[str, str]] = []
+        i = 1
+        while i < len(result):
+            i += 1  # skip key
+            if i >= len(result):
+                break
+            fields = result[i]
+            i += 1
+            field_dict = {}
+            for j in range(0, len(fields), 2):
+                field_dict[self._decode_value(fields[j])] = self._decode_value(fields[j + 1])
+            rows.append(field_dict)
+        return rows
+
     async def _text_search(
         self,
         query: str,
         group_id: str | None = None,
         limit: int = 10,
+        content_type: str = "entity",
+        entity_types: list[str] | None = None,
     ) -> list[tuple[str, float]]:
         """Full-text search using the indexed TEXT field in Redis Search."""
-        filter_parts = []
-        if group_id:
-            filter_parts.append(f"@group_id:{{{group_id}}}")
-        filter_parts.append("@content_type:{entity}")
+        filter_parts = [
+            self._build_filter(
+                content_type=content_type,
+                group_id=group_id,
+                entity_types=entity_types,
+            )
+        ]
 
         # Tokenize and escape query for Redis Search
         tokens = [t.strip("?!.,;:'\"") for t in query.split() if len(t) > 2]
@@ -206,7 +297,7 @@ class RedisSearchIndex:
         try:
             result = await self._redis.execute_command(
                 "FT.SEARCH",
-                self.INDEX_NAME,
+                self._index_name,
                 ft_query,
                 "LIMIT",
                 "0",
@@ -220,88 +311,67 @@ class RedisSearchIndex:
             logger.debug("Redis text search failed (non-fatal): %s", e)
             return []
 
-        if not result or result[0] == 0:
-            return []
-
         # Parse results — source_id with a fixed baseline score
         results: list[tuple[str, float]] = []
-        i = 1
-        while i < len(result):
-            i += 1  # skip key
-            if i >= len(result):
-                break
-            fields = result[i]
-            i += 1
-            field_dict = {}
-            for j in range(0, len(fields), 2):
-                k = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
-                v = (
-                    fields[j + 1].decode()
-                    if isinstance(fields[j + 1], bytes)
-                    else fields[j + 1]
-                )
-                field_dict[k] = v
+        for field_dict in self._parse_ft_rows(result):
             source_id = field_dict.get("source_id", "")
             if source_id:
                 results.append((source_id, 0.5))  # baseline score for text match
 
         return results
 
-    async def search(
+    async def _search_content(
         self,
         query: str,
-        entity_types: list[str] | None = None,
+        *,
+        content_type: str,
         group_id: str | None = None,
         limit: int = 20,
+        entity_types: list[str] | None = None,
     ) -> list[tuple[str, float]]:
-        """KNN vector search with group_id TAG filter, supplemented by text search."""
         if not self._embeddings_enabled:
-            # Embeddings disabled — fall back to text-only search
-            try:
-                return await self._text_search(query, group_id=group_id, limit=limit)
-            except Exception:
-                return []
+            return await self._text_search(
+                query,
+                group_id=group_id,
+                limit=limit,
+                content_type=content_type,
+                entity_types=entity_types,
+            )
 
         try:
             query_vec = await self._provider.embed_query(query)
             if not query_vec:
-                # Embedding failed — fall back to text search
-                try:
-                    return await self._text_search(
-                        query, group_id=group_id, limit=limit
-                    )
-                except Exception:
-                    return []
+                return await self._text_search(
+                    query,
+                    group_id=group_id,
+                    limit=limit,
+                    content_type=content_type,
+                    entity_types=entity_types,
+                )
         except Exception as e:
-            logger.warning("Failed to embed query: %s", e)
-            # Embedding failed — fall back to text search
-            try:
-                return await self._text_search(query, group_id=group_id, limit=limit)
-            except Exception:
-                return []
+            logger.warning("Failed to embed %s query: %s", content_type, e)
+            return await self._text_search(
+                query,
+                group_id=group_id,
+                limit=limit,
+                content_type=content_type,
+                entity_types=entity_types,
+            )
 
-        # Truncate query vector to storage dimension
         if self._storage_dim > 0:
             query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
         vec_bytes = pack_vector(query_vec)
-
-        # Build filter
-        filter_parts = []
-        if group_id:
-            # TAG values use {} syntax in Redis Search
-            filter_parts.append(f"@group_id:{{{group_id}}}")
-        if entity_types:
-            joined = "|".join(entity_types)
-            filter_parts.append(f"@entity_type:{{{joined}}}")
-        filter_parts.append("@content_type:{entity}")
-        filter_str = " ".join(filter_parts) if filter_parts else "*"
-
+        filter_str = self._build_filter(
+            content_type=content_type,
+            group_id=group_id,
+            entity_types=entity_types,
+        )
         knn_query = f"({filter_str})=>[KNN {limit} @embedding $blob AS score]"
 
         try:
             result = await self._redis.execute_command(
                 "FT.SEARCH",
-                self.INDEX_NAME,
+                self._index_name,
                 knn_query,
                 "PARAMS",
                 "2",
@@ -320,56 +390,90 @@ class RedisSearchIndex:
                 "2",
             )
         except Exception as e:
-            logger.warning("RedisSearchIndex search failed: %s", e)
-            return []
-
-        # Parse FT.SEARCH response:
-        # [total_count, key1, [field, value, ...], key2, [field, value, ...], ...]
-        if not result or result[0] == 0:
-            return []
+            logger.warning("RedisSearchIndex %s search failed: %s", content_type, e)
+            return await self._text_search(
+                query,
+                group_id=group_id,
+                limit=limit,
+                content_type=content_type,
+                entity_types=entity_types,
+            )
 
         results: list[tuple[str, float]] = []
-        i = 1
-        while i < len(result):
-            # key
-            i += 1
-            if i >= len(result):
-                break
-            fields = result[i]
-            i += 1
-
-            # Parse field-value pairs
-            field_dict: dict[str, str] = {}
-            for j in range(0, len(fields), 2):
-                k = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
-                v = fields[j + 1].decode() if isinstance(fields[j + 1], bytes) else fields[j + 1]
-                field_dict[k] = v
-
+        for field_dict in self._parse_ft_rows(result):
             source_id = field_dict.get("source_id", "")
-            # Redis COSINE distance is [0, 2]. Convert to similarity [0, 1]
             distance = float(field_dict.get("score", "1.0"))
             similarity = 1.0 - (distance / 2.0)
-
             if source_id:
                 results.append((source_id, similarity))
 
-        # Supplement with text search results when KNN is sparse
-        if len(results) < limit:
-            try:
-                text_results = await self._text_search(
-                    query,
-                    group_id=group_id,
-                    limit=limit,
-                )
-                existing = {eid for eid, _ in results}
-                for eid, score in text_results:
-                    if eid not in existing:
-                        results.append((eid, score))
-                        existing.add(eid)
-            except Exception:
-                pass  # text search is best-effort
+        if len(results) >= limit:
+            return results[:limit]
 
+        try:
+            text_results = await self._text_search(
+                query,
+                group_id=group_id,
+                limit=limit,
+                content_type=content_type,
+                entity_types=entity_types,
+            )
+        except Exception:
+            return results
+
+        existing = {source_id for source_id, _score in results}
+        for source_id, score in text_results:
+            if source_id in existing:
+                continue
+            results.append((source_id, score))
+            existing.add(source_id)
+            if len(results) >= limit:
+                break
         return results
+
+    async def search(
+        self,
+        query: str,
+        entity_types: list[str] | None = None,
+        group_id: str | None = None,
+        limit: int = 20,
+    ) -> list[tuple[str, float]]:
+        """KNN vector search with group_id TAG filter, supplemented by text search."""
+        return await self._search_content(
+            query,
+            content_type="entity",
+            group_id=group_id,
+            limit=limit,
+            entity_types=entity_types,
+        )
+
+    async def search_episodes(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Search raw episode embeddings/text in Redis Search."""
+        return await self._search_content(
+            query,
+            content_type="episode",
+            group_id=group_id,
+            limit=limit,
+        )
+
+    async def search_episode_cues(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Search cue embeddings/text in Redis Search."""
+        return await self._search_content(
+            query,
+            content_type="episode_cue",
+            group_id=group_id,
+            limit=limit,
+        )
 
     async def compute_similarity(
         self,
@@ -488,11 +592,11 @@ class RedisSearchIndex:
     async def remove(self, entity_id: str) -> None:
         """Remove all vector entries for an entity."""
         # Scan for matching keys and delete them
-        pattern = f"engram:*:vec:entity:{entity_id}"
+        pattern = f"{self._key_prefix}*:vec:entity:{entity_id}"
         async for key in self._redis.scan_iter(match=pattern, count=100):
             await self._redis.delete(key)
 
         # Also check episode keys
-        pattern_ep = f"engram:*:vec:episode:{entity_id}"
+        pattern_ep = f"{self._key_prefix}*:vec:episode:{entity_id}"
         async for key in self._redis.scan_iter(match=pattern_ep, count=100):
             await self._redis.delete(key)

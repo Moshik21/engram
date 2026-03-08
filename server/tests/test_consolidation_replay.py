@@ -262,7 +262,8 @@ class TestEpisodeReplayPhase:
         graph_store.get_episode_entities = AsyncMock(
             return_value=["ent_alice", "ent_bob"],
         )
-        graph_store.get_relationships = AsyncMock(return_value=[])
+        graph_store.find_conflicting_relationships = AsyncMock(return_value=[])
+        graph_store.find_existing_relationship = AsyncMock(return_value=None)
         graph_store.create_relationship = AsyncMock()
 
         phase = EpisodeReplayPhase(extractor=extractor)
@@ -279,7 +280,7 @@ class TestEpisodeReplayPhase:
         assert records[0].new_relationships_found == 1
         graph_store.create_relationship.assert_called_once()
         created_rel = graph_store.create_relationship.call_args[0][0]
-        assert created_rel.confidence == 0.9
+        assert created_rel.confidence == 1.0
         assert created_rel.source_episode.startswith("replay:")
 
     @pytest.mark.asyncio
@@ -308,7 +309,8 @@ class TestEpisodeReplayPhase:
         graph_store.get_episode_entities = AsyncMock(
             return_value=["ent_alice", "ent_bob"],
         )
-        graph_store.get_relationships = AsyncMock(return_value=[existing_rel])
+        graph_store.find_conflicting_relationships = AsyncMock(return_value=[])
+        graph_store.find_existing_relationship = AsyncMock(return_value=existing_rel)
         graph_store.create_relationship = AsyncMock()
 
         phase = EpisodeReplayPhase(extractor=extractor)
@@ -324,6 +326,62 @@ class TestEpisodeReplayPhase:
 
         assert records[0].new_relationships_found == 0
         graph_store.create_relationship.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_replay_applies_negation_semantics(self):
+        cfg = _make_cfg()
+        ep = _make_episode()
+        alice = _make_entity("ent_alice", "Alice", "person")
+        bob = _make_entity("ent_bob", "Bob", "person")
+
+        extractor = _make_extractor(
+            entities=[
+                {"name": "Alice", "entity_type": "person"},
+                {"name": "Bob", "entity_type": "person"},
+            ],
+            relationships=[
+                {
+                    "source": "Alice",
+                    "target": "Bob",
+                    "predicate": "KNOWS",
+                    "polarity": "negative",
+                },
+            ],
+        )
+
+        existing_rel = MagicMock()
+        existing_rel.id = "rel_existing"
+        existing_rel.target_id = "ent_bob"
+        existing_rel.source_id = "ent_alice"
+        existing_rel.predicate = "KNOWS"
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[alice, bob])
+        graph_store.get_episode_entities = AsyncMock(
+            return_value=["ent_alice", "ent_bob"],
+        )
+        graph_store.get_relationships = AsyncMock(return_value=[existing_rel])
+        graph_store.create_relationship = AsyncMock()
+        graph_store.invalidate_relationship = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert result.items_processed == 1
+        assert records[0].new_relationships_found == 1
+        graph_store.invalidate_relationship.assert_called_once()
+        graph_store.create_relationship.assert_called_once()
+        created_rel = graph_store.create_relationship.call_args[0][0]
+        assert created_rel.polarity == "negative"
 
     @pytest.mark.asyncio
     async def test_dry_run_no_writes(self):
@@ -381,6 +439,49 @@ class TestEpisodeReplayPhase:
 
         assert result.items_processed == 2
         assert len(records) == 2
+
+    @pytest.mark.asyncio
+    async def test_scans_past_ineligible_recent_episodes(self):
+        cfg = _make_cfg(
+            consolidation_replay_max_per_cycle=1,
+            consolidation_replay_min_age_hours=2.0,
+        )
+        recent_ep = _make_episode(
+            episode_id="ep_recent",
+            created_at=datetime.utcnow() - timedelta(minutes=20),
+        )
+        eligible_ep = _make_episode(
+            episode_id="ep_eligible",
+            created_at=datetime.utcnow() - timedelta(hours=3),
+        )
+
+        async def _get_episodes(*, group_id=None, limit=50, offset=0):
+            batches = {
+                0: [recent_ep],
+                1: [eligible_ep],
+            }
+            return batches.get(offset, [])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(side_effect=_get_episodes)
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        phase = EpisodeReplayPhase(extractor=_make_extractor())
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert result.items_processed == 1
+        assert len(records) == 1
+        assert records[0].episode_id == "ep_eligible"
+        assert graph_store.get_episodes.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_extraction_failure_non_fatal(self):

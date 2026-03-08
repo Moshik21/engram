@@ -5,8 +5,10 @@ import pytest_asyncio
 
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
+from engram.consolidation.phases.base import ConsolidationPhase
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
+from engram.models.consolidation import DecisionOutcomeLabel, DecisionTrace, PhaseResult
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
@@ -264,6 +266,179 @@ class TestConsolidationEngine:
 
         cycle = await engine.run_cycle(group_id="test", dry_run=None)
         assert cycle.dry_run is True
+
+    @pytest.mark.asyncio
+    async def test_phase_capability_validation_fails_cycle(
+        self, store, activation, search, consol_store,
+    ):
+        class MissingCapabilityPhase(ConsolidationPhase):
+            @property
+            def name(self) -> str:
+                return "missing_cap"
+
+            def required_graph_store_methods(self, cfg):
+                return {"definitely_missing_method"}
+
+            async def execute(self, *args, **kwargs):
+                return PhaseResult(phase=self.name), []
+
+        engine = ConsolidationEngine(
+            store,
+            activation,
+            search,
+            cfg=ActivationConfig(),
+            consolidation_store=consol_store,
+        )
+        engine._phases = [MissingCapabilityPhase()]
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+
+        assert cycle.status == "failed"
+        assert "definitely_missing_method" in (cycle.error or "")
+
+    @pytest.mark.asyncio
+    async def test_decision_traces_persisted_from_context(
+        self, store, activation, search, consol_store,
+    ):
+        class TracePhase(ConsolidationPhase):
+            @property
+            def name(self) -> str:
+                return "trace_phase"
+
+            async def execute(
+                self,
+                group_id,
+                graph_store,
+                activation_store,
+                search_index,
+                cfg,
+                cycle_id,
+                dry_run=False,
+                context=None,
+            ):
+                trace = DecisionTrace(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="entity_pair",
+                    candidate_id="a:b",
+                    decision="merge",
+                    decision_source="unit_test",
+                )
+                label = DecisionOutcomeLabel(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    decision_trace_id=trace.id,
+                    outcome_type="materialization",
+                    label="applied",
+                    value=1.0,
+                )
+                context.add_decision_trace(trace)
+                context.add_decision_outcome_label(label)
+                return PhaseResult(phase=self.name, items_affected=1), []
+
+        engine = ConsolidationEngine(
+            store,
+            activation,
+            search,
+            cfg=ActivationConfig(),
+            consolidation_store=consol_store,
+        )
+        engine._phases = [TracePhase()]
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+
+        traces = await consol_store.get_decision_traces(cycle.id, "test")
+        labels = await consol_store.get_decision_outcome_labels(cycle.id, "test")
+        assert len(traces) == 1
+        assert traces[0].decision_source == "unit_test"
+        assert len(labels) == 1
+        assert labels[0].decision_trace_id == traces[0].id
+
+    @pytest.mark.asyncio
+    async def test_stage3_learning_artifacts_persisted(
+        self, store, activation, search, consol_store,
+    ):
+        class LearningPhase(ConsolidationPhase):
+            @property
+            def name(self) -> str:
+                return "learning_phase"
+
+            async def execute(
+                self,
+                group_id,
+                graph_store,
+                activation_store,
+                search_index,
+                cfg,
+                cycle_id,
+                dry_run=False,
+                context=None,
+            ):
+                trace = DecisionTrace(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="entity_pair",
+                    candidate_id="a:b",
+                    decision="merge",
+                    decision_source="llm",
+                    confidence=0.84,
+                    threshold_band="accepted",
+                    features={"name_similarity": 0.92},
+                )
+                label = DecisionOutcomeLabel(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    decision_trace_id=trace.id,
+                    outcome_type="materialization",
+                    label="applied",
+                    value=1.0,
+                )
+                context.add_decision_trace(trace)
+                context.add_decision_outcome_label(label)
+                return PhaseResult(phase=self.name, items_affected=1), []
+
+        bus = EventBus()
+        q = bus.subscribe("test")
+        engine = ConsolidationEngine(
+            store,
+            activation,
+            search,
+            cfg=ActivationConfig(
+                consolidation_distillation_enabled=True,
+                consolidation_calibration_enabled=True,
+                consolidation_calibration_window_cycles=5,
+                consolidation_calibration_min_examples=1,
+                consolidation_calibration_bins=2,
+            ),
+            consolidation_store=consol_store,
+            event_bus=bus,
+        )
+        engine._phases = [LearningPhase()]
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True)
+
+        examples = await consol_store.get_distillation_examples(cycle.id, "test")
+        snapshots = await consol_store.get_calibration_snapshots(cycle.id, "test")
+        assert len(examples) == 2
+        assert {example.teacher_source for example in examples} == {
+            "oracle:llm",
+            "outcome:materialization",
+        }
+        assert len(snapshots) == 1
+        assert snapshots[0].phase == "learning_phase"
+        assert snapshots[0].labeled_examples == 1
+        assert snapshots[0].oracle_examples == 1
+        assert snapshots[0].accuracy == 1.0
+        assert snapshots[0].summary["cycles_observed"] == 1
+
+        event_types = []
+        while not q.empty():
+            event_types.append((await q.get())["type"])
+        assert "consolidation.learning.updated" in event_types
 
 
 class TestShutdownTrigger:

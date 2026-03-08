@@ -6,13 +6,18 @@ import json
 import logging
 import math
 import time
-import uuid
-from datetime import datetime
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
-from engram.models.consolidation import CycleContext, InferredEdge, PhaseResult
-from engram.models.relationship import Relationship
+from engram.extraction.canonicalize import PredicateCanonicalizer
+from engram.graph_manager import GraphManager
+from engram.models.consolidation import (
+    CycleContext,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    InferredEdge,
+    PhaseResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,16 +101,56 @@ def _pmi_confidence(
     return round(min(0.95, max(floor, blended)), 4)
 
 
+def _get_total_episode_count(stats: dict | None) -> int:
+    """Read the canonical episode-count key from store stats.
+
+    SQLite and FalkorDB expose ``episodes``. ``total_episodes`` is accepted as a
+    legacy fallback for mocks and older callers.
+    """
+    if not stats:
+        return 0
+    value = stats.get("episodes")
+    if value is None:
+        value = stats.get("total_episodes", 0)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 class EdgeInferencePhase(ConsolidationPhase):
     """Find entity pairs that co-occur across episodes and create edges."""
 
-    def __init__(self, llm_client=None, escalation_client=None):
+    def __init__(self, llm_client=None, escalation_client=None, canonicalizer=None):
         self._llm_client = llm_client
         self._escalation_client = escalation_client
+        self._canonicalizer = canonicalizer or PredicateCanonicalizer()
 
     @property
     def name(self) -> str:
         return "infer"
+
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        methods = {
+            "get_co_occurring_entity_pairs",
+            "get_entity",
+            "create_relationship",
+            "get_relationships",
+            "find_existing_relationship",
+            "find_conflicting_relationships",
+            "update_relationship_weight",
+            "invalidate_relationship",
+        }
+        if cfg.consolidation_infer_pmi_enabled or cfg.consolidation_infer_auto_validation_enabled:
+            methods.update({"get_entity_episode_counts", "get_stats"})
+        if cfg.consolidation_infer_transitivity_enabled:
+            methods.add("get_relationships_by_predicate")
+        return methods
+
+    def required_search_index_methods(self, cfg: ActivationConfig) -> set[str]:
+        if cfg.consolidation_infer_auto_validation_enabled:
+            return {"get_entity_embeddings"}
+        return set()
 
     async def execute(
         self,
@@ -142,14 +187,13 @@ class EdgeInferencePhase(ConsolidationPhase):
                 list(all_ids),
             )
             stats = await graph_store.get_stats(group_id)
-            total_episodes = stats.get("total_episodes", 0)
+            total_episodes = _get_total_episode_count(stats)
 
         records: list[InferredEdge] = []
         for entity_a_id, entity_b_id, count in pairs:
             if len(records) >= max_edges:
                 break
 
-            rel_id = None
             pmi_score = None
             infer_type = "co_occurrence"
 
@@ -174,34 +218,10 @@ class EdgeInferencePhase(ConsolidationPhase):
                 # Original linear formula
                 confidence = min(0.9, confidence_floor * (1 + (count - min_co) * 0.05))
 
-            weight = min(1.0, count / 10.0)
-
-            # Resolve names for audit
             entity_a = await graph_store.get_entity(entity_a_id, group_id)
             entity_b = await graph_store.get_entity(entity_b_id, group_id)
             if not entity_a or not entity_b:
                 continue
-
-            if not dry_run:
-                rel = Relationship(
-                    id=f"rel_{uuid.uuid4().hex[:12]}",
-                    source_id=entity_a_id,
-                    target_id=entity_b_id,
-                    predicate="MENTIONED_WITH",
-                    weight=weight,
-                    confidence=confidence,
-                    source_episode=f"consolidation:{cycle_id}",
-                    group_id=group_id,
-                )
-                await graph_store.create_relationship(rel)
-                rel_id = rel.id
-
-                # Track affected entities for reindex
-                if context is not None:
-                    context.inferred_edge_entity_ids.add(entity_a_id)
-                    context.inferred_edge_entity_ids.add(entity_b_id)
-                    context.affected_entity_ids.add(entity_a_id)
-                    context.affected_entity_ids.add(entity_b_id)
 
             records.append(
                 InferredEdge(
@@ -213,9 +233,9 @@ class EdgeInferencePhase(ConsolidationPhase):
                     target_name=entity_b.name,
                     co_occurrence_count=count,
                     confidence=round(confidence, 4),
+                    predicate="MENTIONED_WITH",
                     infer_type=infer_type,
                     pmi_score=pmi_score,
-                    relationship_id=rel_id,
                 )
             )
 
@@ -226,9 +246,7 @@ class EdgeInferencePhase(ConsolidationPhase):
                 graph_store,
                 cfg,
                 cycle_id,
-                dry_run,
                 remaining=max_edges - len(records),
-                context=context,
             )
             records.extend(trans_records)
 
@@ -240,7 +258,6 @@ class EdgeInferencePhase(ConsolidationPhase):
         elif cfg.consolidation_infer_llm_enabled:
             await self._run_llm_validation_pass(
                 records,
-                graph_store,
                 cfg,
                 group_id,
                 dry_run,
@@ -250,16 +267,86 @@ class EdgeInferencePhase(ConsolidationPhase):
         if cfg.consolidation_infer_escalation_enabled:
             await self._run_escalation_pass(
                 records,
-                graph_store,
                 cfg,
                 group_id,
                 dry_run,
             )
 
+        affected = await self._materialize_records(
+            records,
+            graph_store,
+            cfg,
+            group_id,
+            cycle_id,
+            dry_run,
+            context,
+        )
+
+        if context is not None:
+            for rec in records:
+                trace = DecisionTrace(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="relationship",
+                    candidate_id=_relationship_candidate_id(
+                        rec.source_id,
+                        rec.target_id,
+                        rec.predicate,
+                    ),
+                    decision=_infer_decision(rec),
+                    decision_source=_infer_decision_source(rec),
+                    confidence=rec.confidence,
+                    threshold_band=_infer_threshold_band(rec, dry_run),
+                    features={
+                        "predicate": rec.predicate,
+                        "co_occurrence_count": rec.co_occurrence_count,
+                        "pmi_score": rec.pmi_score,
+                        "infer_type": rec.infer_type,
+                        "validation_score": rec.validation_score,
+                        "validation_signals": rec.validation_signals,
+                        "llm_verdict": rec.llm_verdict,
+                        "escalation_verdict": rec.escalation_verdict,
+                        "materialization_action": rec.materialization_action,
+                    },
+                    metadata={"relationship_id": rec.relationship_id},
+                    policy_version="typed_link_v1",
+                )
+                context.add_decision_trace(trace)
+                if trace.decision in {"accept", "reject"}:
+                    context.add_decision_outcome_label(
+                        DecisionOutcomeLabel(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            phase=self.name,
+                            decision_trace_id=trace.id,
+                            outcome_type="validation",
+                            label=trace.decision,
+                            value=1.0,
+                            metadata={"infer_type": rec.infer_type},
+                        )
+                    )
+                if rec.materialization_action is not None:
+                    context.add_decision_outcome_label(
+                        DecisionOutcomeLabel(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            phase=self.name,
+                            decision_trace_id=trace.id,
+                            outcome_type="materialization",
+                            label=rec.materialization_action,
+                            value=1.0 if rec.materialization_action in {
+                                "created",
+                                "updated_existing",
+                            } else 0.0,
+                            metadata={"predicate": rec.predicate},
+                        )
+                    )
+
         return PhaseResult(
             phase=self.name,
             items_processed=len(pairs) + (len(records) - len(pairs)),
-            items_affected=len(records),
+            items_affected=affected,
             duration_ms=_elapsed_ms(t0),
         ), records
 
@@ -282,15 +369,12 @@ class EdgeInferencePhase(ConsolidationPhase):
             r
             for r in records
             if r.confidence >= threshold
-            and r.infer_type in ("co_occurrence", "co_occurrence_pmi")
+            and r.infer_type in (
+                "co_occurrence", "co_occurrence_pmi", "transitivity",
+            )
         ][:max_validations]
 
         if not candidates:
-            return
-
-        if dry_run:
-            for rec in candidates:
-                rec.llm_verdict = "dry_run_skipped"
             return
 
         # Need episode counts for ubiquity scoring
@@ -300,7 +384,7 @@ class EdgeInferencePhase(ConsolidationPhase):
             all_ids.add(rec.target_id)
         ep_counts = await graph_store.get_entity_episode_counts(group_id, list(all_ids))
         stats = await graph_store.get_stats(group_id)
-        total_episodes = stats.get("total_episodes", 0)
+        total_episodes = _get_total_episode_count(stats)
 
         for rec in candidates:
             try:
@@ -329,6 +413,8 @@ class EdgeInferencePhase(ConsolidationPhase):
                     approve_threshold=cfg.consolidation_infer_auto_approve_threshold,
                     reject_threshold=cfg.consolidation_infer_auto_reject_threshold,
                 )
+                rec.validation_score = round(_score, 4)
+                rec.validation_signals = dict(_signals)
 
                 if verdict == "approved":
                     rec.infer_type = "auto_validated"
@@ -336,12 +422,6 @@ class EdgeInferencePhase(ConsolidationPhase):
                 elif verdict == "rejected":
                     rec.infer_type = "auto_rejected"
                     rec.llm_verdict = "auto_rejected"
-                    if rec.relationship_id:
-                        await graph_store.invalidate_relationship(
-                            rec.relationship_id,
-                            datetime.utcnow(),
-                            group_id,
-                        )
                 else:
                     # Uncertain: try cross-encoder (Tier 1)
                     ce_on = getattr(cfg, "consolidation_cross_encoder_enabled", True)
@@ -355,26 +435,22 @@ class EdgeInferencePhase(ConsolidationPhase):
 
                         ce_verdict, ce_score = await refine_infer_verdict(
                             entity_a, entity_b,
-                            rec.predicate or "MENTIONED_WITH",
+                            "MENTIONED_WITH",
                             _score,
                             approve_threshold=cfg.consolidation_infer_auto_approve_threshold,
                             reject_threshold=cfg.consolidation_infer_auto_reject_threshold,
                         )
+                        rec.validation_signals["cross_encoder_score"] = round(ce_score, 4)
                         if ce_verdict == "approved":
                             rec.infer_type = "cross_encoder_approved"
                             rec.llm_verdict = "ce_approved"
                         elif ce_verdict == "rejected":
                             rec.infer_type = "cross_encoder_rejected"
                             rec.llm_verdict = "ce_rejected"
-                            if rec.relationship_id:
-                                await graph_store.invalidate_relationship(
-                                    rec.relationship_id,
-                                    datetime.utcnow(),
-                                    group_id,
-                                )
                         else:
                             rec.llm_verdict = "auto_uncertain"
-                    except Exception:
+                    except Exception as ce_exc:
+                        logger.warning("Cross-encoder refinement failed: %s", ce_exc)
                         rec.llm_verdict = "auto_uncertain"
             except Exception as exc:
                 logger.warning("Auto-validation failed for %s: %s", rec.source_name, exc)
@@ -383,7 +459,6 @@ class EdgeInferencePhase(ConsolidationPhase):
     async def _run_llm_validation_pass(
         self,
         records: list[InferredEdge],
-        graph_store,
         cfg: ActivationConfig,
         group_id: str,
         dry_run: bool,
@@ -415,6 +490,8 @@ class EdgeInferencePhase(ConsolidationPhase):
                 client = anthropic.Anthropic()
             except Exception:
                 logger.warning("Could not create Anthropic client for LLM validation")
+                for rec in candidates:
+                    rec.llm_verdict = "abstain_unavailable"
                 return
 
         # Process candidates in batches
@@ -467,12 +544,6 @@ class EdgeInferencePhase(ConsolidationPhase):
                     elif verdict == "rejected":
                         rec.infer_type = "llm_rejected"
                         rec.llm_verdict = "rejected"
-                        if rec.relationship_id:
-                            await graph_store.invalidate_relationship(
-                                rec.relationship_id,
-                                datetime.utcnow(),
-                                group_id,
-                            )
                     else:
                         rec.llm_verdict = "uncertain"
 
@@ -485,7 +556,6 @@ class EdgeInferencePhase(ConsolidationPhase):
     async def _run_escalation_pass(
         self,
         records: list[InferredEdge],
-        graph_store,
         cfg: ActivationConfig,
         group_id: str,
         dry_run: bool,
@@ -513,6 +583,8 @@ class EdgeInferencePhase(ConsolidationPhase):
                 client = anthropic.Anthropic()
             except Exception:
                 logger.warning("Could not create Anthropic client for escalation")
+                for rec in candidates:
+                    rec.escalation_verdict = "abstain_unavailable"
                 return
 
         for rec in candidates:
@@ -547,15 +619,72 @@ class EdgeInferencePhase(ConsolidationPhase):
                 elif verdict == "rejected":
                     rec.infer_type = "escalation_rejected"
                     rec.llm_verdict = "escalation_rejected"
-                    if rec.relationship_id:
-                        await graph_store.invalidate_relationship(
-                            rec.relationship_id,
-                            datetime.utcnow(),
-                            group_id,
-                        )
             except Exception as exc:
                 logger.warning("Escalation failed for %s: %s", rec.id, exc)
                 rec.escalation_verdict = "error"
+
+    async def _materialize_records(
+        self,
+        records: list[InferredEdge],
+        graph_store,
+        cfg: ActivationConfig,
+        group_id: str,
+        cycle_id: str,
+        dry_run: bool,
+        context: CycleContext | None,
+    ) -> int:
+        """Apply accepted inferred edges through the shared relationship path."""
+        affected = 0
+        for rec in records:
+            decision = _infer_decision(rec)
+            if decision != "accept":
+                rec.materialization_action = "rejected" if decision == "reject" else "abstained"
+                continue
+
+            if dry_run:
+                rec.materialization_action = "dry_run"
+                affected += 1
+                continue
+
+            source_episode = f"consolidation:{cycle_id}"
+            if rec.infer_type == "transitivity":
+                source_episode = f"consolidation:{cycle_id}:transitivity"
+            weight = rec.confidence if rec.infer_type == "transitivity" else min(
+                1.0, rec.co_occurrence_count / 10.0,
+            )
+            apply_result = await GraphManager._apply_relationship_fact(
+                graph_store,
+                self._canonicalizer,
+                cfg,
+                {
+                    "source_id": rec.source_id,
+                    "target_id": rec.target_id,
+                    "source_name": rec.source_name,
+                    "target_name": rec.target_name,
+                    "predicate": rec.predicate,
+                    "weight": weight,
+                    "confidence": rec.confidence,
+                },
+                {
+                    rec.source_name: rec.source_id,
+                    rec.target_name: rec.target_id,
+                },
+                group_id,
+                source_episode,
+            )
+            rec.materialization_action = apply_result.action
+            rec.relationship_id = (
+                apply_result.metadata.get("relationship_id")
+                or apply_result.metadata.get("existing_relationship_id")
+            )
+            if apply_result.created or apply_result.action == "updated_existing":
+                affected += 1
+                if context is not None:
+                    context.inferred_edge_entity_ids.add(rec.source_id)
+                    context.inferred_edge_entity_ids.add(rec.target_id)
+                    context.affected_entity_ids.add(rec.source_id)
+                    context.affected_entity_ids.add(rec.target_id)
+        return affected
 
 
 async def _run_transitivity_pass(
@@ -563,9 +692,7 @@ async def _run_transitivity_pass(
     graph_store,
     cfg: ActivationConfig,
     cycle_id: str,
-    dry_run: bool,
     remaining: int,
-    context: CycleContext | None = None,
 ) -> list[InferredEdge]:
     """Infer transitive edges: A→B + B→C ⟹ A→C for configured predicates."""
     if remaining <= 0:
@@ -619,25 +746,6 @@ async def _run_transitivity_pass(
                     if not entity_a or not entity_c:
                         continue
 
-                    if not dry_run:
-                        rel = Relationship(
-                            id=f"rel_{uuid.uuid4().hex[:12]}",
-                            source_id=a_id,
-                            target_id=c_id,
-                            predicate=predicate,
-                            weight=confidence,
-                            confidence=confidence,
-                            source_episode=f"consolidation:{cycle_id}:transitivity",
-                            group_id=group_id,
-                        )
-                        await graph_store.create_relationship(rel)
-
-                        if context is not None:
-                            context.inferred_edge_entity_ids.add(a_id)
-                            context.inferred_edge_entity_ids.add(c_id)
-                            context.affected_entity_ids.add(a_id)
-                            context.affected_entity_ids.add(c_id)
-
                     records.append(
                         InferredEdge(
                             cycle_id=cycle_id,
@@ -648,6 +756,7 @@ async def _run_transitivity_pass(
                             target_name=entity_c.name,
                             co_occurrence_count=0,
                             confidence=confidence,
+                            predicate=predicate,
                             infer_type="transitivity",
                         )
                     )
@@ -661,3 +770,43 @@ async def _run_transitivity_pass(
 
 def _elapsed_ms(t0: float) -> float:
     return round((time.perf_counter() - t0) * 1000, 1)
+
+
+def _relationship_candidate_id(source_id: str, target_id: str, predicate: str) -> str:
+    a_id, b_id = sorted((source_id, target_id))
+    return f"{a_id}:{b_id}:{predicate}"
+
+
+def _infer_decision(rec: InferredEdge) -> str:
+    if "rejected" in rec.infer_type:
+        return "reject"
+    if rec.llm_verdict in {"uncertain", "error", "auto_uncertain", "abstain_unavailable"}:
+        return "abstain"
+    if rec.escalation_verdict in {"error", "abstain_unavailable"}:
+        return "abstain"
+    return "accept"
+
+
+def _infer_decision_source(rec: InferredEdge) -> str:
+    if rec.infer_type.startswith("auto_"):
+        return "auto_validation"
+    if rec.infer_type.startswith("cross_encoder"):
+        return "cross_encoder"
+    if rec.infer_type.startswith("llm_"):
+        return "llm"
+    if rec.infer_type.startswith("escalation"):
+        return "escalation"
+    if rec.infer_type == "transitivity":
+        return "transitivity"
+    return "statistical"
+
+
+def _infer_threshold_band(rec: InferredEdge, dry_run: bool) -> str:
+    decision = _infer_decision(rec)
+    if decision == "reject":
+        return "rejected"
+    if decision == "abstain":
+        return "abstained"
+    if dry_run and rec.relationship_id is None:
+        return "proposed"
+    return "accepted"

@@ -59,7 +59,7 @@ export function MemoryFeed() {
   const handleEntityClick = useCallback(
     (entityId: string) => {
       selectNode(entityId);
-      loadNeighborhood(entityId);
+      void loadNeighborhood(entityId, undefined, { regionId: null });
       setCurrentView("graph");
     },
     [selectNode, loadNeighborhood, setCurrentView],

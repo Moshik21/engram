@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid
 from collections import defaultdict
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.consolidation.maturity_features import get_cached_maturity_features
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.models.consolidation import CycleContext, PhaseResult, SchemaRecord
 from engram.models.entity import Entity
@@ -38,7 +40,22 @@ def compute_fingerprint(
             source = entity_cache.get(rel.source_id)
             if source:
                 triples.add((source.entity_type, rel.predicate, entity_type))
-    return frozenset(triples)
+    return canonicalize_fingerprint(frozenset(triples))
+
+
+def canonicalize_fingerprint(
+    fingerprint: frozenset[tuple[str, str, str]],
+) -> frozenset[tuple[str, str, str]]:
+    """Normalize case and whitespace so equivalent motifs collapse together."""
+    normalized = {
+        (
+            str(src_type).strip(),
+            str(predicate).strip().upper(),
+            str(tgt_type).strip(),
+        )
+        for src_type, predicate, tgt_type in fingerprint
+    }
+    return frozenset(normalized)
 
 
 def _generate_schema_name(fingerprint: frozenset[tuple[str, str, str]]) -> str:
@@ -73,7 +90,7 @@ def _schema_matches_fingerprint(
     fingerprint: frozenset[tuple[str, str, str]],
 ) -> bool:
     """Check if existing schema members match a fingerprint."""
-    expected = _fingerprint_to_members(fingerprint)
+    expected = _fingerprint_to_members(canonicalize_fingerprint(fingerprint))
     if len(schema_members) != len(expected):
         return False
     existing_set = {
@@ -87,12 +104,123 @@ def _schema_matches_fingerprint(
     return existing_set == expected_set
 
 
+def _get_schema_support(
+    entity: Entity,
+    context: CycleContext | None,
+    cfg: ActivationConfig,
+) -> dict[str, Any]:
+    attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+    bundle = get_cached_maturity_features(entity, context)
+    mature = False
+    if attrs.get("mat_tier") in {"transitional", "semantic"}:
+        mature = True
+    elif context is not None and entity.id in context.matured_entity_ids:
+        mature = True
+    elif isinstance(bundle, dict):
+        try:
+            mature = (
+                float(bundle.get("maturity_score", 0.0))
+                >= cfg.maturation_transitional_threshold
+            )
+        except (TypeError, ValueError):
+            mature = False
+
+    source_diverse = False
+    time_recurrent = False
+    if isinstance(bundle, dict):
+        try:
+            source_diverse = int(bundle.get("episode_count", 0)) >= 2
+            time_recurrent = int(bundle.get("support_windows", 0)) >= 2
+            maturity_score = float(bundle.get("maturity_score", 0.0))
+        except (TypeError, ValueError):
+            source_diverse = False
+            time_recurrent = False
+            maturity_score = 0.0
+    else:
+        maturity_score = 0.0
+
+    return {
+        "has_bundle": isinstance(bundle, dict),
+        "mature": mature,
+        "source_diverse": source_diverse,
+        "time_recurrent": time_recurrent,
+        "maturity_score": maturity_score,
+    }
+
+
+def _summarize_candidate_support(
+    instance_ids: list[str],
+    entity_cache: dict[str, Entity],
+    context: CycleContext | None,
+    cfg: ActivationConfig,
+) -> dict[str, Any]:
+    mature_instances = 0
+    source_diverse_instances = 0
+    time_recurrent_instances = 0
+    bundle_instances = 0
+    available_instances = 0
+
+    for entity_id in instance_ids:
+        entity = entity_cache.get(entity_id)
+        if entity is None:
+            continue
+        support = _get_schema_support(entity, context, cfg)
+        if support["mature"]:
+            mature_instances += 1
+            available_instances += 1
+        elif support["has_bundle"]:
+            available_instances += 1
+        if support["has_bundle"]:
+            bundle_instances += 1
+        if support["source_diverse"]:
+            source_diverse_instances += 1
+        if support["time_recurrent"]:
+            time_recurrent_instances += 1
+
+    stable_threshold = max(1, math.ceil(cfg.schema_min_instances / 2))
+    recurrence_instances = max(source_diverse_instances, time_recurrent_instances)
+    support_available = available_instances > 0
+    recurrence_available = bundle_instances >= stable_threshold
+    passes = len(instance_ids) >= cfg.schema_min_instances
+    if support_available and mature_instances < stable_threshold:
+        passes = False
+    if passes and recurrence_available and recurrence_instances < stable_threshold:
+        passes = False
+
+    return {
+        "support_available": support_available,
+        "recurrence_available": recurrence_available,
+        "passes": passes,
+        "stable_threshold": stable_threshold,
+        "mature_instances": mature_instances,
+        "source_diverse_instances": source_diverse_instances,
+        "time_recurrent_instances": time_recurrent_instances,
+        "recurrence_instances": recurrence_instances,
+        "bundle_instances": bundle_instances,
+        "instance_count": len(instance_ids),
+    }
+
+
+def _support_reason(summary: dict[str, Any]) -> str:
+    return (
+        f"stable motif across {summary['instance_count']} instances "
+        f"({summary['mature_instances']} mature, "
+        f"{summary['source_diverse_instances']} multi-source, "
+        f"{summary['time_recurrent_instances']} multi-window)"
+    )
+
+
 class SchemaFormationPhase(ConsolidationPhase):
     """Detect recurring structural motifs and promote to Schema entities."""
 
     @property
     def name(self) -> str:
         return "schema"
+
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        if not cfg.schema_formation_enabled:
+            return set()
+        return {"find_entities_by_type", "get_schema_members", "save_schema_members"}
 
     async def execute(
         self,
@@ -152,13 +280,20 @@ class SchemaFormationPhase(ConsolidationPhase):
             scanned += 1
 
         # 3. Filter candidates
-        candidates: list[tuple[frozenset, list[str]]] = [
-            (fp, eids)
-            for fp, eids in motif_counter.items()
-            if len(eids) >= cfg.schema_min_instances
-        ]
-        # Sort by instance count descending for deterministic selection
-        candidates.sort(key=lambda x: len(x[1]), reverse=True)
+        candidates: list[tuple[frozenset, list[str], dict[str, Any]]] = []
+        for fp, eids in motif_counter.items():
+            support = _summarize_candidate_support(eids, entity_cache, context, cfg)
+            if support["passes"]:
+                candidates.append((fp, eids, support))
+        # Prefer stable, recurrent motifs over raw instance count.
+        candidates.sort(
+            key=lambda item: (
+                item[2]["mature_instances"],
+                item[2]["recurrence_instances"],
+                len(item[1]),
+            ),
+            reverse=True,
+        )
 
         # 4. Check existing schemas and create/reinforce
         records: list[SchemaRecord] = []
@@ -168,7 +303,7 @@ class SchemaFormationPhase(ConsolidationPhase):
             "Schema", group_id, limit=200,
         )
 
-        for fp, instance_ids in candidates:
+        for fp, instance_ids, support_summary in candidates:
             if created >= cfg.schema_max_per_cycle:
                 break
 
@@ -194,6 +329,9 @@ class SchemaFormationPhase(ConsolidationPhase):
                         else {}
                     )
                     attrs["instance_count"] = len(instance_ids)
+                    attrs["promotion_reason"] = _support_reason(support_summary)
+                    attrs["support_policy_version"] = "schema_support_v2"
+                    attrs["support_summary"] = support_summary
                     await graph_store.update_entity(
                         matched_schema.id,
                         {"attributes": json.dumps(attrs)},
@@ -219,10 +357,16 @@ class SchemaFormationPhase(ConsolidationPhase):
                     id=schema_id,
                     name=schema_name,
                     entity_type="Schema",
-                    summary=f"Structural pattern shared by {len(instance_ids)} entities",
+                    summary=(
+                        f"Structural pattern shared by {len(instance_ids)} entities; "
+                        f"{_support_reason(support_summary)}"
+                    ),
                     attributes={
                         "schema_fingerprint": sorted([list(t) for t in fp]),
                         "instance_count": len(instance_ids),
+                        "promotion_reason": _support_reason(support_summary),
+                        "support_policy_version": "schema_support_v2",
+                        "support_summary": support_summary,
                     },
                     group_id=group_id,
                 )

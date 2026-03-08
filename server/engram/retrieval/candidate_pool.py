@@ -149,7 +149,8 @@ async def _graph_neighborhood_pool(
                 entity_id=sid,
                 group_id=group_id,
             )
-            for nid, _weight, _pred in neighbors[:max_neighbors]:
+            for neighbor in neighbors[:max_neighbors]:
+                nid = neighbor[0]
                 if nid not in seed_set:
                     fan_in[nid] = fan_in.get(nid, 0) + 1
 
@@ -189,7 +190,8 @@ async def _working_memory_pool(
                 entity_id=item_id,
                 group_id=group_id,
             )
-            for nid, _weight, _pred in neighbors[:max_neighbors]:
+            for neighbor in neighbors[:max_neighbors]:
+                nid = neighbor[0]
                 if nid not in wm_ids:
                     dampened = recency_score * 0.5
                     # Keep the higher score if already seen

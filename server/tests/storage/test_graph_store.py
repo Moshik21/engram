@@ -5,7 +5,8 @@ from datetime import datetime
 import pytest
 
 from engram.models.entity import Entity
-from engram.models.episode import Episode
+from engram.models.episode import Episode, EpisodeProjectionState
+from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 from engram.storage.sqlite.graph import SQLiteGraphStore
 
@@ -25,6 +26,20 @@ class TestSQLiteGraphStore:
         assert result is not None
         assert result.name == "Python"
         assert result.entity_type == "Technology"
+
+    async def test_identifier_facets_persist_on_create(self, graph_store: SQLiteGraphStore):
+        entity = Entity(
+            id="ent_identifier",
+            name="SKU 1712061",
+            entity_type="Identifier",
+            group_id="default",
+        )
+        await graph_store.create_entity(entity)
+        result = await graph_store.get_entity("ent_identifier", "default")
+        assert result is not None
+        assert result.lexical_regime == "identifier"
+        assert result.canonical_identifier == "1712061"
+        assert result.identifier_label is True
 
     async def test_tenant_isolation(self, graph_store: SQLiteGraphStore):
         entity = Entity(
@@ -71,6 +86,21 @@ class TestSQLiteGraphStore:
         await graph_store.update_entity("ent_upd", {"name": "New"}, group_id="default")
         result = await graph_store.get_entity("ent_upd", "default")
         assert result.name == "New"
+
+    async def test_update_entity_refreshes_identifier_facets(self, graph_store: SQLiteGraphStore):
+        await graph_store.create_entity(
+            Entity(id="ent_upd_identifier", name="Widget", entity_type="Other", group_id="default")
+        )
+        await graph_store.update_entity(
+            "ent_upd_identifier",
+            {"name": "Part #001234"},
+            group_id="default",
+        )
+        result = await graph_store.get_entity("ent_upd_identifier", "default")
+        assert result is not None
+        assert result.lexical_regime == "identifier"
+        assert result.canonical_identifier == "001234"
+        assert result.identifier_label is True
 
     async def test_soft_delete(self, graph_store: SQLiteGraphStore):
         await graph_store.create_entity(
@@ -205,6 +235,85 @@ class TestSQLiteGraphStore:
         assert stats["entities"] >= 1
         assert "relationships" in stats
         assert "episodes" in stats
+
+    async def test_get_stats_includes_cue_and_projection_metrics(
+        self,
+        graph_store: SQLiteGraphStore,
+    ):
+        await graph_store.create_entity(
+            Entity(id="ent_stat_src", name="Alice", entity_type="Person", group_id="default")
+        )
+        await graph_store.create_entity(
+            Entity(id="ent_stat_tgt", name="Engram", entity_type="Project", group_id="default")
+        )
+        projected_episode = Episode(
+            id="ep_stats_projected",
+            content="Alice shipped the cue-first redesign",
+            group_id="default",
+            projection_state=EpisodeProjectionState.PROJECTED,
+            processing_duration_ms=120,
+            created_at=datetime(2025, 1, 1, 12, 0, 0),
+            last_projected_at=datetime(2025, 1, 1, 12, 0, 2),
+        )
+        failed_episode = Episode(
+            id="ep_stats_failed",
+            content="Projection failed after a malformed extractor response",
+            group_id="default",
+            projection_state=EpisodeProjectionState.FAILED,
+        )
+        await graph_store.create_episode(projected_episode)
+        await graph_store.create_episode(failed_episode)
+        await graph_store.link_episode_entity("ep_stats_projected", "ent_stat_src")
+        await graph_store.create_relationship(
+            Relationship(
+                id="rel_stats_projected",
+                source_id="ent_stat_src",
+                target_id="ent_stat_tgt",
+                predicate="BUILDS",
+                group_id="default",
+                source_episode="ep_stats_projected",
+            )
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_stats_projected",
+                group_id="default",
+                projection_state=EpisodeProjectionState.PROJECTED,
+                cue_text="Alice redesign",
+                hit_count=3,
+                surfaced_count=2,
+                selected_count=1,
+                used_count=1,
+                policy_score=0.9,
+                projection_attempts=1,
+                created_at=datetime(2025, 1, 1, 12, 0, 0),
+                last_projected_at=datetime(2025, 1, 1, 12, 0, 2),
+            )
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_stats_failed",
+                group_id="default",
+                projection_state=EpisodeProjectionState.FAILED,
+                cue_text="malformed extractor",
+                near_miss_count=1,
+                policy_score=0.2,
+                projection_attempts=2,
+            )
+        )
+
+        stats = await graph_store.get_stats(group_id="default")
+
+        assert stats["cue_metrics"]["cue_count"] == 2
+        assert stats["cue_metrics"]["cue_coverage"] == 1.0
+        assert stats["cue_metrics"]["cue_hit_count"] == 3
+        assert stats["cue_metrics"]["cue_to_projection_conversion_rate"] == 0.5
+        assert stats["projection_metrics"]["state_counts"]["projected"] == 1
+        assert stats["projection_metrics"]["state_counts"]["failed"] == 1
+        assert stats["projection_metrics"]["total_attempts"] == 3
+        assert stats["projection_metrics"]["yield"]["linked_entity_count"] == 1
+        assert stats["projection_metrics"]["yield"]["relationship_count"] == 1
+        assert stats["projection_metrics"]["avg_processing_duration_ms"] == 120.0
 
     async def test_update_entity_rejects_invalid_column(self, graph_store: SQLiteGraphStore):
         await graph_store.create_entity(

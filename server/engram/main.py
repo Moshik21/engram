@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,6 +100,39 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         reranker=reranker,
         community_store=community_store,
         predicate_cache=predicate_cache,
+        runtime_mode=mode.value,
+    )
+
+    if mode == EngineMode.LITE:
+        from engram.storage.sqlite.atlas import SQLiteAtlasStore
+
+        atlas_store = SQLiteAtlasStore(str(config.get_sqlite_path()))
+        if hasattr(graph_store, "_db"):
+            await atlas_store.initialize(db=graph_store._db)
+        else:
+            await atlas_store.initialize()
+    else:
+        from engram.storage.redis.atlas import RedisAtlasStore
+
+        redis_client = getattr(search_index, "_redis", None)
+        if redis_client is None:
+            redis_client = getattr(activation_store, "_redis", None)
+        atlas_store = RedisAtlasStore(redis_client)
+        await atlas_store.initialize()
+
+    from engram.atlas.builder import AtlasBuilder
+    from engram.atlas.service import AtlasService
+
+    atlas_builder = AtlasBuilder(
+        graph_store,
+        activation_store,
+        config.activation,
+        community_store=community_store,
+    )
+    atlas_service = AtlasService(
+        atlas_store,
+        atlas_builder,
+        graph_store,
     )
 
     # Consolidation engine + store (Postgres when DSN is set, otherwise SQLite)
@@ -224,6 +258,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "activation_store": activation_store,
             "search_index": search_index,
             "graph_manager": manager,
+            "atlas_store": atlas_store,
+            "atlas_service": atlas_service,
             "event_bus": event_bus,
             "embedding_provider": embedding_provider,
             "consolidation_engine": consolidation_engine,
@@ -314,6 +350,10 @@ async def _shutdown() -> None:
     if search_index and hasattr(search_index, "close"):
         await search_index.close()
 
+    atlas_store = _app_state.get("atlas_store")
+    if atlas_store and hasattr(atlas_store, "close"):
+        await atlas_store.close()
+
     graph_store = _app_state.get("graph_store")
     if graph_store and hasattr(graph_store, "close"):
         await graph_store.close()
@@ -324,10 +364,19 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     if config is None:
         config = EngramConfig()
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await _startup(app, config)
+        try:
+            yield
+        finally:
+            await _shutdown()
+
     app = FastAPI(
         title="Engram",
         version=__version__,
         description="Activation-based memory layer for AI agents",
+        lifespan=lifespan,
     )
 
     # CORS
@@ -357,14 +406,6 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(ws_router)
     app.include_router(knowledge_router)
     app.include_router(conversations_router)
-
-    @app.on_event("startup")
-    async def startup():
-        await _startup(app, config)
-
-    @app.on_event("shutdown")
-    async def shutdown():
-        await _shutdown()
 
     return app
 

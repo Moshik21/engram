@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngramStore } from "./index";
+import type { GraphNode } from "./types";
 import { useShallow } from "zustand/shallow";
 
 /**
@@ -57,9 +58,12 @@ export function useActivationRef(): React.MutableRefObject<Map<string, number>> 
       map.set(id, node.activationCurrent);
     }
     ref.current = map;
+    let prevNodes = state.nodes;
 
     // Subscribe to store changes, update ref without triggering render
     const unsub = useEngramStore.subscribe((state) => {
+      if (state.nodes === prevNodes) return;
+      prevNodes = state.nodes;
       const newMap = new Map<string, number>();
       for (const [id, node] of Object.entries(state.nodes)) {
         newMap.set(id, node.activationCurrent);
@@ -83,10 +87,9 @@ export function useNodeDataRef(): React.MutableRefObject<
   const ref = useRef<Record<string, { entityType: string; accessCount: number; activationCurrent: number }>>({});
 
   useEffect(() => {
-    const update = () => {
-      const state = useEngramStore.getState();
+    const update = (nodes: Record<string, GraphNode>) => {
       const data: Record<string, { entityType: string; accessCount: number; activationCurrent: number }> = {};
-      for (const [id, node] of Object.entries(state.nodes)) {
+      for (const [id, node] of Object.entries(nodes)) {
         data[id] = {
           entityType: node.entityType,
           accessCount: node.accessCount,
@@ -96,12 +99,78 @@ export function useNodeDataRef(): React.MutableRefObject<
       ref.current = data;
     };
 
-    update();
-    const unsub = useEngramStore.subscribe(update);
+    const state = useEngramStore.getState();
+    update(state.nodes);
+    let prevNodes = state.nodes;
+    const unsub = useEngramStore.subscribe((nextState) => {
+      if (nextState.nodes === prevNodes) return;
+      prevNodes = nextState.nodes;
+      update(nextState.nodes);
+    });
     return unsub;
   }, []);
 
   return ref;
+}
+
+export interface TimelineNodeItem {
+  id: string;
+  name: string;
+  entityType: string;
+  createdAt: string;
+  createdAtMs: number;
+}
+
+function buildTimelineNodes(nodes: Record<string, GraphNode>): TimelineNodeItem[] {
+  return Object.values(nodes)
+    .filter((node) => node.createdAt)
+    .map((node) => ({
+      id: node.id,
+      name: node.name,
+      entityType: node.entityType,
+      createdAt: node.createdAt,
+      createdAtMs: new Date(node.createdAt).getTime(),
+    }))
+    .sort((a, b) => a.createdAtMs - b.createdAtMs);
+}
+
+export function useTimelineNodes(): TimelineNodeItem[] {
+  const [timelineNodes, setTimelineNodes] = useState<TimelineNodeItem[]>([]);
+  const metadataRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    const update = (nodes: Record<string, GraphNode>) => {
+      const nextMetadata = new Map<string, string>();
+      let changed = metadataRef.current.size !== Object.keys(nodes).length;
+
+      for (const [id, node] of Object.entries(nodes)) {
+        const signature = `${node.name}\u0000${node.entityType}\u0000${node.createdAt}`;
+        nextMetadata.set(id, signature);
+        if (!changed && metadataRef.current.get(id) !== signature) {
+          changed = true;
+        }
+      }
+
+      if (!changed) return;
+
+      metadataRef.current = nextMetadata;
+      setTimelineNodes(buildTimelineNodes(nodes));
+    };
+
+    const state = useEngramStore.getState();
+    update(state.nodes);
+    let prevNodes = state.nodes;
+
+    const unsub = useEngramStore.subscribe((nextState) => {
+      if (nextState.nodes === prevNodes) return;
+      prevNodes = nextState.nodes;
+      update(nextState.nodes);
+    });
+
+    return unsub;
+  }, []);
+
+  return timelineNodes;
 }
 
 /** Keys written by the d3-force simulation that must survive across rebuilds. */
@@ -114,22 +183,45 @@ const SIM_KEYS = ["x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz", "__threeObj
 function useStructuralFingerprint() {
   const prevNodeFp = useRef("");
   const prevEdgeFp = useRef("");
+  const prevNodesRef = useRef<Record<string, GraphNode>>({});
+  const prevEdgesRef = useRef(useEngramStore.getState().edges);
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
+    const state = useEngramStore.getState();
+    prevNodesRef.current = state.nodes;
+    prevEdgesRef.current = state.edges;
+    prevNodeFp.current = Object.keys(state.nodes).sort().join(",");
+    prevEdgeFp.current = Object.keys(state.edges).sort().join(",");
+
     const unsub = useEngramStore.subscribe((state) => {
-      const nodeFp = Object.keys(state.nodes).sort().join(",");
-      const edgeFp = Object.keys(state.edges).sort().join(",");
-      if (nodeFp !== prevNodeFp.current || edgeFp !== prevEdgeFp.current) {
-        prevNodeFp.current = nodeFp;
-        prevEdgeFp.current = edgeFp;
+      const nodesChanged = state.nodes !== prevNodesRef.current;
+      const edgesChanged = state.edges !== prevEdgesRef.current;
+      if (!nodesChanged && !edgesChanged) return;
+
+      prevNodesRef.current = state.nodes;
+      prevEdgesRef.current = state.edges;
+
+      let didChange = false;
+      if (nodesChanged) {
+        const nodeFp = Object.keys(state.nodes).sort().join(",");
+        if (nodeFp !== prevNodeFp.current) {
+          prevNodeFp.current = nodeFp;
+          didChange = true;
+        }
+      }
+      if (edgesChanged) {
+        const edgeFp = Object.keys(state.edges).sort().join(",");
+        if (edgeFp !== prevEdgeFp.current) {
+          prevEdgeFp.current = edgeFp;
+          didChange = true;
+        }
+      }
+
+      if (didChange) {
         setVersion((v) => v + 1);
       }
     });
-    // Initialize
-    const state = useEngramStore.getState();
-    prevNodeFp.current = Object.keys(state.nodes).sort().join(",");
-    prevEdgeFp.current = Object.keys(state.edges).sort().join(",");
     return unsub;
   }, []);
 

@@ -551,6 +551,7 @@ class TestRecallProfile:
 
         cfg = ActivationConfig(recall_profile="off")
         assert cfg.auto_recall_enabled is False
+        assert cfg.recall_usage_feedback_enabled is False
         assert cfg.conv_context_enabled is False
         assert cfg.surprise_detection_enabled is False
         assert cfg.prospective_memory_enabled is False
@@ -563,6 +564,10 @@ class TestRecallProfile:
         assert cfg.auto_recall_on_observe is True
         assert cfg.auto_recall_on_remember is True
         assert cfg.auto_recall_session_prime is True
+        assert cfg.recall_need_analyzer_enabled is True
+        assert cfg.recall_need_structural_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is False
+        assert cfg.recall_usage_feedback_enabled is True
         # Wave 2+ should be off
         assert cfg.conv_context_enabled is False
         assert cfg.surprise_detection_enabled is False
@@ -575,12 +580,16 @@ class TestRecallProfile:
         # Wave 1
         assert cfg.auto_recall_enabled is True
         assert cfg.auto_recall_on_observe is True
+        assert cfg.recall_usage_feedback_enabled is True
         # Wave 2
         assert cfg.conv_context_enabled is True
         assert cfg.conv_fingerprint_enabled is True
         assert cfg.conv_multi_query_enabled is True
         assert cfg.conv_session_entity_seeds_enabled is True
         assert cfg.conv_near_miss_enabled is True
+        assert cfg.recall_need_structural_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is True
+        assert cfg.recall_need_shift_enabled is False
         # Wave 3+ should be off
         assert cfg.conv_topic_shift_enabled is False
         assert cfg.surprise_detection_enabled is False
@@ -592,6 +601,7 @@ class TestRecallProfile:
         cfg = ActivationConfig(recall_profile="wave3")
         # Wave 1
         assert cfg.auto_recall_enabled is True
+        assert cfg.recall_usage_feedback_enabled is True
         # Wave 2
         assert cfg.conv_context_enabled is True
         assert cfg.conv_near_miss_enabled is True
@@ -600,10 +610,15 @@ class TestRecallProfile:
         assert cfg.surprise_detection_enabled is True
         assert cfg.retrieval_priming_enabled is True
         assert cfg.gc_mmr_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is True
+        assert cfg.recall_need_shift_enabled is True
+        assert cfg.recall_need_impoverishment_enabled is True
+        assert cfg.recall_need_shift_shadow_only is False
+        assert cfg.recall_need_impoverishment_shadow_only is False
         # Wave 4 should be off
         assert cfg.prospective_memory_enabled is False
 
-    def test_recall_profile_all_enables_everything(self):
+    def test_recall_profile_all_enables_every_recall_wave(self):
         from engram.config import ActivationConfig
 
         cfg = ActivationConfig(recall_profile="all")
@@ -612,6 +627,7 @@ class TestRecallProfile:
         assert cfg.auto_recall_on_observe is True
         assert cfg.auto_recall_on_remember is True
         assert cfg.auto_recall_session_prime is True
+        assert cfg.recall_usage_feedback_enabled is True
         # Wave 2
         assert cfg.conv_context_enabled is True
         assert cfg.conv_fingerprint_enabled is True
@@ -623,8 +639,15 @@ class TestRecallProfile:
         assert cfg.surprise_detection_enabled is True
         assert cfg.retrieval_priming_enabled is True
         assert cfg.gc_mmr_enabled is True
+        assert cfg.recall_need_structural_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is True
+        assert cfg.recall_need_shift_enabled is True
+        assert cfg.recall_need_impoverishment_enabled is True
         # Wave 4
         assert cfg.prospective_memory_enabled is True
+        # Cue/projection rollout remains a separate integration profile.
+        assert cfg.cue_layer_enabled is False
+        assert cfg.cue_recall_enabled is False
 
     def test_recall_profile_all_same_as_wave4(self):
         from engram.config import ActivationConfig
@@ -634,6 +657,10 @@ class TestRecallProfile:
         flags = [
             "auto_recall_enabled", "auto_recall_on_observe",
             "auto_recall_on_remember", "auto_recall_session_prime",
+            "recall_usage_feedback_enabled", "recall_need_analyzer_enabled",
+            "recall_need_structural_enabled", "recall_need_graph_probe_enabled",
+            "recall_need_shift_enabled", "recall_need_impoverishment_enabled",
+            "recall_need_shift_shadow_only", "recall_need_impoverishment_shadow_only",
             "conv_context_enabled", "conv_fingerprint_enabled",
             "conv_multi_query_enabled", "conv_session_entity_seeds_enabled",
             "conv_near_miss_enabled", "conv_topic_shift_enabled",

@@ -95,6 +95,8 @@ class TestInferPopulatesContext:
         phase = EdgeInferencePhase()
         cfg = ActivationConfig(
             consolidation_infer_cooccurrence_min=2,
+            consolidation_infer_auto_validation_enabled=False,
+            consolidation_infer_pmi_enabled=False,
         )
 
         entity_a = MagicMock()
@@ -110,6 +112,11 @@ class TestInferPopulatesContext:
             side_effect=lambda eid, gid: entity_a if eid == "ent_a" else entity_b,
         )
         graph_store.create_relationship = AsyncMock()
+        graph_store.get_relationships = AsyncMock(return_value=[])
+        graph_store.find_existing_relationship = AsyncMock(return_value=None)
+        graph_store.find_conflicting_relationships = AsyncMock(return_value=[])
+        graph_store.update_relationship_weight = AsyncMock(return_value=None)
+        graph_store.invalidate_relationship = AsyncMock()
 
         activation_store = AsyncMock()
         search_index = AsyncMock()

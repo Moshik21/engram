@@ -8,9 +8,14 @@ import time
 import asyncpg
 
 from engram.models.consolidation import (
+    CalibrationSnapshot,
     ConsolidationCycle,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    DistillationExample,
     DreamAssociationRecord,
     DreamRecord,
+    IdentifierReviewRecord,
     InferredEdge,
     MergeRecord,
     PhaseResult,
@@ -68,10 +73,25 @@ class PostgresConsolidationStore:
                     keep_name TEXT NOT NULL,
                     remove_name TEXT NOT NULL,
                     similarity DOUBLE PRECISION NOT NULL,
+                    decision_confidence DOUBLE PRECISION,
+                    decision_source TEXT,
+                    decision_reason TEXT,
                     relationships_transferred INTEGER DEFAULT 0,
                     timestamp DOUBLE PRECISION NOT NULL
                 )
             """)
+            await conn.execute(
+                "ALTER TABLE consolidation_merges "
+                "ADD COLUMN IF NOT EXISTS decision_confidence DOUBLE PRECISION"
+            )
+            await conn.execute(
+                "ALTER TABLE consolidation_merges "
+                "ADD COLUMN IF NOT EXISTS decision_source TEXT"
+            )
+            await conn.execute(
+                "ALTER TABLE consolidation_merges "
+                "ADD COLUMN IF NOT EXISTS decision_reason TEXT"
+            )
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS consolidation_inferred_edges (
                     id TEXT PRIMARY KEY,
@@ -87,6 +107,30 @@ class PostgresConsolidationStore:
                     pmi_score DOUBLE PRECISION,
                     llm_verdict TEXT,
                     relationship_id TEXT,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_identifier_reviews (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    entity_a_id TEXT NOT NULL,
+                    entity_b_id TEXT NOT NULL,
+                    entity_a_name TEXT NOT NULL,
+                    entity_b_name TEXT NOT NULL,
+                    entity_a_type TEXT NOT NULL,
+                    entity_b_type TEXT NOT NULL,
+                    raw_similarity DOUBLE PRECISION NOT NULL,
+                    adjusted_similarity DOUBLE PRECISION,
+                    decision_source TEXT,
+                    decision_reason TEXT,
+                    entity_a_regime TEXT,
+                    entity_b_regime TEXT,
+                    canonical_identifier_a TEXT,
+                    canonical_identifier_b TEXT,
+                    review_status TEXT NOT NULL DEFAULT 'quarantined',
+                    metadata JSONB,
                     timestamp DOUBLE PRECISION NOT NULL
                 )
             """)
@@ -168,6 +212,77 @@ class PostgresConsolidationStore:
                     timestamp DOUBLE PRECISION NOT NULL
                 )
             """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_decision_traces (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    candidate_type TEXT NOT NULL,
+                    candidate_id TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    decision_source TEXT NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    threshold_band TEXT,
+                    features JSONB,
+                    constraints_json JSONB,
+                    policy_version TEXT NOT NULL,
+                    metadata JSONB,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_decision_outcomes (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    decision_trace_id TEXT NOT NULL,
+                    outcome_type TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    value DOUBLE PRECISION,
+                    metadata JSONB,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_distillation_examples (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    candidate_type TEXT NOT NULL,
+                    candidate_id TEXT NOT NULL,
+                    decision_trace_id TEXT NOT NULL,
+                    teacher_label TEXT NOT NULL,
+                    teacher_source TEXT NOT NULL,
+                    student_decision TEXT NOT NULL,
+                    student_confidence DOUBLE PRECISION,
+                    threshold_band TEXT,
+                    features JSONB,
+                    correct BOOLEAN,
+                    metadata JSONB,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_calibration_snapshots (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    phase TEXT NOT NULL,
+                    window_cycles INTEGER NOT NULL,
+                    total_traces INTEGER NOT NULL,
+                    labeled_examples INTEGER NOT NULL,
+                    oracle_examples INTEGER NOT NULL,
+                    abstain_count INTEGER NOT NULL,
+                    accuracy DOUBLE PRECISION,
+                    mean_confidence DOUBLE PRECISION,
+                    expected_calibration_error DOUBLE PRECISION,
+                    summary JSONB,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
 
             # Indexes
             await conn.execute(
@@ -177,6 +292,10 @@ class PostgresConsolidationStore:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_consol_merges_cycle "
                 "ON consolidation_merges(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_identifier_reviews_cycle "
+                "ON consolidation_identifier_reviews(cycle_id)"
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_consol_edges_cycle "
@@ -205,6 +324,22 @@ class PostgresConsolidationStore:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_consol_dream_assoc_cycle "
                 "ON consolidation_dream_associations(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_decision_traces_cycle "
+                "ON consolidation_decision_traces(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_decision_outcomes_cycle "
+                "ON consolidation_decision_outcomes(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_distill_cycle "
+                "ON consolidation_distillation_examples(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_calibration_cycle "
+                "ON consolidation_calibration_snapshots(cycle_id)"
             )
 
     @property
@@ -309,8 +444,9 @@ class PostgresConsolidationStore:
         await self.pool.execute(
             "INSERT INTO consolidation_merges "
             "(id, cycle_id, group_id, keep_id, remove_id, keep_name, "
-            "remove_name, similarity, relationships_transferred, timestamp) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+            "remove_name, similarity, decision_confidence, decision_source, "
+            "decision_reason, relationships_transferred, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
             "ON CONFLICT (id) DO NOTHING",
             record.id,
             record.cycle_id,
@@ -320,7 +456,44 @@ class PostgresConsolidationStore:
             record.keep_name,
             record.remove_name,
             record.similarity,
+            record.decision_confidence,
+            record.decision_source,
+            record.decision_reason,
             record.relationships_transferred,
+            record.timestamp,
+        )
+
+    async def save_identifier_review_record(self, record: IdentifierReviewRecord) -> None:
+        """Insert a quarantined identifier review record."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_identifier_reviews "
+            "(id, cycle_id, group_id, entity_a_id, entity_b_id, entity_a_name, "
+            "entity_b_name, entity_a_type, entity_b_type, raw_similarity, "
+            "adjusted_similarity, decision_source, decision_reason, entity_a_regime, "
+            "entity_b_regime, canonical_identifier_a, canonical_identifier_b, "
+            "review_status, metadata, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, "
+            "$14, $15, $16, $17, $18, $19, $20) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.entity_a_id,
+            record.entity_b_id,
+            record.entity_a_name,
+            record.entity_b_name,
+            record.entity_a_type,
+            record.entity_b_type,
+            record.raw_similarity,
+            record.adjusted_similarity,
+            record.decision_source,
+            record.decision_reason,
+            record.entity_a_regime,
+            record.entity_b_regime,
+            record.canonical_identifier_a,
+            record.canonical_identifier_b,
+            record.review_status,
+            json.dumps(record.metadata or {}),
             record.timestamp,
         )
 
@@ -346,7 +519,52 @@ class PostgresConsolidationStore:
                 keep_name=r["keep_name"],
                 remove_name=r["remove_name"],
                 similarity=r["similarity"],
+                decision_confidence=(
+                    r["decision_confidence"] if "decision_confidence" in r else None
+                ),
+                decision_source=r["decision_source"] if "decision_source" in r else None,
+                decision_reason=r["decision_reason"] if "decision_reason" in r else None,
                 relationships_transferred=r["relationships_transferred"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def get_identifier_review_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[IdentifierReviewRecord]:
+        """Fetch quarantined identifier review records for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_identifier_reviews "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            IdentifierReviewRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                entity_a_id=r["entity_a_id"],
+                entity_b_id=r["entity_b_id"],
+                entity_a_name=r["entity_a_name"],
+                entity_b_name=r["entity_b_name"],
+                entity_a_type=r["entity_a_type"],
+                entity_b_type=r["entity_b_type"],
+                raw_similarity=r["raw_similarity"],
+                adjusted_similarity=r["adjusted_similarity"],
+                decision_source=r["decision_source"],
+                decision_reason=r["decision_reason"],
+                entity_a_regime=r["entity_a_regime"],
+                entity_b_regime=r["entity_b_regime"],
+                canonical_identifier_a=r["canonical_identifier_a"],
+                canonical_identifier_b=r["canonical_identifier_b"],
+                review_status=r["review_status"],
+                metadata=(
+                    json.loads(r["metadata"]) if isinstance(r["metadata"], str) else r["metadata"]
+                ) or {},
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -701,6 +919,255 @@ class PostgresConsolidationStore:
             for r in rows
         ]
 
+    async def save_decision_trace(self, record: DecisionTrace) -> None:
+        """Insert a structured decision trace."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_decision_traces "
+            "(id, cycle_id, group_id, phase, candidate_type, candidate_id, "
+            "decision, decision_source, confidence, threshold_band, features, "
+            "constraints_json, policy_version, metadata, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, "
+            "$12::jsonb, $13, $14::jsonb, $15) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.phase,
+            record.candidate_type,
+            record.candidate_id,
+            record.decision,
+            record.decision_source,
+            record.confidence,
+            record.threshold_band,
+            json.dumps(record.features),
+            json.dumps(record.constraints_hit),
+            record.policy_version,
+            json.dumps(record.metadata),
+            record.timestamp,
+        )
+
+    async def get_decision_traces(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[DecisionTrace]:
+        """Fetch decision traces for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_decision_traces "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            DecisionTrace(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                candidate_type=r["candidate_type"],
+                candidate_id=r["candidate_id"],
+                decision=r["decision"],
+                decision_source=r["decision_source"],
+                confidence=r["confidence"],
+                threshold_band=r["threshold_band"],
+                features=(
+                    json.loads(r["features"]) if isinstance(r["features"], str)
+                    else (r["features"] or {})
+                ),
+                constraints_hit=(
+                    json.loads(r["constraints_json"]) if isinstance(r["constraints_json"], str)
+                    else (r["constraints_json"] or [])
+                ),
+                policy_version=r["policy_version"],
+                metadata=(
+                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    else (r["metadata"] or {})
+                ),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_decision_outcome_label(self, record: DecisionOutcomeLabel) -> None:
+        """Insert a decision outcome label."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_decision_outcomes "
+            "(id, cycle_id, group_id, phase, decision_trace_id, outcome_type, "
+            "label, value, metadata, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.phase,
+            record.decision_trace_id,
+            record.outcome_type,
+            record.label,
+            record.value,
+            json.dumps(record.metadata),
+            record.timestamp,
+        )
+
+    async def get_decision_outcome_labels(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[DecisionOutcomeLabel]:
+        """Fetch decision outcome labels for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_decision_outcomes "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            DecisionOutcomeLabel(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                decision_trace_id=r["decision_trace_id"],
+                outcome_type=r["outcome_type"],
+                label=r["label"],
+                value=r["value"],
+                metadata=(
+                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    else (r["metadata"] or {})
+                ),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_distillation_example(self, record: DistillationExample) -> None:
+        """Insert a distillation-ready example derived from decision history."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_distillation_examples "
+            "(id, cycle_id, group_id, phase, candidate_type, candidate_id, "
+            "decision_trace_id, teacher_label, teacher_source, student_decision, "
+            "student_confidence, threshold_band, features, correct, metadata, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, "
+            "$13::jsonb, $14, $15::jsonb, $16) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.phase,
+            record.candidate_type,
+            record.candidate_id,
+            record.decision_trace_id,
+            record.teacher_label,
+            record.teacher_source,
+            record.student_decision,
+            record.student_confidence,
+            record.threshold_band,
+            json.dumps(record.features),
+            record.correct,
+            json.dumps(record.metadata),
+            record.timestamp,
+        )
+
+    async def get_distillation_examples(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[DistillationExample]:
+        """Fetch persisted distillation examples for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_distillation_examples "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            DistillationExample(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                candidate_type=r["candidate_type"],
+                candidate_id=r["candidate_id"],
+                decision_trace_id=r["decision_trace_id"],
+                teacher_label=r["teacher_label"],
+                teacher_source=r["teacher_source"],
+                student_decision=r["student_decision"],
+                student_confidence=r["student_confidence"],
+                threshold_band=r["threshold_band"],
+                features=(
+                    json.loads(r["features"]) if isinstance(r["features"], str)
+                    else (r["features"] or {})
+                ),
+                correct=r["correct"],
+                metadata=(
+                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    else (r["metadata"] or {})
+                ),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_calibration_snapshot(self, record: CalibrationSnapshot) -> None:
+        """Insert a rolling calibration snapshot for a phase."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_calibration_snapshots "
+            "(id, cycle_id, group_id, phase, window_cycles, total_traces, "
+            "labeled_examples, oracle_examples, abstain_count, accuracy, "
+            "mean_confidence, expected_calibration_error, summary, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, "
+            "$13::jsonb, $14) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.phase,
+            record.window_cycles,
+            record.total_traces,
+            record.labeled_examples,
+            record.oracle_examples,
+            record.abstain_count,
+            record.accuracy,
+            record.mean_confidence,
+            record.expected_calibration_error,
+            json.dumps(record.summary),
+            record.timestamp,
+        )
+
+    async def get_calibration_snapshots(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[CalibrationSnapshot]:
+        """Fetch calibration snapshots for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_calibration_snapshots "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY phase, timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            CalibrationSnapshot(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                window_cycles=r["window_cycles"],
+                total_traces=r["total_traces"],
+                labeled_examples=r["labeled_examples"],
+                oracle_examples=r["oracle_examples"],
+                abstain_count=r["abstain_count"],
+                accuracy=r["accuracy"],
+                mean_confidence=r["mean_confidence"],
+                expected_calibration_error=r["expected_calibration_error"],
+                summary=(
+                    json.loads(r["summary"]) if isinstance(r["summary"], str)
+                    else (r["summary"] or {})
+                ),
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     # ── Cleanup ─────────────────────────────────────────────────────────
 
     async def cleanup(self, ttl_days: int = 90) -> int:
@@ -719,6 +1186,7 @@ class PostgresConsolidationStore:
         # Delete child records using ANY($1::text[]) for all tables
         for table in (
             "consolidation_merges",
+            "consolidation_identifier_reviews",
             "consolidation_inferred_edges",
             "consolidation_prunes",
             "consolidation_reindexes",
@@ -726,6 +1194,10 @@ class PostgresConsolidationStore:
             "consolidation_dreams",
             "consolidation_triage",
             "consolidation_dream_associations",
+            "consolidation_decision_traces",
+            "consolidation_decision_outcomes",
+            "consolidation_distillation_examples",
+            "consolidation_calibration_snapshots",
         ):
             await self.pool.execute(
                 f"DELETE FROM {table} WHERE cycle_id = ANY($1::text[])",  # noqa: S608

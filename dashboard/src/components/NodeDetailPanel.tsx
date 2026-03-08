@@ -8,41 +8,46 @@ import type { EntityDetail } from "../store/types";
 export function NodeDetailPanel() {
   const selectedNodeId = useEngramStore((s) => s.selectedNodeId);
   const selectNode = useEngramStore((s) => s.selectNode);
+  const activeRegionId = useEngramStore((s) => s.activeRegionId);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
   const expandNode = useEngramStore((s) => s.expandNode);
 
-  const [detail, setDetail] = useState<EntityDetail | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [cachedDetail, setDetail] = useState<EntityDetail | null>(null);
+  const [failedId, setFailedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedNodeId) {
-      setDetail(null);
       return;
     }
     let cancelled = false;
-    setLoading(true);
     api
       .getEntity(selectedNodeId)
       .then((d) => {
-        if (!cancelled) setDetail(d);
+        if (!cancelled) {
+          setDetail(d);
+          setFailedId(null);
+        }
       })
       .catch(() => {
-        if (!cancelled) setDetail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setDetail(null);
+          setFailedId(selectedNodeId);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [selectedNodeId]);
 
+  const detail = cachedDetail?.id === selectedNodeId ? cachedDetail : null;
+  const loading = Boolean(selectedNodeId) && detail === null && failedId !== selectedNodeId;
+
   const handleEntityClick = useCallback(
     (entityId: string) => {
-      loadNeighborhood(entityId);
+      void loadNeighborhood(entityId, undefined, { regionId: activeRegionId });
       selectNode(entityId);
     },
-    [loadNeighborhood, selectNode]
+    [activeRegionId, loadNeighborhood, selectNode]
   );
 
   if (!selectedNodeId) return null;
@@ -286,7 +291,11 @@ export function NodeDetailPanel() {
               Expand
             </button>
             <button
-              onClick={() => loadNeighborhood(detail.id)}
+              onClick={() =>
+                void loadNeighborhood(detail.id, undefined, {
+                  regionId: activeRegionId,
+                })
+              }
               style={{
                 flex: 1,
                 padding: "6px 0",

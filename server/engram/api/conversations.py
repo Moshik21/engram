@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store
 from engram.security.middleware import get_tenant
+from engram.storage.sqlite.conversations import ConversationNotFoundError
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -50,8 +51,12 @@ async def create_conversation(request: Request, body: CreateConversationBody) ->
 
 @router.get("/{conversation_id}/messages")
 async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
+    tenant = get_tenant(request)
     store = get_conversation_store()
-    messages = await store.get_messages(conversation_id)
+    try:
+        messages = await store.get_messages(conversation_id, tenant.group_id)
+    except ConversationNotFoundError:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"messages": messages})
 
 
@@ -59,8 +64,16 @@ async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
 async def append_messages(
     request: Request, conversation_id: str, body: BulkMessagesBody,
 ) -> JSONResponse:
+    tenant = get_tenant(request)
     store = get_conversation_store()
-    ids = await store.add_messages_bulk(conversation_id, body.messages)
+    try:
+        ids = await store.add_messages_bulk(
+            conversation_id,
+            body.messages,
+            group_id=tenant.group_id,
+        )
+    except ConversationNotFoundError:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"ids": ids})
 
 
@@ -70,7 +83,9 @@ async def update_conversation(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    await store.update_conversation(conversation_id, tenant.group_id, title=body.title)
+    updated = await store.update_conversation(conversation_id, tenant.group_id, title=body.title)
+    if not updated:
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"status": "updated"})
 
 

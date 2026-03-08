@@ -8,6 +8,7 @@ import aiosqlite
 
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,10 @@ class FTS5SearchIndex:
         """Index is maintained via triggers — this is a no-op for FTS5."""
         pass
 
+    async def index_episode_cue(self, cue: EpisodeCue) -> None:
+        """Index is maintained via triggers — this is a no-op for FTS5."""
+        pass
+
     async def search(
         self,
         query: str,
@@ -227,6 +232,7 @@ class FTS5SearchIndex:
             FROM episodes_fts fts
             JOIN episodes ep ON ep.rowid = fts.rowid
             WHERE episodes_fts MATCH :query
+              AND (ep.projection_state IS NULL OR ep.projection_state != 'merged')
         """
         params: dict = {"query": fts_query}
 
@@ -250,6 +256,46 @@ class FTS5SearchIndex:
         # Normalize BM25 scores to 0.0-1.0 (BM25 returns negative scores)
         max_score = abs(rows[0]["rank"])
         return [(row["id"], abs(row["rank"]) / max_score if max_score > 0 else 0.0) for row in rows]
+
+    async def search_episode_cues(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """Search cue text using FTS5 BM25 scoring."""
+        fts_query = self._prepare_query(query)
+        if not fts_query:
+            return []
+
+        sql = """
+            SELECT ec.episode_id, rank
+            FROM episode_cues_fts fts
+            JOIN episode_cues ec ON ec.rowid = fts.rowid
+            WHERE episode_cues_fts MATCH :query
+        """
+        params: dict = {"query": fts_query}
+        if group_id:
+            sql += " AND ec.group_id = :group_id"
+            params["group_id"] = group_id
+        sql += " ORDER BY rank LIMIT :limit"
+        params["limit"] = limit
+
+        try:
+            cursor = await self.db.execute(sql, params)
+            rows = await cursor.fetchall()
+        except Exception as e:
+            logger.warning("FTS5 cue search failed for query %r: %s", query, e)
+            return []
+
+        if not rows:
+            return []
+
+        max_score = abs(rows[0]["rank"])
+        return [
+            (row["episode_id"], abs(row["rank"]) / max_score if max_score > 0 else 0.0)
+            for row in rows
+        ]
 
     async def close(self) -> None:
         """No-op — connection is shared with the graph store."""

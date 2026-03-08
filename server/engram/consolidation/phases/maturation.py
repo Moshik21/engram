@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime
 
 from engram.config import ActivationConfig
+from engram.consolidation.maturity_features import (
+    compute_maturity_components,
+    extract_maturity_features,
+    maturity_bundle_changed,
+)
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.models.consolidation import CycleContext, MaturationRecord, PhaseResult
 
@@ -22,30 +26,13 @@ def compute_maturity_score(
     cfg: ActivationConfig,
 ) -> float:
     """Compute maturity score from four signals."""
-    source_score = min(1.0, episode_count / 10.0)
-    temporal_score = min(1.0, temporal_span_days / 90.0)
-    richness_score = min(1.0, rel_diversity / 8.0)
-
-    if len(access_intervals) >= 2:
-        mean_interval = sum(access_intervals) / len(access_intervals)
-        if mean_interval > 0:
-            std_dev = (
-                sum((x - mean_interval) ** 2 for x in access_intervals)
-                / len(access_intervals)
-            ) ** 0.5
-            cv = std_dev / mean_interval
-            regularity_score = max(0.0, 1.0 - cv)
-        else:
-            regularity_score = 0.0
-    else:
-        regularity_score = 0.0
-
-    return (
-        cfg.maturation_source_weight * source_score
-        + cfg.maturation_temporal_weight * temporal_score
-        + cfg.maturation_richness_weight * richness_score
-        + cfg.maturation_regularity_weight * regularity_score
-    )
+    return compute_maturity_components(
+        episode_count,
+        temporal_span_days,
+        rel_diversity,
+        access_intervals,
+        cfg,
+    )["maturity_score"]
 
 
 class MaturationPhase(ConsolidationPhase):
@@ -54,6 +41,15 @@ class MaturationPhase(ConsolidationPhase):
     @property
     def name(self) -> str:
         return "mature"
+
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        if not cfg.memory_maturation_enabled:
+            return set()
+        return {
+            "get_entity_episode_count",
+            "get_entity_temporal_span",
+            "get_entity_relationship_types",
+        }
 
     async def execute(
         self,
@@ -101,68 +97,25 @@ class MaturationPhase(ConsolidationPhase):
             # Identity core auto-promotes to semantic
             if getattr(entity, "identity_core", False):
                 new_tier = "semantic"
-                maturity_score = 1.0
-                episode_count = 0
-                temporal_span_days = 0.0
-                rel_types: list[str] = []
-                regularity = 0.0
             else:
-                # Gather data
-                episode_count = await graph_store.get_entity_episode_count(
-                    entity.id, group_id,
-                )
-                span_result = await graph_store.get_entity_temporal_span(
-                    entity.id, group_id,
-                )
-                if span_result[0] and span_result[1]:
-                    try:
-                        min_dt = datetime.fromisoformat(span_result[0])
-                        max_dt = datetime.fromisoformat(span_result[1])
-                        temporal_span_days = (max_dt - min_dt).total_seconds() / 86400.0
-                    except (ValueError, TypeError):
-                        temporal_span_days = 0.0
-                else:
-                    temporal_span_days = 0.0
+                new_tier = old_tier
 
-                rel_types = await graph_store.get_entity_relationship_types(
-                    entity.id, group_id,
-                )
+            bundle = await extract_maturity_features(
+                entity,
+                graph_store,
+                activation_store,
+                group_id,
+                cfg,
+                context=context,
+                prefer_cached=False,
+            )
+            maturity_score = float(bundle["maturity_score"])
+            episode_count = int(bundle["episode_count"])
+            temporal_span_days = float(bundle["temporal_span_days"])
+            relationship_richness = int(bundle["relationship_richness"])
+            regularity = float(bundle["access_regularity"])
 
-                # Access intervals from activation store
-                state = await activation_store.get_activation(entity.id)
-                access_intervals: list[float] = []
-                if state and state.access_history and len(state.access_history) >= 2:
-                    sorted_hist = sorted(state.access_history)
-                    access_intervals = [
-                        sorted_hist[i + 1] - sorted_hist[i]
-                        for i in range(len(sorted_hist) - 1)
-                    ]
-
-                maturity_score = compute_maturity_score(
-                    episode_count, temporal_span_days, len(rel_types),
-                    access_intervals, cfg,
-                )
-
-                # Reconsolidation bonus
-                recon_count = attrs.get("recon_count", 0)
-                if isinstance(recon_count, (int, float)):
-                    maturity_score += min(0.10, recon_count * 0.03)
-
-                # Access regularity for audit
-                if len(access_intervals) >= 2:
-                    mean_iv = sum(access_intervals) / len(access_intervals)
-                    if mean_iv > 0:
-                        std_d = (
-                            sum((x - mean_iv) ** 2 for x in access_intervals)
-                            / len(access_intervals)
-                        ) ** 0.5
-                        regularity = max(0.0, 1.0 - std_d / mean_iv)
-                    else:
-                        regularity = 0.0
-                else:
-                    regularity = 0.0
-
-                # Determine new tier
+            if new_tier != "semantic":
                 if (
                     maturity_score >= cfg.maturation_semantic_threshold
                     and episode_count >= cfg.maturation_min_cycles
@@ -171,21 +124,39 @@ class MaturationPhase(ConsolidationPhase):
                 elif maturity_score >= cfg.maturation_transitional_threshold:
                     new_tier = "transitional"
                 else:
-                    continue  # No promotion
+                    new_tier = old_tier
 
             if new_tier == old_tier:
+                if (
+                    not dry_run
+                    and maturity_bundle_changed(attrs.get("maturity_features_v1"), bundle)
+                ):
+                    cached_attrs = dict(attrs)
+                    cached_attrs["maturity_features_v1"] = bundle
+                    cached_attrs["mat_policy_version"] = bundle["policy_version"]
+                    cached_attrs["mat_score"] = round(maturity_score, 4)
+                    await graph_store.update_entity(
+                        entity.id,
+                        {"attributes": json.dumps(cached_attrs)},
+                        group_id,
+                    )
                 continue
 
+            if context is not None:
+                context.matured_entity_ids.add(entity.id)
+
             if not dry_run:
+                attrs = dict(attrs)
                 attrs["mat_tier"] = new_tier
                 attrs["mat_score"] = round(maturity_score, 4)
+                attrs["maturity_features_v1"] = bundle
+                attrs["mat_policy_version"] = bundle["policy_version"]
                 await graph_store.update_entity(
                     entity.id,
                     {"attributes": json.dumps(attrs)},
                     group_id,
                 )
                 if context is not None:
-                    context.matured_entity_ids.add(entity.id)
                     context.affected_entity_ids.add(entity.id)
 
             records.append(
@@ -199,7 +170,7 @@ class MaturationPhase(ConsolidationPhase):
                     maturity_score=round(maturity_score, 4),
                     source_diversity=episode_count,
                     temporal_span_days=round(temporal_span_days, 2),
-                    relationship_richness=len(rel_types),
+                    relationship_richness=relationship_richness,
                     access_regularity=round(regularity, 4),
                 )
             )

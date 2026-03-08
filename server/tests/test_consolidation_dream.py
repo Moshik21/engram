@@ -322,6 +322,7 @@ class TestDreamPhaseExecution:
 
         call_args = graph_store.update_relationship_weight.call_args
         assert call_args.kwargs.get("max_weight") == 5.0 or call_args[0][3] == 5.0
+        assert call_args.kwargs.get("predicate") == "RELATES_TO"
 
     @pytest.mark.asyncio
     async def test_no_access_recorded(self):
@@ -434,10 +435,10 @@ class TestEdgeIdentification:
 
         # Only (seed_1, neighbor_1) should be boosted, not (seed_1, neighbor_2)
         edge_keys = list(boosts.keys())
-        canonical_key = (min("seed_1", "neighbor_1"), max("seed_1", "neighbor_1"))
+        canonical_key = (min("seed_1", "neighbor_1"), max("seed_1", "neighbor_1"), "RELATES_TO")
         assert canonical_key in edge_keys
 
-        unreached_key = (min("seed_1", "neighbor_2"), max("seed_1", "neighbor_2"))
+        unreached_key = (min("seed_1", "neighbor_2"), max("seed_1", "neighbor_2"), "RELATES_TO")
         assert unreached_key not in edge_keys
 
     @pytest.mark.asyncio
@@ -467,5 +468,43 @@ class TestEdgeIdentification:
 
         # Should only have one entry, not two
         assert len(boosts) == 1
-        canonical = (min("node_a", "node_b"), max("node_a", "node_b"))
+        canonical = (min("node_a", "node_b"), max("node_a", "node_b"), "RELATES_TO")
         assert canonical in boosts
+
+    @pytest.mark.asyncio
+    async def test_same_pair_different_predicates_are_tracked_separately(self):
+        """Different predicates between the same pair must not collapse together."""
+        phase = DreamSpreadingPhase()
+        cfg = _dream_cfg()
+
+        bonuses = {"node_a": 0.5, "node_b": 0.3}
+
+        graph_store = AsyncMock()
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            side_effect=lambda eid, group_id=None: {
+                "node_a": [
+                    ("node_b", 1.0, "RELATES_TO"),
+                    ("node_b", 0.5, "MENTIONED_WITH"),
+                ],
+                "node_b": [
+                    ("node_a", 1.0, "RELATES_TO"),
+                    ("node_a", 0.5, "MENTIONED_WITH"),
+                ],
+            }.get(eid, []),
+        )
+
+        boosts = await phase._accumulate_edge_boosts(
+            "node_a",
+            bonuses,
+            graph_store,
+            "test",
+            cfg,
+        )
+
+        assert len(boosts) == 2
+        assert ("node_a", "node_b", "RELATES_TO") in boosts or (
+            "node_b", "node_a", "RELATES_TO"
+        ) in boosts
+        assert ("node_a", "node_b", "MENTIONED_WITH") in boosts or (
+            "node_b", "node_a", "MENTIONED_WITH"
+        ) in boosts

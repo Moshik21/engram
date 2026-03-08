@@ -8,6 +8,7 @@ import pytest
 from engram.config import EmbeddingConfig
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 from engram.storage.vector.redis_search import RedisSearchIndex, pack_vector
 
 
@@ -137,6 +138,21 @@ class TestRedisSearchIndex:
         await idx.index_entity(entity)
 
         redis.hset.assert_not_called()
+
+    async def test_blank_cue_deletes_existing_key(self):
+        """Retiring a cue removes its dedicated Redis index entry."""
+        redis = make_redis_mock()
+        idx = RedisSearchIndex(redis, MockEmbeddingProvider(dim=4), make_config(dimensions=4))
+
+        await idx.index_episode_cue(
+            EpisodeCue(
+                episode_id="ep_cue_1",
+                group_id="grp1",
+                cue_text="",
+            ),
+        )
+
+        redis.delete.assert_awaited_once_with("engram:grp1:vec:episode_cue:ep_cue_1")
 
     async def test_remove_deletes_keys(self):
         """remove scans and deletes matching keys."""
@@ -272,6 +288,25 @@ class TestRedisSearchIndex:
         assert mapping["source_id"] == "ep_1"
         assert "Alice met Bob" in mapping["text"]
 
+    async def test_search_episodes_returns_scored_results(self):
+        """search_episodes returns raw episode hits with normalized scores."""
+        redis = make_redis_mock()
+        provider = MockEmbeddingProvider(dim=4)
+        redis.execute_command.return_value = [
+            1,
+            b"engram:grp1:vec:episode:ep_1",
+            [b"source_id", b"ep_1", b"score", b"0.4"],
+        ]
+
+        idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
+        results = await idx.search_episodes("conference", group_id="grp1")
+
+        assert results == [("ep_1", pytest.approx(0.8))]
+
+        call_args = redis.execute_command.call_args[0]
+        assert call_args[0] == "FT.SEARCH"
+        assert "@content_type:{episode}" in call_args[2]
+
     async def test_text_search_returns_keyword_matches(self):
         """_text_search constructs correct FT.SEARCH query with text clause."""
         redis = make_redis_mock()
@@ -325,6 +360,30 @@ class TestRedisSearchIndex:
         ids = {r[0] for r in results}
         assert "ent_1" in ids  # from KNN
         assert "ent_2" in ids  # from text search
+
+    async def test_search_episode_cues_supplements_with_text_when_knn_sparse(self):
+        """Cue lookup keeps text fallback behavior when vector results are sparse."""
+        redis = make_redis_mock()
+        provider = MockEmbeddingProvider(dim=4)
+        redis.execute_command.side_effect = [
+            [
+                1,
+                b"engram:grp1:vec:episode_cue:ep_1",
+                [b"source_id", b"ep_1", b"score", b"0.2"],
+            ],
+            [
+                1,
+                b"engram:grp1:vec:episode_cue:ep_2",
+                [b"source_id", b"ep_2", b"score", b"1.0"],
+            ],
+        ]
+
+        idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
+        results = await idx.search_episode_cues("Konner books", group_id="grp1", limit=20)
+
+        assert len(results) == 2
+        ids = {result[0] for result in results}
+        assert ids == {"ep_1", "ep_2"}
 
     async def test_text_search_handles_empty_query(self):
         """_text_search returns empty for queries with only short tokens."""

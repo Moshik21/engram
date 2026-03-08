@@ -19,21 +19,24 @@ logger = logging.getLogger(__name__)
 
 # Singleton cross-encoder (lazy-loaded)
 _cross_encoder = None
-_ce_lock = asyncio.Lock()
+_ce_lock: asyncio.Lock | None = None
 
 
 async def _get_cross_encoder():
     """Lazy-load the cross-encoder model (singleton)."""
-    global _cross_encoder  # noqa: PLW0603
+    global _cross_encoder, _ce_lock  # noqa: PLW0603
     if _cross_encoder is not None:
         return _cross_encoder
+    if _ce_lock is None:
+        _ce_lock = asyncio.Lock()
     async with _ce_lock:
         if _cross_encoder is not None:
             return _cross_encoder
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-            _cross_encoder = TextCrossEncoder(
+            _cross_encoder = await asyncio.to_thread(
+                TextCrossEncoder,
                 model_name="Xenova/ms-marco-MiniLM-L-6-v2",
             )
             logger.info("Cross-encoder loaded for consolidation scoring")

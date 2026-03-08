@@ -20,13 +20,15 @@ EXTRACTION_SYSTEM_PROMPT = (
     '      "name": "Entity Name",\n'
     '      "entity_type": "Person|Organization|Project|Technology|'
     'Concept|Location|Event|CreativeWork|Article|Software|'
-    'HealthCondition|BodyPart|Emotion|Goal|Preference|Habit|Intention|Other",\n'
+    'HealthCondition|BodyPart|Emotion|Goal|Preference|Habit|Intention|Identifier|Other",\n'
     "  Type guidance:\n"
     "  - Project: work initiative, research project, business venture\n"
     "  - CreativeWork: book, novel, song, film, artwork, story\n"
     "  - Article: blog post, paper, news article, report\n"
     "  - Software: application, library, CLI tool\n"
     "  - Technology: programming language, framework, protocol\n"
+    "  - Identifier: SKU, part number, serial number, model code, or "
+    "ticket/code entity where the code itself is the thing being referenced\n"
     "  - HealthCondition: injury, illness, diagnosis, symptom\n"
     "  - BodyPart: anatomical body part, organ\n"
     "  - Emotion: feeling, mood, psychological state\n"
@@ -76,6 +78,9 @@ EXTRACTION_SYSTEM_PROMPT = (
     "\n"
     "- Entity names should be normalized "
     "(proper case, no abbreviations unless standard).\n"
+    "- Use entity_type=Identifier for strict code-shaped names such as SKUs, "
+    "part numbers, serials, or model codes; do not use Identifier for ordinary "
+    "product names with numbers unless the code itself is the entity.\n"
     "- Predicates should be UPPER_SNAKE_CASE verbs "
     "(e.g., WORKS_AT, USES, PART_OF, CREATED, AUTHORED, "
     "TEACHES, MEMBER_OF, LOCATED_IN, EXPERT_IN, LIKES, DISLIKES, "

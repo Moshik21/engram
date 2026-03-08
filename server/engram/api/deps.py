@@ -30,6 +30,16 @@ def get_graph_store():
     return store
 
 
+def get_atlas_service():
+    """Retrieve the AtlasService from app state."""
+    from engram.main import _app_state
+
+    service = _app_state.get("atlas_service")
+    if not service:
+        raise RuntimeError("AtlasService not initialized")
+    return service
+
+
 def get_event_bus() -> EventBus:
     """Retrieve the EventBus from app state."""
     from engram.main import _app_state

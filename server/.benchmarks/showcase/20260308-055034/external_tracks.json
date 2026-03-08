@@ -1,0 +1,46 @@
+[
+  {
+    "artifact_path": "/Users/konnermoshier/Engram/server/scripts/benchmark_ab.py",
+    "availability_reason": null,
+    "available": true,
+    "executed": false,
+    "name": "retrieval_ab",
+    "recommended_command": "uv run python scripts/benchmark_ab.py --verbose --seed 42",
+    "summary_metrics": {
+      "purpose": "Controlled retrieval A/B comparison on the synthetic corpus."
+    }
+  },
+  {
+    "artifact_path": "/Users/konnermoshier/Engram/server/scripts/benchmark_working_memory.py",
+    "availability_reason": null,
+    "available": true,
+    "executed": false,
+    "name": "working_memory",
+    "recommended_command": "uv run python scripts/benchmark_working_memory.py --verbose",
+    "summary_metrics": {
+      "purpose": "Working-memory continuity and bridge recall."
+    }
+  },
+  {
+    "artifact_path": "/Users/konnermoshier/Engram/server/scripts/benchmark_echo_chamber.py",
+    "availability_reason": null,
+    "available": true,
+    "executed": false,
+    "name": "echo_chamber",
+    "recommended_command": "uv run python scripts/benchmark_echo_chamber.py --queries 200",
+    "summary_metrics": {
+      "purpose": "Long-run drift, coverage, and surfaced-vs-used behavior."
+    }
+  },
+  {
+    "artifact_path": "/Users/konnermoshier/Engram/server/scripts/benchmark_locomo.py",
+    "availability_reason": "LoCoMo dataset path not provided or missing",
+    "available": false,
+    "executed": false,
+    "name": "locomo",
+    "recommended_command": "uv run python scripts/benchmark_locomo.py --dataset-path <path>",
+    "summary_metrics": {
+      "purpose": "External multi-turn memory evaluation."
+    }
+  }
+]

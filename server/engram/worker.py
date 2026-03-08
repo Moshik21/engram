@@ -1,7 +1,7 @@
-"""Event-driven background processor for QUEUED episodes.
+"""Event-driven background processor for projection work.
 
-Subscribes to episode.queued events via EventBus,
-scores each episode, and selectively runs extraction.
+Subscribes to episode lifecycle events via EventBus,
+scores queued episodes and executes scheduled projections.
 Supports adjacent turn batching for auto-captured content.
 
 Three-tier confidence routing (when multi-signal enabled):
@@ -18,12 +18,17 @@ import asyncio
 import logging
 import re
 import time
+from types import SimpleNamespace
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
+from engram.extraction.cues import build_episode_cue
 from engram.extraction.discourse import classify_discourse
 from engram.graph_manager import GraphManager
+from engram.models.episode import Episode, EpisodeProjectionState
 from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
+from engram.retrieval.triage_policy import TriageDecision, apply_episode_utility_policy
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,7 @@ class _PendingEpisode:
 
 
 class EpisodeWorker:
-    """Background worker that processes QUEUED episodes from EventBus events."""
+    """Background worker that processes queued and scheduled episodes."""
 
     def __init__(
         self,
@@ -66,8 +71,9 @@ class EpisodeWorker:
     def _get_scorer(self):
         """Lazy-init multi-signal scorer."""
         if self._scorer is None and self._cfg.triage_multi_signal_enabled:
-            from engram.retrieval.triage_scorer import TriageScorer
-            self._scorer = TriageScorer(self._cfg)
+            from engram.retrieval.triage_scorer import get_shared_triage_scorer
+
+            self._scorer = get_shared_triage_scorer(self._cfg)
         return self._scorer
 
     def start(self, group_id: str, event_bus: EventBus) -> None:
@@ -106,11 +112,27 @@ class EpisodeWorker:
                 event = await self._queue.get()
                 event_type = event.get("type", "")
 
-                if event_type != "episode.queued":
+                if event_type not in {"episode.queued", "episode.projection_scheduled"}:
+                    continue
+
+                if event_type == "episode.projection_scheduled":
+                    episode_id = event.get("payload", {}).get("episodeId")
+                    if not episode_id:
+                        continue
+                    if await self._should_skip_projection(episode_id, group_id):
+                        continue
+                    logger.debug("Worker: processing scheduled projection %s", episode_id)
+                    await self._process(episode_id, group_id)
                     continue
 
                 episode_id = event.get("payload", {}).get("episode", {}).get("episodeId")
                 if not episode_id:
+                    continue
+                if await self._should_skip_projection(
+                    episode_id,
+                    group_id,
+                    skip_scheduled=True,
+                ):
                     continue
 
                 # Get content — for auto: sources, fetch full content from DB
@@ -129,7 +151,12 @@ class EpisodeWorker:
                 if discourse == "system":
                     await self._manager._graph.update_episode(
                         episode_id,
-                        {"status": "completed", "skipped_meta": True},
+                        {
+                            "status": "completed",
+                            "skipped_meta": True,
+                            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+                            "last_projection_reason": "system_discourse",
+                        },
                         group_id=group_id,
                     )
                     logger.debug("Worker: skipped meta-discourse episode %s", episode_id)
@@ -147,54 +174,108 @@ class EpisodeWorker:
                     await self._process(episode_id, group_id)
                     continue
 
-                # Score and route the episode
-                score = await self._score(content, group_id)
-
-                if self._cfg.triage_multi_signal_enabled:
-                    # Three-tier confidence routing
-                    await self._route_episode(episode_id, score, group_id)
-                else:
-                    # Legacy: binary extract/skip based on triage_min_score
-                    if score >= self._cfg.triage_min_score:
-                        await self._process(episode_id, group_id)
-                    else:
-                        await self._manager._graph.update_episode(
-                            episode_id,
-                            {"status": "completed", "skipped_triage": True},
-                            group_id=group_id,
-                        )
+                decision, signals = await self._score(content, group_id)
+                await self._route_episode(episode_id, decision, group_id, signals)
 
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.warning("Episode worker error", exc_info=True)
 
+    async def _load_episode(self, episode_id: str, group_id: str) -> Any | None:
+        """Best-effort episode lookup for projection-state guards."""
+        get_episode = getattr(self._manager._graph, "get_episode_by_id", None)
+        if get_episode is None:
+            return None
+        try:
+            episode = await get_episode(episode_id, group_id)
+        except Exception:
+            return None
+        if episode is None:
+            return None
+        if isinstance(episode, dict):
+            return SimpleNamespace(**episode)
+        return episode
+
+    async def _should_skip_projection(
+        self,
+        episode_id: str,
+        group_id: str,
+        *,
+        skip_scheduled: bool = False,
+    ) -> bool:
+        """Skip duplicate worker work when an episode is already scheduled or done."""
+        episode = await self._load_episode(episode_id, group_id)
+        if episode is None:
+            return False
+
+        state = getattr(episode, "projection_state", None)
+        if hasattr(state, "value"):
+            state = state.value
+
+        if state in {
+            EpisodeProjectionState.PROJECTING.value,
+            EpisodeProjectionState.PROJECTED.value,
+            EpisodeProjectionState.DEAD_LETTER.value,
+        }:
+            return True
+
+        if skip_scheduled and state == EpisodeProjectionState.SCHEDULED.value:
+            return True
+
+        return False
+
     async def _route_episode(
-        self, episode_id: str, score: float, group_id: str,
+        self,
+        episode_id: str,
+        decision: TriageDecision,
+        group_id: str,
+        signals: Any | None = None,
     ) -> None:
         """Three-tier confidence routing: extract / defer / skip."""
-        if score >= self._cfg.worker_extract_threshold:
-            # High confidence → extract immediately
+        if decision.action == "extract":
             logger.debug(
-                "Worker: extract immediately %s (score=%.3f)", episode_id, score,
+                "Worker: extract immediately %s (score=%.3f)", episode_id, decision.score,
             )
-            await self._process(episode_id, group_id)
-        elif score < self._cfg.worker_skip_threshold:
-            # Low confidence → skip
+            await self._process(episode_id, group_id, signals)
+        elif decision.action == "skip":
             logger.debug(
-                "Worker: skip %s (score=%.3f)", episode_id, score,
+                "Worker: skip %s (score=%.3f)", episode_id, decision.score,
             )
             await self._manager._graph.update_episode(
                 episode_id,
-                {"status": "completed", "skipped_triage": True},
+                {
+                    "status": "completed",
+                    "skipped_triage": True,
+                    "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+                    "last_projection_reason": "worker_skip_threshold",
+                },
                 group_id=group_id,
             )
-        else:
-            # Middle → leave as QUEUED for triage phase to batch-process
-            logger.debug(
-                "Worker: defer to triage %s (score=%.3f)", episode_id, score,
+            await self._sync_cue_projection_state(
+                episode_id,
+                group_id,
+                EpisodeProjectionState.CUE_ONLY,
+                "worker_skip_threshold",
             )
-            # Episode remains in QUEUED status — triage picks it up next cycle
+        else:
+            logger.debug(
+                "Worker: defer to triage %s (score=%.3f)", episode_id, decision.score,
+            )
+            await self._manager._graph.update_episode(
+                episode_id,
+                {
+                    "projection_state": EpisodeProjectionState.SCHEDULED.value,
+                    "last_projection_reason": "worker_deferred_to_triage",
+                },
+                group_id=group_id,
+            )
+            await self._sync_cue_projection_state(
+                episode_id,
+                group_id,
+                EpisodeProjectionState.SCHEDULED,
+                "worker_deferred_to_triage",
+            )
 
     def _schedule_batch_flush(self, group_id: str) -> None:
         """Schedule a batch flush after the batching window."""
@@ -240,70 +321,67 @@ class EpisodeWorker:
         except Exception:
             logger.warning("Worker: failed to merge batch content", exc_info=True)
 
+        await self._rebuild_episode_cue(primary.episode_id, group_id)
+
+        for ep in batch[1:]:
+            await self._retire_merged_episode(ep.episode_id, primary.episode_id, group_id)
+
         # Score the merged content
         if self._cfg.triage_enabled:
-            score = await self._score(merged_content, group_id)
-            if self._cfg.triage_multi_signal_enabled:
-                await self._route_episode(primary.episode_id, score, group_id)
-            elif score >= self._cfg.triage_min_score:
-                await self._process(primary.episode_id, group_id)
-            else:
-                await self._manager._graph.update_episode(
-                    primary.episode_id,
-                    {"status": "completed", "skipped_triage": True},
-                    group_id=group_id,
-                )
+            decision, signals = await self._score(merged_content, group_id)
+            await self._route_episode(primary.episode_id, decision, group_id, signals)
         else:
             await self._process(primary.episode_id, group_id)
-
-        # Mark remaining episodes as completed (merged into primary)
-        for ep in batch[1:]:
-            try:
-                await self._manager._graph.update_episode(
-                    ep.episode_id,
-                    {"status": "completed"},
-                    group_id=group_id,
-                )
-            except Exception:
-                pass
 
     async def _process_auto_episode(
         self, ep: _PendingEpisode, group_id: str
     ) -> None:
         """Process a single auto-captured episode with triage."""
         if self._cfg.triage_enabled:
-            score = await self._score(ep.content, group_id)
-            if self._cfg.triage_multi_signal_enabled:
-                await self._route_episode(ep.episode_id, score, group_id)
-            elif score >= self._cfg.triage_min_score:
-                await self._process(ep.episode_id, group_id)
-            else:
-                await self._manager._graph.update_episode(
-                    ep.episode_id,
-                    {"status": "completed", "skipped_triage": True},
-                    group_id=group_id,
-                )
+            decision, signals = await self._score(ep.content, group_id)
+            await self._route_episode(ep.episode_id, decision, group_id, signals)
         else:
             await self._process(ep.episode_id, group_id)
 
-    async def _process(self, episode_id: str, group_id: str) -> None:
+    async def _process(
+        self,
+        episode_id: str,
+        group_id: str,
+        signals: Any | None = None,
+    ) -> None:
         """Run extraction on an episode, swallowing errors."""
         try:
             await self._manager.project_episode(episode_id, group_id)
+            await self._record_projection_outcome(episode_id, signals)
         except Exception:
             logger.warning(
                 "Worker: extraction failed for %s", episode_id, exc_info=True
             )
 
-    async def _score(self, content: str, group_id: str = "default") -> float:
+    async def _score(
+        self,
+        content: str,
+        group_id: str = "default",
+    ) -> tuple[TriageDecision, Any | None]:
         """Score episode content. Multi-signal scorer preferred, heuristic fallback.
 
         Worker NEVER calls LLM — that's reserved for triage phase escalation.
         """
         if not content:
-            return 0.0
+            return (
+                apply_episode_utility_policy(
+                    "",
+                    self._cfg,
+                    0.0,
+                    discourse_class="world",
+                    mode="worker" if self._cfg.triage_multi_signal_enabled else "phase",
+                    score_source="empty",
+                ),
+                None,
+            )
 
-        # Multi-signal scorer (preferred path)
+        discourse_class = classify_discourse(content)
+
         scorer = self._get_scorer()
         if scorer is not None:
             signals = await scorer.score(
@@ -313,9 +391,18 @@ class EpisodeWorker:
                 activation_store=getattr(self._manager, "_activation", None),
                 group_id=group_id,
             )
-            return signals.composite
+            return (
+                apply_episode_utility_policy(
+                    content,
+                    self._cfg,
+                    signals.composite,
+                    discourse_class=discourse_class,
+                    mode="worker",
+                    score_source="multi_signal",
+                ),
+                signals,
+            )
 
-        # Lightweight heuristic scoring (fallback when multi-signal disabled)
         length_score = min(len(content) / 500, 1.0) * 0.25
         caps = len(re.findall(r"\b[A-Z][a-z]+\b", content))
         keyword_score = min(caps / 10, 1.0) * 0.20
@@ -330,7 +417,17 @@ class EpisodeWorker:
             emotional_score = salience.composite * self._cfg.emotional_triage_weight
             base_score = length_score + keyword_score + novelty_score + emotional_score
             if salience.composite >= self._cfg.triage_personal_floor_threshold:
-                return max(base_score, self._cfg.triage_personal_floor)
+                return (
+                    apply_episode_utility_policy(
+                        content,
+                        self._cfg,
+                        max(base_score, self._cfg.triage_personal_floor),
+                        discourse_class=discourse_class,
+                        mode="phase",
+                        score_source="heuristic",
+                    ),
+                    None,
+                )
 
         base_score = length_score + keyword_score + novelty_score + emotional_score
 
@@ -345,4 +442,243 @@ class EpisodeWorker:
             except Exception:
                 logger.debug("Worker: goal boost failed", exc_info=True)
 
-        return base_score
+        return (
+            apply_episode_utility_policy(
+                content,
+                self._cfg,
+                base_score,
+                discourse_class=discourse_class,
+                mode="phase",
+                score_source="heuristic",
+            ),
+            None,
+        )
+
+    async def _record_projection_outcome(
+        self,
+        episode_id: str,
+        signals: Any | None,
+    ) -> None:
+        """Feed successful worker projections back into the shared scorer."""
+        if signals is None:
+            return
+        get_episode_entities = getattr(self._manager._graph, "get_episode_entities", None)
+        if get_episode_entities is None:
+            return
+        try:
+            entity_ids = await get_episode_entities(episode_id)
+        except Exception:
+            return
+        if isinstance(entity_ids, list):
+            scorer = self._get_scorer()
+            if scorer is not None:
+                scorer.record_outcome(signals, len(entity_ids))
+
+    async def _sync_cue_projection_state(
+        self,
+        episode_id: str,
+        group_id: str,
+        state: EpisodeProjectionState,
+        reason: str,
+    ) -> None:
+        """Keep cue metadata aligned with worker routing decisions."""
+        if not self._cfg.cue_layer_enabled:
+            return
+        update_cue = getattr(self._manager._graph, "update_episode_cue", None)
+        if update_cue is None or not callable(update_cue):
+            return
+        try:
+            await update_cue(
+                episode_id,
+                {
+                    "projection_state": state,
+                    "route_reason": reason,
+                },
+                group_id=group_id,
+            )
+        except Exception:
+            logger.warning(
+                "Worker: failed to sync cue state for %s",
+                episode_id,
+                exc_info=True,
+            )
+
+    async def _rebuild_episode_cue(
+        self,
+        episode_id: str,
+        group_id: str,
+    ) -> None:
+        """Regenerate cue text after worker-side episode content changes."""
+        if not self._cfg.cue_layer_enabled:
+            return
+
+        get_episode = getattr(self._manager._graph, "get_episode_by_id", None)
+        upsert_cue = getattr(self._manager._graph, "upsert_episode_cue", None)
+        if get_episode is None or upsert_cue is None:
+            return
+
+        try:
+            stored_episode = await get_episode(episode_id, group_id)
+        except Exception:
+            logger.warning(
+                "Worker: failed to load merged episode %s for cue rebuild",
+                episode_id,
+                exc_info=True,
+            )
+            return
+        if stored_episode is None:
+            return
+
+        episode = stored_episode
+        if not isinstance(episode, Episode):
+            episode = Episode(
+                id=getattr(stored_episode, "id", episode_id),
+                content=getattr(stored_episode, "content", ""),
+                source=getattr(stored_episode, "source", None),
+                status=getattr(stored_episode, "status", "queued"),
+                group_id=getattr(stored_episode, "group_id", group_id),
+                session_id=getattr(stored_episode, "session_id", None),
+                created_at=getattr(stored_episode, "created_at", None),
+                updated_at=getattr(stored_episode, "updated_at", None),
+                error=getattr(stored_episode, "error", None),
+                retry_count=getattr(stored_episode, "retry_count", 0),
+                processing_duration_ms=getattr(
+                    stored_episode, "processing_duration_ms", None,
+                ),
+                encoding_context=getattr(stored_episode, "encoding_context", None),
+                memory_tier=getattr(stored_episode, "memory_tier", "episodic"),
+                consolidation_cycles=getattr(
+                    stored_episode, "consolidation_cycles", 0,
+                ),
+                entity_coverage=getattr(stored_episode, "entity_coverage", 0.0),
+                projection_state=getattr(
+                    stored_episode, "projection_state", EpisodeProjectionState.QUEUED,
+                ),
+                last_projection_reason=getattr(
+                    stored_episode, "last_projection_reason", None,
+                ),
+                last_projected_at=getattr(stored_episode, "last_projected_at", None),
+            )
+
+        cue = build_episode_cue(episode, self._cfg)
+        if cue is None:
+            return
+
+        get_cue = getattr(self._manager._graph, "get_episode_cue", None)
+        previous_cue = None
+        if get_cue is not None and callable(get_cue):
+            try:
+                previous_cue = await get_cue(episode_id, group_id)
+            except Exception:
+                previous_cue = None
+
+        if previous_cue is not None:
+            cue.hit_count = previous_cue.hit_count
+            cue.surfaced_count = previous_cue.surfaced_count
+            cue.selected_count = previous_cue.selected_count
+            cue.used_count = previous_cue.used_count
+            cue.near_miss_count = previous_cue.near_miss_count
+            cue.policy_score = max(cue.policy_score, previous_cue.policy_score)
+            cue.projection_attempts = previous_cue.projection_attempts
+            cue.last_hit_at = previous_cue.last_hit_at
+            cue.last_feedback_at = previous_cue.last_feedback_at
+            cue.last_projected_at = previous_cue.last_projected_at
+            cue.created_at = previous_cue.created_at
+
+        try:
+            await upsert_cue(cue)
+            await self._manager._graph.update_episode(
+                episode_id,
+                {
+                    "projection_state": cue.projection_state.value,
+                    "last_projection_reason": cue.route_reason,
+                },
+                group_id=group_id,
+            )
+            if (
+                self._cfg.cue_vector_index_enabled
+                and hasattr(self._manager._search, "index_episode_cue")
+            ):
+                await self._manager._search.index_episode_cue(cue)
+        except Exception:
+            logger.warning(
+                "Worker: failed to rebuild cue for %s",
+                episode_id,
+                exc_info=True,
+            )
+
+    async def _retire_merged_episode(
+        self,
+        episode_id: str,
+        primary_episode_id: str,
+        group_id: str,
+    ) -> None:
+        """Retire merged-away cue state so secondary turns stop surfacing."""
+        merged_reason = f"merged_into:{primary_episode_id}"
+
+        try:
+            await self._manager._graph.update_episode(
+                episode_id,
+                {
+                    "status": "completed",
+                    "projection_state": EpisodeProjectionState.MERGED.value,
+                    "last_projection_reason": merged_reason,
+                },
+                group_id=group_id,
+            )
+        except Exception:
+            logger.warning(
+                "Worker: failed to retire merged episode %s",
+                episode_id,
+                exc_info=True,
+            )
+            return
+
+        if not self._cfg.cue_layer_enabled:
+            return
+
+        get_cue = getattr(self._manager._graph, "get_episode_cue", None)
+        update_cue = getattr(self._manager._graph, "update_episode_cue", None)
+        if get_cue is None or update_cue is None:
+            return
+
+        try:
+            cue = await get_cue(episode_id, group_id)
+        except Exception:
+            logger.warning(
+                "Worker: failed to load merged-away cue for %s",
+                episode_id,
+                exc_info=True,
+            )
+            return
+        if cue is None:
+            return
+
+        retired_updates = {
+            "projection_state": EpisodeProjectionState.MERGED,
+            "route_reason": merged_reason,
+            "cue_text": "",
+            "entity_mentions": [],
+            "temporal_markers": [],
+            "quote_spans": [],
+            "contradiction_keys": [],
+            "first_spans": [],
+        }
+        try:
+            await update_cue(episode_id, retired_updates, group_id=group_id)
+            if (
+                self._cfg.cue_vector_index_enabled
+                and hasattr(self._manager._search, "index_episode_cue")
+            ):
+                retired_cue = (
+                    cue.model_copy(update=retired_updates)
+                    if hasattr(cue, "model_copy")
+                    else cue.copy(update=retired_updates)
+                )
+                await self._manager._search.index_episode_cue(retired_cue)
+        except Exception:
+            logger.warning(
+                "Worker: failed to retire cue for merged episode %s",
+                episode_id,
+                exc_info=True,
+            )

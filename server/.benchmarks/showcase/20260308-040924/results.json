@@ -1,0 +1,313 @@
+{
+  "ablation_baselines": [],
+  "baseline_summaries": [
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_pass_rates": {
+        "negation": 0.0,
+        "temporal": 0.0
+      },
+      "cost_proxies": {
+        "consolidation_cycles": 0.0,
+        "embedding_calls": 0.0,
+        "extraction_calls": 6.0,
+        "observed_turns": 6.0,
+        "projected_turns": 6.0,
+        "selective_extraction_ratio": 1.0
+      },
+      "false_recall_rate": 1.0,
+      "is_ablation": false,
+      "latency_p50_ms": 4.466832964681089,
+      "latency_p95_ms": 7.219933916348964,
+      "open_loop_recovery": 0.0,
+      "prospective_trigger_rate": 0.0,
+      "scenario_pass_rate": 0.0,
+      "temporal_correctness": 0.0,
+      "tokens_per_passed_scenario": 0.0
+    }
+  ],
+  "generated_at": "2026-03-08T04:09:24+00:00",
+  "mode": "full",
+  "output_dir": "/Users/konnermoshier/Engram/server/.benchmarks/showcase/20260308-040924",
+  "primary_baselines": [
+    "engram_full"
+  ],
+  "scenario_results": [
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "temporal",
+        "negation"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 1
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.9831911072851243,
+              "source_id": "ent_79a83672e309",
+              "text": "Falcon Dashboard (Project)\nCustomer analytics UI.\nFalcon Dashboard NEGATED(USES) React\nFalcon Dashboard USES Svelte",
+              "tokens": 28
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_c29a774d8475",
+              "text": "Falcon Dashboard stopped using React and now uses Svelte.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3005080812560309,
+              "source_id": "ent_4c2ad43f590b",
+              "text": "Svelte (Technology)\nFrontend framework.\nFalcon Dashboard USES Svelte",
+              "tokens": 17
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.2641469439073,
+              "source_id": "ent_06e287d0b17b",
+              "text": "React (Technology)\nFrontend framework.\nFalcon Dashboard NEGATED(USES) React",
+              "tokens": 18
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.24190588779522504,
+              "source_id": "ep_3494c2a0cdf1",
+              "text": "Falcon Dashboard uses React for its frontend.",
+              "tokens": 11
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hits": [
+            "USES React"
+          ],
+          "latency_ms": 7.525834022089839,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "negation_probe",
+          "required_hits": [
+            "USES Svelte"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "tokens_surfaced": 88
+        }
+      ],
+      "scenario_id": "negation_correction",
+      "scenario_title": "Negation And Correction",
+      "seed": 7,
+      "why_it_matters": "Negative polarity should suppress stale relationships instead of appending noise."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "temporal",
+        "negation"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 1
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.9554576224244854,
+              "source_id": "ent_90443e562480",
+              "text": "Falcon Dashboard (Project)\nCustomer analytics UI.\nFalcon Dashboard NEGATED(USES) React\nFalcon Dashboard USES Svelte",
+              "tokens": 28
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_393dbd1fc978",
+              "text": "Falcon Dashboard stopped using React and now uses Svelte.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.30454023411334985,
+              "source_id": "ent_63169fc0fac0",
+              "text": "Svelte (Technology)\nFrontend framework.\nFalcon Dashboard USES Svelte",
+              "tokens": 17
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.26824233898654337,
+              "source_id": "ent_a170400750d8",
+              "text": "React (Technology)\nFrontend framework.\nFalcon Dashboard NEGATED(USES) React",
+              "tokens": 18
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.24190588779522504,
+              "source_id": "ep_1d645319956a",
+              "text": "Falcon Dashboard uses React for its frontend.",
+              "tokens": 11
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hits": [
+            "USES React"
+          ],
+          "latency_ms": 4.466832964681089,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "negation_probe",
+          "required_hits": [
+            "USES Svelte"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "tokens_surfaced": 88
+        }
+      ],
+      "scenario_id": "negation_correction",
+      "scenario_title": "Negation And Correction",
+      "seed": 19,
+      "why_it_matters": "Negative polarity should suppress stale relationships instead of appending noise."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "temporal",
+        "negation"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 1
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.9928820431075087,
+              "source_id": "ent_6d534a67f583",
+              "text": "Falcon Dashboard (Project)\nCustomer analytics UI.\nFalcon Dashboard NEGATED(USES) React\nFalcon Dashboard USES Svelte",
+              "tokens": 28
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_dcb98fedf755",
+              "text": "Falcon Dashboard stopped using React and now uses Svelte.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.30695126506961395,
+              "source_id": "ent_22b5a1e53915",
+              "text": "Svelte (Technology)\nFrontend framework.\nFalcon Dashboard USES Svelte",
+              "tokens": 17
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.2700203860214809,
+              "source_id": "ent_d7244df52850",
+              "text": "React (Technology)\nFrontend framework.\nFalcon Dashboard NEGATED(USES) React",
+              "tokens": 18
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.24190588779522504,
+              "source_id": "ep_dfdc2991f122",
+              "text": "Falcon Dashboard uses React for its frontend.",
+              "tokens": 11
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hits": [
+            "USES React"
+          ],
+          "latency_ms": 4.074875032529235,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "negation_probe",
+          "required_hits": [
+            "USES Svelte"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "tokens_surfaced": 88
+        }
+      ],
+      "scenario_id": "negation_correction",
+      "scenario_title": "Negation And Correction",
+      "seed": 31,
+      "why_it_matters": "Negative polarity should suppress stale relationships instead of appending noise."
+    }
+  ],
+  "seeds": [
+    7,
+    19,
+    31
+  ],
+  "supporting_artifacts": {
+    "benchmark_ab": "server/scripts/benchmark_ab.py",
+    "benchmark_working_memory": "server/scripts/benchmark_working_memory.py"
+  }
+}

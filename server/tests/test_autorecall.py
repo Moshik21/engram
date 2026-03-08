@@ -104,9 +104,16 @@ class TestAutoRecall:
         defaults.update(overrides)
         return ActivationConfig(**defaults)
 
-    def _make_result(self, name: str, score: float, result_type: str = "entity") -> dict:
+    def _make_result(
+        self,
+        name: str,
+        score: float,
+        result_type: str = "entity",
+        entity_id: str | None = None,
+    ) -> dict:
         return {
             "entity": {
+                "id": entity_id or f"ent_{name.lower().replace(' ', '_')}",
                 "name": name,
                 "type": "Technology",
                 "summary": "A test entity for " + name,
@@ -180,6 +187,29 @@ class TestAutoRecall:
 
     @patch("engram.mcp.server._recall_cooldown")
     @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
+    async def test_surfaces_cue_episode_results(self, mock_cooldown):
+        mock_cooldown.is_throttled.return_value = False
+        cfg = self._make_cfg()
+        manager = AsyncMock()
+        manager.recall.return_value = [
+            {
+                "result_type": "cue_episode",
+                "cue": {
+                    "episode_id": "ep_1",
+                    "cue_text": "mentions: React",
+                    "supporting_spans": ["Working with React framework here"],
+                    "projection_state": "cue_only",
+                },
+                "score": 0.8,
+            },
+        ]
+        result = await _auto_recall("Working with React framework here", manager, cfg)
+        assert result is not None
+        assert result["cue_episodes"][0]["episode_id"] == "ep_1"
+        assert result["cue_episodes"][0]["projection_state"] == "cue_only"
+
+    @patch("engram.mcp.server._recall_cooldown")
+    @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
     async def test_cooldown_throttled(self, mock_cooldown):
         mock_cooldown.is_throttled.return_value = True
         cfg = self._make_cfg()
@@ -237,6 +267,71 @@ class TestAutoRecall:
         result = await _auto_recall("Working with Test concept in the project", manager, cfg)
         assert result is not None
         assert len(result["entities"][0]["top_facts"]) == 3
+
+    @patch("engram.mcp.server._recall_cooldown")
+    @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
+    async def test_returns_packets_when_enabled(self, mock_cooldown):
+        mock_cooldown.is_throttled.return_value = False
+        cfg = self._make_cfg(recall_packets_enabled=True)
+        manager = AsyncMock()
+        manager.resolve_entity_name = AsyncMock(side_effect=lambda entity_id, group_id: entity_id)
+        manager.recall.return_value = [
+            self._make_result("React", 0.8),
+        ]
+
+        result = await _auto_recall("Working with React framework here", manager, cfg)
+
+        assert result is not None
+        assert result["packets"]
+        assert result["packets"][0]["packet_type"] == "fact_packet"
+
+    @patch("engram.mcp.server._recall_cooldown")
+    @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
+    async def test_need_analyzer_skips_low_value_turns(self, mock_cooldown):
+        mock_cooldown.is_throttled.return_value = False
+        cfg = self._make_cfg(recall_need_analyzer_enabled=True)
+        manager = AsyncMock()
+        manager._conv_context = None
+        result = await _auto_recall("thanks", manager, cfg)
+        assert result is None
+        manager.recall.assert_not_called()
+
+    @patch("engram.mcp.server._recall_cooldown")
+    @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
+    async def test_need_analyzer_recalls_project_follow_up(self, mock_cooldown):
+        mock_cooldown.is_throttled.return_value = False
+        cfg = self._make_cfg(recall_need_analyzer_enabled=True)
+        manager = AsyncMock()
+        manager._conv_context = None
+        manager.recall.return_value = [self._make_result("React", 0.8)]
+
+        result = await _auto_recall("How's the React migration going?", manager, cfg)
+
+        assert result is not None
+        call_kwargs = manager.recall.call_args.kwargs
+        assert call_kwargs["query"]
+        assert call_kwargs["record_access"] is True
+
+    @patch("engram.mcp.server._recall_cooldown")
+    @patch("engram.mcp.server._session", new=SessionState(last_recall_time=0.0))
+    async def test_usage_feedback_marks_auto_recall_as_surfaced(self, mock_cooldown):
+        mock_cooldown.is_throttled.return_value = False
+        cfg = self._make_cfg(
+            recall_need_analyzer_enabled=True,
+            recall_telemetry_enabled=True,
+            recall_usage_feedback_enabled=True,
+        )
+        manager = AsyncMock()
+        manager._conv_context = None
+        manager.recall.return_value = [self._make_result("React", 0.8)]
+
+        result = await _auto_recall("How's the React migration going?", manager, cfg)
+
+        assert result is not None
+        call_kwargs = manager.recall.call_args.kwargs
+        assert call_kwargs["record_access"] is False
+        assert call_kwargs["interaction_type"] == "surfaced"
+        assert call_kwargs["interaction_source"] == "auto_recall"
 
 
 # ─── TestSessionPrime ───────────────────────────────────────────────
@@ -490,3 +585,68 @@ class TestRecallSetsLastTime:
             await server.recall("test query")
 
         assert session.auto_recall_primed is True
+
+    async def test_explicit_recall_returns_packets(self):
+        from engram.mcp import server
+
+        mock_manager = AsyncMock()
+        mock_manager.recall.return_value = [
+            {
+                "entity": {
+                    "id": "ent_1",
+                    "name": "React",
+                    "type": "Technology",
+                    "summary": "UI lib",
+                },
+                "score": 0.8,
+                "score_breakdown": {"semantic": 0.7, "activation": 0.1, "edge_proximity": 0.0},
+                "relationships": [],
+            }
+        ]
+        mock_manager.resolve_entity_name = AsyncMock(return_value="React")
+        mock_manager._activation.get_activation.return_value = type(
+            "ActivationState",
+            (),
+            {"access_count": 1},
+        )()
+        mock_manager._surprise_cache = None
+        mock_manager._last_near_misses = None
+        session = SessionState(last_recall_time=0.0, auto_recall_primed=False)
+        cfg = ActivationConfig(recall_packets_enabled=True)
+
+        with (
+            patch.object(server, "_manager", mock_manager),
+            patch.object(server, "_session", session),
+            patch.object(server, "_activation_cfg", cfg),
+            patch.object(server, "_group_id", "default"),
+        ):
+            raw = await server.recall("React")
+            payload = json.loads(raw)
+
+        assert payload["packets"]
+        assert payload["packets"][0]["packet_type"] == "fact_packet"
+
+    async def test_explicit_recall_marks_used_interaction(self):
+        from engram.mcp import server
+
+        mock_manager = AsyncMock()
+        mock_manager.recall.return_value = []
+        mock_manager._surprise_cache = None
+        mock_manager._last_near_misses = None
+        session = SessionState(last_recall_time=0.0, auto_recall_primed=False)
+        cfg = ActivationConfig(
+            recall_telemetry_enabled=True,
+            recall_usage_feedback_enabled=True,
+        )
+
+        with (
+            patch.object(server, "_manager", mock_manager),
+            patch.object(server, "_session", session),
+            patch.object(server, "_activation_cfg", cfg),
+            patch.object(server, "_group_id", "default"),
+        ):
+            await server.recall("React")
+
+        call_kwargs = mock_manager.recall.await_args.kwargs
+        assert call_kwargs["interaction_type"] == "used"
+        assert call_kwargs["interaction_source"] == "mcp_recall"

@@ -50,6 +50,10 @@ def _mock_graph_store(pairs, entities):
     gs.get_entity_episode_counts.return_value = {}
     gs.get_stats.return_value = {"total_episodes": 0}
     gs.get_relationships_by_predicate.return_value = []
+    gs.get_relationships.return_value = []
+    gs.find_conflicting_relationships.return_value = []
+    gs.find_existing_relationship.return_value = None
+    gs.update_relationship_weight = AsyncMock()
 
     async def _get_entity(eid, gid):
         return entities.get(eid)
@@ -138,10 +142,11 @@ class TestInferEscalation:
         assert records[0].escalation_verdict == "approved"
         assert records[0].infer_type == "escalation_approved"
         sonnet_client.messages.create.assert_called_once()
+        gs.create_relationship.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_escalation_rejects_uncertain(self):
-        """Sonnet rejects an uncertain edge and invalidates relationship."""
+        """Sonnet rejects an uncertain edge and leaves it unapplied."""
         e1 = _entity("Alice")
         e2 = _entity("Bob")
         entities = {e1.id: e1, e2.id: e2}
@@ -177,7 +182,8 @@ class TestInferEscalation:
         assert len(records) == 1
         assert records[0].escalation_verdict == "rejected"
         assert records[0].infer_type == "escalation_rejected"
-        gs.invalidate_relationship.assert_called_once()
+        gs.create_relationship.assert_not_called()
+        gs.invalidate_relationship.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_escalation_dry_run(self):

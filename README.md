@@ -1,8 +1,8 @@
 <p align="center">
   <h1 align="center">Engram</h1>
   <p align="center">
-    <strong>Memory layer for AI agents.</strong><br>
-    Temporal knowledge graphs + ACT-R spreading activation + memory consolidation.
+    <strong>Long-term memory for AI agents.</strong><br>
+    Stores what happened, organizes it, and brings back the right context later.
   </p>
 </p>
 
@@ -10,6 +10,7 @@
   <a href="#quickstart">Quickstart</a> &middot;
   <a href="#how-it-works">How It Works</a> &middot;
   <a href="#mcp-integration">MCP Integration</a> &middot;
+  <a href="#openclaw">OpenClaw</a> &middot;
   <a href="#dashboard">Dashboard</a> &middot;
   <a href="#api-reference">API</a> &middot;
   <a href="#benchmarks">Benchmarks</a>
@@ -18,27 +19,40 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/react-19-61dafb" alt="React 19">
-  <img src="https://img.shields.io/badge/tests-1965_passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-pytest%20%2B%20vitest-blue" alt="Pytest + Vitest">
   <img src="https://img.shields.io/badge/license-Apache_2.0-green" alt="License">
 </p>
 
 ---
 
-AI agents forget everything between sessions. Engram fixes that.
+AI agents are good at reasoning in the moment, but bad at remembering across sessions. Engram gives them long-term memory.
 
-Engram is an open-source memory layer that gives AI agents persistent, searchable, activation-aware memory. It builds a temporal knowledge graph from conversations, uses cognitive science (ACT-R) to determine what's relevant, and runs offline consolidation cycles inspired by how biological memory works during sleep.
+Engram stores conversations as episodes, turns important people, facts, and relationships into a temporal knowledge graph, ranks what matters with ACT-R activation, and runs background consolidation to merge duplicates, promote stable memories, and fade stale noise.
+
+**In one sentence:** Engram gives AI agents a memory that persists across sessions, organizes itself, and retrieves the right context when needed.
+
+**In 30 seconds:** Use `observe()` to save what happened quickly; when the cue layer is enabled, it immediately generates a deterministic latent memory trace that can be recalled before full extraction. Use `remember()` when something is important enough to extract immediately. Later, `recall()` brings back compact memory packets, cue-backed latent episodes, and raw supporting results instead of dumping an entire chat log. In the background, consolidation scores queued memories, merges duplicates, promotes stable patterns, and prunes low-value clutter.
 
 **Key capabilities:**
 
-- **Observe** conversations cheaply with background processing that selectively extracts high-value content
+- **Observe** conversations cheaply with optional cue-first latent memory and background processing that selectively extracts high-value content
 - **Remember** critical facts and relationships as a knowledge graph with full LLM extraction
-- **Recall** with activation-aware retrieval that prioritizes recent, frequent, and contextually relevant memories
+- **Recall** with activation-aware retrieval, cue-backed latent episodes, planner-driven query bundles, and packetized memory shaped for the current turn
 - **Consolidate** memory offline: triage queued episodes, merge duplicates, infer missing relationships, prune stale entities, strengthen associative pathways
+- **Project progressively** by turning `observe`d text into `EpisodeCue` records first, then promoting hot episodes into targeted projection when recall demand justifies the cost
 - **Intend** with prospective memory — graph-embedded intentions that fire automatically via spreading activation when related topics come up ("remind me when...")
 - **Understand** personal, health, and emotional content with an expanded 17-type entity taxonomy and rich predicate vocabulary
-- **Visualize** the knowledge graph in real-time with a 3D neural brain dashboard
+- **Visualize** the knowledge graph and memory pipeline in real-time with a 3D neural brain dashboard plus cue/projection observability
 
 ## Quickstart
+
+### One-Line Install
+
+```bash
+curl -sSL https://engram.run/install | bash
+```
+
+This installs `uv` if needed, clones the repo, installs dependencies, and runs the setup wizard. Or do it manually:
 
 ### Setup Wizard (recommended)
 
@@ -47,29 +61,30 @@ The interactive setup wizard configures Engram globally (`~/.engram/.env`) so it
 ```bash
 cd server
 uv sync
-uv run python -m engram setup
+uv run engram setup
 ```
 
 The wizard walks you through:
 1. API keys (Anthropic required, Voyage AI optional)
 2. Engine mode (lite/full/auto)
-3. Consolidation profile
-4. Recall profile (auto-recall, conversation awareness, proactive intelligence, prospective memory)
-5. Security settings (auth token, encryption)
-6. Generates `~/.engram/.env` with your config
-7. Prints ready-to-paste MCP client config for Claude Desktop and Claude Code
+3. Consolidation profile (defaults to `standard`)
+4. Recall profile (defaults to `all`)
+5. Integration profile (defaults to `rework`)
+6. Security settings (auth token, encryption)
+7. Generates `~/.engram/.env` with a recall-ready config
+8. Prints ready-to-paste MCP client config for Claude Desktop and Claude Code, including mode/profile env
 
-Config loads globally from `~/.engram/.env`, with optional local `.env` overrides for API keys or engine mode.
+Config loads in this order: `~/.engram/.env`, repo-root `.env`, then the current working directory's `.env`. Environment variables still override all file-based config.
 
 ### Option 1: MCP Server (recommended for Claude Code / Cursor / Windsurf)
 
 ```bash
 cd server
 uv sync
-uv run python -m engram.mcp.server
+uv run engram mcp
 ```
 
-This starts Engram in **lite mode** (zero dependencies beyond Python) using SQLite for storage. If you ran the setup wizard, your API keys are already configured. Otherwise, set them manually and add Engram to your MCP client config:
+This starts Engram in **lite mode** (zero dependencies beyond Python) using SQLite for storage. The setup wizard now defaults to a recall-ready MCP posture: `consolidation_profile=standard`, `recall_profile=all`, and `integration_profile=rework`. If you ran the wizard, your API keys and recall settings are already configured. Otherwise, set them manually and add Engram to your MCP client config:
 
 <details>
 <summary><strong>Claude Code config</strong></summary>
@@ -83,7 +98,11 @@ Add to `~/.claude/settings.json`:
       "command": "uv",
       "args": ["run", "--directory", "/path/to/engram/server", "python", "-m", "engram.mcp.server"],
       "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-..."
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "ENGRAM_MODE": "auto",
+        "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard",
+        "ENGRAM_ACTIVATION__RECALL_PROFILE": "all",
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "rework"
       }
     }
   }
@@ -103,13 +122,37 @@ Same MCP protocol. Add to your editor's MCP server configuration:
     "command": "uv",
     "args": ["run", "--directory", "/path/to/engram/server", "python", "-m", "engram.mcp.server"],
     "env": {
-      "ANTHROPIC_API_KEY": "sk-ant-..."
+      "ANTHROPIC_API_KEY": "sk-ant-...",
+      "ENGRAM_MODE": "auto",
+      "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard",
+      "ENGRAM_ACTIVATION__RECALL_PROFILE": "all",
+      "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "rework"
     }
   }
 }
 ```
 
 </details>
+
+#### Practical MCP smoke test
+
+After the MCP server is installed, try this sequence:
+
+1. `remember that my son Ben plays soccer`
+2. `remember that Alice is leading Engram`
+3. Later ask `Ben had a great game today` or `how's Alice doing on Engram?`
+
+What to expect:
+
+- The MCP client should auto-use `observe` or `remember` without extra prompting.
+- Natural recall should trigger on the follow-up turn even without explicit memory keywords.
+- Project-truth questions like `how do we install the OpenClaw skill?` or
+  `what did we decide about launching Engram publicly?` should route through
+  artifact/runtime inspection instead of relying on memory alone.
+- Questions like `is full mode rework by default?` should answer in scoped form:
+  raw config default, shipped install default, and effective runtime if available.
+- `/api/stats` and `engram://graph/stats` should expose `recall_metrics` when telemetry is enabled.
+- `/api/stats` now also exposes `epistemic_metrics` when the routed stack is active.
 
 ### Option 2: Full Stack with Dashboard
 
@@ -121,7 +164,7 @@ make up                  # or: docker compose up -d --build
 
 Opens: **Dashboard** at `http://localhost:3000`, **API** at `http://localhost:8100`
 
-Full mode runs FalkorDB (graph database), Redis (activation store + vector search), the FastAPI server, and the React dashboard. The docker-compose defaults to `standard` profile with all features enabled (multi-signal triage, PMI inference, dream associations, background worker). All triage, merge, and infer scoring is deterministic by default — no LLM API calls for consolidation decisions.
+Full mode runs FalkorDB (graph database), Redis (activation store + vector search), the FastAPI server, and the React dashboard. The docker-compose defaults to the same recall-ready posture as the setup wizard: `consolidation_profile=standard`, `recall_profile=all`, and `integration_profile=rework`. That turns on the cue/projection rollout bundle plus the live natural recall stack: analyzer, structural signals, graph grounding, shift detection, and impoverishment gating. All triage, merge, and infer scoring is deterministic by default — no LLM API calls for consolidation decisions.
 
 **Verify it's working:**
 
@@ -157,7 +200,9 @@ Add to your MCP client config (Claude Code, Claude Desktop, Cursor, etc.):
         "ENGRAM_FALKORDB__PORT": "6380",
         "ENGRAM_FALKORDB__PASSWORD": "engram_dev",
         "ENGRAM_REDIS__URL": "redis://:engram_dev@localhost:6381/0",
-        "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard"
+        "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard",
+        "ENGRAM_ACTIVATION__RECALL_PROFILE": "all",
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": "rework"
       }
     }
   }
@@ -172,8 +217,33 @@ The MCP server connects to Docker's FalkorDB and Redis on mapped ports (6380, 63
 cd server
 uv sync
 export ANTHROPIC_API_KEY=sk-ant-...
-uv run uvicorn engram.main:app --port 8100
+uv run engram serve
 ```
+
+### Option 5: OpenClaw Skill
+
+Give any [OpenClaw](https://openclaw.ai/) agent persistent memory. Install from ClawHub or manually:
+
+```bash
+# Install and start Engram
+curl -sSL https://engram.run/install | bash
+cd ~/engram/server && uv run engram serve
+
+# Install the skill in OpenClaw
+cp -r ~/engram/skills/engram-memory ~/.openclaw/skills/
+```
+
+The skill teaches your OpenClaw agent to `observe` conversations, `remember`
+important facts, and `recall` context at the start of each session — and now to
+route project-truth questions through `/api/knowledge/route`,
+`/api/knowledge/artifacts/search`, and `/api/knowledge/runtime` before it says
+"I don't know". The route payload now includes an `answerContract` plus
+enforceable evidence metadata (`requiredNextSources`, `discouragedSources`,
+and `sourceQueries`), so the agent can distinguish remembered discussion, repo
+posture, install defaults, and effective runtime state without treating
+memory-only lookup as sufficient. See
+[`skills/engram-memory/SKILL.md`](skills/engram-memory/SKILL.md) for the full
+skill definition.
 
 ## How It Works
 
@@ -273,11 +343,11 @@ Engram is designed to minimize LLM dependency. The only operation that *requires
 
 | Operation | Uses LLM? | What Happens |
 |-----------|-----------|--------------|
-| **`observe`** (store episode) | No | Episode stored in ~5ms. Background worker scores it with 8 deterministic signals. |
-| **`remember`** (extract + store) | Yes | Claude Haiku extracts entities, relationships, attributes, temporal markers, polarity. |
-| **`recall`** (retrieve memories) | No | Pure DB: FTS5 search, ACT-R activation, spreading activation, re-ranking. Zero API calls. |
+| **`observe`** (store episode) | No | Episode stored in ~5ms. If `cue_layer_enabled`, Engram also builds an `EpisodeCue`, indexes cue text, and can route the episode to `cue_only` or `scheduled` before any LLM call. |
+| **`remember`** (extract + store) | Yes | Claude Haiku extracts entities, relationships, attributes, temporal markers, and polarity through the same projector/apply pipeline used for promoted episodes. |
+| **`recall`** (retrieve memories) | No | Pure DB: FTS5/vector search, ACT-R activation, planner support, cue recall, spreading activation, re-ranking, packet assembly. Zero API calls. |
 | **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation for ~5% borderline cases. |
-| **Merge** (entity dedup) | No | 6-signal deterministic scorer + cross-encoder refinement. |
+| **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
 | **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
 | **Replay** (re-extraction) | Yes | Re-runs Haiku extraction on recent episodes to recover missed entities. |
 | **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (recall, search_entities, search_facts). Rate-limited. |
@@ -314,6 +384,18 @@ observe("talked about the Quantum project today")     remember("Alice works at A
 ```
 
 The system prompt biases the LLM toward `observe` for most content, reserving `remember` for high-signal items (identity facts, explicit preferences, corrections). The worker's three-tier confidence routing means obvious decisions are made immediately (no LLM), while uncertain episodes are deferred to the triage phase for batch scoring with optional LLM escalation for borderline cases (~5%).
+
+### Progressive Projection
+
+The extraction pipeline is now **cue-first** rather than binary:
+
+1. `store_episode()` writes the raw episode without an LLM call.
+2. If `cue_layer_enabled`, Engram generates an `EpisodeCue` immediately: cue text, salient spans, mention candidates, contradiction hints, and projection priority.
+3. Recall can surface that cue-backed latent memory right away (`result_type="cue_episode"`) even if the episode has never been fully projected.
+4. Repeated cue hits, selected/used feedback, or high-priority routing can promote the episode to `scheduled`.
+5. `project_episode()` then uses a deterministic span planner plus a typed projector/apply pipeline to project only the most relevant spans first.
+
+This keeps `observe()` cheap while making it materially more useful, especially for long episodes or memories that matter only after later recall pressure.
 
 ### Semantic Compilation
 
@@ -369,7 +451,7 @@ Entities accessed recently and frequently have higher activation. This is normal
 
 ### Retrieval Pipeline
 
-When you `recall("What does Alice work on?")`:
+The retrieval scorer still does the heavy lifting once a query exists. When Engram executes the underlying retrieval pipeline:
 
 1. **Search** — FTS5 + optional vector search, top-50 candidates
 2. **Route** — Classify query type (temporal, frequency, creation, associative, direct) and adjust scoring weights
@@ -382,18 +464,21 @@ When you `recall("What does Alice work on?")`:
 
 ### Memory Consolidation
 
-Engram runs offline consolidation cycles inspired by biological memory consolidation during sleep. Nine phases execute sequentially:
+Engram runs offline consolidation cycles inspired by biological memory consolidation during sleep. Twelve phases execute sequentially:
 
 | Phase | What It Does |
 |-------|-------------|
 | **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. Optional LLM escalation for ~5% borderline episodes. |
-| **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN). Multi-signal scorer (name analysis + embeddings + neighbor Jaccard + summary Dice) replaces LLM judge — handles acronyms, numeronyms, tech suffixes, and canonical aliases deterministically |
+| **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN + structural candidate discovery). Multi-signal scorer with 7 signals (name analysis + embeddings + neighbor Jaccard + summary Dice + referential exclusivity) — handles acronyms, numeronyms, tech suffixes, canonical aliases, and structural equivalents (entities sharing neighbors but with zero name overlap). Summary dedup via token-set Jaccard prevents bloat during merge. |
 | **Infer** | Create edges for co-occurring entities (PMI scoring). Multi-signal auto-validation (embedding coherence + type compatibility + ubiquity penalty + structural plausibility) replaces LLM judge — self-correcting via Dream LTD decay |
 | **Replay** | Re-extract recent episodes with Claude Haiku to recover missed entities (selective — only runs when upstream phases changed the graph) |
 | **Prune** | Soft-delete dead entities (no relationships, low access, old enough). Activation safety net prevents pruning warm entities. |
 | **Compact** | Logarithmic bucketing of access history + consolidated strength preservation |
+| **Mature** | Promote entities from episodic → transitional → semantic tiers based on source diversity, temporal span, relationship richness, and access regularity. The phase persists a versioned `maturity_features_v1` bundle so later phases can reuse the same support signals. Identity-core entities can auto-promote. |
+| **Semanticize** | Promote episodes from episodic → transitional → semantic tiers based on mature-entity coverage and consolidation cycle count. Same-cycle maturations are visible immediately, so `semanticize` does not need to wait for a later consolidation pass to see newly mature entities. |
+| **Schema** | Detect recurring structural motifs, create `Schema` entities for them, and connect matching instances with `INSTANCE_OF` edges. Fingerprints are canonicalized, candidate motifs are biased toward mature/stable support, and promoted schemas record support summaries and reasons. |
 | **Reindex** | Re-embed entities affected by earlier phases |
-| **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Incremental retraining with 5% change threshold; staggered TransE (every 3rd cycle) and GNN (every 5th). |
+| **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Node2Vec supports a true dirty-subgraph incremental path with warm-started vectors. TransE and GNN are staggered, but currently retrain the full graph when they run. |
 | **Dream** | Offline spreading activation to strengthen associative pathways + discover cross-domain creative connections via dream associations. LTD decay for unboosted edges. |
 
 #### Three-Tier Scheduling
@@ -403,8 +488,8 @@ Phases run at different frequencies based on urgency:
 | Tier | Phases | Default Interval |
 |------|--------|-----------------|
 | **Hot** | triage | 15 minutes |
-| **Warm** | merge, infer, compact, reindex | 2 hours |
-| **Cold** | replay, prune, graph_embed, dream | 6 hours |
+| **Warm** | merge, infer, compact, mature, semanticize, reindex | 2 hours |
+| **Cold** | replay, prune, schema, graph_embed, dream | 6 hours |
 
 Tiered cycles only run the phases that are due. Optimizations (incremental graph_embed, selective replay) only apply during tiered scheduling — manual triggers, pressure triggers, and scheduled flat cycles always run all phases fully.
 
@@ -424,6 +509,8 @@ Set via env var: `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard`
 ### Multi-Signal Scoring Architecture
 
 All consolidation decisions — triage, merge, and infer — use **deterministic multi-signal scorers** instead of LLM API calls. These scorers use strictly more information than an LLM judge (which only sees text) — combining embeddings, graph structure, entity candidates, and statistics. Zero API cost, <5ms latency, deterministic results, with self-improving calibration.
+
+Mutable consolidation phases also emit structured `DecisionTrace` records plus outcome labels. Each cycle persists distillation examples and rolling calibration snapshots, and the cycle-detail API surfaces those artifacts for debugging, offline evaluation, and future scorer retraining.
 
 #### Triage Scorer (8 signals)
 
@@ -446,16 +533,24 @@ The triage scorer evaluates whether an episode is worth extracting. It replaces 
 
 #### Merge and Infer Scorers
 
-**Merge scorer** (6 signals, weighted ensemble):
+**Merge scorer** (7 signals, weighted ensemble):
 
 | Signal | Weight | What It Catches |
 |--------|--------|----------------|
-| Name analysis (fuzzy + acronym + numeronym + suffix strip + alias table) | 0.40 | JS↔JavaScript, K8s↔Kubernetes, React↔React.js |
-| Embedding cosine similarity | 0.30 | Semantic equivalence beyond surface names |
+| Name analysis (fuzzy + acronym + numeronym + suffix strip + alias table) | 0.35 | JS↔JavaScript, K8s↔Kubernetes, React↔React.js |
+| Embedding cosine similarity | 0.25 | Semantic equivalence beyond surface names |
 | Neighbor Jaccard overlap | 0.15 | Same graph context = same entity |
-| Summary Dice coefficient | 0.15 | Shared description terms |
+| Summary Dice coefficient | 0.10 | Shared description terms |
+| Referential exclusivity | 0.15 | Never co-occur in episodes + shared neighbors = same entity. Frequent co-occurrence = anti-merge penalty (prevents merging siblings). |
 | Type compatibility | gate | Person↔Technology = never merge |
-| Booster rules | override | High-confidence signal combos → auto-merge |
+| Booster rules | override | Structural equivalence (shared neighbors ≥ 0.40 + never co-occur + embedding ≥ 0.50 → auto-merge), Person name variants, high-confidence combos |
+
+**Three candidate discovery paths** feed into the scorer:
+1. **Name-based** — fuzzy string matching with type-blocking and prefix sub-blocks
+2. **Embedding ANN** — cosine similarity pre-filtering on entity embeddings
+3. **Structural** — inverted neighbor index finds entity pairs sharing ≥3 graph neighbors, regardless of name similarity. Catches semantic duplicates like "Fourth Son" ↔ "Benjamin" that share parent/sibling relationships.
+
+**Summary dedup** — during merge, incoming sentences are compared to existing sentences via token-set Jaccard similarity (≥0.6 = duplicate). Prevents summary bloat from repeated observations.
 
 **Infer scorer** (6 signals, weighted ensemble):
 
@@ -472,7 +567,7 @@ The triage scorer evaluates whether an episode is worth extracting. It replaces 
 
 | Tier | Method | Coverage | Latency | Cost |
 |------|--------|----------|---------|------|
-| **Tier 0** | Multi-signal rules (triage 8 signals, merge 6 signals, infer 6 signals) | ~85% | <5ms | $0 |
+| **Tier 0** | Multi-signal rules (triage 8 signals, merge 7 signals, infer 6 signals) | ~85% | <5ms | $0 |
 | **Tier 1** | Cross-encoder refinement (`Xenova/ms-marco-MiniLM-L-6-v2`, already loaded) | ~10% | ~50ms | $0 |
 | **Tier 2** | Self-improving calibration (online logistic regression, triage only) | built-in | <1ms | $0 |
 | **Tier 3** | LLM escalation (opt-in, borderline cases only) | ~5% | ~500ms | API cost |
@@ -495,7 +590,7 @@ Three methods are available, each capturing different structural signals:
 
 #### Progressive Unlock
 
-All three methods are enabled by default and train during consolidation cycles. Training is incremental — a 5% entity change threshold determines whether to do a full retrain or warm-start from existing embeddings. TransE and GNN are staggered across cycles to reduce compute load. Each method has a minimum threshold — methods automatically skip training until the graph is large enough, then activate:
+All three methods are enabled by default and train during consolidation cycles. A 5% entity change threshold decides whether the cycle can stay on its incremental path. Today that incremental path is implemented for Node2Vec only: it expands the dirty entity set into a bounded local subgraph and warm-starts from existing vectors. TransE and GNN are still staggered across cycles to reduce compute load, but when they run they currently retrain the full graph. Each method has a minimum threshold — methods automatically skip training until the graph is large enough, then activate:
 
 ```
 50 entities   → Node2Vec activates (structural position)
@@ -545,13 +640,73 @@ Engram's retrieval intelligence is organized into four cumulative waves, control
 
 | Profile | What It Enables |
 |---------|----------------|
-| `off` | Basic `recall()` only — no automatic or proactive retrieval. |
-| `wave1` | **AutoRecall** — Piggybacks on `observe`/`remember` to automatically surface related memories. Primes session context on first call. |
-| `wave2` | + **Conversation Awareness** — Rolling topic fingerprint, multi-query decomposition, session entity seeds for spreading activation, near-miss detection. |
-| `wave3` | + **Proactive Intelligence** — Topic shift detection triggers recall bursts, surprise connection detection (dormant but strongly-linked entities), retrieval priming (1-hop neighbor boosts), graph-connected MMR re-ranking for diversity. |
-| `all` | + **Prospective Memory** — Graph-embedded intentions that fire via spreading activation when related entities light up. Create with `intend()`, monitor warmth in `get_context()`. |
+| `off` | Basic explicit `recall()` only — no automatic or proactive retrieval. Explicit recall still returns packets plus raw results. |
+| `wave1` | **AutoRecall + Natural Need Analysis** — Piggybacks on `observe`/`remember`, runs the need analyzer before firing, enables pragmatic + structural signals, primes session context on first call, and records surfaced-vs-used recall semantics. |
+| `wave2` | + **Graph Grounding + Recall Planning** — Adds graph resonance for borderline turns, planner-driven multi-intent recall, session entity seeds for spreading activation, rolling topic fingerprinting, and near-miss detection. |
+| `wave3` | + **Shift / Impoverishment + Proactive Intelligence** — Shift detection and impoverishment modeling enter live gating, while proactive features add topic-shift bursts, surprise connection detection, retrieval priming, and graph-connected MMR re-ranking. |
+| `wave4` | + **Prospective Memory** — Graph-embedded intentions that fire via spreading activation when related entities light up. Create with `intend()`, monitor warmth in `get_context()`. |
+| `all` | Alias for `wave4` today — enable every recall wave. |
 
-Each wave includes all previous waves. Set via env var: `ENGRAM_ACTIVATION__RECALL_PROFILE=all`
+Each wave includes all previous waves. Set via env var: `ENGRAM_ACTIVATION__RECALL_PROFILE=wave4` or `ENGRAM_ACTIVATION__RECALL_PROFILE=all`
+
+Packet assembly is enabled on recall surfaces by default (`recall_packets_enabled=True`). Recall profiles only control the recall side of the system. They do not turn on cue generation, cue policy learning, or projection promotion by themselves.
+
+### Integration Profile
+
+Use `integration_profile` when you want the three reworks to behave as one loop instead of enabling subsystems independently:
+
+| Profile | What It Enables |
+|---------|----------------|
+| `off` | Leave consolidation, recall, and cue/projection rollout flags independent. Useful for partial rollouts and subsystem testing. |
+| `rework` | Normalize to `consolidation_profile=standard` and `recall_profile=all`, then enable `cue_layer`, `cue_recall`, `cue_policy_learning`, the projector v2/planner path, maturation/episode transitions, and the full live natural recall stack (structural, graph grounding, shift, impoverishment). This is the coherent recall-ready preset. |
+
+Recommended full-loop config: `ENGRAM_ACTIVATION__INTEGRATION_PROFILE=rework`
+If you only set `recall_profile=all` or `consolidation_profile=standard`, that is still a partial rollout. The cue layer, cue-policy loop, and projection-promotion path stay off unless you enable them individually or use `integration_profile=rework`.
+
+### Recall Control Loop
+
+With `wave1+`, Engram's recall path becomes need-first rather than query-first:
+
+1. **Analyze need** — Decide whether the current turn likely needs memory (`identity`, `project_state`, `temporal_update`, `open_loop`, `prospective`, `fact_lookup`, `broad_context`, or `none`) using keyword, pragmatic, and structural signals.
+2. **Plan recall** (`wave2+`) — Add graph grounding, seed detected entities, and build a small recall plan with bounded intents such as `direct`, `topic`, and `session_entity`.
+3. **Retrieve evidence** — Run the normal activation-aware pipeline (search, activation, spreading, scoring, reranking).
+4. **Assemble packets** — Shape the result into `fact`, `state`, `timeline`, `open_loop`, `intention`, `episode`, or cue-backed packets.
+5. **Deliver by surface** — Auto-recall returns compact packets, explicit recall returns packets plus raw results, and knowledge chat tools return packet summaries to the model.
+6. **Record usage** — Distinguish `surfaced`, `selected`, `used`, `dismissed`, and `corrected` interactions so passive surfacing does not reinforce memory like real use.
+
+`wave3+` also lets shift detection and impoverishment modeling participate in live gating, so recall can fire for natural follow-ups even when the user never says "remember" or "what did we say".
+
+Only true-usage interactions (`used`, `confirmed`, or explicit recall that records access) reinforce ranking feedback. `surfaced`, `selected`, and `dismissed` are telemetry/selection signals, not retrieval reinforcement events.
+
+### Episode And Cue State Debugging
+
+When `integration_profile=rework` is enabled, each observed episode moves through a small projection-state machine. This is the simplest way to reason about how extraction, recall, and consolidation mesh.
+
+| Episode `projection_state` | What it means | Cue behavior |
+|---------|----------------|--------------|
+| `queued` | Stored and awaiting worker/triage handling. | Cue may not exist yet if cue generation is off. |
+| `cued` | A latent cue exists and can be recalled, but the episode is not scheduled for extraction yet. | Cue is searchable and accumulates surfaced/selected/used telemetry. |
+| `cue_only` | The episode stays latent unless later feedback or routing promotes it. Common for low-priority or system-like content. | Cue remains searchable but is intentionally not on the immediate projection path. |
+| `scheduled` | The worker or cue policy decided the episode should be projected next. | Cue stays searchable until projection completes. |
+| `projecting` | Extraction/projection is currently running. | Cue metadata remains attached to the episode. |
+| `projected` | Entities/relationships were extracted, linked, and indexed; raw episode recall is now available too. | Cue remains as provenance/debug state and reflects projection completion. |
+| `failed` | Projection attempted and failed. | Cue remains available for retry or later promotion. |
+| `merged` | The episode was retired into another episode during adjacent-turn batching. | Cue is retired/suppressed and should not recall. |
+
+Cue promotion rules in the integrated loop:
+
+1. `observe()` stores the episode immediately and, if the cue layer is enabled, creates a deterministic cue right away.
+2. `surfaced` means the cue was shown; it increments cue telemetry only.
+3. `selected` means the caller chose the cue; it can update cue policy, but it still does not count as true memory usage.
+4. `used` or `confirmed` means the memory actually informed the answer; this can promote a latent cue to `scheduled` and it records true usage.
+5. `dismissed` is neutral for retrieval reinforcement and lowers cue promotion pressure.
+6. `corrected` applies negative retrieval feedback without pretending the memory was used successfully.
+
+Where to inspect rollout state:
+
+- `/api/episodes` exposes episode `status`, `projectionState`, `lastProjectionReason`, `lastProjectedAt`, plus cue counters/policy timestamps when a cue exists.
+- `/api/knowledge/recall` exposes cue `projectionState`, `routeReason`, `hitCount`, `policyScore`, and `lastFeedbackAt` on cue-backed recall results.
+- `/api/stats` aggregates cue coverage, cue-to-projection conversion, projection state counts, and projection yield.
 
 ### Prospective Memory
 
@@ -585,21 +740,22 @@ remember("Working on the auth module today")
 - **Cooldown + exhaustion** — Configurable cooldown (default 5 min) and max fires (default 5) prevent spam
 - **Priority levels** — critical / high / normal / low; higher priority surfaces first
 
-**Enable:** Set `ENGRAM_ACTIVATION__RECALL_PROFILE=all` (includes all previous waves). The v2 graph-embedded path is used by default (`prospective_graph_embedded=True`).
+**Enable:** Set `ENGRAM_ACTIVATION__RECALL_PROFILE=wave4` or `ENGRAM_ACTIVATION__RECALL_PROFILE=all`. The v2 graph-embedded path is used by default (`prospective_graph_embedded=True`).
 
 ### Background Worker
 
 When enabled (any profile except `off`), the `EpisodeWorker` runs as a background task that processes `observe`d content in near-real-time:
 
 1. Subscribes to `episode.queued` events on the EventBus
-2. Filters system meta-commentary via discourse classifier (activation scores, pipeline terms, entity IDs)
-3. Scores each episode with the multi-signal scorer (8 signals, ~2ms, zero LLM calls)
-4. **Three-tier confidence routing:**
+2. Also processes `episode.projection_scheduled` events emitted by cue-hit promotion and policy feedback
+3. Filters system meta-commentary via discourse classifier (activation scores, pipeline terms, entity IDs)
+4. Scores each episode with the multi-signal scorer (8 signals, ~2ms, zero LLM calls)
+5. **Three-tier confidence routing:**
    - **High confidence** (>0.70): Extract immediately (same pipeline as `remember`)
    - **Mid confidence** (0.15–0.70): Defer to triage phase for batch scoring next cycle
    - **Low confidence** (<0.15): Store without extraction (still searchable via FTS)
 
-This means obvious high-value content is extracted within seconds, obvious noise is skipped instantly, and uncertain content gets a more thorough evaluation during the next triage cycle — all without a single LLM API call.
+This means obvious high-value content is extracted within seconds, obvious noise is skipped instantly, uncertain content gets a more thorough evaluation during the next triage cycle, and cue-backed episodes can be promoted later when recall pressure proves they matter — all without a single LLM API call.
 
 ## MCP Integration
 
@@ -607,9 +763,9 @@ Engram exposes 15 MCP tools for AI agents:
 
 | Tool | Purpose |
 |------|---------|
-| `observe` | Store raw text cheaply for background processing (default for most content) |
+| `observe` | Store raw text cheaply; optionally generate a cue-backed latent memory for background processing and later recall |
 | `remember` | Store a memory with immediate entity extraction (for high-signal content) |
-| `recall` | Retrieve relevant memories using activation-aware search |
+| `recall` | Retrieve relevant memories using activation-aware search; returns packets plus raw scored results |
 | `search_entities` | Search entities by name or type |
 | `search_facts` | Search relationships in the knowledge graph |
 | `forget` | Soft-delete an entity or fact |
@@ -630,9 +786,9 @@ Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://enti
 Engram ships with built-in MCP instructions that teach compatible AI agents (Claude, Cursor, Windsurf, etc.) to use memory proactively — no user prompting required:
 
 - **Session start**: The agent calls `get_context()` before its first response to load relevant memories
-- **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM)
+- **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
 - **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (full extraction)
-- **Auto-recall**: When you reference past conversations or ask "do you remember...", the agent calls `recall()` or `search_facts()`
+- **Auto-recall**: With `wave1+`, piggyback recall first runs a memory-need analyzer, then surfaces compact packets only when prior context is likely useful
 - **Corrections**: When you correct a previously stored fact, the agent calls `forget()` on the old information then `remember()` with the correction
 
 The system prompt biases toward `observe` by default — "if uncertain whether something is worth remembering, use observe." This reduces LLM extraction costs while the background worker and triage phase ensure high-value content still gets fully extracted.
@@ -667,7 +823,8 @@ Optionally, add memory directives to your project's `.claude/CLAUDE.md` for stro
 - At conversation start, call `get_context()` to load relevant memory before your first response.
 - Default to `observe()` for general conversation context and uncertain-value content.
 - Use `remember()` only for high-signal items: identity facts, explicit preferences, key decisions, corrections.
-- Use `recall()` or `search_facts()` when the user references past conversations or when context would help.
+- Use `recall()` when the user references past conversations or when context would help.
+- Use `search_facts()` for user-facing relationship lookups. Internal epistemic decision/artifact edges are hidden unless you explicitly opt into debug behavior.
 - When the user corrects a memory, call `forget()` on the old fact then `remember()` the correction.
 - Do not announce memory operations. Integrate recalled context naturally.
 ```
@@ -754,7 +911,7 @@ The real-time dashboard provides a 3D neural brain visualization of your knowled
 | **Timeline** | Temporal navigation — view the graph at any historical point |
 | **Feed** | Episode ingestion history with extraction details |
 | **Activation** | ACT-R leaderboard with decay curve visualization |
-| **Stats** | Entity counts, type distribution, growth timeline |
+| **Stats** | Entity counts, type distribution, growth timeline, cue coverage, projection health, and extraction yield observability |
 | **Consolidation** | Cycle history, phase timeline, pressure gauge, trigger controls |
 | **Knowledge** | Chat interface with memory recall, entity browsing, search overlay, streaming responses |
 
@@ -785,15 +942,18 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | PATCH | `/api/entities/{id}` | Update entity |
 | DELETE | `/api/entities/{id}` | Soft-delete entity |
 | GET | `/api/episodes` | List episodes (paginated) |
-| GET | `/api/stats` | Graph statistics |
+| GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
 | GET | `/api/activation/snapshot` | Top activated entities |
 | GET | `/api/activation/{id}/curve` | ACT-R decay curve |
 | POST | `/api/knowledge/observe` | Store content without extraction (fast path) |
 | POST | `/api/knowledge/auto-observe` | Auto-observe with classification (dedup, tagging) |
 | POST | `/api/knowledge/remember` | Ingest with full extraction |
-| GET | `/api/knowledge/recall` | Activation-aware memory search |
-| GET | `/api/knowledge/facts` | Search facts/relationships |
+| GET | `/api/knowledge/recall` | Activation-aware memory search (packets + raw results) |
+| GET | `/api/knowledge/facts` | Search user-facing facts/relationships (`include_epistemic=true` for debug graph edges) |
 | GET | `/api/knowledge/context` | Assembled memory context (structured or briefing) |
+| POST | `/api/knowledge/route` | Deterministic epistemic routing plus `answerContract`, `requiredNextSources`, and source-query metadata |
+| GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
+| GET | `/api/knowledge/runtime` | Effective mode/profile/feature state plus artifact freshness |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
 | POST | `/api/knowledge/intentions` | Create a graph-embedded intention |
@@ -820,8 +980,9 @@ Connect to `/ws/dashboard` for real-time updates. Events include episode lifecyc
 
 **Commands**: Send JSON messages to control subscriptions:
 - `{"type": "ping"}` — Keepalive (server responds with pong). Auto ping/pong every 25s.
-- `{"type": "resync", "since_seq": N}` — Replay missed events since sequence number N
-- `{"type": "subscribe.activation_monitor"}` — Subscribe to periodic activation snapshots (top entities + decay curves)
+- `{"type": "command", "command": "resync", "lastSeq": N}` — Replay missed events since sequence number `N`
+- `{"type": "command", "command": "subscribe.activation_monitor", "interval_ms": 2000}` — Subscribe to periodic activation snapshots
+- `{"type": "command", "command": "unsubscribe.activation_monitor"}` — Stop activation snapshots
 
 ## Benchmarks
 
@@ -853,15 +1014,24 @@ uv run python scripts/benchmark_echo_chamber.py --queries 200
 
 Full pipeline with spreading activation shows +28% P@5 improvement over pure search. Frequency queries (identifying most-accessed entities) are the standout at 94% precision — this is where ACT-R activation shines.
 
-**Query categories**: direct lookup, recency, frequency, associative, temporal, semantic, graph traversal, cross-cluster. **Metrics**: P@5, R@10, MRR, nDCG@5, latency percentiles, bootstrap CI (1,000 resamples).
+**Query categories**: direct lookup, recency, frequency, associative, temporal, semantic, graph traversal, cross-cluster. **Core script metrics**: P@5, R@10, MRR, nDCG@5, latency percentiles, bootstrap CI (1,000 resamples).
+
+The benchmark module also includes Phase 6 evaluation primitives for recall behavior:
+
+- `memory_need_precision` — of turns that triggered recall, how often memory actually helped
+- `useful_packet_rate` and `false_recall_rate` — how often surfaced packets were used vs misleading
+- `session_continuity_lift` — score lift on multi-turn tasks that require prior context
+- `open_loop_recovery_rate` and `temporal_correctness` — whether Engram surfaces unresolved work and newer facts at the right moment
+- Echo chamber surfaced-vs-used tracking — the echo chamber benchmark now records surfaced count, used count, and surfaced-to-used ratio to catch passive reinforcement loops
 
 ## Configuration
 
 Engram uses Pydantic Settings with env var support. Config is loaded in order (later sources override earlier):
 
 1. `~/.engram/.env` — global config (created by `python -m engram setup`)
-2. `./.env` — local overrides (API keys, engine mode)
-3. Environment variables — always take precedence
+2. repo-root `.env` — useful when launching from `server/` inside this repository
+3. `./.env` — current-working-directory overrides
+4. Environment variables — always take precedence
 
 For first-time setup, run the wizard: `cd server && uv run python -m engram setup`
 
@@ -878,25 +1048,70 @@ ENGRAM_EMBEDDING__LOCAL_MODEL=nomic-ai/nomic-embed-text-v1.5  # fastembed model 
 ENGRAM_GROUP_ID=default                # Your brain ID (one per person, not per project)
 ENGRAM_MODE=auto                       # auto | lite | full
 
-# Consolidation (standard by default)
-ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard   # off | observe | conservative | standard
-ENGRAM_ACTIVATION__WORKER_ENABLED=true              # Background episode processor
+# Consolidation (off by default in code; Docker Compose defaults to standard)
+ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard   # Set to enable: off | observe | conservative | standard
+ENGRAM_ACTIVATION__WORKER_ENABLED=true              # Optional override; non-off profiles enable worker automatically
 
-# Recall intelligence (all waves by default)
-ENGRAM_ACTIVATION__RECALL_PROFILE=all               # off | wave1 | wave2 | wave3 | all
+# Full rework integration (recommended for MCP and Docker)
+ENGRAM_ACTIVATION__INTEGRATION_PROFILE=rework       # Normalizes to consolidation_profile=standard + recall_profile=all, enables cue/projection rollout flags, the live natural recall stack, and epistemic routing/artifact bootstrap
 
-# Prospective memory tuning (enabled by recall_profile=all)
+# Recall intelligence (advanced / partial-rollout overrides)
+ENGRAM_ACTIVATION__RECALL_PROFILE=all               # off | wave1 | wave2 | wave3 | wave4 | all
+ENGRAM_ACTIVATION__RECALL_NEED_ANALYZER_ENABLED=true   # Advanced override; enabled by wave1+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_NEED_STRUCTURAL_ENABLED=true # Advanced override; enabled by wave1+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_NEED_GRAPH_PROBE_ENABLED=true # Advanced override; enabled by wave2+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_NEED_SHIFT_ENABLED=true      # Advanced override; enabled by wave3+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_NEED_IMPOVERISHMENT_ENABLED=true # Advanced override; enabled by wave3+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_NEED_SHIFT_SHADOW_ONLY=false    # Defaults true when shift is manually enabled
+ENGRAM_ACTIVATION__RECALL_NEED_IMPOVERISHMENT_SHADOW_ONLY=false # Defaults true when manually enabled
+ENGRAM_ACTIVATION__RECALL_PLANNER_ENABLED=true         # Advanced override; enabled by wave2+ or integration_profile=rework
+ENGRAM_ACTIVATION__RECALL_PACKETS_ENABLED=true      # Return packets on recall surfaces (default true)
+ENGRAM_ACTIVATION__RECALL_PACKET_AUTO_LIMIT=2       # Auto-recall packet cap
+ENGRAM_ACTIVATION__RECALL_PACKET_EXPLICIT_LIMIT=3   # Explicit recall packet cap
+ENGRAM_ACTIVATION__RECALL_PACKET_CHAT_LIMIT=2       # Chat tool packet cap
+ENGRAM_ACTIVATION__RECALL_USAGE_FEEDBACK_ENABLED=true  # surfaced/selected/used semantics (enabled by wave1+ or integration_profile=rework)
+ENGRAM_ACTIVATION__RECALL_NEED_ADAPTIVE_THRESHOLDS_ENABLED=false  # Optional bounded runtime tuning; off by default
+ENGRAM_ACTIVATION__RECALL_NEED_GRAPH_OVERRIDE_ENABLED=false       # Optional graph-only recall override; off by default
+ENGRAM_ACTIVATION__RECALL_NEED_POST_RESPONSE_SAFETY_NET_ENABLED=false # Optional one-shot knowledge-chat retry; off by default
+
+# Epistemic routing / artifact substrate (enabled by integration_profile=rework)
+ENGRAM_ACTIVATION__EPISTEMIC_ROUTING_ENABLED=true        # Route questions as remember | inspect | reconcile
+ENGRAM_ACTIVATION__ARTIFACT_BOOTSTRAP_ENABLED=true       # Bootstrap key project docs/config into Artifact entities
+ENGRAM_ACTIVATION__ARTIFACT_RECALL_ENABLED=true          # Let artifacts participate in routed answers
+ENGRAM_ACTIVATION__EPISTEMIC_RUNTIME_EXECUTOR_ENABLED=true  # Surface effective runtime/config state
+ENGRAM_ACTIVATION__DECISION_GRAPH_ENABLED=true           # Track discussed -> documented -> implemented decision edges
+ENGRAM_ACTIVATION__EPISTEMIC_RECONCILE_ENABLED=true      # Reconcile memory with artifacts/runtime
+ENGRAM_ACTIVATION__ANSWER_CONTRACT_ENABLED=true          # Shape answers as direct_answer | compare | reconcile | timeline | recommend | plan
+ENGRAM_ACTIVATION__CLAIM_STATE_MODELING_ENABLED=true     # Annotate claims as discussed | tentative | decided | documented | implemented | effective
+ENGRAM_ACTIVATION__ARTIFACT_BOOTSTRAP_STALE_SECONDS=86400  # Artifact refresh cadence
+
+# Routed answers distinguish multiple truth scopes when needed:
+# - raw config defaults      (code/config defaults)
+# - shipped install defaults (setup wizard, README, .env.example)
+# - repo current posture     (bootstrapped artifacts)
+# - effective runtime        (current running mode/profile/flags)
+
+# Progressive projection / cue layer (advanced / partial-rollout overrides)
+ENGRAM_ACTIVATION__CUE_LAYER_ENABLED=true              # Generate EpisodeCue records on observe/store
+ENGRAM_ACTIVATION__CUE_VECTOR_INDEX_ENABLED=true       # Index cue text for vector search when cue layer is on
+ENGRAM_ACTIVATION__CUE_RECALL_ENABLED=true             # Let cue-backed latent episodes participate in recall
+ENGRAM_ACTIVATION__CUE_POLICY_LEARNING_ENABLED=true    # Use surfaced/selected/used/near-miss feedback
+ENGRAM_ACTIVATION__TARGETED_PROJECTION_ENABLED=true    # Allow long episodes to use span-selected projection
+ENGRAM_ACTIVATION__PROJECTOR_V2_ENABLED=true           # Enable the progressive planner/projector path
+ENGRAM_ACTIVATION__PROJECTION_PLANNER_ENABLED=true     # Deterministic span planner before extractor calls
+
+# Prospective memory tuning (enabled by recall_profile=wave4 or all)
 ENGRAM_ACTIVATION__PROSPECTIVE_ACTIVATION_THRESHOLD=0.5  # Activation level to trigger an intention
 ENGRAM_ACTIVATION__PROSPECTIVE_COOLDOWN_SECONDS=300      # Min seconds between fires (default 5 min)
 ENGRAM_ACTIVATION__PROSPECTIVE_GRAPH_EMBEDDED=true       # Use v2 graph-embedded intentions (default)
 
-# Graph embeddings (all ON by default, train during consolidation)
+# Graph embeddings (enabled by default; train when consolidation runs)
 ENGRAM_ACTIVATION__GRAPH_EMBEDDING_NODE2VEC_ENABLED=true   # Node2Vec random walks (pure numpy)
 ENGRAM_ACTIVATION__GRAPH_EMBEDDING_TRANSE_ENABLED=true     # TransE relational geometry (pure numpy)
 ENGRAM_ACTIVATION__GRAPH_EMBEDDING_GNN_ENABLED=true        # GNN/GraphSAGE (requires torch)
 ENGRAM_ACTIVATION__WEIGHT_GRAPH_STRUCTURAL=0.1             # Retrieval weight (0.0 = disabled)
 
-# LLM Model Configuration (all default to OFF, enabled by 'standard' profile)
+# LLM fallback configuration (all default to OFF; enable explicitly if desired)
 ENGRAM_ACTIVATION__TRIAGE_LLM_JUDGE_ENABLED=true              # Use Haiku as triage judge (replaces heuristics)
 ENGRAM_ACTIVATION__CONSOLIDATION_INFER_LLM_ENABLED=true       # Haiku validates inferred edges
 ENGRAM_ACTIVATION__CONSOLIDATION_INFER_ESCALATION_ENABLED=true # Sonnet 4.6 re-validates uncertain edges
@@ -928,7 +1143,7 @@ Engram uses a 2-model architecture: Haiku for all high-volume work, Sonnet for e
 | **Merge Escalation** | Claude Sonnet 4.6 | `consolidation_merge_escalation_model` | Re-validating uncertain merge verdicts (LLM fallback only) |
 | **Briefing** | Claude Haiku 4.5 | `briefing_model` | Synthesizing `get_context(format="briefing")` narrative |
 
-All LLM features beyond basic extraction default to OFF. The `standard` consolidation profile enables all of them. Prompt caching is always active — static system prompts are cached via Anthropic's ephemeral cache, reducing input costs by ~80-90%.
+All LLM features beyond basic extraction default to OFF. The `standard` consolidation profile keeps deterministic multi-signal scoring on by default; turn on the `...LLM...` flags above only if you want LLM fallback or escalation. Prompt caching is always active — static system prompts are cached via Anthropic's ephemeral cache, reducing input costs by ~80-90%.
 
 ## Security
 
@@ -955,7 +1170,7 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 ```bash
 # Backend
 cd server
-uv run pytest -m "not requires_docker" -v    # 1,354 tests
+uv run pytest -m "not requires_docker" -v    # Backend test suite
 uv run ruff check .                           # Lint
 uv run python -m engram.mcp.server            # MCP server (stdio)
 uv run uvicorn engram.main:app --port 8100    # REST API
@@ -965,11 +1180,11 @@ uv run python -m engram config                # Edit configuration
 # Frontend
 cd dashboard
 pnpm install && pnpm dev                      # Dev server (port 5173)
-pnpm test                                     # 158 Vitest tests
+pnpm test                                     # Frontend test suite
 pnpm build                                    # Production build
 
 # Docker (full mode) — via Makefile
-make up                                       # Build + start full stack (standard profile, all features)
+make up                                       # Build + start full stack (standard consolidation + rework integration)
 make down                                     # Stop everything
 make restart                                  # Stop + rebuild + start
 make logs                                     # Tail all logs (make logs-server for server only)
@@ -984,7 +1199,7 @@ server/engram/
   activation/       # ACT-R engine (BFS, PPR, strategy pattern)
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
-  consolidation/    # 9-phase engine, scheduler, pressure accumulator
+  consolidation/    # 12-phase engine, scheduler, pressure accumulator
   embeddings/       # Embedding providers (Voyage AI cloud, fastembed local, noop)
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
@@ -997,8 +1212,8 @@ server/engram/
   worker.py         # Background episode processor (EventBus-driven)
 
 dashboard/src/
-  components/       # 38 React components (3D graph, panels, knowledge chat)
-  store/            # 10 Zustand slices
+  components/       # Graph renderers, dashboard panels, and knowledge chat UI
+  store/            # Zustand slices and selectors
   hooks/            # WebSocket with exponential backoff
   api/              # HTTP client
   lib/              # Utilities

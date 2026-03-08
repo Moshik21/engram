@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.extractor import EntityExtractor, ExtractionStatus
 
 
 class TestStripMarkdownFences:
@@ -70,6 +70,7 @@ class TestExtract:
         result = await extractor.extract("test text")
         assert result.entities == []
         assert result.relationships == []
+        assert result.status == ExtractionStatus.PARSE_ERROR
 
     async def test_api_exception_returns_empty(self):
         extractor = EntityExtractor()
@@ -79,6 +80,7 @@ class TestExtract:
         result = await extractor.extract("test text")
         assert result.entities == []
         assert result.relationships == []
+        assert result.status == ExtractionStatus.API_ERROR
 
     async def test_missing_relationships_key_defaults_empty(self):
         data = {"entities": [{"name": "X", "entity_type": "Thing"}]}
@@ -141,6 +143,7 @@ class TestExtract:
         result = await extractor.extract("test text")
         assert result.entities == []
         assert result.relationships == []
+        assert result.status == ExtractionStatus.EMPTY
 
     async def test_uses_cached_system_prompt(self):
         """System kwarg should be a list with cache_control for prompt caching."""

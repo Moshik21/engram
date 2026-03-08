@@ -12,10 +12,15 @@ from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.resolver import resolve_entity
-from engram.extraction.temporal import resolve_temporal_hint
-from engram.models.consolidation import CycleContext, PhaseResult, ReplayRecord
+from engram.models.consolidation import (
+    CycleContext,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    PhaseResult,
+    ReplayRecord,
+)
 from engram.models.entity import Entity
-from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +39,33 @@ class EpisodeReplayPhase(ConsolidationPhase):
     @property
     def name(self) -> str:
         return "replay"
+
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        if not cfg.consolidation_replay_enabled:
+            return set()
+        return {
+            "get_episodes",
+            "get_episode_entities",
+            "find_entities",
+            "create_entity",
+            "update_entity",
+            "link_episode_entity",
+            "create_relationship",
+            "get_relationships",
+            "invalidate_relationship",
+            "find_conflicting_relationships",
+            "find_existing_relationship",
+        }
+
+    def required_activation_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        if not cfg.consolidation_replay_enabled:
+            return set()
+        return {"record_access"}
+
+    def required_search_index_methods(self, cfg: ActivationConfig) -> set[str]:
+        if not cfg.consolidation_replay_enabled:
+            return set()
+        return {"index_entity"}
 
     async def execute(
         self,
@@ -85,26 +117,16 @@ class EpisodeReplayPhase(ConsolidationPhase):
         window_hours = cfg.consolidation_replay_window_hours
         min_age_hours = cfg.consolidation_replay_min_age_hours
 
-        # Fetch recent episodes and filter in Python
-        episodes = await graph_store.get_episodes(
-            group_id=group_id,
-            limit=max_per_cycle * 2,
-        )
-
-        now = datetime.utcnow()
+        now = utc_now()
         window_cutoff = now - timedelta(hours=window_hours)
         age_cutoff = now - timedelta(hours=min_age_hours)
-
-        eligible = [
-            ep
-            for ep in episodes
-            if (
-                ep.status.value == "completed"
-                and ep.created_at is not None
-                and ep.created_at >= window_cutoff
-                and ep.created_at <= age_cutoff
-            )
-        ][:max_per_cycle]
+        eligible = await self._load_eligible_episodes(
+            graph_store=graph_store,
+            group_id=group_id,
+            max_per_cycle=max_per_cycle,
+            window_cutoff=window_cutoff,
+            age_cutoff=age_cutoff,
+        )
 
         if not eligible:
             return PhaseResult(
@@ -310,9 +332,11 @@ class EpisodeReplayPhase(ConsolidationPhase):
             entity_map=entity_map,
             group_id=group_id,
             graph_store=graph_store,
+            cfg=cfg,
             episode_id=episode.id,
             cycle_id=cycle_id,
             dry_run=dry_run,
+            context=context,
         )
 
         return ReplayRecord(
@@ -324,95 +348,144 @@ class EpisodeReplayPhase(ConsolidationPhase):
             entities_updated=entities_updated,
         )
 
+    async def _load_eligible_episodes(
+        self,
+        graph_store: Any,
+        group_id: str,
+        max_per_cycle: int,
+        window_cutoff: datetime,
+        age_cutoff: datetime,
+    ) -> list[Any]:
+        """Scan recent episodes until enough replay-eligible items are found."""
+        eligible: list[Any] = []
+        offset = 0
+        batch_size = max(max_per_cycle * 2, 10)
+        seen_episode_ids: set[str] = set()
+
+        while len(eligible) < max_per_cycle:
+            episodes = await graph_store.get_episodes(
+                group_id=group_id,
+                limit=batch_size,
+                offset=offset,
+            )
+            if not episodes:
+                break
+            batch_ids = {ep.id for ep in episodes}
+            if batch_ids and batch_ids.issubset(seen_episode_ids):
+                break
+            seen_episode_ids.update(batch_ids)
+            offset += len(episodes)
+
+            reached_window_end = False
+            for ep in episodes:
+                created_at = getattr(ep, "created_at", None)
+                status = ep.status.value if hasattr(ep.status, "value") else ep.status
+
+                if created_at is None:
+                    continue
+                if created_at < window_cutoff:
+                    reached_window_end = True
+                    break
+                if status != "completed":
+                    continue
+                if created_at > age_cutoff:
+                    continue
+
+                eligible.append(ep)
+                if len(eligible) >= max_per_cycle:
+                    break
+
+            if reached_window_end:
+                break
+
+        return eligible[:max_per_cycle]
+
     async def _replay_relationships(
         self,
         rel_data_list: list[dict],
         entity_map: dict[str, str],
         group_id: str,
         graph_store: Any,
+        cfg: ActivationConfig,
         episode_id: str,
         cycle_id: str,
         dry_run: bool,
+        context: CycleContext | None,
     ) -> int:
-        """Create genuinely new relationships. Returns count of new rels."""
+        """Apply replayed relationships through the ingestion relationship path."""
+        from engram.graph_manager import GraphManager
+
         new_count = 0
 
         for rel_data in rel_data_list:
-            source_name = rel_data.get("source") or rel_data.get("source_entity", "")
-            target_name = rel_data.get("target") or rel_data.get("target_entity", "")
-            source_id = entity_map.get(source_name)
-            target_id = entity_map.get(target_name)
-
-            if not source_id or not target_id:
-                continue
-
-            predicate = (
-                (
-                    rel_data.get("predicate")
-                    or rel_data.get("relationship_type")
-                    or rel_data.get("type")
-                    or "RELATES_TO"
-                )
-                .upper()
-                .replace(" ", "_")
-            )
-            predicate = self._canonicalizer.canonicalize(predicate)
-
-            # Check if this exact relationship already exists
-            existing_rels = await graph_store.get_relationships(
-                source_id,
-                direction="outgoing",
-                predicate=predicate,
-                active_only=True,
-                group_id=group_id,
-            )
-            already_exists = any(r.target_id == target_id for r in existing_rels)
-            if already_exists:
-                continue
-
-            new_count += 1
-
             if dry_run:
+                source_name = rel_data.get("source") or rel_data.get("source_entity", "")
+                target_name = rel_data.get("target") or rel_data.get("target_entity", "")
+                if entity_map.get(source_name) and entity_map.get(target_name):
+                    new_count += 1
                 continue
 
-            dt_now = datetime.utcnow()
-            valid_from = dt_now
-            valid_to = None
-
-            valid_from_str = rel_data.get("valid_from")
-            if valid_from_str:
-                try:
-                    valid_from = datetime.fromisoformat(valid_from_str)
-                except (ValueError, TypeError):
-                    resolved = resolve_temporal_hint(valid_from_str, dt_now)
-                    if resolved:
-                        valid_from = resolved
-
-            valid_to_str = rel_data.get("valid_to")
-            if valid_to_str:
-                try:
-                    valid_to = datetime.fromisoformat(valid_to_str)
-                except (ValueError, TypeError):
-                    resolved = resolve_temporal_hint(valid_to_str, dt_now)
-                    if resolved:
-                        valid_to = resolved
-
-            rel = Relationship(
-                id=f"rel_{uuid.uuid4().hex[:12]}",
-                source_id=source_id,
-                target_id=target_id,
-                predicate=predicate,
-                weight=float(rel_data.get("weight", 1.0)),
-                valid_from=valid_from,
-                valid_to=valid_to,
-                confidence=0.9,
-                source_episode=f"replay:{cycle_id}:{episode_id}",
+            created = await GraphManager._apply_relationship_fact(
+                graph_store=graph_store,
+                canonicalizer=self._canonicalizer,
+                cfg=cfg,
+                rel_data=rel_data,
+                entity_map=entity_map,
                 group_id=group_id,
+                source_episode=f"replay:{cycle_id}:{episode_id}",
             )
-            await graph_store.create_relationship(rel)
+            if context is not None:
+                trace = DecisionTrace(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="relationship",
+                    candidate_id=_replay_candidate_id(
+                        created.source_id,
+                        created.target_id,
+                        created.predicate,
+                    ),
+                    decision=created.action,
+                    decision_source="shared_apply_path",
+                    confidence=created.confidence,
+                    threshold_band="applied" if created.created else "skipped",
+                    features={
+                        "polarity": created.polarity,
+                        "weight": created.weight,
+                        **created.metadata,
+                    },
+                    constraints_hit=created.constraints_hit,
+                    metadata={"episode_id": episode_id},
+                )
+                context.add_decision_trace(trace)
+                if created.created:
+                    context.add_decision_outcome_label(
+                        DecisionOutcomeLabel(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            phase=self.name,
+                            decision_trace_id=trace.id,
+                            outcome_type="materialization",
+                            label="applied",
+                            value=1.0,
+                            metadata={"episode_id": episode_id},
+                        )
+                    )
+            if created.created:
+                new_count += 1
 
         return new_count
 
 
 def _elapsed_ms(t0: float) -> float:
     return round((time.perf_counter() - t0) * 1000, 1)
+
+
+def _replay_candidate_id(
+    source_id: str | None,
+    target_id: str | None,
+    predicate: str | None,
+) -> str:
+    if not source_id or not target_id or not predicate:
+        return "missing"
+    return f"{source_id}:{target_id}:{predicate}"

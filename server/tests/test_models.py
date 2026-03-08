@@ -4,7 +4,7 @@ import pytest
 
 from engram.models.activation import ActivationState
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeStatus
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.relationship import Relationship
 from engram.models.tenant import TenantContext
 
@@ -30,6 +30,9 @@ class TestEntity:
         e = Entity(id="ent_3", name="Test", entity_type="Test")
         assert e.pii_detected is False
         assert e.pii_categories is None
+        assert e.lexical_regime == "natural_language"
+        assert e.canonical_identifier is None
+        assert e.identifier_label is False
 
     def test_entity_with_pii_flags(self):
         e = Entity(
@@ -41,6 +44,12 @@ class TestEntity:
         )
         assert e.pii_detected is True
         assert "phone" in e.pii_categories
+
+    def test_entity_identifier_facets_auto_populate(self):
+        e = Entity(id="ent_5", name="SKU 1712061", entity_type="Identifier")
+        assert e.lexical_regime == "identifier"
+        assert e.canonical_identifier == "1712061"
+        assert e.identifier_label is True
 
 
 class TestEpisode:
@@ -60,6 +69,9 @@ class TestEpisode:
         assert ep.error is None
         assert ep.retry_count == 0
         assert ep.processing_duration_ms is None
+        assert ep.projection_state == EpisodeProjectionState.QUEUED
+        assert ep.last_projection_reason is None
+        assert ep.last_projected_at is None
 
     def test_episode_old_status_compat(self):
         """Legacy statuses (pending, processing, failed) still work."""

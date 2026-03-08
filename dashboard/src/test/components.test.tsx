@@ -36,6 +36,61 @@ vi.mock("../components/knowledge/ChatProvider", () => ({
 
 vi.mock("../api/client", () => ({
   api: {
+    getGraphAtlas: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "atlas",
+        layout: "precomputed",
+        representedEntityCount: 0,
+        representedEdgeCount: 0,
+        displayedNodeCount: 0,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      regions: [],
+      bridges: [],
+      stats: {
+        totalEntities: 0,
+        totalRelationships: 0,
+        totalRegions: 0,
+        hottestRegionId: null,
+        fastestGrowingRegionId: null,
+      },
+    }),
+    getGraphAtlasHistory: vi.fn().mockResolvedValue({ items: [] }),
+    getGraphRegion: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "region",
+        layout: "precomputed",
+        representedEntityCount: 1,
+        representedEdgeCount: 0,
+        displayedNodeCount: 1,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      region: {
+        id: "region:test",
+        label: "People",
+        subtitle: "Dominant entity type: Person",
+        kind: "mixed",
+        memberCount: 1,
+        activationScore: 0.5,
+        growth7d: 1,
+        growth30d: 1,
+        latestEntityCreatedAt: "2026-03-05T00:00:00Z",
+      },
+      nodes: [],
+      edges: [],
+      topEntities: [],
+      memberIds: ["n1"],
+    }),
+    getHealth: vi.fn().mockResolvedValue({
+      status: "unhealthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "unhealthy" },
+    }),
     getNeighborhood: vi.fn().mockResolvedValue({
       centerId: "n1",
       nodes: [],
@@ -89,14 +144,23 @@ import { ConnectionStatus } from "../components/ConnectionStatus";
 import { EpisodeCard } from "../components/EpisodeCard";
 import { MemoryFeed } from "../components/MemoryFeed";
 import { StatsPanel } from "../components/StatsPanel";
+import { AtlasView } from "../components/graph/AtlasView";
+import { api } from "../api/client";
 import { useEngramStore } from "../store";
-import type { Episode } from "../store/types";
+import type { Episode, SearchResult } from "../store/types";
 
 function resetStore() {
   useEngramStore.setState({
     nodes: {},
     edges: {},
     centerNodeId: null,
+    brainMapScope: "atlas",
+    representation: null,
+    atlas: null,
+    activeRegionId: null,
+    regionData: null,
+    lastAtlasVisitAt: null,
+    lastAtlasSnapshotId: null,
     isLoading: false,
     error: null,
     selectedNodeId: null,
@@ -114,6 +178,8 @@ function resetStore() {
     timePosition: null,
     timeRange: null,
     isTimeScrubbing: false,
+    atlasSnapshotId: null,
+    atlasHistory: [],
     episodes: [],
     episodeCursor: null,
     hasMoreEpisodes: true,
@@ -201,6 +267,63 @@ describe("EmptyState", () => {
   });
 });
 
+describe("AtlasView", () => {
+  it("does not record a last-visit marker when viewing a historical snapshot", () => {
+    act(() => {
+      useEngramStore.setState({
+        atlasSnapshotId: "atlas_122",
+        atlas: {
+          representation: {
+            scope: "atlas",
+            layout: "precomputed",
+            representedEntityCount: 1,
+            representedEdgeCount: 0,
+            displayedNodeCount: 1,
+            displayedEdgeCount: 0,
+            truncated: false,
+            snapshotId: "atlas_122",
+          },
+          generatedAt: "2026-03-05T00:00:00Z",
+          regions: [
+            {
+              id: "region:test",
+              label: "People",
+              subtitle: "Dominant entity type: Person",
+              kind: "mixed",
+              memberCount: 1,
+              representedEdgeCount: 0,
+              activationScore: 0.5,
+              growth7d: 1,
+              growth30d: 1,
+              dominantEntityTypes: { Person: 1 },
+              hubEntityIds: ["n1"],
+              centerEntityId: "n1",
+              latestEntityCreatedAt: "2026-03-05T00:00:00Z",
+              x: 0,
+              y: 0,
+              z: 0,
+            },
+          ],
+          bridges: [],
+          stats: {
+            totalEntities: 1,
+            totalRelationships: 0,
+            totalRegions: 1,
+            hottestRegionId: "region:test",
+            fastestGrowingRegionId: "region:test",
+          },
+        },
+      });
+    });
+
+    const { unmount } = render(<AtlasView />);
+    unmount();
+
+    expect(useEngramStore.getState().lastAtlasVisitAt).toBeNull();
+    expect(useEngramStore.getState().lastAtlasSnapshotId).toBeNull();
+  });
+});
+
 describe("SearchBar", () => {
   it("debounces input before searching", async () => {
     const user = userEvent.setup();
@@ -215,25 +338,48 @@ describe("SearchBar", () => {
 });
 
 describe("ConnectionStatus", () => {
-  it("shows Offline by default", () => {
+  it("shows Offline when health checks fail", async () => {
     render(<ConnectionStatus />);
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(await screen.findByText("Offline")).toBeInTheDocument();
   });
 
-  it("shows Connected when WebSocket is connected", () => {
+  it("shows Live when health is healthy and WebSocket is connected", async () => {
+    vi.mocked(api.getHealth).mockResolvedValueOnce({
+      status: "healthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "healthy" },
+    });
     act(() => {
       useEngramStore.setState({ readyState: "connected" });
     });
     render(<ConnectionStatus />);
-    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(await screen.findByText("Live")).toBeInTheDocument();
   });
 
-  it("shows Reconnecting when WebSocket is reconnecting", () => {
+  it("shows Syncing when health is healthy and WebSocket is reconnecting", async () => {
+    vi.mocked(api.getHealth).mockResolvedValueOnce({
+      status: "healthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "healthy" },
+    });
     act(() => {
       useEngramStore.setState({ readyState: "reconnecting" });
     });
     render(<ConnectionStatus />);
-    expect(screen.getByText("Reconnecting")).toBeInTheDocument();
+    expect(await screen.findByText("Syncing")).toBeInTheDocument();
+  });
+
+  it("shows Server OK when health is healthy but WebSocket is disconnected", async () => {
+    vi.mocked(api.getHealth).mockResolvedValueOnce({
+      status: "healthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "healthy" },
+    });
+    render(<ConnectionStatus />);
+    expect(await screen.findByText("Server OK")).toBeInTheDocument();
   });
 });
 
@@ -320,8 +466,9 @@ describe("MemoryFeed", () => {
 
 describe("StatsPanel", () => {
   it("renders loading state initially", () => {
+    const loadStats = vi.fn();
     act(() => {
-      useEngramStore.setState({ isLoadingStats: true, stats: null });
+      useEngramStore.setState({ isLoadingStats: true, stats: null, loadStats });
     });
     const { container } = render(<StatsPanel />);
     // Loading state shows a skeleton element
@@ -329,6 +476,7 @@ describe("StatsPanel", () => {
   });
 
   it("renders stats when loaded", () => {
+    const loadStats = vi.fn();
     act(() => {
       useEngramStore.setState({
         stats: {
@@ -336,17 +484,63 @@ describe("StatsPanel", () => {
           totalRelationships: 100,
           totalEpisodes: 15,
           entityTypeCounts: { Person: 20, Organization: 10 },
+          cueMetrics: {
+            cueCount: 12,
+            episodesWithoutCues: 3,
+            cueCoverage: 0.8,
+            cueHitCount: 9,
+            cueHitEpisodeCount: 4,
+            cueHitEpisodeRate: 0.3333,
+            cueSurfacedCount: 6,
+            cueSelectedCount: 3,
+            cueUsedCount: 2,
+            cueNearMissCount: 1,
+            avgPolicyScore: 0.42,
+            avgProjectionAttempts: 1.5,
+            projectedCueCount: 5,
+            cueToProjectionConversionRate: 0.4167,
+          },
+          projectionMetrics: {
+            stateCounts: {
+              queued: 1,
+              cued: 2,
+              cueOnly: 3,
+              scheduled: 2,
+              projecting: 1,
+              projected: 5,
+              failed: 1,
+              deadLetter: 0,
+            },
+            attemptedEpisodeCount: 6,
+            totalAttempts: 9,
+            failureCount: 1,
+            deadLetterCount: 0,
+            failureRate: 1 / 6,
+            avgProcessingDurationMs: 180,
+            avgTimeToProjectionMs: 3200,
+            yield: {
+              linkedEntityCount: 14,
+              relationshipCount: 8,
+              avgLinkedEntitiesPerProjectedEpisode: 2.8,
+              avgRelationshipsPerProjectedEpisode: 1.6,
+            },
+          },
           topActivated: [],
           topConnected: [],
           growthTimeline: [],
         },
         isLoadingStats: false,
+        loadStats,
       });
     });
     render(<StatsPanel />);
     expect(screen.getByText("42")).toBeInTheDocument();
     expect(screen.getByText("100")).toBeInTheDocument();
     expect(screen.getByText("15")).toBeInTheDocument();
+    expect(screen.getByText("Cue Layer")).toBeInTheDocument();
+    expect(screen.getByText("Projection Health")).toBeInTheDocument();
+    expect(screen.getByText("80%")).toBeInTheDocument();
+    expect(screen.getByText("16.7%")).toBeInTheDocument();
   });
 });
 
@@ -500,5 +694,76 @@ describe("SearchOverlay", () => {
     await user.click(input);
     await user.keyboard("{Escape}");
     expect(useEngramStore.getState().searchOverlayOpen).toBe(false);
+  });
+
+  it("ignores stale search responses after a newer query", async () => {
+    const user = userEvent.setup();
+
+    let resolveFirst: ((value: SearchResult[]) => void) | null = null;
+    let resolveSecond: ((value: SearchResult[]) => void) | null = null;
+
+    vi.mocked(api.searchEntities).mockImplementation(
+      ({ q }) =>
+        new Promise<SearchResult[]>((resolve) => {
+          if (q === "a") {
+            resolveFirst = resolve;
+            return;
+          }
+          if (q === "ab") {
+            resolveSecond = resolve;
+            return;
+          }
+          resolve([]);
+        }),
+    );
+
+    act(() => {
+      useEngramStore.setState({ searchOverlayOpen: true });
+    });
+
+    render(<SearchOverlay />);
+
+    const input = screen.getByPlaceholderText("Search entities...");
+    await user.type(input, "a");
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    });
+
+    await user.clear(input);
+    await user.type(input, "ab");
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    });
+
+    await act(async () => {
+      resolveFirst?.([
+        {
+          id: "stale",
+          name: "Stale Result",
+          entityType: "Person",
+          summary: null,
+          activationScore: 0.2,
+        },
+      ]);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("Stale Result")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveSecond?.([
+        {
+          id: "fresh",
+          name: "Fresh Result",
+          entityType: "Person",
+          summary: null,
+          activationScore: 0.8,
+        },
+      ]);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByText("Fresh Result")).toBeInTheDocument();
+    expect(screen.queryByText("Stale Result")).not.toBeInTheDocument();
   });
 });

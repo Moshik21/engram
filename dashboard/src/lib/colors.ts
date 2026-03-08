@@ -47,6 +47,7 @@ export const ENTITY_TYPE_COLORS: Record<string, string> = {
   concept: "#fcd34d",      // Warm gold — firing neurons
   location: "#fca5a5",     // Soft coral — spatial mapping
   event: "#f9a8d4",        // Pink — temporal markers
+  identifier: "#f59e0b",   // Signal amber — exact code anchors
 
   // Capitalized (existing data)
   Person: "#c4b5fd",
@@ -56,6 +57,7 @@ export const ENTITY_TYPE_COLORS: Record<string, string> = {
   Concept: "#fcd34d",
   Location: "#fca5a5",
   Event: "#f9a8d4",
+  Identifier: "#f59e0b",
   Other: "#94a3b8",        // Cool slate — dormant
 };
 

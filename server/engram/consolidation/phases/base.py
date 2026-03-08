@@ -18,6 +18,18 @@ class ConsolidationPhase(ABC):
         """Human-readable phase name."""
         ...
 
+    def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        """Optional graph-store capabilities this phase requires."""
+        return set()
+
+    def required_activation_store_methods(self, cfg: ActivationConfig) -> set[str]:
+        """Optional activation-store capabilities this phase requires."""
+        return set()
+
+    def required_search_index_methods(self, cfg: ActivationConfig) -> set[str]:
+        """Optional search-index capabilities this phase requires."""
+        return set()
+
     @abstractmethod
     async def execute(
         self,

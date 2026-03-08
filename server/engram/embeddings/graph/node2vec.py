@@ -56,9 +56,15 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
                 (id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx
             ]
 
+        initial_in = _build_initial_matrix(
+            entity_ids,
+            cfg.graph_embedding_node2vec_dimensions,
+            existing_embeddings,
+        )
+
         # 3. Generate walks and train (CPU-bound, run in thread)
         embeddings_matrix = await asyncio.to_thread(
-            self._train_sync, adj_idx, len(entity_ids), cfg,
+            self._train_sync, adj_idx, len(entity_ids), cfg, initial_in,
         )
 
         # 4. Map back to entity IDs
@@ -68,6 +74,58 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
 
         logger.info(
             "Node2Vec: trained %d entity embeddings (dim=%d)",
+            len(result), cfg.graph_embedding_node2vec_dimensions,
+        )
+        return result
+
+    async def train_incremental(
+        self,
+        graph_store,
+        group_id: str,
+        entity_ids: set[str],
+        existing_embeddings: dict[str, list[float]] | None = None,
+    ) -> dict[str, list[float]]:
+        """Train on a dirty subgraph and warm-start from prior embeddings."""
+        cfg = self._cfg
+        if len(entity_ids) < 2:
+            logger.info("Node2Vec incremental: only %d scoped entities, skipping", len(entity_ids))
+            return {}
+
+        adj, ordered_entity_ids = await self._build_adjacency_subset(
+            graph_store,
+            group_id,
+            entity_ids,
+        )
+        if len(ordered_entity_ids) < 2:
+            return {}
+
+        id_to_idx = {eid: i for i, eid in enumerate(ordered_entity_ids)}
+        adj_idx: dict[int, list[tuple[int, float]]] = {}
+        for eid, neighbors in adj.items():
+            src_idx = id_to_idx[eid]
+            adj_idx[src_idx] = [
+                (id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx
+            ]
+
+        initial_in = _build_initial_matrix(
+            ordered_entity_ids,
+            cfg.graph_embedding_node2vec_dimensions,
+            existing_embeddings,
+        )
+        embeddings_matrix = await asyncio.to_thread(
+            self._train_sync,
+            adj_idx,
+            len(ordered_entity_ids),
+            cfg,
+            initial_in,
+        )
+
+        result = {}
+        for i, eid in enumerate(ordered_entity_ids):
+            result[eid] = embeddings_matrix[i].tolist()
+
+        logger.info(
+            "Node2Vec incremental: trained %d entity embeddings (dim=%d)",
             len(result), cfg.graph_embedding_node2vec_dimensions,
         )
         return result
@@ -98,11 +156,37 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
 
         return adj, entity_ids
 
+    async def _build_adjacency_subset(
+        self,
+        graph_store,
+        group_id: str,
+        entity_ids: set[str],
+    ) -> tuple[dict[str, list[tuple[str, float]]], list[str]]:
+        """Build weighted adjacency for a scoped subgraph only."""
+        ordered_ids = sorted(entity_ids)
+        entity_set = set(ordered_ids)
+        adj: dict[str, list[tuple[str, float]]] = {eid: [] for eid in ordered_ids}
+
+        for eid in ordered_ids:
+            try:
+                neighbors = await graph_store.get_active_neighbors_with_weights(
+                    eid, group_id=group_id,
+                )
+                for nid, weight, _pred, *_rest in neighbors:
+                    if nid in entity_set:
+                        adj[eid].append((nid, max(weight, 0.01)))
+            except Exception:
+                logger.debug("Failed to get neighbors for %s, skipping", eid)
+                continue
+
+        return adj, ordered_ids
+
     @staticmethod
     def _train_sync(
         adj_idx: dict[int, list[tuple[int, float]]],
         vocab_size: int,
         cfg: ActivationConfig,
+        initial_in: np.ndarray | None = None,
     ) -> np.ndarray:
         """Synchronous training: generate walks + Skip-gram."""
         rng = np.random.RandomState(42)
@@ -127,8 +211,28 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
             lr=0.025,
             epochs=cfg.graph_embedding_node2vec_epochs,
             seed=42,
+            initial_in=initial_in,
         )
         return sg.train(walks)
+
+
+def _build_initial_matrix(
+    entity_ids: list[str],
+    dimensions: int,
+    existing_embeddings: dict[str, list[float]] | None,
+) -> np.ndarray | None:
+    if not existing_embeddings:
+        return None
+
+    matrix = np.zeros((len(entity_ids), dimensions), dtype=np.float32)
+    found = False
+    for index, entity_id in enumerate(entity_ids):
+        vector = existing_embeddings.get(entity_id)
+        if vector is None or len(vector) != dimensions:
+            continue
+        matrix[index] = np.asarray(vector, dtype=np.float32)
+        found = True
+    return matrix if found else None
 
 
 def _build_neighbor_sets(

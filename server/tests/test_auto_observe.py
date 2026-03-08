@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import time
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -15,6 +16,7 @@ from engram.api.knowledge import _DEDUP_CACHE, _dedup_check
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
+from engram.models.episode import EpisodeProjectionState
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
@@ -252,6 +254,76 @@ async def test_turn_batching(worker_setup):
 
     secondary = await graph_store.get_episode_by_id(ep2, GROUP)
     assert secondary is not None
+
+
+@pytest.mark.asyncio
+async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_setup):
+    """Batch merge rebuilds the surviving cue and suppresses merged-away cue recall."""
+    mgr, worker, event_bus, graph_store, cfg = worker_setup
+    cfg.cue_layer_enabled = True
+    cfg.cue_recall_enabled = True
+    cfg.cue_vector_index_enabled = False
+    cfg.triage_enabled = False
+    worker._process = AsyncMock()
+
+    ep1_content = "[user|Engram] What is spreading activation?"
+    ep1 = await mgr.store_episode(
+        content=ep1_content,
+        group_id=GROUP,
+        source="auto:prompt",
+    )
+    ep2_content = (
+        "[assistant|Engram] Spreading activation is a method "
+        "used in cognitive science"
+    )
+    ep2 = await mgr.store_episode(
+        content=ep2_content,
+        group_id=GROUP,
+        source="auto:response",
+    )
+
+    primary_cue_before = await graph_store.get_episode_cue(ep1, GROUP)
+    assert primary_cue_before is not None
+    assert "cognitive science" not in primary_cue_before.cue_text
+
+    worker._batch_buffer = [
+        _PendingEpisode(ep1, ep1_content, "auto:prompt"),
+        _PendingEpisode(ep2, ep2_content, "auto:response"),
+    ]
+
+    await worker._flush_batch(GROUP)
+
+    primary = await graph_store.get_episode_by_id(ep1, GROUP)
+    primary_cue = await graph_store.get_episode_cue(ep1, GROUP)
+    secondary = await graph_store.get_episode_by_id(ep2, GROUP)
+    secondary_cue = await graph_store.get_episode_cue(ep2, GROUP)
+
+    assert primary is not None
+    assert primary_cue is not None
+    assert primary.projection_state == primary_cue.projection_state
+    assert primary.last_projection_reason == primary_cue.route_reason
+    assert "cognitive science" in primary_cue.cue_text
+
+    assert secondary is not None
+    assert secondary.projection_state == EpisodeProjectionState.MERGED
+    assert secondary.last_projection_reason == f"merged_into:{ep1}"
+    assert secondary_cue is None
+
+    results = await mgr._search.search_episode_cues("cognitive science", group_id=GROUP)
+    assert [episode_id for episode_id, _ in results] == [ep1]
+
+    raw_results = await mgr._search.search_episodes("cognitive science", group_id=GROUP)
+    assert ep2 not in {episode_id for episode_id, _ in raw_results}
+
+    recall_results = await mgr.recall("cognitive science", group_id=GROUP, limit=5)
+    recalled_episode_ids = {
+        result["episode"]["id"]
+        for result in recall_results
+        if "episode" in result
+    }
+    assert ep1 in recalled_episode_ids
+    assert ep2 not in recalled_episode_ids
+    worker._process.assert_awaited_once_with(ep1, GROUP)
 
 
 # ── Setup/Hooks Tests ───────────────────────────────────────────────

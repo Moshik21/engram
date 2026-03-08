@@ -38,6 +38,12 @@ when related entities light up during remember/observe.
 info (how close they are to firing).
 - **bootstrap_project**: Auto-observe key project files (README, Makefile, etc.) \
 and create a Project entity. Idempotent — safe to call multiple times.
+- **route_question**: Decide whether a question is asking for remembered continuity, \
+artifact inspection, or reconciliation between prior discussion and current project truth.
+- **search_artifacts**: Search bootstrapped project artifacts like README, design docs, \
+skills, and config files.
+- **get_runtime_state**: Check the effective mode, active profiles, enabled flags, and \
+artifact bootstrap freshness.
 
 ## When to Observe vs Remember
 
@@ -63,6 +69,22 @@ Call `recall` when:
 - The user references something from the past
 - You need context that might exist in memory to give a better answer
 - The user asks 'do you remember...' or 'what do you know about...'
+- The user gives a natural follow-up where prior context could change the \
+answer, even if they do not ask for memory explicitly
+
+Natural follow-up examples that should trigger memory lookup before answering:
+- "my son did great today"
+- "talked to Sarah about it"
+- "still dealing with that bug"
+- "we finally shipped v2"
+- "he had a great game today"
+- "which son plays soccer?"
+
+Project-truth or decision questions should trigger epistemic routing before answering:
+- "how do we install the OpenClaw skill?"
+- "is full mode rework by default?"
+- "what did we decide about launching Engram publicly?"
+- "did we ever agree to ship this through OpenClaw?"
 
 ## Guidelines
 
@@ -70,6 +92,29 @@ Call `recall` when:
 feel natural, not transactional.
 - When recalling, integrate the information smoothly into your response. Do not \
 say 'According to my memory system...'.
+- If prior context could plausibly change your answer, do the memory lookup \
+before you answer. Do not answer first and only then call `observe` or \
+`remember`.
+- For project install/config/current-truth questions, call `route_question` first. \
+Use the returned `answerContract` as response policy, not just source routing. \
+If the route returns `evidencePlan.requiredNextSources`, treat those sources as \
+mandatory before your final answer. If `artifacts` is required, call \
+`search_artifacts` with the same `project_path`. If `runtime` is required, call \
+`get_runtime_state` with the same `project_path`, and carry the same `project_path` \
+through all required follow-up calls. Do not substitute \
+`search_facts` for required artifact inspection on `reconcile` turns.
+- On MCP/coding-agent surfaces, if `route_question` says the answer may depend on \
+the current workspace and you have the repo available, prefer native workspace \
+search/read for exact code truth and use Engram artifacts as supporting evidence.
+- If `answerContract.operator` is `compare`, contrast raw defaults, install \
+defaults, repo posture, and runtime state when relevant instead of collapsing \
+them into one answer.
+- If `answerContract.operator` is `reconcile` or `unresolved_state_report`, \
+preserve earlier discussion versus current documented/implemented truth.
+- If `answerContract.operator` is `recommend` or `plan`, state the evidence first \
+and only then give advice or next steps.
+- `search_facts` is a user-facing relationship lookup by default. Internal \
+decision/artifact graph facts only appear when debug mode explicitly asks for them.
 - If recall returns no results, do not mention it. Just respond normally.
 - If you are uncertain whether something is worth remembering, use observe. It \
 stores the content cheaply and lets background processing decide what to extract.
@@ -86,10 +131,12 @@ reviewing entities), do not store that discussion as a memory.
 ## Session Start
 
 Call `get_context()` once at the start of each new conversation to load relevant \
-memory context before your first response. Pass a `topic_hint` if the user's first \
-message suggests a clear topic, or `project_path` to auto-derive it from the project \
-directory name. Use `format="briefing"` for a concise LLM-synthesized narrative \
-instead of structured markdown.
+memory context before your first substantive response. This is mandatory when the \
+user's first message could depend on prior personal, project, or relationship \
+context. Pass a `topic_hint` if the user's first message suggests a clear topic, or \
+`project_path` to auto-derive it from the project directory name. Use \
+`format="briefing"` for a concise LLM-synthesized narrative instead of structured \
+markdown.
 
 ## Automatic Context
 
@@ -100,6 +147,10 @@ When you call `observe` or `remember`, the response may include:
 
 When `triggered_intentions` is present, act on the `action` naturally. Do not \
 announce that a memory triggered.
+
+If `recalled_context` is present, use it to improve or revise your answer on the \
+same turn. Do not ignore it and do not continue with a generic reply if the \
+returned memory changes what a good answer should say.
 
 If `context` is provided in an intention, use it as-is — do not search for \
 additional context on that topic. The context field already contains what you need.

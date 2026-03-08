@@ -1,0 +1,1 @@
+Benchmark results (quick, measured against equal retrieval budgets): `engram_full` passed 1.000 of showcase scenarios with false recall 0.000, versus context summary 0.000, markdown canonical 0.250, hybrid rag temporal 0.250.

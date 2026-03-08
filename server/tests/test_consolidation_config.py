@@ -26,6 +26,8 @@ class TestConsolidationConfigDefaults:
         assert cfg.consolidation_merge_threshold == 0.88
         assert cfg.consolidation_merge_max_per_cycle == 50
         assert cfg.consolidation_merge_require_same_type is True
+        assert cfg.consolidation_identifier_review_enabled is True
+        assert cfg.consolidation_identifier_review_min_similarity == 0.8
 
     def test_prune_defaults(self):
         cfg = ActivationConfig()
@@ -264,7 +266,7 @@ class TestPMIAndLLMConfigDefaults:
 
     def test_llm_confidence_threshold_default(self):
         cfg = ActivationConfig()
-        assert cfg.consolidation_infer_llm_confidence_threshold == 0.7
+        assert cfg.consolidation_infer_llm_confidence_threshold == 0.5
 
     def test_llm_max_per_cycle_default(self):
         cfg = ActivationConfig()

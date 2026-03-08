@@ -1,0 +1,929 @@
+[
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "engram",
+    "baseline_name": "engram_full",
+    "incorrect_fields": [],
+    "latency_ms": 4.355291952379048,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 34
+  },
+  {
+    "answer": {
+      "needed": "",
+      "subject": ""
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_summary",
+    "incorrect_fields": [],
+    "latency_ms": 0.03812497016042471,
+    "matched_fields": [],
+    "missing_fields": [
+      "subject",
+      "needed"
+    ],
+    "normalized_answer": {
+      "needed": "",
+      "subject": ""
+    },
+    "passed": false,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 0.0,
+    "seed": 7,
+    "tokens_surfaced": 63
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_canonical",
+    "incorrect_fields": [],
+    "latency_ms": 0.0687920255586505,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "hybrid_rag_temporal",
+    "incorrect_fields": [],
+    "latency_ms": 0.4337090067565441,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 96
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_window",
+    "incorrect_fields": [],
+    "latency_ms": 0.05245895590633154,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 95
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_memory",
+    "incorrect_fields": [],
+    "latency_ms": 0.048042042180895805,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 105
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "vector_rag",
+    "incorrect_fields": [],
+    "latency_ms": 0.1902079675346613,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 96
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_no_cues",
+    "incorrect_fields": [],
+    "latency_ms": 2.5895830476656556,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 34
+  },
+  {
+    "answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_search_only",
+    "incorrect_fields": [],
+    "latency_ms": 1.6792500391602516,
+    "matched_fields": [
+      "subject",
+      "needed"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "needed": "one extra smoke test",
+      "subject": "cedar cache migration"
+    },
+    "passed": true,
+    "scenario_id": "cue_delayed_relevance",
+    "scenario_title": "Cue Delayed Relevance",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 34
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "engram",
+    "baseline_name": "engram_full",
+    "incorrect_fields": [],
+    "latency_ms": 3.491500043310225,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 59
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_summary",
+    "incorrect_fields": [],
+    "latency_ms": 0.02575002145022154,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 63
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_canonical",
+    "incorrect_fields": [],
+    "latency_ms": 0.03933301195502281,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 80
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "hybrid_rag_temporal",
+    "incorrect_fields": [],
+    "latency_ms": 27.7859999332577,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 80
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_window",
+    "incorrect_fields": [],
+    "latency_ms": 0.021625077351927757,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 50
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_memory",
+    "incorrect_fields": [],
+    "latency_ms": 0.01520791556686163,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 56
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "vector_rag",
+    "incorrect_fields": [],
+    "latency_ms": 30.350000015459955,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 50
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_no_cues",
+    "incorrect_fields": [],
+    "latency_ms": 3.349917009472847,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 59
+  },
+  {
+    "answer": {
+      "base_url": "api.v2.internal"
+    },
+    "answer_task_question": "Return Aurora API's current base URL as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_search_only",
+    "incorrect_fields": [],
+    "latency_ms": 1.7051250906661153,
+    "matched_fields": [
+      "base_url"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "base_url": "api.v2.internal"
+    },
+    "passed": true,
+    "scenario_id": "temporal_override",
+    "scenario_title": "Temporal Override",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 59
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "engram",
+    "baseline_name": "engram_full",
+    "incorrect_fields": [],
+    "latency_ms": 5.368625046685338,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_summary",
+    "incorrect_fields": [],
+    "latency_ms": 0.056165968999266624,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_canonical",
+    "incorrect_fields": [],
+    "latency_ms": 0.06870902143418789,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "hybrid_rag_temporal",
+    "incorrect_fields": [],
+    "latency_ms": 0.30800001695752144,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_window",
+    "incorrect_fields": [],
+    "latency_ms": 0.03854196984320879,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 72
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_memory",
+    "incorrect_fields": [],
+    "latency_ms": 0.03358395770192146,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 80
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "vector_rag",
+    "incorrect_fields": [],
+    "latency_ms": 0.28787495102733374,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 72
+  },
+  {
+    "answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_no_cues",
+    "incorrect_fields": [],
+    "latency_ms": 4.571207915432751,
+    "matched_fields": [
+      "reminder"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "reminder": "Check XSS fix before deploying"
+    },
+    "passed": true,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 120
+  },
+  {
+    "answer": {
+      "reminder": ""
+    },
+    "answer_task_question": "Return the operative JWT reminder as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_search_only",
+    "incorrect_fields": [],
+    "latency_ms": 2.6488329749554396,
+    "matched_fields": [],
+    "missing_fields": [
+      "reminder"
+    ],
+    "normalized_answer": {
+      "reminder": ""
+    },
+    "passed": false,
+    "scenario_id": "prospective_trigger",
+    "scenario_title": "Prospective Trigger",
+    "score": 0.0,
+    "seed": 7,
+    "tokens_surfaced": 67
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "engram",
+    "baseline_name": "engram_full",
+    "incorrect_fields": [],
+    "latency_ms": 4.765499965287745,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 96
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_summary",
+    "incorrect_fields": [],
+    "latency_ms": 0.03383297007530928,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 50
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_canonical",
+    "incorrect_fields": [],
+    "latency_ms": 0.04983297549188137,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 97
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "hybrid_rag_temporal",
+    "incorrect_fields": [],
+    "latency_ms": 0.11037499643862247,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 91
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "context_window",
+    "incorrect_fields": [],
+    "latency_ms": 0.024290988221764565,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 36
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "markdown_memory",
+    "incorrect_fields": [],
+    "latency_ms": 0.021999934688210487,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 42
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "alternative",
+    "baseline_name": "vector_rag",
+    "incorrect_fields": [],
+    "latency_ms": 0.09445799514651299,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 36
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_no_cues",
+    "incorrect_fields": [],
+    "latency_ms": 4.163749981671572,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 96
+  },
+  {
+    "answer": {
+      "dependency": "Meridian Gate"
+    },
+    "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+    "availability_reason": null,
+    "available": true,
+    "baseline_family": "ablation",
+    "baseline_name": "engram_search_only",
+    "incorrect_fields": [],
+    "latency_ms": 3.0452499631792307,
+    "matched_fields": [
+      "dependency"
+    ],
+    "missing_fields": [],
+    "normalized_answer": {
+      "dependency": "Meridian Gate"
+    },
+    "passed": true,
+    "scenario_id": "cross_cluster_association",
+    "scenario_title": "Cross Cluster Association",
+    "score": 1.0,
+    "seed": 7,
+    "tokens_surfaced": 70
+  }
+]

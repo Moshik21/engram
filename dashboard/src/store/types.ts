@@ -21,11 +21,131 @@ export interface GraphEdge {
   createdAt: string;
 }
 
+export type BrainMapScope = "atlas" | "region" | "neighborhood" | "temporal";
+
+export interface GraphRepresentationMeta {
+  scope: BrainMapScope;
+  layout: "precomputed" | "force";
+  representedEntityCount: number;
+  representedEdgeCount: number;
+  displayedNodeCount: number;
+  displayedEdgeCount: number;
+  snapshotId?: string;
+  truncated: boolean;
+}
+
+export interface AtlasRegion {
+  id: string;
+  label: string;
+  subtitle: string | null;
+  kind: "identity" | "mixed" | "domain" | "schema_cluster";
+  memberCount: number;
+  representedEdgeCount: number;
+  activationScore: number;
+  growth7d: number;
+  growth30d: number;
+  dominantEntityTypes: Record<string, number>;
+  hubEntityIds: string[];
+  centerEntityId: string | null;
+  latestEntityCreatedAt: string | null;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface AtlasBridge {
+  id: string;
+  source: string;
+  target: string;
+  weight: number;
+  relationshipCount: number;
+}
+
+export interface AtlasData {
+  representation: GraphRepresentationMeta;
+  generatedAt: string;
+  regions: AtlasRegion[];
+  bridges: AtlasBridge[];
+  stats: {
+    totalEntities: number;
+    totalRelationships: number;
+    totalRegions: number;
+    hottestRegionId: string | null;
+    fastestGrowingRegionId: string | null;
+  };
+}
+
+export interface AtlasHistoryEntry {
+  id: string;
+  generatedAt: string;
+  representedEntityCount: number;
+  representedEdgeCount: number;
+  displayedNodeCount: number;
+  displayedEdgeCount: number;
+  totalEntities: number;
+  totalRelationships: number;
+  totalRegions: number;
+  hottestRegionId: string | null;
+  fastestGrowingRegionId: string | null;
+  truncated: boolean;
+}
+
+export interface RegionGraphNode {
+  id: string;
+  kind: "hub" | "schema" | "cluster" | "bridge";
+  label: string;
+  representedEntityCount: number;
+  activationScore: number;
+  growth30d: number;
+  x: number;
+  y: number;
+  z: number;
+  entityId?: string;
+  entityType?: string;
+  regionId?: string;
+}
+
+export interface RegionGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  weight: number;
+  predicateHint: string | null;
+}
+
+export interface RegionData {
+  representation: GraphRepresentationMeta;
+  generatedAt: string;
+  region: {
+    id: string;
+    label: string;
+    subtitle: string | null;
+    kind: "identity" | "mixed" | "domain" | "schema_cluster";
+    memberCount: number;
+    activationScore: number;
+    growth7d: number;
+    growth30d: number;
+    latestEntityCreatedAt: string | null;
+  };
+  nodes: RegionGraphNode[];
+  edges: RegionGraphEdge[];
+  topEntities: Array<{
+    id: string;
+    name: string;
+    entityType: string;
+    activationCurrent: number;
+  }>;
+  memberIds: string[];
+}
+
 export interface SearchResult {
   id: string;
   name: string;
   entityType: string;
   summary: string | null;
+  lexicalRegime?: string | null;
+  canonicalIdentifier?: string | null;
+  identifierLabel?: boolean;
   activationScore: number;
 }
 
@@ -45,6 +165,9 @@ export interface EntityDetail {
   name: string;
   entityType: string;
   summary: string | null;
+  lexicalRegime?: string | null;
+  canonicalIdentifier?: string | null;
+  identifierLabel?: boolean;
   activationCurrent: number;
   accessCount: number;
   lastAccessed: string | null;
@@ -53,7 +176,7 @@ export interface EntityDetail {
   facts: EntityFact[];
 }
 
-export type EpisodeStatus = "queued" | "processing" | "completed" | "failed";
+export type EpisodeStatus = "queued" | "processing" | "extracting" | "completed" | "failed";
 
 export interface Episode {
   episodeId: string;
@@ -74,6 +197,47 @@ export interface GraphStats {
   totalRelationships: number;
   totalEpisodes: number;
   entityTypeCounts: Record<string, number>;
+  cueMetrics?: {
+    cueCount: number;
+    episodesWithoutCues: number;
+    cueCoverage: number;
+    cueHitCount: number;
+    cueHitEpisodeCount: number;
+    cueHitEpisodeRate: number;
+    cueSurfacedCount: number;
+    cueSelectedCount: number;
+    cueUsedCount: number;
+    cueNearMissCount: number;
+    avgPolicyScore: number;
+    avgProjectionAttempts: number;
+    projectedCueCount: number;
+    cueToProjectionConversionRate: number;
+  };
+  projectionMetrics?: {
+    stateCounts: {
+      queued: number;
+      cued: number;
+      cueOnly: number;
+      scheduled: number;
+      projecting: number;
+      projected: number;
+      failed: number;
+      deadLetter: number;
+    };
+    attemptedEpisodeCount: number;
+    totalAttempts: number;
+    failureCount: number;
+    deadLetterCount: number;
+    failureRate: number;
+    avgProcessingDurationMs: number;
+    avgTimeToProjectionMs: number;
+    yield: {
+      linkedEntityCount: number;
+      relationshipCount: number;
+      avgLinkedEntitiesPerProjectedEpisode: number;
+      avgRelationshipsPerProjectedEpisode: number;
+    };
+  };
   topActivated: Array<{ id: string; name: string; entityType: string; activation: number }>;
   topConnected: Array<{ id: string; name: string; entityType: string; connectionCount: number }>;
   growthTimeline: Array<{ date: string; entities: number; episodes: number }>;
@@ -151,9 +315,25 @@ export interface GraphSlice {
   nodes: Record<string, GraphNode>;
   edges: Record<string, GraphEdge>;
   centerNodeId: string | null;
+  brainMapScope: BrainMapScope;
+  representation: GraphRepresentationMeta | null;
+  atlas: AtlasData | null;
+  activeRegionId: string | null;
+  regionData: RegionData | null;
   isLoading: boolean;
   error: string | null;
-  loadNeighborhood: (centerId?: string, depth?: number) => Promise<void>;
+  loadAtlas: (
+    options?: { refresh?: boolean; snapshotId?: string | null },
+  ) => Promise<void>;
+  loadRegion: (
+    regionId: string,
+    options?: { refresh?: boolean; snapshotId?: string | null },
+  ) => Promise<void>;
+  loadNeighborhood: (
+    centerId?: string,
+    depth?: number,
+    options?: { regionId?: string | null },
+  ) => Promise<void>;
   loadInitialGraph: () => Promise<void>;
   expandNode: (nodeId: string) => Promise<void>;
   mergeGraphDelta: (delta: GraphDelta) => void;
@@ -185,6 +365,8 @@ export interface PreferencesSlice {
   showFpsOverlay: boolean;
   darkMode: boolean;
   graphMaxNodes: number;
+  lastAtlasVisitAt: string | null;
+  lastAtlasSnapshotId: string | null;
   setCurrentView: (view: DashboardView) => void;
   setRenderMode: (mode: GraphRenderMode) => void;
   toggleActivationHeatmap: () => void;
@@ -192,15 +374,22 @@ export interface PreferencesSlice {
   toggleFpsOverlay: () => void;
   toggleDarkMode: () => void;
   setGraphMaxNodes: (n: number) => void;
+  recordAtlasVisit: (
+    visit: { generatedAt: string | null; snapshotId?: string | null },
+  ) => void;
 }
 
 export interface TimeSlice {
   timePosition: string | null;
   timeRange: TimeRange | null;
   isTimeScrubbing: boolean;
+  atlasSnapshotId: string | null;
+  atlasHistory: AtlasHistoryEntry[];
   setTimePosition: (ts: string | null) => void;
   setTimeRange: (range: TimeRange | null) => void;
   setIsTimeScrubbing: (v: boolean) => void;
+  setAtlasSnapshotId: (snapshotId: string | null) => void;
+  setAtlasHistory: (history: AtlasHistoryEntry[]) => void;
 }
 
 export interface EpisodeSlice {
@@ -295,7 +484,28 @@ export interface ConsolidationMerge {
   keep_name: string;
   remove_name: string;
   similarity: number;
+  decision_confidence?: number | null;
+  decision_source?: string | null;
+  decision_reason?: string | null;
   relationships_transferred: number;
+}
+
+export interface ConsolidationIdentifierReview {
+  id: string;
+  entity_a_name: string;
+  entity_b_name: string;
+  entity_a_type: string;
+  entity_b_type: string;
+  raw_similarity: number;
+  adjusted_similarity?: number | null;
+  decision_source?: string | null;
+  decision_reason?: string | null;
+  entity_a_regime?: string | null;
+  entity_b_regime?: string | null;
+  canonical_identifier_a?: string | null;
+  canonical_identifier_b?: string | null;
+  review_status: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ConsolidationInferredEdge {
@@ -338,6 +548,7 @@ export interface ConsolidationReindex {
 export interface ConsolidationCycleDetail extends ConsolidationCycleSummary {
   error: string | null;
   merges: ConsolidationMerge[];
+  identifier_reviews: ConsolidationIdentifierReview[];
   inferred_edges: ConsolidationInferredEdge[];
   prunes: ConsolidationPrune[];
   dreams: ConsolidationDream[];

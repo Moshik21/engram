@@ -9,6 +9,7 @@ import pytest_asyncio
 from engram.config import ActivationConfig
 from engram.consolidation.phases.merge import EntityMergePhase
 from engram.models.activation import ActivationState
+from engram.models.consolidation import IdentifierReviewRecord, MergeRecord
 from engram.models.entity import Entity
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
@@ -92,6 +93,82 @@ class TestEntityMergePhase:
         )
 
         assert result.items_affected == 0
+
+    @pytest.mark.asyncio
+    async def test_numeric_identifiers_do_not_merge(self, store, activation, search):
+        e1 = _entity("1712061", entity_type="Thing")
+        e2 = _entity("1712018", entity_type="Thing")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        cfg = ActivationConfig(consolidation_merge_threshold=0.85)
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_numeric",
+            dry_run=False,
+        )
+
+        assert result.items_affected == 0
+        assert not [record for record in records if isinstance(record, MergeRecord)]
+        reviews = [record for record in records if isinstance(record, IdentifierReviewRecord)]
+        assert len(reviews) == 1
+        assert reviews[0].decision_reason == "identifier_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_labeled_identifier_alias_merges(self, store, activation, search):
+        e1 = _entity("1712061", entity_type="Thing")
+        e2 = _entity("SKU 1712061", entity_type="Thing")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        cfg = ActivationConfig(consolidation_merge_threshold=0.85)
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_identifier_alias",
+            dry_run=False,
+        )
+
+        assert result.items_affected == 1
+        assert len(records) == 1
+        assert records[0].decision_source == "identifier_policy"
+        assert records[0].decision_reason == "identifier_exact_match"
+        assert records[0].decision_confidence == pytest.approx(1.0)
+
+    @pytest.mark.asyncio
+    async def test_exact_identifier_aliases_merge_across_types(self, store, activation, search):
+        e1 = _entity("1712061", entity_type="Technology", access_count=10)
+        e2 = _entity("SKU 1712061", entity_type="Identifier", access_count=1)
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        cfg = ActivationConfig(consolidation_merge_threshold=0.88)
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            cycle_id="cyc_cross_type_identifier",
+            dry_run=False,
+        )
+
+        merges = [record for record in records if isinstance(record, MergeRecord)]
+        assert result.items_affected == 1
+        assert len(merges) == 1
+        survivor = await store.get_entity(e1.id, "test")
+        assert survivor is not None
+        assert survivor.entity_type == "Identifier"
 
     @pytest.mark.asyncio
     async def test_same_type_enforcement(self, store, activation, search):
@@ -222,7 +299,8 @@ class TestEntityMergePhase:
 
         # "Alice Smith" and "alice smith" share prefix "al" → should merge
         assert result.items_affected >= 1
-        names = {(r.keep_name.lower(), r.remove_name.lower()) for r in records}
+        merges = [record for record in records if isinstance(record, MergeRecord)]
+        names = {(r.keep_name.lower(), r.remove_name.lower()) for r in merges}
         assert any("alice smith" in n for pair in names for n in pair)
 
     @pytest.mark.asyncio
@@ -456,6 +534,48 @@ class TestMergeANNEmbeddings:
         # Embeddings are orthogonal — no candidates, no merges
         assert result.items_affected == 0
         assert result.items_processed == 0
+
+    @pytest.mark.asyncio
+    async def test_ann_respects_same_type_requirement(self, store, activation, search):
+        """ANN candidates must not merge across types when same-type is required."""
+        e1 = _entity("React", entity_type="Technology")
+        e2 = _entity("React", entity_type="Project")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        class MockSearchWithEmbeddings:
+            def __init__(self, inner):
+                self._inner = inner
+
+            async def get_entity_embeddings(self, entity_ids, group_id=None):
+                return {
+                    e1.id: [1.0, 0.0, 0.0] * 10,
+                    e2.id: [1.0, 0.0, 0.0] * 10,
+                }
+
+            async def remove(self, entity_id):
+                await self._inner.remove(entity_id)
+
+        mock_search = MockSearchWithEmbeddings(search)
+        cfg = ActivationConfig(
+            consolidation_merge_threshold=0.85,
+            consolidation_merge_use_embeddings=True,
+            consolidation_merge_embedding_threshold=0.85,
+            consolidation_merge_require_same_type=True,
+        )
+        phase = EntityMergePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=mock_search,
+            cfg=cfg,
+            cycle_id="cyc_ann_same_type",
+            dry_run=False,
+        )
+
+        assert result.items_affected == 0
+        assert records == []
 
     @pytest.mark.asyncio
     async def test_ann_falls_back_on_low_coverage(self, store, activation, search):

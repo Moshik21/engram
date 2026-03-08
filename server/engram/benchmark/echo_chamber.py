@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
-from engram.benchmark.metrics import gini_coefficient
+from engram.benchmark.metrics import gini_coefficient, surfaced_to_used_ratio
 from engram.config import ActivationConfig
 from engram.retrieval.pipeline import retrieve
 
@@ -20,6 +21,9 @@ class EchoChamberSnapshot:
     gini: float  # Gini coefficient of access counts
     top10_ids: list[str]  # top-10 entity IDs by access count
     top10_jaccard: float  # Jaccard similarity with previous snapshot
+    surfaced_count: int = 0  # cumulative auto-surfaced entity results
+    used_count: int = 0  # cumulative entity results that reinforced access
+    surfaced_to_used_ratio: float = 0.0
 
 
 @dataclass
@@ -31,6 +35,9 @@ class EchoChamberResult:
     final_coverage: float
     final_gini: float
     final_top10_jaccard: float
+    final_surfaced_count: int
+    final_used_count: int
+    final_surfaced_to_used_ratio: float
     pass_coverage: bool  # coverage > 40%
     pass_gini: bool  # gini < 0.70
     ts_enabled: bool = False
@@ -49,6 +56,7 @@ async def run_echo_chamber(
     hot_ratio: float = 0.6,
     snapshot_interval: int = 50,
     seed: int = 42,
+    usage_policy: Callable[[str, list], set[str] | list[str]] | None = None,
 ) -> EchoChamberResult:
     """Run echo chamber simulation.
 
@@ -59,6 +67,8 @@ async def run_echo_chamber(
     rng = random.Random(seed)
     snapshots: list[EchoChamberSnapshot] = []
     prev_top10: set[str] = set()
+    surfaced_count = 0
+    used_count = 0
 
     for i in range(total_queries):
         # Select query
@@ -79,10 +89,19 @@ async def run_echo_chamber(
             enable_routing=False,
         )
 
-        # Record access for returned entities
+        # Distinguish surfaced results from entities that would actually reinforce access.
+        surfaced_ids = [r.node_id for r in results if r.result_type == "entity"]
+        surfaced_count += len(surfaced_ids)
+        used_ids = surfaced_ids
+        if usage_policy is not None:
+            selected_ids = set(usage_policy(query, results) or [])
+            used_ids = [entity_id for entity_id in surfaced_ids if entity_id in selected_ids]
+        used_count += len(used_ids)
+
+        # Record access only for entity results that were actually used.
         now = time.time()
-        for r in results:
-            await activation_store.record_access(r.node_id, now, group_id=group_id)
+        for entity_id in used_ids:
+            await activation_store.record_access(entity_id, now, group_id=group_id)
 
         # Take snapshot at intervals
         if (i + 1) % snapshot_interval == 0 or i == total_queries - 1:
@@ -92,6 +111,8 @@ async def run_echo_chamber(
                 activation_store,
                 group_id,
                 prev_top10,
+                surfaced_count,
+                used_count,
             )
             snapshots.append(snapshot)
             prev_top10 = set(snapshot.top10_ids)
@@ -99,7 +120,13 @@ async def run_echo_chamber(
     final = (
         snapshots[-1]
         if snapshots
-        else EchoChamberSnapshot(query_index=0, coverage=0, gini=0, top10_ids=[], top10_jaccard=0)
+        else EchoChamberSnapshot(
+            query_index=0,
+            coverage=0,
+            gini=0,
+            top10_ids=[],
+            top10_jaccard=0,
+        )
     )
 
     return EchoChamberResult(
@@ -108,6 +135,9 @@ async def run_echo_chamber(
         final_coverage=final.coverage,
         final_gini=final.gini,
         final_top10_jaccard=final.top10_jaccard,
+        final_surfaced_count=final.surfaced_count,
+        final_used_count=final.used_count,
+        final_surfaced_to_used_ratio=final.surfaced_to_used_ratio,
         pass_coverage=final.coverage > 0.40,
         pass_gini=final.gini < 0.70,
         ts_enabled=cfg.ts_enabled,
@@ -120,6 +150,8 @@ async def _take_snapshot(
     activation_store,
     group_id: str,
     prev_top10: set[str],
+    surfaced_count: int,
+    used_count: int,
 ) -> EchoChamberSnapshot:
     """Compute echo chamber metrics at a point in time."""
     # Gather access counts
@@ -159,4 +191,7 @@ async def _take_snapshot(
         gini=gini,
         top10_ids=top10_ids,
         top10_jaccard=jaccard,
+        surfaced_count=surfaced_count,
+        used_count=used_count,
+        surfaced_to_used_ratio=surfaced_to_used_ratio(surfaced_count, used_count),
     )

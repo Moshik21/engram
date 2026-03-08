@@ -1,16 +1,17 @@
 .PHONY: up down restart logs status ps health build clean test lint
 
-# Full-mode Engram: Docker stack + all features enabled
-# docker-compose.yml defaults to standard profile (all features on):
-#   - consolidation_profile=standard (LLM triage, PMI inference, transitivity,
-#     dream associations, infer+merge LLM validation, Sonnet escalation)
+# Full-mode Engram: Docker stack + coherent rework integration enabled
+# docker-compose.yml defaults to:
+#   - consolidation_profile=standard (worker + consolidation + maturation)
+#   - integration_profile=rework (cue layer + cue recall + cue policy +
+#     projector path + full recall waves)
 #   - worker_enabled=true (background episode processing)
-#   - pressure-triggered consolidation cycles
 #
 # Override via .env or env vars, e.g.:
+#   ENGRAM_ACTIVATION__INTEGRATION_PROFILE=off make up
 #   ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=observe make up
 
-up: ## Start full stack — all features on (standard profile)
+up: ## Start full stack — standard consolidation + rework integration preset
 	docker compose up -d --build
 
 down: ## Stop full stack

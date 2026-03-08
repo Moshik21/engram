@@ -82,7 +82,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             context.dream_seed_ids.update(sid for sid, _ in seeds)
 
         # 2. Run spreading for each seed and accumulate edge boosts
-        edge_boosts: dict[tuple[str, str], float] = {}
+        edge_boosts: dict[tuple[str, str, str], float] = {}
         for seed_id, energy in (seeds or []):
             bonuses, _ = await spread_activation(
                 [(seed_id, energy)],
@@ -103,7 +103,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
         # 3. Apply boosts to edge weights
         records: list[Any] = []
         edges_boosted = 0
-        for (src, tgt), total_boost in edge_boosts.items():
+        for (src, tgt, predicate), total_boost in edge_boosts.items():
             if total_boost < cfg.consolidation_dream_min_boost:
                 continue
             capped_boost = min(total_boost, cfg.consolidation_dream_max_boost_per_edge)
@@ -115,6 +115,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     capped_boost,
                     max_weight=cfg.consolidation_dream_max_edge_weight,
                     group_id=group_id,
+                    predicate=predicate,
                 )
 
             edges_boosted += 1
@@ -133,11 +134,11 @@ class DreamSpreadingPhase(ConsolidationPhase):
         if cfg.consolidation_dream_ltd_enabled and seeds and not dry_run:
             edges_decayed = await self._apply_ltd_decay(
                 seeds=seeds,
-                boosted_edges=edge_boosts,
-                graph_store=graph_store,
-                group_id=group_id,
-                cfg=cfg,
-            )
+                    boosted_edges=edge_boosts,
+                    graph_store=graph_store,
+                    group_id=group_id,
+                    cfg=cfg,
+                )
 
         # 4. Dream associations: discover cross-domain creative connections
         assoc_count = 0
@@ -211,7 +212,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
         graph_store,
         group_id: str,
         cfg: ActivationConfig,
-    ) -> dict[tuple[str, str], float]:
+    ) -> dict[tuple[str, str, str], float]:
         """Identify edges traversed during spreading and compute boost amounts.
 
         An edge (A, B) is considered traversed if both A and B received
@@ -226,7 +227,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
         if max_bonus <= 0:
             max_bonus = 1.0
 
-        edge_boosts: dict[tuple[str, str], float] = {}
+        edge_boosts: dict[tuple[str, str, str], float] = {}
 
         for node_id in reached:
             neighbors = await graph_store.get_active_neighbors_with_weights(
@@ -242,7 +243,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     continue
 
                 # Canonical edge key for deduplication
-                edge_key = (min(node_id, neighbor_id), max(node_id, neighbor_id))
+                edge_key = (min(node_id, neighbor_id), max(node_id, neighbor_id), _predicate)
                 if edge_key in edge_boosts:
                     continue
 
@@ -262,7 +263,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
     async def _apply_ltd_decay(
         self,
         seeds: list[tuple[str, float]],
-        boosted_edges: dict[tuple[str, str], float],
+        boosted_edges: dict[tuple[str, str, str], float],
         graph_store,
         group_id: str,
         cfg: ActivationConfig,
@@ -297,7 +298,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     continue
 
                 # Check if this edge was boosted
-                edge_key = (min(seed_id, neighbor_id), max(seed_id, neighbor_id))
+                edge_key = (min(seed_id, neighbor_id), max(seed_id, neighbor_id), predicate)
                 if edge_key in boosted_edges:
                     continue
 
@@ -312,6 +313,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     -capped_decay,
                     max_weight=cfg.consolidation_dream_max_edge_weight,
                     group_id=group_id,
+                    predicate=predicate,
                 )
                 decayed += 1
 

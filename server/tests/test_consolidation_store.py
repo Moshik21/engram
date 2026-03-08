@@ -7,7 +7,12 @@ import pytest_asyncio
 
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.models.consolidation import (
+    CalibrationSnapshot,
     ConsolidationCycle,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    DistillationExample,
+    IdentifierReviewRecord,
     InferredEdge,
     MergeRecord,
     PhaseResult,
@@ -88,6 +93,9 @@ class TestConsolidationStore:
             keep_name="Alice",
             remove_name="alice",
             similarity=0.92,
+            decision_confidence=0.97,
+            decision_source="multi_signal",
+            decision_reason="identifier_exact_match",
             relationships_transferred=3,
         )
         await store.save_merge_record(record)
@@ -95,7 +103,36 @@ class TestConsolidationStore:
         records = await store.get_merge_records("cyc_test", "test")
         assert len(records) == 1
         assert records[0].keep_name == "Alice"
+        assert records[0].decision_confidence == 0.97
+        assert records[0].decision_source == "multi_signal"
+        assert records[0].decision_reason == "identifier_exact_match"
         assert records[0].relationships_transferred == 3
+
+    @pytest.mark.asyncio
+    async def test_save_identifier_review_record(self, store):
+        record = IdentifierReviewRecord(
+            cycle_id="cyc_test",
+            group_id="test",
+            entity_a_id="e1",
+            entity_b_id="e2",
+            entity_a_name="1712061",
+            entity_b_name="1712018",
+            entity_a_type="Identifier",
+            entity_b_type="Identifier",
+            raw_similarity=0.86,
+            adjusted_similarity=0.89,
+            decision_source="fuzzy_threshold",
+            decision_reason="identifier_mismatch",
+            canonical_identifier_a="1712061",
+            canonical_identifier_b="1712018",
+        )
+        await store.save_identifier_review_record(record)
+
+        records = await store.get_identifier_review_records("cyc_test", "test")
+        assert len(records) == 1
+        assert records[0].entity_a_name == "1712061"
+        assert records[0].decision_reason == "identifier_mismatch"
+        assert records[0].review_status == "quarantined"
 
     @pytest.mark.asyncio
     async def test_save_inferred_edge(self, store):
@@ -159,3 +196,98 @@ class TestConsolidationStore:
         remaining = await store.get_recent_cycles("test")
         assert len(remaining) == 1
         assert remaining[0].id == new_cycle.id
+
+    @pytest.mark.asyncio
+    async def test_save_decision_trace(self, store):
+        trace = DecisionTrace(
+            cycle_id="cyc_test",
+            group_id="test",
+            phase="merge",
+            candidate_type="entity_pair",
+            candidate_id="a:b",
+            decision="merge",
+            decision_source="multi_signal",
+            confidence=0.91,
+            threshold_band="accepted",
+            features={"name": 0.95},
+            constraints_hit=["same_type"],
+            metadata={"origin": "ann"},
+        )
+        await store.save_decision_trace(trace)
+
+        traces = await store.get_decision_traces("cyc_test", "test")
+        assert len(traces) == 1
+        assert traces[0].candidate_id == "a:b"
+        assert traces[0].features["name"] == 0.95
+        assert traces[0].constraints_hit == ["same_type"]
+
+    @pytest.mark.asyncio
+    async def test_save_decision_outcome_label(self, store):
+        label = DecisionOutcomeLabel(
+            cycle_id="cyc_test",
+            group_id="test",
+            phase="infer",
+            decision_trace_id="dtr_1",
+            outcome_type="validation",
+            label="accept",
+            value=1.0,
+            metadata={"infer_type": "auto_validated"},
+        )
+        await store.save_decision_outcome_label(label)
+
+        labels = await store.get_decision_outcome_labels("cyc_test", "test")
+        assert len(labels) == 1
+        assert labels[0].decision_trace_id == "dtr_1"
+        assert labels[0].metadata["infer_type"] == "auto_validated"
+
+    @pytest.mark.asyncio
+    async def test_save_distillation_example(self, store):
+        example = DistillationExample(
+            cycle_id="cyc_test",
+            group_id="test",
+            phase="merge",
+            candidate_type="entity_pair",
+            candidate_id="a:b",
+            decision_trace_id="dtr_1",
+            teacher_label="merge",
+            teacher_source="oracle:llm",
+            student_decision="merge",
+            student_confidence=0.87,
+            threshold_band="accepted",
+            features={"name_similarity": 0.91},
+            correct=True,
+            metadata={"policy_version": "identity_v1"},
+        )
+
+        await store.save_distillation_example(example)
+
+        examples = await store.get_distillation_examples("cyc_test", "test")
+        assert len(examples) == 1
+        assert examples[0].teacher_source == "oracle:llm"
+        assert examples[0].correct is True
+        assert examples[0].features["name_similarity"] == 0.91
+
+    @pytest.mark.asyncio
+    async def test_save_calibration_snapshot(self, store):
+        snapshot = CalibrationSnapshot(
+            cycle_id="cyc_test",
+            group_id="test",
+            phase="infer",
+            window_cycles=5,
+            total_traces=12,
+            labeled_examples=8,
+            oracle_examples=2,
+            abstain_count=1,
+            accuracy=0.875,
+            mean_confidence=0.79,
+            expected_calibration_error=0.08,
+            summary={"teacher_sources": {"outcome:materialization": 8}},
+        )
+
+        await store.save_calibration_snapshot(snapshot)
+
+        snapshots = await store.get_calibration_snapshots("cyc_test", "test")
+        assert len(snapshots) == 1
+        assert snapshots[0].phase == "infer"
+        assert snapshots[0].accuracy == 0.875
+        assert snapshots[0].summary["teacher_sources"]["outcome:materialization"] == 8

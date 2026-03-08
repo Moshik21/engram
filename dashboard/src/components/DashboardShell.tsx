@@ -1,19 +1,76 @@
+import { Suspense, lazy } from "react";
 import { useEngramStore } from "../store";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
-import { GraphExplorer } from "./GraphExplorer";
-import { NodeDetailPanel } from "./NodeDetailPanel";
-import { MemoryFeed } from "./MemoryFeed";
-import { StatsPanel } from "./StatsPanel";
-import { TimelineView } from "./TimelineView";
-import { ActivationMonitor } from "./ActivationMonitor";
-import { ConsolidationPanel } from "./ConsolidationPanel";
-import { KnowledgePanel } from "./knowledge/KnowledgePanel";
+
+const BrainMapPanel = lazy(() =>
+  import("./BrainMapPanel").then((module) => ({
+    default: module.BrainMapPanel,
+  })),
+);
+const NodeDetailPanel = lazy(() =>
+  import("./NodeDetailPanel").then((module) => ({
+    default: module.NodeDetailPanel,
+  })),
+);
+const MemoryFeed = lazy(() =>
+  import("./MemoryFeed").then((module) => ({
+    default: module.MemoryFeed,
+  })),
+);
+const StatsPanel = lazy(() =>
+  import("./StatsPanel").then((module) => ({
+    default: module.StatsPanel,
+  })),
+);
+const TimelineView = lazy(() =>
+  import("./TimelineView").then((module) => ({
+    default: module.TimelineView,
+  })),
+);
+const ActivationMonitor = lazy(() =>
+  import("./ActivationMonitor").then((module) => ({
+    default: module.ActivationMonitor,
+  })),
+);
+const ConsolidationPanel = lazy(() =>
+  import("./ConsolidationPanel").then((module) => ({
+    default: module.ConsolidationPanel,
+  })),
+);
+const KnowledgePanel = lazy(() =>
+  import("./knowledge/KnowledgePanel").then((module) => ({
+    default: module.KnowledgePanel,
+  })),
+);
+
+function PanelFallback() {
+  return (
+    <div
+      className="absolute inset-0 flex items-center justify-center"
+      style={{ top: 54 }}
+    >
+      <div
+        className="card"
+        style={{
+          padding: "12px 18px",
+          borderColor: "var(--border-hover)",
+        }}
+      >
+        <span className="label">Loading view...</span>
+      </div>
+    </div>
+  );
+}
 
 export function DashboardShell() {
   const error = useEngramStore((s) => s.error);
   const currentView = useEngramStore((s) => s.currentView);
+  const brainMapScope = useEngramStore((s) => s.brainMapScope);
+  const showNodeDetailPanel =
+    currentView === "graph" &&
+    (brainMapScope === "neighborhood" || brainMapScope === "temporal");
 
   useWebSocket();
 
@@ -45,7 +102,7 @@ export function DashboardShell() {
         return (
           <>
             <div className="absolute inset-0">
-              <GraphExplorer />
+              <BrainMapPanel />
             </div>
             <div className="vignette" />
             <div
@@ -88,10 +145,10 @@ export function DashboardShell() {
         return (
           <>
             <div className="absolute inset-0">
-              <GraphExplorer />
+              <BrainMapPanel />
             </div>
             <div className="vignette" />
-            <NodeDetailPanel />
+            {showNodeDetailPanel && <NodeDetailPanel />}
           </>
         );
     }
@@ -102,7 +159,7 @@ export function DashboardShell() {
       className="relative h-screen w-screen overflow-hidden"
       style={{ background: "var(--void)" }}
     >
-      {renderMainContent()}
+      <Suspense fallback={<PanelFallback />}>{renderMainContent()}</Suspense>
 
       {/* Floating sidebar */}
       <div

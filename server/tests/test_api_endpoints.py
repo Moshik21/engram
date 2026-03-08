@@ -12,7 +12,8 @@ import pytest_asyncio
 from engram.config import EngramConfig
 from engram.main import _app_state, _shutdown, _startup, create_app
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeStatus
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
+from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 
 
@@ -143,6 +144,8 @@ class TestGraphNeighborhood:
         assert isinstance(data["edges"], list)
         assert "truncated" in data
         assert "totalInNeighborhood" in data
+        assert data["representation"]["scope"] == "neighborhood"
+        assert data["representation"]["layout"] == "force"
 
     @pytest.mark.asyncio
     async def test_with_center_id(self, api_client):
@@ -155,6 +158,7 @@ class TestGraphNeighborhood:
         assert "ent_alice" in node_ids
         # Alice's neighbor Engram should be present
         assert "ent_engram" in node_ids
+        assert data["representation"]["displayedNodeCount"] == len(data["nodes"])
 
     @pytest.mark.asyncio
     async def test_max_nodes_pruning(self, api_client):
@@ -182,6 +186,118 @@ class TestGraphNeighborhood:
         assert data["nodes"] == []
         assert data["edges"] == []
         assert data["centerId"] is None
+        assert data["representation"]["scope"] == "neighborhood"
+
+
+class TestGraphAtlas:
+    @pytest.mark.asyncio
+    async def test_returns_display_bounded_atlas(self, api_client):
+        resp = await api_client.get("/api/graph/atlas")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["representation"]["scope"] == "atlas"
+        assert data["representation"]["layout"] == "precomputed"
+        assert data["stats"]["totalEntities"] == 3
+        assert data["stats"]["totalRelationships"] == 2
+        assert data["stats"]["totalRegions"] >= 1
+        assert isinstance(data["regions"], list)
+        assert isinstance(data["bridges"], list)
+        if data["regions"]:
+            region = data["regions"][0]
+            assert "centerEntityId" in region
+            assert "memberCount" in region
+            assert "activationScore" in region
+            assert "latestEntityCreatedAt" in region
+
+    @pytest.mark.asyncio
+    async def test_region_drill_down_returns_materialized_region(self, api_client):
+        atlas_resp = await api_client.get("/api/graph/atlas")
+        assert atlas_resp.status_code == 200
+        atlas = atlas_resp.json()
+        region_id = atlas["regions"][0]["id"]
+
+        resp = await api_client.get(f"/api/graph/regions/{region_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["representation"]["scope"] == "region"
+        assert data["representation"]["layout"] == "precomputed"
+        assert data["region"]["id"] == region_id
+        assert "activationScore" in data["region"]
+        assert "growth7d" in data["region"]
+        assert "latestEntityCreatedAt" in data["region"]
+        assert isinstance(data["nodes"], list)
+        assert isinstance(data["edges"], list)
+        assert isinstance(data["topEntities"], list)
+        assert isinstance(data["memberIds"], list)
+        assert data["memberIds"]
+
+    @pytest.mark.asyncio
+    async def test_atlas_rebuild_preserves_region_ids_and_positions(self, api_client):
+        atlas_service = _app_state["atlas_service"]
+
+        first = await atlas_service.get_snapshot("default", force=True)
+        second = await atlas_service.get_snapshot("default", force=True)
+
+        first_regions = {
+            region.id: (region.x, region.y, region.z)
+            for region in first.regions
+        }
+        second_regions = {
+            region.id: (region.x, region.y, region.z)
+            for region in second.regions
+        }
+        assert first_regions
+        assert first_regions == second_regions
+
+    @pytest.mark.asyncio
+    async def test_history_and_snapshot_lookup(self, api_client):
+        first_resp = await api_client.get("/api/graph/atlas?refresh=true")
+        assert first_resp.status_code == 200
+        first = first_resp.json()
+
+        second_resp = await api_client.get("/api/graph/atlas?refresh=true")
+        assert second_resp.status_code == 200
+        second = second_resp.json()
+
+        first_snapshot_id = first["representation"]["snapshotId"]
+        second_snapshot_id = second["representation"]["snapshotId"]
+        assert first_snapshot_id != second_snapshot_id
+
+        history_resp = await api_client.get("/api/graph/atlas/history?limit=10")
+        assert history_resp.status_code == 200
+        history = history_resp.json()["items"]
+        history_ids = [item["id"] for item in history]
+        assert second_snapshot_id in history_ids
+        assert first_snapshot_id in history_ids
+        assert history[0]["id"] == second_snapshot_id
+
+        snapshot_resp = await api_client.get(
+            f"/api/graph/atlas?snapshot_id={first_snapshot_id}"
+        )
+        assert snapshot_resp.status_code == 200
+        snapshot = snapshot_resp.json()
+        assert snapshot["representation"]["snapshotId"] == first_snapshot_id
+
+    @pytest.mark.asyncio
+    async def test_region_snapshot_lookup_and_invalid_snapshot_404(self, api_client):
+        atlas_resp = await api_client.get("/api/graph/atlas?refresh=true")
+        assert atlas_resp.status_code == 200
+        atlas = atlas_resp.json()
+        region_id = atlas["regions"][0]["id"]
+        snapshot_id = atlas["representation"]["snapshotId"]
+
+        region_resp = await api_client.get(
+            f"/api/graph/regions/{region_id}?snapshot_id={snapshot_id}"
+        )
+        assert region_resp.status_code == 200
+        region = region_resp.json()
+        assert region["representation"]["snapshotId"] == snapshot_id
+        assert region["generatedAt"] == atlas["generatedAt"]
+
+        missing_resp = await api_client.get(
+            f"/api/graph/regions/{region_id}?snapshot_id=atlas_missing"
+        )
+        assert missing_resp.status_code == 404
 
 
 # ─── TestEntitySearch ─────────────────────────────────────────────
@@ -197,6 +313,9 @@ class TestEntitySearch:
         assert data["total"] >= 1
         names = {item["name"] for item in data["items"]}
         assert "Alice" in names
+        alice = next(item for item in data["items"] if item["name"] == "Alice")
+        assert alice["lexicalRegime"] == "natural_language"
+        assert alice["canonicalIdentifier"] is None
 
     @pytest.mark.asyncio
     async def test_search_by_type_filter(self, api_client):
@@ -232,6 +351,9 @@ class TestEntityDetail:
         assert data["id"] == "ent_alice"
         assert data["name"] == "Alice"
         assert data["entityType"] == "Person"
+        assert data["lexicalRegime"] == "natural_language"
+        assert data["canonicalIdentifier"] is None
+        assert data["identifierLabel"] is False
         assert data["activationCurrent"] > 0
         assert isinstance(data["facts"], list)
         # Alice has BUILDS relationship
@@ -301,6 +423,7 @@ class TestStats:
         data = resp.json()
         assert data["stats"]["entities"] >= 3
         assert data["stats"]["relationships"] >= 2
+        assert "recall_metrics" in data["stats"]
         assert "topActivated" in data
         assert data["groupId"] == "default"
 
@@ -312,6 +435,7 @@ class TestStats:
         data = resp.json()
         assert data["stats"]["entities"] == 0
         assert data["stats"]["relationships"] == 0
+        assert data["stats"]["recall_metrics"]["trigger_count"] == 0
         assert data["topActivated"] == []
 
     @pytest.mark.asyncio
@@ -340,6 +464,76 @@ class TestStats:
             assert "date" in day
             assert "episodes" in day
             assert "entities" in day
+
+    @pytest.mark.asyncio
+    async def test_stats_includes_cue_and_projection_metrics(self, api_client):
+        graph_store = _app_state["graph_store"]
+        await graph_store.update_episode(
+            "ep_test_0",
+            {
+                "projection_state": EpisodeProjectionState.PROJECTED,
+                "processing_duration_ms": 180,
+                "last_projected_at": datetime(2025, 1, 10, 12, 0, 3),
+            },
+            group_id="default",
+        )
+        await graph_store.update_episode(
+            "ep_test_1",
+            {"projection_state": EpisodeProjectionState.FAILED},
+            group_id="default",
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_test_0",
+                group_id="default",
+                projection_state=EpisodeProjectionState.PROJECTED,
+                cue_text="Alice project context",
+                hit_count=2,
+                surfaced_count=1,
+                selected_count=1,
+                used_count=1,
+                policy_score=0.8,
+                projection_attempts=1,
+                created_at=datetime(2025, 1, 10, 12, 0, 0),
+                last_projected_at=datetime(2025, 1, 10, 12, 0, 3),
+            )
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_test_1",
+                group_id="default",
+                projection_state=EpisodeProjectionState.FAILED,
+                cue_text="failed projection",
+                near_miss_count=1,
+                policy_score=0.2,
+                projection_attempts=2,
+            )
+        )
+
+        resp = await api_client.get("/api/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        cue_metrics = data["stats"]["cue_metrics"]
+        projection_metrics = data["stats"]["projection_metrics"]
+        assert cue_metrics["cue_count"] == 2
+        assert cue_metrics["cue_coverage"] == pytest.approx(2 / 3, abs=1e-4)
+        assert cue_metrics["cue_used_count"] == 1
+        assert cue_metrics["cue_to_projection_conversion_rate"] == 0.5
+        assert projection_metrics["state_counts"]["projected"] == 1
+        assert projection_metrics["state_counts"]["failed"] == 1
+        assert projection_metrics["total_attempts"] == 3
+        assert projection_metrics["yield"]["linked_entity_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_stats_empty_graph_includes_zeroed_cue_metrics(self, empty_client):
+        resp = await empty_client.get("/api/stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["stats"]["cue_metrics"]["cue_count"] == 0
+        assert data["stats"]["cue_metrics"]["cue_coverage"] == 0.0
+        assert data["stats"]["projection_metrics"]["state_counts"]["projected"] == 0
+        assert data["stats"]["projection_metrics"]["failure_rate"] == 0.0
 
 
 # ─── TestEpisodes ────────────────────────────────────────────────
@@ -389,6 +583,53 @@ class TestEpisodes:
         data = resp.json()
         for item in data["items"]:
             assert item["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_episodes_include_projection_and_cue_debug_fields(self, api_client):
+        """Episode listings expose projection/cue rollout state for debugging."""
+        graph_store = _app_state["graph_store"]
+        projected_at = datetime(2026, 3, 5, 15, 0, 0)
+        feedback_at = datetime(2026, 3, 5, 14, 30, 0)
+        await graph_store.update_episode(
+            "ep_test_1",
+            {
+                "projection_state": EpisodeProjectionState.SCHEDULED,
+                "last_projection_reason": "cue_policy_used",
+                "last_projected_at": projected_at.isoformat(),
+            },
+            group_id="default",
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_test_1",
+                group_id="default",
+                projection_state=EpisodeProjectionState.SCHEDULED,
+                cue_text="React dashboard migration remains in scope",
+                route_reason="cue_policy_used",
+                hit_count=3,
+                surfaced_count=1,
+                selected_count=1,
+                used_count=1,
+                policy_score=0.81,
+                projection_attempts=2,
+                last_feedback_at=feedback_at,
+                last_projected_at=projected_at,
+            )
+        )
+
+        resp = await api_client.get("/api/episodes")
+        assert resp.status_code == 200
+        data = resp.json()
+        item = next(ep for ep in data["items"] if ep["episodeId"] == "ep_test_1")
+
+        assert item["projectionState"] == "scheduled"
+        assert item["lastProjectionReason"] == "cue_policy_used"
+        assert item["lastProjectedAt"] == "2026-03-05T15:00:00Z"
+        assert item["cue"]["projectionState"] == "scheduled"
+        assert item["cue"]["routeReason"] == "cue_policy_used"
+        assert item["cue"]["hitCount"] == 3
+        assert item["cue"]["policyScore"] == pytest.approx(0.81)
+        assert item["cue"]["lastFeedbackAt"] == "2026-03-05T14:30:00Z"
 
     @pytest.mark.asyncio
     async def test_episodes_empty(self, empty_client):

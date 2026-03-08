@@ -9,6 +9,13 @@ const MAX_ATTEMPTS = 5;
 const JITTER = 0.2;
 const PING_INTERVAL = 25_000;
 
+function normalizeWsUrl(baseUrl: string): string {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  if (trimmed.endsWith("/ws/dashboard")) return trimmed;
+  if (trimmed.endsWith("/ws")) return `${trimmed}/dashboard`;
+  return `${trimmed}/ws/dashboard`;
+}
+
 function backoffDelay(attempt: number): number {
   const base = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_DELAY);
   const jitter = base * JITTER * (Math.random() * 2 - 1);
@@ -17,7 +24,7 @@ function backoffDelay(attempt: number): number {
 
 function getWsUrl(): string {
   const envUrl = import.meta.env.VITE_WS_URL;
-  if (envUrl) return `${envUrl}/ws/dashboard`;
+  if (envUrl) return normalizeWsUrl(envUrl);
   const loc = window.location;
   const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${loc.host}/ws/dashboard`;
@@ -104,10 +111,12 @@ export function getWsInstance(): WebSocket | null {
   return _wsInstance;
 }
 
-export function sendWsCommand(command: object): void {
+export function sendWsCommand(command: object): boolean {
   if (_wsInstance && _wsInstance.readyState === WebSocket.OPEN) {
     _wsInstance.send(JSON.stringify(command));
+    return true;
   }
+  return false;
 }
 
 function routeEvent(data: WsEvent) {
@@ -130,21 +139,37 @@ function routeEvent(data: WsEvent) {
       }
       break;
     case "graph.nodes_added":
-      if (data.nodes && data.nodes.length > 0) {
+      if (s.brainMapScope === "atlas" && s.atlasSnapshotId === null) {
+        void s.loadAtlas({ refresh: true });
+      } else if (
+        s.brainMapScope === "region" &&
+        s.activeRegionId &&
+        s.atlasSnapshotId === null
+      ) {
+        void s.loadRegion(s.activeRegionId, { refresh: true });
+      } else if (data.nodes && data.nodes.length > 0) {
         s.mergeGraphDelta({
           nodesAdded: data.nodes,
           edgesAdded: data.edges,
         });
       } else {
         // Fallback for old payloads without full node/edge data
-        s.loadInitialGraph();
+        void s.loadInitialGraph();
       }
       break;
     case "graph.delta":
-      if (data.delta) {
+      if (s.brainMapScope === "atlas" && s.atlasSnapshotId === null) {
+        void s.loadAtlas({ refresh: true });
+      } else if (
+        s.brainMapScope === "region" &&
+        s.activeRegionId &&
+        s.atlasSnapshotId === null
+      ) {
+        void s.loadRegion(s.activeRegionId, { refresh: true });
+      } else if (data.delta) {
         s.mergeGraphDelta(data.delta);
       } else {
-        s.loadInitialGraph();
+        void s.loadInitialGraph();
       }
       break;
     case "activation.access":
@@ -288,7 +313,9 @@ export function useWebSocket() {
         _wsInstance = null;
         if (!mountedRef.current) return;
 
-        useEngramStore.getState().setReadyState("disconnected");
+        const store = useEngramStore.getState();
+        store.setReadyState("disconnected");
+        store.setIsActivationSubscribed(false);
 
         if (attemptRef.current < MAX_ATTEMPTS) {
           const delay = backoffDelay(attemptRef.current);
@@ -324,7 +351,9 @@ export function useWebSocket() {
         wsRef.current = null;
       }
       _wsInstance = null;
-      useEngramStore.getState().setReadyState("disconnected");
+      const store = useEngramStore.getState();
+      store.setReadyState("disconnected");
+      store.setIsActivationSubscribed(false);
     };
   }, []);
 }

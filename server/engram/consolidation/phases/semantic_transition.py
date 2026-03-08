@@ -65,11 +65,17 @@ class SemanticTransitionPhase(ConsolidationPhase):
             else:
                 mature_count = 0
                 for eid in linked_entity_ids:
+                    if context is not None and eid in context.matured_entity_ids:
+                        mature_count += 1
+                        continue
                     ent = await graph_store.get_entity(eid, group_id)
                     if ent:
                         attrs = ent.attributes if isinstance(ent.attributes, dict) else {}
                         mat_tier = attrs.get("mat_tier", "episodic")
-                        if mat_tier in ("transitional", "semantic"):
+                        if (
+                            mat_tier in ("transitional", "semantic")
+                            or _context_marks_entity_mature(context, eid, cfg)
+                        ):
                             mature_count += 1
                 coverage = mature_count / len(linked_entity_ids)
 
@@ -123,3 +129,20 @@ class SemanticTransitionPhase(ConsolidationPhase):
 
 def _elapsed_ms(t0: float) -> float:
     return round((time.perf_counter() - t0) * 1000, 1)
+
+
+def _context_marks_entity_mature(
+    context: CycleContext | None,
+    entity_id: str,
+    cfg: ActivationConfig,
+) -> bool:
+    if context is None:
+        return False
+    bundle = context.maturity_feature_cache.get(entity_id)
+    if not isinstance(bundle, dict):
+        return False
+    score = bundle.get("maturity_score")
+    try:
+        return float(score) >= cfg.maturation_transitional_threshold
+    except (TypeError, ValueError):
+        return False

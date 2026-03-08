@@ -9,10 +9,13 @@ import uuid
 from datetime import datetime, timedelta
 
 from engram.config import FalkorDBConfig
+from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
+from engram.utils.dates import utc_now, utc_now_iso
 from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,8 @@ class FalkorDBGraphStore:
             "CREATE INDEX FOR (n:Entity) ON (n.group_id)",
             "CREATE INDEX FOR (n:Entity) ON (n.name)",
             "CREATE INDEX FOR (n:Entity) ON (n.entity_type)",
+            "CREATE INDEX FOR (n:Entity) ON (n.lexical_regime)",
+            "CREATE INDEX FOR (n:Entity) ON (n.canonical_identifier)",
             "CREATE INDEX FOR (n:Entity) ON (n.deleted_at)",
             "CREATE INDEX FOR (n:Episode) ON (n.id)",
             "CREATE INDEX FOR (n:Episode) ON (n.group_id)",
@@ -111,7 +116,7 @@ class FalkorDBGraphStore:
     # --- Entities ---
 
     async def create_entity(self, entity: Entity) -> str:
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         summary = self._encrypt(entity.group_id, entity.summary)
         await self._query(
             """CREATE (n:Entity {
@@ -121,7 +126,10 @@ class FalkorDBGraphStore:
                 created_at: $created_at, updated_at: $updated_at,
                 activation_current: $activation_current,
                 access_count: $access_count, last_accessed: $last_accessed,
-                pii_detected: $pii_detected, pii_categories: $pii_categories
+                pii_detected: $pii_detected, pii_categories: $pii_categories,
+                lexical_regime: $lexical_regime,
+                canonical_identifier: $canonical_identifier,
+                identifier_label: $identifier_label
             })""",
             {
                 "id": entity.id,
@@ -141,6 +149,9 @@ class FalkorDBGraphStore:
                 "pii_categories": (
                     json.dumps(entity.pii_categories) if entity.pii_categories else None
                 ),
+                "lexical_regime": entity.lexical_regime,
+                "canonical_identifier": entity.canonical_identifier,
+                "identifier_label": entity.identifier_label,
             },
         )
         return entity.id
@@ -160,7 +171,15 @@ class FalkorDBGraphStore:
     async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None:
         if not updates:
             return
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        if "name" in updates or "entity_type" in updates:
+            current = await self.get_entity(entity_id, group_id)
+            if current is not None:
+                next_name = updates.get("name", current.name)
+                facets = entity_identifier_facets(next_name)
+                updates["lexical_regime"] = facets["lexical_regime"]
+                updates["canonical_identifier"] = facets["canonical_identifier"]
+                updates["identifier_label"] = bool(facets["identifier_label"])
+        updates["updated_at"] = utc_now_iso()
         invalid = set(updates.keys()) - ENTITY_UPDATABLE_FIELDS
         if invalid:
             raise ValueError(f"Disallowed entity update fields: {invalid}")
@@ -180,7 +199,7 @@ class FalkorDBGraphStore:
         if soft:
             await self._query(
                 "MATCH (n:Entity {id: $id, group_id: $gid}) SET n.deleted_at = $deleted_at",
-                {"id": entity_id, "gid": group_id, "deleted_at": datetime.utcnow().isoformat()},
+                {"id": entity_id, "gid": group_id, "deleted_at": utc_now_iso()},
             )
         else:
             await self._query(
@@ -219,8 +238,32 @@ class FalkorDBGraphStore:
         """Retrieve candidate entities for fuzzy resolution via CONTAINS search."""
         seen_ids: set[str] = set()
         results: list[Entity] = []
+        form = analyze_name(name)
+        regime = form.regime
 
-        # Phase 1: Full name CONTAINS match (indexed on n.name)
+        # Phase 1: Exact canonical identifier match
+        if form.canonical_code:
+            canonical_result = await self._query(
+                """MATCH (n:Entity)
+                   WHERE n.canonical_identifier = $canonical_identifier
+                     AND n.group_id = $gid AND n.deleted_at IS NULL
+                   RETURN n LIMIT $limit""",
+                {
+                    "canonical_identifier": form.canonical_code,
+                    "gid": group_id,
+                    "limit": limit - len(results),
+                },
+            )
+            for row in canonical_result.result_set:
+                entity = self._node_to_entity(row[0], group_id)
+                if entity.id not in seen_ids:
+                    seen_ids.add(entity.id)
+                    results.append(entity)
+
+        if len(results) >= limit:
+            return results[:limit]
+
+        # Phase 2: Full name CONTAINS match (indexed on n.name)
         result = await self._query(
             """MATCH (n:Entity)
                WHERE toLower(n.name) CONTAINS toLower($name)
@@ -237,8 +280,10 @@ class FalkorDBGraphStore:
         if len(results) >= limit:
             return results[:limit]
 
-        # Phase 2: Token fallback — search individual tokens >= 3 chars
+        # Phase 3: Token fallback — search individual tokens >= 3 chars
         tokens = [t for t in name.strip().split() if len(t) >= 3]
+        if regime != NameRegime.NATURAL_LANGUAGE:
+            tokens = []
         for token in tokens:
             if len(results) >= limit:
                 break
@@ -267,7 +312,8 @@ class FalkorDBGraphStore:
                    predicate: $predicate, weight: $weight,
                    valid_from: $valid_from, valid_to: $valid_to,
                    created_at: $created_at, confidence: $confidence,
-                   source_episode: $source_episode, group_id: $group_id
+                   source_episode: $source_episode, group_id: $group_id,
+                   polarity: $polarity
                }]->(t)""",
             {
                 "id": rel.id,
@@ -278,11 +324,12 @@ class FalkorDBGraphStore:
                 "valid_from": rel.valid_from.isoformat() if rel.valid_from else None,
                 "valid_to": rel.valid_to.isoformat() if rel.valid_to else None,
                 "created_at": (
-                    rel.created_at.isoformat() if rel.created_at else datetime.utcnow().isoformat()
+                    rel.created_at.isoformat() if rel.created_at else utc_now_iso()
                 ),
                 "confidence": rel.confidence,
                 "source_episode": rel.source_episode,
                 "group_id": rel.group_id,
+                "polarity": rel.polarity,
             },
         )
         return rel.id
@@ -303,7 +350,7 @@ class FalkorDBGraphStore:
             match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE s.id = $eid OR t.id = $eid"
 
         conditions = []
-        params: dict = {"eid": entity_id, "now": datetime.utcnow().isoformat()}
+        params: dict = {"eid": entity_id, "now": utc_now_iso()}
         if predicate:
             conditions.append("r.predicate = $predicate")
             params["predicate"] = predicate
@@ -346,26 +393,34 @@ class FalkorDBGraphStore:
         weight_delta: float,
         max_weight: float = 3.0,
         group_id: str = "default",
+        predicate: str | None = None,
     ) -> float | None:
         """Atomically increment edge weight in FalkorDB, capped at max_weight."""
+        predicate_clause = " AND r.predicate = $predicate" if predicate else ""
+        params = {
+            "src": source_id,
+            "tgt": target_id,
+            "delta": weight_delta,
+            "max_w": max_weight,
+            "gid": group_id,
+            "now": utc_now_iso(),
+        }
+        if predicate:
+            params["predicate"] = predicate
         result = await self._query(
             """MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity)
                WHERE s.id = $src AND t.id = $tgt
                  AND r.group_id = $gid
                  AND (r.valid_to IS NULL OR r.valid_to > $now)
+            """
+            + predicate_clause
+            + """
                SET r.weight = CASE
                    WHEN r.weight + $delta > $max_w THEN $max_w
                    ELSE r.weight + $delta
                END
                RETURN r.weight""",
-            {
-                "src": source_id,
-                "tgt": target_id,
-                "delta": weight_delta,
-                "max_w": max_weight,
-                "gid": group_id,
-                "now": datetime.utcnow().isoformat(),
-            },
+            params,
         )
         if result.result_set:
             return result.result_set[0][0]
@@ -395,7 +450,7 @@ class FalkorDBGraphStore:
         group_id: str,
     ) -> Relationship | None:
         """Find an active relationship matching (source, target, predicate)."""
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         result = await self._query(
             """MATCH (s:Entity {id: $src})-[r:RELATES_TO]->(t:Entity {id: $tgt})
                WHERE r.predicate = $predicate
@@ -458,7 +513,7 @@ class FalkorDBGraphStore:
         group_id: str | None = None,
     ) -> list[tuple[Entity, Relationship]]:
         """Return entities within N hops via iterative BFS (avoids combinatorial explosion)."""
-        now_str = datetime.utcnow().isoformat()
+        now_str = utc_now_iso()
         group_filter = " AND m.group_id = $group_id" if group_id else ""
 
         seen_entities: set[str] = {entity_id}
@@ -510,7 +565,7 @@ class FalkorDBGraphStore:
         limit: int = 10000,
     ) -> list[Relationship]:
         """Return all active edges for a group, optionally filtered to a set of entity IDs."""
-        now_str = datetime.utcnow().isoformat()
+        now_str = utc_now_iso()
         conditions = [
             "(edge.valid_to IS NULL OR edge.valid_to > $now)",
             "edge.group_id = $group_id",
@@ -542,16 +597,22 @@ class FalkorDBGraphStore:
         self, entity_id: str, group_id: str | None = None
     ) -> list[tuple[str, float, str, str]]:
         group_filter = " AND r.group_id = $group_id" if group_id else ""
-        params: dict = {"id": entity_id, "now": datetime.utcnow().isoformat()}
+        params: dict = {"id": entity_id, "now": utc_now_iso()}
         if group_id:
             params["group_id"] = group_id
 
         result = await self._query(
             f"""MATCH (n:Entity {{id: $id}})-[r:RELATES_TO]-(m:Entity)
                 WHERE (r.valid_to IS NULL OR r.valid_to > $now)
+                  AND coalesce(r.polarity, 'positive') <> 'negative'
                   AND n.id <> m.id
                   {group_filter}
-                RETURN m.id AS neighbor_id, r.weight AS weight,
+                RETURN m.id AS neighbor_id,
+                       CASE
+                           WHEN coalesce(r.polarity, 'positive') = 'uncertain'
+                               THEN r.weight * 0.5
+                           ELSE r.weight
+                       END AS weight,
                        r.predicate AS predicate, m.entity_type AS entity_type""",
             params,
         )
@@ -561,7 +622,7 @@ class FalkorDBGraphStore:
 
     async def create_episode(self, episode: Episode) -> str:
         content = self._encrypt(episode.group_id, episode.content)
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = utc_now_iso()
         status_val = episode.status.value if hasattr(episode.status, "value") else episode.status
         await self._query(
             """CREATE (n:Episode {
@@ -571,7 +632,13 @@ class FalkorDBGraphStore:
                 updated_at: $updated_at, error: $error,
                 retry_count: $retry_count,
                 processing_duration_ms: $processing_duration_ms,
-                encoding_context: $encoding_context
+                encoding_context: $encoding_context,
+                memory_tier: $memory_tier,
+                consolidation_cycles: $consolidation_cycles,
+                entity_coverage: $entity_coverage,
+                projection_state: $projection_state,
+                last_projection_reason: $last_projection_reason,
+                last_projected_at: $last_projected_at
             })""",
             {
                 "id": episode.id,
@@ -586,6 +653,19 @@ class FalkorDBGraphStore:
                 "retry_count": episode.retry_count,
                 "processing_duration_ms": episode.processing_duration_ms,
                 "encoding_context": episode.encoding_context,
+                "memory_tier": episode.memory_tier,
+                "consolidation_cycles": episode.consolidation_cycles,
+                "entity_coverage": episode.entity_coverage,
+                "projection_state": (
+                    episode.projection_state.value
+                    if hasattr(episode.projection_state, "value")
+                    else episode.projection_state
+                ),
+                "last_projection_reason": episode.last_projection_reason,
+                "last_projected_at": (
+                    episode.last_projected_at.isoformat()
+                    if episode.last_projected_at else None
+                ),
             },
         )
         return episode.id
@@ -598,7 +678,7 @@ class FalkorDBGraphStore:
     ) -> None:
         if not updates:
             return
-        updates["updated_at"] = datetime.utcnow().isoformat()
+        updates["updated_at"] = utc_now_iso()
         invalid = set(updates.keys()) - EPISODE_UPDATABLE_FIELDS
         if invalid:
             raise ValueError(f"Disallowed episode update fields: {invalid}")
@@ -656,31 +736,343 @@ class FalkorDBGraphStore:
             {"eid": episode_id, "entid": entity_id},
         )
 
+    async def upsert_episode_cue(self, cue: EpisodeCue) -> None:
+        await self._query(
+            """MATCH (ep:Episode {id: $episode_id, group_id: $group_id})
+               SET ep.cue_version = $cue_version,
+                   ep.cue_discourse_class = $discourse_class,
+                   ep.cue_projection_state = $projection_state,
+                   ep.cue_score = $cue_score,
+                   ep.cue_salience_score = $salience_score,
+                   ep.cue_projection_priority = $projection_priority,
+                   ep.cue_route_reason = $route_reason,
+                   ep.cue_text = $cue_text,
+                   ep.cue_entity_mentions_json = $entity_mentions_json,
+                   ep.cue_temporal_markers_json = $temporal_markers_json,
+                   ep.cue_quote_spans_json = $quote_spans_json,
+                   ep.cue_contradiction_keys_json = $contradiction_keys_json,
+                   ep.cue_first_spans_json = $first_spans_json,
+                   ep.cue_hit_count = $hit_count,
+                   ep.cue_surfaced_count = $surfaced_count,
+                   ep.cue_selected_count = $selected_count,
+                   ep.cue_used_count = $used_count,
+                   ep.cue_near_miss_count = $near_miss_count,
+                   ep.cue_policy_score = $policy_score,
+                   ep.cue_projection_attempts = $projection_attempts,
+                   ep.cue_last_hit_at = $last_hit_at,
+                   ep.cue_last_feedback_at = $last_feedback_at,
+                   ep.cue_last_projected_at = $last_projected_at,
+                   ep.cue_created_at = $created_at,
+                   ep.cue_updated_at = $updated_at""",
+            {
+                "episode_id": cue.episode_id,
+                "group_id": cue.group_id,
+                "cue_version": cue.cue_version,
+                "discourse_class": cue.discourse_class,
+                "projection_state": (
+                    cue.projection_state.value
+                    if hasattr(cue.projection_state, "value")
+                    else cue.projection_state
+                ),
+                "cue_score": cue.cue_score,
+                "salience_score": cue.salience_score,
+                "projection_priority": cue.projection_priority,
+                "route_reason": cue.route_reason,
+                "cue_text": cue.cue_text,
+                "entity_mentions_json": json.dumps(cue.entity_mentions),
+                "temporal_markers_json": json.dumps(cue.temporal_markers),
+                "quote_spans_json": json.dumps(cue.quote_spans),
+                "contradiction_keys_json": json.dumps(cue.contradiction_keys),
+                "first_spans_json": json.dumps(cue.first_spans),
+                "hit_count": cue.hit_count,
+                "surfaced_count": cue.surfaced_count,
+                "selected_count": cue.selected_count,
+                "used_count": cue.used_count,
+                "near_miss_count": cue.near_miss_count,
+                "policy_score": cue.policy_score,
+                "projection_attempts": cue.projection_attempts,
+                "last_hit_at": cue.last_hit_at.isoformat() if cue.last_hit_at else None,
+                "last_feedback_at": (
+                    cue.last_feedback_at.isoformat() if cue.last_feedback_at else None
+                ),
+                "last_projected_at": (
+                    cue.last_projected_at.isoformat() if cue.last_projected_at else None
+                ),
+                "created_at": cue.created_at.isoformat() if cue.created_at else None,
+                "updated_at": cue.updated_at.isoformat() if cue.updated_at else None,
+            },
+        )
+
+    async def get_episode_cue(self, episode_id: str, group_id: str) -> EpisodeCue | None:
+        result = await self._query(
+            "MATCH (ep:Episode {id: $episode_id, group_id: $group_id}) RETURN ep",
+            {"episode_id": episode_id, "group_id": group_id},
+        )
+        if not result.result_set:
+            return None
+        props = result.result_set[0][0].properties
+        if not props.get("cue_text"):
+            return None
+        return self._node_to_episode_cue(props, episode_id, group_id)
+
+    async def update_episode_cue(
+        self,
+        episode_id: str,
+        updates: dict,
+        group_id: str = "default",
+    ) -> None:
+        if not updates:
+            return
+        remap = {
+            "projection_state": "cue_projection_state",
+            "cue_score": "cue_score",
+            "salience_score": "cue_salience_score",
+            "projection_priority": "cue_projection_priority",
+            "route_reason": "cue_route_reason",
+            "cue_text": "cue_text",
+            "entity_mentions": "cue_entity_mentions_json",
+            "temporal_markers": "cue_temporal_markers_json",
+            "quote_spans": "cue_quote_spans_json",
+            "contradiction_keys": "cue_contradiction_keys_json",
+            "first_spans": "cue_first_spans_json",
+            "hit_count": "cue_hit_count",
+            "surfaced_count": "cue_surfaced_count",
+            "selected_count": "cue_selected_count",
+            "used_count": "cue_used_count",
+            "near_miss_count": "cue_near_miss_count",
+            "policy_score": "cue_policy_score",
+            "projection_attempts": "cue_projection_attempts",
+            "last_hit_at": "cue_last_hit_at",
+            "last_feedback_at": "cue_last_feedback_at",
+            "last_projected_at": "cue_last_projected_at",
+        }
+        params = {"episode_id": episode_id, "group_id": group_id}
+        set_parts = ["ep.cue_updated_at = $cue_updated_at"]
+        params["cue_updated_at"] = utc_now_iso()
+        for key, value in updates.items():
+            prop = remap.get(key, key)
+            if key in {
+                "entity_mentions", "temporal_markers", "quote_spans",
+                "contradiction_keys", "first_spans",
+            }:
+                params[prop] = json.dumps(value)
+            elif key == "projection_state" and hasattr(value, "value"):
+                params[prop] = value.value
+            elif (
+                key in {"last_hit_at", "last_feedback_at", "last_projected_at"}
+                and value is not None
+            ):
+                params[prop] = value.isoformat() if hasattr(value, "isoformat") else value
+            else:
+                params[prop] = value
+            set_parts.append(f"ep.{prop} = ${prop}")
+        await self._query(
+            f"""MATCH (ep:Episode {{id: $episode_id, group_id: $group_id}})
+                SET {", ".join(set_parts)}""",
+            params,
+        )
+
     async def get_stats(self, group_id: str | None = None) -> dict:
+        params: dict[str, str] = {}
+        entity_match = "MATCH (n:Entity)"
+        entity_where = "WHERE n.deleted_at IS NULL"
+        rel_match = "MATCH ()-[r:RELATES_TO]->()"
+        rel_where = ""
+        episode_where = ""
         if group_id:
-            ent_result = await self._query(
-                "MATCH (n:Entity {group_id: $gid}) WHERE n.deleted_at IS NULL RETURN COUNT(n)",
-                {"gid": group_id},
-            )
-            rel_result = await self._query(
-                "MATCH ()-[r:RELATES_TO {group_id: $gid}]->() RETURN COUNT(r)",
-                {"gid": group_id},
-            )
-            ep_result = await self._query(
-                "MATCH (n:Episode {group_id: $gid}) RETURN COUNT(n)",
-                {"gid": group_id},
-            )
-        else:
-            ent_result = await self._query(
-                "MATCH (n:Entity) WHERE n.deleted_at IS NULL RETURN COUNT(n)"
-            )
-            rel_result = await self._query("MATCH ()-[r:RELATES_TO]->() RETURN COUNT(r)")
-            ep_result = await self._query("MATCH (n:Episode) RETURN COUNT(n)")
+            params["gid"] = group_id
+            entity_where = "WHERE n.group_id = $gid AND n.deleted_at IS NULL"
+            rel_where = "WHERE r.group_id = $gid"
+            episode_where = "WHERE ep.group_id = $gid"
+
+        ent_result = await self._query(
+            f"{entity_match} {entity_where} RETURN COUNT(n)",
+            params,
+        )
+        rel_result = await self._query(
+            f"{rel_match} {rel_where} RETURN COUNT(r)",
+            params,
+        )
+        episode_stats = await self._query(
+            f"""MATCH (ep:Episode)
+                {episode_where}
+                RETURN COUNT(ep) AS episodes,
+                       SUM(CASE WHEN ep.projection_state = 'queued' THEN 1 ELSE 0 END)
+                           AS projection_queued_count,
+                       SUM(CASE WHEN ep.projection_state = 'cued' THEN 1 ELSE 0 END)
+                           AS projection_cued_count,
+                       SUM(CASE WHEN ep.projection_state = 'cue_only' THEN 1 ELSE 0 END)
+                           AS projection_cue_only_count,
+                       SUM(CASE WHEN ep.projection_state = 'scheduled' THEN 1 ELSE 0 END)
+                           AS projection_scheduled_count,
+                       SUM(CASE WHEN ep.projection_state = 'projecting' THEN 1 ELSE 0 END)
+                           AS projection_projecting_count,
+                       SUM(CASE WHEN ep.projection_state = 'projected' THEN 1 ELSE 0 END)
+                           AS projection_projected_count,
+                       SUM(CASE WHEN ep.projection_state = 'failed' THEN 1 ELSE 0 END)
+                           AS projection_failed_count,
+                       SUM(CASE WHEN ep.projection_state = 'dead_letter' THEN 1 ELSE 0 END)
+                           AS projection_dead_letter_count,
+                       AVG(
+                           CASE
+                               WHEN ep.projection_state = 'projected'
+                                    AND ep.processing_duration_ms IS NOT NULL
+                               THEN toFloat(ep.processing_duration_ms)
+                               ELSE NULL
+                           END
+                       ) AS avg_processing_duration_ms""",
+            params,
+        )
+        cue_stats = await self._query(
+            f"""MATCH (ep:Episode)
+                {episode_where}
+                RETURN SUM(
+                           CASE
+                               WHEN ep.cue_text IS NOT NULL AND ep.cue_text <> ''
+                               THEN 1 ELSE 0
+                           END
+                       ) AS cue_count,
+                       SUM(
+                           CASE
+                               WHEN coalesce(ep.cue_hit_count, 0) > 0
+                               THEN 1 ELSE 0
+                           END
+                       ) AS cue_hit_episode_count,
+                       SUM(coalesce(ep.cue_hit_count, 0)) AS cue_hit_count,
+                       SUM(coalesce(ep.cue_surfaced_count, 0)) AS cue_surfaced_count,
+                       SUM(coalesce(ep.cue_selected_count, 0)) AS cue_selected_count,
+                       SUM(coalesce(ep.cue_used_count, 0)) AS cue_used_count,
+                       SUM(coalesce(ep.cue_near_miss_count, 0)) AS cue_near_miss_count,
+                       AVG(
+                           CASE
+                               WHEN ep.cue_text IS NOT NULL AND ep.cue_text <> ''
+                               THEN toFloat(coalesce(ep.cue_policy_score, 0.0))
+                               ELSE NULL
+                           END
+                       ) AS avg_policy_score,
+                       AVG(
+                           CASE
+                               WHEN ep.cue_text IS NOT NULL AND ep.cue_text <> ''
+                               THEN toFloat(coalesce(ep.cue_projection_attempts, 0))
+                               ELSE NULL
+                           END
+                       ) AS avg_projection_attempts,
+                       SUM(coalesce(ep.cue_projection_attempts, 0)) AS projection_attempt_total,
+                       SUM(
+                           CASE
+                               WHEN ep.cue_projection_state = 'projected'
+                               THEN 1 ELSE 0
+                           END
+                       ) AS projected_cue_count""",
+            params,
+        )
+        yield_stats = await self._query(
+            f"""MATCH (ep:Episode)
+                {episode_where}
+                WITH collect(
+                    CASE
+                        WHEN ep.projection_state = 'projected'
+                        THEN ep.id
+                        ELSE NULL
+                    END
+                ) AS projected_episode_ids
+                OPTIONAL MATCH (pep:Episode)-[:HAS_ENTITY]->(ent:Entity)
+                WHERE pep.id IN projected_episode_ids
+                  AND pep.projection_state = 'projected'
+                WITH projected_episode_ids, COUNT(ent) AS linked_entity_count
+                OPTIONAL MATCH ()-[r:RELATES_TO]->()
+                WHERE r.source_episode IN projected_episode_ids
+                RETURN linked_entity_count, COUNT(r) AS relationship_count""",
+            params,
+        )
+
+        entity_count = ent_result.result_set[0][0] if ent_result.result_set else 0
+        relationship_count = rel_result.result_set[0][0] if rel_result.result_set else 0
+        episode_row = episode_stats.result_set[0] if episode_stats.result_set else [0] * 10
+        cue_row = cue_stats.result_set[0] if cue_stats.result_set else [0] * 11
+        yield_row = yield_stats.result_set[0] if yield_stats.result_set else [0, 0]
+
+        episode_count = episode_row[0] or 0
+        projection_counts = {
+            "queued": episode_row[1] or 0,
+            "cued": episode_row[2] or 0,
+            "cue_only": episode_row[3] or 0,
+            "scheduled": episode_row[4] or 0,
+            "projecting": episode_row[5] or 0,
+            "projected": episode_row[6] or 0,
+            "failed": episode_row[7] or 0,
+            "dead_letter": episode_row[8] or 0,
+        }
+        cue_count = cue_row[0] or 0
+        projected_cue_count = cue_row[10] or 0
+        attempted_episode_count = (
+            projection_counts["projected"]
+            + projection_counts["failed"]
+            + projection_counts["dead_letter"]
+        )
+        linked_entity_count = yield_row[0] or 0
+        projected_relationship_count = yield_row[1] or 0
+
+        cue_metrics = {
+            "cue_count": cue_count,
+            "episodes_without_cues": max(episode_count - cue_count, 0),
+            "cue_coverage": round(cue_count / episode_count, 4) if episode_count else 0.0,
+            "cue_hit_count": cue_row[2] or 0,
+            "cue_hit_episode_count": cue_row[1] or 0,
+            "cue_hit_episode_rate": round((cue_row[1] or 0) / cue_count, 4) if cue_count else 0.0,
+            "cue_surfaced_count": cue_row[3] or 0,
+            "cue_selected_count": cue_row[4] or 0,
+            "cue_used_count": cue_row[5] or 0,
+            "cue_near_miss_count": cue_row[6] or 0,
+            "avg_policy_score": round(float(cue_row[7] or 0.0), 4),
+            "avg_projection_attempts": round(float(cue_row[8] or 0.0), 4),
+            "projected_cue_count": projected_cue_count,
+            "cue_to_projection_conversion_rate": (
+                round(projected_cue_count / cue_count, 4) if cue_count else 0.0
+            ),
+        }
+        projection_metrics = {
+            "state_counts": projection_counts,
+            "attempted_episode_count": attempted_episode_count,
+            "total_attempts": cue_row[9] or 0,
+            "failure_count": projection_counts["failed"],
+            "dead_letter_count": projection_counts["dead_letter"],
+            "failure_rate": (
+                round(
+                    (projection_counts["failed"] + projection_counts["dead_letter"])
+                    / attempted_episode_count,
+                    4,
+                )
+                if attempted_episode_count
+                else 0.0
+            ),
+            "avg_processing_duration_ms": round(float(episode_row[9] or 0.0), 2),
+            "avg_time_to_projection_ms": 0.0,
+            "yield": {
+                "linked_entity_count": linked_entity_count,
+                "relationship_count": projected_relationship_count,
+                "avg_linked_entities_per_projected_episode": (
+                    round(linked_entity_count / projection_counts["projected"], 4)
+                    if projection_counts["projected"]
+                    else 0.0
+                ),
+                "avg_relationships_per_projected_episode": (
+                    round(
+                        projected_relationship_count / projection_counts["projected"],
+                        4,
+                    )
+                    if projection_counts["projected"]
+                    else 0.0
+                ),
+            },
+        }
 
         return {
-            "entities": ent_result.result_set[0][0] if ent_result.result_set else 0,
-            "relationships": rel_result.result_set[0][0] if rel_result.result_set else 0,
-            "episodes": ep_result.result_set[0][0] if ep_result.result_set else 0,
+            "entities": entity_count,
+            "relationships": relationship_count,
+            "episodes": episode_count,
+            "cue_metrics": cue_metrics,
+            "projection_metrics": projection_metrics,
         }
 
     # --- Extra API methods (used by REST endpoints) ---
@@ -726,7 +1118,7 @@ class FalkorDBGraphStore:
 
     async def get_top_connected(self, group_id: str | None = None, limit: int = 10) -> list[dict]:
         group_filter = " AND e.group_id = $group_id" if group_id else ""
-        params: dict = {"limit": limit, "now": datetime.utcnow().isoformat()}
+        params: dict = {"limit": limit, "now": utc_now_iso()}
         if group_id:
             params["group_id"] = group_id
 
@@ -755,7 +1147,7 @@ class FalkorDBGraphStore:
         """Return daily entity and episode counts. Aggregated in Python."""
         from datetime import timedelta
 
-        since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        since = (utc_now() - timedelta(days=days)).isoformat()
         params: dict = {"since": since}
 
         ep_filter = "n.created_at >= $since"
@@ -825,7 +1217,7 @@ class FalkorDBGraphStore:
         """Find entity pairs that co-occur in episodes but lack a relationship."""
         since_clause = ""
         params: dict = {"gid": group_id, "min_co": min_co_occurrence, "limit": limit,
-                       "now": datetime.utcnow().isoformat()}
+                       "now": utc_now_iso()}
         if since:
             since_clause = "AND ep.created_at >= $since"
             params["since"] = since.isoformat()
@@ -866,6 +1258,47 @@ class FalkorDBGraphStore:
         )
         return {row[0]: row[1] for row in result.result_set}
 
+    async def find_structural_merge_candidates(
+        self, group_id: str, min_shared_neighbors: int = 3, limit: int = 200,
+    ) -> list[tuple[str, str, int]]:
+        """Find entity pairs that share many active neighbors."""
+        result = await self._query(
+            """MATCH (a:Entity)-[r1:RELATES_TO]-(n:Entity)-[r2:RELATES_TO]-(b:Entity)
+               WHERE a.group_id = $gid AND b.group_id = $gid AND n.group_id = $gid
+                 AND a.deleted_at IS NULL AND b.deleted_at IS NULL AND n.deleted_at IS NULL
+                 AND a.id < b.id
+                 AND a.id <> b.id
+                 AND (r1.valid_to IS NULL OR r1.valid_to > $now)
+                 AND (r2.valid_to IS NULL OR r2.valid_to > $now)
+               WITH a, b, COUNT(DISTINCT n) AS shared_count
+               WHERE shared_count >= $min_shared_neighbors
+               RETURN a.id, b.id, shared_count
+               ORDER BY shared_count DESC
+               LIMIT $limit""",
+            {
+                "gid": group_id,
+                "min_shared_neighbors": min_shared_neighbors,
+                "limit": limit,
+                "now": utc_now_iso(),
+            },
+        )
+        return [(row[0], row[1], row[2]) for row in result.result_set]
+
+    async def get_episode_cooccurrence_count(
+        self, entity_id_a: str, entity_id_b: str, group_id: str,
+    ) -> int:
+        """Count episodes where both entities are linked."""
+        result = await self._query(
+            """MATCH (ep:Episode)-[:HAS_ENTITY]->(a:Entity {id: $a}),
+                     (ep)-[:HAS_ENTITY]->(b:Entity {id: $b})
+               WHERE ep.group_id = $gid
+               RETURN COUNT(DISTINCT ep)""",
+            {"a": entity_id_a, "b": entity_id_b, "gid": group_id},
+        )
+        if not result.result_set:
+            return 0
+        return result.result_set[0][0] or 0
+
     async def get_dead_entities(
         self,
         group_id: str,
@@ -874,7 +1307,7 @@ class FalkorDBGraphStore:
         max_access_count: int = 0,
     ) -> list[Entity]:
         """Find entities with no relationships and low access."""
-        cutoff = (datetime.utcnow() - timedelta(days=min_age_days)).isoformat()
+        cutoff = (utc_now() - timedelta(days=min_age_days)).isoformat()
         result = await self._query(
             """MATCH (n:Entity {group_id: $gid})
                WHERE n.deleted_at IS NULL
@@ -890,7 +1323,7 @@ class FalkorDBGraphStore:
                LIMIT $limit""",
             {
                 "gid": group_id, "cutoff": cutoff, "max_access": max_access_count,
-                "limit": limit, "now": datetime.utcnow().isoformat(),
+                "limit": limit, "now": utc_now_iso(),
             },
         )
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
@@ -904,6 +1337,46 @@ class FalkorDBGraphStore:
             {"gid": group_id},
         )
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
+
+    async def get_entity_episode_count(self, entity_id: str, group_id: str) -> int:
+        """Count episodes that mention this entity."""
+        result = await self._query(
+            """MATCH (ep:Episode)-[:HAS_ENTITY]->(e:Entity {id: $id})
+               WHERE ep.group_id = $gid
+               RETURN COUNT(DISTINCT ep)""",
+            {"id": entity_id, "gid": group_id},
+        )
+        if not result.result_set:
+            return 0
+        return result.result_set[0][0] or 0
+
+    async def get_entity_temporal_span(
+        self, entity_id: str, group_id: str,
+    ) -> tuple[str | None, str | None]:
+        """Return the first and last episode timestamps mentioning this entity."""
+        result = await self._query(
+            """MATCH (ep:Episode)-[:HAS_ENTITY]->(e:Entity {id: $id})
+               WHERE ep.group_id = $gid
+               RETURN MIN(ep.created_at), MAX(ep.created_at)""",
+            {"id": entity_id, "gid": group_id},
+        )
+        if not result.result_set:
+            return (None, None)
+        row = result.result_set[0]
+        return (row[0], row[1])
+
+    async def get_entity_relationship_types(
+        self, entity_id: str, group_id: str,
+    ) -> list[str]:
+        """Return distinct active predicates connected to this entity."""
+        result = await self._query(
+            """MATCH (e:Entity {id: $id})-[r:RELATES_TO]-()
+               WHERE r.group_id = $gid
+                 AND (r.valid_to IS NULL OR r.valid_to > $now)
+               RETURN DISTINCT r.predicate""",
+            {"id": entity_id, "gid": group_id, "now": utc_now_iso()},
+        )
+        return [row[0] for row in result.result_set]
 
     async def merge_entities(
         self,
@@ -939,6 +1412,7 @@ class FalkorDBGraphStore:
                         keep_id, target_id,
                         old_rel.weight - existing.weight,
                         group_id=group_id,
+                        predicate=old_rel.predicate,
                     )
             else:
                 new_id = f"rel_{uuid.uuid4().hex[:12]}"
@@ -949,7 +1423,8 @@ class FalkorDBGraphStore:
                            predicate: $predicate, weight: $weight,
                            valid_from: $valid_from, valid_to: $valid_to,
                            created_at: $created_at, confidence: $confidence,
-                           source_episode: $source_episode, group_id: $gid
+                           source_episode: $source_episode, group_id: $gid,
+                           polarity: $polarity
                        }]->(t)""",
                     {
                         "keep_id": keep_id,
@@ -972,6 +1447,7 @@ class FalkorDBGraphStore:
                         "confidence": old_rel.confidence,
                         "source_episode": old_rel.source_episode,
                         "gid": group_id,
+                        "polarity": old_rel.polarity,
                     },
                 )
             # Delete the old edge
@@ -1002,6 +1478,7 @@ class FalkorDBGraphStore:
                         source_id, keep_id,
                         old_rel.weight - existing.weight,
                         group_id=group_id,
+                        predicate=old_rel.predicate,
                     )
             else:
                 new_id = f"rel_{uuid.uuid4().hex[:12]}"
@@ -1012,7 +1489,8 @@ class FalkorDBGraphStore:
                            predicate: $predicate, weight: $weight,
                            valid_from: $valid_from, valid_to: $valid_to,
                            created_at: $created_at, confidence: $confidence,
-                           source_episode: $source_episode, group_id: $gid
+                           source_episode: $source_episode, group_id: $gid,
+                           polarity: $polarity
                        }]->(k)""",
                     {
                         "src_id": source_id,
@@ -1035,6 +1513,7 @@ class FalkorDBGraphStore:
                         "confidence": old_rel.confidence,
                         "source_episode": old_rel.source_episode,
                         "gid": group_id,
+                        "polarity": old_rel.polarity,
                     },
                 )
             await self._query(
@@ -1087,7 +1566,7 @@ class FalkorDBGraphStore:
                     "gid": group_id,
                     "summary": keep_summary,
                     "count": keep_count + remove_count,
-                    "now": datetime.utcnow().isoformat(),
+                    "now": utc_now_iso(),
                 },
             )
 
@@ -1095,7 +1574,7 @@ class FalkorDBGraphStore:
         await self._query(
             """MATCH (n:Entity {id: $id, group_id: $gid})
                SET n.deleted_at = $now""",
-            {"id": remove_id, "gid": group_id, "now": datetime.utcnow().isoformat()},
+            {"id": remove_id, "gid": group_id, "now": utc_now_iso()},
         )
 
         return transferred
@@ -1108,7 +1587,7 @@ class FalkorDBGraphStore:
         group_id: str,
     ) -> bool:
         """Check if a path exists between two entities within N hops."""
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         cypher = (
             f"MATCH p = (s:Entity {{id: $src}})"
             f"-[:RELATES_TO*1..{max_hops}]-(t:Entity {{id: $tgt}}) "
@@ -1130,7 +1609,7 @@ class FalkorDBGraphStore:
         limit: int = 100,
     ) -> list[Relationship]:
         """Return relationships whose valid_to has passed."""
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         pred_clause = "AND r.predicate = $pred" if predicate else ""
         params: dict = {"gid": group_id, "now": now, "limit": limit}
         if predicate:
@@ -1161,7 +1640,7 @@ class FalkorDBGraphStore:
                   {active_clause}
                 RETURN r LIMIT $limit""",
             {"gid": group_id, "pred": predicate, "limit": limit,
-             "now": datetime.utcnow().isoformat()},
+             "now": utc_now_iso()},
         )
         seen_ids: set[str] = set()
         rels = []
@@ -1201,8 +1680,8 @@ class FalkorDBGraphStore:
             summary=summary,
             attributes=attributes,
             group_id=node_group,
-            created_at=_parse_dt(props.get("created_at")) or datetime.utcnow(),
-            updated_at=_parse_dt(props.get("updated_at")) or datetime.utcnow(),
+            created_at=_parse_dt(props.get("created_at")) or utc_now(),
+            updated_at=_parse_dt(props.get("updated_at")) or utc_now(),
             deleted_at=_parse_dt(props.get("deleted_at")),
             activation_current=props.get("activation_current", 0.0),
             access_count=props.get("access_count", 0),
@@ -1210,6 +1689,9 @@ class FalkorDBGraphStore:
             pii_detected=bool(props.get("pii_detected", False)),
             pii_categories=pii_categories,
             identity_core=bool(props.get("identity_core", False)),
+            lexical_regime=props.get("lexical_regime"),
+            canonical_identifier=props.get("canonical_identifier"),
+            identifier_label=bool(props.get("identifier_label", False)),
         )
 
     @staticmethod
@@ -1223,8 +1705,9 @@ class FalkorDBGraphStore:
             weight=props.get("weight", 1.0),
             valid_from=_parse_dt(props.get("valid_from")),
             valid_to=_parse_dt(props.get("valid_to")),
-            created_at=_parse_dt(props.get("created_at")) or datetime.utcnow(),
+            created_at=_parse_dt(props.get("created_at")) or utc_now(),
             confidence=props.get("confidence", 1.0),
+            polarity=props.get("polarity", "positive"),
             source_episode=props.get("source_episode"),
             group_id=props.get("group_id", "default"),
         )
@@ -1242,11 +1725,56 @@ class FalkorDBGraphStore:
             status=props.get("status", "pending"),
             group_id=node_group,
             session_id=props.get("session_id"),
-            created_at=_parse_dt(props.get("created_at")) or datetime.utcnow(),
+            created_at=_parse_dt(props.get("created_at")) or utc_now(),
             updated_at=_parse_dt(props.get("updated_at")),
             error=props.get("error"),
             retry_count=props.get("retry_count", 0) or 0,
             processing_duration_ms=props.get("processing_duration_ms"),
+            encoding_context=props.get("encoding_context"),
+            memory_tier=props.get("memory_tier", "episodic") or "episodic",
+            consolidation_cycles=props.get("consolidation_cycles", 0) or 0,
+            entity_coverage=props.get("entity_coverage", 0.0) or 0.0,
+            projection_state=props.get("projection_state", "queued"),
+            last_projection_reason=props.get("last_projection_reason"),
+            last_projected_at=_parse_dt(props.get("last_projected_at")),
+        )
+
+    def _node_to_episode_cue(
+        self,
+        props: dict,
+        episode_id: str,
+        group_id: str,
+    ) -> EpisodeCue:
+        return EpisodeCue(
+            episode_id=episode_id,
+            group_id=group_id,
+            cue_version=props.get("cue_version", 1),
+            discourse_class=props.get("cue_discourse_class", "world"),
+            projection_state=props.get("cue_projection_state", "cued"),
+            cue_score=props.get("cue_score", 0.0) or 0.0,
+            salience_score=props.get("cue_salience_score", 0.0) or 0.0,
+            projection_priority=props.get("cue_projection_priority", 0.0) or 0.0,
+            route_reason=props.get("cue_route_reason"),
+            cue_text=props.get("cue_text", ""),
+            entity_mentions=json.loads(props.get("cue_entity_mentions_json", "[]") or "[]"),
+            temporal_markers=json.loads(props.get("cue_temporal_markers_json", "[]") or "[]"),
+            quote_spans=json.loads(props.get("cue_quote_spans_json", "[]") or "[]"),
+            contradiction_keys=json.loads(
+                props.get("cue_contradiction_keys_json", "[]") or "[]"
+            ),
+            first_spans=json.loads(props.get("cue_first_spans_json", "[]") or "[]"),
+            hit_count=props.get("cue_hit_count", 0) or 0,
+            surfaced_count=props.get("cue_surfaced_count", 0) or 0,
+            selected_count=props.get("cue_selected_count", 0) or 0,
+            used_count=props.get("cue_used_count", 0) or 0,
+            near_miss_count=props.get("cue_near_miss_count", 0) or 0,
+            policy_score=props.get("cue_policy_score", 0.0) or 0.0,
+            projection_attempts=props.get("cue_projection_attempts", 0) or 0,
+            last_hit_at=_parse_dt(props.get("cue_last_hit_at")),
+            last_feedback_at=_parse_dt(props.get("cue_last_feedback_at")),
+            last_projected_at=_parse_dt(props.get("cue_last_projected_at")),
+            created_at=_parse_dt(props.get("cue_created_at")) or utc_now(),
+            updated_at=_parse_dt(props.get("cue_updated_at")),
         )
 
     @staticmethod
@@ -1266,8 +1794,8 @@ class FalkorDBGraphStore:
             fire_count=props.get("fire_count", 0),
             enabled=bool(props.get("enabled", True)),
             group_id=props.get("group_id", "default"),
-            created_at=_parse_dt(props.get("created_at")) or datetime.utcnow(),
-            updated_at=_parse_dt(props.get("updated_at")) or datetime.utcnow(),
+            created_at=_parse_dt(props.get("created_at")) or utc_now(),
+            updated_at=_parse_dt(props.get("updated_at")) or utc_now(),
             expires_at=_parse_dt(props.get("expires_at")),
         )
 
@@ -1344,7 +1872,7 @@ class FalkorDBGraphStore:
     ) -> list:
         """List intentions for a group, filtering expired and optionally disabled."""
         if enabled_only:
-            now = datetime.utcnow().isoformat()
+            now = utc_now_iso()
             result = await self._query(
                 """MATCH (n:Intention {group_id: $gid})
                    WHERE n.enabled = true
@@ -1376,7 +1904,7 @@ class FalkorDBGraphStore:
         if not set_parts:
             return
         set_parts.append("n.updated_at = $updated_at")
-        params["updated_at"] = datetime.utcnow().isoformat()
+        params["updated_at"] = utc_now_iso()
         cypher = (
             f"MATCH (n:Intention {{id: $id, group_id: $gid}}) "
             f"SET {', '.join(set_parts)}"
@@ -1391,7 +1919,7 @@ class FalkorDBGraphStore:
             await self._query(
                 """MATCH (n:Intention {id: $id, group_id: $gid})
                    SET n.enabled = false, n.updated_at = $now""",
-                {"id": id, "gid": group_id, "now": datetime.utcnow().isoformat()},
+                {"id": id, "gid": group_id, "now": utc_now_iso()},
             )
         else:
             await self._query(
@@ -1406,5 +1934,5 @@ class FalkorDBGraphStore:
         await self._query(
             """MATCH (n:Intention {id: $id, group_id: $gid})
                SET n.fire_count = n.fire_count + 1, n.updated_at = $now""",
-            {"id": id, "gid": group_id, "now": datetime.utcnow().isoformat()},
+            {"id": id, "gid": group_id, "now": utc_now_iso()},
         )

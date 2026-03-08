@@ -1,0 +1,4778 @@
+{
+  "answer_results": [
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "incorrect_fields": [],
+      "latency_ms": 4.404042032547295,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 34
+    },
+    {
+      "answer": {
+        "needed": "",
+        "subject": ""
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "incorrect_fields": [],
+      "latency_ms": 0.03841705620288849,
+      "matched_fields": [],
+      "missing_fields": [
+        "subject",
+        "needed"
+      ],
+      "normalized_answer": {
+        "needed": "",
+        "subject": ""
+      },
+      "passed": false,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 0.0,
+      "seed": 7,
+      "tokens_surfaced": 63
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "incorrect_fields": [],
+      "latency_ms": 0.06704207044094801,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "incorrect_fields": [],
+      "latency_ms": 0.2145000034943223,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 96
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "incorrect_fields": [],
+      "latency_ms": 0.047208042815327644,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 95
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "incorrect_fields": [],
+      "latency_ms": 0.04779198206961155,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 105
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "incorrect_fields": [],
+      "latency_ms": 0.1907080877572298,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 96
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "incorrect_fields": [],
+      "latency_ms": 2.5709159672260284,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 34
+    },
+    {
+      "answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "answer_task_question": "Summarize Maya's cedar cache reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "incorrect_fields": [],
+      "latency_ms": 1.608541002497077,
+      "matched_fields": [
+        "subject",
+        "needed"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "passed": true,
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 34
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "incorrect_fields": [],
+      "latency_ms": 2.974709030240774,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 59
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "incorrect_fields": [],
+      "latency_ms": 0.025374931283295155,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 63
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "incorrect_fields": [],
+      "latency_ms": 0.03866699989885092,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 80
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "incorrect_fields": [],
+      "latency_ms": 15.818666899576783,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 80
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "incorrect_fields": [],
+      "latency_ms": 0.016666017472743988,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 50
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "incorrect_fields": [],
+      "latency_ms": 0.014499993994832039,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 56
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "incorrect_fields": [],
+      "latency_ms": 15.674083027988672,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 50
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "incorrect_fields": [],
+      "latency_ms": 2.5593750178813934,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 59
+    },
+    {
+      "answer": {
+        "base_url": "api.v2.internal"
+      },
+      "answer_task_question": "Return Aurora API's current base URL as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "incorrect_fields": [],
+      "latency_ms": 1.6368330689147115,
+      "matched_fields": [
+        "base_url"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "passed": true,
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 59
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "incorrect_fields": [],
+      "latency_ms": 4.570042015984654,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "incorrect_fields": [],
+      "latency_ms": 0.044625019654631615,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "incorrect_fields": [],
+      "latency_ms": 0.06562506314367056,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "incorrect_fields": [],
+      "latency_ms": 0.1546660205349326,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "incorrect_fields": [],
+      "latency_ms": 0.033374992199242115,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 72
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "incorrect_fields": [],
+      "latency_ms": 0.03383390139788389,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 80
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "incorrect_fields": [],
+      "latency_ms": 0.12533296830952168,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 72
+    },
+    {
+      "answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "incorrect_fields": [],
+      "latency_ms": 4.357832949608564,
+      "matched_fields": [
+        "reminder"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "passed": true,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 120
+    },
+    {
+      "answer": {
+        "reminder": ""
+      },
+      "answer_task_question": "Return the operative JWT reminder as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "incorrect_fields": [],
+      "latency_ms": 2.572417026385665,
+      "matched_fields": [],
+      "missing_fields": [
+        "reminder"
+      ],
+      "normalized_answer": {
+        "reminder": ""
+      },
+      "passed": false,
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "score": 0.0,
+      "seed": 7,
+      "tokens_surfaced": 67
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "incorrect_fields": [],
+      "latency_ms": 4.384250030852854,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 96
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "incorrect_fields": [],
+      "latency_ms": 0.033708056434988976,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 50
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "incorrect_fields": [],
+      "latency_ms": 0.049708993174135685,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 97
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "incorrect_fields": [],
+      "latency_ms": 0.10920909699052572,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 91
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "incorrect_fields": [],
+      "latency_ms": 0.022541964426636696,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 36
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "incorrect_fields": [],
+      "latency_ms": 0.02162496093660593,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 42
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "incorrect_fields": [],
+      "latency_ms": 0.09074993431568146,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 36
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "incorrect_fields": [],
+      "latency_ms": 4.050374962389469,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 96
+    },
+    {
+      "answer": {
+        "dependency": "Meridian Gate"
+      },
+      "answer_task_question": "Return the hidden dependency for JWT token work as JSON.",
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "incorrect_fields": [],
+      "latency_ms": 3.006374929100275,
+      "matched_fields": [
+        "dependency"
+      ],
+      "missing_fields": [],
+      "normalized_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "passed": true,
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "score": 1.0,
+      "seed": 7,
+      "tokens_surfaced": 70
+    }
+  ],
+  "scenario_catalog": [
+    {
+      "answer_grader": "field_match",
+      "answer_task": {
+        "answer_budget_tokens": 100,
+        "answer_grader": "field_match",
+        "expected_format": "json",
+        "gold_answer": {
+          "needed": "one extra smoke test",
+          "subject": "cedar cache migration"
+        },
+        "note": "Answer track should reduce the cue recall to the operative fact.",
+        "question": "Summarize Maya's cedar cache reminder as JSON."
+      },
+      "budget_profile": {
+        "answer_budget_tokens": 90,
+        "evidence_max_tokens": 120,
+        "retrieval_limit": 5
+      },
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "distractor_tags": [
+        "lexical_overlap",
+        "release_noise"
+      ],
+      "gold_answer": {
+        "needed": "one extra smoke test",
+        "subject": "cedar cache migration"
+      },
+      "id": "cue_delayed_relevance",
+      "probes": [
+        {
+          "after_turn_index": 5,
+          "allowed_result_types": [
+            "cue_episode",
+            "episode"
+          ],
+          "capability_tags": [
+            "cue",
+            "continuity"
+          ],
+          "disallowed_result_types": [],
+          "expected_result_types": [
+            "cue_episode"
+          ],
+          "forbidden_evidence": [],
+          "historical_evidence_allowed": true,
+          "id": "cue_probe",
+          "limit": 5,
+          "max_tokens": 120,
+          "note": "Observed-only memory should still surface later as latent evidence.",
+          "operation": "recall",
+          "query": "What did Maya mention about the cedar cache migration?",
+          "required_evidence": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "required_evidence_result_types": [],
+          "topic_hint": null
+        }
+      ],
+      "title": "Cue Delayed Relevance",
+      "turns": [
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "observe_maya_note",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:meeting",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Evergreen cache migration already passed every smoke test.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "evergreen_distractor",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:distractor",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Ambient note 1: incident follow-up for cue delayed. No durable decisions changed here.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "cue_delayed_1",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:ambient",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "cue_delayed_2",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:ambient",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "cue_delayed_3",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:ambient",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Ambient note 4: design review for cue delayed. No durable decisions changed here.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "cue_delayed_4",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:ambient",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        }
+      ],
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "answer_grader": "field_match",
+      "answer_task": {
+        "answer_budget_tokens": 100,
+        "answer_grader": "field_match",
+        "expected_format": "json",
+        "gold_answer": {
+          "base_url": "api.v2.internal"
+        },
+        "note": "",
+        "question": "Return Aurora API's current base URL as JSON."
+      },
+      "budget_profile": {
+        "answer_budget_tokens": 70,
+        "evidence_max_tokens": 80,
+        "retrieval_limit": 5
+      },
+      "capability_tags": [
+        "temporal"
+      ],
+      "distractor_tags": [
+        "stale_docs",
+        "archived_history"
+      ],
+      "gold_answer": {
+        "base_url": "api.v2.internal"
+      },
+      "id": "temporal_override",
+      "probes": [
+        {
+          "after_turn_index": 2,
+          "allowed_result_types": [],
+          "capability_tags": [
+            "temporal"
+          ],
+          "disallowed_result_types": [
+            "episode",
+            "cue_episode"
+          ],
+          "expected_result_types": [
+            "context"
+          ],
+          "forbidden_evidence": [
+            "api.v1.internal"
+          ],
+          "historical_evidence_allowed": false,
+          "id": "temporal_probe",
+          "limit": 5,
+          "max_tokens": 80,
+          "note": "Current truth should replace stale truth in compressed context.",
+          "operation": "get_context",
+          "query": null,
+          "required_evidence": [
+            "base_url: api.v2.internal"
+          ],
+          "required_evidence_result_types": [],
+          "topic_hint": "Aurora API"
+        }
+      ],
+      "title": "Temporal Override",
+      "turns": [
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "Aurora API currently uses api.v1.internal as its base URL.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {
+                  "base_url": "api.v1.internal"
+                },
+                "entity_type": "Project",
+                "name": "Aurora API",
+                "summary": "Internal API service for Aurora."
+              }
+            ],
+            "relationships": []
+          },
+          "hard_delete": false,
+          "id": "aurora_old",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:temporal",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Aurora Docs still mention api.v1.internal in archived notes.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "aurora_distractor",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:distractor",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "Correction: Aurora API now uses api.v2.internal as its base URL.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {
+                  "base_url": "api.v2.internal"
+                },
+                "entity_type": "Project",
+                "name": "Aurora API",
+                "summary": "Internal API service for Aurora."
+              }
+            ],
+            "relationships": []
+          },
+          "hard_delete": false,
+          "id": "aurora_new",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:temporal",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        }
+      ],
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "answer_grader": "field_match",
+      "answer_task": {
+        "answer_budget_tokens": 100,
+        "answer_grader": "field_match",
+        "expected_format": "json",
+        "gold_answer": {
+          "reminder": "Check XSS fix before deploying"
+        },
+        "note": "",
+        "question": "Return the operative JWT reminder as JSON."
+      },
+      "budget_profile": {
+        "answer_budget_tokens": 80,
+        "evidence_max_tokens": 120,
+        "retrieval_limit": 5
+      },
+      "capability_tags": [
+        "prospective"
+      ],
+      "distractor_tags": [
+        "unrelated_intention",
+        "dismissal_regression"
+      ],
+      "gold_answer": {
+        "reminder": "Check XSS fix before deploying"
+      },
+      "id": "prospective_trigger",
+      "probes": [
+        {
+          "after_turn_index": 3,
+          "allowed_result_types": [],
+          "capability_tags": [
+            "prospective"
+          ],
+          "disallowed_result_types": [],
+          "expected_result_types": [
+            "entity"
+          ],
+          "forbidden_evidence": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_evidence_allowed": true,
+          "id": "prospective_probe_before_dismiss",
+          "limit": 5,
+          "max_tokens": 120,
+          "note": "Related entity activity should surface the linked intention.",
+          "operation": "recall",
+          "query": "What should I remember while working on JWT token validation?",
+          "required_evidence": [
+            "Check XSS fix before deploying"
+          ],
+          "required_evidence_result_types": [],
+          "topic_hint": null
+        },
+        {
+          "after_turn_index": 4,
+          "allowed_result_types": [],
+          "capability_tags": [
+            "prospective"
+          ],
+          "disallowed_result_types": [],
+          "expected_result_types": [],
+          "forbidden_evidence": [
+            "Check XSS fix before deploying"
+          ],
+          "historical_evidence_allowed": true,
+          "id": "prospective_probe_after_dismiss",
+          "limit": 5,
+          "max_tokens": 120,
+          "note": "Dismissed intentions should stop resurfacing.",
+          "operation": "recall",
+          "query": "What should I remember while working on JWT token validation?",
+          "required_evidence": [],
+          "required_evidence_result_types": [],
+          "topic_hint": null
+        }
+      ],
+      "title": "Prospective Trigger",
+      "turns": [
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "Auth Module owns JWT token validation.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {},
+                "entity_type": "Project",
+                "name": "Auth Module",
+                "summary": "Authentication subsystem."
+              },
+              {
+                "attributes": {},
+                "entity_type": "Concept",
+                "name": "JWT Token Validation",
+                "summary": "Validation path for access tokens."
+              }
+            ],
+            "relationships": [
+              {
+                "polarity": "positive",
+                "predicate": "PART_OF",
+                "source": "JWT Token Validation",
+                "target": "Auth Module",
+                "weight": 1.0
+              }
+            ]
+          },
+          "hard_delete": false,
+          "id": "auth_module_memory",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:prospective",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "intend",
+          "action_text": "Verify CSV export before deploying",
+          "content": null,
+          "context": null,
+          "entity_names": [
+            "Billing Module"
+          ],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "billing_intention",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase",
+          "threshold": 0.1,
+          "trigger_text": "Billing release guard",
+          "trigger_type": "activation"
+        },
+        {
+          "action": "intend",
+          "action_text": "Check XSS fix before deploying",
+          "content": null,
+          "context": null,
+          "entity_names": [
+            "Auth Module"
+          ],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "auth_intention",
+          "priority": "high",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase",
+          "threshold": 0.1,
+          "trigger_text": "Auth module release guard",
+          "trigger_type": "activation"
+        },
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "JWT token validation is on today's agenda.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {},
+                "entity_type": "Concept",
+                "name": "JWT Token Validation",
+                "summary": "Validation path for access tokens."
+              },
+              {
+                "attributes": {},
+                "entity_type": "Project",
+                "name": "Auth Module",
+                "summary": "Authentication subsystem."
+              }
+            ],
+            "relationships": [
+              {
+                "polarity": "positive",
+                "predicate": "PART_OF",
+                "source": "JWT Token Validation",
+                "target": "Auth Module",
+                "weight": 1.0
+              }
+            ]
+          },
+          "hard_delete": false,
+          "id": "jwt_work",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:prospective",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "dismiss_intention",
+          "action_text": null,
+          "content": null,
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": true,
+          "id": "dismiss_auth_intention",
+          "priority": "normal",
+          "ref": "auth_intention",
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        }
+      ],
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "answer_grader": "field_match",
+      "answer_task": {
+        "answer_budget_tokens": 100,
+        "answer_grader": "field_match",
+        "expected_format": "json",
+        "gold_answer": {
+          "dependency": "Meridian Gate"
+        },
+        "note": "",
+        "question": "Return the hidden dependency for JWT token work as JSON."
+      },
+      "budget_profile": {
+        "answer_budget_tokens": 70,
+        "evidence_max_tokens": 120,
+        "retrieval_limit": 5
+      },
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "distractor_tags": [
+        "lexical_neighbor",
+        "two_hop_dependency"
+      ],
+      "gold_answer": {
+        "dependency": "Meridian Gate"
+      },
+      "id": "cross_cluster_association",
+      "probes": [
+        {
+          "after_turn_index": 2,
+          "allowed_result_types": [],
+          "capability_tags": [
+            "association",
+            "graph"
+          ],
+          "disallowed_result_types": [],
+          "expected_result_types": [
+            "entity"
+          ],
+          "forbidden_evidence": [],
+          "historical_evidence_allowed": true,
+          "id": "graph_probe",
+          "limit": 5,
+          "max_tokens": 120,
+          "note": "Graph spreading should connect lexically distant but structurally linked entities.",
+          "operation": "recall",
+          "query": "What hidden dependency matters for JWT token work before shipping?",
+          "required_evidence": [
+            "Meridian Gate"
+          ],
+          "required_evidence_result_types": [
+            "entity"
+          ],
+          "topic_hint": null
+        }
+      ],
+      "title": "Cross Cluster Association",
+      "turns": [
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "JWT Tokens are part of Auth Gateway.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {},
+                "entity_type": "Technology",
+                "name": "JWT Tokens",
+                "summary": "Access token format."
+              },
+              {
+                "attributes": {},
+                "entity_type": "Project",
+                "name": "Auth Gateway",
+                "summary": "Gateway handling auth flows."
+              }
+            ],
+            "relationships": [
+              {
+                "polarity": "positive",
+                "predicate": "PART_OF",
+                "source": "JWT Tokens",
+                "target": "Auth Gateway",
+                "weight": 1.0
+              }
+            ]
+          },
+          "hard_delete": false,
+          "id": "jwt_auth_gateway",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:graph",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "observe",
+          "action_text": null,
+          "content": "Passport Gate is the docs checklist for public auth docs.",
+          "context": null,
+          "entity_names": [],
+          "extraction": null,
+          "hard_delete": false,
+          "id": "passport_distractor",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:distractor",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        },
+        {
+          "action": "remember",
+          "action_text": null,
+          "content": "Auth Gateway requires Meridian Gate before shipping.",
+          "context": null,
+          "entity_names": [],
+          "extraction": {
+            "entities": [
+              {
+                "attributes": {},
+                "entity_type": "Concept",
+                "name": "Meridian Gate",
+                "summary": "Final readiness control for critical launches."
+              },
+              {
+                "attributes": {},
+                "entity_type": "Project",
+                "name": "Auth Gateway",
+                "summary": "Gateway handling auth flows."
+              }
+            ],
+            "relationships": [
+              {
+                "polarity": "positive",
+                "predicate": "REQUIRES",
+                "source": "Auth Gateway",
+                "target": "Meridian Gate",
+                "weight": 1.0
+              }
+            ]
+          },
+          "hard_delete": false,
+          "id": "meridian_gate",
+          "priority": "normal",
+          "ref": null,
+          "see_also": [],
+          "session_id": null,
+          "source": "showcase:graph",
+          "threshold": null,
+          "trigger_text": null,
+          "trigger_type": "activation"
+        }
+      ],
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    }
+  ],
+  "scenario_results": [
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {
+          "recall": 2,
+          "store_episode": 6
+        },
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_1a27febff0f7",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.08850936790682692,
+              "source_id": "ep_13ac874f0938",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.949874964542687,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.7166666666666667,
+          "tokens_surfaced": 34
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.14,
+              "source_id": "rolling_summary",
+              "text": "## Summary",
+              "tokens": 2
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.05,
+              "source_id": "cue_delayed_4",
+              "text": "Ambient note 4: design review for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.04,
+              "source_id": "cue_delayed_3",
+              "text": "Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.03,
+              "source_id": "cue_delayed_2",
+              "text": "Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.05000003147870302,
+          "missing_required": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "passed": false,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.475,
+          "tokens_surfaced": 63
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5714285714285714,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- Maya mentioned the cedar cache migration needs one extra smoke test before release.\n- Evergreen cache migration already passed every smoke test.\n- Ambient note 1: incident follow-up for cue delayed. No durable decisions changed here.\n- Ambient note 2: release prep for cue delayed. No durable decisions changed here.\n- Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.\n- Ambient note 4: design review for cue delayed. No durab",
+              "tokens": 120
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.07487507537007332,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 8,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6780821885381427,
+              "source_id": "observe_maya_note",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.4612169338124139,
+              "source_id": "evergreen_distractor",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.2947072595357895,
+              "source_id": "cue_delayed_1",
+              "text": "Ambient note 1: incident follow-up for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.29453138560056685,
+              "source_id": "cue_delayed_3",
+              "text": "Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.29188399761915207,
+              "source_id": "cue_delayed_2",
+              "text": "Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 13.567790971137583,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.19999999999999996,
+          "tokens_surfaced": 96
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5714285714285714,
+              "source_id": "observe_maya_note",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.3157142857142857,
+              "source_id": "evergreen_distractor",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.15,
+              "source_id": "cue_delayed_4",
+              "text": "Ambient note 4: design review for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.12,
+              "source_id": "cue_delayed_3",
+              "text": "Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.09,
+              "source_id": "cue_delayed_2",
+              "text": "Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.05337502807378769,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.20833333333333337,
+          "tokens_surfaced": 95
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5714285714285714,
+              "source_id": "observe_maya_note",
+              "text": "- [000] Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 22
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.2957142857142857,
+              "source_id": "evergreen_distractor",
+              "text": "- [001] Evergreen cache migration already passed every smoke test.",
+              "tokens": 16
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.05,
+              "source_id": "cue_delayed_4",
+              "text": "- [005] Ambient note 4: design review for cue delayed. No durable decisions changed here.",
+              "tokens": 22
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.04,
+              "source_id": "cue_delayed_3",
+              "text": "- [004] Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+              "tokens": 23
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.03,
+              "source_id": "cue_delayed_2",
+              "text": "- [003] Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+              "tokens": 22
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.04375004209578037,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.125,
+          "tokens_surfaced": 105
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 8,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.7604245032582964,
+              "source_id": "observe_maya_note",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5211843741791589,
+              "source_id": "evergreen_distractor",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.34004683792591095,
+              "source_id": "cue_delayed_1",
+              "text": "Ambient note 1: incident follow-up for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.33984390646219254,
+              "source_id": "cue_delayed_3",
+              "text": "Ambient note 3: roadmap grooming for cue delayed. No durable decisions changed here.",
+              "tokens": 21
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.33678922802209854,
+              "source_id": "cue_delayed_2",
+              "text": "Ambient note 2: release prep for cue delayed. No durable decisions changed here.",
+              "tokens": 20
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 12.670041993260384,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.19999999999999996,
+          "tokens_surfaced": 96
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {
+          "recall": 2,
+          "store_episode": 6
+        },
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_1c3a8bbe7514",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.08850936790682692,
+              "source_id": "ep_e2ea1100acc7",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.080832957290113,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.7166666666666667,
+          "tokens_surfaced": 34
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "capability_tags": [
+        "cue",
+        "continuity"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {
+          "recall": 2,
+          "store_episode": 6
+        },
+        "observed_turns": 6,
+        "projected_turns": 0
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.8,
+              "source_id": "ep_9267e626a01f",
+              "text": "Maya mentioned the cedar cache migration needs one extra smoke test before release.",
+              "tokens": 20
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.2212734197670673,
+              "source_id": "ep_28be825b9d73",
+              "text": "Evergreen cache migration already passed every smoke test.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 1.818958087824285,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "cue_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "cedar cache migration",
+            "extra smoke test"
+          ],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.7166666666666667,
+          "tokens_surfaced": 34
+        }
+      ],
+      "scenario_id": "cue_delayed_relevance",
+      "scenario_title": "Cue Delayed Relevance",
+      "seed": 7,
+      "why_it_matters": "Observed content can stay cheap until a later query makes it useful."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "get_context": 2,
+          "ingest_episode": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Identity\n\n\n## Project Context (Aurora API)\n\n- Aurora API (Project, act=0.95) \u2014 Internal API service for Aurora. [base_url: api.v2.internal, emo_arousal: 0.0, emo_self_ref: 0.0, emo_social: 0.0, emo_composite: 0.0]\n\n## Recent Activity\n",
+              "tokens": 59
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.6218750281259418,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "base_url: api.v2.internal"
+          ],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.26249999999999996,
+          "tokens_surfaced": 59
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- ## Summary\n- Aurora API base_url: api.v2.internal\n- Correction: Aurora API now uses api.v2.internal as its base URL.\n- Aurora API currently uses api.v1.internal as its base URL.\n- Aurora Docs still mention api.v1.internal in archived notes.",
+              "tokens": 63
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.02274999860674143,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "base_url: api.v2.internal"
+          ],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.21250000000000002,
+          "tokens_surfaced": 63
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- ## Session Notes\n- Aurora API currently uses api.v1.internal as its base URL.\n- Aurora Docs still mention api.v1.internal in archived notes.\n- Correction: Aurora API now uses api.v2.internal as its base URL.\n- - [002] Correction: Aurora API now uses api.v2.internal as its base URL.\n- ## Corrections\n- Corre",
+              "tokens": 80
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.03591692075133324,
+          "missing_required": [
+            "base_url: api.v2.internal"
+          ],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 80
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 5,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- Aurora API currently uses api.v1.internal as its base URL.\n- Correction: Aurora API now uses api.v2.internal as its base URL.\n- Aurora Docs still mention api.v1.internal in archived notes.\n- ## Corrections\n- Correction: Aurora API now uses api.v2.internal as its base URL.",
+              "tokens": 71
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 9.445291943848133,
+          "missing_required": [
+            "base_url: api.v2.internal"
+          ],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.11250000000000004,
+          "tokens_surfaced": 71
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- Correction: Aurora API now uses api.v2.internal as its base URL.\n- Aurora API currently uses api.v1.internal as its base URL.\n- Aurora Docs still mention api.v1.internal in archived notes.",
+              "tokens": 50
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.01737498678267002,
+          "missing_required": [
+            "base_url: api.v2.internal"
+          ],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.375,
+          "tokens_surfaced": 50
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- - [002] Correction: Aurora API now uses api.v2.internal as its base URL.\n- - [000] Aurora API currently uses api.v1.internal as its base URL.\n- - [001] Aurora Docs still mention api.v1.internal in archived notes.",
+              "tokens": 56
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.011625001206994057,
+          "missing_required": [
+            "base_url: api.v2.internal"
+          ],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.30000000000000004,
+          "tokens_surfaced": 56
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 5,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Context\n- Aurora API currently uses api.v1.internal as its base URL.\n- Correction: Aurora API now uses api.v2.internal as its base URL.\n- Aurora Docs still mention api.v1.internal in archived notes.",
+              "tokens": 50
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "api.v1.internal"
+          ],
+          "historical_violation": false,
+          "latency_ms": 8.161167032085359,
+          "missing_required": [
+            "base_url: api.v2.internal"
+          ],
+          "passed": false,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.375,
+          "tokens_surfaced": 50
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "get_context": 2,
+          "ingest_episode": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Identity\n\n\n## Project Context (Aurora API)\n\n- Aurora API (Project, act=0.95) \u2014 Internal API service for Aurora. [base_url: api.v2.internal, emo_arousal: 0.0, emo_self_ref: 0.0, emo_social: 0.0, emo_composite: 0.0]\n\n## Recent Activity\n",
+              "tokens": 59
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.4050830397754908,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "base_url: api.v2.internal"
+          ],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.26249999999999996,
+          "tokens_surfaced": 59
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "capability_tags": [
+        "temporal"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "get_context": 2,
+          "ingest_episode": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "context",
+              "score": 0.0,
+              "source_id": "context",
+              "text": "## Identity\n\n\n## Project Context (Aurora API)\n\n- Aurora API (Project, act=0.95) \u2014 Internal API service for Aurora. [base_url: api.v2.internal, emo_arousal: 0.0, emo_self_ref: 0.0, emo_social: 0.0, emo_composite: 0.0]\n\n## Recent Activity\n",
+              "tokens": 59
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 1.8457500264048576,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "temporal_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "base_url: api.v2.internal"
+          ],
+          "returned_types": [
+            "context"
+          ],
+          "token_efficiency": 0.26249999999999996,
+          "tokens_surfaced": 59
+        }
+      ],
+      "scenario_id": "temporal_override",
+      "scenario_title": "Temporal Override",
+      "seed": 7,
+      "why_it_matters": "Engram should preserve the latest fact instead of surfacing both versions."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "create_intention": 2,
+          "dismiss_intention": 1,
+          "ingest_episode": 2,
+          "recall": 3
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.8198421630728774,
+              "source_id": "ent_677f90d2ed3a",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.515266009752948,
+              "source_id": "ent_7fa668522524",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module\nBilling release guard TRIGGERED_BY Auth Module\nAuth module release guard TRIGGERED_BY Auth Module",
+              "tokens": 46
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3885645828748213,
+              "source_id": "int_766e2f17c8db",
+              "text": "Auth module release guard (Intention)\nCheck XSS fix before deploying\nAuth module release guard TRIGGERED_BY Auth Module\npriority=high action=Check XSS fix before deploying",
+              "tokens": 42
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3885645404476376,
+              "source_id": "int_c0973f0483ad",
+              "text": "Billing release guard (I",
+              "tokens": 6
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 4.705208004452288,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "entity"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 1.154445453305954,
+              "source_id": "ent_677f90d2ed3a",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3809629071613866,
+              "source_id": "ent_7fa668522524",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module\nBilling release guard TRIGGERED_BY Auth Module\nint_766e2f17c8db TRIGGERED_BY Auth Module",
+              "tokens": 44
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3430944109586229,
+              "source_id": "int_c0973f0483ad",
+              "text": "Billing release guard (Intention)\nVerify CSV export before deploying\nBilling release guard TRIGGERED_BY Auth Module\npriority=normal action=Verify CSV export before deploying",
+              "tokens": 43
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_4405afbd1602",
+              "text": "Auth Module owns JWT token v",
+              "tokens": 7
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 4.184582969173789,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.11,
+              "source_id": "rolling_summary",
+              "text": "## Summary\n- intention: Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- intention: Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 63
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.02,
+              "source_id": "auth_intention",
+              "text": "Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.01,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Relate",
+              "tokens": 21
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.05024997517466545,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.11,
+              "source_id": "rolling_summary",
+              "text": "## Summary\n- intention: Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- intention: Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 63
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.01,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.03887503407895565,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.09166666666666667,
+          "tokens_surfaced": 109
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "- [003] JWT token validation is on today's agenda.",
+              "tokens": 12
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.51,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- Auth Module owns JWT token validation.\n- Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module\n- JWT token validation is on today's agenda.",
+              "tokens": 81
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "- [000] Auth Module owns JWT token validation.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.13999999999999999,
+              "source_id": "auth_intention",
+              "text": "- [002] Intention: Auth module release guard. Action: Check XSS ",
+              "tokens": 16
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.06849993951618671,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "- [003] JWT token validation is on today's agenda.",
+              "tokens": 12
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.51,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- Auth Module owns JWT token validation.\n- Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module\n- JWT token validation is on today's agenda.",
+              "tokens": 81
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "- [000] Auth Module owns JWT token validation.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.13,
+              "source_id": "billing_intention",
+              "text": "- [001] Intention: Billing release guard. Action: Verify CSV exp",
+              "tokens": 16
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.05708297248929739,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 7,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6719331473112107,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6177678108215332,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.3390768110752106,
+              "source_id": "auth_intention",
+              "text": "Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.32560218274593355,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.125,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- Auth Module owns JWT token validation.\n- Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- Intention: Auth mod",
+              "tokens": 48
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 16.697708051651716,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6719331473112107,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6177678108215332,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.32560218274593355,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.125,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- Auth Module owns JWT token validation.\n- Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module\n- Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module\n- JWT token val",
+              "tokens": 74
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.11445791460573673,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.59,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.06,
+              "source_id": "auth_intention",
+              "text": "Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.03,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.03858411218971014,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.4,
+          "tokens_surfaced": 72
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.59,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.03,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.023833010345697403,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.6166666666666667,
+          "tokens_surfaced": 46
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "- [003] JWT token validation is on today's agenda.",
+              "tokens": 12
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "- [000] Auth Module owns JWT token validation.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.02,
+              "source_id": "auth_intention",
+              "text": "- [002] Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 28
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.01,
+              "source_id": "billing_intention",
+              "text": "- [001] Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 29
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 0.03174995072185993,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.33333333333333337,
+          "tokens_surfaced": 80
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.53,
+              "source_id": "jwt_work",
+              "text": "- [003] JWT token validation is on today's agenda.",
+              "tokens": 12
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5,
+              "source_id": "auth_module_memory",
+              "text": "- [000] Auth Module owns JWT token validation.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.01,
+              "source_id": "billing_intention",
+              "text": "- [001] Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 29
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.024582957848906517,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.5666666666666667,
+          "tokens_surfaced": 52
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 7,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 2,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.7560767084360123,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6935782432556152,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.39124247431755066,
+              "source_id": "auth_intention",
+              "text": "Intention: Auth module release guard. Action: Check XSS fix before deploying. Related entities: Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.3756948262453079,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 1.0,
+          "forbidden_hits": [
+            "Verify CSV export before deploying"
+          ],
+          "historical_violation": false,
+          "latency_ms": 15.571416937746108,
+          "missing_required": [],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.4,
+          "tokens_surfaced": 72
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.7560767084360123,
+              "source_id": "jwt_work",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.6935782432556152,
+              "source_id": "auth_module_memory",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "intention",
+              "score": 0.3756948262453079,
+              "source_id": "billing_intention",
+              "text": "Intention: Billing release guard. Action: Verify CSV export before deploying. Related entities: Billing Module",
+              "tokens": 27
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.08754199370741844,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode",
+            "intention"
+          ],
+          "token_efficiency": 0.6166666666666667,
+          "tokens_surfaced": 46
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "create_intention": 2,
+          "dismiss_intention": 1,
+          "ingest_episode": 2,
+          "recall": 3
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.8032646371956611,
+              "source_id": "ent_805887ab3f99",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.515266010969765,
+              "source_id": "ent_af69b8a30977",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module\nBilling release guard TRIGGERED_BY Auth Module\nAuth module release guard TRIGGERED_BY Auth Module",
+              "tokens": 46
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3885645831782586,
+              "source_id": "int_09397df78c85",
+              "text": "Auth module release guard (Intention)\nCheck XSS fix before deploying\nAuth module release guard TRIGGERED_BY Auth Module\npriority=high action=Check XSS fix before deploying",
+              "tokens": 42
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3885645404476376,
+              "source_id": "int_fde9f38e2302",
+              "text": "Billing release guard (I",
+              "tokens": 6
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 4.606958013027906,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Check XSS fix before deploying"
+          ],
+          "returned_types": [
+            "entity"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 1.1688665638710056,
+              "source_id": "ent_805887ab3f99",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.3809629042893621,
+              "source_id": "ent_af69b8a30977",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module\nBilling release guard TRIGGERED_BY Auth Module\nint_09397df78c85 TRIGGERED_BY Auth Module",
+              "tokens": 44
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.34309441006058994,
+              "source_id": "int_fde9f38e2302",
+              "text": "Billing release guard (Intention)\nVerify CSV export before deploying\nBilling release guard TRIGGERED_BY Auth Module\npriority=normal action=Verify CSV export before deploying",
+              "tokens": 43
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_e869b28454b6",
+              "text": "Auth Module owns JWT token v",
+              "tokens": 7
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 3.9315830217674375,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.0,
+          "tokens_surfaced": 120
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "capability_tags": [
+        "prospective"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "create_intention": 2,
+          "dismiss_intention": 1,
+          "ingest_episode": 2,
+          "recall": 3
+        },
+        "observed_turns": 2,
+        "projected_turns": 2
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.9672068467225449,
+              "source_id": "ent_bcfc4129f4c9",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.8,
+              "source_id": "ep_bb5d573a22dd",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.7116564417177915,
+              "source_id": "ep_78be160bf278",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.2520498735521087,
+              "source_id": "ent_d87894e8d667",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 22
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.695709001272917,
+          "missing_required": [
+            "Check XSS fix before deploying"
+          ],
+          "passed": false,
+          "probe_id": "prospective_probe_before_dismiss",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.44166666666666665,
+          "tokens_surfaced": 67
+        },
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.969588905787401,
+              "source_id": "ent_bcfc4129f4c9",
+              "text": "JWT Token Validation (Concept)\nValidation path for access tokens.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.8,
+              "source_id": "ep_bb5d573a22dd",
+              "text": "Auth Module owns JWT token validation.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.7116564417177915,
+              "source_id": "ep_78be160bf278",
+              "text": "JWT token validation is on today's agenda.",
+              "tokens": 10
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.25463197785272207,
+              "source_id": "ent_d87894e8d667",
+              "text": "Auth Module (Project)\nAuthentication subsystem.\nJWT Token Validation PART_OF Auth Module",
+              "tokens": 22
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 2.610833034850657,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "prospective_probe_after_dismiss",
+          "required_hit_rate": 1.0,
+          "required_hits": [],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.44166666666666665,
+          "tokens_surfaced": 67
+        }
+      ],
+      "scenario_id": "prospective_trigger",
+      "scenario_title": "Prospective Trigger",
+      "seed": 7,
+      "why_it_matters": "Intentions should fire from related entity activity rather than raw lexical overlap alone."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "engram",
+      "baseline_name": "engram_full",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.8589360320611265,
+              "source_id": "ent_eeaf214e90bf",
+              "text": "JWT Tokens (Technology)\nAccess token format.\nJWT Tokens PART_OF Auth Gateway",
+              "tokens": 19
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.5556304998752007,
+              "source_id": "ent_c95a4f5ea8ed",
+              "text": "Auth Gateway (Project)\nGateway handling auth flows.\nJWT Tokens PART_OF Auth Gateway\nAuth Gateway REQUIRES Meridian Gate",
+              "tokens": 29
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.41678570693721234,
+              "source_id": "ent_acc7e95fe319",
+              "text": "Meridian Gate (Concept)\nFinal readiness control for critical launches.\nAuth Gateway REQUIRES Meridian Gate",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_2111f4dc9faf",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.16000000000000003,
+              "source_id": "ep_9b95dc2a69f7",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 4.135333001613617,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Meridian Gate"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.19999999999999996,
+          "tokens_surfaced": 96
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_summary",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.16285714285714284,
+              "source_id": "meridian_gate",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.14285714285714285,
+              "source_id": "jwt_auth_gateway",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.11,
+              "source_id": "rolling_summary",
+              "text": "## Summary\n- depends: Auth Gateway REQUIRES Meridian Gate",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.01,
+              "source_id": "passport_distractor",
+              "text": "Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.04016596358269453,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.5833333333333333,
+          "tokens_surfaced": 50
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_canonical",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.2957142857142857,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- JWT Tokens are part of Auth Gateway.\n- Passport Gate is the docs checklist for public auth docs.\n- Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 42
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.16285714285714284,
+              "source_id": "meridian_gate",
+              "text": "- [002] Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 15
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.14285714285714285,
+              "source_id": "jwt_auth_gateway",
+              "text": "- [000] JWT Tokens are part of Auth Gateway.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.01,
+              "source_id": "passport_distractor",
+              "text": "- [001] Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 16
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.0,
+              "source_id": "section_dependency",
+              "text": "## Dependencies\n- Auth Gateway REQUIRES Meridian Gate",
+              "tokens": 13
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.05324999801814556,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.19166666666666665,
+          "tokens_surfaced": 97
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "hybrid_rag_temporal",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 5,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.4701745501586369,
+              "source_id": "jwt_auth_gateway",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.3614870539733342,
+              "source_id": "meridian_gate",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.2676800131797791,
+              "source_id": "passport_distractor",
+              "text": "Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 14
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.12,
+              "source_id": "section_dependency",
+              "text": "## Dependencies\n- Auth Gateway REQUIRES Meridian Gate",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.07142857142857142,
+              "source_id": "section_session",
+              "text": "## Session Notes\n- JWT Tokens are part of Auth Gateway.\n- Passport Gate is the docs checklist for public auth docs.\n- Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 42
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 14.274207991547883,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.2416666666666667,
+          "tokens_surfaced": 91
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "context_window",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.20285714285714285,
+              "source_id": "meridian_gate",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.14285714285714285,
+              "source_id": "jwt_auth_gateway",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.03,
+              "source_id": "passport_distractor",
+              "text": "Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.027542002499103546,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.7,
+          "tokens_surfaced": 36
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "markdown_memory",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.16285714285714284,
+              "source_id": "meridian_gate",
+              "text": "- [002] Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 15
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.14285714285714285,
+              "source_id": "jwt_auth_gateway",
+              "text": "- [000] JWT Tokens are part of Auth Gateway.",
+              "tokens": 11
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.01,
+              "source_id": "passport_distractor",
+              "text": "- [001] Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 16
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 0.021332991309463978,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.65,
+          "tokens_surfaced": 42
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "alternative",
+      "baseline_name": "vector_rag",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 5,
+        "extraction_calls": 0,
+        "method_calls": {},
+        "observed_turns": 3,
+        "projected_turns": 0
+      },
+      "passed": false,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.5370145908423832,
+              "source_id": "jwt_auth_gateway",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.41160594139780315,
+              "source_id": "meridian_gate",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.30886155366897583,
+              "source_id": "passport_distractor",
+              "text": "Passport Gate is the docs checklist for public auth docs.",
+              "tokens": 14
+            }
+          ],
+          "expected_type_match": false,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 14.220957993529737,
+          "missing_required": [
+            "Meridian Gate"
+          ],
+          "passed": false,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 0.0,
+          "required_hits": [],
+          "returned_types": [
+            "episode"
+          ],
+          "token_efficiency": 0.7,
+          "tokens_surfaced": 36
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_no_cues",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.8134139613634482,
+              "source_id": "ent_239de9d681c5",
+              "text": "JWT Tokens (Technology)\nAccess token format.\nJWT Tokens PART_OF Auth Gateway",
+              "tokens": 19
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.5568006434178909,
+              "source_id": "ent_6c8e94784202",
+              "text": "Auth Gateway (Project)\nGateway handling auth flows.\nJWT Tokens PART_OF Auth Gateway\nAuth Gateway REQUIRES Meridian Gate",
+              "tokens": 29
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.41588989523392,
+              "source_id": "ent_db679a117578",
+              "text": "Meridian Gate (Concept)\nFinal readiness control for critical launches.\nAuth Gateway REQUIRES Meridian Gate",
+              "tokens": 26
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.32000000000000006,
+              "source_id": "ep_5c45cd624fa3",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.16000000000000003,
+              "source_id": "ep_8ad3f5b4c8b7",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 3.6909589543938637,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Meridian Gate"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.19999999999999996,
+          "tokens_surfaced": 96
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    },
+    {
+      "availability_reason": null,
+      "available": true,
+      "baseline_family": "ablation",
+      "baseline_name": "engram_search_only",
+      "capability_tags": [
+        "association",
+        "graph"
+      ],
+      "cost_stats": {
+        "consolidation_cycles": 0,
+        "embedding_calls": 0,
+        "extraction_calls": 2,
+        "method_calls": {
+          "ingest_episode": 2,
+          "recall": 2,
+          "store_episode": 1
+        },
+        "observed_turns": 3,
+        "projected_turns": 2
+      },
+      "passed": true,
+      "probe_results": [
+        {
+          "disallowed_type_hits": [],
+          "evidence": [
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.9629513431790856,
+              "source_id": "ent_37e18cfaaa45",
+              "text": "JWT Tokens (Technology)\nAccess token format.\nJWT Tokens PART_OF Auth Gateway",
+              "tokens": 19
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.8,
+              "source_id": "ep_708319f22ee8",
+              "text": "JWT Tokens are part of Auth Gateway.",
+              "tokens": 9
+            },
+            {
+              "metadata": {},
+              "result_type": "episode",
+              "score": 0.4,
+              "source_id": "ep_a0a582027f65",
+              "text": "Auth Gateway requires Meridian Gate before shipping.",
+              "tokens": 13
+            },
+            {
+              "metadata": {},
+              "result_type": "entity",
+              "score": 0.2558904324749457,
+              "source_id": "ent_c21907fa2dd9",
+              "text": "Auth Gateway (Project)\nGateway handling auth flows.\nJWT Tokens PART_OF Auth Gateway\nAuth Gateway REQUIRES Meridian Gate",
+              "tokens": 29
+            }
+          ],
+          "expected_type_match": true,
+          "forbidden_hit_rate": 0.0,
+          "forbidden_hits": [],
+          "historical_violation": false,
+          "latency_ms": 3.1202080426737666,
+          "missing_required": [],
+          "passed": true,
+          "probe_id": "graph_probe",
+          "required_hit_rate": 1.0,
+          "required_hits": [
+            "Meridian Gate"
+          ],
+          "returned_types": [
+            "entity",
+            "episode"
+          ],
+          "token_efficiency": 0.41666666666666663,
+          "tokens_surfaced": 70
+        }
+      ],
+      "scenario_id": "cross_cluster_association",
+      "scenario_title": "Cross Cluster Association",
+      "seed": 7,
+      "why_it_matters": "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
+    }
+  ]
+}

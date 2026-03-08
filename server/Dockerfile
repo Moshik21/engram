@@ -19,7 +19,7 @@ COPY server/uv.lock* ./
 COPY server/engram ./engram
 
 # Install dependencies (no dev deps, include full extras)
-RUN uv sync --frozen --no-dev --extra full || uv sync --no-dev --extra full
+RUN uv sync --frozen --no-dev --extra full --extra local || uv sync --no-dev --extra full --extra local
 
 # --- Runtime ---
 FROM python:3.12-slim
@@ -47,4 +47,6 @@ ENV PYTHONPATH="/app"
 
 EXPOSE 8100
 
-CMD ["uvicorn", "engram.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "2"]
+# Engram keeps schedulers, workers, and live event fan-out in-process.
+# Running multiple Uvicorn workers duplicates that state and fragments events.
+CMD ["uvicorn", "engram.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1"]

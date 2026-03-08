@@ -239,6 +239,39 @@ class TestNode2VecTrainer:
         # but may produce empty result or valid embeddings
         assert isinstance(result, dict)
 
+    @pytest.mark.asyncio
+    async def test_train_incremental_returns_scoped_embeddings(self):
+        """Incremental training should only emit embeddings for the dirty scope."""
+        cfg = ActivationConfig(
+            graph_embedding_node2vec_enabled=True,
+            graph_embedding_node2vec_dimensions=16,
+            graph_embedding_node2vec_num_walks=1,
+            graph_embedding_node2vec_walk_length=5,
+            graph_embedding_node2vec_epochs=1,
+        )
+        trainer = Node2VecTrainer(cfg)
+
+        neighbors = {
+            "e0": [("e1", 1.0, "RELATED_TO")],
+            "e1": [("e0", 1.0, "RELATED_TO")],
+            "e2": [("e3", 1.0, "RELATED_TO")],
+            "e3": [("e2", 1.0, "RELATED_TO")],
+        }
+        existing = {f"e{i}": [0.1] * 16 for i in range(4)}
+
+        class MockGraph:
+            async def get_active_neighbors_with_weights(self, eid, group_id):
+                return neighbors.get(eid, [])
+
+        result = await trainer.train_incremental(
+            MockGraph(),
+            "default",
+            {"e0", "e1"},
+            existing_embeddings=existing,
+        )
+        assert set(result) == {"e0", "e1"}
+        assert len(result["e0"]) == 16
+
     def test_method_name(self):
         cfg = ActivationConfig()
         trainer = Node2VecTrainer(cfg)

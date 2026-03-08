@@ -10,6 +10,8 @@ export const createTimeSlice: StateCreator<
   timePosition: null,
   timeRange: null,
   isTimeScrubbing: false,
+  atlasSnapshotId: null,
+  atlasHistory: [],
 
   setTimePosition: (ts) =>
     set((s) => {
@@ -22,5 +24,13 @@ export const createTimeSlice: StateCreator<
   setIsTimeScrubbing: (v) =>
     set((s) => {
       s.isTimeScrubbing = v;
+    }),
+  setAtlasSnapshotId: (snapshotId) =>
+    set((s) => {
+      s.atlasSnapshotId = snapshotId;
+    }),
+  setAtlasHistory: (history) =>
+    set((s) => {
+      s.atlasHistory = history;
     }),
 });

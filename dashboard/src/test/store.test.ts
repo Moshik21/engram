@@ -16,6 +16,9 @@ import { createConversationSlice } from "../store/conversationSlice";
 
 vi.mock("../api/client", () => ({
   api: {
+    getGraphAtlas: vi.fn(),
+    getGraphAtlasHistory: vi.fn().mockResolvedValue({ items: [] }),
+    getGraphRegion: vi.fn(),
     getNeighborhood: vi.fn(),
     getNeighbors: vi.fn(),
     searchEntities: vi.fn(),
@@ -116,7 +119,80 @@ beforeEach(() => {
 });
 
 describe("graphSlice", () => {
-  it("loadInitialGraph populates nodes and edges", async () => {
+  it("loadInitialGraph populates atlas data", async () => {
+    mockedApi.getGraphAtlasHistory.mockResolvedValueOnce({
+      items: [
+        {
+          id: "atlas_123",
+          generatedAt: "2026-03-06T00:00:00Z",
+          representedEntityCount: 2,
+          representedEdgeCount: 1,
+          displayedNodeCount: 1,
+          displayedEdgeCount: 0,
+          totalEntities: 2,
+          totalRelationships: 1,
+          totalRegions: 1,
+          hottestRegionId: "region:people",
+          fastestGrowingRegionId: "region:people",
+          truncated: false,
+        },
+      ],
+    });
+    mockedApi.getGraphAtlas.mockResolvedValueOnce({
+      representation: {
+        scope: "atlas",
+        layout: "precomputed",
+        representedEntityCount: 2,
+        representedEdgeCount: 1,
+        displayedNodeCount: 1,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      regions: [
+        {
+          id: "region:people",
+          label: "People",
+          subtitle: "Dominant entity type: Person",
+          kind: "mixed",
+          memberCount: 2,
+          representedEdgeCount: 1,
+          activationScore: 0.8,
+          growth7d: 1,
+          growth30d: 2,
+          dominantEntityTypes: { Person: 2 },
+          hubEntityIds: ["n1"],
+          centerEntityId: "n1",
+          latestEntityCreatedAt: "2026-03-05T00:00:00Z",
+          x: 0,
+          y: 0,
+          z: 0,
+        },
+      ],
+      bridges: [],
+      stats: {
+        totalEntities: 2,
+        totalRelationships: 1,
+        totalRegions: 1,
+        hottestRegionId: "region:people",
+        fastestGrowingRegionId: "region:people",
+      },
+    });
+
+    const store = createTestStore();
+    await store.getState().loadInitialGraph();
+
+    expect(mockedApi.getGraphAtlas).toHaveBeenCalled();
+    expect(mockedApi.getGraphAtlasHistory).toHaveBeenCalledWith({ limit: 48 });
+    expect(store.getState().brainMapScope).toBe("atlas");
+    expect(store.getState().atlas?.regions).toHaveLength(1);
+    expect(store.getState().atlasHistory).toHaveLength(1);
+    expect(store.getState().atlasSnapshotId).toBeNull();
+    expect(store.getState().representation?.scope).toBe("atlas");
+    expect(store.getState().isLoading).toBe(false);
+  });
+
+  it("loadNeighborhood populates nodes and edges", async () => {
     const node1 = makeNode({ id: "n1" });
     const node2 = makeNode({ id: "n2", name: "Node 2" });
     const edge = makeEdge({ id: "e1", source: "n1", target: "n2" });
@@ -125,17 +201,182 @@ describe("graphSlice", () => {
       centerId: "n1",
       nodes: [node1, node2],
       edges: [edge],
+      representation: {
+        scope: "neighborhood",
+        layout: "force",
+        representedEntityCount: 2,
+        representedEdgeCount: 1,
+        displayedNodeCount: 2,
+        displayedEdgeCount: 1,
+        truncated: false,
+      },
       truncated: false,
       totalInNeighborhood: 2,
     });
 
     const store = createTestStore();
-    await store.getState().loadInitialGraph();
+    await store.getState().loadNeighborhood("n1");
 
     expect(Object.keys(store.getState().nodes)).toHaveLength(2);
     expect(Object.keys(store.getState().edges)).toHaveLength(1);
     expect(store.getState().centerNodeId).toBe("n1");
+    expect(store.getState().brainMapScope).toBe("neighborhood");
     expect(store.getState().isLoading).toBe(false);
+  });
+
+  it("loadRegion populates region drill-down data", async () => {
+    mockedApi.getGraphAtlasHistory.mockResolvedValueOnce({
+      items: [
+        {
+          id: "atlas_123",
+          generatedAt: "2026-03-06T00:00:00Z",
+          representedEntityCount: 24,
+          representedEdgeCount: 12,
+          displayedNodeCount: 4,
+          displayedEdgeCount: 3,
+          totalEntities: 24,
+          totalRelationships: 12,
+          totalRegions: 1,
+          hottestRegionId: "region:people",
+          fastestGrowingRegionId: "region:people",
+          truncated: false,
+        },
+      ],
+    });
+    mockedApi.getGraphRegion.mockResolvedValueOnce({
+      representation: {
+        scope: "region",
+        layout: "precomputed",
+        representedEntityCount: 24,
+        representedEdgeCount: 12,
+        displayedNodeCount: 4,
+        displayedEdgeCount: 3,
+        truncated: false,
+        snapshotId: "atlas_123",
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      region: {
+        id: "region:people",
+        label: "People",
+        subtitle: "Dominant entity type: Person",
+        kind: "mixed",
+        memberCount: 24,
+        activationScore: 0.8,
+        growth7d: 4,
+        growth30d: 10,
+        latestEntityCreatedAt: "2026-03-05T00:00:00Z",
+      },
+      nodes: [
+        {
+          id: "region:people",
+          kind: "cluster",
+          label: "People",
+          representedEntityCount: 24,
+          activationScore: 0.8,
+          growth30d: 4,
+          x: 0,
+          y: 0,
+          z: 0,
+          regionId: "region:people",
+        },
+      ],
+      edges: [],
+      topEntities: [
+        {
+          id: "n1",
+          name: "Alice",
+          entityType: "Person",
+          activationCurrent: 0.9,
+        },
+      ],
+      memberIds: ["n1", "n2"],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadRegion("region:people");
+
+    expect(mockedApi.getGraphRegion).toHaveBeenCalledWith("region:people", {
+      refresh: undefined,
+    });
+    expect(store.getState().brainMapScope).toBe("region");
+    expect(store.getState().activeRegionId).toBe("region:people");
+    expect(store.getState().regionData?.topEntities[0]?.name).toBe("Alice");
+    expect(store.getState().representation?.scope).toBe("region");
+    expect(store.getState().atlasHistory).toHaveLength(1);
+    expect(store.getState().atlasSnapshotId).toBeNull();
+  });
+
+  it("loadRegion preserves snapshot selection for historical scrubbing", async () => {
+    mockedApi.getGraphAtlasHistory.mockResolvedValueOnce({
+      items: [
+        {
+          id: "atlas_122",
+          generatedAt: "2026-03-05T00:00:00Z",
+          representedEntityCount: 20,
+          representedEdgeCount: 10,
+          displayedNodeCount: 3,
+          displayedEdgeCount: 2,
+          totalEntities: 20,
+          totalRelationships: 10,
+          totalRegions: 1,
+          hottestRegionId: "region:people",
+          fastestGrowingRegionId: "region:people",
+          truncated: false,
+        },
+        {
+          id: "atlas_123",
+          generatedAt: "2026-03-06T00:00:00Z",
+          representedEntityCount: 24,
+          representedEdgeCount: 12,
+          displayedNodeCount: 4,
+          displayedEdgeCount: 3,
+          totalEntities: 24,
+          totalRelationships: 12,
+          totalRegions: 1,
+          hottestRegionId: "region:people",
+          fastestGrowingRegionId: "region:people",
+          truncated: false,
+        },
+      ],
+    });
+    mockedApi.getGraphRegion.mockResolvedValueOnce({
+      representation: {
+        scope: "region",
+        layout: "precomputed",
+        representedEntityCount: 20,
+        representedEdgeCount: 10,
+        displayedNodeCount: 3,
+        displayedEdgeCount: 2,
+        truncated: false,
+        snapshotId: "atlas_122",
+      },
+      generatedAt: "2026-03-05T00:00:00Z",
+      region: {
+        id: "region:people",
+        label: "People",
+        subtitle: "Dominant entity type: Person",
+        kind: "mixed",
+        memberCount: 20,
+        activationScore: 0.7,
+        growth7d: 2,
+        growth30d: 8,
+        latestEntityCreatedAt: "2026-03-04T00:00:00Z",
+      },
+      nodes: [],
+      edges: [],
+      topEntities: [],
+      memberIds: ["n1"],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadRegion("region:people", { snapshotId: "atlas_122" });
+
+    expect(mockedApi.getGraphRegion).toHaveBeenCalledWith("region:people", {
+      refresh: undefined,
+      snapshotId: "atlas_122",
+    });
+    expect(store.getState().atlasSnapshotId).toBe("atlas_122");
+    expect(store.getState().atlasHistory).toHaveLength(2);
   });
 
   it("expandNode merges new nodes without clearing existing", async () => {
@@ -154,6 +395,15 @@ describe("graphSlice", () => {
       centerId: "n1",
       nodes: [newNode],
       edges: [newEdge],
+      representation: {
+        scope: "neighborhood",
+        layout: "force",
+        representedEntityCount: 2,
+        representedEdgeCount: 1,
+        displayedNodeCount: 2,
+        displayedEdgeCount: 1,
+        truncated: false,
+      },
       truncated: false,
       totalInNeighborhood: 1,
     });
@@ -209,6 +459,15 @@ describe("graphSlice", () => {
       centerId: "n1",
       nodes: [makeNode({ id: "n1" })],
       edges: [],
+      representation: {
+        scope: "temporal",
+        layout: "force",
+        representedEntityCount: 1,
+        representedEdgeCount: 0,
+        displayedNodeCount: 1,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
       truncated: false,
       totalInNeighborhood: 1,
     });
@@ -271,6 +530,18 @@ describe("preferencesSlice", () => {
 
     store.getState().setRenderMode("2d");
     expect(store.getState().renderMode).toBe("2d");
+  });
+
+  it("records atlas visits for new-since-last-visit markers", () => {
+    const store = createTestStore();
+
+    store.getState().recordAtlasVisit({
+      generatedAt: "2026-03-06T00:00:00Z",
+      snapshotId: "atlas_123",
+    });
+
+    expect(store.getState().lastAtlasVisitAt).toBe("2026-03-06T00:00:00Z");
+    expect(store.getState().lastAtlasSnapshotId).toBe("atlas_123");
   });
 });
 
@@ -371,6 +642,47 @@ describe("statsSlice", () => {
       totalRelationships: 100,
       totalEpisodes: 15,
       entityTypeCounts: { Person: 20, Organization: 10 },
+      cueMetrics: {
+        cueCount: 12,
+        episodesWithoutCues: 3,
+        cueCoverage: 0.8,
+        cueHitCount: 9,
+        cueHitEpisodeCount: 4,
+        cueHitEpisodeRate: 0.3333,
+        cueSurfacedCount: 6,
+        cueSelectedCount: 3,
+        cueUsedCount: 2,
+        cueNearMissCount: 1,
+        avgPolicyScore: 0.42,
+        avgProjectionAttempts: 1.5,
+        projectedCueCount: 5,
+        cueToProjectionConversionRate: 0.4167,
+      },
+      projectionMetrics: {
+        stateCounts: {
+          queued: 1,
+          cued: 2,
+          cueOnly: 3,
+          scheduled: 2,
+          projecting: 1,
+          projected: 5,
+          failed: 1,
+          deadLetter: 0,
+        },
+        attemptedEpisodeCount: 6,
+        totalAttempts: 9,
+        failureCount: 1,
+        deadLetterCount: 0,
+        failureRate: 1 / 6,
+        avgProcessingDurationMs: 180,
+        avgTimeToProjectionMs: 3200,
+        yield: {
+          linkedEntityCount: 14,
+          relationshipCount: 8,
+          avgLinkedEntitiesPerProjectedEpisode: 2.8,
+          avgRelationshipsPerProjectedEpisode: 1.6,
+        },
+      },
       topActivated: [],
       topConnected: [{ id: "n1", name: "Alice", entityType: "Person", connectionCount: 12 }],
       growthTimeline: [{ date: "2024-01", entities: 10, episodes: 5 }],
@@ -381,6 +693,8 @@ describe("statsSlice", () => {
 
     expect(store.getState().stats?.totalEntities).toBe(42);
     expect(store.getState().stats?.topConnected).toHaveLength(1);
+    expect(store.getState().stats?.cueMetrics?.cueCoverage).toBe(0.8);
+    expect(store.getState().stats?.projectionMetrics?.stateCounts.projected).toBe(5);
     expect(store.getState().isLoadingStats).toBe(false);
   });
 });

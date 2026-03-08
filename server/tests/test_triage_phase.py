@@ -10,6 +10,7 @@ import pytest
 from engram.config import ActivationConfig
 from engram.consolidation.phases.triage import TriagePhase
 from engram.models.consolidation import CycleContext
+from engram.models.episode import EpisodeProjectionState
 
 
 @dataclass
@@ -28,6 +29,13 @@ def _make_graph_store(episodes: list[FakeEpisode] | None = None):
     store.get_episodes_paginated = AsyncMock(return_value=(episodes or [], None))
     store.update_episode = AsyncMock()
     return store
+
+
+def _make_search_index():
+    """Create a search index mock without accidental episode matches."""
+    index = AsyncMock()
+    index.search_episodes = AsyncMock(return_value=[])
+    return index
 
 
 def _make_cfg(**overrides) -> ActivationConfig:
@@ -60,7 +68,7 @@ async def test_triage_scores_and_promotes():
         group_id="default",
         graph_store=graph,
         activation_store=AsyncMock(),
-        search_index=AsyncMock(),
+        search_index=_make_search_index(),
         cfg=cfg,
         cycle_id="cyc_test",
         dry_run=False,
@@ -92,7 +100,13 @@ async def test_triage_scores_and_promotes():
 async def test_triage_respects_extract_ratio():
     """Correct number promoted based on ratio."""
     episodes = [
-        FakeEpisode(id=f"ep_{i}", content=f"Content number {i} with Name")
+        FakeEpisode(
+            id=f"ep_{i}",
+            content=(
+                f"Alice_{i} works at Acme Corp in Berlin since 2024 and prefers Python "
+                f"for project {i}."
+            ),
+        )
         for i in range(10)
     ]
     graph = _make_graph_store(episodes)
@@ -106,7 +120,7 @@ async def test_triage_respects_extract_ratio():
         group_id="default",
         graph_store=graph,
         activation_store=AsyncMock(),
-        search_index=AsyncMock(),
+        search_index=_make_search_index(),
         cfg=cfg,
         cycle_id="cyc_test",
         dry_run=False,
@@ -115,6 +129,36 @@ async def test_triage_respects_extract_ratio():
     extract_count = sum(1 for r in records if r.decision == "extract")
     assert extract_count == 4  # max(1, int(10 * 0.40))
     assert result.items_processed == 10
+
+
+@pytest.mark.asyncio
+async def test_triage_allows_zero_extractions_below_threshold():
+    """No episode is forced through when nothing clears the utility threshold."""
+    episodes = [
+        FakeEpisode(id="ep_1", content="ok"),
+        FakeEpisode(id="ep_2", content="sure"),
+        FakeEpisode(id="ep_3", content="hi"),
+    ]
+    graph = _make_graph_store(episodes)
+    manager = MagicMock()
+    manager.project_episode = AsyncMock()
+
+    phase = TriagePhase(graph_manager=manager)
+    cfg = _make_cfg(triage_extract_ratio=0.35, triage_min_score=0.4)
+
+    result, records = await phase.execute(
+        group_id="default",
+        graph_store=graph,
+        activation_store=AsyncMock(),
+        search_index=AsyncMock(),
+        cfg=cfg,
+        cycle_id="cyc_test",
+        dry_run=False,
+    )
+
+    assert result.items_affected == 0
+    assert all(r.decision == "skip" for r in records)
+    manager.project_episode.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -135,7 +179,7 @@ async def test_triage_dry_run_scores_only():
         group_id="default",
         graph_store=graph,
         activation_store=AsyncMock(),
-        search_index=AsyncMock(),
+        search_index=_make_search_index(),
         cfg=cfg,
         cycle_id="cyc_test",
         dry_run=True,
@@ -312,7 +356,12 @@ async def test_triage_skips_system_discourse():
     # Meta episode marked completed
     graph.update_episode.assert_called_once_with(
         "ep_meta",
-        {"status": "completed", "skipped_meta": True},
+        {
+            "status": "completed",
+            "skipped_meta": True,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "triage_skip_meta",
+        },
         group_id="default",
     )
     # Real episode extracted

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
+from engram.models.episode import EpisodeProjectionState
+from engram.retrieval.triage_policy import TriageDecision
 from engram.worker import EpisodeWorker
 
 
@@ -18,6 +21,12 @@ def _make_manager():
     m.project_episode = AsyncMock()
     m._graph = MagicMock()
     m._graph.update_episode = AsyncMock()
+    m._graph.get_episode_by_id = AsyncMock(return_value=None)
+    m._graph.get_episode_cue = AsyncMock(return_value=None)
+    m._graph.update_episode_cue = AsyncMock()
+    m._graph.upsert_episode_cue = AsyncMock()
+    m._search = MagicMock()
+    m._search.index_episode_cue = AsyncMock()
     return m
 
 
@@ -44,6 +53,19 @@ def _queued_event(episode_id: str = "ep_1", content: str = "Alice works at Anthr
                 "source": "test",
                 "status": "queued",
             },
+        },
+    }
+
+
+def _scheduled_event(episode_id: str = "ep_1") -> dict:
+    return {
+        "seq": 2,
+        "type": "episode.projection_scheduled",
+        "timestamp": 1001.0,
+        "group_id": "default",
+        "payload": {
+            "episodeId": episode_id,
+            "reason": "cue_recall_hits",
         },
     }
 
@@ -80,6 +102,48 @@ async def test_worker_processes_queued_event():
     bus.publish("default", "episode.queued", _queued_event()["payload"])
 
     # Let the worker process
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_called_once_with("ep_1", "default")
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_processes_projection_scheduled_event():
+    """Worker calls project_episode for scheduled projection events."""
+    manager = _make_manager()
+    cfg = _make_cfg(triage_enabled=True)
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    bus.publish("default", "episode.projection_scheduled", _scheduled_event()["payload"])
+
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_called_once_with("ep_1", "default")
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_deduplicates_scheduled_cue_projection():
+    """Queued and scheduled events for the same cue only project once."""
+    manager = _make_manager()
+    manager._graph.get_episode_by_id = AsyncMock(
+        return_value=SimpleNamespace(projection_state=EpisodeProjectionState.SCHEDULED),
+    )
+    cfg = _make_cfg(triage_enabled=False, cue_layer_enabled=True)
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    bus.publish("default", "episode.queued", _queued_event()["payload"])
+    bus.publish("default", "episode.projection_scheduled", _scheduled_event()["payload"])
+
     await asyncio.sleep(0.1)
 
     manager.project_episode.assert_called_once_with("ep_1", "default")
@@ -128,11 +192,74 @@ async def test_worker_scores_and_skips_low():
     # Should mark as completed
     manager._graph.update_episode.assert_called_once_with(
         "ep_low",
-        {"status": "completed", "skipped_triage": True},
+        {
+            "status": "completed",
+            "skipped_triage": True,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "worker_skip_threshold",
+        },
         group_id="default",
     )
 
     await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_skip_syncs_cue_projection_state():
+    """Worker skip routing keeps cue metadata aligned with episode state."""
+    manager = _make_manager()
+    cfg = _make_cfg(cue_layer_enabled=True)
+    worker = EpisodeWorker(manager, cfg)
+
+    await worker._route_episode(
+        "ep_low",
+        TriageDecision(
+            action="skip",
+            score=0.1,
+            base_score=0.1,
+            threshold_band="low",
+            decision_source="test",
+        ),
+        "default",
+    )
+
+    manager._graph.update_episode_cue.assert_awaited_once_with(
+        "ep_low",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "worker_skip_threshold",
+        },
+        group_id="default",
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_defer_syncs_cue_projection_state():
+    """Worker defer routing keeps cue metadata aligned with episode state."""
+    manager = _make_manager()
+    cfg = _make_cfg(cue_layer_enabled=True)
+    worker = EpisodeWorker(manager, cfg)
+
+    await worker._route_episode(
+        "ep_mid",
+        TriageDecision(
+            action="defer",
+            score=0.4,
+            base_score=0.4,
+            threshold_band="mid",
+            decision_source="test",
+        ),
+        "default",
+    )
+
+    manager._graph.update_episode_cue.assert_awaited_once_with(
+        "ep_mid",
+        {
+            "projection_state": EpisodeProjectionState.SCHEDULED,
+            "route_reason": "worker_deferred_to_triage",
+        },
+        group_id="default",
+    )
 
 
 @pytest.mark.asyncio
@@ -220,7 +347,12 @@ async def test_worker_confidence_routing_skip():
     manager.project_episode.assert_not_called()
     manager._graph.update_episode.assert_called_once_with(
         "ep_skip",
-        {"status": "completed", "skipped_triage": True},
+        {
+            "status": "completed",
+            "skipped_triage": True,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "worker_skip_threshold",
+        },
         group_id="default",
     )
 
@@ -248,9 +380,16 @@ async def test_worker_confidence_routing_defer():
 
     await asyncio.sleep(0.1)
 
-    # Neither extracted nor skipped — left in QUEUED for triage
+    # Deferred to triage with scheduled projection metadata
     manager.project_episode.assert_not_called()
-    manager._graph.update_episode.assert_not_called()
+    manager._graph.update_episode.assert_called_once_with(
+        "ep_defer",
+        {
+            "projection_state": EpisodeProjectionState.SCHEDULED.value,
+            "last_projection_reason": "worker_deferred_to_triage",
+        },
+        group_id="default",
+    )
 
     await worker.stop()
 
@@ -329,7 +468,12 @@ async def test_worker_skips_system_discourse():
     # Should mark as completed with skipped_meta
     manager._graph.update_episode.assert_called_once_with(
         "ep_meta",
-        {"status": "completed", "skipped_meta": True},
+        {
+            "status": "completed",
+            "skipped_meta": True,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "system_discourse",
+        },
         group_id="default",
     )
 
@@ -357,6 +501,30 @@ async def test_worker_allows_world_discourse():
     manager.project_episode.assert_called_once_with("ep_world", "default")
     manager._graph.update_episode.assert_not_called()
 
+    await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_extracts_durable_preference_even_with_low_score():
+    """Durable guards bypass the worker confidence thresholds."""
+    manager = _make_manager()
+    cfg = _make_cfg(
+        triage_enabled=True,
+        triage_multi_signal_enabled=True,
+        worker_extract_threshold=0.95,
+        worker_skip_threshold=0.90,
+    )
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    event = _queued_event(episode_id="ep_pref", content="I prefer Vim.")
+    bus.publish("default", "episode.queued", event["payload"])
+
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_called_once_with("ep_pref", "default")
     await worker.stop()
 
 

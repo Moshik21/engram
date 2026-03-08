@@ -70,3 +70,83 @@ class TestConsolidationProfiles:
         # Actually model_post_init runs after __init__, so profile wins.
         # This tests the current behavior — profile overrides explicit kwargs.
         assert cfg.consolidation_dream_enabled is True
+
+
+class TestIntegrationProfiles:
+    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
+    def test_rework_profile_enables_full_loop(self):
+        cfg = ActivationConfig(integration_profile="rework")
+
+        assert cfg.integration_profile == "rework"
+        assert cfg.consolidation_profile == "standard"
+        assert cfg.recall_profile == "all"
+        assert cfg.worker_enabled is True
+        assert cfg.triage_enabled is True
+        assert cfg.auto_recall_enabled is True
+        assert cfg.recall_need_analyzer_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is True
+        assert cfg.recall_need_structural_enabled is True
+        assert cfg.recall_need_shift_enabled is True
+        assert cfg.recall_need_impoverishment_enabled is True
+        assert cfg.recall_need_shift_shadow_only is False
+        assert cfg.recall_need_impoverishment_shadow_only is False
+        assert cfg.recall_planner_enabled is True
+        assert cfg.recall_usage_feedback_enabled is True
+        assert cfg.cue_layer_enabled is True
+        assert cfg.cue_vector_index_enabled is True
+        assert cfg.cue_recall_enabled is True
+        assert cfg.cue_policy_learning_enabled is True
+        assert cfg.targeted_projection_enabled is True
+        assert cfg.projector_v2_enabled is True
+        assert cfg.projection_planner_enabled is True
+        assert cfg.epistemic_routing_enabled is True
+        assert cfg.artifact_bootstrap_enabled is True
+        assert cfg.artifact_recall_enabled is True
+        assert cfg.epistemic_runtime_executor_enabled is True
+        assert cfg.decision_graph_enabled is True
+        assert cfg.epistemic_reconcile_enabled is True
+        assert cfg.answer_contract_enabled is True
+        assert cfg.claim_state_modeling_enabled is True
+        assert cfg.memory_maturation_enabled is True
+        assert cfg.episode_transition_enabled is True
+
+    def test_recall_profile_all_is_still_partial_rollout(self):
+        cfg = ActivationConfig(recall_profile="all")
+
+        assert cfg.recall_profile == "all"
+        assert cfg.auto_recall_enabled is True
+        assert cfg.recall_need_analyzer_enabled is True
+        assert cfg.recall_need_graph_probe_enabled is True
+        assert cfg.recall_need_structural_enabled is True
+        assert cfg.recall_need_shift_enabled is True
+        assert cfg.recall_need_impoverishment_enabled is True
+        assert cfg.recall_need_shift_shadow_only is False
+        assert cfg.recall_need_impoverishment_shadow_only is False
+        assert cfg.recall_planner_enabled is True
+        assert cfg.recall_usage_feedback_enabled is True
+
+        assert cfg.cue_layer_enabled is False
+        assert cfg.cue_recall_enabled is False
+        assert cfg.cue_policy_learning_enabled is False
+        assert cfg.memory_maturation_enabled is False
+        assert cfg.episode_transition_enabled is False
+
+    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
+    def test_rework_profile_normalizes_partial_overrides(self):
+        cfg = ActivationConfig(
+            integration_profile="rework",
+            consolidation_profile="observe",
+            recall_profile="wave2",
+        )
+
+        assert cfg.integration_profile == "rework"
+        assert cfg.consolidation_profile == "standard"
+        assert cfg.recall_profile == "all"
+        assert cfg.cue_layer_enabled is True
+        assert cfg.cue_recall_enabled is True
+        assert cfg.recall_planner_enabled is True
+        assert cfg.memory_maturation_enabled is True
+
+    def test_invalid_integration_profile_rejected(self):
+        with pytest.raises(Exception):
+            ActivationConfig(integration_profile="invalid")

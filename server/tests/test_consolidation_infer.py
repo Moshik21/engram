@@ -347,6 +347,7 @@ class TestTransitivityPass:
             consolidation_infer_cooccurrence_min=20,
             consolidation_infer_transitivity_enabled=True,
             consolidation_infer_transitive_predicates=["LOCATED_IN"],
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -410,6 +411,7 @@ class TestTransitivityPass:
             consolidation_infer_cooccurrence_min=20,
             consolidation_infer_transitivity_enabled=True,
             consolidation_infer_transitive_predicates=["LOCATED_IN"],
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -459,6 +461,7 @@ class TestTransitivityPass:
             consolidation_infer_transitivity_enabled=True,
             consolidation_infer_transitive_predicates=["LOCATED_IN"],
             consolidation_infer_transitivity_decay=0.8,
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -507,6 +510,7 @@ class TestTransitivityPass:
             consolidation_infer_cooccurrence_min=20,
             consolidation_infer_transitivity_enabled=True,
             consolidation_infer_transitive_predicates=["LOCATED_IN"],
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -537,14 +541,16 @@ def _mock_graph_store(pairs, entities, ep_counts, total_episodes):
     gs = AsyncMock()
     gs.get_co_occurring_entity_pairs.return_value = pairs
     gs.get_entity_episode_counts.return_value = ep_counts
-    gs.get_stats.return_value = {"total_episodes": total_episodes}
+    gs.get_stats.return_value = {"episodes": total_episodes}
     gs.get_relationships_by_predicate.return_value = []
+    gs.get_relationships.return_value = []
+    gs.find_conflicting_relationships.return_value = []
+    gs.find_existing_relationship.return_value = None
 
     async def _get_entity(eid, gid):
         return entities.get(eid)
 
     gs.get_entity.side_effect = _get_entity
-    gs.create_relationship.return_value = "rel_mock"
     return gs
 
 
@@ -570,7 +576,7 @@ class TestPMIScoring:
             graph_store=gs,
             activation_store=AsyncMock(),
             search_index=AsyncMock(),
-            cfg=cfg,
+            cfg=cfg.model_copy(update={"consolidation_infer_auto_validation_enabled": False}),
             cycle_id="cyc_test",
             dry_run=True,
         )
@@ -594,6 +600,7 @@ class TestPMIScoring:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_pmi_enabled=True,
             consolidation_infer_pmi_min=0.0,
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -628,6 +635,7 @@ class TestPMIScoring:
             consolidation_infer_cooccurrence_min=3,
             consolidation_infer_pmi_enabled=True,
             consolidation_infer_pmi_min=5.0,  # Very high threshold
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -665,6 +673,7 @@ class TestPMIScoring:
             consolidation_infer_pmi_enabled=True,
             consolidation_infer_pmi_min=0.0,
             consolidation_infer_tfidf_weight=0.3,
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -700,6 +709,7 @@ class TestPMIScoring:
             consolidation_infer_confidence_floor=0.6,
             consolidation_infer_pmi_enabled=True,
             consolidation_infer_pmi_min=0.0,
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -731,6 +741,7 @@ class TestPMIScoring:
             consolidation_infer_pmi_enabled=True,
             consolidation_infer_pmi_min=0.0,
             consolidation_infer_tfidf_weight=0.0,
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -787,6 +798,7 @@ class TestPMIScoring:
             consolidation_infer_pmi_min=0.0,
             consolidation_infer_transitivity_enabled=True,
             consolidation_infer_transitive_predicates=["LOCATED_IN"],
+            consolidation_infer_auto_validation_enabled=False,
         )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
@@ -827,7 +839,7 @@ class TestLLMValidation:
 
     @pytest.mark.asyncio
     async def test_llm_disabled_by_default(self):
-        """No llm_verdict set when LLM disabled."""
+        """No llm_verdict set when both LLM and auto-validation disabled."""
         e1 = _entity("Alice")
         e2 = _entity("Bob")
         entities = {e1.id: e1, e2.id: e2}
@@ -837,7 +849,10 @@ class TestLLMValidation:
             ep_counts={},
             total_episodes=0,
         )
-        cfg = ActivationConfig(consolidation_infer_cooccurrence_min=3)
+        cfg = ActivationConfig(
+            consolidation_infer_cooccurrence_min=3,
+            consolidation_infer_auto_validation_enabled=False,
+        )
         phase = EdgeInferencePhase()
         _, records = await phase.execute(
             group_id="test",
@@ -886,11 +901,13 @@ class TestLLMValidation:
         assert len(records) == 1
         assert records[0].infer_type == "llm_validated"
         assert records[0].llm_verdict == "approved"
+        assert records[0].materialization_action == "created"
+        gs.create_relationship.assert_called_once()
         mock_client.messages.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_llm_rejects_edge(self):
-        """Rejected edge becomes llm_rejected and relationship invalidated."""
+        """Rejected edge is never materialized."""
         e1 = _entity("Alice")
         e2 = _entity("Bob")
         entities = {e1.id: e1, e2.id: e2}
@@ -923,11 +940,12 @@ class TestLLMValidation:
         assert len(records) == 1
         assert records[0].infer_type == "llm_rejected"
         assert records[0].llm_verdict == "rejected"
-        gs.invalidate_relationship.assert_called_once()
+        assert records[0].materialization_action == "rejected"
+        gs.create_relationship.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_llm_uncertain_leaves_edge(self):
-        """Uncertain verdict leaves edge unchanged."""
+        """Uncertain verdict abstains instead of materializing."""
         e1 = _entity("Alice")
         e2 = _entity("Bob")
         entities = {e1.id: e1, e2.id: e2}
@@ -960,6 +978,8 @@ class TestLLMValidation:
         assert len(records) == 1
         assert records[0].infer_type == "co_occurrence"  # Unchanged
         assert records[0].llm_verdict == "uncertain"
+        assert records[0].materialization_action == "abstained"
+        gs.create_relationship.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_llm_failure_nonfatal(self):

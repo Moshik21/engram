@@ -8,10 +8,15 @@ import time
 import aiosqlite
 
 from engram.models.consolidation import (
+    CalibrationSnapshot,
     ConsolidationCycle,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    DistillationExample,
     DreamAssociationRecord,
     DreamRecord,
     GraphEmbedRecord,
+    IdentifierReviewRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
@@ -64,7 +69,34 @@ class SQLiteConsolidationStore:
                 keep_name TEXT NOT NULL,
                 remove_name TEXT NOT NULL,
                 similarity REAL NOT NULL,
+                decision_confidence REAL,
+                decision_source TEXT,
+                decision_reason TEXT,
                 relationships_transferred INTEGER DEFAULT 0,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_identifier_reviews (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                entity_a_id TEXT NOT NULL,
+                entity_b_id TEXT NOT NULL,
+                entity_a_name TEXT NOT NULL,
+                entity_b_name TEXT NOT NULL,
+                entity_a_type TEXT NOT NULL,
+                entity_b_type TEXT NOT NULL,
+                raw_similarity REAL NOT NULL,
+                adjusted_similarity REAL,
+                decision_source TEXT,
+                decision_reason TEXT,
+                entity_a_regime TEXT,
+                entity_b_regime TEXT,
+                canonical_identifier_a TEXT,
+                canonical_identifier_b TEXT,
+                review_status TEXT NOT NULL DEFAULT 'quarantined',
+                metadata_json TEXT,
                 timestamp REAL NOT NULL
             )
         """)
@@ -111,6 +143,10 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_merges_cycle ON consolidation_merges(cycle_id)"
+        )
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_identifier_reviews_cycle "
+            "ON consolidation_identifier_reviews(cycle_id)"
         )
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_edges_cycle "
@@ -263,8 +299,98 @@ class SQLiteConsolidationStore:
             "CREATE INDEX IF NOT EXISTS idx_consol_schemas_cycle "
             "ON consolidation_schemas(cycle_id)"
         )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_decision_traces (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                candidate_type TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                decision_source TEXT NOT NULL,
+                confidence REAL,
+                threshold_band TEXT,
+                features_json TEXT,
+                constraints_json TEXT,
+                policy_version TEXT NOT NULL,
+                metadata_json TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_decision_traces_cycle "
+            "ON consolidation_decision_traces(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_decision_outcomes (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                decision_trace_id TEXT NOT NULL,
+                outcome_type TEXT NOT NULL,
+                label TEXT NOT NULL,
+                value REAL,
+                metadata_json TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_decision_outcomes_cycle "
+            "ON consolidation_decision_outcomes(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_distillation_examples (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                candidate_type TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                decision_trace_id TEXT NOT NULL,
+                teacher_label TEXT NOT NULL,
+                teacher_source TEXT NOT NULL,
+                student_decision TEXT NOT NULL,
+                student_confidence REAL,
+                threshold_band TEXT,
+                features_json TEXT,
+                correct INTEGER,
+                metadata_json TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_distill_cycle "
+            "ON consolidation_distillation_examples(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_calibration_snapshots (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                phase TEXT NOT NULL,
+                window_cycles INTEGER NOT NULL,
+                total_traces INTEGER NOT NULL,
+                labeled_examples INTEGER NOT NULL,
+                oracle_examples INTEGER NOT NULL,
+                abstain_count INTEGER NOT NULL,
+                accuracy REAL,
+                mean_confidence REAL,
+                expected_calibration_error REAL,
+                summary_json TEXT,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_calibration_cycle "
+            "ON consolidation_calibration_snapshots(cycle_id)"
+        )
         # Migrations: add columns for existing databases
         for migration_sql in [
+            "ALTER TABLE consolidation_merges ADD COLUMN decision_confidence REAL",
+            "ALTER TABLE consolidation_merges ADD COLUMN decision_source TEXT",
+            "ALTER TABLE consolidation_merges ADD COLUMN decision_reason TEXT",
             "ALTER TABLE consolidation_inferred_edges "
             "ADD COLUMN infer_type TEXT DEFAULT 'co_occurrence'",
             "ALTER TABLE consolidation_inferred_edges ADD COLUMN pmi_score REAL",
@@ -384,8 +510,9 @@ class SQLiteConsolidationStore:
         await self.db.execute(
             "INSERT INTO consolidation_merges "
             "(id, cycle_id, group_id, keep_id, remove_id, keep_name, "
-            "remove_name, similarity, relationships_transferred, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "remove_name, similarity, decision_confidence, decision_source, "
+            "decision_reason, relationships_transferred, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.id,
                 record.cycle_id,
@@ -395,7 +522,45 @@ class SQLiteConsolidationStore:
                 record.keep_name,
                 record.remove_name,
                 record.similarity,
+                record.decision_confidence,
+                record.decision_source,
+                record.decision_reason,
                 record.relationships_transferred,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def save_identifier_review_record(self, record: IdentifierReviewRecord) -> None:
+        """Insert a quarantined identifier review record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_identifier_reviews "
+            "(id, cycle_id, group_id, entity_a_id, entity_b_id, entity_a_name, "
+            "entity_b_name, entity_a_type, entity_b_type, raw_similarity, "
+            "adjusted_similarity, decision_source, decision_reason, entity_a_regime, "
+            "entity_b_regime, canonical_identifier_a, canonical_identifier_b, "
+            "review_status, metadata_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.entity_a_id,
+                record.entity_b_id,
+                record.entity_a_name,
+                record.entity_b_name,
+                record.entity_a_type,
+                record.entity_b_type,
+                record.raw_similarity,
+                record.adjusted_similarity,
+                record.decision_source,
+                record.decision_reason,
+                record.entity_a_regime,
+                record.entity_b_regime,
+                record.canonical_identifier_a,
+                record.canonical_identifier_b,
+                record.review_status,
+                json.dumps(record.metadata or {}),
                 record.timestamp,
             ),
         )
@@ -470,7 +635,50 @@ class SQLiteConsolidationStore:
                 keep_name=r["keep_name"],
                 remove_name=r["remove_name"],
                 similarity=r["similarity"],
+                decision_confidence=(
+                    r["decision_confidence"] if "decision_confidence" in r.keys() else None
+                ),
+                decision_source=r["decision_source"] if "decision_source" in r.keys() else None,
+                decision_reason=r["decision_reason"] if "decision_reason" in r.keys() else None,
                 relationships_transferred=r["relationships_transferred"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def get_identifier_review_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[IdentifierReviewRecord]:
+        """Fetch quarantined identifier review records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_identifier_reviews "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            IdentifierReviewRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                entity_a_id=r["entity_a_id"],
+                entity_b_id=r["entity_b_id"],
+                entity_a_name=r["entity_a_name"],
+                entity_b_name=r["entity_b_name"],
+                entity_a_type=r["entity_a_type"],
+                entity_b_type=r["entity_b_type"],
+                raw_similarity=r["raw_similarity"],
+                adjusted_similarity=r["adjusted_similarity"],
+                decision_source=r["decision_source"],
+                decision_reason=r["decision_reason"],
+                entity_a_regime=r["entity_a_regime"],
+                entity_b_regime=r["entity_b_regime"],
+                canonical_identifier_a=r["canonical_identifier_a"],
+                canonical_identifier_b=r["canonical_identifier_b"],
+                review_status=r["review_status"],
+                metadata=json.loads(r["metadata_json"] or "{}"),
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -976,6 +1184,237 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_decision_trace(self, record: DecisionTrace) -> None:
+        """Insert a structured decision trace."""
+        await self.db.execute(
+            "INSERT INTO consolidation_decision_traces "
+            "(id, cycle_id, group_id, phase, candidate_type, candidate_id, "
+            "decision, decision_source, confidence, threshold_band, features_json, "
+            "constraints_json, policy_version, metadata_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.phase,
+                record.candidate_type,
+                record.candidate_id,
+                record.decision,
+                record.decision_source,
+                record.confidence,
+                record.threshold_band,
+                json.dumps(record.features),
+                json.dumps(record.constraints_hit),
+                record.policy_version,
+                json.dumps(record.metadata),
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_decision_traces(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DecisionTrace]:
+        """Fetch decision traces for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_decision_traces "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            DecisionTrace(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                candidate_type=r["candidate_type"],
+                candidate_id=r["candidate_id"],
+                decision=r["decision"],
+                decision_source=r["decision_source"],
+                confidence=r["confidence"],
+                threshold_band=r["threshold_band"],
+                features=json.loads(r["features_json"]) if r["features_json"] else {},
+                constraints_hit=(
+                    json.loads(r["constraints_json"]) if r["constraints_json"] else []
+                ),
+                policy_version=r["policy_version"],
+                metadata=json.loads(r["metadata_json"]) if r["metadata_json"] else {},
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_decision_outcome_label(self, record: DecisionOutcomeLabel) -> None:
+        """Insert a decision outcome label."""
+        await self.db.execute(
+            "INSERT INTO consolidation_decision_outcomes "
+            "(id, cycle_id, group_id, phase, decision_trace_id, outcome_type, "
+            "label, value, metadata_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.phase,
+                record.decision_trace_id,
+                record.outcome_type,
+                record.label,
+                record.value,
+                json.dumps(record.metadata),
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_decision_outcome_labels(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DecisionOutcomeLabel]:
+        """Fetch decision outcome labels for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_decision_outcomes "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            DecisionOutcomeLabel(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                decision_trace_id=r["decision_trace_id"],
+                outcome_type=r["outcome_type"],
+                label=r["label"],
+                value=r["value"],
+                metadata=json.loads(r["metadata_json"]) if r["metadata_json"] else {},
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_distillation_example(self, record: DistillationExample) -> None:
+        """Insert a distillation-ready example derived from decision history."""
+        await self.db.execute(
+            "INSERT INTO consolidation_distillation_examples "
+            "(id, cycle_id, group_id, phase, candidate_type, candidate_id, "
+            "decision_trace_id, teacher_label, teacher_source, student_decision, "
+            "student_confidence, threshold_band, features_json, correct, "
+            "metadata_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.phase,
+                record.candidate_type,
+                record.candidate_id,
+                record.decision_trace_id,
+                record.teacher_label,
+                record.teacher_source,
+                record.student_decision,
+                record.student_confidence,
+                record.threshold_band,
+                json.dumps(record.features),
+                None if record.correct is None else int(record.correct),
+                json.dumps(record.metadata),
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_distillation_examples(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DistillationExample]:
+        """Fetch persisted distillation examples for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_distillation_examples "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            DistillationExample(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                candidate_type=r["candidate_type"],
+                candidate_id=r["candidate_id"],
+                decision_trace_id=r["decision_trace_id"],
+                teacher_label=r["teacher_label"],
+                teacher_source=r["teacher_source"],
+                student_decision=r["student_decision"],
+                student_confidence=r["student_confidence"],
+                threshold_band=r["threshold_band"],
+                features=json.loads(r["features_json"]) if r["features_json"] else {},
+                correct=(
+                    None
+                    if r["correct"] is None else bool(r["correct"])
+                ),
+                metadata=json.loads(r["metadata_json"]) if r["metadata_json"] else {},
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_calibration_snapshot(self, record: CalibrationSnapshot) -> None:
+        """Insert a rolling calibration snapshot for a phase."""
+        await self.db.execute(
+            "INSERT INTO consolidation_calibration_snapshots "
+            "(id, cycle_id, group_id, phase, window_cycles, total_traces, "
+            "labeled_examples, oracle_examples, abstain_count, accuracy, "
+            "mean_confidence, expected_calibration_error, summary_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.phase,
+                record.window_cycles,
+                record.total_traces,
+                record.labeled_examples,
+                record.oracle_examples,
+                record.abstain_count,
+                record.accuracy,
+                record.mean_confidence,
+                record.expected_calibration_error,
+                json.dumps(record.summary),
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_calibration_snapshots(
+        self, cycle_id: str, group_id: str,
+    ) -> list[CalibrationSnapshot]:
+        """Fetch calibration snapshots for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_calibration_snapshots "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY phase, timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            CalibrationSnapshot(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                phase=r["phase"],
+                window_cycles=r["window_cycles"],
+                total_traces=r["total_traces"],
+                labeled_examples=r["labeled_examples"],
+                oracle_examples=r["oracle_examples"],
+                abstain_count=r["abstain_count"],
+                accuracy=r["accuracy"],
+                mean_confidence=r["mean_confidence"],
+                expected_calibration_error=r["expected_calibration_error"],
+                summary=json.loads(r["summary_json"]) if r["summary_json"] else {},
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def cleanup(self, ttl_days: int = 90) -> int:
         """Delete cycle records older than ttl_days. Returns count deleted."""
         cutoff = time.time() - (ttl_days * 86400)
@@ -992,6 +1431,10 @@ class SQLiteConsolidationStore:
         placeholders = ",".join("?" * len(cycle_ids))
         await self.db.execute(
             f"DELETE FROM consolidation_merges WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_identifier_reviews WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         await self.db.execute(
@@ -1036,6 +1479,22 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_schemas WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_decision_traces WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_decision_outcomes WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_distillation_examples WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_calibration_snapshots WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(

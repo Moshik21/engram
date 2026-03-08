@@ -4,6 +4,43 @@ from __future__ import annotations
 
 import math
 import random
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class RecallEvalSample:
+    """Single-turn recall evaluation outcome."""
+
+    recall_triggered: bool
+    recall_helped: bool
+    packets_surfaced: int = 0
+    packets_used: int = 0
+    false_recalls: int = 0
+
+
+@dataclass(frozen=True)
+class SessionContinuitySample:
+    """Outcome for a multi-turn continuity task."""
+
+    baseline_score: float
+    memory_score: float
+    open_loop_expected: bool = False
+    open_loop_recovered: bool = False
+    temporal_expected: bool = False
+    temporal_correct: bool = False
+
+
+@dataclass(frozen=True)
+class RecallEvaluationSummary:
+    """Aggregate Phase 6 evaluation metrics."""
+
+    memory_need_precision: float
+    useful_packet_rate: float
+    false_recall_rate: float
+    surfaced_to_used_ratio: float
+    session_continuity_lift: float
+    open_loop_recovery_rate: float
+    temporal_correctness: float
 
 
 def precision_at_k(
@@ -94,6 +131,98 @@ def gini_coefficient(values: list[float]) -> float:
         cumulative += v
         numerator += (2 * (i + 1) - n - 1) * v
     return numerator / (n * total)
+
+
+def memory_need_precision(samples: list[RecallEvalSample]) -> float:
+    """Precision of recall triggering against downstream benefit."""
+    triggered = [sample for sample in samples if sample.recall_triggered]
+    if not triggered:
+        return 0.0
+    helped = sum(1 for sample in triggered if sample.recall_helped)
+    return helped / len(triggered)
+
+
+def useful_packet_rate(samples: list[RecallEvalSample]) -> float:
+    """Fraction of surfaced packets that were used downstream."""
+    surfaced = sum(max(0, sample.packets_surfaced) for sample in samples)
+    if surfaced == 0:
+        return 0.0
+    used = sum(
+        min(max(0, sample.packets_used), max(0, sample.packets_surfaced))
+        for sample in samples
+    )
+    return used / surfaced
+
+
+def false_recall_rate(samples: list[RecallEvalSample]) -> float:
+    """Fraction of surfaced packets judged irrelevant or misleading."""
+    surfaced = sum(max(0, sample.packets_surfaced) for sample in samples)
+    if surfaced == 0:
+        return 0.0
+    false_recalls = sum(
+        min(max(0, sample.false_recalls), max(0, sample.packets_surfaced))
+        for sample in samples
+    )
+    return false_recalls / surfaced
+
+
+def surfaced_to_used_ratio(
+    surfaced_count: int,
+    used_count: int,
+) -> float:
+    """Ratio of surfaced memories to actually used memories."""
+    if surfaced_count <= 0:
+        return 0.0
+    if used_count <= 0:
+        return math.inf
+    return surfaced_count / used_count
+
+
+def session_continuity_lift(samples: list[SessionContinuitySample]) -> float:
+    """Average score lift from memory-enabled runs over baseline runs."""
+    if not samples:
+        return 0.0
+    total_delta = sum(sample.memory_score - sample.baseline_score for sample in samples)
+    return total_delta / len(samples)
+
+
+def open_loop_recovery_rate(samples: list[SessionContinuitySample]) -> float:
+    """Recovery rate for tasks where an unresolved loop should be surfaced."""
+    expected = [sample for sample in samples if sample.open_loop_expected]
+    if not expected:
+        return 0.0
+    recovered = sum(1 for sample in expected if sample.open_loop_recovered)
+    return recovered / len(expected)
+
+
+def temporal_correctness(samples: list[SessionContinuitySample]) -> float:
+    """Accuracy on tasks where newer facts should override stale ones."""
+    expected = [sample for sample in samples if sample.temporal_expected]
+    if not expected:
+        return 0.0
+    correct = sum(1 for sample in expected if sample.temporal_correct)
+    return correct / len(expected)
+
+
+def summarize_recall_evaluation(
+    recall_samples: list[RecallEvalSample],
+    session_samples: list[SessionContinuitySample],
+) -> RecallEvaluationSummary:
+    """Aggregate Phase 6 evaluation metrics into a single summary object."""
+    surfaced = sum(max(0, sample.packets_surfaced) for sample in recall_samples)
+    used = sum(
+        min(max(0, sample.packets_used), max(0, sample.packets_surfaced))
+        for sample in recall_samples
+    )
+    return RecallEvaluationSummary(
+        memory_need_precision=memory_need_precision(recall_samples),
+        useful_packet_rate=useful_packet_rate(recall_samples),
+        false_recall_rate=false_recall_rate(recall_samples),
+        surfaced_to_used_ratio=surfaced_to_used_ratio(surfaced, used),
+        session_continuity_lift=session_continuity_lift(session_samples),
+        open_loop_recovery_rate=open_loop_recovery_rate(session_samples),
+        temporal_correctness=temporal_correctness(session_samples),
+    )
 
 
 def bootstrap_ci(

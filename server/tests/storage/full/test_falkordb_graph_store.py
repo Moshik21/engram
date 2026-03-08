@@ -5,7 +5,8 @@ from datetime import datetime
 import pytest
 
 from engram.models.entity import Entity
-from engram.models.episode import Episode
+from engram.models.episode import Episode, EpisodeProjectionState
+from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 
 pytestmark = pytest.mark.requires_docker
@@ -27,6 +28,20 @@ class TestFalkorDBGraphStore:
         assert result.name == "Python"
         assert result.entity_type == "Technology"
         assert result.summary == "Programming language"
+
+    async def test_identifier_facets_persist_on_create(self, falkordb_graph_store):
+        entity = Entity(
+            id="ent_fdb_identifier",
+            name="SKU 1712061",
+            entity_type="Identifier",
+            group_id="default",
+        )
+        await falkordb_graph_store.create_entity(entity)
+        result = await falkordb_graph_store.get_entity("ent_fdb_identifier", "default")
+        assert result is not None
+        assert result.lexical_regime == "identifier"
+        assert result.canonical_identifier == "1712061"
+        assert result.identifier_label is True
 
     async def test_tenant_isolation(self, falkordb_graph_store):
         entity = Entity(
@@ -59,6 +74,25 @@ class TestFalkorDBGraphStore:
         result = await falkordb_graph_store.get_entity("ent_upd1", "default")
         assert result is not None
         assert result.name == "NewName"
+
+    async def test_update_entity_refreshes_identifier_facets(self, falkordb_graph_store):
+        entity = Entity(
+            id="ent_upd_identifier",
+            name="Widget",
+            entity_type="Other",
+            group_id="default",
+        )
+        await falkordb_graph_store.create_entity(entity)
+        await falkordb_graph_store.update_entity(
+            "ent_upd_identifier",
+            {"name": "Part #001234"},
+            group_id="default",
+        )
+        result = await falkordb_graph_store.get_entity("ent_upd_identifier", "default")
+        assert result is not None
+        assert result.lexical_regime == "identifier"
+        assert result.canonical_identifier == "001234"
+        assert result.identifier_label is True
 
     async def test_soft_delete_entity(self, falkordb_graph_store):
         entity = Entity(
@@ -244,9 +278,20 @@ class TestFalkorDBGraphStore:
         await falkordb_graph_store.create_episode(
             Episode(id="ep_st1", content="Stats ep", source="chat", group_id="default")
         )
+        await falkordb_graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_st1",
+                group_id="default",
+                projection_state=EpisodeProjectionState.CUED,
+                cue_text="stats cue",
+                policy_score=0.3,
+            )
+        )
         stats = await falkordb_graph_store.get_stats(group_id="default")
         assert stats["entities"] >= 1
         assert stats["episodes"] >= 1
+        assert stats["cue_metrics"]["cue_count"] == 1
+        assert "projection_metrics" in stats
 
     async def test_get_top_connected(self, falkordb_graph_store):
         await falkordb_graph_store.create_entity(

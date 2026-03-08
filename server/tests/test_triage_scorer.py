@@ -10,10 +10,8 @@ from engram.retrieval.triage_scorer import (
     CalibrationState,
     EmbeddingSurpriseState,
     TriageScorer,
-    TriageSignals,
     _compute_structural_extractability,
 )
-
 
 # --- Structural extractability ---
 

@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from engram.utils.dates import utc_now
+
 
 class Intention(BaseModel):
     """A stored intention with a semantic or entity-mention trigger condition."""
@@ -21,8 +23,8 @@ class Intention(BaseModel):
     fire_count: int = 0
     enabled: bool = True
     group_id: str = "default"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime | None = None
 
 

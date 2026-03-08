@@ -41,9 +41,9 @@ class ConsolidationScheduler:
     - Pressure: poll every 10s, trigger full cycle when pressure exceeds threshold
 
     Tiered scheduling (when enabled) runs phases at different frequencies:
-    - Hot (triage, compact): every 15 min
-    - Warm (merge, infer, reindex): every 2 hours
-    - Cold (replay, prune, graph_embed, dream): every 6 hours
+    - Hot (triage): every 15 min
+    - Warm (merge, infer, compact, mature, semanticize, reindex): every 2 hours
+    - Cold (replay, prune, schema, graph_embed, dream): every 6 hours
     """
 
     def __init__(

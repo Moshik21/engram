@@ -154,10 +154,12 @@ async def test_bootstrap_refreshes_when_stale(
     assert result["project_entity_id"] == "ent_existing123"
     assert len(result["files_observed"]) > 0
     assert len(stored_episodes) > 0
-    # Entity was NOT re-created
-    manager._graph.create_entity.assert_not_called()
-    # Timestamp was updated
-    manager._graph.update_entity.assert_called_once()
+    # Project entity was NOT re-created (artifact entities may be materialized)
+    created_entities = [call.args[0] for call in manager._graph.create_entity.call_args_list]
+    assert all(entity.entity_type != "Project" for entity in created_entities)
+    # Project timestamp was updated
+    updated_entity_ids = [call.args[0] for call in manager._graph.update_entity.call_args_list]
+    assert "ent_existing123" in updated_entity_ids
 
 
 @pytest.mark.asyncio

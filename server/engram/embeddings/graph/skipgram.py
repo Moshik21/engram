@@ -21,6 +21,7 @@ class NumpySkipGram:
         lr: float = 0.025,
         epochs: int = 5,
         seed: int | None = None,
+        initial_in: np.ndarray | None = None,
     ) -> None:
         self._vocab_size = vocab_size
         self._dimensions = dimensions
@@ -31,10 +32,13 @@ class NumpySkipGram:
         self._rng = np.random.RandomState(seed)
 
         # Initialize embedding matrices
-        self._W_in = self._rng.uniform(
-            -0.5 / dimensions, 0.5 / dimensions,
-            (vocab_size, dimensions),
-        ).astype(np.float32)
+        if initial_in is not None and initial_in.shape == (vocab_size, dimensions):
+            self._W_in = initial_in.astype(np.float32, copy=True)
+        else:
+            self._W_in = self._rng.uniform(
+                -0.5 / dimensions, 0.5 / dimensions,
+                (vocab_size, dimensions),
+            ).astype(np.float32)
         self._W_out = np.zeros(
             (vocab_size, dimensions), dtype=np.float32,
         )

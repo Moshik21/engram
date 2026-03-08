@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from enum import Enum
+from time import monotonic
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
         return EngineMode.LITE
     if mode == "full":
         logger.info("Full mode selected explicitly — verifying services...")
-        if not await _check_falkordb() or not await _check_redis():
+        if not await _wait_for_full_services():
             raise RuntimeError(
                 "Full mode requested but FalkorDB and/or Redis are not available. "
                 "Ensure: (1) Docker services are running: `docker compose up -d falkordb redis`, "
@@ -93,3 +95,52 @@ async def _check_falkordb() -> bool:
         return True
     except Exception:
         return False
+
+
+async def _wait_for_full_services(
+    *,
+    timeout_seconds: float | None = None,
+    retry_interval_seconds: float | None = None,
+) -> bool:
+    """Wait briefly for explicit full-mode dependencies to become truly ready."""
+    timeout = timeout_seconds
+    if timeout is None:
+        timeout = float(os.environ.get("ENGRAM_FULL_MODE_WAIT_SECONDS", "20"))
+    interval = retry_interval_seconds
+    if interval is None:
+        interval = float(
+            os.environ.get("ENGRAM_FULL_MODE_RETRY_INTERVAL_SECONDS", "1")
+        )
+
+    timeout = max(0.0, timeout)
+    interval = max(0.1, interval)
+    deadline = monotonic() + timeout
+    attempt = 0
+
+    while True:
+        attempt += 1
+        falkordb_ok = await _check_falkordb()
+        redis_ok = await _check_redis()
+        if falkordb_ok and redis_ok:
+            if attempt > 1:
+                logger.info(
+                    "Full-mode services became ready after %s attempts",
+                    attempt,
+                )
+            return True
+        if monotonic() >= deadline:
+            logger.warning(
+                "Full-mode services did not become ready within %.1fs "
+                "(FalkorDB=%s, Redis=%s)",
+                timeout,
+                falkordb_ok,
+                redis_ok,
+            )
+            return False
+        logger.info(
+            "Waiting for full-mode services (attempt %s, FalkorDB=%s, Redis=%s)",
+            attempt,
+            falkordb_ok,
+            redis_ok,
+        )
+        await asyncio.sleep(interval)

@@ -75,6 +75,7 @@ services:
       - ENGRAM_ENCRYPTION__ENABLED=${ENGRAM_ENCRYPTION_ENABLED:-false}
       - ENGRAM_ENCRYPTION__MASTER_KEY=${ENGRAM_ENCRYPTION_MASTER_KEY:-}
       - ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
+      - ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
       - ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
     volumes:
       - engram_server_data:/home/engram/.engram
@@ -83,7 +84,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     deploy:
       resources:
         limits:

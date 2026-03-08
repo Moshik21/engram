@@ -17,6 +17,8 @@ Signals:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import time
@@ -28,6 +30,8 @@ import numpy as np
 from engram.config import ActivationConfig
 
 logger = logging.getLogger(__name__)
+
+_SHARED_TRIAGE_SCORERS: dict[str, TriageScorer] = {}
 
 
 # --- Regex patterns for structural extractability ---
@@ -357,6 +361,28 @@ class TriageScorer:
         if self._calibration.n_samples < 200:
             return "blending"
         return "mature"
+
+
+def get_shared_triage_scorer(cfg: ActivationConfig) -> TriageScorer:
+    """Reuse the same scorer state across worker and consolidation in-process."""
+    key_payload = {
+        "weights": cfg.triage_scorer_weights,
+        "emotional_salience_enabled": cfg.emotional_salience_enabled,
+        "goal_priming_enabled": cfg.goal_priming_enabled,
+        "triage_personal_floor": cfg.triage_personal_floor,
+        "triage_personal_floor_threshold": cfg.triage_personal_floor_threshold,
+        "triage_personal_boost_enabled": cfg.triage_personal_boost_enabled,
+        "triage_personal_boost": cfg.triage_personal_boost,
+        "triage_personal_min_matches": cfg.triage_personal_min_matches,
+    }
+    key = hashlib.sha1(
+        json.dumps(key_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    scorer = _SHARED_TRIAGE_SCORERS.get(key)
+    if scorer is None:
+        scorer = TriageScorer(cfg)
+        _SHARED_TRIAGE_SCORERS[key] = scorer
+    return scorer
 
 
 def _compute_structural_extractability(content: str) -> float:

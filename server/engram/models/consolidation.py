@@ -57,8 +57,37 @@ class MergeRecord:
     keep_name: str
     remove_name: str
     similarity: float
+    decision_confidence: float | None = None
+    decision_source: str | None = None
+    decision_reason: str | None = None
     relationships_transferred: int = 0
     id: str = field(default_factory=lambda: f"mrg_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class IdentifierReviewRecord:
+    """Audit entry for a suspicious identifier-like merge candidate kept separate."""
+
+    cycle_id: str
+    group_id: str
+    entity_a_id: str
+    entity_b_id: str
+    entity_a_name: str
+    entity_b_name: str
+    entity_a_type: str
+    entity_b_type: str
+    raw_similarity: float
+    adjusted_similarity: float | None = None
+    decision_source: str | None = None
+    decision_reason: str | None = None
+    entity_a_regime: str | None = None
+    entity_b_regime: str | None = None
+    canonical_identifier_a: str | None = None
+    canonical_identifier_b: str | None = None
+    review_status: str = "quarantined"
+    metadata: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"idr_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
 
 
@@ -74,10 +103,14 @@ class InferredEdge:
     target_name: str
     co_occurrence_count: int
     confidence: float
+    predicate: str = "MENTIONED_WITH"
     infer_type: str = "co_occurrence"
     pmi_score: float | None = None
     llm_verdict: str | None = None
     escalation_verdict: str | None = None
+    validation_score: float | None = None
+    validation_signals: dict = field(default_factory=dict)
+    materialization_action: str | None = None
     relationship_id: str | None = None
     id: str = field(default_factory=lambda: f"inf_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
@@ -129,6 +162,15 @@ class CycleContext:
     matured_entity_ids: set[str] = field(default_factory=set)
     transitioned_episode_ids: set[str] = field(default_factory=set)
     schema_entity_ids: set[str] = field(default_factory=set)
+    maturity_feature_cache: dict[str, dict] = field(default_factory=dict)
+    decision_traces: list[DecisionTrace] = field(default_factory=list)
+    decision_outcome_labels: list[DecisionOutcomeLabel] = field(default_factory=list)
+
+    def add_decision_trace(self, trace: DecisionTrace) -> None:
+        self.decision_traces.append(trace)
+
+    def add_decision_outcome_label(self, label: DecisionOutcomeLabel) -> None:
+        self.decision_outcome_labels.append(label)
 
 
 @dataclass
@@ -255,3 +297,98 @@ class SemanticTransitionRecord:
     consolidation_cycles: int
     id: str = field(default_factory=lambda: f"sem_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DecisionTrace:
+    """Standard trace for a scored or constrained phase decision."""
+
+    cycle_id: str
+    group_id: str
+    phase: str
+    candidate_type: str
+    candidate_id: str
+    decision: str
+    decision_source: str
+    confidence: float | None = None
+    threshold_band: str | None = None
+    features: dict = field(default_factory=dict)
+    constraints_hit: list[str] = field(default_factory=list)
+    policy_version: str = "v1"
+    metadata: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"dtr_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DecisionOutcomeLabel:
+    """Outcome label attached to a previously recorded decision trace."""
+
+    cycle_id: str
+    group_id: str
+    phase: str
+    decision_trace_id: str
+    outcome_type: str
+    label: str
+    value: float | None = None
+    metadata: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"dol_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class DistillationExample:
+    """Training-ready example derived from traces, outcomes, or oracle decisions."""
+
+    cycle_id: str
+    group_id: str
+    phase: str
+    candidate_type: str
+    candidate_id: str
+    decision_trace_id: str
+    teacher_label: str
+    teacher_source: str
+    student_decision: str
+    student_confidence: float | None = None
+    threshold_band: str | None = None
+    features: dict = field(default_factory=dict)
+    correct: bool | None = None
+    metadata: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"dex_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class CalibrationSnapshot:
+    """Rolling calibration summary for a consolidation phase."""
+
+    cycle_id: str
+    group_id: str
+    phase: str
+    window_cycles: int
+    total_traces: int
+    labeled_examples: int
+    oracle_examples: int
+    abstain_count: int
+    accuracy: float | None = None
+    mean_confidence: float | None = None
+    expected_calibration_error: float | None = None
+    summary: dict = field(default_factory=dict)
+    id: str = field(default_factory=lambda: f"cal_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class RelationshipApplyResult:
+    """Structured result for the shared relationship apply path."""
+
+    source_id: str | None = None
+    target_id: str | None = None
+    predicate: str | None = None
+    polarity: str = "positive"
+    confidence: float | None = None
+    weight: float | None = None
+    action: str = "skipped"
+    created: bool = False
+    constraints_hit: list[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)

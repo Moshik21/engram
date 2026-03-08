@@ -6,11 +6,17 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from engram.models.activation import ActivationState
+from engram.models.atlas import AtlasSnapshot, AtlasSnapshotSummary
 from engram.models.consolidation import (
+    CalibrationSnapshot,
     ConsolidationCycle,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    DistillationExample,
     DreamAssociationRecord,
     DreamRecord,
     GraphEmbedRecord,
+    IdentifierReviewRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
@@ -23,11 +29,13 @@ from engram.models.consolidation import (
 )
 from engram.models.entity import Entity
 from engram.models.episode import Episode
+from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 
 ENTITY_UPDATABLE_FIELDS = frozenset(
     {
         "name",
+        "entity_type",
         "summary",
         "attributes",
         "updated_at",
@@ -37,6 +45,9 @@ ENTITY_UPDATABLE_FIELDS = frozenset(
         "last_accessed",
         "deleted_at",
         "identity_core",
+        "lexical_regime",
+        "canonical_identifier",
+        "identifier_label",
     }
 )
 
@@ -54,6 +65,9 @@ EPISODE_UPDATABLE_FIELDS = frozenset(
         "memory_tier",
         "consolidation_cycles",
         "entity_coverage",
+        "projection_state",
+        "last_projection_reason",
+        "last_projected_at",
     }
 )
 
@@ -137,6 +151,14 @@ class GraphStore(Protocol):
     async def get_episode_by_id(self, episode_id: str, group_id: str) -> Episode | None: ...
     async def get_episode_entities(self, episode_id: str) -> list[str]: ...
     async def link_episode_entity(self, episode_id: str, entity_id: str) -> None: ...
+    async def upsert_episode_cue(self, cue: EpisodeCue) -> None: ...
+    async def get_episode_cue(self, episode_id: str, group_id: str) -> EpisodeCue | None: ...
+    async def update_episode_cue(
+        self,
+        episode_id: str,
+        updates: dict,
+        group_id: str = "default",
+    ) -> None: ...
     async def get_stats(self, group_id: str | None = None) -> dict: ...
     async def get_episodes_paginated(
         self,
@@ -177,6 +199,20 @@ class GraphStore(Protocol):
         entity_ids: list[str],
     ) -> dict[str, int]: ...
 
+    async def find_structural_merge_candidates(
+        self,
+        group_id: str,
+        min_shared_neighbors: int = 3,
+        limit: int = 200,
+    ) -> list[tuple[str, str, int]]: ...
+
+    async def get_episode_cooccurrence_count(
+        self,
+        entity_id_a: str,
+        entity_id_b: str,
+        group_id: str,
+    ) -> int: ...
+
     async def get_dead_entities(
         self,
         group_id: str,
@@ -207,6 +243,7 @@ class GraphStore(Protocol):
         weight_delta: float,
         max_weight: float = 3.0,
         group_id: str = "default",
+        predicate: str | None = None,
     ) -> float | None: ...
 
     async def get_identity_core_entities(
@@ -302,6 +339,7 @@ class SearchIndex(Protocol):
     async def close(self) -> None: ...
     async def index_entity(self, entity: Entity) -> None: ...
     async def index_episode(self, episode: Episode) -> None: ...
+    async def index_episode_cue(self, cue: EpisodeCue) -> None: ...
     async def search(
         self,
         query: str,
@@ -323,6 +361,12 @@ class SearchIndex(Protocol):
         group_id: str | None = None,
         limit: int = 10,
     ) -> list[tuple[str, float]]: ...
+    async def search_episode_cues(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]: ...
     async def get_entity_embeddings(
         self,
         entity_ids: list[str],
@@ -334,6 +378,32 @@ class SearchIndex(Protocol):
         method: str = "node2vec",
         group_id: str | None = None,
     ) -> dict[str, list[float]]: ...
+
+
+@runtime_checkable
+class AtlasStore(Protocol):
+    """Materialized atlas snapshot storage."""
+
+    async def initialize(self, db=None) -> None: ...
+    async def close(self) -> None: ...
+    async def get_latest_snapshot(self, group_id: str) -> AtlasSnapshot | None: ...
+    async def get_snapshot(
+        self,
+        snapshot_id: str,
+        group_id: str,
+    ) -> AtlasSnapshot | None: ...
+    async def list_snapshots(
+        self,
+        group_id: str,
+        limit: int = 24,
+    ) -> list[AtlasSnapshotSummary]: ...
+    async def save_snapshot(self, snapshot: AtlasSnapshot) -> None: ...
+    async def get_region_members(
+        self,
+        snapshot_id: str,
+        region_id: str,
+        group_id: str,
+    ) -> list[str]: ...
 
 
 @runtime_checkable
@@ -349,11 +419,15 @@ class ConsolidationStore(Protocol):
         self, group_id: str, limit: int = 10,
     ) -> list[ConsolidationCycle]: ...
     async def save_merge_record(self, record: MergeRecord) -> None: ...
+    async def save_identifier_review_record(self, record: IdentifierReviewRecord) -> None: ...
     async def save_inferred_edge(self, edge: InferredEdge) -> None: ...
     async def save_prune_record(self, record: PruneRecord) -> None: ...
     async def get_merge_records(
         self, cycle_id: str, group_id: str,
     ) -> list[MergeRecord]: ...
+    async def get_identifier_review_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[IdentifierReviewRecord]: ...
     async def get_inferred_edges(
         self, cycle_id: str, group_id: str,
     ) -> list[InferredEdge]: ...
@@ -396,4 +470,20 @@ class ConsolidationStore(Protocol):
     async def get_schema_records(
         self, cycle_id: str, group_id: str,
     ) -> list[SchemaRecord]: ...
+    async def save_decision_trace(self, record: DecisionTrace) -> None: ...
+    async def get_decision_traces(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DecisionTrace]: ...
+    async def save_decision_outcome_label(self, record: DecisionOutcomeLabel) -> None: ...
+    async def get_decision_outcome_labels(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DecisionOutcomeLabel]: ...
+    async def save_distillation_example(self, record: DistillationExample) -> None: ...
+    async def get_distillation_examples(
+        self, cycle_id: str, group_id: str,
+    ) -> list[DistillationExample]: ...
+    async def save_calibration_snapshot(self, record: CalibrationSnapshot) -> None: ...
+    async def get_calibration_snapshots(
+        self, cycle_id: str, group_id: str,
+    ) -> list[CalibrationSnapshot]: ...
     async def cleanup(self, ttl_days: int = 90) -> int: ...

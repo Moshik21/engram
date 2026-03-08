@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { api } from "../api/client";
 import { useEngramStore } from "../store";
 import { activationColor, activationGlow, entityColor } from "../lib/colors";
 import { sendWsCommand } from "../hooks/useWebSocket";
@@ -20,19 +21,31 @@ export function ActivationMonitor() {
   const accessEvents = useEngramStore((s) => s.accessEvents);
   const isLoadingCurve = useEngramStore((s) => s.isLoadingCurve);
   const isSubscribed = useEngramStore((s) => s.isActivationSubscribed);
+  const readyState = useEngramStore((s) => s.readyState);
   const selectEntity = useEngramStore((s) => s.selectActivationEntity);
   const loadCurve = useEngramStore((s) => s.loadDecayCurve);
   const setIsSubscribed = useEngramStore((s) => s.setIsActivationSubscribed);
   const loadSnapshot = useEngramStore((s) => s.setActivationLeaderboard);
+  const [relativeNow, setRelativeNow] = useState(0);
 
   useEffect(() => {
-    import("../api/client").then(({ api }) => {
-      api
-        .getActivationSnapshot(50)
-        .then((data) => loadSnapshot(data.topActivated))
-        .catch(() => {});
-    });
+    api
+      .getActivationSnapshot(50)
+      .then((data) => loadSnapshot(data.topActivated))
+      .catch(() => {});
   }, [loadSnapshot]);
+
+  useEffect(() => {
+    const updateNow = () => {
+      setRelativeNow(Date.now());
+    };
+
+    updateNow();
+    const intervalId = window.setInterval(updateNow, 60_000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const toggleSubscription = useCallback(() => {
     if (isSubscribed) {
@@ -42,14 +55,17 @@ export function ActivationMonitor() {
       });
       setIsSubscribed(false);
     } else {
-      sendWsCommand({
+      if (readyState !== "connected") return;
+      const didSend = sendWsCommand({
         type: "command",
         command: "subscribe.activation_monitor",
         interval_ms: 2000,
       });
-      setIsSubscribed(true);
+      if (didSend) {
+        setIsSubscribed(true);
+      }
     }
-  }, [isSubscribed, setIsSubscribed]);
+  }, [isSubscribed, readyState, setIsSubscribed]);
 
   useEffect(() => {
     return () => {
@@ -58,9 +74,10 @@ export function ActivationMonitor() {
           type: "command",
           command: "unsubscribe.activation_monitor",
         });
+        setIsSubscribed(false);
       }
     };
-  }, [isSubscribed]);
+  }, [isSubscribed, setIsSubscribed]);
 
   const handleEntityClick = useCallback(
     (entityId: string) => {
@@ -77,7 +94,8 @@ export function ActivationMonitor() {
 
   const chartData = decayCurve.map((p) => {
     const d = new Date(p.timestamp);
-    const hoursAgo = (Date.now() - d.getTime()) / 3600000;
+    const hoursAgo =
+      relativeNow === 0 ? 0 : (relativeNow - d.getTime()) / 3600000;
     return {
       time:
         hoursAgo > 1
@@ -130,6 +148,7 @@ export function ActivationMonitor() {
             <button
               onClick={toggleSubscription}
               className="pill"
+              disabled={!isSubscribed && readyState !== "connected"}
               style={
                 isSubscribed
                   ? {
@@ -137,6 +156,11 @@ export function ActivationMonitor() {
                       background: "rgba(34, 211, 238, 0.06)",
                       color: "var(--accent)",
                     }
+                  : readyState !== "connected"
+                    ? {
+                        opacity: 0.55,
+                        cursor: "not-allowed",
+                      }
                   : {}
               }
             >
@@ -510,7 +534,9 @@ export function ActivationMonitor() {
                     {accessEvents.map((evt) => {
                       const evtDate = new Date(evt);
                       const hoursAgo =
-                        (Date.now() - evtDate.getTime()) / 3600000;
+                        relativeNow === 0
+                          ? 0
+                          : (relativeNow - evtDate.getTime()) / 3600000;
                       const label =
                         hoursAgo > 1
                           ? `${hoursAgo.toFixed(0)}h ago`

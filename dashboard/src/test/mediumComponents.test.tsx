@@ -30,6 +30,80 @@ vi.mock("recharts", () => ({
 
 vi.mock("../api/client", () => ({
   api: {
+    getGraphAtlas: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "atlas",
+        layout: "precomputed",
+        representedEntityCount: 1,
+        representedEdgeCount: 0,
+        displayedNodeCount: 1,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      regions: [
+        {
+          id: "region:test",
+          label: "People",
+          subtitle: "Dominant entity type: Person",
+          kind: "mixed",
+          memberCount: 1,
+          representedEdgeCount: 0,
+          activationScore: 0.5,
+          growth7d: 1,
+          growth30d: 1,
+          dominantEntityTypes: { Person: 1 },
+          hubEntityIds: ["n1"],
+          centerEntityId: "n1",
+          latestEntityCreatedAt: "2026-03-05T00:00:00Z",
+          x: 0,
+          y: 0,
+          z: 0,
+        },
+      ],
+      bridges: [],
+      stats: {
+        totalEntities: 1,
+        totalRelationships: 0,
+        totalRegions: 1,
+        hottestRegionId: "region:test",
+        fastestGrowingRegionId: "region:test",
+      },
+    }),
+    getGraphAtlasHistory: vi.fn().mockResolvedValue({ items: [] }),
+    getGraphRegion: vi.fn().mockResolvedValue({
+      representation: {
+        scope: "region",
+        layout: "precomputed",
+        representedEntityCount: 0,
+        representedEdgeCount: 0,
+        displayedNodeCount: 0,
+        displayedEdgeCount: 0,
+        truncated: false,
+      },
+      generatedAt: "2026-03-06T00:00:00Z",
+      region: {
+        id: "region:test",
+        label: "People",
+        subtitle: null,
+        kind: "mixed",
+        memberCount: 0,
+        activationScore: 0,
+        growth7d: 0,
+        growth30d: 0,
+        latestEntityCreatedAt: null,
+      },
+      nodes: [],
+      edges: [],
+      topEntities: [],
+      memberIds: [],
+    }),
+    getHealth: vi.fn().mockResolvedValue({
+      status: "healthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "healthy" },
+    }),
     getNeighborhood: vi.fn().mockResolvedValue({
       centerId: "n1",
       nodes: [],
@@ -75,7 +149,7 @@ vi.mock("../hooks/useWebSocket", async (importOriginal) => {
   return {
     ...actual,
     useWebSocket: vi.fn(),
-    sendWsCommand: vi.fn(),
+    sendWsCommand: vi.fn().mockReturnValue(true),
     getWsInstance: vi.fn().mockReturnValue(null),
   };
 });
@@ -88,6 +162,7 @@ import { SearchBar } from "../components/SearchBar";
 import { GraphControls } from "../components/GraphControls";
 import { NodeTooltip } from "../components/NodeTooltip";
 import { ConnectionStatus } from "../components/ConnectionStatus";
+import { api } from "../api/client";
 import { useEngramStore } from "../store";
 
 function resetStore() {
@@ -95,6 +170,13 @@ function resetStore() {
     nodes: {},
     edges: {},
     centerNodeId: null,
+    brainMapScope: "atlas",
+    representation: null,
+    atlas: null,
+    activeRegionId: null,
+    regionData: null,
+    lastAtlasVisitAt: null,
+    lastAtlasSnapshotId: null,
     isLoading: false,
     error: null,
     selectedNodeId: null,
@@ -112,6 +194,8 @@ function resetStore() {
     timePosition: null,
     timeRange: null,
     isTimeScrubbing: false,
+    atlasSnapshotId: null,
+    atlasHistory: [],
     episodes: [],
     episodeCursor: null,
     hasMoreEpisodes: true,
@@ -180,6 +264,9 @@ describe("ActivationMonitor", () => {
 
   it("toggles LIVE/PAUSED subscription", async () => {
     const user = userEvent.setup();
+    act(() => {
+      useEngramStore.setState({ readyState: "connected" });
+    });
     render(<ActivationMonitor />);
 
     const button = screen.getByText("PAUSED");
@@ -225,10 +312,14 @@ describe("Sidebar", () => {
 // --- DashboardShell ---
 
 describe("DashboardShell", () => {
-  it("renders sidebar and topbar", () => {
+  it("renders sidebar and atlas metadata", async () => {
+    await act(async () => {
+      await useEngramStore.getState().loadAtlas();
+    });
     render(<DashboardShell />);
     expect(screen.getByText("Engram")).toBeInTheDocument();
-    expect(screen.getByText(/nodes/)).toBeInTheDocument();
+    expect(screen.getByText("Atlas")).toBeInTheDocument();
+    expect(screen.getByText(/regions/)).toBeInTheDocument();
   });
 
   it("switches view on currentView change", async () => {
@@ -236,7 +327,8 @@ describe("DashboardShell", () => {
       useEngramStore.setState({ currentView: "feed" });
     });
     render(<DashboardShell />);
-    expect(await screen.findByText(/No episodes yet/)).toBeInTheDocument();
+    expect(await screen.findByText("Loading view...")).toBeInTheDocument();
+    expect(await screen.findByText("Filter")).toBeInTheDocument();
   });
 });
 
@@ -348,19 +440,22 @@ describe("NodeTooltip (additional)", () => {
 // --- ConnectionStatus ---
 
 describe("ConnectionStatus (additional)", () => {
-  it("shows Connected when ws open", () => {
+  it("shows Live when ws open", async () => {
     act(() => {
       useEngramStore.setState({ readyState: "connected" });
     });
     render(<ConnectionStatus />);
-    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(await screen.findByText("Live")).toBeInTheDocument();
   });
 
-  it("shows Offline when ws closed", () => {
-    act(() => {
-      useEngramStore.setState({ readyState: "disconnected" });
+  it("shows Offline when health checks fail", async () => {
+    vi.mocked(api.getHealth).mockResolvedValueOnce({
+      status: "unhealthy",
+      version: "test",
+      mode: "lite",
+      services: { graph_store: "unhealthy" },
     });
     render(<ConnectionStatus />);
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(await screen.findByText("Offline")).toBeInTheDocument();
   });
 });

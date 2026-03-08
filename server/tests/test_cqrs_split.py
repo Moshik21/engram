@@ -7,6 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.config import ActivationConfig
+from engram.extraction.extractor import (
+    MAX_EXTRACTION_INPUT_CHARS,
+    ExtractionResult,
+    ExtractionStatus,
+)
 from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeStatus
@@ -15,6 +20,9 @@ from engram.models.episode import Episode, EpisodeStatus
 def _make_manager(
     entities: list[Entity] | None = None,
     extract_result=None,
+    *,
+    content: str = "Test content about Python",
+    cfg: ActivationConfig | None = None,
 ):
     """Create a GraphManager with mocked stores."""
     graph = AsyncMock()
@@ -23,7 +31,7 @@ def _make_manager(
     graph.get_episode_by_id = AsyncMock(
         return_value=Episode(
             id="ep_test",
-            content="Test content about Python",
+            content=content,
             source="test",
             status=EpisodeStatus.QUEUED,
             group_id="default",
@@ -56,7 +64,7 @@ def _make_manager(
         result.relationships = []
         extractor.extract = AsyncMock(return_value=result)
 
-    cfg = ActivationConfig()
+    cfg = cfg or ActivationConfig()
 
     manager = GraphManager(
         graph_store=graph,
@@ -133,6 +141,48 @@ class TestProjectEpisode:
             for c in update_calls
         ]
         assert EpisodeStatus.FAILED.value in statuses
+
+    async def test_retryable_extractor_result_sets_retrying_and_does_not_commit_hash(self):
+        manager = _make_manager(
+            extract_result=ExtractionResult(
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.API_ERROR,
+                error="API down",
+            )
+        )
+        ep_id = await manager.store_episode("Test content", "default", "test")
+        with pytest.raises(Exception, match="extractor_api_error"):
+            await manager.project_episode(ep_id, "default")
+
+        update_calls = manager._graph.update_episode.call_args_list
+        statuses = [
+            c[1].get("updates", c[0][1] if len(c[0]) > 1 else {}).get("status")
+            for c in update_calls
+        ]
+        assert EpisodeStatus.RETRYING.value in statuses
+        assert manager._content_hashes == set()
+        assert manager._content_hashes_inflight == set()
+
+    async def test_long_episode_uses_targeted_projection_plan(self):
+        correction = (
+            "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
+        )
+        filler = "Earlier note: I lived in Mesa and commuted to Tempe. "
+        content = (filler * 180) + correction
+        assert correction not in content[:MAX_EXTRACTION_INPUT_CHARS]
+
+        manager = _make_manager(
+            content=content,
+            cfg=ActivationConfig(projection_planner_enabled=True),
+        )
+        ep_id = await manager.store_episode(content, "default", "test")
+
+        await manager.project_episode(ep_id, "default")
+
+        projected_text = manager._extractor.extract.await_args.args[0]
+        assert len(projected_text) <= MAX_EXTRACTION_INPUT_CHARS
+        assert correction in projected_text
 
 
 @pytest.mark.asyncio

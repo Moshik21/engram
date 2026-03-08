@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from engram.activation.engine import compute_activation
 from engram.config import ActivationConfig
@@ -27,6 +27,9 @@ class ScoredResult:
     state_boost: float = 0.0
     hop_distance: int | None = None
     result_type: str = "entity"
+    planner_support: float = 0.0
+    planner_intents: list[str] = field(default_factory=list)
+    recall_trace: list[dict] = field(default_factory=list)
 
 
 def _tier_to_decay(mat_tier: str | None, cfg: ActivationConfig) -> float | None:

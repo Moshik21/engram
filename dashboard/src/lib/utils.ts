@@ -2,7 +2,7 @@ export function formatRelativeTime(iso: string | null): string {
   if (!iso) return "never";
   const now = Date.now();
   // Ensure UTC interpretation: append Z if no timezone indicator present
-  const normalized = /[Z+\-]\d{0,2}:?\d{0,2}$/.test(iso) ? iso : iso + "Z";
+  const normalized = /[Z+-]\d{0,2}:?\d{0,2}$/.test(iso) ? iso : iso + "Z";
   const then = new Date(normalized).getTime();
   if (isNaN(then)) return "—";
   const diff = now - then;

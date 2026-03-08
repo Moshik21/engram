@@ -28,8 +28,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const activeConversationId = useEngramStore((s) => s.activeConversationId);
   const setConversationId = useEngramStore((s) => s.setConversationId);
   const loadConversations = useEngramStore((s) => s.loadConversations);
-  const convIdRef = useRef(activeConversationId);
-  convIdRef.current = activeConversationId;
 
   const transport = useMemo(
     () =>
@@ -47,7 +45,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             body: {
               message,
               history,
-              conversation_id: convIdRef.current ?? undefined,
+              conversation_id:
+                useEngramStore.getState().activeConversationId ?? undefined,
               session_date: today,
             },
           };
@@ -68,6 +67,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const { messages, status, setMessages } = chat;
   const prevStatusRef = useRef(status);
   const prevMsgCountRef = useRef(messages.length);
+  const conversationRequestRef = useRef(0);
 
   // When status transitions from streaming → ready with new messages, persist
   useEffect(() => {
@@ -88,7 +88,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const assistantText = textFromParts(lastAssistant);
 
       // Persist messages to backend
-      const convId = convIdRef.current;
+      const convId = useEngramStore.getState().activeConversationId;
       if (convId) {
         api
           .appendConversationMessages(convId, [
@@ -103,7 +103,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         loadConversations().then(() => {
           // Set the newest conversation as active
           const { conversations } = useEngramStore.getState();
-          if (conversations.length > 0 && !convIdRef.current) {
+          if (
+            conversations.length > 0 &&
+            !useEngramStore.getState().activeConversationId
+          ) {
             setConversationId(conversations[0].id);
           }
         });
@@ -116,25 +119,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeConversationId === prevConvIdRef.current) return;
     prevConvIdRef.current = activeConversationId;
+    conversationRequestRef.current += 1;
+    const requestId = conversationRequestRef.current;
 
     if (!activeConversationId) {
       setMessages([]);
       return;
     }
 
-    api.getConversationMessages(activeConversationId).then((data) => {
-      const uiMessages: UIMessage[] = data.messages.map((m) => ({
-        id: m.id,
-        role: m.role as "user" | "assistant",
-        parts: [{ type: "text" as const, text: m.content }],
-      }));
-      setMessages(uiMessages);
-    });
+    const controller = new AbortController();
+
+    api
+      .getConversationMessages(activeConversationId, {
+        signal: controller.signal,
+      })
+      .then((data) => {
+        if (
+          controller.signal.aborted ||
+          requestId !== conversationRequestRef.current
+        ) {
+          return;
+        }
+
+        const uiMessages: UIMessage[] = data.messages.map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          parts: [{ type: "text" as const, text: m.content }],
+        }));
+        setMessages(uiMessages);
+      })
+      .catch((error: unknown) => {
+        if ((error as DOMException)?.name === "AbortError") return;
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [activeConversationId, setMessages]);
 
   return <ChatContext.Provider value={chat}>{children}</ChatContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useChatContext(): ChatContextType {
   const ctx = useContext(ChatContext);
   if (!ctx) throw new Error("useChatContext must be used inside ChatProvider");

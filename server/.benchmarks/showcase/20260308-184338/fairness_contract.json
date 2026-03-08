@@ -1,0 +1,165 @@
+{
+  "answer_model": null,
+  "answer_prompt": null,
+  "answer_provider": null,
+  "baseline_contracts": {
+    "context_summary": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 220,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "context_window": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 180,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "engram_full": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "budget_profile": {
+        "answer_budget_tokens": 90,
+        "evidence_max_tokens": 120,
+        "retrieval_limit": 5
+      },
+      "evidence_budget_source": "scenario_probe",
+      "integration_profile": "rework",
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "engram_no_cues": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "budget_profile": {
+        "answer_budget_tokens": 120,
+        "evidence_max_tokens": 220,
+        "retrieval_limit": 5
+      },
+      "evidence_budget_source": "scenario_probe",
+      "integration_profile": "off",
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "engram_search_only": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "budget_profile": {
+        "answer_budget_tokens": 120,
+        "evidence_max_tokens": 220,
+        "retrieval_limit": 5
+      },
+      "evidence_budget_source": "scenario_probe",
+      "integration_profile": "off",
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "hybrid_rag_temporal": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 260,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "local"
+    },
+    "markdown_canonical": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 260,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "markdown_memory": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 260,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "none"
+    },
+    "vector_rag": {
+      "answer_prompt_id": "showcase_answer_v2",
+      "evidence_budget_source": "scenario_probe",
+      "history_token_budget": 260,
+      "retrieval_limit_source": "scenario_probe",
+      "vector_provider_family": "local"
+    }
+  },
+  "scenario_budgets": {
+    "context_budget_compression": {
+      "answer_budget_tokens": 80,
+      "evidence_max_tokens": 60,
+      "retrieval_limit": 5
+    },
+    "correction_chain": {
+      "answer_budget_tokens": 60,
+      "evidence_max_tokens": 70,
+      "retrieval_limit": 5
+    },
+    "cross_cluster_association": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 120,
+      "retrieval_limit": 5
+    },
+    "cue_delayed_relevance": {
+      "answer_budget_tokens": 90,
+      "evidence_max_tokens": 120,
+      "retrieval_limit": 5
+    },
+    "meta_contamination_resistance": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 80,
+      "retrieval_limit": 5
+    },
+    "multi_session_continuity": {
+      "answer_budget_tokens": 60,
+      "evidence_max_tokens": 70,
+      "retrieval_limit": 5
+    },
+    "negation_correction": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 120,
+      "retrieval_limit": 5
+    },
+    "open_loop_recovery": {
+      "answer_budget_tokens": 90,
+      "evidence_max_tokens": 110,
+      "retrieval_limit": 5
+    },
+    "prospective_trigger": {
+      "answer_budget_tokens": 80,
+      "evidence_max_tokens": 120,
+      "retrieval_limit": 5
+    },
+    "selective_extraction_efficiency": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 70,
+      "retrieval_limit": 5
+    },
+    "summary_drift_resistance": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 80,
+      "retrieval_limit": 5
+    },
+    "temporal_override": {
+      "answer_budget_tokens": 70,
+      "evidence_max_tokens": 80,
+      "retrieval_limit": 5
+    }
+  },
+  "strict_fairness": true,
+  "track": "showcase",
+  "transcript_hashes": {
+    "context_budget_compression": "42f178df495e64a08947774f8403eb70f7d15a0867560f1cbe2c427f8db215e7",
+    "correction_chain": "7a99b23128f1c91ad17cd6da16cbfc9d3751c87a702906af6254826c2ead06a0",
+    "cross_cluster_association": "14fa96848e85d5069b3162f811fd122ae2e49f47e9417736b62e4491cf9ad729",
+    "cue_delayed_relevance": "9e22b68093706ef881b69b277ec3ae4c66e916277fd9ecde4eddee54c1331c45",
+    "meta_contamination_resistance": "33928923ee18c1b687ccb6c1c5cf6aa13490563b0d3d07a338c195db5bd3f664",
+    "multi_session_continuity": "8b98d5504e7fd882798f24aec0e198037e6e8e5d3e33ec81901e88af730256cb",
+    "negation_correction": "cc82302efdd2eecf83279fdd6ba11db59e0d44116b99ba92677556c5440be765",
+    "open_loop_recovery": "1ecf970f60dc7c5cd7d012ffe539daf3398d19b26b7d6d0819ccf2f75eba2198",
+    "prospective_trigger": "3a82f46afc87dfa8c32f8c40a051a3420b280e1c8f5c57eff5a641a6bb634914",
+    "selective_extraction_efficiency": "3e9c3f573044051b25cc320cb36bff3e7be97edd55a8e1aa533913633630e505",
+    "summary_drift_resistance": "0ef545a7042c12d7a6c0766d8c23284a84ae810939de62386be68543c39050e7",
+    "temporal_override": "3c7ef10c901508cdb889e1375615bfff46b2db9e8fe1d4461999bc683b6dbde5"
+  },
+  "transcript_invariant": true,
+  "vector_provider_family": "local"
+}

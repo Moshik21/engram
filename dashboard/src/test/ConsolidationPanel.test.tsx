@@ -49,7 +49,31 @@ vi.mock("../api/client", () => ({
         { phase: "reindex", status: "success", items_processed: 2, items_affected: 2, duration_ms: 300, error: null },
         { phase: "dream", status: "skipped", items_processed: 0, items_affected: 0, duration_ms: 5, error: null },
       ],
-      merges: [{ id: "mrg_1", keep_name: "Alice", remove_name: "alice", similarity: 0.92, relationships_transferred: 3 }],
+      merges: [{
+        id: "mrg_1",
+        keep_name: "Alice",
+        remove_name: "alice",
+        similarity: 0.92,
+        decision_confidence: 0.99,
+        decision_source: "identifier_policy",
+        decision_reason: "identifier_exact_match",
+        relationships_transferred: 3,
+      }],
+      identifier_reviews: [{
+        id: "idr_1",
+        entity_a_name: "1712061",
+        entity_b_name: "1712018",
+        entity_a_type: "Identifier",
+        entity_b_type: "Identifier",
+        raw_similarity: 0.86,
+        adjusted_similarity: 0.89,
+        decision_source: "fuzzy_threshold",
+        decision_reason: "identifier_mismatch",
+        canonical_identifier_a: "1712061",
+        canonical_identifier_b: "1712018",
+        review_status: "quarantined",
+        metadata: {},
+      }],
       inferred_edges: [],
       prunes: [],
       dreams: [],
@@ -143,6 +167,29 @@ describe("ConsolidationPanel", () => {
     expect(screen.getByText("compact")).toBeInTheDocument();
     expect(screen.getByText("reindex")).toBeInTheDocument();
     expect(screen.getByText("dream")).toBeInTheDocument();
+  });
+
+  it("merge details distinguish decision confidence from name similarity", async () => {
+    render(<ConsolidationPanel />);
+    const cycleButton = await screen.findByText("manual");
+    const user = userEvent.setup();
+    await user.click(cycleButton);
+
+    expect(await screen.findByText("decision 99%")).toBeInTheDocument();
+    expect(screen.getByText("name 92%")).toBeInTheDocument();
+    expect(screen.getByText("identifier exact")).toBeInTheDocument();
+  });
+
+  it("renders quarantined identifier review records", async () => {
+    render(<ConsolidationPanel />);
+    const cycleButton = await screen.findByText("manual");
+    const user = userEvent.setup();
+    await user.click(cycleButton);
+
+    expect(await screen.findByText("Identifier Reviews")).toBeInTheDocument();
+    expect(screen.getByText("identifier mismatch")).toBeInTheDocument();
+    expect(screen.getByText("raw 86%")).toBeInTheDocument();
+    expect(screen.getByText("quarantined")).toBeInTheDocument();
   });
 
   it("trigger button calls API", async () => {

@@ -1,10 +1,14 @@
 import type {
   GraphNode,
   GraphEdge,
+  AtlasData,
+  AtlasHistoryEntry,
+  RegionData,
   SearchResult,
   EntityDetail,
   Episode,
   GraphStats,
+  GraphRepresentationMeta,
   ConsolidationCycleSummary,
   ConsolidationCycleDetail,
   ConsolidationPressure,
@@ -17,8 +21,13 @@ export interface NeighborhoodResponse {
   centerId: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  representation?: GraphRepresentationMeta;
   truncated: boolean;
   totalInNeighborhood: number;
+}
+
+export interface AtlasHistoryResponse {
+  items: AtlasHistoryEntry[];
 }
 
 export interface ConversationSummary {
@@ -41,6 +50,80 @@ export interface ConversationMessage {
 export interface EpisodesResponse {
   items: Episode[];
   nextCursor: string | null;
+}
+
+export type ServerHealthStatus = "healthy" | "degraded" | "unhealthy";
+
+export interface HealthResponse {
+  status: ServerHealthStatus;
+  version: string;
+  mode: string;
+  services: Record<string, ServerHealthStatus>;
+}
+
+interface RawStatsResponse {
+  stats?: {
+    entities?: number;
+    relationships?: number;
+    episodes?: number;
+    entity_type_distribution?: Record<string, number>;
+    cue_metrics?: {
+      cue_count?: number;
+      episodes_without_cues?: number;
+      cue_coverage?: number;
+      cue_hit_count?: number;
+      cue_hit_episode_count?: number;
+      cue_hit_episode_rate?: number;
+      cue_surfaced_count?: number;
+      cue_selected_count?: number;
+      cue_used_count?: number;
+      cue_near_miss_count?: number;
+      avg_policy_score?: number;
+      avg_projection_attempts?: number;
+      projected_cue_count?: number;
+      cue_to_projection_conversion_rate?: number;
+    };
+    projection_metrics?: {
+      state_counts?: {
+        queued?: number;
+        cued?: number;
+        cue_only?: number;
+        scheduled?: number;
+        projecting?: number;
+        projected?: number;
+        failed?: number;
+        dead_letter?: number;
+      };
+      attempted_episode_count?: number;
+      total_attempts?: number;
+      failure_count?: number;
+      dead_letter_count?: number;
+      failure_rate?: number;
+      avg_processing_duration_ms?: number;
+      avg_time_to_projection_ms?: number;
+      yield?: {
+        linked_entity_count?: number;
+        relationship_count?: number;
+        avg_linked_entities_per_projected_episode?: number;
+        avg_relationships_per_projected_episode?: number;
+      };
+    };
+  };
+  topActivated?: Array<{
+    id: string;
+    name: string;
+    entityType: string;
+    activationCurrent?: number;
+    activation?: number;
+  }>;
+  topConnected?: Array<{
+    id: string;
+    name: string;
+    entityType: string;
+    edgeCount?: number;
+    connectionCount?: number;
+  }>;
+  growthTimeline?: GraphStats["growthTimeline"];
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -69,6 +152,34 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getHealth: () => fetchJSON<HealthResponse>("/health"),
+
+  getGraphAtlas: (params?: { refresh?: boolean; snapshotId?: string | null }) => {
+    const sp = new URLSearchParams();
+    if (params?.refresh) sp.set("refresh", "true");
+    if (params?.snapshotId) sp.set("snapshot_id", params.snapshotId);
+    const suffix = sp.size > 0 ? `?${sp}` : "";
+    return fetchJSON<AtlasData>(`/api/graph/atlas${suffix}`);
+  },
+
+  getGraphAtlasHistory: (params?: { limit?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.limit != null) sp.set("limit", String(params.limit));
+    const suffix = sp.size > 0 ? `?${sp}` : "";
+    return fetchJSON<AtlasHistoryResponse>(`/api/graph/atlas/history${suffix}`);
+  },
+
+  getGraphRegion: (
+    regionId: string,
+    params?: { refresh?: boolean; snapshotId?: string | null },
+  ) => {
+    const sp = new URLSearchParams();
+    if (params?.refresh) sp.set("refresh", "true");
+    if (params?.snapshotId) sp.set("snapshot_id", params.snapshotId);
+    const suffix = sp.size > 0 ? `?${sp}` : "";
+    return fetchJSON<RegionData>(`/api/graph/regions/${regionId}${suffix}`);
+  },
+
   getNeighborhood: (params: {
     center?: string;
     depth?: number;
@@ -86,17 +197,37 @@ export const api = {
     );
   },
 
-  searchEntities: async (params: { q?: string; type?: string; limit?: number }): Promise<SearchResult[]> => {
+  searchEntities: async (
+    params: { q?: string; type?: string; limit?: number; signal?: AbortSignal },
+  ): Promise<SearchResult[]> => {
     const sp = new URLSearchParams();
     if (params.q) sp.set("q", params.q);
     if (params.type) sp.set("type", params.type);
     if (params.limit) sp.set("limit", String(params.limit));
-    const data = await fetchJSON<{ items: Array<{ id: string; name: string; entityType: string; summary: string | null; activationCurrent: number }>; total: number }>(`/api/entities/search?${sp}`);
+    const data = await fetchJSON<{
+      items: Array<{
+        id: string;
+        name: string;
+        entityType: string;
+        summary: string | null;
+        lexicalRegime?: string | null;
+        canonicalIdentifier?: string | null;
+        identifierLabel?: boolean;
+        activationCurrent: number;
+      }>;
+      total: number;
+    }>(
+      `/api/entities/search?${sp}`,
+      { signal: params.signal },
+    );
     return data.items.map((item) => ({
       id: item.id,
       name: item.name,
       entityType: item.entityType,
       summary: item.summary,
+      lexicalRegime: item.lexicalRegime ?? null,
+      canonicalIdentifier: item.canonicalIdentifier ?? null,
+      identifierLabel: Boolean(item.identifierLabel),
       activationScore: item.activationCurrent,
     }));
   },
@@ -116,21 +247,70 @@ export const api = {
   },
 
   getStats: async (): Promise<GraphStats> => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw: any = await fetchJSON("/api/stats");
+    const raw = await fetchJSON<RawStatsResponse>("/api/stats");
     const s = raw.stats ?? {};
+    const cueMetrics = s.cue_metrics;
+    const projectionMetrics = s.projection_metrics;
+    const projectionStateCounts = projectionMetrics?.state_counts;
+    const projectionYield = projectionMetrics?.yield;
     return {
       totalEntities: s.entities ?? 0,
       totalRelationships: s.relationships ?? 0,
       totalEpisodes: s.episodes ?? 0,
       entityTypeCounts: s.entity_type_distribution ?? {},
-      topActivated: (raw.topActivated ?? []).map((a: any) => ({
+      cueMetrics: {
+        cueCount: cueMetrics?.cue_count ?? 0,
+        episodesWithoutCues: cueMetrics?.episodes_without_cues ?? 0,
+        cueCoverage: cueMetrics?.cue_coverage ?? 0,
+        cueHitCount: cueMetrics?.cue_hit_count ?? 0,
+        cueHitEpisodeCount: cueMetrics?.cue_hit_episode_count ?? 0,
+        cueHitEpisodeRate: cueMetrics?.cue_hit_episode_rate ?? 0,
+        cueSurfacedCount: cueMetrics?.cue_surfaced_count ?? 0,
+        cueSelectedCount: cueMetrics?.cue_selected_count ?? 0,
+        cueUsedCount: cueMetrics?.cue_used_count ?? 0,
+        cueNearMissCount: cueMetrics?.cue_near_miss_count ?? 0,
+        avgPolicyScore: cueMetrics?.avg_policy_score ?? 0,
+        avgProjectionAttempts: cueMetrics?.avg_projection_attempts ?? 0,
+        projectedCueCount: cueMetrics?.projected_cue_count ?? 0,
+        cueToProjectionConversionRate:
+          cueMetrics?.cue_to_projection_conversion_rate ?? 0,
+      },
+      projectionMetrics: {
+        stateCounts: {
+          queued: projectionStateCounts?.queued ?? 0,
+          cued: projectionStateCounts?.cued ?? 0,
+          cueOnly: projectionStateCounts?.cue_only ?? 0,
+          scheduled: projectionStateCounts?.scheduled ?? 0,
+          projecting: projectionStateCounts?.projecting ?? 0,
+          projected: projectionStateCounts?.projected ?? 0,
+          failed: projectionStateCounts?.failed ?? 0,
+          deadLetter: projectionStateCounts?.dead_letter ?? 0,
+        },
+        attemptedEpisodeCount: projectionMetrics?.attempted_episode_count ?? 0,
+        totalAttempts: projectionMetrics?.total_attempts ?? 0,
+        failureCount: projectionMetrics?.failure_count ?? 0,
+        deadLetterCount: projectionMetrics?.dead_letter_count ?? 0,
+        failureRate: projectionMetrics?.failure_rate ?? 0,
+        avgProcessingDurationMs:
+          projectionMetrics?.avg_processing_duration_ms ?? 0,
+        avgTimeToProjectionMs:
+          projectionMetrics?.avg_time_to_projection_ms ?? 0,
+        yield: {
+          linkedEntityCount: projectionYield?.linked_entity_count ?? 0,
+          relationshipCount: projectionYield?.relationship_count ?? 0,
+          avgLinkedEntitiesPerProjectedEpisode:
+            projectionYield?.avg_linked_entities_per_projected_episode ?? 0,
+          avgRelationshipsPerProjectedEpisode:
+            projectionYield?.avg_relationships_per_projected_episode ?? 0,
+        },
+      },
+      topActivated: (raw.topActivated ?? []).map((a) => ({
         id: a.id,
         name: a.name,
         entityType: a.entityType,
         activation: a.activationCurrent ?? a.activation ?? 0,
       })),
-      topConnected: (raw.topConnected ?? []).map((c: any) => ({
+      topConnected: (raw.topConnected ?? []).map((c) => ({
         id: c.id,
         name: c.name,
         entityType: c.entityType,
@@ -153,7 +333,7 @@ export const api = {
     const sp = new URLSearchParams();
     sp.set("at", timestamp);
     if (centerId) sp.set("center", centerId);
-    return fetchJSON<NeighborhoodResponse>(`/api/graph/neighborhood?${sp}`);
+    return fetchJSON<NeighborhoodResponse>(`/api/graph/at?${sp}`);
   },
 
   updateEntity: (id: string, body: { name?: string; summary?: string }) =>
@@ -248,8 +428,11 @@ export const api = {
   listConversations: (limit = 50) =>
     fetchJSON<{ conversations: ConversationSummary[] }>(`/api/conversations/?limit=${limit}`),
 
-  getConversationMessages: (convId: string) =>
-    fetchJSON<{ messages: ConversationMessage[] }>(`/api/conversations/${convId}/messages`),
+  getConversationMessages: (convId: string, init?: RequestInit) =>
+    fetchJSON<{ messages: ConversationMessage[] }>(
+      `/api/conversations/${convId}/messages`,
+      init,
+    ),
 
   appendConversationMessages: (convId: string, messages: Array<{ role: string; content: string; partsJson?: string }>) =>
     fetchJSON<{ ids: string[] }>(`/api/conversations/${convId}/messages`, {

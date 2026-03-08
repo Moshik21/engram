@@ -13,6 +13,7 @@ from engram.activation.spreading import (
     spread_activation,
 )
 from engram.config import ActivationConfig
+from engram.retrieval.plan import build_recall_plan, execute_recall_plan
 from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
     ScoredResult,
@@ -88,6 +89,42 @@ def _scale_limit(base: int, total_entities: int, lo: int, hi: int) -> int:
     return max(lo, min(int(base * scale), hi))
 
 
+def _merge_special_results(
+    episode_candidates: list[ScoredResult],
+    cue_candidates: list[ScoredResult],
+    cfg: ActivationConfig,
+) -> list[ScoredResult]:
+    """Merge episode and cue-backed candidates, keeping the strongest per episode."""
+    special_results: list[ScoredResult] = []
+
+    if episode_candidates and cfg.episode_retrieval_enabled:
+        episode_candidates.sort(key=lambda r: r.score, reverse=True)
+        special_results.extend(episode_candidates[: cfg.episode_retrieval_max])
+
+    if cue_candidates and cfg.cue_recall_enabled:
+        cue_candidates.sort(key=lambda r: r.score, reverse=True)
+        best_by_episode = {result.node_id: result for result in special_results}
+        for cue_result in cue_candidates[: cfg.cue_recall_max]:
+            existing = best_by_episode.get(cue_result.node_id)
+            if existing is None or cue_result.score > existing.score:
+                best_by_episode[cue_result.node_id] = cue_result
+        special_results = list(best_by_episode.values())
+
+    special_results.sort(key=lambda r: r.score, reverse=True)
+    return special_results
+
+
+def _require_recall_capability(search_index, method_name: str, feature_name: str):
+    """Return a required recall method or raise if the backend cannot provide it."""
+    method = getattr(search_index, method_name, None)
+    if callable(method):
+        return method
+    raise RuntimeError(
+        f"{type(search_index).__name__} is missing required recall capability "
+        f"'{method_name}' for {feature_name}"
+    )
+
+
 async def retrieve(
     query: str,
     group_id: str,
@@ -104,6 +141,8 @@ async def retrieve(
     conv_context=None,
     priming_buffer: dict[str, tuple[float, float]] | None = None,
     goal_cache=None,
+    record_feedback: bool = True,
+    memory_need=None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -121,6 +160,7 @@ async def retrieve(
 
     # Save original weight for episode scoring (before routing modifies cfg)
     original_weight_semantic = cfg.weight_semantic
+    planner_trace = None
 
     # Fetch entity count for dynamic pool sizing
     total_entities = 0
@@ -190,8 +230,24 @@ async def retrieve(
                     candidates.append((item_id, 0.1 * recency_score))
                     existing_ids.add(item_id)
 
-    # Step 0.5: Multi-query decomposition (Wave 2)
-    if cfg.conv_multi_query_enabled and conv_context is not None:
+    # Step 0.5: Planner-driven multi-intent recall (Phase 2)
+    if cfg.recall_planner_enabled:
+        planner_trace = await execute_recall_plan(
+            build_recall_plan(
+                query,
+                cfg,
+                conv_context=conv_context,
+                memory_need=memory_need,
+            ),
+            group_id=group_id,
+            search_index=search_index,
+            base_candidates=candidates,
+        )
+        if planner_trace.merged_candidates:
+            candidates = planner_trace.merged_candidates
+
+    # Step 0.6: Legacy multi-query decomposition (Wave 2)
+    elif cfg.conv_multi_query_enabled and conv_context is not None:
         import asyncio as _asyncio
 
         turn_count = conv_context._turn_count
@@ -230,9 +286,14 @@ async def retrieve(
 
     # Step 1.1: Episode search (runs in both modes)
     episode_candidates: list[ScoredResult] = []
-    if cfg.episode_retrieval_enabled and hasattr(search_index, "search_episodes"):
+    if cfg.episode_retrieval_enabled:
+        search_episodes = _require_recall_capability(
+            search_index,
+            "search_episodes",
+            "episode retrieval",
+        )
         try:
-            ep_results = await search_index.search_episodes(
+            ep_results = await search_episodes(
                 query=query,
                 group_id=group_id,
                 limit=cfg.episode_retrieval_max * 3,
@@ -254,6 +315,37 @@ async def retrieve(
         except Exception as e:
             logger.warning("Episode search failed (non-fatal): %s", e)
 
+    # Step 1.2: Cue-backed episode search
+    cue_candidates: list[ScoredResult] = []
+    if cfg.cue_recall_enabled:
+        search_episode_cues = _require_recall_capability(
+            search_index,
+            "search_episode_cues",
+            "cue recall",
+        )
+        try:
+            cue_results = await search_episode_cues(
+                query=query,
+                group_id=group_id,
+                limit=cfg.cue_recall_max * 3,
+            )
+            for ep_id, sem_sim in cue_results:
+                cue_score = original_weight_semantic * sem_sim * cfg.cue_recall_weight
+                cue_candidates.append(
+                    ScoredResult(
+                        node_id=ep_id,
+                        score=cue_score,
+                        semantic_similarity=sem_sim,
+                        activation=0.0,
+                        spreading=0.0,
+                        edge_proximity=0.0,
+                        exploration_bonus=0.0,
+                        result_type="cue_episode",
+                    )
+                )
+        except Exception as e:
+            logger.warning("Cue search failed (non-fatal): %s", e)
+
     # Step 1.8: Entity-first fallback when search finds few candidates
     if len(candidates) < 3:
         candidates = await _inject_entity_matches(
@@ -264,6 +356,9 @@ async def retrieve(
         )
 
     if not candidates:
+        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        if special_results:
+            return special_results[: min(limit, cfg.retrieval_top_n)]
         return []
 
     # Step 2: Batch get activation states
@@ -563,6 +658,12 @@ async def retrieve(
             state_biases=state_biases,
         )
 
+    if planner_trace is not None:
+        for sr in scored:
+            sr.planner_support = planner_trace.support_scores.get(sr.node_id, 0.0)
+            sr.planner_intents = planner_trace.intent_types.get(sr.node_id, [])
+            sr.recall_trace = planner_trace.support_details.get(sr.node_id, [])
+
     # Step 5.5: Cross-encoder re-ranking (if enabled)
     if cfg.reranker_enabled and reranker is not None:
         try:
@@ -665,29 +766,33 @@ async def retrieve(
         except Exception as e:
             logger.warning("GC-MMR failed (non-fatal): %s", e)
 
-    # Step 6: Return top-N, mixing entities and episodes
+    # Step 6: Return top-N, mixing entities, episodes, and cue-backed episodes
     top_n = min(limit, cfg.retrieval_top_n)
+    special_budget = 0
     if episode_candidates and cfg.episode_retrieval_enabled:
-        # Take top entities up to (limit - episode_retrieval_max)
-        entity_limit = max(1, top_n - cfg.episode_retrieval_max)
+        special_budget += cfg.episode_retrieval_max
+    if cue_candidates and cfg.cue_recall_enabled:
+        special_budget += cfg.cue_recall_max
+
+    if special_budget > 0:
+        # Preserve room for special results while keeping at least one entity slot.
+        entity_limit = max(1, top_n - special_budget)
         entity_results = scored[:entity_limit]
-        # Fill remaining slots with top episodes up to episode_retrieval_max
-        episode_candidates.sort(key=lambda r: r.score, reverse=True)
-        ep_results_final = episode_candidates[: cfg.episode_retrieval_max]
-        # Combine and re-sort by score
-        results = entity_results + ep_results_final
+        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        results = entity_results + special_results
         results.sort(key=lambda r: r.score, reverse=True)
+        results = results[:top_n]
     else:
         results = scored[:top_n]
 
-    # Step 7: Record Thompson Sampling feedback (if enabled)
-    if cfg.ts_enabled:
+    # Step 7: Record Thompson Sampling feedback only for true-usage recalls.
+    if cfg.ts_enabled and record_feedback:
         from engram.activation.feedback import (
             record_negative_feedback,
             record_positive_feedback,
         )
 
-        returned_ids = {r.node_id for r in results}
+        returned_ids = {r.node_id for r in results if r.result_type == "entity"}
         all_candidate_ids = {eid for eid, _ in candidates}
         for eid in returned_ids:
             await record_positive_feedback(eid, activation_store, cfg)

@@ -12,6 +12,7 @@ export function SearchBar() {
   const clearSearch = useEngramStore((s) => s.clearSearch);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
   const selectNode = useEngramStore((s) => s.selectNode);
+  const setCurrentView = useEngramStore((s) => s.setCurrentView);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const debouncedSearch = useMemo(
@@ -31,10 +32,11 @@ export function SearchBar() {
   const handleResultClick = useCallback(
     (id: string) => {
       clearSearch();
-      loadNeighborhood(id);
+      setCurrentView("graph");
+      void loadNeighborhood(id, undefined, { regionId: null });
       selectNode(id);
     },
-    [clearSearch, loadNeighborhood, selectNode],
+    [clearSearch, loadNeighborhood, selectNode, setCurrentView],
   );
 
   useEffect(() => {

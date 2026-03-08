@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from engram.config import ActivationConfig, EngramConfig
+from engram.config import DEFAULT_ENV_FILES, ActivationConfig, EngramConfig
 
 
 class TestEngramConfig:
@@ -33,6 +33,33 @@ class TestEngramConfig:
         config = EngramConfig()
         assert config.mode == "lite"
 
+    def test_default_env_file_order_includes_repo_root(self):
+        repo_root_env = str(Path(__file__).resolve().parents[2] / ".env")
+        assert DEFAULT_ENV_FILES[0].endswith(".engram/.env")
+        assert DEFAULT_ENV_FILES[1] == repo_root_env
+        assert DEFAULT_ENV_FILES[2] == ".env"
+
+    def test_repo_root_env_loads_when_running_from_server(self, tmp_path, monkeypatch):
+        root_dir = tmp_path / "repo"
+        server_dir = root_dir / "server"
+        root_dir.mkdir()
+        server_dir.mkdir()
+        repo_env = root_dir / ".env"
+        repo_env.write_text("ENGRAM_MODE=full\n")
+
+        monkeypatch.chdir(server_dir)
+        monkeypatch.setattr(
+            EngramConfig,
+            "model_config",
+            {
+                **EngramConfig.model_config,
+                "env_file": ("nonexistent-global.env", str(repo_env), ".env"),
+            },
+        )
+
+        config = EngramConfig()
+        assert config.mode == "full"
+
 
 class TestActivationConfig:
     def test_decay_exponent_bounds(self):
@@ -45,3 +72,15 @@ class TestActivationConfig:
         cfg = ActivationConfig(decay_exponent=0.3, spread_max_hops=3)
         assert cfg.decay_exponent == 0.3
         assert cfg.spread_max_hops == 3
+
+    def test_progressive_projection_defaults(self):
+        cfg = ActivationConfig()
+        assert cfg.cue_layer_enabled is False
+        assert cfg.cue_vector_index_enabled is True
+        assert cfg.targeted_projection_enabled is True
+        assert cfg.projector_v2_enabled is True
+        assert cfg.projection_max_retries == 2
+        assert cfg.cue_recall_enabled is False
+        assert cfg.cue_recall_weight == 0.65
+        assert cfg.cue_recall_max == 2
+        assert cfg.cue_recall_hit_threshold == 2

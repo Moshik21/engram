@@ -18,6 +18,12 @@ const STATUS_STYLES: Record<
     border: "rgba(251, 146, 60, 0.25)",
     label: "Processing",
   },
+  extracting: {
+    bg: "rgba(168, 85, 247, 0.08)",
+    color: "#a855f7",
+    border: "rgba(168, 85, 247, 0.25)",
+    label: "Extracting",
+  },
   completed: {
     bg: "rgba(34, 211, 238, 0.06)",
     color: "var(--accent)",
@@ -38,7 +44,12 @@ interface EpisodeCardProps {
 }
 
 export function EpisodeCard({ episode, onEntityClick }: EpisodeCardProps) {
-  const statusStyle = STATUS_STYLES[episode.status];
+  const statusStyle = STATUS_STYLES[episode.status] ?? {
+    bg: "rgba(255,255,255,0.04)",
+    color: "var(--text-secondary)",
+    border: "var(--border)",
+    label: episode.status,
+  };
   const preview =
     episode.content.length > 120
       ? episode.content.slice(0, 120) + "..."

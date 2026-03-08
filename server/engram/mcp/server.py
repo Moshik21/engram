@@ -22,6 +22,11 @@ from engram.events.bus import get_event_bus
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
+from engram.retrieval.context import ConversationFingerprinter
+from engram.retrieval.feedback import publish_memory_need_analysis
+from engram.retrieval.graph_probe import GraphProbe
+from engram.retrieval.need import analyze_memory_need
+from engram.retrieval.packets import assemble_memory_packets
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 
@@ -115,6 +120,7 @@ async def _init() -> None:
     _manager = GraphManager(
         graph_store, activation_store, search_index, extractor,
         cfg=config.activation, event_bus=event_bus,
+        runtime_mode=mode.value,
     )
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
@@ -156,6 +162,56 @@ def _get_session() -> SessionState:
     return _session
 
 
+def _get_conv_context(manager: GraphManager):
+    """Return the concrete conversation context if one is configured."""
+    conv_context = getattr(manager, "_conv_context", None)
+    if conv_context is None:
+        return None
+    try:
+        from engram.retrieval.context import ConversationContext
+
+        if isinstance(conv_context, ConversationContext):
+            return conv_context
+    except Exception:
+        logger.debug("conversation context type check failed", exc_info=True)
+    return None
+
+
+def _get_conv_embed_fn(manager: GraphManager):
+    """Return the embedding function used for live conversation turns, if available."""
+    provider = getattr(manager._search, "_provider", None)
+    if provider and hasattr(provider, "embed_query"):
+        return provider.embed_query
+    return None
+
+
+def _get_graph_probe(manager: GraphManager) -> GraphProbe:
+    probe = getattr(manager, "_recall_need_graph_probe", None)
+    if isinstance(probe, GraphProbe):
+        return probe
+    probe = GraphProbe(manager._graph, manager._activation)
+    manager._recall_need_graph_probe = probe
+    return probe
+
+
+async def _ingest_live_turn(
+    manager: GraphManager,
+    text: str,
+    *,
+    source: str,
+) -> None:
+    """Record a live turn in conversation context with embedding when possible."""
+    conv_context = _get_conv_context(manager)
+    if conv_context is None:
+        return
+    await ConversationFingerprinter.ingest_turn(
+        conv_context,
+        text,
+        _get_conv_embed_fn(manager),
+        source=source,
+    )
+
+
 # ─── AutoRecall Helpers ──────────────────────────────────────────────
 
 
@@ -179,7 +235,45 @@ async def _auto_recall(
     if not cfg.auto_recall_enabled:
         return None
 
-    query = _extract_recall_query(content)
+    need = None
+    query = ""
+    if cfg.recall_need_analyzer_enabled:
+        recent_turns: list[str] = []
+        session_entity_names: list[str] = []
+        conv_context = _get_conv_context(manager)
+        if conv_context is not None:
+            recent_turns = conv_context.get_recent_turns(cfg.conv_multi_query_turns)
+            session_entity_names = [
+                entry.name
+                for entry in conv_context.get_top_entities(cfg.conv_multi_query_top_entities)
+            ]
+        need = await analyze_memory_need(
+            content,
+            recent_turns=recent_turns,
+            session_entity_names=session_entity_names,
+            mode="auto_recall",
+            graph_probe=_get_graph_probe(manager) if cfg.recall_need_graph_probe_enabled else None,
+            group_id=_group_id,
+            conv_context=conv_context,
+            cfg=cfg,
+            thresholds=manager.get_recall_need_thresholds(_group_id),
+        )
+        manager.record_memory_need_analysis(_group_id, need)
+        if cfg.recall_telemetry_enabled:
+            publish_memory_need_analysis(
+                get_event_bus(),
+                _group_id,
+                need,
+                source="auto_recall",
+                mode="auto_recall",
+                turn_text=content,
+            )
+        if not need.should_recall:
+            return None
+        query = need.query_hint or _extract_recall_query(content)
+    else:
+        query = _extract_recall_query(content)
+
     if not query:
         return None
 
@@ -197,52 +291,102 @@ async def _auto_recall(
 
     # Topic-shift-aware recall limit (Wave 3)
     recall_limit = cfg.auto_recall_limit
-    if (cfg.conv_topic_shift_enabled
-            and hasattr(manager, '_conv_context') and manager._conv_context is not None
-            and manager._conv_context.detect_topic_shift()):
+    conv_context = _get_conv_context(manager)
+    if (
+        cfg.conv_topic_shift_enabled
+        and conv_context is not None
+        and conv_context.detect_topic_shift()
+    ):
         recall_limit = cfg.conv_topic_shift_recall_boost
-        manager._conv_context.acknowledge_shift()
+        conv_context.acknowledge_shift()
 
     try:
+        interaction_type = None
+        record_access = True
+        if cfg.recall_telemetry_enabled or cfg.recall_usage_feedback_enabled:
+            interaction_type = "surfaced"
+        if cfg.recall_usage_feedback_enabled:
+            record_access = False
         results = await manager.recall(
-            query=query, group_id=_group_id, limit=recall_limit,
+            query=query,
+            group_id=_group_id,
+            limit=recall_limit,
+            record_access=record_access,
+            interaction_type=interaction_type,
+            interaction_source="auto_recall",
+            memory_need=need,
         )
     except Exception:
         logger.debug("auto_recall failed", exc_info=True)
         return None
 
-    # Filter: skip episodes, skip below min_score
+    packets = []
+    if cfg.recall_packets_enabled:
+        packets = [
+            packet.to_dict()
+            for packet in await assemble_memory_packets(
+                results,
+                query,
+                mode="auto_surface",
+                memory_need=need,
+                max_packets=cfg.recall_packet_auto_limit,
+                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                    entity_id,
+                    _group_id,
+                ),
+            )
+        ]
+
+    # Filter and compact into additive recall surfaces
     entities = []
+    cue_episodes = []
     for r in results:
-        if r.get("result_type") == "episode":
-            continue
         if r.get("score", 0) < cfg.auto_recall_min_score:
             continue
-        entity = r["entity"]
-        # Compact format — no expensive relationship resolution
-        facts = []
-        for rel in r.get("relationships", [])[:3]:
-            facts.append(f"{rel.get('predicate', '?')}")
-        entry: dict = {
-            "name": entity["name"],
-            "type": entity["type"],
-            "summary": (entity.get("summary") or "")[:100],
-        }
-        if facts:
-            entry["top_facts"] = facts
-        entities.append(entry)
 
-    if not entities:
+        if r.get("result_type") == "entity" and "entity" in r:
+            entity = r["entity"]
+            # Compact format — no expensive relationship resolution
+            facts = []
+            for rel in r.get("relationships", [])[:3]:
+                facts.append(f"{rel.get('predicate', '?')}")
+            entry: dict = {
+                "name": entity["name"],
+                "type": entity["type"],
+                "summary": (entity.get("summary") or "")[:100],
+            }
+            if facts:
+                entry["top_facts"] = facts
+            entities.append(entry)
+            continue
+
+        if r.get("result_type") == "cue_episode":
+            cue = r.get("cue", {})
+            cue_episodes.append(
+                {
+                    "episode_id": cue.get("episode_id"),
+                    "cue_text": (cue.get("cue_text") or "")[:140],
+                    "supporting_spans": (cue.get("supporting_spans") or [])[:2],
+                    "projection_state": cue.get("projection_state"),
+                    "score": round(r.get("score", 0.0), 4),
+                }
+            )
+
+    if not entities and not cue_episodes:
         return None
 
     if cooldown:
         cooldown.record(query, now)
 
-    return {
+    response = {
         "source": "auto_recall",
         "query_used": query,
+        "packets": packets,
         "entities": entities,
     }
+    if cue_episodes:
+        response["cue_episodes"] = cue_episodes
+    return response
 
 
 async def _session_prime(
@@ -299,8 +443,7 @@ async def remember(content: str, source: str = "mcp") -> str:
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
     # Update conversation context (Wave 2)
-    if hasattr(manager, '_conv_context') and manager._conv_context is not None:
-        manager._conv_context.add_turn(content)
+    await _ingest_live_turn(manager, content, source="remember")
     response: dict = {
         "status": "stored",
         "episode_id": episode_id,
@@ -353,8 +496,7 @@ async def observe(content: str, source: str = "mcp") -> str:
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
     # Update conversation context (Wave 2)
-    if hasattr(manager, '_conv_context') and manager._conv_context is not None:
-        manager._conv_context.add_turn(content)
+    await _ingest_live_turn(manager, content, source="observe")
     response: dict = {
         "status": "stored",
         "episode_id": episode_id,
@@ -397,8 +539,15 @@ async def recall(query: str, limit: int = 5) -> str:
     """
     manager = _get_manager()
     session = _get_session()
+    cfg = _activation_cfg or ActivationConfig()
     t0 = time.perf_counter()
-    results = await manager.recall(query=query, group_id=_group_id, limit=limit)
+    results = await manager.recall(
+        query=query,
+        group_id=_group_id,
+        limit=limit,
+        interaction_type="used",
+        interaction_source="mcp_recall",
+    )
     query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
     session.last_recall_time = time.time()
     session.auto_recall_primed = True
@@ -406,6 +555,23 @@ async def recall(query: str, limit: int = 5) -> str:
     formatted = []
     for r in results:
         if r.get("result_type") == "episode":
+            continue
+        if r.get("result_type") == "cue_episode":
+            cue = r.get("cue", {})
+            formatted.append(
+                {
+                    "result_type": "cue_episode",
+                    "cue_text": cue.get("cue_text"),
+                    "supporting_spans": cue.get("supporting_spans", []),
+                    "projection_state": cue.get("projection_state"),
+                    "route_reason": cue.get("route_reason"),
+                    "episode_id": cue.get("episode_id"),
+                    "score": round(r["score"], 4),
+                    "score_breakdown": {
+                        k: round(v, 4) for k, v in r.get("score_breakdown", {}).items()
+                    },
+                }
+            )
             continue
         entity = r["entity"]
         # Resolve relationship target/source IDs to entity names
@@ -418,6 +584,7 @@ async def recall(query: str, limit: int = 5) -> str:
                     "subject": source_name,
                     "predicate": rel["predicate"],
                     "object": target_name,
+                    "polarity": rel.get("polarity", "positive"),
                 }
             )
 
@@ -426,6 +593,7 @@ async def recall(query: str, limit: int = 5) -> str:
 
         formatted.append(
             {
+                "result_type": "entity",
                 "entity": entity["name"],
                 "entity_type": entity["type"],
                 "summary": entity.get("summary"),
@@ -438,7 +606,31 @@ async def recall(query: str, limit: int = 5) -> str:
             }
         )
 
+    packets = []
+    if cfg.recall_packets_enabled:
+        packet_need = await analyze_memory_need(
+            query,
+            mode="explicit_recall",
+            cfg=cfg,
+            thresholds=manager.get_recall_need_thresholds(_group_id),
+        )
+        packets = [
+            packet.to_dict()
+            for packet in await assemble_memory_packets(
+                results,
+                query,
+                mode="explicit_recall",
+                memory_need=packet_need,
+                max_packets=cfg.recall_packet_explicit_limit,
+                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                    entity_id,
+                    _group_id,
+                ),
+            )
+        ]
+
     response_dict: dict = {
+        "packets": packets,
         "results": formatted,
         "total_candidates": len(formatted),
         "query_time_ms": query_time_ms,
@@ -501,6 +693,7 @@ async def search_facts(
     subject: str | None = None,
     predicate: str | None = None,
     include_expired: bool = False,
+    include_epistemic: bool = False,
     limit: int = 10,
 ) -> str:
     """Search for facts and relationships in the knowledge graph.
@@ -510,6 +703,7 @@ async def search_facts(
         subject: Filter by subject entity name
         predicate: Filter by relationship type (e.g., "WORKS_AT", "LIVES_IN")
         include_expired: Include expired/invalidated facts (default False)
+        include_epistemic: Include internal decision/artifact graph facts (debug only)
         limit: Maximum results (default 10)
 
     Returns:
@@ -522,6 +716,7 @@ async def search_facts(
         subject=subject,
         predicate=predicate,
         include_expired=include_expired,
+        include_epistemic=include_epistemic,
         limit=limit,
     )
     return json.dumps({"facts": facts, "total": len(facts)})
@@ -620,6 +815,69 @@ async def bootstrap_project(project_path: str) -> str:
         project_path=project_path,
         group_id=_group_id,
         session_id=session.session_id,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def route_question(
+    question: str,
+    project_path: str | None = None,
+    history: list[str] | None = None,
+) -> str:
+    """Classify a question as remember, inspect, or reconcile."""
+    manager = _get_manager()
+    conv_context = _get_conv_context(manager)
+    session_entity_names: list[str] = []
+    if conv_context is not None:
+        session_entity_names = [
+            entry.name
+            for entry in conv_context.get_top_entities(
+                manager._cfg.conv_multi_query_top_entities,
+            )
+        ]
+    result = await manager.route_question(
+        question,
+        group_id=_group_id,
+        project_path=project_path,
+        recent_turns=history or [],
+        session_entity_names=session_entity_names,
+        surface="mcp",
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def search_artifacts(
+    query: str,
+    project_path: str | None = None,
+    limit: int = 5,
+) -> str:
+    """Search the bootstrapped artifact substrate."""
+    manager = _get_manager()
+    hits = await manager.search_artifacts(
+        query=query,
+        project_path=project_path,
+        group_id=_group_id,
+        limit=limit,
+    )
+    return json.dumps(
+        {
+            "query": query,
+            "project_path": project_path,
+            "items": [hit.to_dict() for hit in hits],
+            "total": len(hits),
+        }
+    )
+
+
+@mcp.tool()
+async def get_runtime_state(project_path: str | None = None) -> str:
+    """Return effective runtime/config state and artifact freshness."""
+    manager = _get_manager()
+    result = await manager.get_runtime_state(
+        group_id=_group_id,
+        project_path=project_path,
     )
     return json.dumps(result)
 
@@ -962,10 +1220,8 @@ async def list_intentions(enabled_only: bool = True) -> str:
 async def graph_stats_resource() -> str:
     """Current graph statistics: entity counts, relationship counts, type distribution."""
     manager = _get_manager()
-    stats = await manager._graph.get_stats(_group_id)
-    type_counts = await manager._graph.get_entity_type_counts(_group_id)
-    stats["entity_type_distribution"] = type_counts
-    return json.dumps(stats)
+    state = await manager.get_graph_state(group_id=_group_id, top_n=10, include_edges=False)
+    return json.dumps(state["stats"])
 
 
 @mcp.resource("engram://entity/{entity_id}")

@@ -46,6 +46,39 @@ async def redis_client():
 
 
 @pytest_asyncio.fixture
+async def redis_search_runtime():
+    """Redis Search runtime on DB 0 with isolated prefix/index per test."""
+    try:
+        import redis.asyncio as aioredis
+    except ImportError:
+        pytest.skip("redis package not installed (install with: uv pip install -e '.[full]')")
+
+    url = os.environ.get("ENGRAM_REDIS_SEARCH__URL", "redis://:engram_dev@localhost:6381/0")
+    client = aioredis.from_url(url, decode_responses=False)
+    try:
+        await client.ping()
+    except Exception:
+        pytest.skip("Redis Search not available")
+
+    suffix = uuid.uuid4().hex[:8]
+    runtime = {
+        "client": client,
+        "index_name": f"engram_vectors_{suffix}",
+        "key_prefix": f"engram_test:{suffix}:",
+    }
+    yield runtime
+
+    try:
+        await client.execute_command("FT.DROPINDEX", runtime["index_name"], "DD")
+    except Exception:
+        pass
+
+    async for key in client.scan_iter(match=f"{runtime['key_prefix']}*", count=100):
+        await client.delete(key)
+    await client.aclose()
+
+
+@pytest_asyncio.fixture
 async def falkordb_graph_store(falkordb_config):
     """Initialized FalkorDB graph store with cleanup."""
     try:
@@ -78,13 +111,19 @@ async def redis_activation_store(redis_client):
 
 
 @pytest_asyncio.fixture
-async def redis_search_index(redis_client):
+async def redis_search_index(redis_search_runtime):
     """Redis search index with NoopProvider."""
     from engram.embeddings.provider import NoopProvider
     from engram.storage.vector.redis_search import RedisSearchIndex
 
     provider = NoopProvider()
     config = EmbeddingConfig()
-    index = RedisSearchIndex(redis_client, provider=provider, config=config)
+    index = RedisSearchIndex(
+        redis_search_runtime["client"],
+        provider=provider,
+        config=config,
+        index_name=redis_search_runtime["index_name"],
+        key_prefix=redis_search_runtime["key_prefix"],
+    )
     await index.initialize()
     yield index

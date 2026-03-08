@@ -170,11 +170,31 @@ async def consolidation_cycle_detail(
         return JSONResponse(status_code=404, content={"error": "Cycle not found"})
 
     merges = await engine._store.get_merge_records(cycle_id, group_id)
+    identifier_reviews = []
+    get_identifier_reviews = getattr(engine._store, "get_identifier_review_records", None)
+    if get_identifier_reviews is not None:
+        identifier_reviews = await get_identifier_reviews(cycle_id, group_id)
     inferred = await engine._store.get_inferred_edges(cycle_id, group_id)
     prunes = await engine._store.get_prune_records(cycle_id, group_id)
     reindexes = await engine._store.get_reindex_records(cycle_id, group_id)
     replays = await engine._store.get_replay_records(cycle_id, group_id)
     dreams = await engine._store.get_dream_records(cycle_id, group_id)
+    decision_traces = []
+    get_traces = getattr(engine._store, "get_decision_traces", None)
+    if get_traces is not None:
+        decision_traces = await get_traces(cycle_id, group_id)
+    decision_outcomes = []
+    get_outcomes = getattr(engine._store, "get_decision_outcome_labels", None)
+    if get_outcomes is not None:
+        decision_outcomes = await get_outcomes(cycle_id, group_id)
+    distillation_examples = []
+    get_examples = getattr(engine._store, "get_distillation_examples", None)
+    if get_examples is not None:
+        distillation_examples = await get_examples(cycle_id, group_id)
+    calibration_snapshots = []
+    get_snapshots = getattr(engine._store, "get_calibration_snapshots", None)
+    if get_snapshots is not None:
+        calibration_snapshots = await get_snapshots(cycle_id, group_id)
 
     return JSONResponse(
         content={
@@ -205,9 +225,34 @@ async def consolidation_cycle_detail(
                     "keep_name": m.keep_name,
                     "remove_name": m.remove_name,
                     "similarity": m.similarity,
+                    "decision_confidence": m.decision_confidence,
+                    "decision_source": m.decision_source,
+                    "decision_reason": m.decision_reason,
                     "relationships_transferred": m.relationships_transferred,
                 }
                 for m in merges
+            ],
+            "identifier_reviews": [
+                {
+                    "id": review.id,
+                    "entity_a_id": review.entity_a_id,
+                    "entity_b_id": review.entity_b_id,
+                    "entity_a_name": review.entity_a_name,
+                    "entity_b_name": review.entity_b_name,
+                    "entity_a_type": review.entity_a_type,
+                    "entity_b_type": review.entity_b_type,
+                    "raw_similarity": review.raw_similarity,
+                    "adjusted_similarity": review.adjusted_similarity,
+                    "decision_source": review.decision_source,
+                    "decision_reason": review.decision_reason,
+                    "entity_a_regime": review.entity_a_regime,
+                    "entity_b_regime": review.entity_b_regime,
+                    "canonical_identifier_a": review.canonical_identifier_a,
+                    "canonical_identifier_b": review.canonical_identifier_b,
+                    "review_status": review.review_status,
+                    "metadata": review.metadata,
+                }
+                for review in identifier_reviews
             ],
             "inferred_edges": [
                 {
@@ -263,6 +308,69 @@ async def consolidation_cycle_detail(
                     "seed_entity_id": d.seed_entity_id,
                 }
                 for d in dreams
+            ],
+            "decision_traces": [
+                {
+                    "id": dt.id,
+                    "phase": dt.phase,
+                    "candidate_type": dt.candidate_type,
+                    "candidate_id": dt.candidate_id,
+                    "decision": dt.decision,
+                    "decision_source": dt.decision_source,
+                    "confidence": dt.confidence,
+                    "threshold_band": dt.threshold_band,
+                    "features": dt.features,
+                    "constraints_hit": dt.constraints_hit,
+                    "policy_version": dt.policy_version,
+                    "metadata": dt.metadata,
+                }
+                for dt in decision_traces
+            ],
+            "decision_outcomes": [
+                {
+                    "id": dl.id,
+                    "phase": dl.phase,
+                    "decision_trace_id": dl.decision_trace_id,
+                    "outcome_type": dl.outcome_type,
+                    "label": dl.label,
+                    "value": dl.value,
+                    "metadata": dl.metadata,
+                }
+                for dl in decision_outcomes
+            ],
+            "distillation_examples": [
+                {
+                    "id": ex.id,
+                    "phase": ex.phase,
+                    "candidate_type": ex.candidate_type,
+                    "candidate_id": ex.candidate_id,
+                    "decision_trace_id": ex.decision_trace_id,
+                    "teacher_label": ex.teacher_label,
+                    "teacher_source": ex.teacher_source,
+                    "student_decision": ex.student_decision,
+                    "student_confidence": ex.student_confidence,
+                    "threshold_band": ex.threshold_band,
+                    "features": ex.features,
+                    "correct": ex.correct,
+                    "metadata": ex.metadata,
+                }
+                for ex in distillation_examples
+            ],
+            "calibration_snapshots": [
+                {
+                    "id": snapshot.id,
+                    "phase": snapshot.phase,
+                    "window_cycles": snapshot.window_cycles,
+                    "total_traces": snapshot.total_traces,
+                    "labeled_examples": snapshot.labeled_examples,
+                    "oracle_examples": snapshot.oracle_examples,
+                    "abstain_count": snapshot.abstain_count,
+                    "accuracy": snapshot.accuracy,
+                    "mean_confidence": snapshot.mean_confidence,
+                    "expected_calibration_error": snapshot.expected_calibration_error,
+                    "summary": snapshot.summary,
+                }
+                for snapshot in calibration_snapshots
             ],
         }
     )

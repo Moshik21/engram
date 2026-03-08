@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -20,13 +19,18 @@ from engram.models.consolidation import CycleContext, SchemaRecord
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
 
-
 # --- Helper factories ---
 
 
-def _entity(eid: str, etype: str = "Person", name: str = "Test") -> Entity:
+def _entity(
+    eid: str,
+    etype: str = "Person",
+    name: str = "Test",
+    attrs: dict | None = None,
+) -> Entity:
     return Entity(
         id=eid, name=name, entity_type=etype, group_id="default",
+        attributes=attrs or {},
         created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
     )
 
@@ -316,6 +320,82 @@ async def test_phase_does_not_create_when_too_few_edges():
 
     result, records = await _run_phase(graph_store, activation_store, search_index, cfg)
     assert result.items_affected == 0
+
+
+@pytest.mark.asyncio
+async def test_phase_skips_noisy_motif_when_support_is_weak():
+    noisy_attrs = {
+        "maturity_features_v1": {
+            "episode_count": 1,
+            "support_windows": 1,
+            "maturity_score": 0.15,
+        },
+    }
+    entities = [_entity(f"p{i}", "Person", f"Person{i}", attrs=noisy_attrs) for i in range(5)]
+    tech = _entity("tech1", "Technology", "Python")
+    entities.append(tech)
+
+    rels_map = {f"p{i}": [_rel(f"p{i}", "tech1", "EXPERT_IN")] for i in range(5)}
+    rels_map["tech1"] = []
+
+    graph_store, activation_store, search_index = _make_phase_deps(
+        entities=entities, rels_by_entity=rels_map,
+    )
+    cfg = ActivationConfig(
+        schema_formation_enabled=True,
+        schema_min_instances=5,
+        schema_min_edges=1,
+    )
+
+    result, records = await _run_phase(graph_store, activation_store, search_index, cfg)
+    assert result.items_affected == 0
+    assert records == []
+    graph_store.create_entity.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_phase_prefers_stable_supported_motif():
+    stable_attrs = {
+        "mat_tier": "semantic",
+        "maturity_features_v1": {
+            "episode_count": 4,
+            "support_windows": 2,
+            "maturity_score": 0.92,
+        },
+    }
+    noisy_attrs = {
+        "maturity_features_v1": {
+            "episode_count": 1,
+            "support_windows": 1,
+            "maturity_score": 0.15,
+        },
+    }
+
+    stable_people = [_entity(f"p{i}", "Person", f"Person{i}", attrs=stable_attrs) for i in range(5)]
+    noisy_people = [_entity(f"q{i}", "Person", f"Other{i}", attrs=noisy_attrs) for i in range(5)]
+    tech = _entity("tech1", "Technology", "Python")
+    org = _entity("org1", "Organization", "Acme")
+    entities = stable_people + noisy_people + [tech, org]
+
+    rels_map = {f"p{i}": [_rel(f"p{i}", "tech1", "EXPERT_IN")] for i in range(5)}
+    rels_map.update({f"q{i}": [_rel(f"q{i}", "org1", "MEMBER_OF")] for i in range(5)})
+    rels_map["tech1"] = []
+    rels_map["org1"] = []
+
+    graph_store, activation_store, search_index = _make_phase_deps(
+        entities=entities, rels_by_entity=rels_map,
+    )
+    cfg = ActivationConfig(
+        schema_formation_enabled=True,
+        schema_min_instances=5,
+        schema_min_edges=1,
+        schema_max_per_cycle=1,
+    )
+
+    result, records = await _run_phase(graph_store, activation_store, search_index, cfg)
+    assert result.items_affected == 1
+    assert len(records) == 1
+    assert "EXPERT_IN" in records[0].schema_name
 
 
 @pytest.mark.asyncio

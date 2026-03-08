@@ -1,4 +1,4 @@
-"""Graph neighborhood and temporal graph endpoints for dashboard visualization."""
+"""Graph neighborhood, atlas, and temporal graph endpoints for the dashboard."""
 
 from __future__ import annotations
 
@@ -9,10 +9,168 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.activation.engine import compute_activation
-from engram.api.deps import get_manager
+from engram.api.deps import get_atlas_service, get_manager
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
+
+
+def _build_representation(
+    *,
+    scope: str,
+    layout: str,
+    represented_entity_count: int,
+    represented_edge_count: int,
+    displayed_node_count: int,
+    displayed_edge_count: int,
+    truncated: bool,
+    snapshot_id: str | None = None,
+) -> dict:
+    payload = {
+        "scope": scope,
+        "layout": layout,
+        "representedEntityCount": represented_entity_count,
+        "representedEdgeCount": represented_edge_count,
+        "displayedNodeCount": displayed_node_count,
+        "displayedEdgeCount": displayed_edge_count,
+        "truncated": truncated,
+    }
+    if snapshot_id:
+        payload["snapshotId"] = snapshot_id
+    return payload
+
+
+@router.get("/atlas")
+async def get_atlas(
+    request: Request,
+    refresh: bool = Query(False, description="Force a fresh snapshot rebuild"),
+    snapshot_id: str | None = Query(
+        None,
+        description="Load a specific persisted atlas snapshot",
+    ),
+) -> JSONResponse:
+    """Return a stable, display-bounded atlas of the whole memory graph."""
+    tenant = get_tenant(request)
+    try:
+        snapshot = await get_atlas_service().get_snapshot(
+            tenant.group_id,
+            force=refresh,
+            snapshot_id=snapshot_id,
+        )
+    except LookupError as exc:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+    payload = {
+        "representation": _build_representation(
+            scope="atlas",
+            layout="precomputed",
+            represented_entity_count=snapshot.represented_entity_count,
+            represented_edge_count=snapshot.represented_edge_count,
+            displayed_node_count=snapshot.displayed_node_count,
+            displayed_edge_count=snapshot.displayed_edge_count,
+            truncated=snapshot.truncated,
+            snapshot_id=snapshot.id,
+        ),
+        "generatedAt": snapshot.generated_at,
+        "regions": [
+            {
+                "id": region.id,
+                "label": region.label,
+                "subtitle": region.subtitle,
+                "kind": region.kind,
+                "memberCount": region.member_count,
+                "representedEdgeCount": region.represented_edge_count,
+                "activationScore": region.activation_score,
+                "growth7d": region.growth_7d,
+                "growth30d": region.growth_30d,
+                "dominantEntityTypes": region.dominant_entity_types,
+                "hubEntityIds": region.hub_entity_ids,
+                "centerEntityId": region.center_entity_id,
+                "latestEntityCreatedAt": region.latest_entity_created_at,
+                "x": region.x,
+                "y": region.y,
+                "z": region.z,
+            }
+            for region in snapshot.regions
+        ],
+        "bridges": [
+            {
+                "id": bridge.id,
+                "source": bridge.source,
+                "target": bridge.target,
+                "weight": bridge.weight,
+                "relationshipCount": bridge.relationship_count,
+            }
+            for bridge in snapshot.bridges
+        ],
+        "stats": {
+            "totalEntities": snapshot.total_entities,
+            "totalRelationships": snapshot.total_relationships,
+            "totalRegions": snapshot.total_regions,
+            "hottestRegionId": snapshot.hottest_region_id,
+            "fastestGrowingRegionId": snapshot.fastest_growing_region_id,
+        },
+    }
+    return JSONResponse(content=payload)
+
+
+@router.get("/atlas/history")
+async def get_atlas_history(
+    request: Request,
+    limit: int = Query(24, ge=1, le=120, description="Max snapshots to return"),
+) -> JSONResponse:
+    """Return atlas snapshot history for timeline scrubbing."""
+    tenant = get_tenant(request)
+    snapshots = await get_atlas_service().list_snapshots(tenant.group_id, limit=limit)
+    return JSONResponse(
+        content={
+            "items": [
+                {
+                    "id": snapshot.id,
+                    "generatedAt": snapshot.generated_at,
+                    "representedEntityCount": snapshot.represented_entity_count,
+                    "representedEdgeCount": snapshot.represented_edge_count,
+                    "displayedNodeCount": snapshot.displayed_node_count,
+                    "displayedEdgeCount": snapshot.displayed_edge_count,
+                    "totalEntities": snapshot.total_entities,
+                    "totalRelationships": snapshot.total_relationships,
+                    "totalRegions": snapshot.total_regions,
+                    "hottestRegionId": snapshot.hottest_region_id,
+                    "fastestGrowingRegionId": snapshot.fastest_growing_region_id,
+                    "truncated": snapshot.truncated,
+                }
+                for snapshot in snapshots
+            ],
+        }
+    )
+
+
+@router.get("/regions/{region_id}")
+async def get_region(
+    request: Request,
+    region_id: str,
+    refresh: bool = Query(False, description="Force a fresh snapshot rebuild"),
+    snapshot_id: str | None = Query(
+        None,
+        description="Load a specific persisted atlas snapshot",
+    ),
+) -> JSONResponse:
+    """Return a bounded drill-down for one atlas region."""
+    tenant = get_tenant(request)
+    try:
+        payload = await get_atlas_service().get_region_payload(
+            tenant.group_id,
+            region_id,
+            force=refresh,
+            snapshot_id=snapshot_id,
+        )
+    except LookupError as exc:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+    if payload is None:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": f"Region '{region_id}' not found"},
+        )
+    return JSONResponse(content=payload)
 
 
 def _build_node(entity: object, state: object, now: float, cfg: object) -> dict:
@@ -86,11 +244,21 @@ async def get_neighborhood(
             group_id=group_id, limit=max_nodes
         )
         if not all_entities:
+            representation = _build_representation(
+                scope="neighborhood",
+                layout="force",
+                represented_entity_count=0,
+                represented_edge_count=0,
+                displayed_node_count=0,
+                displayed_edge_count=0,
+                truncated=False,
+            )
             return JSONResponse(
                 content={
                     "centerId": None,
                     "nodes": [],
                     "edges": [],
+                    "representation": representation,
                     "truncated": False,
                     "totalInNeighborhood": 0,
                 }
@@ -129,6 +297,15 @@ async def get_neighborhood(
                 "centerId": resolved_center,
                 "nodes": nodes,
                 "edges": edges,
+                "representation": _build_representation(
+                    scope="neighborhood",
+                    layout="force",
+                    represented_entity_count=total,
+                    represented_edge_count=len(all_rels),
+                    displayed_node_count=len(nodes),
+                    displayed_edge_count=len(edges),
+                    truncated=truncated,
+                ),
                 "truncated": truncated,
                 "totalInNeighborhood": total,
             }
@@ -175,6 +352,15 @@ async def get_neighborhood(
             "centerId": center,
             "nodes": nodes,
             "edges": edges,
+            "representation": _build_representation(
+                scope="neighborhood",
+                layout="force",
+                represented_entity_count=total_in_neighborhood,
+                represented_edge_count=len(edges_map),
+                displayed_node_count=len(nodes),
+                displayed_edge_count=len(edges),
+                truncated=truncated,
+            ),
             "truncated": truncated,
             "totalInNeighborhood": total_in_neighborhood,
         }
@@ -238,7 +424,11 @@ async def get_graph_at(
                 "name": entity.name,
                 "entityType": entity.entity_type,
                 "summary": entity.summary,
+                "activationCurrent": 0.0,
+                "accessCount": 0,
+                "lastAccessed": None,
                 "createdAt": entity.created_at.isoformat() if entity.created_at else None,
+                "updatedAt": entity.updated_at.isoformat() if entity.updated_at else None,
             }
         )
 
@@ -258,6 +448,15 @@ async def get_graph_at(
             "at": at,
             "nodes": nodes,
             "edges": edges,
+            "representation": _build_representation(
+                scope="temporal",
+                layout="force",
+                represented_entity_count=len(entities_map),
+                represented_edge_count=len(edges_list),
+                displayed_node_count=len(nodes),
+                displayed_edge_count=len(edges),
+                truncated=len(entities_map) > max_nodes,
+            ),
             "truncated": len(entities_map) > max_nodes,
             "totalInNeighborhood": len(entities_map),
         }

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import struct
-from datetime import datetime
 
 import aiosqlite
 import numpy as np
+
+from engram.utils.dates import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class SQLiteVectorStore:
         embed_model: str = "",
     ) -> None:
         """Insert or update a vector embedding."""
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         blob = pack_vector(embedding)
         await self.db.execute(
             """INSERT INTO embeddings
@@ -154,7 +155,7 @@ class SQLiteVectorStore:
 
         Each tuple: (id, content_type, group_id, text, embedding).
         """
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         rows = []
         for item_id, content_type, group_id, text_content, embedding in items:
             blob = pack_vector(embedding)
@@ -239,9 +240,15 @@ class SQLiteVectorStore:
         scored = sorted(zip(ids, sims.tolist()), key=lambda x: x[1], reverse=True)
         return scored[:limit]
 
-    async def remove(self, item_id: str) -> None:
-        """Remove a vector by ID."""
-        await self.db.execute("DELETE FROM embeddings WHERE id = ?", (item_id,))
+    async def remove(self, item_id: str, content_type: str | None = None) -> None:
+        """Remove a vector by ID, optionally constrained to a content type."""
+        if content_type is None:
+            await self.db.execute("DELETE FROM embeddings WHERE id = ?", (item_id,))
+        else:
+            await self.db.execute(
+                "DELETE FROM embeddings WHERE id = ? AND content_type = ?",
+                (item_id, content_type),
+            )
         await self.db.commit()
 
     async def has_embeddings(self, group_id: str) -> bool:

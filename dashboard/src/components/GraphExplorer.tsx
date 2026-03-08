@@ -1,8 +1,8 @@
-import { useCallback, useRef, useEffect, useState, lazy, Suspense } from "react";
+import { useCallback, useRef, useEffect, useState, useMemo, lazy, Suspense } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import ForceGraph2D from "react-force-graph-2d";
 import * as THREE from "three";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { setupBloomPass, createAmbientParticles } from "./graph/NeuralSceneSetup";
 import { useEngramStore } from "../store";
 import { activationColor, entityColor } from "../lib/colors";
 import { NodeTooltip } from "./NodeTooltip";
@@ -22,7 +22,13 @@ import { EdgeLineRenderer } from "./graph/EdgeLineRenderer";
 import { AnimationBudget } from "./graph/AnimationBudget";
 import { DisposalRegistry } from "./graph/DisposalRegistry";
 import { LODController } from "./graph/LODController";
-import { useStableGraphData, useActivationRef, useNodeDataRef } from "../store/graphSelectors";
+import { useStableGraphData, useActivationRef } from "../store/graphSelectors";
+
+// Navigation
+import { useNavigationHistory, type CameraBookmark } from "./graph/useNavigationHistory";
+import { useKeyboardNavigation } from "./graph/useKeyboardNavigation";
+import { NavigationBreadcrumbs } from "./graph/NavigationBreadcrumbs";
+import { KeyboardHelpOverlay } from "./graph/KeyboardHelpOverlay";
 
 const PULSE_DURATION_MS = 1500;
 const CASCADE_DELAY_MS = 300;
@@ -42,7 +48,16 @@ type FgRef = {
   renderer?: () => THREE.WebGLRenderer;
   camera?: () => THREE.Camera;
   postProcessingComposer?: () => unknown;
+  cameraPosition?: (
+    pos: { x: number; y: number; z: number },
+    lookAt?: { x: number; y: number; z: number },
+    transitionMs?: number,
+  ) => void;
+  zoomToFit?: (durationMs?: number, padding?: number, nodeFilter?: (node: unknown) => boolean) => void;
 } | null;
+
+const FLY_TO_DURATION_MS = 800;
+const FLY_TO_OFFSET_Z = 120;
 
 export function GraphExplorer() {
   const isLoading = useEngramStore((s) => s.isLoading);
@@ -55,12 +70,22 @@ export function GraphExplorer() {
   const hoverNode = useEngramStore((s) => s.hoverNode);
   const expandNode = useEngramStore((s) => s.expandNode);
 
+  const setRenderMode = useEngramStore((s) => s.setRenderMode);
+  const toggleHeatmap = useEngramStore((s) => s.toggleActivationHeatmap);
+  const toggleEdgeLabelsAction = useEngramStore((s) => s.toggleEdgeLabels);
+  const setSearchOverlayOpen = useEngramStore((s) => s.setSearchOverlayOpen);
+  const nodes = useEngramStore((s) => s.nodes);
+
   const [showStressTest, setShowStressTest] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [breadcrumbTick, setBreadcrumbTick] = useState(0);
   const fgRef = useRef<FgRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const graphData = useStableGraphData();
   const activationRef = useActivationRef();
-  const nodeDataRef = useNodeDataRef();
+  const navHistory = useNavigationHistory();
+  // Tracks the last selectedNodeId that was handled by direct click (to avoid double fly-to)
+  const prevSelectedRef = useRef<string | null>(null);
 
   // ── Stats.js FPS overlay ──
   const statsRef = useRef<Stats | null>(null);
@@ -98,7 +123,54 @@ export function GraphExplorer() {
     return () => cancelAnimationFrame(rafId);
   }, [renderMode, showFpsOverlay]);
 
-  // ── Keyboard shortcuts ──
+  // ── Camera fly-to helper ──
+  const flyToNode = useCallback(
+    (nodeId: string) => {
+      const fg = fgRef.current;
+      if (!fg?.cameraPosition) return;
+      // Find node position from graphData (d3-force attaches x/y/z)
+      const node = graphData.nodes.find(
+        (n: Record<string, unknown>) => n.id === nodeId,
+      ) as Record<string, unknown> | undefined;
+      if (!node || node.x == null || node.y == null) return;
+      const x = node.x as number;
+      const y = node.y as number;
+      const z = (node.z as number) ?? 0;
+      const lookAt = { x, y, z };
+      const position = { x, y, z: z + FLY_TO_OFFSET_Z };
+      fg.cameraPosition(position, lookAt, FLY_TO_DURATION_MS);
+      return { position, lookAt };
+    },
+    [graphData.nodes],
+  );
+
+  const flyToBookmark = useCallback(
+    (pos: CameraBookmark["position"], lookAt: CameraBookmark["lookAt"]) => {
+      const fg = fgRef.current;
+      if (!fg?.cameraPosition) return;
+      fg.cameraPosition(pos, lookAt, FLY_TO_DURATION_MS);
+    },
+    [],
+  );
+
+  const nodeExists = useCallback(
+    (id: string) => id in nodes,
+    [nodes],
+  );
+
+  // Node name lookup for breadcrumbs
+  const nodeNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const n of graphData.nodes) {
+      const node = n as Record<string, unknown>;
+      if (typeof node.id === "string" && typeof node.name === "string") {
+        map.set(node.id, node.name);
+      }
+    }
+    return map;
+  }, [graphData.nodes]);
+
+  // ── Keyboard shortcuts (Shift+F, Shift+T stay here; rest in useKeyboardNavigation) ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.shiftKey && e.key === "F") {
@@ -113,6 +185,38 @@ export function GraphExplorer() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [toggleFpsOverlay]);
+
+  // ── Navigation keyboard shortcuts ──
+  useKeyboardNavigation({
+    openSearch: () => setSearchOverlayOpen(true),
+    deselect: () => {
+      selectNode(null);
+      setShowHelp(false);
+    },
+    centerOnSelected: () => {
+      const selectedId = useEngramStore.getState().selectedNodeId;
+      if (selectedId) flyToNode(selectedId);
+    },
+    goBack: () => {
+      const nodeId = navHistory.goBack(flyToBookmark, nodeExists);
+      if (nodeId) selectNode(nodeId);
+    },
+    goForward: () => {
+      const nodeId = navHistory.goForward(flyToBookmark, nodeExists);
+      if (nodeId) selectNode(nodeId);
+    },
+    resetCamera: () => {
+      const fg = fgRef.current;
+      if (fg?.zoomToFit) fg.zoomToFit(FLY_TO_DURATION_MS, 40);
+    },
+    toggleHeatmap,
+    toggleEdgeLabels: toggleEdgeLabelsAction,
+    toggleRenderMode: () => {
+      const current = useEngramStore.getState().renderMode;
+      setRenderMode(current === "3d" ? "2d" : "3d");
+    },
+    showHelp: () => setShowHelp((v) => !v),
+  });
 
   // ── Tier system refs (stable across renders) ──
   const sharedRef = useRef<SharedResources | null>(null);
@@ -137,6 +241,7 @@ export function GraphExplorer() {
   useEffect(() => {
     const shared = new SharedResources();
     const registry = new DisposalRegistry();
+    const nodeObjectCache = nodeObjectCacheRef.current;
     sharedRef.current = shared;
     registryRef.current = registry;
     classifierRef.current = new TierClassifier();
@@ -157,7 +262,7 @@ export function GraphExplorer() {
       classifierRef.current?.clear();
       adjacencyRef.current?.clear();
       budgetRef.current?.reset();
-      nodeObjectCacheRef.current.clear();
+      nodeObjectCache.clear();
       batchRenderersAddedRef.current = false;
     };
   }, []);
@@ -181,6 +286,7 @@ export function GraphExplorer() {
   // Add batch renderers + edge renderer to scene once fg.scene() is available
   useEffect(() => {
     if (renderMode !== "3d") return;
+    let attachedScene: THREE.Scene | null = null;
 
     const addToScene = () => {
       const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
@@ -188,6 +294,7 @@ export function GraphExplorer() {
       if (batchRenderersAddedRef.current) return true;
 
       const scene = fg.scene();
+      attachedScene = scene;
       if (activeRendererRef.current) scene.add(activeRendererRef.current.mesh);
       if (dormantRendererRef.current) scene.add(dormantRendererRef.current.points);
       if (edgeRendererRef.current) scene.add(edgeRendererRef.current.lineSegments);
@@ -203,12 +310,10 @@ export function GraphExplorer() {
     }
 
     return () => {
-      const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
-      if (fg?.scene && batchRenderersAddedRef.current) {
-        const scene = fg.scene();
-        if (activeRendererRef.current) scene.remove(activeRendererRef.current.mesh);
-        if (dormantRendererRef.current) scene.remove(dormantRendererRef.current.points);
-        if (edgeRendererRef.current) scene.remove(edgeRendererRef.current.lineSegments);
+      if (attachedScene && batchRenderersAddedRef.current) {
+        if (activeRendererRef.current) attachedScene.remove(activeRendererRef.current.mesh);
+        if (dormantRendererRef.current) attachedScene.remove(dormantRendererRef.current.points);
+        if (edgeRendererRef.current) attachedScene.remove(edgeRendererRef.current.lineSegments);
         batchRenderersAddedRef.current = false;
       }
     };
@@ -266,126 +371,26 @@ export function GraphExplorer() {
   }, [graphData, renderMode]);
 
   // ── UnrealBloomPass ──
-  const bloomAddedRef = useRef(false);
-
   useEffect(() => {
-    if (renderMode !== "3d") {
-      bloomAddedRef.current = false;
-      return;
-    }
-
-    const addBloom = () => {
-      const fg = fgRef.current as {
-        renderer?: () => THREE.WebGLRenderer;
-        postProcessingComposer?: () => {
-          passes: unknown[];
-          addPass: (pass: unknown) => void;
-        };
-      } | null;
-      if (!fg?.renderer) return false;
-      if (bloomAddedRef.current) return true;
-
-      try {
-        const renderer = fg.renderer();
-        const bloomPass = new UnrealBloomPass(
-          new THREE.Vector2(
-            renderer.domElement.width * 0.5,
-            renderer.domElement.height * 0.5,
-          ),
-          0.4,   // strength
-          0.4,   // radius
-          0.85,  // threshold — only brightest objects bloom
-        );
-
-        if (fg.postProcessingComposer) {
-          fg.postProcessingComposer().addPass(bloomPass);
-        }
-
-        bloomAddedRef.current = true;
-      } catch {
-        return false;
-      }
-      return true;
-    };
-
-    if (!addBloom()) {
-      const id = setInterval(() => {
-        if (addBloom()) clearInterval(id);
-      }, 200);
-      return () => clearInterval(id);
-    }
+    if (renderMode !== "3d") return;
+    return setupBloomPass(fgRef as React.RefObject<FgRef>);
   }, [renderMode]);
 
   // ── Ambient neurotransmitter particles ──
-  const particlesRef = useRef<THREE.Points | null>(null);
+  const ambientParticlesRef = useRef<ReturnType<typeof createAmbientParticles> | null>(null);
 
   useEffect(() => {
     if (renderMode !== "3d") return;
-
-    const addParticles = () => {
-      const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
-      if (!fg?.scene) return false;
-      if (particlesRef.current) return true;
-
-      const scene = fg.scene();
-      const count = 200;
-      const positions = new Float32Array(count * 3);
-
-      for (let i = 0; i < count; i++) {
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        const r = 50 + Math.random() * 450;
-        positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-        positions[i * 3 + 2] = r * Math.cos(phi);
-      }
-
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(positions, 3),
-      );
-
-      const material = new THREE.PointsMaterial({
-        size: 0.5,
-        color: 0x67e8f9,
-        transparent: true,
-        opacity: 0.2,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        sizeAttenuation: true,
-      });
-
-      const particles = new THREE.Points(geometry, material);
-      particles.userData.driftAxes = Array.from({ length: count }, () =>
-        new THREE.Vector3(
-          Math.random() - 0.5,
-          Math.random() - 0.5,
-          Math.random() - 0.5,
-        ).normalize(),
-      );
-      scene.add(particles);
-      particlesRef.current = particles;
-      return true;
-    };
-
-    if (!addParticles()) {
-      const id = setInterval(() => {
-        if (addParticles()) clearInterval(id);
-      }, 200);
-      return () => clearInterval(id);
-    }
+    const particles = createAmbientParticles(
+      fgRef as React.RefObject<FgRef>,
+      200,
+      450,
+    );
+    ambientParticlesRef.current = particles;
 
     return () => {
-      if (particlesRef.current) {
-        const fg = fgRef.current as { scene?: () => THREE.Scene } | null;
-        if (fg?.scene) {
-          fg.scene().remove(particlesRef.current);
-        }
-        particlesRef.current.geometry.dispose();
-        (particlesRef.current.material as THREE.Material).dispose();
-        particlesRef.current = null;
-      }
+      particles.cleanup();
+      ambientParticlesRef.current = null;
     };
   }, [renderMode]);
 
@@ -411,25 +416,8 @@ export function GraphExplorer() {
       const time = now - startTime;
       const fg = fgRef.current as FgRef;
 
-      // 1. Particle drift (unchanged — already efficient)
-      if (particlesRef.current) {
-        const positions = particlesRef.current.geometry.attributes.position;
-        const posArray = positions.array as Float32Array;
-        const axes = particlesRef.current.userData.driftAxes as THREE.Vector3[];
-        const rotSpeed = 0.0001;
-
-        for (let i = 0; i < axes.length; i++) {
-          const x = posArray[i * 3];
-          const y = posArray[i * 3 + 1];
-          const z = posArray[i * 3 + 2];
-          const pos = new THREE.Vector3(x, y, z);
-          pos.applyAxisAngle(axes[i], rotSpeed);
-          posArray[i * 3] = pos.x;
-          posArray[i * 3 + 1] = pos.y;
-          posArray[i * 3 + 2] = pos.z;
-        }
-        positions.needsUpdate = true;
-      }
+      // 1. Particle drift
+      ambientParticlesRef.current?.result?.animate();
 
       const classifier = classifierRef.current;
       const focusRenderer = focusRendererRef.current;
@@ -667,17 +655,52 @@ export function GraphExplorer() {
 
     rafId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafId);
-  }, [renderMode, activationRef, nodeDataRef]);
+  }, [renderMode, activationRef]);
 
   const handleNodeClick = useCallback(
-    (node: { id?: string | number }) => selectNode(node.id != null ? String(node.id) : null),
-    [selectNode],
+    (node: { id?: string | number; x?: number; y?: number; z?: number }) => {
+      const nodeId = node.id != null ? String(node.id) : null;
+      // Mark as handled so the external selection effect doesn't double-fly
+      prevSelectedRef.current = nodeId;
+      selectNode(nodeId);
+      if (nodeId && node.x != null && node.y != null) {
+        const x = node.x;
+        const y = node.y;
+        const z = node.z ?? 0;
+        const lookAt = { x, y, z };
+        const position = { x, y, z: z + FLY_TO_OFFSET_Z };
+        const fg = fgRef.current;
+        if (fg?.cameraPosition) {
+          fg.cameraPosition(position, lookAt, FLY_TO_DURATION_MS);
+        }
+        navHistory.push({ nodeId, position, lookAt });
+        setBreadcrumbTick((t) => t + 1);
+      }
+    },
+    [selectNode, navHistory],
   );
   const handleNodeRightClick = useCallback(
-    (node: { id?: string | number }) => {
-      if (node.id != null) expandNode(String(node.id));
+    (node: { id?: string | number; x?: number; y?: number; z?: number }) => {
+      if (node.id != null) {
+        const nodeId = String(node.id);
+        prevSelectedRef.current = nodeId;
+        expandNode(nodeId);
+        if (node.x != null && node.y != null) {
+          const x = node.x;
+          const y = node.y;
+          const z = node.z ?? 0;
+          const lookAt = { x, y, z };
+          const position = { x, y, z: z + FLY_TO_OFFSET_Z };
+          const fg = fgRef.current;
+          if (fg?.cameraPosition) {
+            fg.cameraPosition(position, lookAt, FLY_TO_DURATION_MS);
+          }
+          navHistory.push({ nodeId, position, lookAt });
+          setBreadcrumbTick((t) => t + 1);
+        }
+      }
     },
-    [expandNode],
+    [expandNode, navHistory],
   );
   const handleNodeHover = useCallback(
     (node: { id?: string | number } | null) => hoverNode(node?.id != null ? String(node.id) : null),
@@ -774,6 +797,46 @@ export function GraphExplorer() {
     // showHeatmap toggle triggers full rebuild via cache clear above
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [showHeatmap],
+  );
+
+  // ── Search-to-navigate: fly to selected node when it changes from external sources ──
+  const selectedNodeId = useEngramStore((s) => s.selectedNodeId);
+
+  useEffect(() => {
+    // Only fly when selection changes from outside (search bar, etc.)
+    // Skip if the click handler already flew (it sets prevSelectedRef)
+    if (selectedNodeId && selectedNodeId !== prevSelectedRef.current) {
+      // Delay to let the node settle into position if just loaded
+      const timer = setTimeout(() => {
+        const result = flyToNode(selectedNodeId);
+        if (result) {
+          navHistory.push({ nodeId: selectedNodeId, ...result });
+          setBreadcrumbTick((t) => t + 1);
+        }
+      }, 300);
+      prevSelectedRef.current = selectedNodeId;
+      return () => clearTimeout(timer);
+    }
+    prevSelectedRef.current = selectedNodeId;
+  }, [selectedNodeId, flyToNode, navHistory]);
+
+  // Breadcrumb trail data
+  const breadcrumbData = useMemo(() => {
+    // breadcrumbTick forces recompute
+    void breadcrumbTick;
+    return navHistory.getVisibleTrail(8);
+  }, [navHistory, breadcrumbTick]);
+
+  const handleBreadcrumbNavigate = useCallback(
+    (index: number) => {
+      const nodeId = navHistory.goToIndex(index, flyToBookmark);
+      if (nodeId) {
+        prevSelectedRef.current = nodeId;
+        selectNode(nodeId);
+      }
+      setBreadcrumbTick((t) => t + 1);
+    },
+    [navHistory, flyToBookmark, selectNode],
   );
 
   if (!isLoading && graphData.nodes.length === 0) return <EmptyState />;
@@ -876,6 +939,15 @@ export function GraphExplorer() {
       )}
       <NodeTooltip />
       <ZoomIndicator lodRef={lodRef} nodeCount={graphData.nodes.length} />
+      <NavigationBreadcrumbs
+        items={breadcrumbData.items}
+        currentIndex={breadcrumbData.currentIndex}
+        truncatedLeft={breadcrumbData.truncatedLeft}
+        truncatedRight={breadcrumbData.truncatedRight}
+        onNavigate={handleBreadcrumbNavigate}
+        nodeNames={nodeNames}
+      />
+      {showHelp && <KeyboardHelpOverlay onClose={() => setShowHelp(false)} />}
       {import.meta.env.DEV && (
         <button
           onClick={() => setShowStressTest((v) => !v)}

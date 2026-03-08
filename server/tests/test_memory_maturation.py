@@ -248,6 +248,35 @@ async def test_maturation_phase_dry_run(mat_cfg):
 
 
 @pytest.mark.asyncio
+async def test_maturation_phase_populates_feature_cache(mat_cfg):
+    entity = _make_entity(attrs={})
+    graph = AsyncMock()
+    graph.find_entities.return_value = [entity]
+    graph.get_entity_episode_count.return_value = 5
+    graph.get_entity_temporal_span.return_value = (
+        (datetime.utcnow() - timedelta(days=21)).isoformat(),
+        datetime.utcnow().isoformat(),
+    )
+    graph.get_entity_relationship_types.return_value = ["WORKS_AT", "KNOWS", "USES"]
+    activation = AsyncMock()
+    state = MagicMock()
+    state.access_history = [time.time() - i * 86400 for i in range(4)]
+    activation.get_activation.return_value = state
+
+    phase = MaturationPhase()
+    context = CycleContext()
+    await phase.execute(
+        "default", graph, activation, AsyncMock(),
+        mat_cfg, "cyc1", dry_run=True, context=context,
+    )
+
+    assert entity.id in context.maturity_feature_cache
+    bundle = context.maturity_feature_cache[entity.id]
+    assert bundle["episode_count"] == 5
+    assert bundle["relationship_richness"] == 3
+
+
+@pytest.mark.asyncio
 async def test_maturation_phase_already_semantic_skipped(mat_cfg):
     entity = _make_entity(attrs={"mat_tier": "semantic"})
     graph = AsyncMock()
@@ -365,6 +394,36 @@ async def test_semantic_transition_promotes_on_coverage():
     assert ep.id in context.transitioned_episode_ids
 
 
+@pytest.mark.asyncio
+async def test_semantic_transition_uses_context_matured_entities():
+    cfg = ActivationConfig(
+        consolidation_profile="off",
+        episode_transition_enabled=True,
+        episode_transitional_coverage=0.50,
+        episode_transitional_min_cycles=1,
+    )
+    ep = _make_episode(cycles=1)
+    ent1 = _make_entity("ent1", attrs={})
+    ent2 = _make_entity("ent2", attrs={})
+
+    graph = AsyncMock()
+    graph.get_episodes.return_value = [ep]
+    graph.get_episode_entities.return_value = ["ent1", "ent2"]
+    graph.get_entity.side_effect = lambda eid, gid: {"ent1": ent1, "ent2": ent2}.get(eid)
+
+    context = CycleContext()
+    context.matured_entity_ids.update({"ent1", "ent2"})
+    phase = SemanticTransitionPhase()
+    result, records = await phase.execute(
+        "default", graph, AsyncMock(), AsyncMock(),
+        cfg, "cyc1", dry_run=True, context=context,
+    )
+
+    assert result.items_affected == 1
+    assert len(records) == 1
+    assert records[0].new_tier == "transitional"
+
+
 # --- Prune resistance tests ---
 
 
@@ -431,5 +490,7 @@ def test_cycle_context_has_maturation_fields():
     ctx = CycleContext()
     assert hasattr(ctx, "matured_entity_ids")
     assert hasattr(ctx, "transitioned_episode_ids")
+    assert hasattr(ctx, "maturity_feature_cache")
     assert isinstance(ctx.matured_entity_ids, set)
     assert isinstance(ctx.transitioned_episode_ids, set)
+    assert isinstance(ctx.maturity_feature_cache, dict)

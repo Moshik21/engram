@@ -154,23 +154,52 @@ def _collect_config() -> dict:
     print(f"  {_DIM}observe      = dry-run (logs only, no mutations){_RESET}")
     print(f"  {_DIM}conservative = merge + prune, no LLM inference{_RESET}")
     print(f"  {_DIM}standard     = all phases enabled{_RESET}")
-    profile = _ask("Profile", default="off", choices=["off", "observe", "conservative", "standard"])
+    profile = _ask(
+        "Profile",
+        default="standard",
+        choices=["off", "observe", "conservative", "standard"],
+    )
     cfg["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] = profile
     _check(f"Consolidation profile: {profile}")
 
     # --- Recall Features ---
     _section("Recall Features")
     print(f"  {_DIM}off    = no smart recall{_RESET}")
-    print(f"  {_DIM}wave1  = auto-recall on observe/remember{_RESET}")
-    print(f"  {_DIM}wave2  = + conversation awareness (topic tracking, near-miss){_RESET}")
-    print(f"  {_DIM}wave3  = + proactive intelligence (surprise, priming, topic shift){_RESET}")
-    print(f"  {_DIM}all    = + prospective memory (trigger-based intentions){_RESET}")
+    print(
+        f"  {_DIM}wave1  = auto-recall + natural analyzer + structural signals{_RESET}"
+    )
+    print(
+        f"  {_DIM}wave2  = + graph grounding + conversation awareness + planner{_RESET}"
+    )
+    print(
+        f"  {_DIM}wave3  = + shift/impoverishment live + proactive intelligence{_RESET}"
+    )
+    print(f"  {_DIM}wave4  = + prospective memory (trigger-based intentions){_RESET}")
+    print(f"  {_DIM}all    = all recall features enabled{_RESET}")
     recall_profile = _ask(
-        "Recall profile", default="off",
-        choices=["off", "wave1", "wave2", "wave3", "all"],
+        "Recall profile", default="all",
+        choices=["off", "wave1", "wave2", "wave3", "wave4", "all"],
     )
     cfg["ENGRAM_ACTIVATION__RECALL_PROFILE"] = recall_profile
     _check(f"Recall profile: {recall_profile}")
+
+    # --- Integration Profile ---
+    _section("Integration Profile")
+    print(
+        f"  {_DIM}off     = keep consolidation, recall, and cue/projection rollout "
+        f"separate{_RESET}"
+    )
+    print(
+        f"  {_DIM}rework  = recommended recall-ready preset with cue/projection "
+        f"and live natural recall{_RESET}"
+    )
+    integration_profile = _ask(
+        "Integration profile",
+        default="rework",
+        choices=["off", "rework"],
+    )
+    cfg["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] = integration_profile
+    _check(f"Integration profile: {integration_profile}")
 
     # --- Security ---
     _section("Security (optional)")
@@ -245,6 +274,10 @@ def _generate_env(config: dict, env_path: Path) -> None:
                 "ENGRAM_ACTIVATION__RECALL_PROFILE",
                 config.get("ENGRAM_ACTIVATION__RECALL_PROFILE"),
             ),
+            (
+                "ENGRAM_ACTIVATION__INTEGRATION_PROFILE",
+                config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE"),
+            ),
         ]),
         ("Security", [
             ("ENGRAM_AUTH__ENABLED", config.get("ENGRAM_AUTH__ENABLED")),
@@ -274,10 +307,26 @@ def _print_mcp_config(config: dict) -> None:
     server_dir = str(Path(__file__).resolve().parent.parent)
     api_key = config.get("ANTHROPIC_API_KEY", "")
 
-    env_block: dict[str, str] = {"ANTHROPIC_API_KEY": api_key}
+    env_block: dict[str, str] = {
+        "ANTHROPIC_API_KEY": api_key,
+        "ENGRAM_MODE": str(config.get("ENGRAM_MODE", "auto")),
+        "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": str(
+            config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE", "standard")
+        ),
+        "ENGRAM_ACTIVATION__RECALL_PROFILE": str(
+            config.get("ENGRAM_ACTIVATION__RECALL_PROFILE", "all")
+        ),
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": str(
+            config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE", "rework")
+        ),
+    }
     voyage_key = config.get("VOYAGE_API_KEY")
     if voyage_key:
         env_block["VOYAGE_API_KEY"] = voyage_key
+    if config.get("ENGRAM_FALKORDB__PASSWORD"):
+        env_block["ENGRAM_FALKORDB__PASSWORD"] = str(config["ENGRAM_FALKORDB__PASSWORD"])
+    if config.get("ENGRAM_REDIS__URL"):
+        env_block["ENGRAM_REDIS__URL"] = str(config["ENGRAM_REDIS__URL"])
 
     snippet = {
         "mcpServers": {
@@ -297,6 +346,28 @@ def _print_mcp_config(config: dict) -> None:
 
     print(f"\n  {_bold('Claude Code')} {_dim('(.mcp.json or .claude/settings.json)')}")
     print(textwrap.indent(formatted, "  "))
+    print()
+
+
+def _print_recall_ready_summary(config: dict) -> None:
+    """Print the practical recall posture configured by setup."""
+    _section("Recall Ready")
+    print("  This install is configured for end-to-end recall testing:")
+    print("    - analyzer + structural signals live")
+    print("    - graph grounding live")
+    print("    - shift + impoverishment live")
+    print("    - cue/projection rework enabled")
+    print("    - surfaced/used recall telemetry enabled")
+    print("    - adaptive thresholds, graph override, and chat retry stay off by default")
+    print()
+    print(f"  {_DIM}Mode: {config.get('ENGRAM_MODE', 'auto')}{_RESET}")
+    print(
+        f"  {_DIM}Profiles: consolidation="
+        f"{config.get('ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE', 'standard')}, "
+        f"recall={config.get('ENGRAM_ACTIVATION__RECALL_PROFILE', 'all')}, "
+        f"integration={config.get('ENGRAM_ACTIVATION__INTEGRATION_PROFILE', 'rework')}"
+        f"{_RESET}"
+    )
     print()
 
 
@@ -361,7 +432,14 @@ _SETTINGS: list[tuple[str, str, str, bool, list[str] | None]] = [
         "Recall",
         "Recall profile",
         False,
-        ["off", "wave1", "wave2", "wave3", "all"],
+        ["off", "wave1", "wave2", "wave3", "wave4", "all"],
+    ),
+    (
+        "ENGRAM_ACTIVATION__INTEGRATION_PROFILE",
+        "Recall",
+        "Integration profile",
+        False,
+        ["off", "rework"],
     ),
     ("ENGRAM_AUTH__ENABLED", "Security", "Auth enabled", False, ["true", "false"]),
     ("ENGRAM_AUTH__BEARER_TOKEN", "Security", "Bearer token", True, None),
@@ -746,6 +824,7 @@ def setup(env_path: Path | None = None) -> None:
     _section("Generate Files")
     _generate_env(config, env_path)
     _print_mcp_config(config)
+    _print_recall_ready_summary(config)
 
     # Optional smoke test
     run_test = _ask("Run smoke test?", default="n", choices=["y", "n"])

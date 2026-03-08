@@ -1,8 +1,15 @@
 """Tests for fuzzy entity deduplication resolver."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
-from engram.extraction.resolver import compute_similarity, normalize_name, resolve_entity
+from engram.extraction.resolver import (
+    compute_similarity,
+    normalize_name,
+    resolve_entity,
+    resolve_entity_fast,
+)
 from engram.models.entity import Entity
 
 
@@ -118,5 +125,35 @@ class TestResolveEntity:
             Entity(id="ent_1", name="ACT-R", entity_type="Concept"),
         ]
         result = await resolve_entity("ACTR", "Concept", existing)
+        assert result is not None
+        assert result.id == "ent_1"
+
+    async def test_numeric_identifier_near_match_rejected(self):
+        existing = [
+            Entity(id="ent_1", name="1712018", entity_type="Thing"),
+        ]
+        result = await resolve_entity("1712061", "Thing", existing)
+        assert result is None
+
+    async def test_labeled_identifier_alias_matches(self):
+        existing = [
+            Entity(id="ent_1", name="1712061", entity_type="Thing"),
+        ]
+        result = await resolve_entity("SKU 1712061", "Thing", existing)
+        assert result is not None
+        assert result.id == "ent_1"
+
+    async def test_resolve_entity_fast_blocks_numeric_near_match(self):
+        candidate = Entity(id="ent_1", name="1712018", entity_type="Thing")
+        get_candidates = AsyncMock(return_value=[candidate])
+
+        result = await resolve_entity_fast("1712061", "Thing", get_candidates, "test")
+        assert result is None
+
+    async def test_resolve_entity_fast_allows_labeled_identifier_alias(self):
+        candidate = Entity(id="ent_1", name="1712061", entity_type="Thing")
+        get_candidates = AsyncMock(return_value=[candidate])
+
+        result = await resolve_entity_fast("Part #1712061", "Thing", get_candidates, "test")
         assert result is not None
         assert result.id == "ent_1"
