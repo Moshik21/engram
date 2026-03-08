@@ -73,6 +73,7 @@ docs/vision/launch-post.md
 docs/vision/openclaw-distribution-strategy.md
 
 # AI tool configs
+AGENTS.md
 CLAUDE.md
 .claude/
 .cursorrules
