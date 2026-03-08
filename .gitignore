@@ -51,6 +51,12 @@ coverage.xml
 # Backups
 backups/
 
+# Benchmark outputs (generated)
+server/.benchmarks/
+
+# TypeScript build cache
+**/tsconfig.tsbuildinfo
+
 # Internal analysis / dev notes
 BRAIN_ARCHITECTURE.md
 CONSOLIDATION_HEALTH_ANALYSIS.md
