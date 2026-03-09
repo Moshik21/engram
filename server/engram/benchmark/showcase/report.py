@@ -4,23 +4,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from engram.benchmark.showcase.catalog import display_name
 from engram.benchmark.showcase.models import ShowcaseRunResult
 
 
 def _display_name(name: str) -> str:
-    mapping = {
-        "engram_full": "Engram Full",
-        "engram_full_hybrid": "Engram Full Hybrid",
-        "context_summary": "Context + Summary",
-        "markdown_canonical": "Markdown Canonical",
-        "hybrid_rag_temporal": "Hybrid RAG Temporal",
-        "context_window": "Context Window",
-        "markdown_memory": "Markdown Memory",
-        "vector_rag": "Vector RAG",
-        "engram_no_cues": "Engram No Cues",
-        "engram_search_only": "Engram Search Only",
-    }
-    return mapping.get(name, name.replace("_", " ").title())
+    return display_name(name)
 
 
 def _fmt(value: float | None) -> str:
@@ -193,13 +182,13 @@ def _render_fairness(lines: list[str], run_result: ShowcaseRunResult) -> None:
         )
 
 
-def _render_executive(lines: list[str], run_result: ShowcaseRunResult) -> None:
+def _render_headline_measured(lines: list[str], run_result: ShowcaseRunResult) -> None:
     summaries = _summary_by_name(run_result)
     answer_summaries = _answer_summary_by_name(run_result)
     lines.extend(
         [
             "",
-            "## Executive Table",
+            "## Headline Measured Competitors",
             "",
             "| Baseline | Available | Scenario Pass | False Recall"
             " | Temporal | Negation | Open Loop | Prospective"
@@ -207,7 +196,7 @@ def _render_executive(lines: list[str], run_result: ShowcaseRunResult) -> None:
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
-    for baseline_name in run_result.primary_baselines:
+    for baseline_name in run_result.headline_baselines:
         summary = summaries.get(baseline_name)
         if summary is None:
             continue
@@ -229,6 +218,43 @@ def _render_executive(lines: list[str], run_result: ShowcaseRunResult) -> None:
                     _fmt(None if answer_summary is None else answer_summary.average_score),
                     _fmt(summary.latency_p50_ms),
                     _fmt(summary.latency_p95_ms),
+                ]
+            )
+            + " |"
+        )
+
+
+def _render_control_baselines(lines: list[str], run_result: ShowcaseRunResult) -> None:
+    if not run_result.control_baselines:
+        return
+    summaries = _summary_by_name(run_result)
+    lines.extend(
+        [
+            "",
+            "## Measured Control Baselines",
+            "",
+            "| Baseline | Available | Scenario Pass | False Recall | Temporal | Negation | Open Loop | Prospective | p50 ms |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for baseline_name in run_result.control_baselines:
+        summary = summaries.get(baseline_name)
+        if summary is None:
+            continue
+        availability = "yes" if summary.available else f"no ({summary.availability_reason})"
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _display_name(baseline_name),
+                    availability,
+                    _fmt(summary.scenario_pass_rate),
+                    _fmt(summary.false_recall_rate),
+                    _fmt(summary.temporal_correctness),
+                    _fmt(summary.negation_correctness),
+                    _fmt(summary.open_loop_recovery),
+                    _fmt(summary.prospective_trigger_rate),
+                    _fmt(summary.latency_p50_ms),
                 ]
             )
             + " |"
@@ -353,7 +379,7 @@ def _render_ablations(lines: list[str], run_result: ShowcaseRunResult) -> None:
     lines.extend(
         [
             "",
-            "## Ablation Attribution",
+            "## Engram Ablations",
             "",
             "| Ablation | Available | Scenario Pass | False Recall | Cue/Planning Signal |",
             "|---|---:|---:|---:|---:|",
@@ -373,6 +399,37 @@ def _render_ablations(lines: list[str], run_result: ShowcaseRunResult) -> None:
                     _fmt(summary.scenario_pass_rate),
                     _fmt(summary.false_recall_rate),
                     _fmt(summary.prospective_trigger_rate),
+                ]
+            )
+            + " |"
+        )
+
+
+def _render_spec_only(lines: list[str], run_result: ShowcaseRunResult) -> None:
+    if not run_result.spec_only_baselines:
+        return
+    lines.extend(
+        [
+            "",
+            "## Spec-Only Comparison Targets",
+            "",
+            "| System | Technology | Archetype | Why Tracked | Current Limitation |",
+            "|---|---|---|---|---|",
+        ]
+    )
+    for baseline_id in run_result.spec_only_baselines:
+        entry = run_result.baseline_catalog.get(baseline_id)
+        if entry is None:
+            continue
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    entry.display_name,
+                    entry.external_technology_label or "-",
+                    entry.archetype or "-",
+                    entry.why_included or "-",
+                    entry.known_limitations or "-",
                 ]
             )
             + " |"
@@ -513,11 +570,13 @@ def render_markdown_report(run_result: ShowcaseRunResult) -> str:
     _render_fairness(lines, run_result)
 
     if run_result.primary_baselines and run_result.baseline_summaries:
-        _render_executive(lines, run_result)
+        _render_headline_measured(lines, run_result)
+        _render_control_baselines(lines, run_result)
         _render_capability_scorecard(lines, run_result)
         _render_scenario_rows(lines, run_result)
         _render_cost_and_errors(lines, run_result)
         _render_ablations(lines, run_result)
+        _render_spec_only(lines, run_result)
         _render_appendix(lines, run_result)
         _render_takeaways(lines, run_result)
     else:

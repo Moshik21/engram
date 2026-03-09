@@ -1,98 +1,21 @@
 import { Link } from "react-router-dom";
+
 import { BenchmarkShowcase } from "../components/BenchmarkShowcase";
 import { ScrollReveal } from "../components/ScrollReveal";
+import {
+  fallbackBenchmarkSummary,
+  useBenchmarkSummary,
+} from "../lib/benchmarkData";
 
 const serif = { fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: "italic" as const };
 const mono = { fontFamily: '"JetBrains Mono", monospace' };
 const body = { fontFamily: '"Outfit", sans-serif' };
 
-const MEASURED_BASELINES = [
-  {
-    name: "Engram Full",
-    status: "Measured",
-    accent: "#67e8f9",
-    model: "Cue-first long-term memory with episodic capture, graph recall, prospective memory, and consolidation.",
-    why: "This is the full system under test and the benchmark headline.",
-  },
-  {
-    name: "Context + Summary",
-    status: "Measured",
-    accent: "#34d399",
-    model: "Recent-turn window plus deterministic rolling summary of older turns.",
-    why: "Represents the strongest practical context-window baseline without graph memory.",
-  },
-  {
-    name: "Markdown Canonical",
-    status: "Measured",
-    accent: "#fbbf24",
-    model: "Structured latest-win notebook with lexical retrieval over current facts, corrections, open loops, and intentions.",
-    why: "Represents human-readable memory files done as fairly as possible.",
-  },
-  {
-    name: "Hybrid RAG Temporal",
-    status: "Measured",
-    accent: "#a78bfa",
-    model: "Chunk retrieval with lexical + vector fusion and deterministic temporal filtering.",
-    why: "Represents modern retrieval memory without a cue layer or prospective graph model.",
-  },
-] as const;
-
-const EXTERNAL_SPECS = [
-  {
-    name: "LangGraph Memory",
-    status: "Spec Baseline",
-    accent: "#67e8f9",
-    model: "Thread persistence plus long-term store-backed memory across sessions.",
-    strengths: "Strong agent framework default, practical persistence primitives, easy adoption.",
-    gaps: "Not inherently cue-driven, contradiction-aware, or graph-consolidated.",
-  },
-  {
-    name: "Mem0 / OpenMemory",
-    status: "Spec Baseline",
-    accent: "#34d399",
-    model: "Agent memory layer focused on extraction, compression, and retrieval over durable user/project memory.",
-    strengths: "Direct market competitor in agent memory, strong MCP relevance, easy mental model.",
-    gaps: "Closer to managed memory retrieval than consolidation-heavy graph memory.",
-  },
-  {
-    name: "Zep / Graphiti",
-    status: "Spec Baseline",
-    accent: "#fbbf24",
-    model: "Temporal memory API and graph-oriented long-term memory infrastructure.",
-    strengths: "Most relevant architectural peer on temporal memory and graph reasoning.",
-    gaps: "Benchmark parity requires either direct integration or a closer proxy implementation.",
-  },
-  {
-    name: "Letta",
-    status: "Spec Baseline",
-    accent: "#a78bfa",
-    model: "Pinned memory blocks plus editable agent memory state.",
-    strengths: "Well-known stateful-agent design; strong explicit-memory UX.",
-    gaps: "Harder to reproduce fairly inside this harness without direct Letta integration.",
-  },
-  {
-    name: "LlamaIndex Memory",
-    status: "Appendix Candidate",
-    accent: "#fb7185",
-    model: "Framework memory queue plus optional long-term extraction and retrieval.",
-    strengths: "Widely used in agent stacks, credible framework-native comparison.",
-    gaps: "Less direct as a memory-system peer than Mem0 or Graphiti.",
-  },
-  {
-    name: "CrewAI Memory",
-    status: "Appendix Candidate",
-    accent: "#60a5fa",
-    model: "Built-in short-term, long-term, entity, and contextual memory for multi-agent workflows.",
-    strengths: "Relevant for orchestration-focused agents and practical production users.",
-    gaps: "More workflow-centric than a direct temporal-memory architecture peer.",
-  },
-] as const;
-
 const METHODOLOGY = [
-  "Equal retrieval budgets per scenario and the same transcript order for every baseline.",
+  "Equal retrieval budgets per scenario and the same transcript order for every measured baseline.",
   "Deterministic scenario grading on surfaced evidence rather than anecdotal chat demos.",
   "Real Engram system paths through GraphManager rather than fixture-only shortcuts.",
-  "Ablation baselines included to isolate cues and search-only behavior.",
+  "External technology comparisons are clearly split between measured proxies and spec-only targets.",
   "Website numbers come from exported benchmark artifacts, not hand-edited copy.",
 ] as const;
 
@@ -153,7 +76,94 @@ function Badge({
   );
 }
 
+function BaselineGrid({
+  title,
+  description,
+  items,
+}: {
+  title: string;
+  description: string;
+  items: Array<{
+    name?: string;
+    display_name: string;
+    status: string | null;
+    accent: string | null;
+    archetype: string | null;
+    description: string | null;
+    fairness_notes: string | null;
+    known_limitations: string | null;
+    why_included: string | null;
+    external_technology_label?: string | null;
+  }>;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <section style={{ padding: "0 24px 88px" }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+        <ScrollReveal>
+          <Label>{title}</Label>
+          <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.75, maxWidth: 760, marginBottom: 28 }}>
+            {description}
+          </p>
+        </ScrollReveal>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 18 }}>
+          {items.map((item, index) => (
+            <ScrollReveal key={item.display_name} delay={index * 60}>
+              <article
+                style={{
+                  borderRadius: 22,
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  background:
+                    "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015))",
+                  padding: 22,
+                  height: "100%",
+                }}
+              >
+                <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  <Badge accent={item.accent ?? "#67e8f9"}>
+                    {item.status === "spec_only" ? "Spec Only" : "Measured"}
+                  </Badge>
+                  {item.external_technology_label ? (
+                    <Badge accent="#94a3b8">{item.external_technology_label}</Badge>
+                  ) : null}
+                </div>
+                <h3 style={{ ...body, fontSize: 20, fontWeight: 500, marginBottom: 10 }}>{item.display_name}</h3>
+                <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 14 }}>
+                  {item.archetype ?? item.description}
+                </p>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: item.accent ?? "#67e8f9", marginBottom: 6 }}>
+                      Why Included
+                    </div>
+                    <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.65, margin: 0 }}>
+                      {item.why_included ?? item.description}
+                    </p>
+                  </div>
+                  <div>
+                    <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
+                      Limitation
+                    </div>
+                    <p style={{ ...body, color: "var(--text-muted)", lineHeight: 1.65, margin: 0 }}>
+                      {item.known_limitations ?? item.fairness_notes}
+                    </p>
+                  </div>
+                </div>
+              </article>
+            </ScrollReveal>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function BenchmarksPage() {
+  const { data, error } = useBenchmarkSummary();
+  const summary = data ?? fallbackBenchmarkSummary();
+
   return (
     <div style={{ background: "var(--void)", color: "var(--text-primary)" }}>
       <section style={{ paddingTop: 156, paddingBottom: 72, position: "relative" }}>
@@ -176,7 +186,7 @@ export function BenchmarksPage() {
                 ...serif,
                 fontSize: "clamp(2.6rem, 5vw, 4.1rem)",
                 lineHeight: 1.08,
-                maxWidth: 820,
+                maxWidth: 860,
                 marginBottom: 20,
                 textWrap: "balance",
               }}
@@ -190,7 +200,7 @@ export function BenchmarksPage() {
             <p
               style={{
                 ...body,
-                maxWidth: 720,
+                maxWidth: 760,
                 fontSize: 18,
                 lineHeight: 1.75,
                 color: "var(--text-secondary)",
@@ -199,8 +209,8 @@ export function BenchmarksPage() {
             >
               Engram is benchmarked against stronger fair baselines with equal retrieval budgets,
               deterministic scenario grading, and exported artifacts that drive the site directly.
-              The goal is one honest claim: long-horizon agent memory should behave better than raw
-              context, notebooks, and retrieval-only systems.
+              The headline measured set now includes external memory-system proxies rather than only
+              generic notebook and RAG controls.
             </p>
           </ScrollReveal>
           <ScrollReveal delay={200}>
@@ -221,10 +231,33 @@ export function BenchmarksPage() {
         </div>
       </section>
 
+      {error ? (
+        <section style={{ padding: "0 24px 40px" }}>
+          <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+            <div
+              style={{
+                borderRadius: 18,
+                border: "1px solid rgba(251,191,36,0.24)",
+                background: "rgba(251,191,36,0.08)",
+                padding: 18,
+              }}
+            >
+              <div style={{ ...mono, fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#fbbf24", marginBottom: 8 }}>
+                Fallback Metadata
+              </div>
+              <p style={{ ...body, color: "var(--text-secondary)", margin: 0, lineHeight: 1.7 }}>
+                Live benchmark export is missing, so this page is showing bundled baseline metadata
+                and architecture descriptions only. Publish fresh results with the export command below.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section style={{ padding: "0 24px 88px" }}>
         <div style={{ maxWidth: 1080, margin: "0 auto" }}>
           <ScrollReveal>
-            <BenchmarkShowcase />
+            <BenchmarkShowcase data={summary} error={error} />
           </ScrollReveal>
         </div>
       </section>
@@ -308,99 +341,23 @@ uv run python scripts/benchmark_showcase.py \\
         </div>
       </section>
 
-      <section style={{ padding: "0 24px 88px" }}>
-        <div style={{ maxWidth: 1080, margin: "0 auto" }}>
-          <ScrollReveal>
-            <Label>Measured Baselines</Label>
-            <h2 style={{ ...serif, fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: 18, textWrap: "balance" }}>
-              The systems currently measured in-suite.
-            </h2>
-          </ScrollReveal>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 18 }}>
-            {MEASURED_BASELINES.map((item, index) => (
-              <ScrollReveal key={item.name} delay={index * 70}>
-                <article
-                  style={{
-                    borderRadius: 22,
-                    border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.02)",
-                    padding: 22,
-                    height: "100%",
-                  }}
-                >
-                  <div style={{ marginBottom: 16 }}>
-                    <Badge accent={item.accent}>{item.status}</Badge>
-                  </div>
-                  <h3 style={{ ...body, fontSize: 20, fontWeight: 500, marginBottom: 10 }}>{item.name}</h3>
-                  <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 14 }}>
-                    {item.model}
-                  </p>
-                  <p style={{ ...body, color: "var(--text-muted)", lineHeight: 1.65, marginBottom: 0 }}>
-                    {item.why}
-                  </p>
-                </article>
-              </ScrollReveal>
-            ))}
-          </div>
-        </div>
-      </section>
+      <BaselineGrid
+        title="Headline Measured Competitors"
+        description="The systems that anchor the public comparison: Engram plus three measured external memory shapes."
+        items={summary.headline_baselines}
+      />
 
-      <section style={{ padding: "0 24px 112px" }}>
-        <div style={{ maxWidth: 1080, margin: "0 auto" }}>
-          <ScrollReveal>
-            <Label>External Specs</Label>
-            <h2 style={{ ...serif, fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", marginBottom: 18, textWrap: "balance" }}>
-              Major memory systems we should compare against.
-            </h2>
-            <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.75, maxWidth: 760, marginBottom: 28 }}>
-              These are tracked explicitly so the benchmark page stays honest about what is already
-              measured versus what is currently an architectural comparison target.
-            </p>
-          </ScrollReveal>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 18 }}>
-            {EXTERNAL_SPECS.map((item, index) => (
-              <ScrollReveal key={item.name} delay={index * 60}>
-                <article
-                  style={{
-                    borderRadius: 22,
-                    border: "1px solid rgba(255,255,255,0.06)",
-                    background:
-                      "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015))",
-                    padding: 22,
-                    height: "100%",
-                  }}
-                >
-                  <div style={{ marginBottom: 16 }}>
-                    <Badge accent={item.accent}>{item.status}</Badge>
-                  </div>
-                  <h3 style={{ ...body, fontSize: 20, fontWeight: 500, marginBottom: 10 }}>{item.name}</h3>
-                  <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 14 }}>
-                    {item.model}
-                  </p>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <div>
-                      <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: item.accent, marginBottom: 6 }}>
-                        Strengths
-                      </div>
-                      <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.65, margin: 0 }}>
-                        {item.strengths}
-                      </p>
-                    </div>
-                    <div>
-                      <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>
-                        Gaps vs Engram
-                      </div>
-                      <p style={{ ...body, color: "var(--text-muted)", lineHeight: 1.65, margin: 0 }}>
-                        {item.gaps}
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              </ScrollReveal>
-            ))}
-          </div>
-        </div>
-      </section>
+      <BaselineGrid
+        title="Measured Control Baselines"
+        description="These stay visible so the benchmark still shows notebook, summary, and RAG-style controls alongside the headline competitors."
+        items={summary.control_baselines}
+      />
+
+      <BaselineGrid
+        title="Spec-Only Comparison Targets"
+        description="These systems matter enough to track on the page, but they are still architectural comparison targets rather than runnable in-suite baselines in this wave."
+        items={summary.spec_only_baselines}
+      />
     </div>
   );
 }

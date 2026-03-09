@@ -91,8 +91,9 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         external_technology_label="Zep / Graphiti",
         archetype="Temporal graph memory with validity-aware retrieval and 2-hop expansion.",
         description=(
-            "Proxy for Graphiti/Zep-style temporal graph memory with deterministic graph expansion, "
-            "current-state filtering, and local lexical/vector fusion."
+            "Proxy for Graphiti/Zep-style temporal graph memory with "
+            "deterministic graph expansion, current-state filtering, "
+            "and local lexical/vector fusion."
         ),
         fairness_notes="Offline deterministic proxy using local embeddings where available.",
         known_limitations="No cue layer, no consolidation cycles, and no intention trigger model.",
@@ -106,7 +107,10 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="control",
         accent="#10b981",
         archetype="Recent-turn context with a rolling deterministic summary.",
-        description="Strong context-window control without graph semantics or durable memory objects.",
+        description=(
+            "Strong context-window control without graph semantics "
+            "or durable memory objects."
+        ),
         fairness_notes="Honors the same probe budgets as every other measured baseline.",
         known_limitations="No persistent graph, cue recall, or associative traversal.",
         why_included="Strong practical non-graph control.",
@@ -119,7 +123,11 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="control",
         accent="#f59e0b",
         archetype="Structured latest-win notebook with lexical retrieval.",
-        description="Human-readable canonical notebook with deterministic sections for current facts, corrections, open loops, and intentions.",
+        description=(
+            "Human-readable canonical notebook with deterministic "
+            "sections for current facts, corrections, open loops, "
+            "and intentions."
+        ),
         fairness_notes="Compression and retrieval are deterministic and budget-bounded.",
         known_limitations="No graph semantics, cue layer, or activation model.",
         why_included="Fair markdown-file baseline instead of a toy notes file.",
@@ -132,7 +140,10 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="control",
         accent="#8b5cf6",
         archetype="Chunk retrieval with lexical and vector fusion plus temporal filtering.",
-        description="Raw-retrieval control with deterministic current-state filtering over vector and lexical matches.",
+        description=(
+            "Raw-retrieval control with deterministic current-state "
+            "filtering over vector and lexical matches."
+        ),
         fairness_notes="Uses local embeddings for offline reproducibility.",
         known_limitations="No cue recall, no intention triggers, and no graph traversal.",
         why_included="Modern retrieval baseline without long-term memory architecture.",
@@ -171,7 +182,10 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="alternative",
         accent="#818cf8",
         archetype="Raw chunk retrieval with local embeddings.",
-        description="Simple vector/lexical retrieval over raw note chunks with no higher-level memory model.",
+        description=(
+            "Simple vector/lexical retrieval over raw note chunks "
+            "with no higher-level memory model."
+        ),
         fairness_notes="Uses local embeddings only; deterministic when available.",
         known_limitations="No temporal invalidation, graph expansion, or prospective behavior.",
         why_included="Naive RAG baseline.",
@@ -197,7 +211,11 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="ablation",
         accent="#06b6d4",
         archetype="Engram entity search without activation or prospective features.",
-        description="Strict Engram ablation that keeps searchable graph memory but disables activation, cue recall, and prospective retrieval.",
+        description=(
+            "Strict Engram ablation that keeps searchable graph "
+            "memory but disables activation, cue recall, and "
+            "prospective retrieval."
+        ),
         fairness_notes="Same underlying memory store with retrieval features disabled.",
         known_limitations="Attribution-only baseline rather than a market comparison.",
         why_included="Shows where search alone stops being sufficient.",
@@ -210,7 +228,10 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         family="engram",
         accent="#60a5fa",
         archetype="Engram with hybrid search enabled.",
-        description="Optional Engram variant that uses hybrid lexical/vector search inside the same benchmark harness.",
+        description=(
+            "Optional Engram variant that uses hybrid lexical/vector "
+            "search inside the same benchmark harness."
+        ),
         fairness_notes="Only available when a compatible embedding provider is configured.",
         known_limitations="Optional appendix variant, not part of the default public comparison.",
         why_included="Lets the suite show vector-backed Engram behavior when configured.",
@@ -224,7 +245,10 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         accent="#c084fc",
         external_technology_label="Letta",
         archetype="Pinned memory blocks and editable agent memory state.",
-        description="Stateful-agent memory system built around explicit core memory blocks and editable long-term memory.",
+        description=(
+            "Stateful-agent memory system built around explicit "
+            "core memory blocks and editable long-term memory."
+        ),
         fairness_notes="Tracked on the page but not yet runnable in-suite.",
         known_limitations="A fair proxy is less clear without direct product integration.",
         why_included="Important public comparison target for stateful agents.",
@@ -238,7 +262,11 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         accent="#fb7185",
         external_technology_label="LlamaIndex",
         archetype="Framework memory queue plus optional long-term extraction.",
-        description="Framework-native memory primitives combining short-term buffers and optional long-term extraction/retrieval.",
+        description=(
+            "Framework-native memory primitives combining "
+            "short-term buffers and optional long-term "
+            "extraction/retrieval."
+        ),
         fairness_notes="Tracked on the page but not yet runnable in-suite.",
         known_limitations="Less direct as a temporal-memory peer than Mem0 or Graphiti.",
         why_included="Common framework comparison target.",

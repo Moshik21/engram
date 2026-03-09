@@ -132,6 +132,20 @@ async def test_quick_mode_smoke_and_artifacts(tmp_path: Path):
 
     assert result.primary_baselines == [
         "engram_full",
+        "langgraph_store_memory",
+        "mem0_style_memory",
+        "graphiti_temporal_graph",
+        "context_summary",
+        "markdown_canonical",
+        "hybrid_rag_temporal",
+    ]
+    assert result.headline_baselines == [
+        "engram_full",
+        "langgraph_store_memory",
+        "mem0_style_memory",
+        "graphiti_temporal_graph",
+    ]
+    assert result.control_baselines == [
         "context_summary",
         "markdown_canonical",
         "hybrid_rag_temporal",
@@ -259,6 +273,163 @@ async def test_answer_track_runs_with_deterministic_provider(tmp_path: Path):
     assert result.answer_results
     assert all(answer.available for answer in result.answer_results)
     assert (tmp_path / "answer_det" / "answer_outputs.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_langgraph_store_memory_is_more_token_efficient_than_context_summary(tmp_path: Path):
+    result = await run_showcase_benchmark(
+        mode="full",
+        seeds=[7],
+        output_dir=tmp_path / "langgraph_vs_context",
+        scenario_ids=["multi_session_continuity", "context_budget_compression"],
+        baseline_names=["langgraph_store_memory", "context_summary"],
+        include_ablations=False,
+    )
+
+    by_name = {
+        name: [
+            scenario
+            for scenario in result.scenario_results
+            if scenario.baseline_name == name
+        ]
+        for name in ["langgraph_store_memory", "context_summary"]
+    }
+    assert all(scenario.passed for scenario in by_name["langgraph_store_memory"])
+    assert all(scenario.passed for scenario in by_name["context_summary"])
+
+    langgraph_tokens = sum(
+        probe.tokens_surfaced
+        for scenario in by_name["langgraph_store_memory"]
+        for probe in scenario.probe_results
+    )
+    context_tokens = sum(
+        probe.tokens_surfaced
+        for scenario in by_name["context_summary"]
+        for probe in scenario.probe_results
+    )
+    assert langgraph_tokens < context_tokens
+
+
+@pytest.mark.asyncio
+async def test_mem0_style_memory_beats_markdown_canonical_on_current_state_scenarios(tmp_path: Path):
+    result = await run_showcase_benchmark(
+        mode="full",
+        seeds=[7],
+        output_dir=tmp_path / "mem0_vs_markdown",
+        scenario_ids=[
+            "temporal_override",
+            "negation_correction",
+            "correction_chain",
+            "summary_drift_resistance",
+        ],
+        baseline_names=["mem0_style_memory", "markdown_canonical"],
+        include_ablations=False,
+    )
+
+    by_name = {
+        name: [
+            scenario
+            for scenario in result.scenario_results
+            if scenario.baseline_name == name
+        ]
+        for name in ["mem0_style_memory", "markdown_canonical"]
+    }
+    assert all(scenario.passed for scenario in by_name["mem0_style_memory"])
+    assert not any(scenario.passed for scenario in by_name["markdown_canonical"])
+
+
+@pytest.mark.asyncio
+async def test_graphiti_temporal_graph_beats_hybrid_rag_temporal_on_graph_temporal_scenarios(tmp_path: Path):
+    result = await run_showcase_benchmark(
+        mode="full",
+        seeds=[7],
+        output_dir=tmp_path / "graphiti_vs_hybrid",
+        scenario_ids=[
+            "cross_cluster_association",
+            "temporal_override",
+            "negation_correction",
+        ],
+        baseline_names=["graphiti_temporal_graph", "hybrid_rag_temporal"],
+        include_ablations=False,
+    )
+
+    by_name = {
+        name: [
+            scenario
+            for scenario in result.scenario_results
+            if scenario.baseline_name == name
+        ]
+        for name in ["graphiti_temporal_graph", "hybrid_rag_temporal"]
+    }
+    assert all(scenario.passed for scenario in by_name["graphiti_temporal_graph"])
+    assert not any(scenario.passed for scenario in by_name["hybrid_rag_temporal"])
+
+
+@pytest.mark.asyncio
+async def test_external_proxy_baselines_stay_below_engram_on_cue_and_prospective_scenarios(tmp_path: Path):
+    result = await run_showcase_benchmark(
+        mode="full",
+        seeds=[7],
+        output_dir=tmp_path / "engram_vs_external_limits",
+        scenario_ids=[
+            "cue_delayed_relevance",
+            "prospective_trigger",
+            "latent_open_loop_cue",
+        ],
+        baseline_names=[
+            "engram_full",
+            "langgraph_store_memory",
+            "mem0_style_memory",
+            "graphiti_temporal_graph",
+        ],
+        include_ablations=False,
+    )
+
+    assert all(
+        scenario.passed
+        for scenario in result.scenario_results
+        if scenario.baseline_name == "engram_full"
+    )
+    for baseline_name in [
+        "langgraph_store_memory",
+        "mem0_style_memory",
+        "graphiti_temporal_graph",
+    ]:
+        assert not any(
+            scenario.passed
+            for scenario in result.scenario_results
+            if scenario.baseline_name == baseline_name
+        )
+
+
+@pytest.mark.asyncio
+async def test_website_summary_includes_grouped_baselines_and_spec_targets(tmp_path: Path):
+    output_dir = tmp_path / "website_summary"
+    await run_showcase_benchmark(
+        mode="quick",
+        seeds=[7],
+        output_dir=output_dir,
+        include_ablations=False,
+        website_export_path=tmp_path / "website" / "latest.json",
+    )
+
+    website_summary = json.loads((output_dir / "website_summary.json").read_text())
+    assert [item["name"] for item in website_summary["headline_baselines"]] == [
+        "engram_full",
+        "langgraph_store_memory",
+        "mem0_style_memory",
+        "graphiti_temporal_graph",
+    ]
+    assert [item["name"] for item in website_summary["control_baselines"]] == [
+        "context_summary",
+        "markdown_canonical",
+        "hybrid_rag_temporal",
+    ]
+    assert [item["baseline_id"] for item in website_summary["spec_only_baselines"]] == [
+        "letta",
+        "llamaindex_memory",
+        "crewai_memory",
+    ]
 
 
 @pytest.mark.asyncio

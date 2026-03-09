@@ -1,8 +1,18 @@
 // @ts-nocheck — R3F JSX intrinsic elements are resolved at runtime by the Canvas
 import { useRef, useMemo } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
-import * as THREE from "three";
+import {
+  ACESFilmicToneMapping,
+  AdditiveBlending,
+  BufferAttribute,
+  Color,
+  Group,
+  InstancedMesh,
+  LineSegments,
+  Object3D,
+  Points,
+  Vector3,
+} from "three";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,17 +31,17 @@ const NODE_COLORS: string[] = [
   "#818cf8", // indigo
 ];
 
-const NODE_COLOR_OBJECTS = NODE_COLORS.map((c) => new THREE.Color(c));
+const NODE_COLOR_OBJECTS = NODE_COLORS.map((c) => new Color(c));
 
-const EDGE_COLOR = new THREE.Color("#67e8f9");
+const EDGE_COLOR = new Color("#67e8f9");
 
 // ---------------------------------------------------------------------------
 // Layout helpers – golden-ratio spherical clusters
 // ---------------------------------------------------------------------------
 
 interface NodeData {
-  position: THREE.Vector3;
-  color: THREE.Color;
+  position: Vector3;
+  color: Color;
   radius: number;
   phase: number; // animation phase offset
   pulseSpeed: number;
@@ -58,13 +68,13 @@ function generateNodes(count: number): NodeData[] {
   const nodes: NodeData[] = [];
 
   // Cluster centres spread in a sphere
-  const clusterCentres: THREE.Vector3[] = [];
+  const clusterCentres: Vector3[] = [];
   for (let c = 0; c < CLUSTER_COUNT; c++) {
     const phi = Math.acos(1 - (2 * (c + 0.5)) / CLUSTER_COUNT);
     const theta = Math.PI * (1 + Math.sqrt(5)) * c;
     const r = 2.8 + rand() * 0.6;
     clusterCentres.push(
-      new THREE.Vector3(
+      new Vector3(
         r * Math.sin(phi) * Math.cos(theta),
         r * Math.sin(phi) * Math.sin(theta),
         r * Math.cos(phi),
@@ -84,13 +94,13 @@ function generateNodes(count: number): NodeData[] {
     const azimuth = goldenAngle * i;
 
     const spread = 1.8 + rand() * 1.2;
-    const jitter = new THREE.Vector3(
+    const jitter = new Vector3(
       (rand() - 0.5) * 1.0,
       (rand() - 0.5) * 1.0,
       (rand() - 0.5) * 1.0,
     );
 
-    const pos = new THREE.Vector3(
+    const pos = new Vector3(
       Math.sin(inclination) * Math.cos(azimuth) * spread,
       Math.sin(inclination) * Math.sin(azimuth) * spread,
       Math.cos(inclination) * spread,
@@ -179,11 +189,11 @@ interface NodesProps {
   nodes: NodeData[];
 }
 
-const _tempObj = new THREE.Object3D();
-const _tempColor = new THREE.Color();
+const _tempObj = new Object3D();
+const _tempColor = new Color();
 
 function Nodes({ nodes }: NodesProps) {
-  const meshRef = useRef<THREE.InstancedMesh>(null!);
+  const meshRef = useRef<InstancedMesh>(null!);
   const count = nodes.length;
 
   // Store per-instance base emissive intensity for pulsing
@@ -258,7 +268,7 @@ interface EdgesProps {
 }
 
 function Edges({ nodes, edges }: EdgesProps) {
-  const lineRef = useRef<THREE.LineSegments>(null!);
+  const lineRef = useRef<LineSegments>(null!);
 
   const { positions, colors } = useMemo(() => {
     const pos = new Float32Array(edges.length * 6);
@@ -296,7 +306,7 @@ function Edges({ nodes, edges }: EdgesProps) {
     if (!line) return;
 
     const geo = line.geometry;
-    const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
+    const posAttr = geo.getAttribute("position") as BufferAttribute;
     const posArr = posAttr.array as Float32Array;
     const t = clock.getElapsedTime();
 
@@ -339,7 +349,7 @@ function Edges({ nodes, edges }: EdgesProps) {
         transparent
         opacity={1}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
       />
     </lineSegments>
   );
@@ -350,7 +360,7 @@ function Edges({ nodes, edges }: EdgesProps) {
 // ---------------------------------------------------------------------------
 
 function Particles() {
-  const pointsRef = useRef<THREE.Points>(null!);
+  const pointsRef = useRef<Points>(null!);
 
   const { positions, velocities } = useMemo(() => {
     const rand = seededRandom(777);
@@ -382,7 +392,7 @@ function Particles() {
 
     const posAttr = pts.geometry.getAttribute(
       "position",
-    ) as THREE.BufferAttribute;
+    ) as BufferAttribute;
     const arr = posAttr.array as Float32Array;
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
@@ -419,7 +429,7 @@ function Particles() {
         transparent
         opacity={0.25}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
         sizeAttenuation
       />
     </points>
@@ -443,7 +453,7 @@ function GlowCores({ nodes }: GlowCoresProps) {
       .slice(0, 15);
   }, [nodes]);
 
-  const meshRef = useRef<THREE.InstancedMesh>(null!);
+  const meshRef = useRef<InstancedMesh>(null!);
   const count = glowNodes.length;
 
   useFrame(({ clock }) => {
@@ -480,7 +490,7 @@ function GlowCores({ nodes }: GlowCoresProps) {
         transparent
         opacity={0.12}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
         toneMapped={false}
       />
     </instancedMesh>
@@ -498,7 +508,7 @@ interface PulseTravellersProps {
 
 function PulseTravellers({ nodes, edges }: PulseTravellersProps) {
   const PULSE_COUNT = 8;
-  const meshRef = useRef<THREE.InstancedMesh>(null!);
+  const meshRef = useRef<InstancedMesh>(null!);
 
   // Pick a random subset of edges to pulse along, cycling
   const pulseData = useMemo(() => {
@@ -566,7 +576,7 @@ function PulseTravellers({ nodes, edges }: PulseTravellersProps) {
         transparent
         opacity={0.9}
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        blending={AdditiveBlending}
       />
     </instancedMesh>
   );
@@ -579,6 +589,15 @@ function PulseTravellers({ nodes, edges }: PulseTravellersProps) {
 function BrainScene() {
   const nodes = useMemo(() => generateNodes(NODE_COUNT), []);
   const edges = useMemo(() => generateEdges(nodes, EDGE_COUNT), [nodes]);
+  const sceneRef = useRef<Group>(null!);
+
+  useFrame(({ clock }) => {
+    const group = sceneRef.current;
+    if (!group) return;
+    const t = clock.getElapsedTime();
+    group.rotation.y = t * 0.05;
+    group.rotation.x = Math.sin(t * 0.12) * 0.05;
+  });
 
   return (
     <>
@@ -586,22 +605,13 @@ function BrainScene() {
       <pointLight position={[10, 10, 10]} intensity={0.3} />
       <pointLight position={[-10, -5, -10]} intensity={0.15} color="#a78bfa" />
 
-      <Nodes nodes={nodes} />
-      <Edges nodes={nodes} edges={edges} />
-      <GlowCores nodes={nodes} />
-      <Particles />
-      <PulseTravellers nodes={nodes} edges={edges} />
-
-      <OrbitControls
-        autoRotate
-        autoRotateSpeed={0.3}
-        enableZoom={false}
-        enablePan={false}
-        minPolarAngle={Math.PI * 0.25}
-        maxPolarAngle={Math.PI * 0.75}
-        dampingFactor={0.05}
-        enableDamping
-      />
+      <group ref={sceneRef}>
+        <Nodes nodes={nodes} />
+        <Edges nodes={nodes} edges={edges} />
+        <GlowCores nodes={nodes} />
+        <Particles />
+        <PulseTravellers nodes={nodes} edges={edges} />
+      </group>
     </>
   );
 }
@@ -628,7 +638,7 @@ export function BrainVisualization() {
           antialias: true,
           alpha: true,
           powerPreference: "high-performance",
-          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMapping: ACESFilmicToneMapping,
           toneMappingExposure: 1.2,
         }}
         style={{ background: "transparent" }}

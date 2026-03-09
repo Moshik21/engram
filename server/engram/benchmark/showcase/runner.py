@@ -14,6 +14,15 @@ from engram.benchmark.showcase.adapters import (
     create_primary_adapter,
 )
 from engram.benchmark.showcase.answering import grade_answer, shared_answer_prompt
+from engram.benchmark.showcase.catalog import (
+    BASELINE_CATALOG,
+    DEFAULT_ABLATION_BASELINES,
+    DEFAULT_APPENDIX_BASELINES,
+    DEFAULT_CONTROL_BASELINES,
+    DEFAULT_HEADLINE_BASELINES,
+    DEFAULT_PRIMARY_BASELINES,
+    DEFAULT_SPEC_ONLY_BASELINES,
+)
 from engram.benchmark.showcase.external import collect_external_track_results
 from engram.benchmark.showcase.models import (
     AnswerResult,
@@ -31,23 +40,6 @@ from engram.benchmark.showcase.scoring import (
     summarize_answer_results,
     summarize_baseline,
 )
-
-PRIMARY_BASELINES = [
-    "engram_full",
-    "context_summary",
-    "markdown_canonical",
-    "hybrid_rag_temporal",
-]
-APPENDIX_BASELINES = [
-    "context_window",
-    "markdown_memory",
-    "vector_rag",
-]
-ABLATION_BASELINES = [
-    "engram_no_cues",
-    "engram_search_only",
-]
-
 
 def _default_seeds(mode: str) -> list[int]:
     if mode == "quick":
@@ -79,23 +71,27 @@ def _resolve_baseline_groups(
     primary_baselines: list[str] | None,
     appendix_baselines: list[str] | None,
     include_ablations: bool,
-) -> tuple[list[str], list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     if baseline_names is not None:
         selected = _dedupe(list(baseline_names))
         primary = [
             baseline
-            for baseline in PRIMARY_BASELINES + ["engram_full_hybrid"]
+            for baseline in DEFAULT_PRIMARY_BASELINES + ["engram_full_hybrid"]
             if baseline in selected
         ]
-        appendix = [baseline for baseline in APPENDIX_BASELINES if baseline in selected]
-        ablations = [baseline for baseline in ABLATION_BASELINES if baseline in selected]
-        return selected, primary, appendix, ablations
+        headline = [baseline for baseline in DEFAULT_HEADLINE_BASELINES if baseline in primary]
+        control = [baseline for baseline in DEFAULT_CONTROL_BASELINES if baseline in primary]
+        appendix = [baseline for baseline in DEFAULT_APPENDIX_BASELINES if baseline in selected]
+        ablations = [baseline for baseline in DEFAULT_ABLATION_BASELINES if baseline in selected]
+        return selected, headline, control, appendix, ablations
 
-    primary = _dedupe(list(primary_baselines or PRIMARY_BASELINES))
-    appendix = _dedupe(list(appendix_baselines or APPENDIX_BASELINES))
-    ablations = list(ABLATION_BASELINES if include_ablations else [])
+    primary = _dedupe(list(primary_baselines or DEFAULT_PRIMARY_BASELINES))
+    headline = [baseline for baseline in DEFAULT_HEADLINE_BASELINES if baseline in primary]
+    control = [baseline for baseline in DEFAULT_CONTROL_BASELINES if baseline in primary]
+    appendix = _dedupe(list(appendix_baselines or DEFAULT_APPENDIX_BASELINES))
+    ablations = list(DEFAULT_ABLATION_BASELINES if include_ablations else [])
     selected = _dedupe(primary + appendix + ablations)
-    return selected, primary, appendix, ablations
+    return selected, headline, control, appendix, ablations
 
 
 def _supports_showcase(track: str) -> bool:
@@ -151,7 +147,7 @@ def _overall_vector_provider_family(
 ) -> str:
     vector_families: set[str] = set()
     for baseline in selected_baselines:
-        if baseline in {"hybrid_rag_temporal", "vector_rag"}:
+        if baseline in {"hybrid_rag_temporal", "vector_rag", "graphiti_temporal_graph"}:
             vector_families.add("local")
         elif baseline == "engram_full_hybrid":
             if engram_vector_provider != "none":
@@ -197,7 +193,7 @@ def _create_adapter(
     engram_vector_provider: str,
     budget_profile,
 ):
-    if baseline_name in PRIMARY_BASELINES or baseline_name in APPENDIX_BASELINES:
+    if baseline_name in DEFAULT_PRIMARY_BASELINES or baseline_name in DEFAULT_APPENDIX_BASELINES:
         return create_primary_adapter(
             baseline_name,
             extraction_map,
@@ -211,7 +207,7 @@ def _create_adapter(
             engram_vector_provider=engram_vector_provider,
             budget_profile=budget_profile,
         )
-    if baseline_name in ABLATION_BASELINES:
+    if baseline_name in DEFAULT_ABLATION_BASELINES:
         return create_ablation_adapter(baseline_name, extraction_map)
     raise ValueError(f"Unknown baseline: {baseline_name}")
 
@@ -232,7 +228,11 @@ def _build_showcase_summaries(
         if results:
             family = results[0].baseline_family
         else:
-            family = "ablation" if baseline_name in ablation_baselines else "alternative"
+            family = (
+                BASELINE_CATALOG[baseline_name].family
+                if baseline_name in BASELINE_CATALOG
+                else "ablation" if baseline_name in ablation_baselines else "alternative"
+            )
         summaries.append(
             summarize_baseline(
                 baseline_name,
@@ -248,7 +248,13 @@ def _build_answer_summaries(answer_results: list[AnswerResult], selected_baselin
     summaries = []
     for baseline_name in selected_baselines:
         results = [result for result in answer_results if result.baseline_name == baseline_name]
-        family = results[0].baseline_family if results else "alternative"
+        family = (
+            results[0].baseline_family
+            if results
+            else BASELINE_CATALOG[baseline_name].family
+            if baseline_name in BASELINE_CATALOG
+            else "alternative"
+        )
         summaries.append(summarize_answer_results(baseline_name, family, results))
     return summaries
 
@@ -363,14 +369,14 @@ def _build_readme_snippet(run_result: ShowcaseRunResult) -> str | None:
     engram = summary_by_name.get("engram_full")
     primary_competitors = [
         summary_by_name[name]
-        for name in run_result.primary_baselines
+        for name in run_result.headline_baselines
         if name != "engram_full" and name in summary_by_name
     ]
     if engram is None or not primary_competitors:
         return None
     competitor_clause = ", ".join(
-        f"{name.replace('_', ' ')} {summary_by_name[name].scenario_pass_rate:.3f}"
-        for name in run_result.primary_baselines
+        f"{BASELINE_CATALOG[name].display_name} {summary_by_name[name].scenario_pass_rate:.3f}"
+        for name in run_result.headline_baselines
         if name != "engram_full" and name in summary_by_name
     )
     return (
@@ -380,13 +386,50 @@ def _build_readme_snippet(run_result: ShowcaseRunResult) -> str | None:
     )
 
 
+def _summary_payload(summary, baseline_id: str) -> dict[str, object]:
+    entry = BASELINE_CATALOG.get(baseline_id)
+    return {
+        "name": summary.baseline_name,
+        "display_name": entry.display_name if entry is not None else baseline_id.replace("_", " ").title(),
+        "family": summary.baseline_family,
+        "comparison_group": None if entry is None else entry.comparison_group,
+        "status": None if entry is None else entry.status,
+        "external_technology_label": None if entry is None else entry.external_technology_label,
+        "accent": None if entry is None else entry.accent,
+        "archetype": None if entry is None else entry.archetype,
+        "description": None if entry is None else entry.description,
+        "fairness_notes": None if entry is None else entry.fairness_notes,
+        "known_limitations": None if entry is None else entry.known_limitations,
+        "why_included": None if entry is None else entry.why_included,
+        "scenario_pass_rate": summary.scenario_pass_rate,
+        "false_recall_rate": summary.false_recall_rate,
+        "temporal_correctness": summary.temporal_correctness,
+        "negation_correctness": summary.negation_correctness,
+        "open_loop_recovery": summary.open_loop_recovery,
+        "prospective_trigger_rate": summary.prospective_trigger_rate,
+        "latency_p50_ms": summary.latency_p50_ms,
+        "latency_p95_ms": summary.latency_p95_ms,
+    }
+
+
 def _build_website_summary(run_result: ShowcaseRunResult) -> dict[str, object]:
     summary_by_name = {
         summary.baseline_name: summary for summary in run_result.baseline_summaries
     }
-    primary_summaries = [
-        summary_by_name[name]
-        for name in run_result.primary_baselines
+    headline_summaries = [
+        _summary_payload(summary_by_name[name], name)
+        for name in run_result.headline_baselines
+        if name in summary_by_name
+    ]
+    control_summaries = [
+        _summary_payload(summary_by_name[name], name)
+        for name in run_result.control_baselines
+        if name in summary_by_name
+    ]
+    primary_summaries = headline_summaries + control_summaries
+    appendix_summaries = [
+        _summary_payload(summary_by_name[name], name)
+        for name in run_result.appendix_baselines
         if name in summary_by_name
     ]
 
@@ -429,29 +472,40 @@ def _build_website_summary(run_result: ShowcaseRunResult) -> dict[str, object]:
             "engram_full_false_recall": summary_by_name.get("engram_full").false_recall_rate
             if "engram_full" in summary_by_name
             else None,
+            "best_headline_competitor_pass_rate": max(
+                (
+                    summary_by_name[name].scenario_pass_rate
+                    for name in run_result.headline_baselines
+                    if name != "engram_full" and name in summary_by_name
+                ),
+                default=None,
+            ),
         },
-        "primary_baselines": [
-            {
-                "name": summary.baseline_name,
-                "family": summary.baseline_family,
-                "scenario_pass_rate": summary.scenario_pass_rate,
-                "false_recall_rate": summary.false_recall_rate,
-                "temporal_correctness": summary.temporal_correctness,
-                "negation_correctness": summary.negation_correctness,
-                "open_loop_recovery": summary.open_loop_recovery,
-                "prospective_trigger_rate": summary.prospective_trigger_rate,
-            }
-            for summary in primary_summaries
-        ],
+        "headline_baselines": headline_summaries,
+        "control_baselines": control_summaries,
+        "primary_baselines": primary_summaries,
+        "appendix_baselines": appendix_summaries,
         "ablations": [
             {
                 "name": summary.baseline_name,
+                "display_name": BASELINE_CATALOG[summary.baseline_name].display_name
+                if summary.baseline_name in BASELINE_CATALOG
+                else summary.baseline_name.replace("_", " ").title(),
                 "scenario_pass_rate": summary.scenario_pass_rate,
                 "false_recall_rate": summary.false_recall_rate,
             }
             for summary in run_result.baseline_summaries
             if summary.baseline_name in run_result.ablation_baselines
         ],
+        "spec_only_baselines": [
+            to_serializable(run_result.baseline_catalog[baseline_id])
+            for baseline_id in run_result.spec_only_baselines
+            if baseline_id in run_result.baseline_catalog
+        ],
+        "baseline_catalog": {
+            baseline_id: to_serializable(entry)
+            for baseline_id, entry in run_result.baseline_catalog.items()
+        },
         "scenario_winners": scenario_winners,
     }
 
@@ -578,7 +632,7 @@ async def run_showcase_benchmark(
     output_path = _resolve_output_dir(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    selected_baselines, selected_primary, selected_appendix, selected_ablations = (
+    selected_baselines, selected_headline, selected_control, selected_appendix, selected_ablations = (
         _resolve_baseline_groups(
             baseline_names=baseline_names,
             primary_baselines=primary_baselines,
@@ -586,6 +640,7 @@ async def run_showcase_benchmark(
             include_ablations=include_ablations,
         )
     )
+    selected_primary = selected_headline + selected_control
     project_root = Path(__file__).resolve().parents[3]
     scenario_catalog = _scenario_lookup(mode=mode, seed=seeds[0], scenario_ids=scenario_ids)
 
@@ -852,6 +907,10 @@ async def run_showcase_benchmark(
         external_track_results=external_track_results,
         track_summaries=track_summaries,
         supporting_artifacts=_supporting_artifacts(project_root),
+        headline_baselines=selected_headline,
+        control_baselines=selected_control,
+        spec_only_baselines=list(DEFAULT_SPEC_ONLY_BASELINES),
+        baseline_catalog=dict(BASELINE_CATALOG),
     )
     run_result.readme_snippet = _build_readme_snippet(run_result) if emit_readme_snippet else None
     run_result.artifact_paths = _write_artifacts(

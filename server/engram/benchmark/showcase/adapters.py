@@ -361,6 +361,224 @@ class _CanonicalNotebook:
         return "\n".join(lines)
 
 
+@dataclass
+class _StructuredMemoryRecord:
+    record_id: str
+    memory_class: str
+    key: str
+    text: str
+    order: int
+    source: str
+    session_id: str | None = None
+    aliases: list[str] = field(default_factory=list)
+    entity_names: list[str] = field(default_factory=list)
+    active: bool = True
+
+    @property
+    def search_text(self) -> str:
+        extra = " ".join(self.aliases + self.entity_names)
+        return f"{self.text} {extra}".strip()
+
+
+def _memory_class_for_slot(slot: str) -> str:
+    if slot in {"writing_style", "style"}:
+        return "preference"
+    return "fact"
+
+
+def _parse_fact_value(text: str) -> str:
+    if ": " in text:
+        return text.split(": ", 1)[1].strip()
+    parts = text.split()
+    return parts[-1].strip() if parts else text.strip()
+
+
+def _records_from_turn(turn: ScenarioTurn, order: int) -> list[_StructuredMemoryRecord]:
+    records: list[_StructuredMemoryRecord] = []
+    seen_keys: set[str] = set()
+
+    def add_record(
+        key: str,
+        memory_class: str,
+        text: str,
+        *,
+        aliases: list[str] | None = None,
+        entity_names: list[str] | None = None,
+    ) -> None:
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        records.append(
+            _StructuredMemoryRecord(
+                record_id=f"{turn.id}:{len(records)}",
+                memory_class=memory_class,
+                key=key,
+                text=text.strip(),
+                order=order,
+                source=turn.source,
+                session_id=turn.session_id,
+                aliases=list(aliases or []),
+                entity_names=list(entity_names or []),
+            )
+        )
+
+    if turn.action == "intend":
+        action_text = turn.action_text or ""
+        trigger_text = turn.trigger_text or turn.id
+        entity_names = list(turn.entity_names)
+        add_record(
+            f"intention:{turn.id}",
+            "intention",
+            (
+                f"Intention: {trigger_text}. Action: {action_text}. "
+                f"Related entities: {', '.join(entity_names)}"
+            ).strip(),
+            entity_names=entity_names,
+        )
+        return records
+
+    if turn.content is None:
+        return records
+
+    text = turn.content.strip()
+    open_loop = _extract_open_loop(text)
+    if open_loop is not None:
+        add_record(
+            f"open_loop:{_stable_key(open_loop)}",
+            "open_loop",
+            open_loop,
+        )
+
+    dependency = _extract_dependency(text)
+    if dependency is not None:
+        dep_key, dep_text = dependency
+        subject = dep_key.split(":", 1)[0]
+        add_record(
+            dep_key,
+            "dependency",
+            dep_text,
+            entity_names=[subject],
+        )
+
+    correction = _extract_correction(text)
+    if correction is not None:
+        key, current_text, correction_text = correction
+        subject = key.split(":", 1)[0]
+        add_record(
+            key,
+            "correction",
+            current_text,
+            aliases=[correction_text],
+            entity_names=[subject],
+        )
+
+    structured_facts = _extract_structured_facts(text)
+    if structured_facts:
+        for key, fact_text in structured_facts.items():
+            subject, slot = key.split(":", 1)
+            add_record(
+                key,
+                _memory_class_for_slot(slot),
+                fact_text,
+                entity_names=[subject],
+            )
+
+    fact = _extract_current_fact(text)
+    if fact is not None:
+        key, fact_text = fact
+        subject, slot = key.split(":", 1)
+        add_record(
+            key,
+            _memory_class_for_slot(slot),
+            fact_text,
+            entity_names=[subject],
+        )
+
+    extraction = turn.extraction
+    if extraction is None:
+        if not records:
+            add_record(
+                f"session:{turn.id}",
+                "session_note",
+                text,
+            )
+        return records
+
+    for entity in extraction.entities:
+        name = str(entity.get("name") or "").strip()
+        if not name:
+            continue
+        summary = str(entity.get("summary") or "").strip()
+        if summary:
+            add_record(
+                f"summary:{name}",
+                "fact",
+                f"{name} summary: {summary}",
+                entity_names=[name],
+            )
+        attributes = entity.get("attributes") or {}
+        for attr, value in attributes.items():
+            key = f"{name}:{attr}"
+            add_record(
+                key,
+                _memory_class_for_slot(str(attr)),
+                f"{name} {attr}: {value}",
+                entity_names=[name],
+            )
+
+    for relationship in extraction.relationships:
+        source = str(relationship.get("source") or "").strip()
+        target = str(relationship.get("target") or "").strip()
+        predicate = str(relationship.get("predicate") or "").strip()
+        if not source or not target or not predicate:
+            continue
+        polarity = str(relationship.get("polarity") or "positive")
+        record_key = f"relationship:{source}:{predicate}:{target}"
+        aliases = [f"{source}:{predicate}", target]
+        add_record(
+            record_key,
+            "correction" if polarity != "positive" else "relation",
+            _format_showcase_relationship(
+                source,
+                predicate,
+                target,
+                polarity=polarity,
+            ),
+            aliases=aliases,
+            entity_names=[source, target],
+        )
+
+    if not records:
+        add_record(
+            f"session:{turn.id}",
+            "session_note",
+            text,
+        )
+    return records
+
+
+def _record_to_note(record: _StructuredMemoryRecord, *, prefix_class: bool = False) -> _StoredNote:
+    text = record.text
+    if prefix_class and record.memory_class not in {"open_loop", "dependency", "intention"}:
+        text = f"[{record.memory_class}] {text}"
+    return _StoredNote(
+        note_id=record.record_id,
+        kind=record.memory_class,
+        text=text,
+        order=record.order,
+        source=record.source,
+        session_id=record.session_id,
+        active=record.active,
+    )
+
+
+def _structured_context_text(notes: list[_StoredNote]) -> str:
+    lines = ["## Context"]
+    for note in notes:
+        lines.append(f"- {note.text}")
+    return "\n".join(lines)
+
+
 def _stable_key(text: str) -> str:
     return " ".join(_tokenize(text[:120]))
 
@@ -929,6 +1147,601 @@ class HybridRagTemporalAdapter(VectorRagAdapter):
         return _trim_evidence(evidence, probe.max_tokens)
 
 
+class LangGraphStoreMemoryAdapter(_RawNoteAdapter):
+    """Proxy baseline for LangGraph-style summary plus durable store memory."""
+
+    def __init__(self) -> None:
+        super().__init__("langgraph_store_memory", "external_proxy", history_token_budget=220)
+        self._recent_note_count = 2
+        self._records_by_key: dict[str, _StructuredMemoryRecord] = {}
+        self._records_by_id: dict[str, _StructuredMemoryRecord] = {}
+        self._summary_note: _StoredNote | None = None
+
+    async def apply_turn(self, turn: ScenarioTurn) -> None:
+        await super().apply_turn(turn)
+        if turn.action in {"observe", "remember", "intend"}:
+            if turn.action in {"observe", "remember"} and turn.content:
+                self.stats.extraction_calls += 1
+            records = _records_from_turn(turn, max(0, self._order - 1))
+            if any(record.memory_class != "session_note" for record in records):
+                self.stats.projected_turns += 1
+            for record in records:
+                self._upsert_record(record)
+            self._rebuild_summary()
+            return
+
+        if turn.action == "dismiss_intention" and turn.ref:
+            key = f"intention:{turn.ref}"
+            record = self._records_by_key.get(key)
+            if record is not None:
+                record.active = False
+            self._rebuild_summary()
+
+    def _upsert_record(self, record: _StructuredMemoryRecord) -> None:
+        existing = self._records_by_key.get(record.key)
+        if existing is not None and existing.order > record.order:
+            return
+        if existing is not None:
+            self._records_by_id.pop(existing.record_id, None)
+        self._records_by_key[record.key] = record
+        self._records_by_id[record.record_id] = record
+
+    def _active_records(self) -> list[_StructuredMemoryRecord]:
+        return [
+            record
+            for record in self._records_by_key.values()
+            if record.active and record.memory_class != "session_note"
+        ]
+
+    def _record_score(self, record: _StructuredMemoryRecord, query: str) -> float:
+        score = _lexical_score(query, record.search_text)
+        if record.memory_class in {"correction", "fact", "preference"}:
+            score += 0.08
+        if record.memory_class in {"open_loop", "intention"} and "remember" in query.lower():
+            score += 0.06
+        if _query_prefers_current_state(query) and record.memory_class in {
+            "correction",
+            "fact",
+            "preference",
+            "dependency",
+        }:
+            score += 0.2
+        return score
+
+    def _structured_notes(self) -> list[_StoredNote]:
+        ranked = sorted(
+            self._active_records(),
+            key=lambda record: (record.order, record.key),
+        )
+        notes = [_record_to_note(record) for record in ranked]
+        if self._summary_note is not None:
+            return [self._summary_note] + notes
+        return notes
+
+    def _rebuild_summary(self) -> None:
+        records = sorted(
+            self._active_records(),
+            key=lambda record: (record.order, record.key),
+            reverse=True,
+        )
+        if not records:
+            self._summary_note = None
+            return
+        lines = ["## Thread Summary"]
+        for record in records[:5]:
+            lines.append(f"- {record.text}")
+        self._summary_note = _StoredNote(
+            note_id="langgraph_summary",
+            kind="summary",
+            text="\n".join(lines),
+            order=max((record.order for record in records), default=0) + 1,
+            source="showcase:langgraph_summary",
+        )
+
+    def _visible_notes(self) -> list[_StoredNote]:
+        recent = [
+            note
+            for note in self._active_notes()
+            if note.kind == "episode"
+        ][-self._recent_note_count :]
+        return self._structured_notes() + recent
+
+    def _score_note(self, note: _StoredNote, query: str) -> float:
+        if note.kind == "summary":
+            return _lexical_score(query, note.text) + 0.18
+        record = self._records_by_id.get(note.note_id)
+        if record is not None:
+            return self._record_score(record, query)
+        return super()._score_note(note, query)
+
+    def _current_state_notes(self, query: str, limit: int) -> list[_StoredNote]:
+        candidates = [
+            _record_to_note(record)
+            for record in sorted(
+                self._active_records(),
+                key=lambda record: (self._record_score(record, query), record.order),
+                reverse=True,
+            )
+            if record.memory_class not in {"session_note", "relation"}
+        ]
+        return candidates[:limit]
+
+    async def retrieve_evidence(self, probe: ScenarioProbe) -> list[EvidenceItem]:
+        query = probe.query or probe.topic_hint or ""
+        if probe.operation == "get_context" or _query_prefers_current_state(query):
+            current_notes = self._current_state_notes(query, limit=max(3, probe.limit))
+            if current_notes:
+                return _trim_evidence(
+                    [
+                        EvidenceItem(
+                            result_type="context",
+                            text=_structured_context_text(current_notes[:4]),
+                            source_id=f"{self.name}:context",
+                        )
+                    ],
+                    probe.max_tokens,
+                )
+        return await super().retrieve_evidence(probe)
+
+
+class Mem0StyleMemoryAdapter(_RawNoteAdapter):
+    """Proxy baseline for extracted memory objects with latest-win updates."""
+
+    def __init__(self) -> None:
+        super().__init__("mem0_style_memory", "external_proxy", history_token_budget=220)
+        self._records_by_key: dict[str, _StructuredMemoryRecord] = {}
+        self._records_by_id: dict[str, _StructuredMemoryRecord] = {}
+
+    async def apply_turn(self, turn: ScenarioTurn) -> None:
+        await super().apply_turn(turn)
+        if turn.action in {"observe", "remember", "intend"}:
+            if turn.action in {"observe", "remember"} and turn.content:
+                self.stats.extraction_calls += 1
+            records = _records_from_turn(turn, max(0, self._order - 1))
+            if any(record.memory_class != "session_note" for record in records):
+                self.stats.projected_turns += 1
+            for record in records:
+                self._upsert_record(record)
+            return
+
+        if turn.action == "dismiss_intention" and turn.ref:
+            key = f"intention:{turn.ref}"
+            record = self._records_by_key.get(key)
+            if record is not None:
+                record.active = False
+
+    def _upsert_record(self, record: _StructuredMemoryRecord) -> None:
+        existing = self._records_by_key.get(record.key)
+        if existing is not None and existing.order > record.order:
+            return
+        if existing is not None:
+            self._records_by_id.pop(existing.record_id, None)
+        self._records_by_key[record.key] = record
+        self._records_by_id[record.record_id] = record
+
+    def _active_records(self) -> list[_StructuredMemoryRecord]:
+        return [
+            record
+            for record in self._records_by_key.values()
+            if record.active
+        ]
+
+    def _record_score(self, record: _StructuredMemoryRecord, query: str) -> float:
+        score = _lexical_score(query, record.search_text)
+        if record.memory_class in {"correction", "fact", "preference"}:
+            score += 0.14
+        if record.memory_class == "dependency":
+            score += 0.1
+        if "open" in query.lower() and record.memory_class == "open_loop":
+            score += 0.22
+        if "remember" in query.lower() and record.memory_class == "intention":
+            score += 0.18
+        if _query_prefers_current_state(query) and record.memory_class in {
+            "correction",
+            "fact",
+            "preference",
+        }:
+            score += 0.26
+        return score
+
+    def _memory_notes(self) -> list[_StoredNote]:
+        records = sorted(
+            self._active_records(),
+            key=lambda record: (record.order, record.key),
+            reverse=True,
+        )
+        return [_record_to_note(record, prefix_class=True) for record in records]
+
+    def _visible_notes(self) -> list[_StoredNote]:
+        return self._memory_notes()
+
+    def _score_note(self, note: _StoredNote, query: str) -> float:
+        record = self._records_by_id.get(note.note_id)
+        if record is not None:
+            return self._record_score(record, query)
+        return super()._score_note(note, query)
+
+    def _current_state_notes(self, query: str, limit: int) -> list[_StoredNote]:
+        records = [
+            record
+            for record in sorted(
+                self._active_records(),
+                key=lambda record: (self._record_score(record, query), record.order),
+                reverse=True,
+            )
+            if record.memory_class not in {"session_note", "relation", "intention"}
+        ]
+        return [_record_to_note(record, prefix_class=True) for record in records[:limit]]
+
+    async def retrieve_evidence(self, probe: ScenarioProbe) -> list[EvidenceItem]:
+        query = probe.query or probe.topic_hint or ""
+        if probe.operation == "get_context" or _query_prefers_current_state(query):
+            notes = self._current_state_notes(query, limit=max(3, probe.limit))
+            if notes:
+                return _trim_evidence(
+                    [
+                        EvidenceItem(
+                            result_type="context",
+                            text=_structured_context_text(notes[:4]),
+                            source_id=f"{self.name}:context",
+                        )
+                    ],
+                    probe.max_tokens,
+                )
+
+        ranked = sorted(
+            self._active_records(),
+            key=lambda record: (self._record_score(record, query), record.order),
+            reverse=True,
+        )
+        evidence = [
+            EvidenceItem(
+                result_type="intention" if record.memory_class == "intention" else "episode",
+                text=record.text,
+                source_id=record.record_id,
+                score=self._record_score(record, query),
+            )
+            for record in ranked[: max(3, probe.limit)]
+        ]
+        return _trim_evidence(evidence, probe.max_tokens)
+
+
+@dataclass
+class _GraphNodeState:
+    name: str
+    entity_type: str
+    summary: str = ""
+    attributes: dict[str, str] = field(default_factory=dict)
+    attribute_order: dict[str, int] = field(default_factory=dict)
+    order: int = 0
+    vector: list[float] | None = None
+
+    @property
+    def text(self) -> str:
+        lines = [f"{self.name} ({self.entity_type})"]
+        if self.summary:
+            lines.append(self.summary)
+        for attr, value in sorted(self.attributes.items()):
+            lines.append(f"{self.name} {attr}: {value}")
+        return "\n".join(lines)
+
+
+@dataclass
+class _GraphEdgeState:
+    source: str
+    target: str
+    predicate: str
+    polarity: str
+    order: int
+
+
+class GraphitiTemporalGraphAdapter(VectorRagAdapter):
+    """Proxy baseline for temporal graph memory with 2-hop expansion."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.name = "graphiti_temporal_graph"
+        self.family = "external_proxy"
+        self._nodes: dict[str, _GraphNodeState] = {}
+        self._edges: list[_GraphEdgeState] = []
+        self._intention_state: dict[str, dict[str, object]] = {}
+
+    async def apply_turn(self, turn: ScenarioTurn) -> None:
+        await super().apply_turn(turn)
+        order = max(0, self._order - 1)
+
+        if turn.action == "dismiss_intention" and turn.ref:
+            state = self._intention_state.get(turn.ref)
+            if state is not None:
+                state["active"] = False
+            return
+
+        if turn.action == "intend":
+            self.stats.projected_turns += 1
+            self._intention_state[turn.id] = {
+                "active": True,
+                "action_text": turn.action_text or "",
+                "trigger_text": turn.trigger_text or turn.id,
+                "entity_names": list(turn.entity_names),
+            }
+            return
+
+        if turn.action not in {"observe", "remember"} or not turn.content:
+            return
+
+        self.stats.extraction_calls += 1
+        updated = False
+        extraction = turn.extraction
+        if extraction is not None:
+            for entity in extraction.entities:
+                updated = await self._upsert_entity(entity, order) or updated
+            for relationship in extraction.relationships:
+                source = str(relationship.get("source") or "").strip()
+                target = str(relationship.get("target") or "").strip()
+                predicate = str(relationship.get("predicate") or "").strip()
+                polarity = str(relationship.get("polarity") or "positive")
+                if source and target and predicate:
+                    self._ensure_node(source, order=order)
+                    self._ensure_node(target, order=order)
+                    self._edges.append(
+                        _GraphEdgeState(
+                            source=source,
+                            target=target,
+                            predicate=predicate,
+                            polarity=polarity,
+                            order=order,
+                        )
+                    )
+                    updated = True
+
+        updated = await self._ingest_graph_heuristics(turn.content, order) or updated
+        if updated:
+            self.stats.projected_turns += 1
+
+    def _ensure_node(
+        self,
+        name: str,
+        *,
+        entity_type: str = "Concept",
+        summary: str = "",
+        order: int = 0,
+    ) -> _GraphNodeState:
+        node = self._nodes.get(name)
+        if node is None:
+            node = _GraphNodeState(name=name, entity_type=entity_type, summary=summary, order=order)
+            self._nodes[name] = node
+            return node
+        if summary and len(summary) > len(node.summary):
+            node.summary = summary
+        if order > node.order:
+            node.order = order
+        if entity_type and node.entity_type == "Concept":
+            node.entity_type = entity_type
+        return node
+
+    async def _upsert_entity(self, entity: dict, order: int) -> bool:
+        name = str(entity.get("name") or "").strip()
+        if not name:
+            return False
+        node = self._ensure_node(
+            name,
+            entity_type=str(entity.get("entity_type") or "Concept"),
+            summary=str(entity.get("summary") or ""),
+            order=order,
+        )
+        updated = True
+        for attr, value in (entity.get("attributes") or {}).items():
+            attr_name = str(attr)
+            value_text = str(value)
+            last_order = node.attribute_order.get(attr_name, -1)
+            if order >= last_order:
+                node.attributes[attr_name] = value_text
+                node.attribute_order[attr_name] = order
+        if self._provider is not None:
+            self.stats.embedding_calls += 1
+            embeddings = await self._provider.embed([node.text])
+            if embeddings:
+                node.vector = embeddings[0]
+        return updated
+
+    async def _ingest_graph_heuristics(self, text: str, order: int) -> bool:
+        updated = False
+        fact = _extract_current_fact(text)
+        correction = _extract_correction(text)
+        dependency = _extract_dependency(text)
+        if correction is not None:
+            key, current_text, _correction_text = correction
+            subject, slot = key.split(":", 1)
+            node = self._ensure_node(subject, order=order)
+            node.attributes[slot] = _parse_fact_value(current_text)
+            node.attribute_order[slot] = order
+            updated = True
+        elif fact is not None:
+            key, fact_text = fact
+            subject, slot = key.split(":", 1)
+            node = self._ensure_node(subject, order=order)
+            node.attributes[slot] = _parse_fact_value(fact_text)
+            node.attribute_order[slot] = order
+            updated = True
+
+        if dependency is not None:
+            dep_key, dep_text = dependency
+            subject = dep_key.split(":", 1)[0]
+            required = dep_text.split(" REQUIRES ", 1)[1]
+            self._ensure_node(subject, order=order)
+            self._ensure_node(required, order=order)
+            self._edges.append(
+                _GraphEdgeState(
+                    source=subject,
+                    target=required,
+                    predicate="REQUIRES",
+                    polarity="positive",
+                    order=order,
+                )
+            )
+            updated = True
+        return updated
+
+    def _seed_nodes(self, query: str, query_vector: list[float] | None) -> list[tuple[str, float]]:
+        ranked: list[tuple[str, float]] = []
+        for name, node in self._nodes.items():
+            lexical = max(
+                _lexical_score(query, name),
+                _lexical_score(query, node.text),
+            )
+            vector_score = 0.0
+            if query_vector and node.vector:
+                vector_score = max(0.0, cosine_similarity(query_vector, node.vector))
+            score = (0.75 * lexical) + (0.25 * vector_score)
+            if score > 0.0:
+                ranked.append((name, score))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+        return ranked[:3]
+
+    def _current_edges(self, source: str) -> list[_GraphEdgeState]:
+        latest: dict[tuple[str, str], _GraphEdgeState] = {}
+        for edge in self._edges:
+            if edge.source != source:
+                continue
+            latest[(edge.predicate, edge.target)] = edge
+        current = [edge for edge in latest.values() if edge.polarity == "positive"]
+        current.sort(key=lambda edge: (edge.order, edge.predicate, edge.target), reverse=True)
+        return current
+
+    def _current_state_nodes(self, query: str) -> list[_GraphNodeState]:
+        matches = [
+            (node, max(_lexical_score(query, node.name), _lexical_score(query, node.text)))
+            for node in self._nodes.values()
+        ]
+        ranked = [item for item in matches if item[1] > 0.0]
+        ranked.sort(key=lambda item: (item[1], item[0].order), reverse=True)
+        return [node for node, _score in ranked[:4]]
+
+    async def _fallback_note_evidence(
+        self,
+        probe: ScenarioProbe,
+        query: str,
+        query_vector: list[float] | None,
+    ) -> list[EvidenceItem]:
+        ranked: list[tuple[_StoredNote, float]] = []
+        for note in self._visible_notes():
+            lexical = _lexical_score(query, note.text)
+            vector_score = 0.0
+            if query_vector and note.vector:
+                vector_score = max(0.0, cosine_similarity(query_vector, note.vector))
+            score = (0.65 * vector_score) + (0.35 * lexical)
+            if score > 0.0:
+                ranked.append((note, score))
+        ranked.sort(key=lambda item: (item[1], item[0].order), reverse=True)
+        evidence = [
+            EvidenceItem(
+                result_type="intention" if note.kind == "intention" else "episode",
+                text=note.text,
+                source_id=note.note_id,
+                score=score,
+            )
+            for note, score in ranked[: max(3, probe.limit)]
+        ]
+        return _trim_evidence(evidence, probe.max_tokens)
+
+    def _entity_evidence(self, node: _GraphNodeState, *, score: float, path_note: str | None = None) -> EvidenceItem:
+        lines = [f"{node.name} ({node.entity_type})"]
+        if node.summary:
+            lines.append(node.summary)
+        for attr, value in sorted(node.attributes.items()):
+            lines.append(f"{node.name} {attr}: {value}")
+        for edge in self._current_edges(node.name):
+            lines.append(
+                _format_showcase_relationship(
+                    edge.source,
+                    edge.predicate,
+                    edge.target,
+                    polarity=edge.polarity,
+                )
+            )
+        if path_note:
+            lines.append(path_note)
+        return EvidenceItem(
+            result_type="entity",
+            text="\n".join(lines),
+            source_id=node.name,
+            score=score,
+        )
+
+    async def retrieve_evidence(self, probe: ScenarioProbe) -> list[EvidenceItem]:
+        if not self.available:
+            return []
+
+        query = probe.query or probe.topic_hint or ""
+        query_vector: list[float] | None = None
+        if self._provider is not None:
+            self.stats.embedding_calls += 1
+            query_vector = await self._provider.embed_query(query)
+
+        if probe.operation == "get_context" or _query_prefers_current_state(query):
+            current_nodes = self._current_state_nodes(query)
+            if current_nodes:
+                return _trim_evidence(
+                    [
+                        EvidenceItem(
+                            result_type="context",
+                            text=_structured_context_text(
+                                [
+                                    _StoredNote(
+                                        note_id=node.name,
+                                        kind="entity",
+                                        text=self._entity_evidence(node, score=1.0).text,
+                                        order=node.order,
+                                        source="showcase:graphiti_context",
+                                    )
+                                    for node in current_nodes[:3]
+                                ]
+                            ),
+                            source_id=f"{self.name}:context",
+                        )
+                    ],
+                    probe.max_tokens,
+                )
+
+        seeds = self._seed_nodes(query, query_vector)
+        if not seeds:
+            return await self._fallback_note_evidence(probe, query, query_vector)
+
+        scored_nodes: dict[str, tuple[float, str | None]] = {}
+        for seed_name, seed_score in seeds:
+            scored_nodes[seed_name] = max(scored_nodes.get(seed_name, (0.0, None)), (seed_score + 0.3, None))
+            frontier = [(seed_name, 0)]
+            seen = {seed_name}
+            while frontier:
+                current_name, depth = frontier.pop(0)
+                if depth >= 2:
+                    continue
+                for edge in self._current_edges(current_name):
+                    if edge.target in seen:
+                        continue
+                    seen.add(edge.target)
+                    path_bonus = 0.22 if depth == 0 else 0.14
+                    path_note = f"Path: {seed_name} -> {current_name} -> {edge.target}"
+                    existing = scored_nodes.get(edge.target, (0.0, None))
+                    candidate_score = seed_score + path_bonus
+                    if candidate_score > existing[0]:
+                        scored_nodes[edge.target] = (candidate_score, path_note)
+                    frontier.append((edge.target, depth + 1))
+
+        evidence = [
+            self._entity_evidence(self._nodes[name], score=score, path_note=path_note)
+            for name, (score, path_note) in sorted(
+                scored_nodes.items(),
+                key=lambda item: item[1][0],
+                reverse=True,
+            )
+            if name in self._nodes
+        ]
+        if evidence:
+            return _trim_evidence(evidence[: max(3, probe.limit)], probe.max_tokens)
+        return await self._fallback_note_evidence(probe, query, query_vector)
+
+
 class EngramAdapter(BaselineAdapter):
     """Shared adapter implementation for Engram-backed baselines."""
 
@@ -1235,6 +2048,12 @@ def create_primary_adapter(
             vector_provider=provider,
             budget_profile=budget_profile,
         )
+    if baseline_name == "langgraph_store_memory":
+        return LangGraphStoreMemoryAdapter()
+    if baseline_name == "mem0_style_memory":
+        return Mem0StyleMemoryAdapter()
+    if baseline_name == "graphiti_temporal_graph":
+        return GraphitiTemporalGraphAdapter()
     if baseline_name == "context_summary":
         return ContextSummaryAdapter()
     if baseline_name == "markdown_canonical":

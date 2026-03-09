@@ -1,11 +1,15 @@
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { BrainVisualization } from "../components/BrainVisualization";
 import { ScrollReveal } from "../components/ScrollReveal";
 import { MemoryFlowDiagram } from "../components/MemoryFlowDiagram";
 import { ComparisonTable } from "../components/ComparisonTable";
 import { BenchmarkShowcase } from "../components/BenchmarkShowcase";
 import { FeatureCard } from "../components/FeatureCard";
-import { type CSSProperties } from "react";
+
+const BrainVisualization = lazy(async () => {
+  const mod = await import("../components/BrainVisualization");
+  return { default: mod.BrainVisualization };
+});
 
 /* ───────────────────────────── constants ───────────────────────────── */
 
@@ -215,18 +219,62 @@ function AccentCheck() {
   );
 }
 
+function BrainBackdropFallback() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        background:
+          "radial-gradient(circle at 50% 42%, rgba(103,232,249,0.18), transparent 24%), radial-gradient(circle at 32% 56%, rgba(167,139,250,0.12), transparent 22%), radial-gradient(circle at 68% 58%, rgba(52,211,153,0.10), transparent 20%), linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0))",
+        filter: "blur(8px)",
+      }}
+    />
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    HOMEPAGE
    ═══════════════════════════════════════════════════════════════════════ */
 
 export function HomePage() {
+  const [shouldLoadScene, setShouldLoadScene] = useState(false);
+
+  useEffect(() => {
+    const onIdle = () => setShouldLoadScene(true);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      const idleId = idleWindow.requestIdleCallback(onIdle, { timeout: 1200 });
+      return () => idleWindow.cancelIdleCallback?.(idleId);
+    }
+
+    const timeoutId = globalThis.setTimeout(onIdle, 250);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, []);
+
   return (
     <main style={{ position: "relative", overflowX: "hidden", background: "var(--void)", color: "var(--text-primary)" }}>
       {/* ── SECTION 1: HERO ──────────────────────────────────────────── */}
       <section style={{ position: "relative", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
         {/* Brain visualization background */}
         <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
-          <BrainVisualization />
+          {shouldLoadScene ? (
+            <Suspense fallback={<BrainBackdropFallback />}>
+              <BrainVisualization />
+            </Suspense>
+          ) : (
+            <BrainBackdropFallback />
+          )}
         </div>
 
         {/* Vignette overlay */}

@@ -1,5 +1,6 @@
 """Report rendering tests for the showcase benchmark."""
 
+from engram.benchmark.showcase.catalog import BASELINE_CATALOG
 from engram.benchmark.showcase.models import (
     AnswerSummary,
     BaselineSummary,
@@ -120,13 +121,19 @@ def test_report_contains_fairness_executive_and_appendix_sections():
         supporting_artifacts={"benchmark_ab": "server/scripts/benchmark_ab.py"},
         artifact_paths={},
         readme_snippet="Benchmark results measured against equal retrieval budgets.",
+        headline_baselines=["engram_full"],
+        control_baselines=["context_summary"],
+        spec_only_baselines=["letta"],
+        baseline_catalog=dict(BASELINE_CATALOG),
     )
 
     report = render_markdown_report(run_result)
 
     assert "# Engram Benchmark Suite" in report
     assert "## Fairness Contract" in report
-    assert "## Executive Table" in report
+    assert "## Headline Measured Competitors" in report
+    assert "## Measured Control Baselines" in report
+    assert "## Spec-Only Comparison Targets" in report
     assert "## Appendix Baselines" in report
     assert "## External And Supporting Tracks" in report
     assert "## README Snippet" in report
