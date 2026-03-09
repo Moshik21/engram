@@ -41,6 +41,7 @@ from engram.benchmark.showcase.scoring import (
     summarize_baseline,
 )
 
+
 def _default_seeds(mode: str) -> list[int]:
     if mode == "quick":
         return [7]
@@ -390,7 +391,11 @@ def _summary_payload(summary, baseline_id: str) -> dict[str, object]:
     entry = BASELINE_CATALOG.get(baseline_id)
     return {
         "name": summary.baseline_name,
-        "display_name": entry.display_name if entry is not None else baseline_id.replace("_", " ").title(),
+        "display_name": (
+            entry.display_name
+            if entry is not None
+            else baseline_id.replace("_", " ").title()
+        ),
         "family": summary.baseline_family,
         "comparison_group": None if entry is None else entry.comparison_group,
         "status": None if entry is None else entry.status,
@@ -632,7 +637,13 @@ async def run_showcase_benchmark(
     output_path = _resolve_output_dir(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    selected_baselines, selected_headline, selected_control, selected_appendix, selected_ablations = (
+    (
+        selected_baselines,
+        selected_headline,
+        selected_control,
+        selected_appendix,
+        selected_ablations,
+    ) = (
         _resolve_baseline_groups(
             baseline_names=baseline_names,
             primary_baselines=primary_baselines,

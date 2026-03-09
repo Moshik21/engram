@@ -1644,7 +1644,13 @@ class GraphitiTemporalGraphAdapter(VectorRagAdapter):
         ]
         return _trim_evidence(evidence, probe.max_tokens)
 
-    def _entity_evidence(self, node: _GraphNodeState, *, score: float, path_note: str | None = None) -> EvidenceItem:
+    def _entity_evidence(
+        self,
+        node: _GraphNodeState,
+        *,
+        score: float,
+        path_note: str | None = None,
+    ) -> EvidenceItem:
         lines = [f"{node.name} ({node.entity_type})"]
         if node.summary:
             lines.append(node.summary)
@@ -1709,7 +1715,10 @@ class GraphitiTemporalGraphAdapter(VectorRagAdapter):
 
         scored_nodes: dict[str, tuple[float, str | None]] = {}
         for seed_name, seed_score in seeds:
-            scored_nodes[seed_name] = max(scored_nodes.get(seed_name, (0.0, None)), (seed_score + 0.3, None))
+            scored_nodes[seed_name] = max(
+                scored_nodes.get(seed_name, (0.0, None)),
+                (seed_score + 0.3, None),
+            )
             frontier = [(seed_name, 0)]
             seen = {seed_name}
             while frontier:

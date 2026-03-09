@@ -311,7 +311,9 @@ async def test_langgraph_store_memory_is_more_token_efficient_than_context_summa
 
 
 @pytest.mark.asyncio
-async def test_mem0_style_memory_beats_markdown_canonical_on_current_state_scenarios(tmp_path: Path):
+async def test_mem0_style_memory_beats_markdown_canonical_on_current_state(
+    tmp_path: Path,
+):
     result = await run_showcase_benchmark(
         mode="full",
         seeds=[7],
@@ -339,7 +341,9 @@ async def test_mem0_style_memory_beats_markdown_canonical_on_current_state_scena
 
 
 @pytest.mark.asyncio
-async def test_graphiti_temporal_graph_beats_hybrid_rag_temporal_on_graph_temporal_scenarios(tmp_path: Path):
+async def test_graphiti_temporal_graph_beats_hybrid_rag_on_graph_temporal(
+    tmp_path: Path,
+):
     result = await run_showcase_benchmark(
         mode="full",
         seeds=[7],
@@ -366,7 +370,9 @@ async def test_graphiti_temporal_graph_beats_hybrid_rag_temporal_on_graph_tempor
 
 
 @pytest.mark.asyncio
-async def test_external_proxy_baselines_stay_below_engram_on_cue_and_prospective_scenarios(tmp_path: Path):
+async def test_external_proxy_baselines_stay_below_engram_on_cue_prospective(
+    tmp_path: Path,
+):
     result = await run_showcase_benchmark(
         mode="full",
         seeds=[7],

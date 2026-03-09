@@ -233,7 +233,8 @@ def _render_control_baselines(lines: list[str], run_result: ShowcaseRunResult) -
             "",
             "## Measured Control Baselines",
             "",
-            "| Baseline | Available | Scenario Pass | False Recall | Temporal | Negation | Open Loop | Prospective | p50 ms |",
+            "| Baseline | Available | Scenario Pass | False Recall "
+            "| Temporal | Negation | Open Loop | Prospective | p50 ms |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]
     )
