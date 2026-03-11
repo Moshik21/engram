@@ -7,11 +7,12 @@ import asyncio
 import json
 import logging
 import sys
+from typing import Any, cast
 
-from engram.config import ActivationConfig, EngramConfig
+from engram.config import EngramConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.store import SQLiteConsolidationStore
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.factory import create_extractor
 from engram.storage.factory import create_stores
 from engram.storage.resolver import resolve_mode
 
@@ -25,22 +26,34 @@ async def run(args: argparse.Namespace) -> None:
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    if hasattr(search_index, "initialize"):
+    search_initializer = getattr(search_index, "initialize", None)
+    if search_initializer is not None:
         from engram.storage.resolver import EngineMode
 
         if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await search_index.initialize(db=graph_store._db)
+            await cast(Any, search_initializer)(db=graph_store._db)
         else:
-            await search_index.initialize()
+            await cast(Any, search_initializer)()
 
-    # Build activation config with profile
-    cfg = ActivationConfig(consolidation_profile=args.profile)
+    # Build activation config — use EngramConfig's nested activation
+    # so env vars like ENGRAM_ACTIVATION__MICROGLIA_SCAN_EDGES_PER_CYCLE work.
+    # CLI --profile overrides the env-derived profile.
+    cfg = config.activation
+    if args.profile != cfg.consolidation_profile:
+        object.__setattr__(cfg, "consolidation_profile", args.profile)
+        cfg.model_post_init(None)
 
     # CLI overrides
     if args.dry_run is not None:
         object.__setattr__(cfg, "consolidation_dry_run", args.dry_run)
     # Ensure enabled regardless of profile (user explicitly ran CLI)
     object.__setattr__(cfg, "consolidation_enabled", True)
+
+    # Scan limit overrides (for one-time full scans)
+    if args.scan_edges is not None:
+        object.__setattr__(cfg, "microglia_scan_edges_per_cycle", args.scan_edges)
+    if args.scan_entities is not None:
+        object.__setattr__(cfg, "microglia_scan_entities_per_cycle", args.scan_entities)
 
     group_id = args.group_id
 
@@ -50,11 +63,21 @@ async def run(args: argparse.Namespace) -> None:
 
     # Create consolidation store
     store = None
-    if hasattr(graph_store, "_db"):
+    if hasattr(graph_store, "_db") and hasattr(graph_store._db, "execute"):
+        # Lite mode — share the SQLite connection
         store = SQLiteConsolidationStore(":memory:")
         await store.initialize(db=graph_store._db)
+    else:
+        # Full mode — use a standalone SQLite file for consolidation audit
+        import os
 
-    extractor = EntityExtractor()
+        data_dir = os.path.expanduser("~/.engram")
+        os.makedirs(data_dir, exist_ok=True)
+        consolidation_db = os.path.join(data_dir, "consolidation.db")
+        store = SQLiteConsolidationStore(consolidation_db)
+        await store.initialize()
+
+    extractor = create_extractor(config)
     engine = ConsolidationEngine(
         graph_store,
         activation_store,
@@ -64,10 +87,12 @@ async def run(args: argparse.Namespace) -> None:
         extractor=extractor,
     )
 
+    phase_names = set(args.phases) if args.phases else None
     cycle = await engine.run_cycle(
         group_id=group_id,
         trigger="cli",
         dry_run=cfg.consolidation_dry_run,
+        phase_names=phase_names,
     )
 
     # Print results
@@ -129,6 +154,24 @@ def main() -> None:
         action="store_false",
         dest="dry_run",
         help="Force live mode (actually apply changes)",
+    )
+    parser.add_argument(
+        "--phases",
+        nargs="+",
+        default=None,
+        help="Run only specific phases (e.g. --phases microglia dream)",
+    )
+    parser.add_argument(
+        "--scan-edges",
+        type=int,
+        default=None,
+        help="Override microglia_scan_edges_per_cycle (for one-time full scans)",
+    )
+    parser.add_argument(
+        "--scan-entities",
+        type=int,
+        default=None,
+        help="Override microglia_scan_entities_per_cycle (for one-time full scans)",
     )
 
     args = parser.parse_args()

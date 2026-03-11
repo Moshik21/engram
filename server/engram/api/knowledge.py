@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import time
+from typing import Any, cast
 
 import anthropic
 from fastapi import APIRouter, Query, Request
@@ -17,6 +19,7 @@ from engram.api.deps import get_conversation_store, get_manager
 from engram.events.bus import get_event_bus
 from engram.models.recall import MemoryNeed, MemoryPacket
 from engram.retrieval.context import ConversationContext, ConversationFingerprinter
+from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.feedback import (
     extract_recall_targets,
@@ -39,6 +42,70 @@ router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 _DEDUP_CACHE: dict[str, float] = {}  # content_hash → timestamp
 _DEDUP_TTL = 300  # 5 minutes
+
+
+async def _resolve_recall_need_thresholds(
+    manager,
+    group_id: str,
+) -> RecallNeedThresholds:
+    """Support sync and async threshold providers."""
+    thresholds = cast(Any, manager).get_recall_need_thresholds(group_id)
+    if inspect.isawaitable(thresholds):
+        thresholds = await thresholds
+    if isinstance(thresholds, RecallNeedThresholds):
+        return thresholds
+    return RecallNeedThresholds()
+
+
+async def _record_memory_need_analysis(manager, group_id: str, need: MemoryNeed) -> None:
+    """Support sync and async analysis recorders."""
+    result = cast(Any, manager).record_memory_need_analysis(group_id, need)
+    if inspect.isawaitable(result):
+        await result
+
+
+def _extract_message_text(blocks: object) -> str:
+    """Join text-bearing Anthropic blocks without assuming concrete block types."""
+    if not isinstance(blocks, list):
+        return ""
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return "".join(parts)
+
+
+async def _get_episode_adjudications(manager, episode_id: str, group_id: str) -> list[dict]:
+    """Return episode adjudication work items when supported by the manager."""
+    getter = getattr(manager, "get_episode_adjudications", None)
+    if getter is None:
+        return []
+    result = getter(episode_id, group_id)
+    if inspect.isawaitable(result):
+        result = await result
+    return result if isinstance(result, list) else []
+
+
+def _camelize_adjudication_requests(requests: list[dict]) -> list[dict]:
+    """Convert adjudication request shape to REST camelCase."""
+    return [
+        {
+            "requestId": request.get("request_id"),
+            "ambiguityTags": request.get("ambiguity_tags", []),
+            "selectedText": request.get("selected_text", ""),
+            "candidateEvidence": [
+                {
+                    "evidenceId": item.get("evidence_id"),
+                    "factClass": item.get("fact_class"),
+                    "payload": item.get("payload", {}),
+                }
+                for item in request.get("candidate_evidence", [])
+            ],
+            "instructions": request.get("instructions", ""),
+        }
+        for request in requests
+    ]
 
 
 def _dedup_check(content: str) -> bool:
@@ -77,6 +144,18 @@ class AutoObserveBody(BaseModel):
 class RememberBody(BaseModel):
     content: str
     source: str = "dashboard"
+    proposed_entities: list[dict] | None = None
+    proposed_relationships: list[dict] | None = None
+    model_tier: str = "default"
+
+
+class AdjudicateBody(BaseModel):
+    request_id: str
+    entities: list[dict] | None = None
+    relationships: list[dict] | None = None
+    reject_evidence_ids: list[str] | None = None
+    model_tier: str = "default"
+    rationale: str | None = None
 
 
 class FactRef(BaseModel):
@@ -144,7 +223,7 @@ async def _analyze_chat_memory_need(
         group_id=group_id,
         conv_context=_get_conv_context(manager),
         cfg=cfg,
-        thresholds=manager.get_recall_need_thresholds(group_id),
+        thresholds=await _resolve_recall_need_thresholds(manager, group_id),
     )
 
 
@@ -337,9 +416,47 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
         content=body.content,
         group_id=group_id,
         source=body.source,
+        proposed_entities=body.proposed_entities,
+        proposed_relationships=body.proposed_relationships,
+        model_tier=body.model_tier,
     )
+    response: dict = {"status": "remembered", "episodeId": episode_id}
+    cfg = getattr(manager, "_cfg", None)
+    if cfg is None or cfg.edge_adjudication_client_enabled:
+        adjudications = await _get_episode_adjudications(manager, episode_id, group_id)
+        if adjudications:
+            response["adjudicationRequests"] = _camelize_adjudication_requests(
+                adjudications,
+            )
+    return JSONResponse(content=response)
 
-    return JSONResponse(content={"status": "remembered", "episodeId": episode_id})
+
+@router.post("/adjudicate")
+async def adjudicate(request: Request, body: AdjudicateBody) -> JSONResponse:
+    """Resolve a previously created edge-adjudication request."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+
+    outcome = await manager.submit_adjudication_resolution(
+        body.request_id,
+        entities=body.entities,
+        relationships=body.relationships,
+        reject_evidence_ids=body.reject_evidence_ids,
+        source="client_adjudication",
+        model_tier=body.model_tier,
+        rationale=body.rationale,
+        group_id=group_id,
+    )
+    return JSONResponse(
+        content={
+            "status": outcome.status,
+            "requestId": outcome.request_id,
+            "committedIds": outcome.committed_ids,
+            "supersededEvidenceIds": outcome.superseded_evidence_ids,
+            "replacementEvidenceIds": outcome.replacement_evidence_ids,
+        },
+    )
 
 
 @router.get("/recall")
@@ -367,7 +484,7 @@ async def recall(
             q,
             mode="explicit_recall",
             cfg=cfg,
-            thresholds=manager.get_recall_need_thresholds(group_id),
+            thresholds=await _resolve_recall_need_thresholds(manager, group_id),
         )
         packets = [
             _packet_to_api_dict(packet)
@@ -773,8 +890,8 @@ async def dismiss_intention(
             "intentionId": intention_id,
             "hard": hard,
         })
-    except Exception as e:
-        return JSONResponse(status_code=404, content={"detail": str(e)})
+    except Exception:
+        return JSONResponse(status_code=404, content={"detail": "Intention not found"})
 
 
 def _sse(data: dict) -> str:
@@ -924,7 +1041,7 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
                 tool_input["query"],
                 mode="chat",
                 cfg=manager._cfg,
-                thresholds=manager.get_recall_need_thresholds(group_id),
+                thresholds=await _resolve_recall_need_thresholds(manager, group_id),
             )
             packets = [
                 {
@@ -1169,13 +1286,10 @@ async def _retry_memory_grounded_response(
     retry_response = await client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1024,
-        system=retry_system,
-        messages=loop_messages,
+        system=cast(Any, retry_system),
+        messages=cast(Any, loop_messages),
     )
-    retry_text = ""
-    for block in retry_response.content:
-        if hasattr(block, "text"):
-            retry_text += block.text
+    retry_text = _extract_message_text(retry_response.content)
     return retry_text or prior_response
 
 
@@ -1291,8 +1405,8 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
     return lines
 
 
-@router.post("/chat")
-async def chat(request: Request, body: ChatBody) -> StreamingResponse:
+@router.post("/chat", response_model=None)
+async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResponse:
     """Stream a chat response using AI SDK v6 UIMessageStream protocol.
 
     Uses an agentic tool-use loop so the LLM can query the memory graph
@@ -1310,7 +1424,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
         if not allowed:
             return JSONResponse(
                 status_code=429,
-                content={"error": "Rate limit exceeded for chat", "remaining": remaining},
+                content={"detail": "Rate limit exceeded for chat", "remaining": remaining},
             )
 
     manager = get_manager()
@@ -1339,16 +1453,17 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
 
     chat_need: MemoryNeed | None = None
     epistemic_bundle = None
-    topic_hint = body.message
+    topic_hint: str | None = body.message
+    session_entity_names: list[str] = []
+    if hasattr(manager, "_conv_context") and manager._conv_context is not None:
+        session_entity_names = [
+            entry.name
+            for entry in manager._conv_context.get_top_entities(
+                cfg.conv_multi_query_top_entities,
+            )
+        ]
+
     if cfg.recall_need_analyzer_enabled:
-        session_entity_names: list[str] = []
-        if hasattr(manager, "_conv_context") and manager._conv_context is not None:
-            session_entity_names = [
-                entry.name
-                for entry in manager._conv_context.get_top_entities(
-                    cfg.conv_multi_query_top_entities,
-                )
-            ]
         chat_need = await _analyze_chat_memory_need(
             body.message,
             manager,
@@ -1356,7 +1471,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
             session_entity_names=session_entity_names,
             group_id=group_id,
         )
-        manager.record_memory_need_analysis(group_id, chat_need)
+        await _record_memory_need_analysis(manager, group_id, chat_need)
         if cfg.recall_telemetry_enabled:
             publish_memory_need_analysis(
                 get_event_bus(),
@@ -1369,14 +1484,6 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
         topic_hint = chat_need.query_hint if chat_need.should_recall else None
 
     if cfg.epistemic_routing_enabled:
-        session_entity_names: list[str] = []
-        if hasattr(manager, "_conv_context") and manager._conv_context is not None:
-            session_entity_names = [
-                entry.name
-                for entry in manager._conv_context.get_top_entities(
-                    cfg.conv_multi_query_top_entities,
-                )
-            ]
         epistemic_bundle = await manager.gather_epistemic_evidence(
             body.message,
             group_id=group_id,
@@ -1473,9 +1580,9 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
                 response = await client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=1024,
-                    system=system_prompt,
-                    messages=loop_messages,
-                    tools=CHAT_TOOLS,
+                    system=cast(Any, system_prompt),
+                    messages=cast(Any, loop_messages),
+                    tools=cast(Any, CHAT_TOOLS),
                 )
 
                 if response.stop_reason != "tool_use":
@@ -1526,8 +1633,8 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
                 response = await client.messages.create(
                     model="claude-haiku-4-5-20251001",
                     max_tokens=1024,
-                    system=system_prompt,
-                    messages=loop_messages,
+                    system=cast(Any, system_prompt),
+                    messages=cast(Any, loop_messages),
                 )
 
             # Emit synthetic tool events for UI components
@@ -1536,10 +1643,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
                 yield tool_events
 
             # Stream the final text response
-            final_text = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    final_text += block.text
+            final_text = _extract_message_text(response.content)
 
             if final_text:
                 if _should_retry_chat_response(
@@ -1548,6 +1652,8 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse:
                     response_text=final_text,
                     recall_results=all_recall_results,
                 ):
+                    if chat_need is None:
+                        raise RuntimeError("chat_need missing during retry path")
                     final_text = await _retry_memory_grounded_response(
                         client,
                         system_prompt=system_prompt,

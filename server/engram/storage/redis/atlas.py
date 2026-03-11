@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from engram.models.atlas import (
     AtlasBridge,
@@ -99,7 +99,7 @@ class RedisAtlasStore:
         payload = self._serialize(snapshot)
         generated_at = datetime.fromisoformat(snapshot.generated_at)
         if generated_at.tzinfo is None:
-            generated_at = generated_at.replace(tzinfo=UTC)
+            generated_at = generated_at.replace(tzinfo=timezone.utc)
         pipe = self._redis.pipeline()
         pipe.set(self._snapshot_key(snapshot.group_id, snapshot.id), payload)
         pipe.set(self._latest_key(snapshot.group_id), snapshot.id)

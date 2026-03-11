@@ -154,13 +154,13 @@ def test_reconsolidation_returns_none_when_overlap_too_low():
 def test_reconsolidation_identity_core_summary_only():
     """identity_core entities should still get summary updates."""
     cfg = ActivationConfig(reconsolidation_overlap_threshold=0.10)
-    entity = _make_entity(summary="Konner is a developer", identity_core=True)
+    entity = _make_entity(summary="Alex is a developer", identity_core=True)
     labile = LabileEntry(
-        entity_id="ent1", name="Konner", entity_type="Person",
-        summary="Konner is a developer", query="q", recalled_at=time.time(),
+        entity_id="ent1", name="Alex", entity_type="Person",
+        summary="Alex is a developer", query="q", recalled_at=time.time(),
     )
     result = attempt_reconsolidation(
-        entity, "Konner is a developer who also works on AI projects", labile, cfg,
+        entity, "Alex is a developer who also works on AI projects", labile, cfg,
     )
     assert result is not None
     assert "summary" in result

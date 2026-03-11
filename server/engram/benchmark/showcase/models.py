@@ -21,7 +21,7 @@ def estimate_tokens(text: str) -> int:
 
 def to_serializable(value: Any) -> Any:
     """Convert dataclasses and nested containers into JSON-safe primitives."""
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return {
             key: to_serializable(item)
             for key, item in asdict(value).items()

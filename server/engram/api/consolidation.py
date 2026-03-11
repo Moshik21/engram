@@ -36,7 +36,7 @@ async def trigger_consolidation(
     if engine.is_running:
         return JSONResponse(
             status_code=409,
-            content={"status": "conflict", "message": "A consolidation cycle is already running"},
+            content={"detail": "A consolidation cycle is already running"},
         )
 
     async def _run():
@@ -163,11 +163,14 @@ async def consolidation_cycle_detail(
     engine = get_consolidation_engine()
 
     if not engine._store:
-        return JSONResponse(status_code=404, content={"error": "Consolidation store not available"})
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "Consolidation store not available"},
+        )
 
     cycle = await engine._store.get_cycle(cycle_id, group_id)
     if not cycle:
-        return JSONResponse(status_code=404, content={"error": "Cycle not found"})
+        return JSONResponse(status_code=404, content={"detail": "Cycle not found"})
 
     merges = await engine._store.get_merge_records(cycle_id, group_id)
     identifier_reviews = []

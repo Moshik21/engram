@@ -11,6 +11,7 @@ export interface KeyboardActions {
   toggleEdgeLabels: () => void;
   toggleRenderMode: () => void;
   showHelp: () => void;
+  expandSelected: () => void;
 }
 
 function isInputFocused(): boolean {
@@ -93,6 +94,13 @@ export function useKeyboardNavigation(actions: KeyboardActions) {
           if (!e.shiftKey) {
             e.preventDefault();
             actionsRef.current.toggleRenderMode();
+          }
+          break;
+        case "e":
+        case "E":
+          if (!e.shiftKey) {
+            e.preventDefault();
+            actionsRef.current.expandSelected();
           }
           break;
         case "?":

@@ -60,7 +60,7 @@ class NumpySkipGram:
         counts_smoothed = np.power(counts, 0.75)
         total = counts_smoothed.sum()
         if total == 0:
-            return self._W_in.copy()
+            return np.array(self._W_in.copy())
         neg_dist = counts_smoothed / total
 
         for epoch in range(self._epochs):
@@ -82,7 +82,7 @@ class NumpySkipGram:
                         context = walk[ctx_pos]
                         self._train_pair(center, context, neg_dist, lr)
 
-        return self._W_in.copy()
+        return np.array(self._W_in.copy())
 
     def _train_pair(
         self,

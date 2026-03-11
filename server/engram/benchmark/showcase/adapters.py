@@ -9,6 +9,7 @@ import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from engram.benchmark.showcase.answering import synthesize_answer
 from engram.benchmark.showcase.models import (
@@ -23,9 +24,10 @@ from engram.benchmark.showcase.models import (
 )
 from engram.config import ActivationConfig
 from engram.embeddings.provider import EmbeddingProvider, FastEmbedProvider, VoyageProvider
-from engram.extraction.extractor import ExtractionResult
+from engram.extraction.extractor import EntityExtractor, ExtractionResult
 from engram.graph_manager import GraphManager
 from engram.storage.memory.activation import MemoryActivationStore
+from engram.storage.protocols import SearchIndex
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.hybrid_search import HybridSearchIndex
 from engram.storage.sqlite.search import FTS5SearchIndex
@@ -1172,9 +1174,9 @@ class LangGraphStoreMemoryAdapter(_RawNoteAdapter):
 
         if turn.action == "dismiss_intention" and turn.ref:
             key = f"intention:{turn.ref}"
-            record = self._records_by_key.get(key)
-            if record is not None:
-                record.active = False
+            existing_record = self._records_by_key.get(key)
+            if existing_record is not None:
+                existing_record.active = False
             self._rebuild_summary()
 
     def _upsert_record(self, record: _StructuredMemoryRecord) -> None:
@@ -1306,9 +1308,9 @@ class Mem0StyleMemoryAdapter(_RawNoteAdapter):
 
         if turn.action == "dismiss_intention" and turn.ref:
             key = f"intention:{turn.ref}"
-            record = self._records_by_key.get(key)
-            if record is not None:
-                record.active = False
+            existing_record = self._records_by_key.get(key)
+            if existing_record is not None:
+                existing_record.active = False
 
     def _upsert_record(self, record: _StructuredMemoryRecord) -> None:
         existing = self._records_by_key.get(record.key)
@@ -1772,7 +1774,7 @@ class EngramAdapter(BaselineAdapter):
         self._budget_profile = budget_profile or BudgetProfile()
         self._temp_dir: Path | None = None
         self._graph_store: SQLiteGraphStore | None = None
-        self._search_index: object | None = None
+        self._search_index: SearchIndex | None = None
         self._manager: GraphManager | None = None
         self._refs: dict[str, str] = {}
         self._embedding_provider: CountingEmbeddingProvider | None = None
@@ -1789,29 +1791,31 @@ class EngramAdapter(BaselineAdapter):
             self._graph_store,
             activation_store,
             self._search_index,
-            extractor,
+            cast(EntityExtractor, extractor),
             cfg=self._cfg,
             runtime_mode="showcase",
         )
 
-    async def _build_search_index(self, db_path: str):
+    async def _build_search_index(self, db_path: str) -> SearchIndex:
+        graph_store = self._graph_store
+        assert graph_store is not None
         if self._vector_provider == "none":
-            search_index = FTS5SearchIndex(db_path)
-            await search_index.initialize(db=self._graph_store._db)
-            return search_index
+            fts_search = FTS5SearchIndex(db_path)
+            await fts_search.initialize(db=graph_store._db)
+            return cast(SearchIndex, fts_search)
 
         provider = await self._create_embedding_provider(self._vector_provider)
         if provider is None:
             # Keep initialization deterministic: unavailable vector-backed baselines
             # should be reported, not crash the whole showcase run.
-            search_index = FTS5SearchIndex(db_path)
-            await search_index.initialize(db=self._graph_store._db)
-            return search_index
+            fts_search = FTS5SearchIndex(db_path)
+            await fts_search.initialize(db=graph_store._db)
+            return cast(SearchIndex, fts_search)
         wrapped = CountingEmbeddingProvider(provider, self.stats)
         self._embedding_provider = wrapped
         fts = FTS5SearchIndex(db_path)
         vectors = SQLiteVectorStore(db_path)
-        search_index = HybridSearchIndex(
+        hybrid_search = HybridSearchIndex(
             fts=fts,
             vector_store=vectors,
             provider=wrapped,
@@ -1819,8 +1823,8 @@ class EngramAdapter(BaselineAdapter):
             vec_weight=0.7,
             cfg=self._cfg,
         )
-        await search_index.initialize(db=self._graph_store._db)
-        return search_index
+        await hybrid_search.initialize(db=graph_store._db)
+        return cast(SearchIndex, hybrid_search)
 
     async def _create_embedding_provider(self, provider_name: str) -> EmbeddingProvider | None:
         import asyncio
@@ -1893,13 +1897,13 @@ class EngramAdapter(BaselineAdapter):
             return
 
         if turn.action == "project":
-            episode_id = self._refs.get(turn.ref or "")
-            if episode_id is None:
+            project_episode_id = self._refs.get(turn.ref or "")
+            if project_episode_id is None:
                 raise ValueError(f"Unknown episode ref for project: {turn.ref}")
             self.stats.projected_turns += 1
             self.stats.bump("project_episode")
-            await manager.project_episode(episode_id)
-            self._refs[turn.id] = episode_id
+            await manager.project_episode(project_episode_id)
+            self._refs[turn.id] = project_episode_id
             return
 
         if turn.action == "intend":
@@ -1918,12 +1922,12 @@ class EngramAdapter(BaselineAdapter):
             return
 
         if turn.action == "dismiss_intention":
-            intention_id = self._refs.get(turn.ref or "")
-            if intention_id is None:
+            dismiss_intention_id = self._refs.get(turn.ref or "")
+            if dismiss_intention_id is None:
                 raise ValueError(f"Unknown intention ref for dismiss: {turn.ref}")
             self.stats.bump("dismiss_intention")
-            await manager.dismiss_intention(intention_id, hard=turn.hard_delete)
-            self._refs[turn.id] = intention_id
+            await manager.dismiss_intention(dismiss_intention_id, hard=turn.hard_delete)
+            self._refs[turn.id] = dismiss_intention_id
             return
 
         raise ValueError(f"Unsupported turn action for {self.name}: {turn.action}")

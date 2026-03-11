@@ -10,9 +10,11 @@ export function SearchBar() {
   const searchResults = useEngramStore((s) => s.searchResults);
   const isSearching = useEngramStore((s) => s.isSearching);
   const clearSearch = useEngramStore((s) => s.clearSearch);
+  const searchError = useEngramStore((s) => s.searchError);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
   const selectNode = useEngramStore((s) => s.selectNode);
   const setCurrentView = useEngramStore((s) => s.setCurrentView);
+  const activeRegionId = useEngramStore((s) => s.activeRegionId);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const debouncedSearch = useMemo(
@@ -33,10 +35,10 @@ export function SearchBar() {
     (id: string) => {
       clearSearch();
       setCurrentView("graph");
-      void loadNeighborhood(id, undefined, { regionId: null });
+      void loadNeighborhood(id, undefined, { regionId: activeRegionId });
       selectNode(id);
     },
-    [clearSearch, loadNeighborhood, selectNode, setCurrentView],
+    [activeRegionId, clearSearch, loadNeighborhood, selectNode, setCurrentView],
   );
 
   useEffect(() => {
@@ -142,6 +144,25 @@ export function SearchBar() {
           }}
         >
           Searching...
+        </div>
+      )}
+
+      {searchError && (
+        <div
+          className="card"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            borderRadius: "var(--radius-sm)",
+            padding: "8px 12px",
+            zIndex: 40,
+            fontSize: 11,
+            color: "#fca5a5",
+          }}
+        >
+          {searchError}
         </div>
       )}
 

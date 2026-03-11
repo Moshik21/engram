@@ -50,7 +50,7 @@ def compute_access_regularity(access_intervals: list[float]) -> float:
         sum((interval - mean_interval) ** 2 for interval in access_intervals)
         / len(access_intervals)
     ) ** 0.5
-    return max(0.0, 1.0 - (std_dev / mean_interval))
+    return float(max(0.0, 1.0 - (std_dev / mean_interval)))
 
 
 def get_cached_maturity_features(

@@ -1,0 +1,94 @@
+name: engram
+
+services:
+  falkordb:
+    image: "${ENGRAM_FALKORDB_IMAGE:-falkordb/falkordb:v4.4.1}"
+    restart: unless-stopped
+    environment:
+      REDIS_ARGS: >-
+        --requirepass ${ENGRAM_FALKORDB_PASSWORD}
+        --appendonly yes
+        --appendfsync everysec
+    volumes:
+      - "${ENGRAM_DATA_DIR}/falkordb:/data"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${ENGRAM_FALKORDB_PASSWORD}", "PING"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - engram-net
+
+  redis:
+    image: "${ENGRAM_REDIS_IMAGE:-redis/redis-stack-server:latest}"
+    restart: unless-stopped
+    environment:
+      REDIS_ARGS: >-
+        --requirepass ${ENGRAM_REDIS_PASSWORD}
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 200mb
+        --maxmemory-policy noeviction
+    volumes:
+      - "${ENGRAM_DATA_DIR}/redis:/data"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${ENGRAM_REDIS_PASSWORD}", "PING"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - engram-net
+
+  server:
+    image: "${ENGRAM_IMAGE_NAMESPACE}/${ENGRAM_SERVER_IMAGE_NAME}:${ENGRAM_IMAGE_TAG}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ENGRAM_API_PORT:-8100}:8100"
+    depends_on:
+      falkordb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENGRAM_MODE: "${ENGRAM_MODE:-full}"
+      ENGRAM_FALKORDB__HOST: "falkordb"
+      ENGRAM_FALKORDB__PORT: "6379"
+      ENGRAM_FALKORDB__PASSWORD: "${ENGRAM_FALKORDB_PASSWORD}"
+      ENGRAM_REDIS__URL: "redis://:${ENGRAM_REDIS_PASSWORD}@redis:6379/0"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      VOYAGE_API_KEY: "${VOYAGE_API_KEY:-}"
+      ENGRAM_AUTH__ENABLED: "${ENGRAM_AUTH__ENABLED:-false}"
+      ENGRAM_AUTH__BEARER_TOKEN: "${ENGRAM_AUTH__BEARER_TOKEN:-}"
+      ENGRAM_ENCRYPTION__ENABLED: "${ENGRAM_ENCRYPTION__ENABLED:-false}"
+      ENGRAM_ENCRYPTION__MASTER_KEY: "${ENGRAM_ENCRYPTION__MASTER_KEY:-}"
+      ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE: "${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}"
+      ENGRAM_ACTIVATION__RECALL_PROFILE: "${ENGRAM_ACTIVATION__RECALL_PROFILE:-all}"
+      ENGRAM_ACTIVATION__INTEGRATION_PROFILE: "${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}"
+      ENGRAM_ACTIVATION__WORKER_ENABLED: "${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}"
+    volumes:
+      - "${ENGRAM_DATA_DIR}/server:/home/engram/.engram"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - engram-net
+
+  dashboard:
+    image: "${ENGRAM_IMAGE_NAMESPACE}/${ENGRAM_DASHBOARD_IMAGE_NAME}:${ENGRAM_IMAGE_TAG}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ENGRAM_DASHBOARD_PORT:-3000}:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - engram-net
+
+networks:
+  engram-net:
+    driver: bridge

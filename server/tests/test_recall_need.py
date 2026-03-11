@@ -38,7 +38,7 @@ def _make_graph_probe() -> GraphProbe:
     now = time.time()
     user = Entity(
         id="ent_user",
-        name="Konner",
+        name="Alex",
         entity_type="Person",
         summary="User identity",
         group_id="default",
@@ -48,7 +48,7 @@ def _make_graph_probe() -> GraphProbe:
         id="ent_ben",
         name="Ben",
         entity_type="Person",
-        summary="Konner's son",
+        summary="Alex's son",
         group_id="default",
     )
     will = Entity(

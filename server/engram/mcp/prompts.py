@@ -14,6 +14,8 @@ Much faster and cheaper than remember.
 - **remember**: Store important information from the conversation. Call this \
 when the user shares personal details, preferences, project updates, decisions, \
 or any information they would expect you to know later.
+- **adjudicate_evidence**: Resolve a previously returned ambiguous memory work \
+item when you are highly confident about the intended entities or relationships.
 - **recall**: Retrieve relevant memories. Call this when the user references \
 something from a previous conversation, asks 'do you remember...', or when \
 context from past interactions would improve your response.
@@ -61,6 +63,30 @@ Use `remember` when:
 - Explicit preferences or corrections to prior knowledge
 - Key decisions that will affect future interactions
 - Goals, plans, or deadlines with concrete details
+
+## Client Proposals (Advanced)
+
+When `remember` supports client proposals, you can optionally pass structured \
+entity and relationship suggestions:
+- `proposed_entities`: List of `{"name": "...", "entity_type": "..."}` dicts
+- `proposed_relationships`: List of `{"subject": "...", "predicate": "...", \
+"object": "..."}` dicts
+- `model_tier`: Your model tier (opus/sonnet/haiku) for confidence scoring
+
+Proposals are advisory — the server validates and scores them through its own \
+commit policy. Do not send proposals unless you are highly confident in the \
+extraction.
+
+## Edge Adjudication
+
+When `remember` returns `adjudication_requests`, the server detected a narrow \
+semantic edge case it chose not to commit automatically.
+
+- If you are highly confident, call `adjudicate_evidence` with explicit \
+  entities/relationships or `reject_evidence_ids`.
+- If confidence is low, do nothing. Leaving the request unresolved is the \
+  correct behavior.
+- Do not guess just to clear a request.
 
 ## When to Recall
 
@@ -135,8 +161,8 @@ memory context before your first substantive response. This is mandatory when th
 user's first message could depend on prior personal, project, or relationship \
 context. Pass a `topic_hint` if the user's first message suggests a clear topic, or \
 `project_path` to auto-derive it from the project directory name. Use \
-`format="briefing"` for a concise LLM-synthesized narrative instead of structured \
-markdown.
+`format="structured"` by default. Use `format="briefing"` only when you \
+explicitly need a synthesized narrative.
 
 ## Automatic Context
 

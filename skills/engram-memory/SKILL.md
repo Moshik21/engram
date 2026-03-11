@@ -5,41 +5,88 @@ version: 1.0.0
 metadata:
   openclaw:
     requires:
-      env:
-        - ANTHROPIC_API_KEY
-      bins:
-        - uv
-    primaryEnv: ANTHROPIC_API_KEY
+      env: []
+    optionalEnv:
+      - ANTHROPIC_API_KEY
     emoji: "\U0001F9E0"
-    homepage: https://github.com/Moshik21/engram
+    homepage: https://github.com/engram-labs/engram
 ---
 
 # Engram Memory
 
 You have access to Engram, a persistent memory system that builds a temporal knowledge graph from conversations. It uses ACT-R cognitive architecture for activation-aware retrieval and runs offline consolidation inspired by biological memory.
 
+Works with both lite and full Engram installs.
+
 ## Setup
 
-The Engram server must be running locally. First-time install:
+The Engram server must be running locally.
+
+### Lite install (recommended — no Docker)
 
 ```bash
 curl -sSL https://engram.run/install | bash
 ```
 
-Or manually:
+Select **Lite** when prompted, then answer **yes** to "Install OpenClaw skill?".
 
 ```bash
-git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram/server && uv sync && uv run engram setup
+engramctl start
 ```
 
-Start the server (runs in lite mode with SQLite — zero infrastructure):
+### Full install (Docker)
 
 ```bash
-cd ~/engram/server && uv run engram serve
+curl -sSL https://engram.run/install | bash -s -- openclaw
 ```
 
-The REST API is available at `http://localhost:8100`. Check status with `uv run engram health`.
+### Already have Engram running?
+
+Add the OpenClaw skill with:
+
+```bash
+engramctl install-openclaw
+```
+
+### Advanced fallback (manual source)
+
+```bash
+git clone https://github.com/engram-labs/engram.git ~/engram
+cd ~/engram/server
+uv sync
+uv run engram setup
+```
+
+### Standalone MCP Server (Source)
+
+For developers who want to run the MCP server from source without the installer:
+
+```bash
+git clone https://github.com/engram-labs/engram.git ~/engram
+cd ~/engram/server
+uv sync
+export ANTHROPIC_API_KEY=sk-ant-...
+uv run engram mcp
+```
+
+**Transport modes:**
+- `uv run engram mcp` — stdio (default, for Claude Desktop / Claude Code)
+- `uv run engram mcp --transport streamable-http --port 8200` — HTTP (for remote clients)
+
+**Claude Desktop configuration** (`~/.claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "engram": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/engram/server", "engram", "mcp"]
+    }
+  }
+}
+```
+
+The REST API is available at `http://127.0.0.1:8100`. Check status with
+`engramctl status`.
 
 If you know the current project path, bootstrap it once at session start so
 artifact-backed routing has parity with memory:

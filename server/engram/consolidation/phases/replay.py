@@ -112,7 +112,6 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 status="skipped",
                 duration_ms=_elapsed_ms(t0),
             ), []
-
         max_per_cycle = cfg.consolidation_replay_max_per_cycle
         window_hours = cfg.consolidation_replay_window_hours
         min_age_hours = cfg.consolidation_replay_min_age_hours
@@ -227,7 +226,9 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     skipped_reason="no_context_change",
                 )
 
-        result = await self._extractor.extract(episode.content)
+        extractor = self._extractor
+        assert extractor is not None
+        result = await extractor.extract(episode.content)
 
         if not result.entities and not result.relationships:
             return ReplayRecord(

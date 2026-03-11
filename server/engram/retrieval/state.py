@@ -54,7 +54,7 @@ def infer_cognitive_mode(query: str) -> str:
         "exploratory": explore_hits,
         "reflective": reflect_hits,
     }
-    best = max(scores, key=scores.get)
+    best = max(scores, key=lambda mode: scores[mode])
     if scores[best] == 0:
         return "neutral"
     return best

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
+from typing import Any, cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,10 +24,11 @@ from engram.api.stats import router as stats_router
 from engram.api.websocket import router as ws_router
 from engram.config import EngramConfig
 from engram.events.bus import get_event_bus
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.security.middleware import TenantContextMiddleware
 from engram.storage.factory import create_stores
+from engram.storage.protocols import AtlasStore, ConsolidationStore
 from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
@@ -38,17 +40,17 @@ _app_state: dict = {}
 async def _startup(app: FastAPI, config: EngramConfig) -> None:
     """Initialize storage backends and services."""
     mode = await resolve_mode(config.mode)
+
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    if hasattr(search_index, "initialize"):
-        # In lite mode, share the SQLite connection across stores
-        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await search_index.initialize(db=graph_store._db)
-        else:
-            await search_index.initialize()
+    search_initializer = cast(Any, search_index).initialize
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await search_initializer(db=graph_store._db)
+    else:
+        await search_initializer()
 
-    extractor = EntityExtractor()
+    extractor = create_extractor(config)
     event_bus = get_event_bus()
 
     # Extract embedding provider from search index for lifecycle management
@@ -106,7 +108,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     if mode == EngineMode.LITE:
         from engram.storage.sqlite.atlas import SQLiteAtlasStore
 
-        atlas_store = SQLiteAtlasStore(str(config.get_sqlite_path()))
+        atlas_store: AtlasStore = SQLiteAtlasStore(str(config.get_sqlite_path()))
         if hasattr(graph_store, "_db"):
             await atlas_store.initialize(db=graph_store._db)
         else:
@@ -141,18 +143,24 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     if config.postgres.dsn:
         from engram.storage.postgres.consolidation import PostgresConsolidationStore
 
-        consolidation_store = PostgresConsolidationStore(
+        consolidation_store: ConsolidationStore = cast(
+            ConsolidationStore,
+            PostgresConsolidationStore(
             config.postgres.dsn,
             min_pool_size=config.postgres.min_pool_size,
             max_pool_size=config.postgres.max_pool_size,
+            ),
         )
         await consolidation_store.initialize()
     else:
         from engram.consolidation.store import SQLiteConsolidationStore
 
-        consolidation_store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
+        consolidation_store = cast(
+            ConsolidationStore,
+            SQLiteConsolidationStore(str(config.get_sqlite_path())),
+        )
         if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await consolidation_store.initialize(db=graph_store._db)
+            await cast(Any, consolidation_store).initialize(db=graph_store._db)
         else:
             await consolidation_store.initialize()
 
@@ -406,6 +414,20 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(ws_router)
     app.include_router(knowledge_router)
     app.include_router(conversations_router)
+
+    # Mount MCP streamable-http transport at /mcp
+    if os.environ.get("ENGRAM_MCP_ENABLED", "1") != "0":
+        try:
+            from engram.mcp.server import mcp as mcp_server
+
+            mcp_server.settings.stateless_http = True
+            mcp_app = mcp_server.streamable_http_app()
+            app.mount("/mcp", mcp_app)
+            logger.info("MCP streamable-http mounted at /mcp")
+        except Exception:
+            logger.warning(
+                "Failed to mount MCP transport", exc_info=True,
+            )
 
     return app
 

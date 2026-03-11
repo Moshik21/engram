@@ -6,12 +6,13 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import aiosqlite
 
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
 from engram.models.entity import Entity
-from engram.models.episode import Episode
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
@@ -19,6 +20,59 @@ from engram.utils.dates import utc_now, utc_now_iso
 from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
+
+
+def _row_value(row: aiosqlite.Row | None, key: str | int, default: Any = None) -> Any:
+    if row is None:
+        return default
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def _evidence_row_to_dict(row: aiosqlite.Row | tuple[Any, ...]) -> dict:
+    """Convert a raw evidence row tuple to a dictionary."""
+    return {
+        "evidence_id": row[0],
+        "episode_id": row[1],
+        "group_id": row[2],
+        "fact_class": row[3],
+        "confidence": row[4],
+        "source_type": row[5],
+        "extractor_name": row[6],
+        "payload": json.loads(row[7]) if row[7] else {},
+        "source_span": row[8],
+        "corroborating_signals": json.loads(row[9]) if row[9] else [],
+        "ambiguity_tags": json.loads(row[10]) if row[10] else [],
+        "ambiguity_score": row[11] or 0.0,
+        "adjudication_request_id": row[12],
+        "status": row[13],
+        "commit_reason": row[14],
+        "committed_id": row[15],
+        "deferred_cycles": row[16],
+        "created_at": row[17],
+        "resolved_at": row[18],
+    }
+
+
+def _adjudication_row_to_dict(row: aiosqlite.Row | tuple[Any, ...]) -> dict:
+    """Convert a raw adjudication request row tuple to a dictionary."""
+    return {
+        "request_id": row[0],
+        "episode_id": row[1],
+        "group_id": row[2],
+        "status": row[3],
+        "ambiguity_tags": json.loads(row[4]) if row[4] else [],
+        "evidence_ids": json.loads(row[5]) if row[5] else [],
+        "selected_text": row[6] or "",
+        "request_reason": row[7] or "",
+        "resolution_source": row[8],
+        "resolution_payload": json.loads(row[9]) if row[9] else None,
+        "attempt_count": row[10] or 0,
+        "created_at": row[11],
+        "resolved_at": row[12],
+    }
 
 
 def _dedup_summaries(existing: str, incoming: str, max_len: int = 500) -> str:
@@ -121,6 +175,11 @@ class SQLiteGraphStore:
             "ALTER TABLE entities ADD COLUMN lexical_regime TEXT",
             "ALTER TABLE entities ADD COLUMN canonical_identifier TEXT",
             "ALTER TABLE entities ADD COLUMN identifier_label INTEGER DEFAULT 0",
+            # Evidence v3 ambiguity metadata
+            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_tags_json "
+            "TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_score REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_evidence ADD COLUMN adjudication_request_id TEXT",
         ]
         for sql in migrations:
             try:
@@ -131,6 +190,27 @@ class SQLiteGraphStore:
             "CREATE INDEX IF NOT EXISTS idx_entities_lexical_regime ON entities(lexical_regime)",
             "CREATE INDEX IF NOT EXISTS idx_entities_canonical_identifier "
             "ON entities(canonical_identifier)",
+            "CREATE INDEX IF NOT EXISTS idx_evidence_adjudication_request "
+            "ON episode_evidence(adjudication_request_id)",
+            """CREATE TABLE IF NOT EXISTS episode_adjudications (
+                   request_id TEXT PRIMARY KEY,
+                   episode_id TEXT NOT NULL REFERENCES episodes(id),
+                   group_id TEXT NOT NULL DEFAULT 'default',
+                   status TEXT NOT NULL DEFAULT 'pending',
+                   ambiguity_tags_json TEXT NOT NULL DEFAULT '[]',
+                   evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+                   selected_text TEXT NOT NULL DEFAULT '',
+                   request_reason TEXT NOT NULL DEFAULT '',
+                   resolution_source TEXT,
+                   resolution_payload_json TEXT,
+                   attempt_count INTEGER NOT NULL DEFAULT 0,
+                   created_at TEXT NOT NULL,
+                   resolved_at TEXT
+               )""",
+            "CREATE INDEX IF NOT EXISTS idx_episode_adjudications_episode "
+            "ON episode_adjudications(episode_id)",
+            "CREATE INDEX IF NOT EXISTS idx_episode_adjudications_status "
+            "ON episode_adjudications(status)",
         ]:
             try:
                 await self._db.execute(sql)
@@ -156,12 +236,12 @@ class SQLiteGraphStore:
     def _encrypt(self, group_id: str, plaintext: str | None) -> str | None:
         if not plaintext or not self._encryptor:
             return plaintext
-        return self._encryptor.encrypt(group_id, plaintext)
+        return cast(str | None, self._encryptor.encrypt(group_id, plaintext))
 
     def _decrypt(self, group_id: str, data: str | None) -> str | None:
         if not data or not self._encryptor:
             return data
-        return self._encryptor.decrypt(group_id, data)
+        return cast(str | None, self._encryptor.decrypt(group_id, data))
 
     # --- Entities ---
 
@@ -205,6 +285,20 @@ class SQLiteGraphStore:
         if not row:
             return None
         return self._row_to_entity(row, group_id)
+
+    async def batch_get_entities(
+        self, entity_ids: list[str], group_id: str,
+    ) -> dict[str, Entity]:
+        if not entity_ids:
+            return {}
+        placeholders = ",".join("?" for _ in entity_ids)
+        cursor = await self.db.execute(
+            f"SELECT * FROM entities WHERE id IN ({placeholders}) "
+            f"AND group_id = ? AND deleted_at IS NULL",
+            [*entity_ids, group_id],
+        )
+        rows = await cursor.fetchall()
+        return {row["id"]: self._row_to_entity(row, group_id) for row in rows}
 
     async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None:
         if not updates:
@@ -421,6 +515,13 @@ class SQLiteGraphStore:
             conditions.append("(valid_to IS NULL OR datetime(valid_to) > datetime('now'))")
         conditions.append("group_id = ?")
         params.append(group_id)
+        # Filter out edges to soft-deleted entities
+        conditions.append(
+            "source_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)"
+        )
+        conditions.append(
+            "target_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)"
+        )
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
             f"SELECT * FROM relationships WHERE {where}",
@@ -520,26 +621,29 @@ class SQLiteGraphStore:
         conditions: list[str] = []
         params: list = []
         if direction == "outgoing":
-            conditions.append("source_id = ?")
+            conditions.append("r.source_id = ?")
             params.append(entity_id)
         elif direction == "incoming":
-            conditions.append("target_id = ?")
+            conditions.append("r.target_id = ?")
             params.append(entity_id)
         else:
-            conditions.append("(source_id = ? OR target_id = ?)")
+            conditions.append("(r.source_id = ? OR r.target_id = ?)")
             params.extend([entity_id, entity_id])
 
         t = at_time.isoformat()
-        conditions.append("(valid_from IS NULL OR valid_from <= ?)")
+        conditions.append("(r.valid_from IS NULL OR r.valid_from <= ?)")
         params.append(t)
-        conditions.append("(valid_to IS NULL OR valid_to > ?)")
+        conditions.append("(r.valid_to IS NULL OR r.valid_to > ?)")
         params.append(t)
-        conditions.append("group_id = ?")
+        conditions.append("r.group_id = ?")
         params.append(group_id)
 
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
-            f"SELECT * FROM relationships WHERE {where}",
+            f"SELECT r.* FROM relationships r "
+            f"JOIN entities es ON es.id = r.source_id AND es.deleted_at IS NULL "
+            f"JOIN entities et ON et.id = r.target_id AND et.deleted_at IS NULL "
+            f"WHERE {where}",
             params,
         )
         rows = await cursor.fetchall()
@@ -550,12 +654,14 @@ class SQLiteGraphStore:
         entity_id: str,
         hops: int = 1,
         group_id: str | None = None,
+        max_results: int = 5000,
     ) -> list[tuple[Entity, Relationship]]:
         """Return entities within N hops using recursive CTE."""
         group_filter = "AND e.group_id = ?" if group_id else ""
         params: list = [entity_id, hops]
         if group_id:
             params.append(group_id)
+        params.append(max_results)
 
         sql = f"""
         WITH RECURSIVE neighbors(entity_id, depth) AS (
@@ -582,6 +688,7 @@ class SQLiteGraphStore:
         )
         WHERE e.deleted_at IS NULL AND n.depth > 0
         {group_filter}
+        LIMIT ?
         """
         cursor = await self.db.execute(sql, params)
         rows = await cursor.fetchall()
@@ -676,6 +783,7 @@ class SQLiteGraphStore:
             "(r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))",
             "r.source_id != r.target_id",
             "COALESCE(r.polarity, 'positive') != 'negative'",
+            "e.deleted_at IS NULL",
         ]
         params: list = [entity_id, entity_id]
         if group_id:
@@ -986,7 +1094,7 @@ class SQLiteGraphStore:
 
         sql = f"SELECT * FROM episodes WHERE {where} ORDER BY created_at DESC LIMIT ?"
         rows_cursor = await self.db.execute(sql, params)
-        rows = await rows_cursor.fetchall()
+        rows = list(await rows_cursor.fetchall())
 
         episodes = [self._row_to_episode(r, group_id) for r in rows[:limit]]
         next_cursor = None
@@ -1254,10 +1362,10 @@ class SQLiteGraphStore:
         max_access_count: int = 0,
     ) -> list[Entity]:
         """Find entities with no relationships and low access."""
-        cutoff = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        cutoff_dt = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
         from datetime import timedelta
 
-        cutoff = (cutoff - timedelta(days=min_age_days)).isoformat()
+        cutoff = (cutoff_dt - timedelta(days=min_age_days)).isoformat()
 
         sql = """
         SELECT e.*
@@ -1374,7 +1482,8 @@ class SQLiteGraphStore:
             "WHERE (source_id = ? OR target_id = ?) AND group_id = ?",
             (keep_id, keep_id, group_id),
         )
-        total_count = (await cursor.fetchone())[0]
+        total_row = await cursor.fetchone()
+        total_count = int(_row_value(total_row, 0, 0))
 
         # Re-point episode_entities (ignore conflicts for already-linked episodes)
         await self.db.execute(
@@ -1474,6 +1583,32 @@ class SQLiteGraphStore:
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
             f"SELECT * FROM relationships WHERE {where} LIMIT ?",
+            params,
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_relationship(r) for r in rows]
+
+    async def sample_edges(
+        self,
+        group_id: str,
+        limit: int = 500,
+        exclude_ids: set[str] | None = None,
+    ) -> list[Relationship]:
+        """Return a random sample of active relationships."""
+        params: list = [group_id]
+        exclude_clause = ""
+        if exclude_ids:
+            placeholders = ",".join("?" for _ in exclude_ids)
+            exclude_clause = f" AND r.id NOT IN ({placeholders})"
+            params.extend(sorted(exclude_ids))
+        params.append(limit)
+        cursor = await self.db.execute(
+            f"""SELECT * FROM relationships r
+                WHERE r.group_id = ?
+                  AND (r.valid_to IS NULL OR datetime(r.valid_to) > datetime('now'))
+                  {exclude_clause}
+                ORDER BY RANDOM()
+                LIMIT ?""",
             params,
         )
         rows = await cursor.fetchall()
@@ -1649,51 +1784,53 @@ class SQLiteGraphStore:
             params * 2,
         )
 
-        entity_count = (await entities.fetchone())[0]
-        relationship_count = (await rels.fetchone())[0]
+        entity_count = int(_row_value(await entities.fetchone(), 0, 0))
+        relationship_count = int(_row_value(await rels.fetchone(), 0, 0))
         episode_row = await episode_stats.fetchone()
         cue_row = await cue_stats.fetchone()
         yield_row = await yield_stats.fetchone()
 
-        episode_count = episode_row["episodes"] or 0
+        episode_count = int(_row_value(episode_row, "episodes", 0) or 0)
         projection_counts = {
-            "queued": episode_row["projection_queued_count"] or 0,
-            "cued": episode_row["projection_cued_count"] or 0,
-            "cue_only": episode_row["projection_cue_only_count"] or 0,
-            "scheduled": episode_row["projection_scheduled_count"] or 0,
-            "projecting": episode_row["projection_projecting_count"] or 0,
-            "projected": episode_row["projection_projected_count"] or 0,
-            "failed": episode_row["projection_failed_count"] or 0,
-            "dead_letter": episode_row["projection_dead_letter_count"] or 0,
+            "queued": int(_row_value(episode_row, "projection_queued_count", 0) or 0),
+            "cued": int(_row_value(episode_row, "projection_cued_count", 0) or 0),
+            "cue_only": int(_row_value(episode_row, "projection_cue_only_count", 0) or 0),
+            "scheduled": int(_row_value(episode_row, "projection_scheduled_count", 0) or 0),
+            "projecting": int(_row_value(episode_row, "projection_projecting_count", 0) or 0),
+            "projected": int(_row_value(episode_row, "projection_projected_count", 0) or 0),
+            "failed": int(_row_value(episode_row, "projection_failed_count", 0) or 0),
+            "dead_letter": int(_row_value(episode_row, "projection_dead_letter_count", 0) or 0),
         }
-        cue_count = cue_row["cue_count"] or 0
-        projected_cue_count = cue_row["projected_cue_count"] or 0
+        cue_count = int(_row_value(cue_row, "cue_count", 0) or 0)
+        projected_cue_count = int(_row_value(cue_row, "projected_cue_count", 0) or 0)
         attempted_episode_count = (
             projection_counts["projected"]
             + projection_counts["failed"]
             + projection_counts["dead_letter"]
         )
-        linked_entity_count = yield_row["linked_entity_count"] or 0
-        projected_relationship_count = yield_row["relationship_count"] or 0
+        linked_entity_count = int(_row_value(yield_row, "linked_entity_count", 0) or 0)
+        projected_relationship_count = int(_row_value(yield_row, "relationship_count", 0) or 0)
 
         cue_metrics = {
             "cue_count": cue_count,
             "episodes_without_cues": max(episode_count - cue_count, 0),
             "cue_coverage": round(cue_count / episode_count, 4) if episode_count else 0.0,
-            "cue_hit_count": cue_row["cue_hit_count"] or 0,
-            "cue_hit_episode_count": cue_row["cue_hit_episode_count"] or 0,
+            "cue_hit_count": int(_row_value(cue_row, "cue_hit_count", 0) or 0),
+            "cue_hit_episode_count": int(_row_value(cue_row, "cue_hit_episode_count", 0) or 0),
             "cue_hit_episode_rate": (
-                round((cue_row["cue_hit_episode_count"] or 0) / cue_count, 4)
+                round((int(_row_value(cue_row, "cue_hit_episode_count", 0) or 0)) / cue_count, 4)
                 if cue_count
                 else 0.0
             ),
-            "cue_surfaced_count": cue_row["cue_surfaced_count"] or 0,
-            "cue_selected_count": cue_row["cue_selected_count"] or 0,
-            "cue_used_count": cue_row["cue_used_count"] or 0,
-            "cue_near_miss_count": cue_row["cue_near_miss_count"] or 0,
-            "avg_policy_score": round(float(cue_row["avg_policy_score"] or 0.0), 4),
+            "cue_surfaced_count": int(_row_value(cue_row, "cue_surfaced_count", 0) or 0),
+            "cue_selected_count": int(_row_value(cue_row, "cue_selected_count", 0) or 0),
+            "cue_used_count": int(_row_value(cue_row, "cue_used_count", 0) or 0),
+            "cue_near_miss_count": int(_row_value(cue_row, "cue_near_miss_count", 0) or 0),
+            "avg_policy_score": round(
+                float(_row_value(cue_row, "avg_policy_score", 0.0) or 0.0), 4
+            ),
             "avg_projection_attempts": round(
-                float(cue_row["avg_projection_attempts"] or 0.0), 4
+                float(_row_value(cue_row, "avg_projection_attempts", 0.0) or 0.0), 4
             ),
             "projected_cue_count": projected_cue_count,
             "cue_to_projection_conversion_rate": (
@@ -1703,7 +1840,7 @@ class SQLiteGraphStore:
         projection_metrics = {
             "state_counts": projection_counts,
             "attempted_episode_count": attempted_episode_count,
-            "total_attempts": cue_row["projection_attempt_total"] or 0,
+            "total_attempts": int(_row_value(cue_row, "projection_attempt_total", 0) or 0),
             "failure_count": projection_counts["failed"],
             "dead_letter_count": projection_counts["dead_letter"],
             "failure_rate": (
@@ -1716,10 +1853,10 @@ class SQLiteGraphStore:
                 else 0.0
             ),
             "avg_processing_duration_ms": round(
-                float(episode_row["avg_processing_duration_ms"] or 0.0), 2
+                float(_row_value(episode_row, "avg_processing_duration_ms", 0.0) or 0.0), 2
             ),
             "avg_time_to_projection_ms": round(
-                float(episode_row["avg_time_to_projection_ms"] or 0.0), 2
+                float(_row_value(episode_row, "avg_time_to_projection_ms", 0.0) or 0.0), 2
             ),
             "yield": {
                 "linked_entity_count": linked_entity_count,
@@ -2005,17 +2142,302 @@ class SQLiteGraphStore:
             expires_at=expires_at,
         )
 
+    # --- Evidence storage (v2) ---
+
+    async def store_evidence(
+        self,
+        evidence: list[dict],
+        group_id: str = "default",
+        *,
+        default_status: str = "pending",
+    ) -> None:
+        """Persist evidence candidates from the extraction pipeline."""
+        if not evidence:
+            return
+        sql = (
+            "INSERT OR IGNORE INTO episode_evidence "
+            "(evidence_id, episode_id, group_id, fact_class, confidence, "
+            "source_type, extractor_name, payload_json, source_span, "
+            "signals_json, ambiguity_tags_json, ambiguity_score, adjudication_request_id, "
+            "status, commit_reason, committed_id, deferred_cycles, created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        rows = [
+            (
+                ev["evidence_id"],
+                ev["episode_id"],
+                group_id,
+                ev["fact_class"],
+                ev["confidence"],
+                ev["source_type"],
+                ev.get("extractor_name", ""),
+                json.dumps(ev.get("payload", {})),
+                ev.get("source_span"),
+                json.dumps(ev.get("corroborating_signals", [])),
+                json.dumps(ev.get("ambiguity_tags", [])),
+                ev.get("ambiguity_score", 0.0),
+                ev.get("adjudication_request_id"),
+                ev.get("status", default_status),
+                ev.get("commit_reason"),
+                ev.get("committed_id"),
+                ev.get("deferred_cycles", 0),
+                ev.get("created_at", utc_now_iso()),
+                ev.get("resolved_at")
+                or (
+                    utc_now_iso()
+                    if ev.get("status", default_status)
+                    in {"committed", "rejected", "expired", "superseded"}
+                    else None
+                ),
+            )
+            for ev in evidence
+        ]
+        await self.db.executemany(sql, rows)
+        await self.db.commit()
+
+    async def get_pending_evidence(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]:
+        """Get unresolved evidence candidates for adjudication."""
+        sql = (
+            "SELECT evidence_id, episode_id, group_id, fact_class, confidence, "
+            "source_type, extractor_name, payload_json, source_span, "
+            "signals_json, ambiguity_tags_json, ambiguity_score, adjudication_request_id, "
+            "status, commit_reason, committed_id, deferred_cycles, created_at, resolved_at "
+            "FROM episode_evidence "
+            "WHERE group_id = ? AND status IN ('pending', 'deferred', 'approved') "
+            "ORDER BY confidence DESC LIMIT ?"
+        )
+        cursor = await self.db.execute(sql, (group_id, limit))
+        rows = await cursor.fetchall()
+        return [_evidence_row_to_dict(r) for r in rows]
+
+    async def get_episode_evidence(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]:
+        """Get all evidence for a specific episode."""
+        sql = (
+            "SELECT evidence_id, episode_id, group_id, fact_class, confidence, "
+            "source_type, extractor_name, payload_json, source_span, "
+            "signals_json, ambiguity_tags_json, ambiguity_score, adjudication_request_id, "
+            "status, commit_reason, committed_id, deferred_cycles, created_at, resolved_at "
+            "FROM episode_evidence "
+            "WHERE episode_id = ? AND group_id = ? "
+            "ORDER BY confidence DESC"
+        )
+        cursor = await self.db.execute(sql, (episode_id, group_id))
+        rows = await cursor.fetchall()
+        return [_evidence_row_to_dict(r) for r in rows]
+
+    async def update_evidence_status(
+        self, evidence_id: str, status: str, updates: dict | None = None,
+        group_id: str = "default",
+    ) -> None:
+        """Update evidence status and optional fields."""
+        updates = updates or {}
+        sets = ["status = ?"]
+        params: list = [status]
+        if "commit_reason" in updates:
+            sets.append("commit_reason = ?")
+            params.append(updates["commit_reason"])
+        if "committed_id" in updates:
+            sets.append("committed_id = ?")
+            params.append(updates["committed_id"])
+        if "confidence" in updates:
+            sets.append("confidence = ?")
+            params.append(updates["confidence"])
+        if "deferred_cycles" in updates:
+            sets.append("deferred_cycles = ?")
+            params.append(updates["deferred_cycles"])
+        if "ambiguity_tags" in updates:
+            sets.append("ambiguity_tags_json = ?")
+            params.append(json.dumps(updates["ambiguity_tags"]))
+        if "ambiguity_score" in updates:
+            sets.append("ambiguity_score = ?")
+            params.append(updates["ambiguity_score"])
+        if "adjudication_request_id" in updates:
+            sets.append("adjudication_request_id = ?")
+            params.append(updates["adjudication_request_id"])
+        if status in ("committed", "rejected", "expired", "superseded"):
+            sets.append("resolved_at = ?")
+            params.append(utc_now_iso())
+        params.extend([evidence_id, group_id])
+        sql = (
+            f"UPDATE episode_evidence SET {', '.join(sets)} "
+            "WHERE evidence_id = ? AND group_id = ?"
+        )
+        await self.db.execute(sql, params)
+        await self.db.commit()
+
+    async def get_entity_count(self, group_id: str = "default") -> int:
+        """Count non-deleted entities in a group."""
+        sql = (
+            "SELECT COUNT(*) FROM entities "
+            "WHERE group_id = ? AND deleted_at IS NULL"
+        )
+        cursor = await self.db.execute(sql, (group_id,))
+        row = await cursor.fetchone()
+        return int(_row_value(row, 0, 0))
+
+    async def store_adjudication_requests(
+        self, requests: list[dict], group_id: str = "default",
+    ) -> None:
+        """Persist edge adjudication requests."""
+        if not requests:
+            return
+        sql = (
+            "INSERT OR IGNORE INTO episode_adjudications "
+            "(request_id, episode_id, group_id, status, ambiguity_tags_json, "
+            "evidence_ids_json, selected_text, request_reason, resolution_source, "
+            "resolution_payload_json, attempt_count, created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        rows = [
+            (
+                req["request_id"],
+                req["episode_id"],
+                group_id,
+                req.get("status", "pending"),
+                json.dumps(req.get("ambiguity_tags", [])),
+                json.dumps(req.get("evidence_ids", [])),
+                req.get("selected_text", ""),
+                req.get("request_reason", ""),
+                req.get("resolution_source"),
+                (
+                    json.dumps(req.get("resolution_payload"))
+                    if req.get("resolution_payload") is not None
+                    else None
+                ),
+                req.get("attempt_count", 0),
+                req.get("created_at", utc_now_iso()),
+                req.get("resolved_at"),
+            )
+            for req in requests
+        ]
+        await self.db.executemany(sql, rows)
+        await self.db.commit()
+
+    async def get_episode_adjudications(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]:
+        """Get adjudication requests for an episode."""
+        cursor = await self.db.execute(
+            "SELECT request_id, episode_id, group_id, status, ambiguity_tags_json, "
+            "evidence_ids_json, selected_text, request_reason, resolution_source, "
+            "resolution_payload_json, attempt_count, created_at, resolved_at "
+            "FROM episode_adjudications WHERE episode_id = ? AND group_id = ? "
+            "ORDER BY created_at ASC",
+            (episode_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [_adjudication_row_to_dict(row) for row in rows]
+
+    async def get_adjudication_request(
+        self, request_id: str, group_id: str = "default",
+    ) -> dict | None:
+        """Get a single adjudication request by ID."""
+        cursor = await self.db.execute(
+            "SELECT request_id, episode_id, group_id, status, ambiguity_tags_json, "
+            "evidence_ids_json, selected_text, request_reason, resolution_source, "
+            "resolution_payload_json, attempt_count, created_at, resolved_at "
+            "FROM episode_adjudications WHERE request_id = ? AND group_id = ?",
+            (request_id, group_id),
+        )
+        row = await cursor.fetchone()
+        return _adjudication_row_to_dict(row) if row else None
+
+    async def get_pending_adjudication_requests(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]:
+        """Get unresolved adjudication requests for consolidation."""
+        cursor = await self.db.execute(
+            "SELECT request_id, episode_id, group_id, status, ambiguity_tags_json, "
+            "evidence_ids_json, selected_text, request_reason, resolution_source, "
+            "resolution_payload_json, attempt_count, created_at, resolved_at "
+            "FROM episode_adjudications "
+            "WHERE group_id = ? AND status IN ('pending', 'deferred', 'error') "
+            "ORDER BY created_at ASC LIMIT ?",
+            (group_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [_adjudication_row_to_dict(row) for row in rows]
+
+    async def update_adjudication_request(
+        self, request_id: str, updates: dict, group_id: str = "default",
+    ) -> None:
+        """Update adjudication request status and metadata."""
+        if not updates:
+            return
+        sets: list[str] = []
+        params: list = []
+        for field, column in (
+            ("status", "status"),
+            ("ambiguity_tags", "ambiguity_tags_json"),
+            ("evidence_ids", "evidence_ids_json"),
+            ("selected_text", "selected_text"),
+            ("request_reason", "request_reason"),
+            ("resolution_source", "resolution_source"),
+            ("attempt_count", "attempt_count"),
+            ("resolved_at", "resolved_at"),
+        ):
+            if field not in updates:
+                continue
+            sets.append(f"{column} = ?")
+            value = updates[field]
+            if field in {"ambiguity_tags", "evidence_ids"}:
+                value = json.dumps(value)
+            params.append(value)
+        if "resolution_payload" in updates:
+            sets.append("resolution_payload_json = ?")
+            params.append(
+                json.dumps(updates["resolution_payload"])
+                if updates["resolution_payload"] is not None
+                else None,
+            )
+        status = updates.get("status")
+        if (
+            status in {"materialized", "rejected", "expired"}
+            and "resolved_at" not in updates
+        ):
+            sets.append("resolved_at = ?")
+            params.append(utc_now_iso())
+        if not sets:
+            return
+        params.extend([request_id, group_id])
+        await self.db.execute(
+            f"UPDATE episode_adjudications SET {', '.join(sets)} "
+            "WHERE request_id = ? AND group_id = ?",
+            params,
+        )
+        await self.db.commit()
+
     def _row_to_episode(self, row, group_id: str | None = None) -> Episode:
         row_group = row["group_id"]
         decrypt_group = group_id or row_group
-        content = self._decrypt(decrypt_group, row["content"])
+        content = self._decrypt(decrypt_group, row["content"]) or ""
         keys = row.keys()
+        raw_status = row["status"]
+        status = (
+            raw_status
+            if isinstance(raw_status, EpisodeStatus)
+            else EpisodeStatus(str(raw_status))
+        )
+        raw_projection_state = (
+            row["projection_state"]
+            if "projection_state" in keys and row["projection_state"]
+            else EpisodeProjectionState.QUEUED.value
+        )
+        projection_state = (
+            raw_projection_state
+            if isinstance(raw_projection_state, EpisodeProjectionState)
+            else EpisodeProjectionState(str(raw_projection_state))
+        )
 
         return Episode(
             id=row["id"],
             content=content,
             source=row["source"],
-            status=row["status"],
+            status=status,
             group_id=row_group,
             session_id=row["session_id"] if "session_id" in keys else None,
             created_at=_parse_dt(row["created_at"]) or utc_now(),
@@ -2045,11 +2467,7 @@ class SQLiteGraphStore:
                 if "entity_coverage" in keys and row["entity_coverage"] is not None
                 else 0.0
             ),
-            projection_state=(
-                row["projection_state"]
-                if "projection_state" in keys and row["projection_state"]
-                else "queued"
-            ),
+            projection_state=projection_state,
             last_projection_reason=(
                 row["last_projection_reason"] if "last_projection_reason" in keys else None
             ),

@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, cast
 
 from engram.config import FalkorDBConfig
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
@@ -20,6 +22,9 @@ from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from engram.models.prospective import Intention
+
 
 def _parse_dt(value: str | None) -> datetime | None:
     """Parse an ISO 8601 datetime string or return None."""
@@ -31,38 +36,120 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
 
 
+def _falkordb_password_candidates(config: FalkorDBConfig) -> list[str | None]:
+    """Return passwords to try, preferring explicit configuration first."""
+    configured = config.password or None
+    candidates: list[str | None] = [configured]
+    if configured is None:
+        fallback = os.environ.get("ENGRAM_FALKORDB__PASSWORD", "engram_dev")
+        if fallback not in candidates:
+            candidates.append(fallback)
+    return candidates
+
+
+def _evidence_node_to_dict(node) -> dict:
+    """Convert a FalkorDB :Evidence node to the GraphStore evidence shape."""
+    props = node.properties
+    return {
+        "evidence_id": props["evidence_id"],
+        "episode_id": props["episode_id"],
+        "group_id": props.get("group_id", "default"),
+        "fact_class": props["fact_class"],
+        "confidence": props.get("confidence", 0.0),
+        "source_type": props.get("source_type", ""),
+        "extractor_name": props.get("extractor_name", ""),
+        "payload": json.loads(props.get("payload_json", "{}") or "{}"),
+        "source_span": props.get("source_span"),
+        "corroborating_signals": json.loads(props.get("signals_json", "[]") or "[]"),
+        "ambiguity_tags": json.loads(
+            props.get("ambiguity_tags_json", "[]") or "[]",
+        ),
+        "ambiguity_score": props.get("ambiguity_score", 0.0) or 0.0,
+        "adjudication_request_id": props.get("adjudication_request_id"),
+        "status": props.get("status", "pending"),
+        "commit_reason": props.get("commit_reason"),
+        "committed_id": props.get("committed_id"),
+        "deferred_cycles": props.get("deferred_cycles", 0) or 0,
+        "created_at": props.get("created_at"),
+        "resolved_at": props.get("resolved_at"),
+    }
+
+
+def _adjudication_node_to_dict(node) -> dict:
+    """Convert a FalkorDB :AdjudicationRequest node to storage shape."""
+    props = node.properties
+    return {
+        "request_id": props["request_id"],
+        "episode_id": props["episode_id"],
+        "group_id": props.get("group_id", "default"),
+        "status": props.get("status", "pending"),
+        "ambiguity_tags": json.loads(
+            props.get("ambiguity_tags_json", "[]") or "[]",
+        ),
+        "evidence_ids": json.loads(props.get("evidence_ids_json", "[]") or "[]"),
+        "selected_text": props.get("selected_text", "") or "",
+        "request_reason": props.get("request_reason", "") or "",
+        "resolution_source": props.get("resolution_source"),
+        "resolution_payload": json.loads(
+            props.get("resolution_payload_json", "null") or "null",
+        ),
+        "attempt_count": props.get("attempt_count", 0) or 0,
+        "created_at": props.get("created_at"),
+        "resolved_at": props.get("resolved_at"),
+    }
+
+
 class FalkorDBGraphStore:
     """Graph store backed by FalkorDB (Redis-based graph database)."""
 
     def __init__(self, config: FalkorDBConfig, encryptor=None) -> None:
         self._config = config
         self._encryptor = encryptor
-        self._db = None
-        self._graph = None
+        self._db: Any | None = None
+        self._graph: Any | None = None
 
     async def _query(self, cypher: str, params: dict | None = None, timeout: int | None = None):
         """Execute a Cypher query via thread pool (falkordb is synchronous)."""
+        graph = self._graph
+        if graph is None:
+            raise RuntimeError("FalkorDB graph store not initialized")
         kwargs: dict = {"params": params or {}}
         if timeout is not None:
             kwargs["timeout"] = timeout
-        return await asyncio.to_thread(self._graph.query, cypher, **kwargs)
+        return await asyncio.to_thread(cast(Any, graph.query), cypher, **kwargs)
 
     async def initialize(self) -> None:
         """Connect to FalkorDB and create indexes."""
-        from falkordb import FalkorDB
+        from falkordb import FalkorDB  # type: ignore[import-untyped]
 
-        password = self._config.password or None
-        kwargs: dict = {
-            "host": self._config.host,
-            "port": self._config.port,
-            "password": password,
-        }
-        if self._config.ssl:
-            kwargs["ssl"] = True
-            if self._config.ssl_ca_cert:
-                kwargs["ssl_ca_certs"] = self._config.ssl_ca_cert
-        self._db = await asyncio.to_thread(FalkorDB, **kwargs)
-        self._graph = await asyncio.to_thread(self._db.select_graph, self._config.graph_name)
+        last_error: Exception | None = None
+        for password in _falkordb_password_candidates(self._config):
+            kwargs: dict = {
+                "host": self._config.host,
+                "port": self._config.port,
+                "password": password,
+            }
+            if self._config.ssl:
+                kwargs["ssl"] = True
+                if self._config.ssl_ca_cert:
+                    kwargs["ssl_ca_certs"] = self._config.ssl_ca_cert
+            try:
+                self._db = cast(Any, await asyncio.to_thread(FalkorDB, **kwargs))
+                self._graph = cast(
+                    Any,
+                    await asyncio.to_thread(
+                        cast(Any, self._db.select_graph),
+                        self._config.graph_name,
+                    ),
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                self._db = None
+                self._graph = None
+        else:
+            assert last_error is not None
+            raise last_error
 
         # Create indexes — FalkorDB errors on duplicate, so wrap each in try/except
         indexes = [
@@ -83,6 +170,15 @@ class FalkorDBGraphStore:
             "CREATE INDEX FOR ()-[r:RELATES_TO]-() ON (r.source_id)",
             "CREATE INDEX FOR (n:Intention) ON (n.id)",
             "CREATE INDEX FOR (n:Intention) ON (n.group_id)",
+            "CREATE INDEX FOR (n:Evidence) ON (n.evidence_id)",
+            "CREATE INDEX FOR (n:Evidence) ON (n.group_id)",
+            "CREATE INDEX FOR (n:Evidence) ON (n.status)",
+            "CREATE INDEX FOR (n:Evidence) ON (n.episode_id)",
+            "CREATE INDEX FOR (n:Evidence) ON (n.adjudication_request_id)",
+            "CREATE INDEX FOR (n:AdjudicationRequest) ON (n.request_id)",
+            "CREATE INDEX FOR (n:AdjudicationRequest) ON (n.group_id)",
+            "CREATE INDEX FOR (n:AdjudicationRequest) ON (n.status)",
+            "CREATE INDEX FOR (n:AdjudicationRequest) ON (n.episode_id)",
         ]
         for idx in indexes:
             try:
@@ -106,12 +202,12 @@ class FalkorDBGraphStore:
     def _encrypt(self, group_id: str, plaintext: str | None) -> str | None:
         if not plaintext or not self._encryptor:
             return plaintext
-        return self._encryptor.encrypt(group_id, plaintext)
+        return cast(str | None, self._encryptor.encrypt(group_id, plaintext))
 
     def _decrypt(self, group_id: str, data: str | None) -> str | None:
         if not data or not self._encryptor:
             return data
-        return self._encryptor.decrypt(group_id, data)
+        return cast(str | None, self._encryptor.decrypt(group_id, data))
 
     # --- Entities ---
 
@@ -159,7 +255,7 @@ class FalkorDBGraphStore:
     async def get_entity(self, entity_id: str, group_id: str) -> Entity | None:
         result = await self._query(
             """MATCH (n:Entity {id: $id, group_id: $gid})
-               WHERE n.deleted_at IS NULL
+               WHERE n.deleted_at IS NULL OR n.merged_into IS NOT NULL
                RETURN n""",
             {"id": entity_id, "gid": group_id},
         )
@@ -167,6 +263,23 @@ class FalkorDBGraphStore:
             return None
         node = result.result_set[0][0]
         return self._node_to_entity(node, group_id)
+
+    async def batch_get_entities(
+        self, entity_ids: list[str], group_id: str,
+    ) -> dict[str, Entity]:
+        if not entity_ids:
+            return {}
+        result = await self._query(
+            """MATCH (n:Entity)
+               WHERE n.id IN $ids AND n.group_id = $gid AND n.deleted_at IS NULL
+               RETURN n""",
+            {"ids": entity_ids, "gid": group_id},
+        )
+        entities: dict[str, Entity] = {}
+        for row in result.result_set:
+            entity = self._node_to_entity(row[0], group_id)
+            entities[entity.id] = entity
+        return entities
 
     async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None:
         if not updates:
@@ -347,7 +460,10 @@ class FalkorDBGraphStore:
         elif direction == "incoming":
             match = "MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity {id: $eid})"
         else:
-            match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE s.id = $eid OR t.id = $eid"
+            match = (
+                "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) "
+                "WHERE (s.id = $eid OR t.id = $eid)"
+            )
 
         conditions = []
         params: dict = {"eid": entity_id, "now": utc_now_iso()}
@@ -358,6 +474,9 @@ class FalkorDBGraphStore:
             conditions.append("(r.valid_to IS NULL OR r.valid_to > $now)")
         conditions.append("r.group_id = $gid")
         params["gid"] = group_id
+        # Filter out edges to soft-deleted entities
+        conditions.append("s.deleted_at IS NULL")
+        conditions.append("t.deleted_at IS NULL")
 
         where = ""
         if conditions:
@@ -379,11 +498,19 @@ class FalkorDBGraphStore:
         return rels
 
     async def invalidate_relationship(self, rel_id: str, valid_to: datetime, group_id: str) -> None:
+        effective_valid_to = valid_to
+        now = utc_now()
+        if effective_valid_to >= now:
+            effective_valid_to = now - timedelta(microseconds=1)
         await self._query(
             """MATCH ()-[r:RELATES_TO {id: $id}]->()
                WHERE r.group_id = $gid
                SET r.valid_to = $valid_to""",
-            {"id": rel_id, "gid": group_id, "valid_to": valid_to.isoformat()},
+            {
+                "id": rel_id,
+                "gid": group_id,
+                "valid_to": effective_valid_to.isoformat(),
+            },
         )
 
     async def update_relationship_weight(
@@ -423,7 +550,7 @@ class FalkorDBGraphStore:
             params,
         )
         if result.result_set:
-            return result.result_set[0][0]
+            return float(result.result_set[0][0])
         return None
 
     async def find_conflicting_relationships(
@@ -486,6 +613,9 @@ class FalkorDBGraphStore:
         params: dict = {"eid": entity_id, "at_time": t}
         time_conditions.append("r.group_id = $gid")
         params["gid"] = group_id
+        # Filter out edges to soft-deleted entities
+        time_conditions.append("s.deleted_at IS NULL")
+        time_conditions.append("t.deleted_at IS NULL")
         time_filter = " AND ".join(time_conditions)
         if direction == "both":
             where = f" AND {time_filter}"
@@ -511,6 +641,7 @@ class FalkorDBGraphStore:
         entity_id: str,
         hops: int = 1,
         group_id: str | None = None,
+        max_results: int = 5000,
     ) -> list[tuple[Entity, Relationship]]:
         """Return entities within N hops via iterative BFS (avoids combinatorial explosion)."""
         now_str = utc_now_iso()
@@ -553,6 +684,12 @@ class FalkorDBGraphStore:
                 if entity.id not in seen_entities:
                     seen_entities.add(entity.id)
                     next_frontier.add(entity.id)
+
+                if len(results) >= max_results:
+                    break
+
+            if len(results) >= max_results:
+                break
 
             frontier = next_frontier
 
@@ -606,6 +743,7 @@ class FalkorDBGraphStore:
                 WHERE (r.valid_to IS NULL OR r.valid_to > $now)
                   AND coalesce(r.polarity, 'positive') <> 'negative'
                   AND n.id <> m.id
+                  AND m.deleted_at IS NULL
                   {group_filter}
                 RETURN m.id AS neighbor_id,
                        CASE
@@ -1573,8 +1711,13 @@ class FalkorDBGraphStore:
         # 5. Soft-delete loser
         await self._query(
             """MATCH (n:Entity {id: $id, group_id: $gid})
-               SET n.deleted_at = $now""",
-            {"id": remove_id, "gid": group_id, "now": utc_now_iso()},
+               SET n.deleted_at = $now, n.merged_into = $keep_id""",
+            {
+                "id": remove_id,
+                "gid": group_id,
+                "keep_id": keep_id,
+                "now": utc_now_iso(),
+            },
         )
 
         return transferred
@@ -1621,6 +1764,31 @@ class FalkorDBGraphStore:
                   AND r.valid_to <= $now
                   {pred_clause}
                 RETURN r LIMIT $limit""",
+            params,
+        )
+        return [self._edge_to_relationship(row[0]) for row in result.result_set]
+
+    async def sample_edges(
+        self,
+        group_id: str,
+        limit: int = 500,
+        exclude_ids: set[str] | None = None,
+    ) -> list[Relationship]:
+        """Return a random sample of active relationships."""
+        now = utc_now_iso()
+        exclude_clause = ""
+        params: dict = {"gid": group_id, "now": now, "limit": limit}
+        if exclude_ids:
+            exclude_clause = " AND NOT r.id IN $excludes"
+            params["excludes"] = list(exclude_ids)
+        result = await self._query(
+            f"""MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+                WHERE r.group_id = $gid
+                  AND (r.valid_to IS NULL OR r.valid_to > $now)
+                  {exclude_clause}
+                RETURN r
+                ORDER BY rand()
+                LIMIT $limit""",
             params,
         )
         return [self._edge_to_relationship(row[0]) for row in result.result_set]
@@ -1778,7 +1946,7 @@ class FalkorDBGraphStore:
         )
 
     @staticmethod
-    def _node_to_intention(node):
+    def _node_to_intention(node) -> Intention:
         """Convert a FalkorDB :Intention node to an Intention model."""
         from engram.models.prospective import Intention
 
@@ -1828,9 +1996,7 @@ class FalkorDBGraphStore:
 
     async def create_intention(self, intention: object) -> str:
         """Store a new intention as a :Intention node."""
-        from engram.models.prospective import Intention
-
-        i: Intention = intention  # type: ignore[assignment]
+        i = cast("Intention", intention)
         await self._query(
             """CREATE (n:Intention {
                 id: $id, trigger_text: $trigger_text, action_text: $action_text,
@@ -1935,4 +2101,275 @@ class FalkorDBGraphStore:
             """MATCH (n:Intention {id: $id, group_id: $gid})
                SET n.fire_count = n.fire_count + 1, n.updated_at = $now""",
             {"id": id, "gid": group_id, "now": utc_now_iso()},
+        )
+
+    # --- Evidence storage (v2) ---
+
+    async def store_evidence(
+        self,
+        evidence: list[dict],
+        group_id: str = "default",
+        *,
+        default_status: str = "pending",
+    ) -> None:
+        """Persist evidence candidates as :Evidence nodes."""
+        if not evidence:
+            return
+        for ev in evidence:
+            status = ev.get("status", default_status)
+            resolved_at = ev.get("resolved_at")
+            if resolved_at is None and status in {
+                "committed",
+                "rejected",
+                "expired",
+                "superseded",
+            }:
+                resolved_at = utc_now_iso()
+            await self._query(
+                """MERGE (e:Evidence {evidence_id: $evidence_id, group_id: $group_id})
+                   ON CREATE SET
+                     e.episode_id = $episode_id,
+                     e.fact_class = $fact_class,
+                     e.confidence = $confidence,
+                     e.source_type = $source_type,
+                     e.extractor_name = $extractor_name,
+                     e.payload_json = $payload_json,
+                     e.source_span = $source_span,
+                     e.signals_json = $signals_json,
+                     e.ambiguity_tags_json = $ambiguity_tags_json,
+                     e.ambiguity_score = $ambiguity_score,
+                     e.adjudication_request_id = $adjudication_request_id,
+                     e.status = $status,
+                     e.commit_reason = $commit_reason,
+                     e.committed_id = $committed_id,
+                     e.deferred_cycles = $deferred_cycles,
+                     e.created_at = $created_at,
+                     e.resolved_at = $resolved_at""",
+                {
+                    "evidence_id": ev["evidence_id"],
+                    "episode_id": ev["episode_id"],
+                    "group_id": group_id,
+                    "fact_class": ev["fact_class"],
+                    "confidence": ev["confidence"],
+                    "source_type": ev["source_type"],
+                    "extractor_name": ev.get("extractor_name", ""),
+                    "payload_json": json.dumps(ev.get("payload", {})),
+                    "source_span": ev.get("source_span"),
+                    "signals_json": json.dumps(ev.get("corroborating_signals", [])),
+                    "ambiguity_tags_json": json.dumps(ev.get("ambiguity_tags", [])),
+                    "ambiguity_score": ev.get("ambiguity_score", 0.0),
+                    "adjudication_request_id": ev.get("adjudication_request_id"),
+                    "status": status,
+                    "commit_reason": ev.get("commit_reason"),
+                    "committed_id": ev.get("committed_id"),
+                    "deferred_cycles": ev.get("deferred_cycles", 0),
+                    "created_at": ev.get("created_at", utc_now_iso()),
+                    "resolved_at": resolved_at,
+                },
+            )
+
+    async def get_pending_evidence(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]:
+        """Get unresolved evidence candidates for adjudication."""
+        result = await self._query(
+            """MATCH (e:Evidence {group_id: $gid})
+               WHERE e.status IN ['pending', 'deferred', 'approved']
+               RETURN e ORDER BY e.confidence DESC LIMIT $limit""",
+            {"gid": group_id, "limit": limit},
+        )
+        return [_evidence_node_to_dict(row[0]) for row in result.result_set]
+
+    async def get_episode_evidence(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]:
+        """Get all evidence associated with an episode."""
+        result = await self._query(
+            """MATCH (e:Evidence {episode_id: $episode_id, group_id: $gid})
+               RETURN e ORDER BY e.confidence DESC""",
+            {"episode_id": episode_id, "gid": group_id},
+        )
+        return [_evidence_node_to_dict(row[0]) for row in result.result_set]
+
+    async def update_evidence_status(
+        self,
+        evidence_id: str,
+        status: str,
+        updates: dict | None = None,
+        group_id: str = "default",
+    ) -> None:
+        """Update evidence status and optional metadata."""
+        updates = updates or {}
+        set_parts = ["e.status = $status"]
+        params: dict = {
+            "evidence_id": evidence_id,
+            "gid": group_id,
+            "status": status,
+        }
+        if "commit_reason" in updates:
+            set_parts.append("e.commit_reason = $commit_reason")
+            params["commit_reason"] = updates["commit_reason"]
+        if "committed_id" in updates:
+            set_parts.append("e.committed_id = $committed_id")
+            params["committed_id"] = updates["committed_id"]
+        if "confidence" in updates:
+            set_parts.append("e.confidence = $confidence")
+            params["confidence"] = updates["confidence"]
+        if "deferred_cycles" in updates:
+            set_parts.append("e.deferred_cycles = $deferred_cycles")
+            params["deferred_cycles"] = updates["deferred_cycles"]
+        if "ambiguity_tags" in updates:
+            set_parts.append("e.ambiguity_tags_json = $ambiguity_tags_json")
+            params["ambiguity_tags_json"] = json.dumps(updates["ambiguity_tags"])
+        if "ambiguity_score" in updates:
+            set_parts.append("e.ambiguity_score = $ambiguity_score")
+            params["ambiguity_score"] = updates["ambiguity_score"]
+        if "adjudication_request_id" in updates:
+            set_parts.append("e.adjudication_request_id = $adjudication_request_id")
+            params["adjudication_request_id"] = updates["adjudication_request_id"]
+        if status in {"committed", "rejected", "expired", "superseded"}:
+            set_parts.append("e.resolved_at = $resolved_at")
+            params["resolved_at"] = utc_now_iso()
+        await self._query(
+            (
+                "MATCH (e:Evidence {evidence_id: $evidence_id, group_id: $gid}) "
+                f"SET {', '.join(set_parts)}"
+            ),
+            params,
+        )
+
+    async def get_entity_count(self, group_id: str = "default") -> int:
+        """Count non-deleted entities in a group."""
+        result = await self._query(
+            """MATCH (n:Entity {group_id: $gid})
+               WHERE n.deleted_at IS NULL
+               RETURN COUNT(n)""",
+            {"gid": group_id},
+        )
+        return result.result_set[0][0] if result.result_set else 0
+
+    async def store_adjudication_requests(
+        self, requests: list[dict], group_id: str = "default",
+    ) -> None:
+        """Persist edge adjudication requests."""
+        for req in requests:
+            await self._query(
+                """MERGE (a:AdjudicationRequest {request_id: $request_id, group_id: $group_id})
+                   ON CREATE SET
+                     a.episode_id = $episode_id,
+                     a.status = $status,
+                     a.ambiguity_tags_json = $ambiguity_tags_json,
+                     a.evidence_ids_json = $evidence_ids_json,
+                     a.selected_text = $selected_text,
+                     a.request_reason = $request_reason,
+                     a.resolution_source = $resolution_source,
+                     a.resolution_payload_json = $resolution_payload_json,
+                     a.attempt_count = $attempt_count,
+                     a.created_at = $created_at,
+                     a.resolved_at = $resolved_at""",
+                {
+                    "request_id": req["request_id"],
+                    "episode_id": req["episode_id"],
+                    "group_id": group_id,
+                    "status": req.get("status", "pending"),
+                    "ambiguity_tags_json": json.dumps(req.get("ambiguity_tags", [])),
+                    "evidence_ids_json": json.dumps(req.get("evidence_ids", [])),
+                    "selected_text": req.get("selected_text", ""),
+                    "request_reason": req.get("request_reason", ""),
+                    "resolution_source": req.get("resolution_source"),
+                    "resolution_payload_json": (
+                        json.dumps(req.get("resolution_payload"))
+                        if req.get("resolution_payload") is not None
+                        else None
+                    ),
+                    "attempt_count": req.get("attempt_count", 0),
+                    "created_at": req.get("created_at", utc_now_iso()),
+                    "resolved_at": req.get("resolved_at"),
+                },
+            )
+
+    async def get_episode_adjudications(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]:
+        """Get adjudication requests for an episode."""
+        result = await self._query(
+            """MATCH (a:AdjudicationRequest {episode_id: $episode_id, group_id: $gid})
+               RETURN a ORDER BY a.created_at ASC""",
+            {"episode_id": episode_id, "gid": group_id},
+        )
+        return [_adjudication_node_to_dict(row[0]) for row in result.result_set]
+
+    async def get_adjudication_request(
+        self, request_id: str, group_id: str = "default",
+    ) -> dict | None:
+        """Get a single adjudication request by ID."""
+        result = await self._query(
+            """MATCH (a:AdjudicationRequest {request_id: $request_id, group_id: $gid})
+               RETURN a LIMIT 1""",
+            {"request_id": request_id, "gid": group_id},
+        )
+        if not result.result_set:
+            return None
+        return _adjudication_node_to_dict(result.result_set[0][0])
+
+    async def get_pending_adjudication_requests(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]:
+        """Get unresolved adjudication requests for consolidation."""
+        result = await self._query(
+            """MATCH (a:AdjudicationRequest {group_id: $gid})
+               WHERE a.status IN ['pending', 'deferred', 'error']
+               RETURN a ORDER BY a.created_at ASC LIMIT $limit""",
+            {"gid": group_id, "limit": limit},
+        )
+        return [_adjudication_node_to_dict(row[0]) for row in result.result_set]
+
+    async def update_adjudication_request(
+        self, request_id: str, updates: dict, group_id: str = "default",
+    ) -> None:
+        """Update adjudication request fields."""
+        if not updates:
+            return
+        set_parts: list[str] = []
+        params: dict = {"request_id": request_id, "gid": group_id}
+        for field, prop in (
+            ("status", "status"),
+            ("selected_text", "selected_text"),
+            ("request_reason", "request_reason"),
+            ("resolution_source", "resolution_source"),
+            ("attempt_count", "attempt_count"),
+            ("resolved_at", "resolved_at"),
+        ):
+            if field not in updates:
+                continue
+            set_parts.append(f"a.{prop} = ${field}")
+            params[field] = updates[field]
+        if "ambiguity_tags" in updates:
+            set_parts.append("a.ambiguity_tags_json = $ambiguity_tags_json")
+            params["ambiguity_tags_json"] = json.dumps(updates["ambiguity_tags"])
+        if "evidence_ids" in updates:
+            set_parts.append("a.evidence_ids_json = $evidence_ids_json")
+            params["evidence_ids_json"] = json.dumps(updates["evidence_ids"])
+        if "resolution_payload" in updates:
+            set_parts.append("a.resolution_payload_json = $resolution_payload_json")
+            params["resolution_payload_json"] = (
+                json.dumps(updates["resolution_payload"])
+                if updates["resolution_payload"] is not None
+                else None
+            )
+        status = updates.get("status")
+        if (
+            status in {"materialized", "rejected", "expired"}
+            and "resolved_at" not in updates
+        ):
+            set_parts.append("a.resolved_at = $resolved_at_auto")
+            params["resolved_at_auto"] = utc_now_iso()
+        if not set_parts:
+            return
+        await self._query(
+            (
+                "MATCH (a:AdjudicationRequest {request_id: $request_id, group_id: $gid}) "
+                f"SET {', '.join(set_parts)}"
+            ),
+            params,
         )

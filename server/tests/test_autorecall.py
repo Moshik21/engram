@@ -378,7 +378,7 @@ class TestSessionPrime:
         call_kwargs = manager.get_context.call_args[1]
         # Should extract a topic hint from content
         assert call_kwargs["topic_hint"] is not None
-        assert call_kwargs["format"] == "briefing"
+        assert call_kwargs["format"] == "structured"
 
 
 # ─── TestObserveWithAutoRecall ──────────────────────────────────────

@@ -89,6 +89,7 @@ async def check_triggers(
         try:
             content_embedding = await embed_fn(content)
         except Exception:
+            logger.warning("Embedding failed for prospective matching", exc_info=True)
             content_embedding = None
 
         if content_embedding:

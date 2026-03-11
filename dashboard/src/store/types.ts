@@ -349,12 +349,21 @@ export interface SelectionSlice {
   searchQuery: string;
   searchResults: SearchResult[];
   isSearching: boolean;
+  searchError: string | null;
+  entityHistory: string[];
+  entityHistoryIndex: number;
+  isNavigatingHistory: boolean;
   selectNode: (nodeId: string | null) => void;
   hoverNode: (nodeId: string | null) => void;
   selectEdge: (edgeId: string | null) => void;
   setSearchQuery: (query: string) => void;
   executeSearch: (query: string) => Promise<void>;
   clearSearch: () => void;
+  pushEntityHistory: (nodeId: string) => void;
+  entityGoBack: () => string | null;
+  entityGoForward: () => string | null;
+  canEntityGoBack: () => boolean;
+  canEntityGoForward: () => boolean;
 }
 
 export interface PreferencesSlice {

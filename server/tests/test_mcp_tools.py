@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -58,7 +60,7 @@ async def rich_manager(tmp_path):
     await search_index.initialize(db=graph_store._db)
 
     entities = [
-        _entity("ent_konner", "Konner", "Person", "Software engineer"),
+        _entity("ent_alex", "Alex", "Person", "Software engineer"),
         _entity("ent_engram", "Engram", "Project", "Memory layer for AI agents"),
         _entity("ent_python", "Python", "Technology", "Programming language"),
         _entity("ent_fastapi", "FastAPI", "Technology", "Web framework"),
@@ -70,18 +72,18 @@ async def rich_manager(tmp_path):
 
     now_dt = entities[0].created_at
     rels = [
-        _rel("rel_builds", "ent_konner", "ent_engram", "BUILDS", now_dt),
+        _rel("rel_builds", "ent_alex", "ent_engram", "BUILDS", now_dt),
         _rel("rel_uses_py", "ent_engram", "ent_python", "USES", now_dt),
         _rel("rel_uses_fa", "ent_engram", "ent_fastapi", "USES", now_dt),
-        _rel("rel_lives", "ent_konner", "ent_denver", "LIVES_IN", now_dt),
-        _rel("rel_moved", "ent_konner", "ent_mesa", "MOVED_FROM", now_dt),
+        _rel("rel_lives", "ent_alex", "ent_denver", "LIVES_IN", now_dt),
+        _rel("rel_moved", "ent_alex", "ent_mesa", "MOVED_FROM", now_dt),
     ]
     for r in rels:
         await graph_store.create_relationship(r)
 
     now = time.time()
-    await activation_store.record_access("ent_konner", now - 10, group_id=GROUP)
-    await activation_store.record_access("ent_konner", now - 5, group_id=GROUP)
+    await activation_store.record_access("ent_alex", now - 10, group_id=GROUP)
+    await activation_store.record_access("ent_alex", now - 5, group_id=GROUP)
     await activation_store.record_access("ent_engram", now - 20, group_id=GROUP)
     await activation_store.record_access("ent_engram", now - 15, group_id=GROUP)
     await activation_store.record_access("ent_engram", now - 10, group_id=GROUP)
@@ -112,7 +114,7 @@ async def rich_manager_with_expired(tmp_path):
     past_dt = now_dt - timedelta(days=30)
 
     entities = [
-        _entity("ent_konner2", "Konner", "Person", "Software engineer"),
+        _entity("ent_alex2", "Alex", "Person", "Software engineer"),
         _entity("ent_acme", "Acme Corp", "Organization", "Previous employer"),
         _entity("ent_vercel", "Vercel", "Organization", "Current employer"),
     ]
@@ -122,7 +124,7 @@ async def rich_manager_with_expired(tmp_path):
     rels = [
         _rel(
             "rel_old_job",
-            "ent_konner2",
+            "ent_alex2",
             "ent_acme",
             "WORKS_AT",
             past_dt,
@@ -130,7 +132,7 @@ async def rich_manager_with_expired(tmp_path):
         ),
         _rel(
             "rel_new_job",
-            "ent_konner2",
+            "ent_alex2",
             "ent_vercel",
             "WORKS_AT",
             now_dt,
@@ -181,11 +183,11 @@ class TestSearchEntities:
     async def test_search_by_name_finds_entity(self, rich_manager):
         results = await rich_manager.search_entities(
             group_id=GROUP,
-            name="Konner",
+            name="Alex",
         )
         assert len(results) >= 1
         names = [r["name"] for r in results]
-        assert "Konner" in names
+        assert "Alex" in names
 
     @pytest.mark.asyncio
     async def test_search_by_type_only(self, rich_manager):
@@ -212,7 +214,7 @@ class TestSearchEntities:
     async def test_search_returns_activation_score(self, rich_manager):
         results = await rich_manager.search_entities(
             group_id=GROUP,
-            name="Konner",
+            name="Alex",
         )
         assert len(results) >= 1
         assert results[0]["activation_score"] > 0
@@ -228,14 +230,14 @@ class TestSearchEntities:
     @pytest.mark.asyncio
     async def test_search_does_not_record_access(self, rich_manager):
         state_before = await rich_manager._activation.get_activation(
-            "ent_konner",
+            "ent_alex",
         )
         count_before = state_before.access_count if state_before else 0
 
-        await rich_manager.search_entities(group_id=GROUP, name="Konner")
+        await rich_manager.search_entities(group_id=GROUP, name="Alex")
 
         state_after = await rich_manager._activation.get_activation(
-            "ent_konner",
+            "ent_alex",
         )
         count_after = state_after.access_count if state_after else 0
         assert count_after == count_before
@@ -269,19 +271,19 @@ class TestSearchFacts:
     async def test_search_by_subject_name(self, rich_manager):
         facts = await rich_manager.search_facts(
             group_id=GROUP,
-            query="Konner",
-            subject="Konner",
+            query="Alex",
+            subject="Alex",
         )
         assert len(facts) >= 1
         subjects = [f["subject"] for f in facts]
-        assert "Konner" in subjects
+        assert "Alex" in subjects
 
     @pytest.mark.asyncio
     async def test_search_with_predicate_filter(self, rich_manager):
         facts = await rich_manager.search_facts(
             group_id=GROUP,
-            query="Konner",
-            subject="Konner",
+            query="Alex",
+            subject="Alex",
             predicate="LIVES_IN",
         )
         assert len(facts) >= 1
@@ -295,8 +297,8 @@ class TestSearchFacts:
     ):
         active_facts = await rich_manager_with_expired.search_facts(
             group_id=GROUP,
-            query="Konner",
-            subject="Konner",
+            query="Alex",
+            subject="Alex",
             predicate="WORKS_AT",
             include_expired=False,
         )
@@ -306,8 +308,8 @@ class TestSearchFacts:
 
         all_facts = await rich_manager_with_expired.search_facts(
             group_id=GROUP,
-            query="Konner",
-            subject="Konner",
+            query="Alex",
+            subject="Alex",
             predicate="WORKS_AT",
             include_expired=True,
         )
@@ -440,7 +442,7 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forget_fact_invalidates_relationship(self, rich_manager):
         result = await rich_manager.forget_fact(
-            subject_name="Konner",
+            subject_name="Alex",
             predicate="LIVES_IN",
             object_name="Denver",
             group_id=GROUP,
@@ -449,7 +451,7 @@ class TestForgetFact:
         assert result["target_type"] == "fact"
 
         rels = await rich_manager._graph.get_relationships(
-            "ent_konner",
+            "ent_alex",
             direction="outgoing",
             predicate="LIVES_IN",
             active_only=True,
@@ -460,7 +462,7 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forget_fact_not_found(self, rich_manager):
         result = await rich_manager.forget_fact(
-            subject_name="Konner",
+            subject_name="Alex",
             predicate="WORKS_AT",
             object_name="Denver",
             group_id=GROUP,
@@ -470,15 +472,15 @@ class TestForgetFact:
     @pytest.mark.asyncio
     async def test_forgotten_fact_not_in_search_facts(self, rich_manager):
         await rich_manager.forget_fact(
-            subject_name="Konner",
+            subject_name="Alex",
             predicate="LIVES_IN",
             object_name="Denver",
             group_id=GROUP,
         )
         facts = await rich_manager.search_facts(
             group_id=GROUP,
-            query="Konner",
-            subject="Konner",
+            query="Alex",
+            subject="Alex",
             predicate="LIVES_IN",
             include_expired=False,
         )
@@ -579,7 +581,7 @@ class TestGetGraphState:
         assert len(result["top_activated"]) <= 3
         if result["top_activated"]:
             names = [ta["name"] for ta in result["top_activated"]]
-            assert "Engram" in names or "Konner" in names
+            assert "Engram" in names or "Alex" in names
 
     @pytest.mark.asyncio
     async def test_get_graph_state_with_edges(self, rich_manager):
@@ -739,6 +741,131 @@ class TestJSONResponses:
             assert "score" in r
             assert "score_breakdown" in r
 
+    @pytest.mark.asyncio
+    async def test_mcp_remember_forwards_client_proposals(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            ingest_episode=AsyncMock(return_value="ep_test"),
+            get_episode_adjudications=AsyncMock(return_value=[]),
+            _triggered_intentions=[],
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_session", SessionState(group_id="default"))
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(mcp_server, "_activation_cfg", None)
+        monkeypatch.setattr(mcp_server, "_ingest_live_turn", AsyncMock())
+
+        raw = await mcp_server.remember(
+            content="Alice works at Google",
+            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            model_tier="opus",
+        )
+
+        manager.ingest_episode.assert_awaited_once_with(
+            content="Alice works at Google",
+            group_id="default",
+            source="mcp",
+            session_id=mcp_server._session.session_id,
+            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            model_tier="opus",
+        )
+        assert '"episode_id": "ep_test"' in raw
+
+    @pytest.mark.asyncio
+    async def test_mcp_remember_surfaces_adjudication_requests(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            ingest_episode=AsyncMock(return_value="ep_test"),
+            get_episode_adjudications=AsyncMock(
+                return_value=[
+                    {
+                        "request_id": "adj_123",
+                        "ambiguity_tags": ["negation_scope"],
+                        "selected_text": "Alice works at Google, but maybe not anymore.",
+                        "candidate_evidence": [
+                            {
+                                "evidence_id": "evi_1",
+                                "fact_class": "relationship",
+                                "payload": {"subject": "Alice"},
+                            },
+                        ],
+                        "instructions": "Resolve only if highly confident.",
+                    },
+                ],
+            ),
+            _triggered_intentions=[],
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_session", SessionState(group_id="default"))
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(
+            mcp_server,
+            "_activation_cfg",
+            ActivationConfig(
+                evidence_extraction_enabled=True,
+                edge_adjudication_client_enabled=True,
+            ),
+        )
+        monkeypatch.setattr(mcp_server, "_ingest_live_turn", AsyncMock())
+        monkeypatch.setattr(mcp_server, "_auto_recall", AsyncMock(return_value=None))
+        monkeypatch.setattr(mcp_server, "_session_prime", AsyncMock(return_value=None))
+
+        raw = await mcp_server.remember(content="ambiguous memory")
+
+        assert '"adjudication_requests"' in raw
+        assert '"request_id": "adj_123"' in raw
+
+    @pytest.mark.asyncio
+    async def test_mcp_adjudicate_evidence_forwards_resolution(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            submit_adjudication_resolution=AsyncMock(
+                return_value=SimpleNamespace(
+                    status="materialized",
+                    request_id="adj_123",
+                    committed_ids={"evi_new": "rel_1"},
+                    superseded_evidence_ids=["evi_old"],
+                    replacement_evidence_ids=["evi_new"],
+                ),
+            ),
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+
+        raw = await mcp_server.adjudicate_evidence(
+            request_id="adj_123",
+            entities=[{"name": "Alice", "entity_type": "Person"}],
+            relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            reject_evidence_ids=["evi_old"],
+            model_tier="opus",
+            rationale="high confidence resolution",
+        )
+
+        manager.submit_adjudication_resolution.assert_awaited_once_with(
+            "adj_123",
+            entities=[{"name": "Alice", "entity_type": "Person"}],
+            relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            reject_evidence_ids=["evi_old"],
+            source="client_adjudication",
+            model_tier="opus",
+            rationale="high confidence resolution",
+            group_id="default",
+        )
+        assert '"status": "materialized"' in raw
+
 
 # ─── TestResolveEntityName ───────────────────────────────────────────
 
@@ -747,10 +874,10 @@ class TestResolveEntityName:
     @pytest.mark.asyncio
     async def test_resolve_existing_entity(self, rich_manager):
         name = await rich_manager.resolve_entity_name(
-            "ent_konner",
+            "ent_alex",
             GROUP,
         )
-        assert name == "Konner"
+        assert name == "Alex"
 
     @pytest.mark.asyncio
     async def test_resolve_missing_entity_returns_id(self, rich_manager):

@@ -2,7 +2,11 @@
   "name": "dashboard",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

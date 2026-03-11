@@ -162,6 +162,8 @@ class CycleContext:
     matured_entity_ids: set[str] = field(default_factory=set)
     transitioned_episode_ids: set[str] = field(default_factory=set)
     schema_entity_ids: set[str] = field(default_factory=set)
+    microglia_demoted_edge_ids: set[str] = field(default_factory=set)
+    microglia_repaired_entity_ids: set[str] = field(default_factory=set)
     maturity_feature_cache: dict[str, dict] = field(default_factory=dict)
     decision_traces: list[DecisionTrace] = field(default_factory=list)
     decision_outcome_labels: list[DecisionOutcomeLabel] = field(default_factory=list)
@@ -300,6 +302,21 @@ class SemanticTransitionRecord:
 
 
 @dataclass
+class EvidenceAdjudicationRecord:
+    """Audit record for evidence adjudication phase."""
+
+    cycle_id: str
+    group_id: str
+    evidence_id: str
+    # "approved"|"materialized"|"materialization_failed"|"deferred"|"expired"|"corroborated"
+    action: str
+    new_confidence: float
+    reason: str
+    id: str = field(default_factory=lambda: f"evadj_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class DecisionTrace:
     """Standard trace for a scored or constrained phase decision."""
 
@@ -392,3 +409,19 @@ class RelationshipApplyResult:
     created: bool = False
     constraints_hit: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class MicrogliaRecord:
+    """Audit entry for a microglia phase action."""
+
+    cycle_id: str
+    group_id: str
+    target_type: str        # "edge" | "entity_summary"
+    target_id: str
+    action: str             # "tagged" | "confirmed" | "demoted" | "cleared" | "repaired"
+    tag_type: str           # "c1q_domain" | "c1q_embedding" | "c3_summary" | "c4_orphan"
+    score: float
+    detail: str             # Human-readable reason
+    id: str = field(default_factory=lambda: f"mcg_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)

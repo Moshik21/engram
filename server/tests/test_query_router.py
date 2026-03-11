@@ -111,7 +111,7 @@ class TestClassifyQuery:
 
     async def test_creation_wrote(self):
         """'written' keyword triggers CREATION."""
-        qt = await classify_query("books written by Konner")
+        qt = await classify_query("books written by Alex")
         assert qt == QueryType.CREATION
 
     async def test_creation_authored(self):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -12,13 +13,21 @@ import pytest
 import pytest_asyncio
 
 from engram.api.knowledge import (
+    AdjudicateBody,
     ChatMessage,
+    RememberBody,
     _analyze_chat_memory_need,
     _apply_chat_recall_feedback,
     _build_chat_memory_guidance,
     _execute_tool,
     _hydrate_chat_context,
     _record_chat_assistant_turn,
+)
+from engram.api.knowledge import (
+    adjudicate as adjudicate_handler,
+)
+from engram.api.knowledge import (
+    remember as remember_handler,
 )
 from engram.config import ActivationConfig, EngramConfig
 from engram.main import _app_state, _shutdown, _startup, create_app
@@ -32,6 +41,7 @@ from engram.models.epistemic import (
     ReconciliationResult,
 )
 from engram.models.relationship import Relationship
+from engram.models.tenant import TenantContext
 from engram.retrieval.context import ConversationContext
 
 
@@ -170,6 +180,118 @@ class TestRemember:
         data = resp.json()
         assert data["status"] == "remembered"
         assert data["episodeId"].startswith("ep_")
+
+    @pytest.mark.asyncio
+    async def test_remember_forwards_client_proposals(self, monkeypatch):
+        manager = MagicMock()
+        manager.ingest_episode = AsyncMock(return_value="ep_123")
+        monkeypatch.setattr("engram.api.knowledge.get_manager", lambda: manager)
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(group_id="default", auth_method="test"),
+            ),
+        )
+        body = RememberBody(
+            content="Alice works at Google",
+            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            model_tier="opus",
+        )
+
+        response = await remember_handler(request, body)
+
+        assert response.status_code == 200
+        manager.ingest_episode.assert_awaited_once_with(
+            content="Alice works at Google",
+            group_id="default",
+            source="dashboard",
+            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            model_tier="opus",
+        )
+
+    @pytest.mark.asyncio
+    async def test_remember_returns_adjudication_requests(self, monkeypatch):
+        manager = MagicMock()
+        manager.ingest_episode = AsyncMock(return_value="ep_123")
+        manager.get_episode_adjudications = AsyncMock(
+            return_value=[
+                {
+                    "request_id": "adj_123",
+                    "ambiguity_tags": ["negation_scope"],
+                    "selected_text": "Alice works at Google, but maybe not anymore.",
+                    "candidate_evidence": [
+                        {
+                            "evidence_id": "evi_1",
+                            "fact_class": "relationship",
+                            "payload": {
+                                "subject": "Alice",
+                                "predicate": "WORKS_AT",
+                                "object": "Google",
+                            },
+                        },
+                    ],
+                    "instructions": "Resolve only if highly confident.",
+                },
+            ],
+        )
+        manager._cfg = ActivationConfig(edge_adjudication_client_enabled=True)
+        monkeypatch.setattr("engram.api.knowledge.get_manager", lambda: manager)
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(group_id="default", auth_method="test"),
+            ),
+        )
+        body = RememberBody(content="Alice works at Google, but maybe not anymore.")
+
+        response = await remember_handler(request, body)
+
+        assert response.status_code == 200
+        data = json.loads(response.body)
+        assert len(data["adjudicationRequests"]) == 1
+        assert data["adjudicationRequests"][0]["ambiguityTags"] == ["negation_scope"]
+
+    @pytest.mark.asyncio
+    async def test_adjudicate_endpoint_materializes_resolution(self, monkeypatch):
+        manager = MagicMock()
+        manager.submit_adjudication_resolution = AsyncMock(
+            return_value=SimpleNamespace(
+                status="materialized",
+                request_id="adj_123",
+                committed_ids={"evi_new": "rel_1"},
+                superseded_evidence_ids=["evi_old"],
+                replacement_evidence_ids=["evi_new"],
+            ),
+        )
+        monkeypatch.setattr("engram.api.knowledge.get_manager", lambda: manager)
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(group_id="default", auth_method="test"),
+            ),
+        )
+        body = AdjudicateBody(
+            request_id="adj_123",
+            entities=[{"name": "Alice", "entity_type": "Person"}],
+            relationships=[
+                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+            ],
+            rationale="The sentence is retracting the employment fact.",
+        )
+
+        response = await adjudicate_handler(request, body)
+
+        assert response.status_code == 200
+        data = json.loads(response.body)
+        assert data["status"] == "materialized"
+        assert data["requestId"] == "adj_123"
+        assert data["committedIds"] == {"evi_new": "rel_1"}
 
 
 class TestEpistemicEndpoints:

@@ -50,7 +50,7 @@ class PostgreSQLConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "voyage"  # "voyage" | "local" | "noop"
+    provider: str = "auto"  # "auto" | "voyage" | "local" | "noop"
     model: str = "voyage-4-lite"
     local_model: str = "nomic-ai/nomic-embed-text-v1.5"  # fastembed model
     dimensions: int = 1024
@@ -538,6 +538,11 @@ class ActivationConfig(BaseModel):
         description="Floor weight below which edges are not decayed",
     )
 
+    # Dream LTD sweep for low-activation entities
+    consolidation_dream_ltd_sweep_enabled: bool = False
+    consolidation_dream_ltd_sweep_size: int = 50
+    consolidation_dream_ltd_sweep_decay: float = 0.002
+
     # --- Dream associations (cross-domain creative connections) ---
     consolidation_dream_associations_enabled: bool = Field(default=False)
     consolidation_dream_assoc_max_per_cycle: int = Field(default=10, ge=1, le=100)
@@ -812,6 +817,22 @@ class ActivationConfig(BaseModel):
     )
     context_recency_budget: int = Field(
         default=400, description="Token budget for recent activity tier in get_context",
+    )
+
+    # --- Extraction provider ---
+    extraction_provider: str = Field(
+        default="auto",
+        pattern="^(auto|anthropic|ollama|narrow)$",
+        description=(
+            "Extraction backend: 'auto' tries anthropic→ollama→narrow. "
+            "'narrow' is the zero-dependency deterministic fallback."
+        ),
+    )
+    ollama_model: str = Field(
+        default="llama3.1:8b", description="Ollama model for extraction",
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434", description="Ollama API base URL",
     )
 
     # --- Briefing format ---
@@ -1207,6 +1228,109 @@ class ActivationConfig(BaseModel):
     schema_max_per_cycle: int = 5
     schema_max_entities_scan: int = 500
 
+    # --- Microglia (graph immune surveillance) ---
+    microglia_enabled: bool = False
+    microglia_tag_threshold: float = 0.5
+    microglia_confirm_threshold: float = 0.4
+    microglia_min_cycles_to_demote: int = 2
+    microglia_max_demotions_per_cycle: int = 20
+    microglia_scan_edges_per_cycle: int = 500
+    microglia_scan_entities_per_cycle: int = 200
+
+    # --- Evidence-based extraction (v2) ---
+    evidence_extraction_enabled: bool = Field(
+        default=True,
+        description="Enable evidence-based extraction pipeline (v2) instead of LLM extraction",
+    )
+    evidence_commit_entity_threshold: float = Field(
+        default=0.70,
+        ge=0.0,
+        le=1.0,
+        description="Confidence threshold for committing entity evidence",
+    )
+    evidence_commit_relationship_threshold: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Confidence threshold for committing relationship evidence",
+    )
+    evidence_commit_attribute_threshold: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=1.0,
+        description="Confidence threshold for committing attribute evidence",
+    )
+    evidence_commit_temporal_threshold: float = Field(
+        default=0.60,
+        ge=0.0,
+        le=1.0,
+        description="Confidence threshold for committing temporal evidence",
+    )
+    evidence_adaptive_thresholds: bool = Field(
+        default=True,
+        description="Adapt commit thresholds based on graph density",
+    )
+    evidence_store_deferred: bool = Field(
+        default=True,
+        description="Store deferred evidence for later adjudication",
+    )
+    evidence_client_proposals_enabled: bool = Field(
+        default=False,
+        description="Accept client-supplied entity/relationship proposals",
+    )
+    evidence_forced_commit_cycles: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Force-commit deferred evidence after N consolidation cycles",
+    )
+    edge_adjudication_enabled: bool = Field(
+        default=True,
+        description="Enable v3 edge adjudication for ambiguous evidence",
+    )
+    edge_adjudication_client_enabled: bool = Field(
+        default=True,
+        description="Expose client-assisted adjudication requests and tools",
+    )
+    edge_adjudication_server_enabled: bool = Field(
+        default=False,
+        description="Allow offline server-side LLM adjudication for unresolved requests",
+    )
+    edge_adjudication_server_model: str = Field(
+        default="claude-sonnet-4-6-20250514",
+        description="Anthropic model used for offline server adjudication",
+    )
+    edge_adjudication_server_max_per_cycle: int = Field(
+        default=10,
+        ge=0,
+        le=500,
+        description="Maximum server adjudication requests per consolidation cycle",
+    )
+    edge_adjudication_server_daily_budget: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description="Daily cap on server adjudication requests",
+    )
+    edge_adjudication_server_min_age_minutes: int = Field(
+        default=10,
+        ge=0,
+        le=10080,
+        description="Minimum age before a pending request is eligible for server adjudication",
+    )
+    edge_adjudication_request_ttl_hours: int = Field(
+        default=24,
+        ge=1,
+        le=720,
+        description="How long adjudication requests remain open before expiring",
+    )
+    edge_adjudication_max_requests_per_episode: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description="Maximum adjudication work items created from a single episode",
+    )
+
     # --- GC-MMR (Wave 3) ---
     gc_mmr_enabled: bool = Field(
         default=False, description="Enable graph-connected MMR re-ranking",
@@ -1282,7 +1406,7 @@ class ActivationConfig(BaseModel):
             # Multi-signal triage replaces LLM judge (zero API cost)
             _set("triage_multi_signal_enabled", True)
             _set("triage_llm_judge_enabled", False)
-            _set("triage_llm_escalation_enabled", True)
+            _set("triage_llm_escalation_enabled", False)
             # Multi-signal scorers replace LLM judges (zero API cost)
             _set("consolidation_merge_multi_signal_enabled", True)
             _set("consolidation_infer_auto_validation_enabled", True)
@@ -1298,6 +1422,9 @@ class ActivationConfig(BaseModel):
             _set("episode_transition_enabled", True)
             _set("reconsolidation_enabled", True)
             _set("schema_formation_enabled", True)
+            _set("cross_domain_penalty_enabled", True)
+            _set("consolidation_dream_ltd_sweep_enabled", True)
+            _set("microglia_enabled", True)
 
         # --- Recall profile presets (cumulative) ---
         rp = recall_profile

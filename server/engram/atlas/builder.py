@@ -7,6 +7,7 @@ import time
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from typing import Any
 
 from engram.activation.engine import compute_activation
 from engram.models.atlas import AtlasBridge, AtlasRegion, AtlasSnapshot
@@ -90,7 +91,7 @@ class AtlasBuilder:
         candidate_regions = await self._build_candidate_regions(group_id, all_entities)
         stable_region_ids = self._assign_region_ids(candidate_regions, previous_snapshot)
 
-        region_members: dict[str, list[object]] = defaultdict(list)
+        region_members: dict[str, list[Any]] = defaultdict(list)
         entity_region: dict[str, str] = {}
         region_member_ids: dict[str, list[str]] = {}
         for candidate in candidate_regions:
@@ -125,7 +126,8 @@ class AtlasBuilder:
             if src_region == dst_region:
                 internal_edge_counts[src_region] += 1
                 continue
-            key = tuple(sorted((src_region, dst_region)))
+            source_region, target_region = sorted((src_region, dst_region))
+            key = (source_region, target_region)
             bucket = bridge_weights.setdefault(
                 key,
                 {"weight": 0.0, "relationshipCount": 0},
@@ -261,7 +263,7 @@ class AtlasBuilder:
     async def _build_candidate_regions(
         self,
         group_id: str,
-        all_entities: list[object],
+        all_entities: list[Any],
     ) -> list[_CandidateRegion]:
         raw_assignments: dict[str, str | None] = {}
         if self._community_store and hasattr(self._community_store, "ensure_fresh"):
@@ -331,7 +333,7 @@ class AtlasBuilder:
     def _layout_regions(
         self,
         region_ids: list[str],
-        region_members: dict[str, list[object]],
+        region_members: dict[str, list[Any]],
         previous_snapshot: AtlasSnapshot | None,
     ) -> dict[str, tuple[float, float, float]]:
         previous_positions = {}
@@ -376,7 +378,7 @@ class AtlasBuilder:
             )
         return positions
 
-    def _build_node(self, entity: object, state: object, now: float) -> dict:
+    def _build_node(self, entity: Any, state: Any, now: float) -> dict[str, Any]:
         activation_current = 0.0
         access_count = 0
         last_accessed = None
@@ -396,7 +398,7 @@ class AtlasBuilder:
             "lastAccessed": last_accessed,
         }
 
-    def _entity_timestamp(self, entity: object) -> float | None:
+    def _entity_timestamp(self, entity: Any) -> float | None:
         created_at = getattr(entity, "created_at", None)
         if created_at is None:
             return None
@@ -404,14 +406,14 @@ class AtlasBuilder:
             return float(created_at.timestamp())
         return None
 
-    def _region_kind(self, members: list[object]) -> str:
+    def _region_kind(self, members: list[Any]) -> str:
         if any(bool(getattr(entity, "identity_core", False)) for entity in members):
             return "identity"
         return "mixed"
 
     def _region_label(
         self,
-        members: list[object],
+        members: list[Any],
         dominant_entity_types: dict[str, int],
         hub_names: list[str],
     ) -> tuple[str, str | None]:

@@ -240,24 +240,24 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Konner", "type": "Person", "detail_level": "full",
+            {"name": "Alex", "type": "Person", "detail_level": "full",
              "activation": 0.95, "summary": "Software engineer",
-             "facts": ["Konner WORKS_AT Company"],
+             "facts": ["Alex WORKS_AT Company"],
              "attributes": {"status": "active", "role": "engineer"}},
         ]
         text = GraphManager._render_tier("## Test", entities, [])
-        assert "Konner (Person, act=0.95)" in text
+        assert "Alex (Person, act=0.95)" in text
         assert "status: active" in text
         assert "role: engineer" in text
-        assert "Konner WORKS_AT Company" in text
+        assert "Alex WORKS_AT Company" in text
 
     def test_mixed_resolution_levels(self):
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Konner", "type": "Person", "detail_level": "full",
+            {"name": "Alex", "type": "Person", "detail_level": "full",
              "activation": 0.95, "summary": "Software engineer",
-             "facts": ["Konner WORKS_AT Acme"],
+             "facts": ["Alex WORKS_AT Acme"],
              "attributes": {"role": "lead"}},
             {"name": "FastAPI", "type": "Technology", "detail_level": "summary",
              "activation": 0.6, "summary": "Web framework",
@@ -268,7 +268,7 @@ class TestRenderTierVariableResolution:
         text = GraphManager._render_tier("## Test", entities, [])
         # Full: has attributes and facts inline
         assert "role: lead" in text
-        assert "Konner WORKS_AT Acme" in text
+        assert "Alex WORKS_AT Acme" in text
         # Summary: has summary but no attributes
         assert "Web framework" in text
         assert "FastAPI USES Python" in text

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any, cast
 
 import httpx
-from jose import JWTError, jwt
+from jose import JWTError, jwt  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,11 @@ class OIDCValidator:
         self._audience = audience
         self._group_claim = group_claim
         self._jwks_cache_ttl = jwks_cache_ttl
-        self._jwks: dict | None = None
+        self._jwks: dict[str, Any] | None = None
         self._jwks_fetched_at: float = 0.0
         self._client = httpx.AsyncClient(timeout=10.0)
 
-    async def _get_jwks(self) -> dict:
+    async def _get_jwks(self) -> dict[str, Any]:
         """Fetch JWKS from issuer, with TTL cache."""
         now = time.monotonic()
         if self._jwks and (now - self._jwks_fetched_at) < self._jwks_cache_ttl:
@@ -41,12 +42,12 @@ class OIDCValidator:
         jwks_url = f"{self._issuer}/.well-known/jwks.json"
         resp = await self._client.get(jwks_url)
         resp.raise_for_status()
-        self._jwks = resp.json()
+        self._jwks = cast(dict[str, Any], resp.json())
         self._jwks_fetched_at = now
         logger.debug("Refreshed JWKS from %s", jwks_url)
         return self._jwks
 
-    async def validate_token(self, token: str) -> dict:
+    async def validate_token(self, token: str) -> dict[str, Any]:
         """Validate a JWT and return claims.
 
         Returns dict with at least:
@@ -57,12 +58,15 @@ class OIDCValidator:
         """
         try:
             jwks = await self._get_jwks()
-            claims = jwt.decode(
+            claims = cast(
+                dict[str, Any],
+                jwt.decode(
                 token,
                 jwks,
                 algorithms=["RS256"],
                 audience=self._audience,
                 issuer=self._issuer,
+                ),
             )
             # Extract group_id from configured claim
             group_id = claims.get(self._group_claim, "default")

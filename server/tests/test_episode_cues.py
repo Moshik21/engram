@@ -24,7 +24,7 @@ def test_build_episode_cue_skips_system_discourse():
 def test_build_episode_cue_marks_contradiction_as_scheduled():
     ep = Episode(
         id="ep_world",
-        content="I live in Phoenix now, not Mesa anymore. My name is Konner.",
+        content="I live in Phoenix now, not Mesa anymore. My name is Alex.",
         group_id="default",
     )
     cue = build_episode_cue(ep, ActivationConfig(cue_layer_enabled=True))
@@ -83,7 +83,7 @@ async def test_store_episode_generates_and_indexes_cue(graph_store, activation_s
     )
 
     episode_id = await manager.store_episode(
-        "Konner moved to Phoenix in 2024 and is working on Engram extraction redesign",
+        "Alex moved to Phoenix in 2024 and is working on Engram extraction redesign",
         group_id="default",
         source="test",
     )

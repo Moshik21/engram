@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -13,15 +13,18 @@ from engram.security.middleware import get_tenant
 router = APIRouter(prefix="/api/episodes", tags=["episodes"])
 
 
-def _enum_value(value):
-    return value.value if hasattr(value, "value") else value
+def _enum_value(value: object) -> str | None:
+    enum_value = getattr(value, "value", None)
+    if isinstance(enum_value, str):
+        return enum_value
+    return value if isinstance(value, str) else None
 
 
-def _iso_z(value) -> str | None:
+def _iso_z(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is not None:
-        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     return f"{value.isoformat()}Z"
 
 

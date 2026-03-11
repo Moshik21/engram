@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from engram.config import EngramConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.pressure import PressureAccumulator
@@ -17,7 +19,7 @@ def get_manager() -> GraphManager:
     manager = _app_state.get("graph_manager")
     if not manager:
         raise RuntimeError("GraphManager not initialized")
-    return manager
+    return cast(GraphManager, manager)
 
 
 def get_graph_store():
@@ -47,7 +49,7 @@ def get_event_bus() -> EventBus:
     bus = _app_state.get("event_bus")
     if not bus:
         raise RuntimeError("EventBus not initialized")
-    return bus
+    return cast(EventBus, bus)
 
 
 def get_consolidation_engine() -> ConsolidationEngine:
@@ -57,7 +59,7 @@ def get_consolidation_engine() -> ConsolidationEngine:
     engine = _app_state.get("consolidation_engine")
     if not engine:
         raise RuntimeError("ConsolidationEngine not initialized")
-    return engine
+    return cast(ConsolidationEngine, engine)
 
 
 def get_consolidation_scheduler() -> ConsolidationScheduler | None:
@@ -91,4 +93,4 @@ def get_config() -> EngramConfig:
     config = _app_state.get("config")
     if not config:
         raise RuntimeError("EngramConfig not initialized")
-    return config
+    return cast(EngramConfig, config)

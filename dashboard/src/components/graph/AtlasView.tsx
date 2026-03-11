@@ -671,6 +671,9 @@ export function AtlasView() {
         </div>
       </div>
 
+      {/* Entity type legend */}
+      <EntityTypeLegend />
+
       {/* Hint */}
       <div
         style={{
@@ -691,6 +694,70 @@ export function AtlasView() {
       >
         click a region to explore
       </div>
+    </div>
+  );
+}
+
+const LEGEND_TYPES = [
+  "Person",
+  "Organization",
+  "Project",
+  "Technology",
+  "Concept",
+  "Location",
+  "Event",
+  "Identifier",
+] as const;
+
+function EntityTypeLegend() {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: 40,
+        left: 272,
+        zIndex: 20,
+        padding: "8px 12px",
+        borderRadius: 8,
+        background: "rgba(3, 4, 8, 0.6)",
+        backdropFilter: "blur(4px)",
+        border: "1px solid rgba(255, 255, 255, 0.06)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+        pointerEvents: "none",
+      }}
+    >
+      {LEGEND_TYPES.map((type) => (
+        <div
+          key={type}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: entityColor(type),
+              flexShrink: 0,
+              boxShadow: `0 0 4px ${entityColor(type)}40`,
+            }}
+          />
+          <span
+            style={{
+              fontSize: 10,
+              color: "rgba(148, 163, 184, 0.7)",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {type}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

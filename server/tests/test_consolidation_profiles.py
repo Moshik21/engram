@@ -46,6 +46,7 @@ class TestConsolidationProfiles:
         assert cfg.triage_multi_signal_enabled is True
         # LLM judges disabled when multi-signal active (opt-in fallback)
         assert cfg.triage_llm_judge_enabled is False
+        assert cfg.triage_llm_escalation_enabled is False
         assert cfg.consolidation_infer_llm_enabled is False
         assert cfg.consolidation_infer_escalation_enabled is False
         assert cfg.consolidation_merge_llm_enabled is False

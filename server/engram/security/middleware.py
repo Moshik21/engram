@@ -112,7 +112,7 @@ async def resolve_tenant_from_scope(
 def get_tenant(request: Request) -> TenantContext:
     """Extract TenantContext from request. Fails loud if missing."""
     tenant = getattr(request.state, "tenant", None)
-    if tenant is None:
+    if not isinstance(tenant, TenantContext):
         raise RuntimeError(
             "TenantContext missing — this handler was not protected by "
             "TenantContextMiddleware. This is a bug."

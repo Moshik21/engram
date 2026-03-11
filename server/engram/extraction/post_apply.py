@@ -274,7 +274,6 @@ class ProjectionPostProcessor:
         await self._update_episode_status(
             episode_id,
             EpisodeStatus.EMBEDDING,
-            group_id=group_id,
         )
         try:
             for candidate in bundle.entities:

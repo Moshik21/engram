@@ -1,10 +1,23 @@
 [project]
 name = "engram"
 version = "0.1.0"
-description = "Activation-based memory layer for AI agents"
+description = "Persistent memory layer for AI agents — temporal knowledge graphs with ACT-R retrieval and offline consolidation"
 readme = "../README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
+authors = [{name = "Engram Contributors"}]
+keywords = ["memory", "ai-agents", "knowledge-graph", "mcp", "consolidation", "activation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -17,13 +30,14 @@ dependencies = [
     "pyyaml>=6.0",
     "anthropic>=0.40.0",
     "cryptography>=43.0.0",
-    "thefuzz[speedup]>=0.22.0",
+    "rapidfuzz>=3.0.0",
     "httpx>=0.27.0",
     "numpy>=1.24.0",
+    "fastembed>=0.5.0",
 ]
 
 [project.optional-dependencies]
-local = ["fastembed>=0.5.0"]
+local = ["fastembed>=0.5.0"]  # kept for backwards compat
 gnn = ["torch>=2.0.0"]
 full = [
     "redis[hiredis]>=5.0.0",
@@ -45,6 +59,11 @@ dev = [
     "httpx>=0.28.0",
     "pytest-cov>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/engram-labs/engram"
+Repository = "https://github.com/engram-labs/engram.git"
+Issues = "https://github.com/engram-labs/engram/issues"
 
 [project.scripts]
 engram = "engram.__main__:main"

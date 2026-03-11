@@ -107,8 +107,12 @@ def _welcome() -> None:
     print()
 
 
-def _collect_config() -> dict:
-    """Walk user through all config questions. Returns config dict."""
+def _collect_config(preset_mode: str | None = None) -> dict:
+    """Walk user through all config questions. Returns config dict.
+
+    If *preset_mode* is given (e.g. ``"lite"`` or ``"full"``), the mode
+    prompt is skipped and the value is used directly.
+    """
     cfg: dict[str, str | None] = {}
 
     # --- API Keys ---
@@ -128,13 +132,18 @@ def _collect_config() -> dict:
         _warn("Voyage AI skipped — vector search disabled")
 
     # --- Mode ---
-    _section("Engine Mode")
-    print(f"  {_DIM}lite  = SQLite only (no Docker needed){_RESET}")
-    print(f"  {_DIM}full  = FalkorDB + Redis (requires Docker){_RESET}")
-    print(f"  {_DIM}auto  = try full, fall back to lite{_RESET}")
-    mode = _ask("Mode", default="auto", choices=["lite", "full", "auto"])
+    if preset_mode is not None:
+        mode = preset_mode
+        _section("Engine Mode")
+        _check(f"Mode: {mode} (pre-selected)")
+    else:
+        _section("Engine Mode")
+        print(f"  {_DIM}lite  = SQLite only (no Docker needed){_RESET}")
+        print(f"  {_DIM}full  = FalkorDB + Redis (requires Docker){_RESET}")
+        print(f"  {_DIM}auto  = try full, fall back to lite{_RESET}")
+        mode = _ask("Mode", default="auto", choices=["lite", "full", "auto"])
+        _check(f"Mode: {mode}")
     cfg["ENGRAM_MODE"] = mode
-    _check(f"Mode: {mode}")
 
     # --- Full-mode passwords ---
     if mode in ("full", "auto"):
@@ -740,14 +749,17 @@ def install_hooks(
         resolved = []
         for hook in event_hooks:
             hook_copy = dict(hook)
-            if "command" in hook_copy:
-                hook_copy["command"] = str(hooks_dir / Path(hook_copy["command"]).name)
-            if "hooks" in hook_copy:
+            command = hook_copy.get("command")
+            if isinstance(command, str):
+                hook_copy["command"] = str(hooks_dir / Path(command).name)
+            nested_hooks = hook_copy.get("hooks")
+            if isinstance(nested_hooks, list):
                 inner = []
-                for h in hook_copy["hooks"]:
+                for h in nested_hooks:
                     hc = dict(h)
-                    if "command" in hc:
-                        hc["command"] = str(hooks_dir / Path(hc["command"]).name)
+                    inner_command = hc.get("command")
+                    if isinstance(inner_command, str):
+                        hc["command"] = str(hooks_dir / Path(inner_command).name)
                     inner.append(hc)
                 hook_copy["hooks"] = inner
             resolved.append(hook_copy)
@@ -761,12 +773,19 @@ def install_hooks(
             # Collect all existing command paths (inside matcher wrappers)
             existing_cmds = set()
             for entry in existing_hooks[event_name]:
-                for inner in entry.get("hooks", []):
-                    existing_cmds.add(inner.get("command", ""))
+                nested_hooks = entry.get("hooks", [])
+                if not isinstance(nested_hooks, list):
+                    continue
+                for inner in nested_hooks:
+                    if isinstance(inner, dict):
+                        existing_cmds.add(str(inner.get("command", "")))
 
             for new_entry in new_hooks:
+                nested_hooks = new_entry.get("hooks", [])
                 inner_cmds = [
-                    h.get("command", "") for h in new_entry.get("hooks", [])
+                    str(h.get("command", ""))
+                    for h in nested_hooks
+                    if isinstance(h, dict)
                 ]
                 if not any(cmd in existing_cmds for cmd in inner_cmds):
                     existing_hooks[event_name].append(new_entry)
@@ -811,11 +830,20 @@ def install_hooks_interactive(
     print()
 
 
-def setup(env_path: Path | None = None) -> None:
-    """Interactive setup wizard entry point."""
+def setup(env_path: Path | None = None, mode: str | None = None) -> None:
+    """Interactive setup wizard entry point.
+
+    Parameters
+    ----------
+    env_path : Path | None
+        Where to write the ``.env`` file.  Defaults to ``~/.engram/.env``.
+    mode : str | None
+        Pre-select engine mode (``"lite"``, ``"full"``, or ``"auto"``).
+        When set, the mode prompt in the wizard is skipped.
+    """
     _welcome()
 
-    config = _collect_config()
+    config = _collect_config(preset_mode=mode)
 
     if env_path is None:
         env_path = _default_env_path()

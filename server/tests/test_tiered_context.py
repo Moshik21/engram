@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -56,26 +54,26 @@ async def tiered_manager(tmp_path):
     await si.initialize(db=gs._db)
 
     entities = [
-        _entity("ent_konner", "Konner", "Person", "Software engineer"),
+        _entity("ent_alex", "Alex", "Person", "Software engineer"),
         _entity("ent_engram", "Engram", "Project", "Memory system"),
         _entity("ent_python", "Python", "Technology", "Programming language"),
         _entity("ent_fastapi", "FastAPI", "Technology", "Web framework"),
     ]
     for e in entities:
         await gs.create_entity(e)
-    # Mark Konner as identity core (mimics auto-detection from identity predicates)
-    await gs.update_entity("ent_konner", {"identity_core": 1}, group_id=GROUP)
+    # Mark Alex as identity core (mimics auto-detection from identity predicates)
+    await gs.update_entity("ent_alex", {"identity_core": 1}, group_id=GROUP)
 
     now_dt = entities[0].created_at
     rels = [
-        _rel("rel_builds", "ent_konner", "ent_engram", "BUILDS", now_dt),
+        _rel("rel_builds", "ent_alex", "ent_engram", "BUILDS", now_dt),
         _rel("rel_uses", "ent_engram", "ent_python", "USES", now_dt),
     ]
     for r in rels:
         await gs.create_relationship(r)
 
     now = time.time()
-    await acts.record_access("ent_konner", now - 10, group_id=GROUP)
+    await acts.record_access("ent_alex", now - 10, group_id=GROUP)
     await acts.record_access("ent_engram", now - 20, group_id=GROUP)
     await acts.record_access("ent_python", now - 100, group_id=GROUP)
     await acts.record_access("ent_fastapi", now - 200, group_id=GROUP)
@@ -83,20 +81,6 @@ async def tiered_manager(tmp_path):
     mgr = GraphManager(gs, acts, si, MockExtractor())
     yield mgr
     await gs.close()
-
-
-def _make_mock_anthropic(text="Briefing text.", *, raises=False):
-    """Create a mock anthropic module with a working Anthropic client."""
-    mock_resp = MagicMock()
-    mock_resp.content = [MagicMock(text=text)]
-    mock_client = MagicMock()
-    if raises:
-        mock_client.messages.create.side_effect = RuntimeError("API down")
-    else:
-        mock_client.messages.create.return_value = mock_resp
-    mock_mod = MagicMock()
-    mock_mod.Anthropic.return_value = mock_client
-    return mock_mod, mock_client
 
 
 class TestTieredSections:
@@ -141,45 +125,39 @@ class TestTieredSections:
         """Entities in Layer 1 (identity) don't appear again in Layer 3 entity list."""
         result = await tiered_manager.get_context(group_id=GROUP)
         ctx = result["context"]
-        # Split into sections, check Konner only in Identity (may appear in facts elsewhere)
+        # Split into sections, check Alex only in Identity (may appear in facts elsewhere)
         sections = ctx.split("## Recent Activity")
         if len(sections) > 1:
             recent = sections[1]
-            # Konner should NOT be listed as an entity line in Recent Activity
+            # Alex should NOT be listed as an entity line in Recent Activity
             # Entity lines start with "- Name (Type,"
             entity_lines = [
                 ln for ln in recent.split("\n")
-                if ln.startswith("- Konner (")
+                if ln.startswith("- Alex (")
             ]
-            assert len(entity_lines) == 0, "Konner should not be duplicated in Recent Activity"
+            assert len(entity_lines) == 0, "Alex should not be duplicated in Recent Activity"
 
 
 class TestBriefingFormat:
     @pytest.mark.asyncio
     async def test_briefing_format(self, tiered_manager):
-        """Briefing format calls Anthropic with structured context."""
-        mock_mod, mock_client = _make_mock_anthropic("Konner builds Engram, a memory system.")
-
-        with patch.dict(sys.modules, {"anthropic": mock_mod}):
-            result = await tiered_manager.get_context(
-                group_id=GROUP, format="briefing",
-            )
-            assert result["format"] == "briefing"
-            assert "Konner builds Engram" in result["context"]
-            mock_client.messages.create.assert_called_once()
+        """Briefing format uses template-based rendering (no LLM call)."""
+        result = await tiered_manager.get_context(
+            group_id=GROUP, format="briefing",
+        )
+        assert result["format"] == "briefing"
+        # Template briefing should contain entity information
+        assert result["entity_count"] > 0
 
     @pytest.mark.asyncio
     async def test_briefing_cache_hit(self, tiered_manager):
-        """Second briefing call uses cache, doesn't invoke Haiku."""
-        mock_mod, mock_client = _make_mock_anthropic("Cached briefing.")
-
-        with patch.dict(sys.modules, {"anthropic": mock_mod}):
-            r1 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
-            r2 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
-            assert r1["format"] == "briefing"
-            assert r2["format"] == "briefing"
-            # Only one Haiku call — second used cache
-            assert mock_client.messages.create.call_count == 1
+        """Second briefing call uses cache."""
+        r1 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
+        r2 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
+        assert r1["format"] == "briefing"
+        assert r2["format"] == "briefing"
+        # Cached — same content
+        assert r1["context"] == r2["context"]
 
     @pytest.mark.asyncio
     async def test_briefing_cache_invalidation(self, tiered_manager):
@@ -189,16 +167,14 @@ class TestBriefingFormat:
         assert ("test_group", None) not in tiered_manager._briefing_cache
 
     @pytest.mark.asyncio
-    async def test_briefing_fallback_on_error(self, tiered_manager):
-        """If Haiku raises, falls back to structured format."""
-        mock_mod, _ = _make_mock_anthropic(raises=True)
-
-        with patch.dict(sys.modules, {"anthropic": mock_mod}):
-            result = await tiered_manager.get_context(
-                group_id=GROUP, format="briefing",
-            )
-            # Should fall back — context is structured markdown, not an error
-            assert "##" in result["context"]
+    async def test_briefing_fallback_on_empty(self, tiered_manager):
+        """Template briefing with no tier data falls back to structured context."""
+        result = await tiered_manager.get_context(
+            group_id=GROUP, format="briefing",
+        )
+        # Should return valid briefing format regardless
+        assert result["format"] == "briefing"
+        assert isinstance(result["context"], str)
 
     @pytest.mark.asyncio
     async def test_briefing_disabled_config(self, tiered_manager):

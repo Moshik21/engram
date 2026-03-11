@@ -146,6 +146,13 @@ export class EdgeLineRenderer {
     this.lineSegments.geometry.attributes.color.needsUpdate = true;
   }
 
+  /** Set overall edge opacity */
+  setOpacity(opacity: number): void {
+    const mat = this.lineSegments.material as THREE.LineBasicMaterial;
+    mat.opacity = opacity;
+    mat.transparent = true;
+  }
+
   /** Number of active edges */
   get count(): number {
     return this.edgeCount;

@@ -525,16 +525,17 @@ async def test_phase_schema_record_fields():
 # --- Integration tests ---
 
 
-def test_engine_has_12_phases():
+def test_engine_has_15_phases():
     from engram.consolidation.engine import ConsolidationEngine
 
     cfg = ActivationConfig()
     e = ConsolidationEngine(AsyncMock(), AsyncMock(), AsyncMock(), cfg)
     phases = [p.name for p in e._phases]
-    assert len(phases) == 12
+    assert len(phases) == 15
     assert phases == [
-        "triage", "merge", "infer", "replay", "prune", "compact",
-        "mature", "semanticize", "schema", "reindex", "graph_embed", "dream",
+        "triage", "merge", "infer", "evidence_adjudication", "edge_adjudication", "replay",
+        "prune", "compact", "mature", "semanticize", "schema", "reindex",
+        "graph_embed", "microglia", "dream",
     ]
 
 

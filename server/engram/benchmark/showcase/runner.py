@@ -471,12 +471,16 @@ def _build_website_summary(run_result: ShowcaseRunResult) -> dict[str, object]:
         "mode": run_result.mode,
         "seeds": run_result.seeds,
         "headline": {
-            "engram_full_pass_rate": summary_by_name.get("engram_full").scenario_pass_rate
-            if "engram_full" in summary_by_name
-            else None,
-            "engram_full_false_recall": summary_by_name.get("engram_full").false_recall_rate
-            if "engram_full" in summary_by_name
-            else None,
+            "engram_full_pass_rate": (
+                summary_by_name["engram_full"].scenario_pass_rate
+                if "engram_full" in summary_by_name
+                else None
+            ),
+            "engram_full_false_recall": (
+                summary_by_name["engram_full"].false_recall_rate
+                if "engram_full" in summary_by_name
+                else None
+            ),
             "best_headline_competitor_pass_rate": max(
                 (
                     summary_by_name[name].scenario_pass_rate

@@ -508,7 +508,7 @@ export function DocsPage() {
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 48 }}>
             {[
-              { href: "https://github.com/Moshik21/engram", label: "GitHub Repository", sub: "Source code, issues, contributions", icon: "M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22", ext: true },
+              { href: "https://github.com/engram-labs/engram", label: "GitHub Repository", sub: "Source code, issues, contributions", icon: "M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22", ext: true },
               { href: "http://localhost:8100/docs", label: "API Reference", sub: "Interactive OpenAPI docs", icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z", ext: true },
               { href: "http://localhost:3000", label: "Dashboard", sub: "Real-time graph explorer", icon: "M3 3h18v18H3zM3 9h18M9 21V9", ext: true },
               { href: "/science", label: "Science & Architecture", sub: "Cognitive science foundations", icon: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z", ext: false },
@@ -574,7 +574,7 @@ export function DocsPage() {
               </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
                 <a
-                  href="https://github.com/Moshik21/engram"
+                  href="https://github.com/engram-labs/engram"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn btn-primary"

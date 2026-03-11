@@ -12,10 +12,13 @@ from engram.consolidation.calibration import (
 )
 from engram.consolidation.phases.compact import AccessHistoryCompactionPhase
 from engram.consolidation.phases.dream import DreamSpreadingPhase
+from engram.consolidation.phases.edge_adjudication import EdgeAdjudicationPhase
+from engram.consolidation.phases.evidence_adjudication import EvidenceAdjudicationPhase
 from engram.consolidation.phases.graph_embed import GraphEmbedPhase
 from engram.consolidation.phases.infer import EdgeInferencePhase
 from engram.consolidation.phases.maturation import MaturationPhase
 from engram.consolidation.phases.merge import EntityMergePhase
+from engram.consolidation.phases.microglia import MicrogliaPhase
 from engram.consolidation.phases.prune import PrunePhase
 from engram.consolidation.phases.reindex import ReindexPhase
 from engram.consolidation.phases.replay import EpisodeReplayPhase
@@ -30,11 +33,13 @@ from engram.models.consolidation import (
     DecisionTrace,
     DreamAssociationRecord,
     DreamRecord,
+    EvidenceAdjudicationRecord,
     GraphEmbedRecord,
     IdentifierReviewRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
+    MicrogliaRecord,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
@@ -60,6 +65,8 @@ _AUDIT_PERSISTORS: tuple[tuple[type, str], ...] = (
     (MaturationRecord, "save_maturation_record"),
     (SemanticTransitionRecord, "save_semantic_transition_record"),
     (SchemaRecord, "save_schema_record"),
+    (MicrogliaRecord, "save_microglia_record"),
+    (EvidenceAdjudicationRecord, "save_evidence_adjudication_record"),
     (DecisionTrace, "save_decision_trace"),
     (DecisionOutcomeLabel, "save_decision_outcome_label"),
 )
@@ -93,6 +100,8 @@ class ConsolidationEngine:
             TriagePhase(graph_manager=graph_manager),
             EntityMergePhase(llm_client=llm_client),
             EdgeInferencePhase(llm_client=llm_client, escalation_client=llm_client),
+            EvidenceAdjudicationPhase(graph_manager=graph_manager),
+            EdgeAdjudicationPhase(graph_manager=graph_manager),
             EpisodeReplayPhase(extractor=extractor),
             PrunePhase(),
             AccessHistoryCompactionPhase(),
@@ -101,6 +110,7 @@ class ConsolidationEngine:
             SchemaFormationPhase(),
             ReindexPhase(),
             GraphEmbedPhase(),
+            MicrogliaPhase(),
             DreamSpreadingPhase(),
         ]
 

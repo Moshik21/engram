@@ -136,7 +136,7 @@ class HybridSearchIndex:
             return 0
         if self._storage_dim > 0:
             embeddings = truncate_vectors(embeddings, self._storage_dim)
-        items = [
+        items: list[tuple[str, str, str, str | None, list[float]]] = [
             (e.id, "entity", e.group_id, t, vec)
             for e, t, vec in zip(valid, texts, embeddings)
         ]

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import cast
 
-from thefuzz import fuzz
+from rapidfuzz import fuzz
 
 from engram.entity_dedup_policy import policy_aware_similarity
 from engram.models.entity import Entity
 
-FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (thefuzz uses integers)
+FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (rapidfuzz uses integers)
 
 
 def normalize_name(name: str) -> str:
@@ -34,11 +35,11 @@ def compute_similarity(name_a: str, name_b: str) -> float:
 
     # Token sort ratio — handles word reordering
     # e.g., "ACT-R Spreading Activation" ↔ "Spreading Activation ACT-R"
-    token_sort = fuzz.token_sort_ratio(norm_a, norm_b) / 100.0
+    token_sort = cast(float, fuzz.token_sort_ratio(norm_a, norm_b)) / 100.0
 
     # Partial ratio — handles substring containment
     # e.g., "ACT-R" in "ACT-R Spreading Activation"
-    partial = fuzz.partial_ratio(norm_a, norm_b) / 100.0 * 0.9
+    partial = cast(float, fuzz.partial_ratio(norm_a, norm_b)) / 100.0 * 0.9
 
     return max(token_sort, partial)
 

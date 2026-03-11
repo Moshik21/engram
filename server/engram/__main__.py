@@ -3,7 +3,7 @@
 Usage:
     engram setup          Interactive setup wizard
     engram serve          Start REST API server (port 8100)
-    engram mcp            Start MCP server (stdio)
+    engram mcp            Start MCP server (stdio or HTTP)
     engram config         Edit configuration
     engram hooks          Install AutoCapture hooks
     engram health         Check if server is running
@@ -25,6 +25,8 @@ def main():
                "  engram serve              Start REST API at localhost:8100\n"
                "  engram serve --port 9000  Custom port\n"
                "  engram mcp                Start MCP server (stdio)\n"
+               "  engram mcp --transport streamable-http\n"
+               "                            Start MCP server (HTTP on :8200)\n"
                "  engram health             Check if server is running\n",
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -34,6 +36,10 @@ def main():
     setup_parser.add_argument(
         "--env-path", default=None,
         help="Override .env output path (default: ~/.engram/.env)",
+    )
+    setup_parser.add_argument(
+        "--mode", choices=["lite", "full", "auto"], default=None,
+        help="Pre-select engine mode (skips mode prompt)",
     )
 
     # --- serve (REST API) ---
@@ -45,8 +51,21 @@ def main():
         help="Engine mode (default: auto-detect)",
     )
 
-    # --- mcp (MCP stdio server) ---
-    subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
+    # --- mcp ---
+    mcp_parser = subparsers.add_parser("mcp", help="Start MCP server")
+    mcp_parser.add_argument(
+        "--transport", choices=["stdio", "streamable-http", "sse"],
+        default="stdio",
+        help="Transport protocol (default: stdio)",
+    )
+    mcp_parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="Bind address for HTTP transport (default: 127.0.0.1)",
+    )
+    mcp_parser.add_argument(
+        "--port", type=int, default=8200,
+        help="Port for HTTP transport (default: 8200)",
+    )
 
     # --- config ---
     config_parser = subparsers.add_parser("config", help="Edit configuration")
@@ -96,7 +115,7 @@ def main():
         from engram.setup import setup
 
         env_path = Path(args.env_path) if args.env_path else None
-        setup(env_path=env_path)
+        setup(env_path=env_path, mode=args.mode)
         return
 
     # --- serve ---
@@ -128,7 +147,11 @@ def main():
         )
         from engram.mcp.server import main as mcp_main
 
-        mcp_main()
+        mcp_main(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+        )
         return
 
     # --- config ---

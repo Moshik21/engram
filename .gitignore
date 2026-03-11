@@ -67,10 +67,14 @@ Tech_Spec_v2.md
 docs/design/
 docs/RECALL_REDESIGN.md
 docs/SAAS_NEXT_STEPS.md
+docs/vision/private/
 docs/vision/homepage-product-page.md
 docs/vision/x-thread.md
 docs/vision/launch-post.md
-docs/vision/openclaw-distribution-strategy.md
+openclaw-distribution-strategy.md
+
+# Internal design specs
+refined/
 
 # AI tool configs
 AGENTS.md

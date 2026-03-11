@@ -15,11 +15,13 @@ from engram.models.consolidation import (
     DistillationExample,
     DreamAssociationRecord,
     DreamRecord,
+    EvidenceAdjudicationRecord,
     GraphEmbedRecord,
     IdentifierReviewRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
+    MicrogliaRecord,
     PhaseResult,
     PruneRecord,
     ReindexRecord,
@@ -386,6 +388,56 @@ class SQLiteConsolidationStore:
             "CREATE INDEX IF NOT EXISTS idx_consol_calibration_cycle "
             "ON consolidation_calibration_snapshots(cycle_id)"
         )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_evidence_adjudication (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                evidence_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                new_confidence REAL NOT NULL,
+                reason TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_ev_adj_cycle "
+            "ON consolidation_evidence_adjudication(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS complement_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_type TEXT NOT NULL CHECK(target_type IN ('edge', 'entity')),
+                target_id TEXT NOT NULL,
+                tag_type TEXT NOT NULL,
+                score REAL NOT NULL,
+                cycle_tagged INTEGER NOT NULL,
+                cycle_confirmed INTEGER,
+                cleared INTEGER NOT NULL DEFAULT 0,
+                group_id TEXT NOT NULL DEFAULT 'default',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(target_id, tag_type)
+            )
+        """)
+        await self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_complement_tags_target
+            ON complement_tags(target_id, cleared)
+        """)
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS microglia_records (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                tag_type TEXT NOT NULL,
+                score REAL NOT NULL,
+                detail TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
         # Migrations: add columns for existing databases
         for migration_sql in [
             "ALTER TABLE consolidation_merges ADD COLUMN decision_confidence REAL",
@@ -695,7 +747,7 @@ class SQLiteConsolidationStore:
             "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
             (cycle_id, group_id),
         )
-        rows = await cursor.fetchall()
+        rows = list(await cursor.fetchall())
         keys = set()
         if rows:
             keys = set(rows[0].keys())
@@ -1184,6 +1236,52 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    async def save_evidence_adjudication_record(
+        self, record: EvidenceAdjudicationRecord,
+    ) -> None:
+        """Insert an evidence adjudication audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_evidence_adjudication "
+            "(id, cycle_id, group_id, evidence_id, action, new_confidence, "
+            "reason, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.evidence_id,
+                record.action,
+                record.new_confidence,
+                record.reason,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_evidence_adjudication_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[EvidenceAdjudicationRecord]:
+        """Fetch evidence adjudication records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_evidence_adjudication "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            EvidenceAdjudicationRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                evidence_id=r["evidence_id"],
+                action=r["action"],
+                new_confidence=r["new_confidence"],
+                reason=r["reason"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
     async def save_decision_trace(self, record: DecisionTrace) -> None:
         """Insert a structured decision trace."""
         await self.db.execute(
@@ -1415,6 +1513,169 @@ class SQLiteConsolidationStore:
             for r in rows
         ]
 
+    # --- Complement tags (Microglia phase) ---
+
+    async def create_complement_tag(
+        self,
+        target_type: str,
+        target_id: str,
+        tag_type: str,
+        score: float,
+        cycle_tagged: int,
+        group_id: str = "default",
+    ) -> int:
+        """Create or update a complement tag. Returns the tag row id."""
+        cursor = await self.db.execute(
+            """INSERT INTO complement_tags
+               (target_type, target_id, tag_type, score, cycle_tagged, group_id)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(target_id, tag_type) DO UPDATE SET
+                   score = excluded.score,
+                   cycle_tagged = excluded.cycle_tagged,
+                   updated_at = datetime('now')""",
+            (target_type, target_id, tag_type, score, cycle_tagged, group_id),
+        )
+        await self.db.commit()
+        return cursor.lastrowid or 0
+
+    async def get_active_complement_tags(
+        self, group_id: str = "default",
+    ) -> list[dict]:
+        """Return all non-cleared complement tags."""
+        cursor = await self.db.execute(
+            """SELECT id, target_type, target_id, tag_type, score,
+                      cycle_tagged, cycle_confirmed, group_id
+               FROM complement_tags
+               WHERE cleared = 0 AND group_id = ?""",
+            (group_id,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0], "target_type": r[1], "target_id": r[2],
+                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
+                "cycle_confirmed": r[6], "group_id": r[7],
+            }
+            for r in rows
+        ]
+
+    async def get_confirmed_tags(
+        self,
+        min_age_cycles: int,
+        current_cycle: int,
+        group_id: str = "default",
+    ) -> list[dict]:
+        """Return confirmed tags old enough for demotion."""
+        cursor = await self.db.execute(
+            """SELECT id, target_type, target_id, tag_type, score,
+                      cycle_tagged, cycle_confirmed, group_id
+               FROM complement_tags
+               WHERE cleared = 0
+                 AND cycle_confirmed IS NOT NULL
+                 AND (? - cycle_confirmed) >= ?
+                 AND group_id = ?""",
+            (current_cycle, min_age_cycles, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0], "target_type": r[1], "target_id": r[2],
+                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
+                "cycle_confirmed": r[6], "group_id": r[7],
+            }
+            for r in rows
+        ]
+
+    async def get_unconfirmed_tags(
+        self,
+        max_cycle: int,
+        group_id: str = "default",
+    ) -> list[dict]:
+        """Return tags from previous cycles that haven't been confirmed."""
+        cursor = await self.db.execute(
+            """SELECT id, target_type, target_id, tag_type, score,
+                      cycle_tagged, cycle_confirmed, group_id
+               FROM complement_tags
+               WHERE cleared = 0
+                 AND cycle_confirmed IS NULL
+                 AND cycle_tagged < ?
+                 AND group_id = ?""",
+            (max_cycle, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r[0], "target_type": r[1], "target_id": r[2],
+                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
+                "cycle_confirmed": r[6], "group_id": r[7],
+            }
+            for r in rows
+        ]
+
+    async def get_complement_tag(
+        self, target_id: str, tag_type: str,
+    ) -> dict | None:
+        """Look up a single complement tag."""
+        cursor = await self.db.execute(
+            """SELECT id, target_type, target_id, tag_type, score,
+                      cycle_tagged, cycle_confirmed, group_id
+               FROM complement_tags
+               WHERE target_id = ? AND tag_type = ?""",
+            (target_id, tag_type),
+        )
+        r = await cursor.fetchone()
+        if not r:
+            return None
+        return {
+            "id": r[0], "target_type": r[1], "target_id": r[2],
+            "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
+            "cycle_confirmed": r[6], "group_id": r[7],
+        }
+
+    async def confirm_complement_tag(
+        self, tag_id: int, cycle_number: int,
+    ) -> None:
+        """Mark a complement tag as confirmed."""
+        await self.db.execute(
+            """UPDATE complement_tags
+               SET cycle_confirmed = ?, updated_at = datetime('now')
+               WHERE id = ?""",
+            (cycle_number, tag_id),
+        )
+        await self.db.commit()
+
+    async def clear_complement_tag(self, tag_id: int) -> None:
+        """Clear (soft-delete) a complement tag."""
+        await self.db.execute(
+            """UPDATE complement_tags
+               SET cleared = 1, updated_at = datetime('now')
+               WHERE id = ?""",
+            (tag_id,),
+        )
+        await self.db.commit()
+
+    async def save_microglia_record(self, record: MicrogliaRecord) -> None:
+        """Persist a microglia audit record."""
+        await self.db.execute(
+            """INSERT OR IGNORE INTO microglia_records
+               (id, cycle_id, group_id, target_type, target_id, action,
+                tag_type, score, detail, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.target_type,
+                record.target_id,
+                record.action,
+                record.tag_type,
+                record.score,
+                record.detail,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
     async def cleanup(self, ttl_days: int = 90) -> int:
         """Delete cycle records older than ttl_days. Returns count deleted."""
         cutoff = time.time() - (ttl_days * 86400)
@@ -1495,6 +1756,10 @@ class SQLiteConsolidationStore:
         )
         await self.db.execute(
             f"DELETE FROM consolidation_calibration_snapshots WHERE cycle_id IN ({placeholders})",
+            cycle_ids,
+        )
+        await self.db.execute(
+            f"DELETE FROM consolidation_evidence_adjudication WHERE cycle_id IN ({placeholders})",
             cycle_ids,
         )
         del_cursor = await self.db.execute(

@@ -44,10 +44,15 @@ def _aggregate_primary_scenarios(run_result: ShowcaseRunResult) -> list[dict]:
             (result.scenario_title, result.why_it_matters, tuple(result.capability_tags)),
         )
 
-    for result in run_result.answer_results:
-        if result.baseline_name not in run_result.primary_baselines or not result.available:
+    for answer_result in run_result.answer_results:
+        if (
+            answer_result.baseline_name not in run_result.primary_baselines
+            or not answer_result.available
+        ):
             continue
-        answer_grouped[(result.scenario_id, result.baseline_name)].append(result)
+        answer_grouped[(answer_result.scenario_id, answer_result.baseline_name)].append(
+            answer_result,
+        )
 
     by_scenario: dict[str, list[dict]] = defaultdict(list)
     for (scenario_id, baseline_name), results in grouped.items():

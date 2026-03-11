@@ -31,6 +31,8 @@ export interface LODConfig {
   showEdges: boolean;
   /** Node detail level: 0 = point, 1 = sphere, 2 = full neuron */
   detailLevel: number;
+  /** Edge opacity at this zoom tier */
+  edgeOpacity: number;
 }
 
 /** Camera distance thresholds for each tier (with hysteresis) */
@@ -54,6 +56,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
     showLabels: false,
     showEdges: false,
     detailLevel: 0,
+    edgeOpacity: 0,
   },
   region: {
     visibilityBudget: 500,
@@ -61,6 +64,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
     showLabels: false,
     showEdges: true,
     detailLevel: 0,
+    edgeOpacity: 0.08,
   },
   neighborhood: {
     visibilityBudget: 2000,
@@ -68,6 +72,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
     showLabels: false,
     showEdges: true,
     detailLevel: 1,
+    edgeOpacity: 0.15,
   },
   detail: {
     visibilityBudget: 5000,
@@ -75,6 +80,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
     showLabels: true,
     showEdges: true,
     detailLevel: 2,
+    edgeOpacity: 0.25,
   },
   synapse: {
     visibilityBudget: Infinity,
@@ -82,6 +88,7 @@ const TIER_CONFIGS: Record<ZoomTier, LODConfig> = {
     showLabels: true,
     showEdges: true,
     detailLevel: 2,
+    edgeOpacity: 0.35,
   },
 };
 

@@ -1,3 +1,5 @@
+# Developer/manual source-built stack. The public one-click installer downloads a
+# separate release bundle and pulls prebuilt images instead.
 name: engram
 
 services:
@@ -26,7 +28,7 @@ services:
       - engram-net
 
   redis:
-    image: redis/redis-stack-server:latest
+    image: redis/redis-stack-server:7.4.0-v3
     container_name: engram-redis
     restart: unless-stopped
     ports:

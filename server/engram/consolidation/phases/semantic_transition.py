@@ -142,7 +142,11 @@ def _context_marks_entity_mature(
     if not isinstance(bundle, dict):
         return False
     score = bundle.get("maturity_score")
-    try:
+    if isinstance(score, (int, float)):
         return float(score) >= cfg.maturation_transitional_threshold
-    except (TypeError, ValueError):
-        return False
+    if isinstance(score, str):
+        try:
+            return float(score) >= cfg.maturation_transitional_threshold
+        except ValueError:
+            return False
+    return False

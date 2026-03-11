@@ -97,6 +97,14 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
 
     # Get relationships as facts
     rels = await manager._graph.get_relationships(entity_id, active_only=True, group_id=group_id)
+
+    # Batch-fetch all related entities in one query (fixes N+1)
+    other_ids = list({
+        r.target_id if r.source_id == entity_id else r.source_id
+        for r in rels
+    })
+    others_map = await manager._graph.batch_get_entities(other_ids, group_id) if other_ids else {}
+
     facts = []
     for r in rels:
         if r.source_id == entity_id:
@@ -106,7 +114,7 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
             direction = "incoming"
             other_id = r.source_id
 
-        other_entity = await manager._graph.get_entity(other_id, group_id)
+        other_entity = others_map.get(other_id)
         other_info = (
             {
                 "id": other_entity.id,
@@ -154,7 +162,7 @@ async def get_entity_neighbors(
     request: Request,
     entity_id: str,
     depth: int = Query(2, ge=1, le=5),
-    max_nodes: int = Query(50000, ge=1, le=100000),
+    max_nodes: int = Query(2000, ge=1, le=10000),
     min_activation: float = Query(0.0, ge=0.0, le=1.0),
 ) -> JSONResponse:
     """Get neighborhood subgraph centered on this entity."""
@@ -192,6 +200,8 @@ async def patch_entity(request: Request, entity_id: str, body: EntityPatchBody) 
 
     # Fetch updated entity
     updated = await manager._graph.get_entity(entity_id, group_id)
+    if updated is None:
+        return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
     return JSONResponse(
         content={
             "id": updated.id,

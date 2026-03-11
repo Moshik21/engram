@@ -573,14 +573,14 @@ describe("MemoryPulse", () => {
       useEngramStore.setState({
         pulseEntities: [
           { entityId: "e1", name: "Engram", entityType: "Project", currentActivation: 0.94 },
-          { entityId: "e2", name: "Konner", entityType: "Person", currentActivation: 0.91 },
+          { entityId: "e2", name: "Alex", entityType: "Person", currentActivation: 0.91 },
         ],
         isPulseLoading: false,
       });
     });
     render(<MemoryPulse />);
     expect(screen.getByText("Engram")).toBeInTheDocument();
-    expect(screen.getByText("Konner")).toBeInTheDocument();
+    expect(screen.getByText("Alex")).toBeInTheDocument();
     expect(screen.getByText("PULSE")).toBeInTheDocument();
   });
 });

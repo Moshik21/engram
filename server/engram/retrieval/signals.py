@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 _RELATIONAL_WEIGHTS = {
@@ -721,7 +722,7 @@ def _extract_shift_signals(
         return []
 
     now_ts = entries[-1].timestamp
-    if now_ts and (float(features["timestamp"]) - now_ts) > 1800.0:
+    if now_ts and (_feature_float(features, "timestamp") - now_ts) > 1800.0:
         return []
 
     recent_features = []
@@ -745,9 +746,12 @@ def _extract_shift_signals(
         + (0.15 * pronoun)
         + (0.10 * structural),
     )
-    if features["personal_ratio"] > _window_average(recent_features, "personal_ratio"):
+    if _feature_float(features, "personal_ratio") > _window_average(
+        recent_features,
+        "personal_ratio",
+    ):
         composite = min(1.0, composite * 1.2)
-    if any(float(item.get("code_ratio", 0.0)) >= 0.30 for item in recent_features[-1:]):
+    if any(_feature_float(item, "code_ratio") >= 0.30 for item in recent_features[-1:]):
         composite *= 0.6
     if composite < 0.12:
         return []
@@ -761,8 +765,8 @@ def _extract_shift_signals(
             "S_shift",
             round(composite, 4),
             "shift_transition",
-            referents=_dedupe(list(features["proper_names"])),
-            query_hint=next(iter(features["proper_names"]), None),
+            referents=_dedupe(_feature_strings(features, "proper_names")),
+            query_hint=next(iter(_feature_strings(features, "proper_names")), None),
             family="shift",
         ),
     ]
@@ -778,7 +782,7 @@ def _extract_impoverishment_signals(
 ) -> list[SignalResult]:
     if _GREETING_PATTERN.match(lowered) and len(lowered.split()) <= 3:
         return []
-    if _is_generic_command(lowered) and not bool(features["has_personal_anchor"]):
+    if _is_generic_command(lowered) and not _feature_bool(features, "has_personal_anchor"):
         return []
     move_type, move_score = _detect_move_type(lowered, features, structural_results)
     affect_score = _affect_with_personal_stakes(lowered, features)
@@ -799,8 +803,8 @@ def _extract_impoverishment_signals(
             "I_impoverishment",
             round(composite, 4),
             "impoverishment_risk",
-            referents=_dedupe(list(features["proper_names"])),
-            query_hint=next(iter(features["proper_names"]), None),
+            referents=_dedupe(_feature_strings(features, "proper_names")),
+            query_hint=next(iter(_feature_strings(features, "proper_names")), None),
             family="impoverishment",
         ),
     ]
@@ -1248,10 +1252,12 @@ def _lexical_shift_score(
     features: dict[str, object], recent_features: list[dict[str, object]]
 ) -> float:
     personal_delta = abs(
-        float(features["personal_ratio"]) - _window_average(recent_features, "personal_ratio")
+        _feature_float(features, "personal_ratio")
+        - _window_average(recent_features, "personal_ratio")
     )
     technical_delta = abs(
-        float(features["technical_ratio"]) - _window_average(recent_features, "technical_ratio")
+        _feature_float(features, "technical_ratio")
+        - _window_average(recent_features, "technical_ratio")
     )
     return min(1.0, (personal_delta + technical_delta) * 1.6)
 
@@ -1259,7 +1265,10 @@ def _lexical_shift_score(
 def _register_shift_score(
     features: dict[str, object], recent_features: list[dict[str, object]]
 ) -> float:
-    current_register = float(features["personal_ratio"]) - float(features["technical_ratio"])
+    current_register = _feature_float(features, "personal_ratio") - _feature_float(
+        features,
+        "technical_ratio",
+    )
     window_register = _window_average(recent_features, "personal_ratio") - _window_average(
         recent_features,
         "technical_ratio",
@@ -1284,10 +1293,10 @@ def _pronoun_shift_score(
     features: dict[str, object], recent_features: list[dict[str, object]]
 ) -> float:
     delta = abs(
-        float(features["first_person_ratio"])
+        _feature_float(features, "first_person_ratio")
         - _window_average(recent_features, "first_person_ratio")
     )
-    proper_name_bonus = 0.10 if features["proper_names"] else 0.0
+    proper_name_bonus = 0.10 if _feature_strings(features, "proper_names") else 0.0
     return min(1.0, (delta * 2.5) + proper_name_bonus)
 
 
@@ -1295,15 +1304,19 @@ def _structural_shift_score(
     features: dict[str, object], recent_features: list[dict[str, object]]
 ) -> float:
     word_delta = (
-        abs(float(features["word_count"]) - _window_average(recent_features, "word_count")) / 20.0
+        abs(_feature_float(features, "word_count") - _window_average(recent_features, "word_count"))
+        / 20.0
     )
     question_delta = (
-        abs(float(features["question_ratio"]) - _window_average(recent_features, "question_ratio"))
+        abs(
+            _feature_float(features, "question_ratio")
+            - _window_average(recent_features, "question_ratio")
+        )
         * 8.0
     )
     punct_delta = (
         abs(
-            float(features["punctuation_ratio"])
+            _feature_float(features, "punctuation_ratio")
             - _window_average(recent_features, "punctuation_ratio")
         )
         * 8.0
@@ -1480,7 +1493,8 @@ def _has_project_terms(lowered: str) -> bool:
 def _window_average(recent_features: list[dict[str, object]], key: str) -> float:
     if not recent_features:
         return 0.0
-    return sum(float(item.get(key, 0.0)) for item in recent_features) / len(recent_features)
+    values = [_feature_float(item, key) for item in recent_features]
+    return sum(values) / len(values)
 
 
 def _is_generic_command(lowered: str) -> bool:
@@ -1496,7 +1510,41 @@ def _noisy_or(scores: list[float]) -> float:
     return 1.0 - result
 
 
-def _dedupe(values: list[str | None]) -> list[str]:
+def _feature_float(features: dict[str, object], key: str) -> float:
+    value = features.get(key, 0.0)
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _feature_bool(features: dict[str, object], key: str) -> bool:
+    value = features.get(key, False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _feature_strings(features: dict[str, object], key: str) -> list[str]:
+    value = features.get(key, [])
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, Sequence):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _dedupe(values: Sequence[str | None]) -> list[str]:
     seen: set[str] = set()
     deduped: list[str] = []
     for value in values:

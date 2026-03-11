@@ -1,0 +1,997 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info() { echo -e "  ${GREEN}*${RESET} $1"; }
+warn() { echo -e "  ${RED}!${RESET} $1"; }
+note() { echo -e "  ${CYAN}>${RESET} $1"; }
+dim() { echo -e "  ${DIM}$1${RESET}"; }
+die() { warn "$1"; exit 1; }
+
+resolve_self() {
+  local source="${BASH_SOURCE[0]}"
+  while [ -h "$source" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="$dir/$source"
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+SCRIPT_DIR="$(resolve_self)"
+BUNDLE_ROOT="$SCRIPT_DIR"
+ENGRAM_HOME="${ENGRAM_HOME:-$HOME/.engram}"
+INSTALL_ROOT="${ENGRAM_INSTALL_ROOT:-$ENGRAM_HOME/full}"
+BIN_DIR="${ENGRAM_INSTALL_BIN_DIR:-$HOME/.local/bin}"
+COMPOSE_FILE="$INSTALL_ROOT/current/compose.yaml"
+METADATA_FILE="$BUNDLE_ROOT/release-metadata.env"
+DEFAULT_RELEASE_REPOSITORY="${ENGRAM_RELEASE_REPOSITORY:-engram-labs/engram}"
+
+# Lite mode paths
+LITE_ENV_FILE="$ENGRAM_HOME/.env"
+LITE_PID_FILE="$ENGRAM_HOME/engram.pid"
+LITE_LOG_DIR="$ENGRAM_HOME/logs"
+LITE_LOG_FILE="$LITE_LOG_DIR/engram.log"
+LITE_DB_FILE="$ENGRAM_HOME/engram.db"
+
+# Full mode paths
+FULL_ENV_FILE="$INSTALL_ROOT/.env"
+
+if [ -f "$METADATA_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$METADATA_FILE"
+fi
+
+DOCKER_COMPOSE=()
+
+usage() {
+  cat <<'EOF'
+Usage: engramctl <command> [options]
+
+Commands:
+  setup                          Interactive mode picker + config
+  install [--mode full|openclaw] [--no-open]
+  install-openclaw
+  start
+  stop
+  status
+  logs [service]
+  update
+  upgrade                        Upgrade from lite to full
+  uninstall [--purge-data]
+EOF
+}
+
+ensure_supported_os() {
+  case "$(uname -s)" in
+    Darwin|Linux) ;;
+    *) die "Engram one-click install currently supports macOS and Linux only." ;;
+  esac
+}
+
+ensure_commands() {
+  for cmd in curl tar; do
+    command -v "$cmd" >/dev/null 2>&1 || die "Missing required command: $cmd"
+  done
+}
+
+detect_docker_compose() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE=(docker compose)
+    return
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE=(docker-compose)
+    return
+  fi
+  die "Docker Compose is required. Install Docker Desktop (macOS) or Docker Engine + Compose plugin (Linux)."
+}
+
+ensure_docker_ready() {
+  [ "${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" = "1" ] && return
+  command -v docker >/dev/null 2>&1 || die "Docker is required for full mode."
+  detect_docker_compose
+  docker info >/dev/null 2>&1 || die "Docker is installed but the daemon is not running."
+}
+
+ensure_directories() {
+  mkdir -p "$INSTALL_ROOT/releases" "$INSTALL_ROOT/data/server" "$INSTALL_ROOT/data/redis" \
+    "$INSTALL_ROOT/data/falkordb" "$BIN_DIR"
+}
+
+install_launcher() {
+  mkdir -p "$BIN_DIR"
+  ln -sfn "$INSTALL_ROOT/current/engramctl" "$BIN_DIR/engramctl"
+  if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    note "Add $BIN_DIR to your PATH to run engramctl directly."
+  fi
+}
+
+random_hex() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+  else
+    od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+  fi
+}
+
+# ─── Variant Detection ──────────────────────────────────────────────
+
+detect_variant() {
+  # Check lite env file first
+  if [ -f "$LITE_ENV_FILE" ]; then
+    local variant
+    variant="$(grep -E '^ENGRAM_INSTALL_VARIANT=' "$LITE_ENV_FILE" 2>/dev/null | cut -d= -f2 || true)"
+    if [ -n "$variant" ]; then
+      echo "$variant"
+      return
+    fi
+  fi
+  # Check full env file
+  if [ -f "$FULL_ENV_FILE" ]; then
+    local variant
+    variant="$(grep -E '^ENGRAM_INSTALL_VARIANT=' "$FULL_ENV_FILE" 2>/dev/null | cut -d= -f2 || true)"
+    if [ -n "$variant" ]; then
+      echo "$variant"
+      return
+    fi
+  fi
+  # No install found
+  echo ""
+}
+
+env_file_for_variant() {
+  local variant="$1"
+  if [ "$variant" = "lite" ]; then
+    echo "$LITE_ENV_FILE"
+  else
+    echo "$FULL_ENV_FILE"
+  fi
+}
+
+load_existing_env() {
+  local env_file="${1:-}"
+  if [ -z "$env_file" ]; then
+    local variant
+    variant="$(detect_variant)"
+    env_file="$(env_file_for_variant "${variant:-full}")"
+  fi
+  if [ -f "$env_file" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
+    set +a
+  fi
+}
+
+prompt_value() {
+  local prompt="$1"
+  local default="${2:-}"
+  local value=""
+  if [ -n "$default" ]; then
+    read -r -p "$prompt [$default]: " value || true
+    echo "${value:-$default}"
+  else
+    read -r -p "$prompt: " value || true
+    echo "$value"
+  fi
+}
+
+# ─── Env File Writers ────────────────────────────────────────────────
+
+write_lite_env_file() {
+  mkdir -p "$ENGRAM_HOME"
+
+  local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
+  if [ -z "$anthropic" ]; then
+    if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" = "1" ]; then
+      die "ANTHROPIC_API_KEY is required in non-interactive mode."
+    fi
+    anthropic="$(prompt_value 'Anthropic API key (required)')"
+    [ -n "$anthropic" ] || die "ANTHROPIC_API_KEY is required."
+  fi
+
+  local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
+  if [ -z "$voyage" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    voyage="$(prompt_value 'Voyage AI key (optional, press enter to skip)')"
+  fi
+
+  local auth_token="${ENGRAM_AUTH__BEARER_TOKEN:-}"
+  local enc_key="${ENGRAM_ENCRYPTION__MASTER_KEY:-}"
+
+  cat >"$LITE_ENV_FILE" <<EOF
+# Generated by engramctl setup. Edit values here to customize the install.
+ENGRAM_INSTALL_VARIANT=lite
+
+ENGRAM_API_PORT=${ENGRAM_API_PORT:-8100}
+
+ANTHROPIC_API_KEY=$anthropic
+VOYAGE_API_KEY=${voyage:-}
+
+ENGRAM_MODE=lite
+ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
+ENGRAM_ACTIVATION__RECALL_PROFILE=${ENGRAM_ACTIVATION__RECALL_PROFILE:-all}
+ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
+ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
+
+ENGRAM_AUTH__ENABLED=${ENGRAM_AUTH__ENABLED:-false}
+ENGRAM_AUTH__BEARER_TOKEN=$auth_token
+ENGRAM_ENCRYPTION__ENABLED=${ENGRAM_ENCRYPTION__ENABLED:-false}
+ENGRAM_ENCRYPTION__MASTER_KEY=$enc_key
+EOF
+}
+
+write_full_env_file() {
+  local mode="$1"
+  load_existing_env "$FULL_ENV_FILE"
+
+  local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
+  if [ -z "$anthropic" ]; then
+    if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" = "1" ]; then
+      die "ANTHROPIC_API_KEY is required in non-interactive mode."
+    fi
+    anthropic="$(prompt_value 'Anthropic API key (required)')"
+    [ -n "$anthropic" ] || die "ANTHROPIC_API_KEY is required."
+  fi
+
+  local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
+  if [ -z "$voyage" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    voyage="$(prompt_value 'Voyage AI key (optional, press enter to skip)')"
+  fi
+
+  local falkor_pw="${ENGRAM_FALKORDB_PASSWORD:-$(random_hex)}"
+  local redis_pw="${ENGRAM_REDIS_PASSWORD:-$(random_hex)}"
+  local auth_token="${ENGRAM_AUTH__BEARER_TOKEN:-}"
+  local enc_key="${ENGRAM_ENCRYPTION__MASTER_KEY:-}"
+
+  cat >"$FULL_ENV_FILE" <<EOF
+# Generated by engramctl. Edit values here to customize the public local install.
+ENGRAM_INSTALL_ROOT=$INSTALL_ROOT
+ENGRAM_DATA_DIR=$INSTALL_ROOT/data
+ENGRAM_RELEASE_VERSION=${ENGRAM_RELEASE_VERSION:-dev}
+ENGRAM_INSTALL_VARIANT=$mode
+
+ENGRAM_IMAGE_NAMESPACE=${ENGRAM_IMAGE_NAMESPACE:-ghcr.io/engram-labs}
+ENGRAM_IMAGE_TAG=${ENGRAM_IMAGE_TAG:-latest}
+ENGRAM_SERVER_IMAGE_NAME=${ENGRAM_SERVER_IMAGE_NAME:-engram-server}
+ENGRAM_DASHBOARD_IMAGE_NAME=${ENGRAM_DASHBOARD_IMAGE_NAME:-engram-dashboard}
+ENGRAM_FALKORDB_IMAGE=${ENGRAM_FALKORDB_IMAGE:-falkordb/falkordb:v4.4.1}
+ENGRAM_REDIS_IMAGE=${ENGRAM_REDIS_IMAGE:-redis/redis-stack-server:latest}
+
+ENGRAM_API_PORT=${ENGRAM_API_PORT:-8100}
+ENGRAM_DASHBOARD_PORT=${ENGRAM_DASHBOARD_PORT:-3000}
+
+ANTHROPIC_API_KEY=$anthropic
+VOYAGE_API_KEY=$voyage
+
+ENGRAM_MODE=full
+ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
+ENGRAM_ACTIVATION__RECALL_PROFILE=${ENGRAM_ACTIVATION__RECALL_PROFILE:-all}
+ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
+ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
+
+ENGRAM_FALKORDB_PASSWORD=$falkor_pw
+ENGRAM_REDIS_PASSWORD=$redis_pw
+
+ENGRAM_AUTH__ENABLED=${ENGRAM_AUTH__ENABLED:-false}
+ENGRAM_AUTH__BEARER_TOKEN=$auth_token
+ENGRAM_ENCRYPTION__ENABLED=${ENGRAM_ENCRYPTION__ENABLED:-false}
+ENGRAM_ENCRYPTION__MASTER_KEY=$enc_key
+EOF
+}
+
+compose() {
+  detect_docker_compose
+  "${DOCKER_COMPOSE[@]}" --env-file "$FULL_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+wait_for_health() {
+  local port="${ENGRAM_API_PORT:-8100}"
+  local attempts=60
+  local url="http://127.0.0.1:${port}/health"
+
+  while [ "$attempts" -gt 0 ]; do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 2
+  done
+  die "Engram did not become healthy at $url in time."
+}
+
+open_dashboard() {
+  [ "${ENGRAM_INSTALL_SKIP_OPEN:-0}" = "1" ] && return 0
+  local port="${ENGRAM_DASHBOARD_PORT:-3000}"
+  local url="http://127.0.0.1:${port}"
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || true
+  fi
+}
+
+verify_api_reachable() {
+  local port="${ENGRAM_API_PORT:-8100}"
+  curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1 \
+    || die "Engram API is not reachable on 127.0.0.1:${port}."
+}
+
+install_openclaw_skill() {
+  load_existing_env
+  local source_dir="$INSTALL_ROOT/current/skills/engram-memory"
+  local target_dir="$HOME/.openclaw/skills/engram-memory"
+  [ -d "$source_dir" ] || die "OpenClaw skill asset is missing from the current install bundle."
+  mkdir -p "$(dirname "$target_dir")"
+  rm -rf "$target_dir"
+  cp -R "$source_dir" "$target_dir"
+  verify_api_reachable
+  info "Installed OpenClaw skill at $target_dir"
+}
+
+stage_current_bundle() {
+  local release_version="${ENGRAM_RELEASE_VERSION:-dev}"
+  local release_dir="$INSTALL_ROOT/releases/$release_version"
+  local source_dir
+  source_dir="$(cd "$BUNDLE_ROOT" >/dev/null 2>&1 && pwd)"
+  local target_parent
+  target_parent="$(cd "$INSTALL_ROOT/releases" >/dev/null 2>&1 && pwd)"
+  local target_dir="$target_parent/$release_version"
+
+  if [ "$source_dir" != "$target_dir" ]; then
+    rm -rf "$target_dir"
+    mkdir -p "$target_dir"
+    cp -R "$source_dir"/. "$target_dir"/
+  fi
+
+  ln -sfn "$target_dir" "$INSTALL_ROOT/current"
+}
+
+download_bundle() {
+  local temp_dir="$1"
+  local bundle_url="${ENGRAM_BUNDLE_URL:-https://github.com/${DEFAULT_RELEASE_REPOSITORY}/releases/latest/download/engram-install-bundle.tar.gz}"
+  local sha_url="${ENGRAM_BUNDLE_SHA256_URL:-https://github.com/${DEFAULT_RELEASE_REPOSITORY}/releases/latest/download/engram-install-bundle.sha256}"
+  local bundle_path="$temp_dir/engram-install-bundle.tar.gz"
+  local sha_path="$temp_dir/engram-install-bundle.sha256"
+
+  curl -fsSL "$bundle_url" -o "$bundle_path"
+  if curl -fsSL "$sha_url" -o "$sha_path"; then
+    local expected actual
+    expected="$(awk '{print $1}' "$sha_path")"
+    if command -v sha256sum >/dev/null 2>&1; then
+      actual="$(sha256sum "$bundle_path" | awk '{print $1}')"
+    else
+      actual="$(shasum -a 256 "$bundle_path" | awk '{print $1}')"
+    fi
+    [ "$expected" = "$actual" ] || die "Downloaded install bundle checksum mismatch."
+  else
+    warn "Checksum asset not found. Continuing without bundle verification."
+  fi
+
+  mkdir -p "$temp_dir/extracted"
+  tar -xzf "$bundle_path" -C "$temp_dir/extracted"
+  echo "$temp_dir/extracted"
+}
+
+# ─── Lite Mode Helpers ───────────────────────────────────────────────
+
+find_engram_command() {
+  # Find the engram CLI command (uv tool or pip installed)
+  if command -v engram >/dev/null 2>&1; then
+    echo "engram"
+    return
+  fi
+  # Check uv tool bin
+  if [ -x "$HOME/.local/bin/engram" ]; then
+    echo "$HOME/.local/bin/engram"
+    return
+  fi
+  die "engram command not found. Re-run install or check your PATH."
+}
+
+lite_is_running() {
+  if [ -f "$LITE_PID_FILE" ]; then
+    local pid
+    pid="$(cat "$LITE_PID_FILE")"
+    if kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    # Stale PID file
+    rm -f "$LITE_PID_FILE"
+  fi
+  return 1
+}
+
+lite_start() {
+  if lite_is_running; then
+    local pid
+    pid="$(cat "$LITE_PID_FILE")"
+    info "Engram is already running (PID $pid)."
+    return 0
+  fi
+
+  load_existing_env "$LITE_ENV_FILE"
+  mkdir -p "$LITE_LOG_DIR"
+
+  local engram_cmd
+  engram_cmd="$(find_engram_command)"
+
+  # Start engram serve in background, bound to loopback only
+  nohup env $(grep -v '^#' "$LITE_ENV_FILE" | grep '=' | xargs) \
+    "$engram_cmd" serve --host 127.0.0.1 \
+    >> "$LITE_LOG_FILE" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$LITE_PID_FILE"
+
+  # Wait for health
+  local port="${ENGRAM_API_PORT:-8100}"
+  local attempts=30
+  while [ "$attempts" -gt 0 ]; do
+    if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      info "Engram started (PID $pid, lite mode)."
+      dim "API: http://127.0.0.1:${port}"
+      dim "Logs: $LITE_LOG_FILE"
+      dim "DB: $LITE_DB_FILE"
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+
+  warn "Engram process started (PID $pid) but health check not responding yet."
+  dim "Check logs: tail -f $LITE_LOG_FILE"
+}
+
+lite_stop() {
+  if ! lite_is_running; then
+    info "Engram is not running."
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$LITE_PID_FILE")"
+  kill "$pid" 2>/dev/null || true
+
+  # Wait for process to exit
+  local attempts=10
+  while [ "$attempts" -gt 0 ] && kill -0 "$pid" 2>/dev/null; do
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+
+  rm -f "$LITE_PID_FILE"
+  info "Engram stopped."
+}
+
+lite_status() {
+  load_existing_env "$LITE_ENV_FILE"
+  local port="${ENGRAM_API_PORT:-8100}"
+
+  echo -e "  ${BOLD}Engram Status (lite mode)${RESET}"
+  echo ""
+
+  if lite_is_running; then
+    local pid
+    pid="$(cat "$LITE_PID_FILE")"
+    info "Server: running (PID $pid)"
+  else
+    warn "Server: not running"
+  fi
+
+  dim "Mode:   lite (SQLite)"
+  dim "Port:   $port"
+  dim "DB:     $LITE_DB_FILE"
+  dim "Logs:   $LITE_LOG_FILE"
+  dim "Config: $LITE_ENV_FILE"
+  echo ""
+
+  if curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null; then
+    echo ""
+  else
+    warn "API is not responding on port $port."
+  fi
+}
+
+lite_logs() {
+  if [ ! -f "$LITE_LOG_FILE" ]; then
+    die "No log file found at $LITE_LOG_FILE"
+  fi
+  tail -f "$LITE_LOG_FILE"
+}
+
+# ─── Commands ────────────────────────────────────────────────────────
+
+command_setup() {
+  local mode=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mode)
+        mode="${2:-}"
+        shift 2
+        ;;
+      *)
+        die "Unknown setup option: $1"
+        ;;
+    esac
+  done
+
+  echo ""
+  echo -e "  ${BOLD}Engram Setup${RESET}"
+  echo -e "  ${DIM}Persistent memory layer for AI agents${RESET}"
+  echo ""
+
+  # Mode selection
+  if [ -z "$mode" ]; then
+    if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" = "1" ]; then
+      mode="lite"
+    else
+      echo -e "  ${BOLD}Choose install mode:${RESET}"
+      echo ""
+      echo -e "  ${GREEN}[1]${RESET} Lite  ${DIM}(recommended — no Docker needed)${RESET}"
+      echo -e "      ${DIM}SQLite backend, all features, zero infrastructure${RESET}"
+      echo ""
+      echo -e "  ${CYAN}[2]${RESET} Full  ${DIM}(Docker required)${RESET}"
+      echo -e "      ${DIM}FalkorDB + Redis, dashboard, scale/perf${RESET}"
+      echo ""
+      local choice
+      read -r -p "  Choose [1/2] (1): " choice || true
+      choice="${choice:-1}"
+      case "$choice" in
+        1|lite) mode="lite" ;;
+        2|full) mode="full" ;;
+        *) die "Invalid choice: $choice" ;;
+      esac
+    fi
+  fi
+
+  info "Selected mode: $mode"
+
+  if [ "$mode" = "lite" ]; then
+    _setup_lite
+  else
+    _setup_full
+  fi
+
+  # OpenClaw skill prompt
+  if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    echo ""
+    local install_skill
+    read -r -p "  Install OpenClaw skill? [y/N]: " install_skill || true
+    if [ "${install_skill:-n}" = "y" ] || [ "${install_skill:-n}" = "Y" ]; then
+      _install_openclaw_skill_lite
+    fi
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}${GREEN}Setup complete!${RESET}"
+  echo ""
+  dim "Start Engram:  engramctl start"
+  dim "Check status:  engramctl status"
+  dim "View logs:     engramctl logs"
+  dim "Stop:          engramctl stop"
+  echo ""
+}
+
+_setup_lite() {
+  write_lite_env_file
+
+  # Run the Python setup wizard for detailed config (API keys, profiles, etc.)
+  local engram_cmd
+  engram_cmd="$(find_engram_command 2>/dev/null || true)"
+  if [ -n "$engram_cmd" ]; then
+    info "Running Engram setup wizard..."
+    "$engram_cmd" setup --mode lite --env-path "$LITE_ENV_FILE" 2>/dev/null || true
+  fi
+
+  # Re-stamp ENGRAM_INSTALL_VARIANT — the Python wizard may have rewritten the
+  # env file without it.
+  if [ -f "$LITE_ENV_FILE" ]; then
+    if ! grep -q '^ENGRAM_INSTALL_VARIANT=' "$LITE_ENV_FILE" 2>/dev/null; then
+      echo "ENGRAM_INSTALL_VARIANT=lite" >> "$LITE_ENV_FILE"
+    fi
+  fi
+
+  info "Lite mode configured."
+  dim "Config: $LITE_ENV_FILE"
+}
+
+_setup_full() {
+  ensure_docker_ready
+  ensure_directories
+
+  # Download and stage the Docker bundle
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' RETURN
+
+  info "Downloading install bundle..."
+  local extracted
+  extracted="$(download_bundle "$temp_dir")"
+
+  # Stage and install via the bundled engramctl
+  ENGRAM_INSTALL_ROOT="$INSTALL_ROOT" \
+  ENGRAM_INSTALL_BIN_DIR="$BIN_DIR" \
+  ENGRAM_INSTALL_SKIP_OPEN="${ENGRAM_INSTALL_SKIP_OPEN:-0}" \
+  ENGRAM_INSTALL_NONINTERACTIVE="${ENGRAM_INSTALL_NONINTERACTIVE:-0}" \
+  ENGRAM_INSTALL_SKIP_RUNTIME="${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" \
+    bash "$extracted/engramctl" install --mode full
+
+  info "Full mode configured."
+}
+
+_install_openclaw_skill_lite() {
+  local skill_source=""
+
+  # Allow override for testing
+  if [ -n "${ENGRAM_SKILL_SOURCE:-}" ] && [ -d "${ENGRAM_SKILL_SOURCE}" ]; then
+    skill_source="$ENGRAM_SKILL_SOURCE"
+  fi
+
+  # Try to find skill from uv tool install location
+  local engram_cmd
+  engram_cmd="$(find_engram_command 2>/dev/null || true)"
+  if [ -n "$engram_cmd" ]; then
+    # Get the package location
+    local pkg_dir
+    pkg_dir="$(python3 -c "import engram; import os; print(os.path.dirname(engram.__file__))" 2>/dev/null || true)"
+    if [ -n "$pkg_dir" ] && [ -d "$pkg_dir/../../skills/engram-memory" ]; then
+      skill_source="$pkg_dir/../../skills/engram-memory"
+    fi
+  fi
+
+  # Fallback: download skill from GitHub
+  if [ -z "$skill_source" ] || [ ! -d "$skill_source" ]; then
+    local temp_dir
+    temp_dir="$(mktemp -d)"
+    local skill_url="https://github.com/${DEFAULT_RELEASE_REPOSITORY}/releases/latest/download/engram-memory-skill.tar.gz"
+    if curl -fsSL "$skill_url" -o "$temp_dir/skill.tar.gz" 2>/dev/null; then
+      mkdir -p "$temp_dir/extracted"
+      tar -xzf "$temp_dir/skill.tar.gz" -C "$temp_dir/extracted"
+      skill_source="$temp_dir/extracted/engram-memory"
+    fi
+  fi
+
+  if [ -z "$skill_source" ] || [ ! -d "$skill_source" ]; then
+    warn "Could not locate OpenClaw skill assets. Install manually later."
+    return
+  fi
+
+  local target_dir="$HOME/.openclaw/skills/engram-memory"
+  mkdir -p "$(dirname "$target_dir")"
+  rm -rf "$target_dir"
+  cp -R "$skill_source" "$target_dir"
+  info "Installed OpenClaw skill at $target_dir"
+}
+
+command_install() {
+  local mode="full"
+  local open_browser=1
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mode)
+        mode="${2:-}"
+        shift 2
+        ;;
+      --no-open)
+        open_browser=0
+        shift
+        ;;
+      *)
+        die "Unknown install option: $1"
+        ;;
+    esac
+  done
+
+  case "$mode" in
+    full|openclaw) ;;
+    *) die "Install mode must be full or openclaw." ;;
+  esac
+
+  ensure_supported_os
+  ensure_commands
+  ensure_directories
+  stage_current_bundle
+  install_launcher
+  write_full_env_file "$mode"
+
+  if [ "${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" = "1" ]; then
+    info "Bundle installed into $INSTALL_ROOT"
+    if [ "$mode" = "openclaw" ]; then
+      mkdir -p "$HOME/.openclaw/skills"
+      local target_dir="$HOME/.openclaw/skills/engram-memory"
+      rm -rf "$target_dir"
+      cp -R "$INSTALL_ROOT/current/skills/engram-memory" "$target_dir"
+      info "Installed OpenClaw skill at $target_dir"
+    fi
+    return 0
+  fi
+
+  ensure_docker_ready
+  compose pull
+  compose up -d
+  wait_for_health
+  if [ "$mode" = "openclaw" ]; then
+    install_openclaw_skill
+  fi
+  if [ "$open_browser" = "1" ]; then
+    open_dashboard
+  fi
+
+  info "Engram is running."
+  dim "Dashboard: http://127.0.0.1:${ENGRAM_DASHBOARD_PORT:-3000}"
+  dim "API:       http://127.0.0.1:${ENGRAM_API_PORT:-8100}"
+}
+
+command_start() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    lite_start
+    return
+  fi
+
+  # Full mode
+  [ -f "$FULL_ENV_FILE" ] || die "No install found. Run engramctl setup first."
+  [ -f "$COMPOSE_FILE" ] || die "Current release bundle is missing."
+  load_existing_env "$FULL_ENV_FILE"
+  ensure_docker_ready
+  compose up -d
+  wait_for_health
+  info "Engram started."
+}
+
+command_stop() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    lite_stop
+    return
+  fi
+
+  # Full mode
+  [ -f "$FULL_ENV_FILE" ] || die "No install found."
+  ensure_docker_ready
+  compose stop
+  info "Engram stopped."
+}
+
+command_status() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ -z "$variant" ]; then
+    die "No install found. Run engramctl setup first."
+  fi
+
+  if [ "$variant" = "lite" ]; then
+    lite_status
+    return
+  fi
+
+  # Full mode
+  [ -f "$FULL_ENV_FILE" ] || die "No install found."
+  load_existing_env "$FULL_ENV_FILE"
+  ensure_docker_ready
+  compose ps
+  echo ""
+  if curl -fsS "http://127.0.0.1:${ENGRAM_API_PORT:-8100}/health" 2>/dev/null; then
+    echo ""
+  else
+    warn "Engram API is not responding."
+  fi
+}
+
+command_logs() {
+  local service="${1:-}"
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    lite_logs
+    return
+  fi
+
+  # Full mode
+  [ -f "$FULL_ENV_FILE" ] || die "No install found."
+  ensure_docker_ready
+  if [ -n "$service" ]; then
+    compose logs -f "$service"
+  else
+    compose logs -f
+  fi
+}
+
+command_update() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    info "Updating Engram (lite mode)..."
+    local was_running=0
+    if lite_is_running; then
+      was_running=1
+      lite_stop
+    fi
+
+    # Upgrade via uv tool
+    if command -v uv >/dev/null 2>&1; then
+      uv tool upgrade "engram[local]" 2>/dev/null \
+        || uv tool install --force "git+https://github.com/${DEFAULT_RELEASE_REPOSITORY}.git#subdirectory=server[local]" 2>/dev/null \
+        || warn "Update failed. Try: uv tool install --force 'engram[local]'"
+    else
+      warn "uv not found. Install uv or update manually."
+    fi
+
+    if [ "$was_running" = "1" ]; then
+      lite_start
+    fi
+    info "Engram updated."
+    return
+  fi
+
+  # Full mode (existing logic)
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' RETURN
+  load_existing_env "$FULL_ENV_FILE"
+  local extracted
+  extracted="$(download_bundle "$temp_dir")"
+  ENGRAM_INSTALL_ROOT="$INSTALL_ROOT" \
+  ENGRAM_INSTALL_BIN_DIR="$BIN_DIR" \
+  ENGRAM_INSTALL_SKIP_OPEN="${ENGRAM_INSTALL_SKIP_OPEN:-1}" \
+  ENGRAM_INSTALL_NONINTERACTIVE="${ENGRAM_INSTALL_NONINTERACTIVE:-0}" \
+  ENGRAM_INSTALL_SKIP_RUNTIME="${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" \
+    bash "$extracted/engramctl" install --mode "${ENGRAM_INSTALL_VARIANT:-full}" --no-open
+  info "Engram updated."
+}
+
+command_upgrade() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" != "lite" ]; then
+    die "Upgrade is only available from lite mode. You're already running full mode."
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Upgrading Lite → Full${RESET}"
+  echo ""
+  note "Full mode starts with a fresh FalkorDB/Redis store."
+  note "Your SQLite data is kept at $LITE_DB_FILE for reference"
+  note "but is NOT auto-imported into the full-mode graph."
+  echo ""
+
+  # Stop lite if running
+  if lite_is_running; then
+    info "Stopping lite server..."
+    lite_stop
+  fi
+
+  # Run full mode setup
+  _setup_full
+
+  # Update variant in lite env file so detect_variant returns full
+  if [ -f "$LITE_ENV_FILE" ]; then
+    if grep -q '^ENGRAM_INSTALL_VARIANT=' "$LITE_ENV_FILE" 2>/dev/null; then
+      sed -i.bak 's/^ENGRAM_INSTALL_VARIANT=.*/ENGRAM_INSTALL_VARIANT=full/' "$LITE_ENV_FILE" 2>/dev/null || true
+      rm -f "$LITE_ENV_FILE.bak"
+    else
+      echo "ENGRAM_INSTALL_VARIANT=full" >> "$LITE_ENV_FILE"
+    fi
+  fi
+
+  info "Upgrade complete. Engram is now running in full mode."
+  dim "Dashboard: http://127.0.0.1:${ENGRAM_DASHBOARD_PORT:-3000}"
+  dim "API:       http://127.0.0.1:${ENGRAM_API_PORT:-8100}"
+  dim "SQLite data preserved at $LITE_DB_FILE (not auto-imported)"
+}
+
+command_uninstall() {
+  local purge_data=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --purge-data)
+        purge_data=1
+        shift
+        ;;
+      *)
+        die "Unknown uninstall option: $1"
+        ;;
+    esac
+  done
+
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    # Stop lite server if running
+    if lite_is_running; then
+      lite_stop
+    fi
+
+    rm -f "$BIN_DIR/engramctl"
+
+    # Remove engram uv tool
+    if command -v uv >/dev/null 2>&1; then
+      uv tool uninstall engram 2>/dev/null || true
+    fi
+
+    if [ "$purge_data" = "1" ]; then
+      rm -rf "$ENGRAM_HOME"
+    else
+      rm -f "$LITE_PID_FILE"
+    fi
+
+    info "Engram uninstall complete."
+    if [ "$purge_data" != "1" ]; then
+      note "Preserved data and config under $ENGRAM_HOME"
+    fi
+    return
+  fi
+
+  # Full mode (existing logic)
+  if [ -f "$FULL_ENV_FILE" ] && [ "${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" != "1" ]; then
+    ensure_docker_ready
+    compose down --remove-orphans
+  fi
+
+  rm -f "$BIN_DIR/engramctl"
+  rm -rf "$INSTALL_ROOT/current" "$INSTALL_ROOT/releases"
+  if [ "$purge_data" = "1" ]; then
+    rm -rf "$INSTALL_ROOT/data" "$FULL_ENV_FILE"
+  fi
+
+  info "Engram uninstall complete."
+  if [ "$purge_data" != "1" ]; then
+    note "Preserved data and .env under $INSTALL_ROOT"
+  fi
+}
+
+main() {
+  local cmd="${1:-}"
+  if [ -z "$cmd" ]; then
+    usage
+    exit 1
+  fi
+  shift || true
+
+  case "$cmd" in
+    setup) command_setup "$@" ;;
+    install) command_install "$@" ;;
+    install-openclaw)
+      local variant
+      variant="$(detect_variant)"
+      if [ "$variant" = "lite" ]; then
+        _install_openclaw_skill_lite
+      else
+        install_openclaw_skill
+      fi
+      ;;
+    start) command_start ;;
+    stop) command_stop ;;
+    status) command_status ;;
+    logs) command_logs "$@" ;;
+    update) command_update ;;
+    upgrade) command_upgrade ;;
+    uninstall) command_uninstall "$@" ;;
+    help|-h|--help) usage ;;
+    *) die "Unknown command: $cmd" ;;
+  esac
+}
+
+main "$@"

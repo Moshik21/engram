@@ -53,7 +53,7 @@ def _make_cfg(**overrides) -> ActivationConfig:
 async def test_triage_scores_and_promotes():
     """Top-scoring episodes are promoted, rest are skipped."""
     episodes = [
-        FakeEpisode(id="ep_high", content="Konner works at Anthropic in San Francisco since 2024"),
+        FakeEpisode(id="ep_high", content="Alex works at Anthropic in San Francisco since 2024"),
         FakeEpisode(id="ep_medium", content="Something about Python and testing"),
         FakeEpisode(id="ep_low", content="ok"),
     ]

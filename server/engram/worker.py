@@ -19,18 +19,22 @@ import logging
 import re
 import time
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.extraction.cues import build_episode_cue
 from engram.extraction.discourse import classify_discourse
 from engram.graph_manager import GraphManager
-from engram.models.episode import Episode, EpisodeProjectionState
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
 from engram.retrieval.triage_policy import TriageDecision, apply_episode_utility_policy
+from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from engram.retrieval.triage_scorer import TriageScorer
 
 # Batching window for adjacent auto-captured turns
 _BATCH_WINDOW_SECS = 30
@@ -66,9 +70,9 @@ class EpisodeWorker:
         self._batch_buffer: list[_PendingEpisode] = []
         self._batch_timer: asyncio.Task | None = None
         # Multi-signal scorer (lazy-init, shared with triage phase via same config)
-        self._scorer = None
+        self._scorer: TriageScorer | None = None
 
-    def _get_scorer(self):
+    def _get_scorer(self) -> TriageScorer | None:
         """Lazy-init multi-signal scorer."""
         if self._scorer is None and self._cfg.triage_multi_signal_enabled:
             from engram.retrieval.triage_scorer import get_shared_triage_scorer
@@ -210,7 +214,7 @@ class EpisodeWorker:
             return False
 
         state = getattr(episode, "projection_state", None)
-        if hasattr(state, "value"):
+        if isinstance(state, EpisodeProjectionState):
             state = state.value
 
         if state in {
@@ -531,14 +535,32 @@ class EpisodeWorker:
 
         episode = stored_episode
         if not isinstance(episode, Episode):
+            raw_status = getattr(stored_episode, "status", EpisodeStatus.QUEUED)
+            if not isinstance(raw_status, EpisodeStatus):
+                try:
+                    raw_status = EpisodeStatus(str(raw_status))
+                except ValueError:
+                    raw_status = EpisodeStatus.QUEUED
+
+            raw_projection_state = getattr(
+                stored_episode,
+                "projection_state",
+                EpisodeProjectionState.QUEUED,
+            )
+            if not isinstance(raw_projection_state, EpisodeProjectionState):
+                try:
+                    raw_projection_state = EpisodeProjectionState(str(raw_projection_state))
+                except ValueError:
+                    raw_projection_state = EpisodeProjectionState.QUEUED
+
             episode = Episode(
                 id=getattr(stored_episode, "id", episode_id),
                 content=getattr(stored_episode, "content", ""),
                 source=getattr(stored_episode, "source", None),
-                status=getattr(stored_episode, "status", "queued"),
+                status=raw_status,
                 group_id=getattr(stored_episode, "group_id", group_id),
                 session_id=getattr(stored_episode, "session_id", None),
-                created_at=getattr(stored_episode, "created_at", None),
+                created_at=getattr(stored_episode, "created_at", None) or utc_now(),
                 updated_at=getattr(stored_episode, "updated_at", None),
                 error=getattr(stored_episode, "error", None),
                 retry_count=getattr(stored_episode, "retry_count", 0),
@@ -551,9 +573,7 @@ class EpisodeWorker:
                     stored_episode, "consolidation_cycles", 0,
                 ),
                 entity_coverage=getattr(stored_episode, "entity_coverage", 0.0),
-                projection_state=getattr(
-                    stored_episode, "projection_state", EpisodeProjectionState.QUEUED,
-                ),
+                projection_state=raw_projection_state,
                 last_projection_reason=getattr(
                     stored_episode, "last_projection_reason", None,
                 ),

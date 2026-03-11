@@ -19,7 +19,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
@@ -60,10 +60,10 @@ def _llm_judge_score(content: str, model: str) -> dict:
         response = client.messages.create(
             model=model,
             max_tokens=256,
-            system=TRIAGE_JUDGE_SYSTEM_CACHED,
-            messages=[{"role": "user", "content": content}],
+            system=cast(Any, TRIAGE_JUDGE_SYSTEM_CACHED),
+            messages=cast(Any, [{"role": "user", "content": content}]),
         )
-        text = response.content[0].text.strip()
+        text = _extract_message_text(response.content).strip()
         if text.startswith("```"):
             first_nl = text.index("\n")
             text = text[first_nl + 1:]
@@ -82,12 +82,23 @@ def _llm_judge_score(content: str, model: str) -> dict:
         return {"extract": True, "score": 0.5, "reason": "llm_error_fallback", "tags": []}
 
 
+def _extract_message_text(blocks: object) -> str:
+    if not isinstance(blocks, list):
+        return ""
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return "".join(parts)
+
+
 class TriagePhase(ConsolidationPhase):
     """Phase 0: score QUEUED episodes and promote top-scoring ones for extraction."""
 
     def __init__(self, graph_manager: Any | None = None) -> None:
         self._manager = graph_manager
-        self._scorer = None
+        self._scorer: Any | None = None
 
     def _get_scorer(self, cfg: ActivationConfig):
         """Reuse the shared scorer so calibration state survives across callers."""
@@ -313,11 +324,11 @@ class TriagePhase(ConsolidationPhase):
         for item in scored_episodes:
             ep = item.episode
             judge_meta = llm_metadata.get(ep.id, {})
-            decision = "extract" if ep.id in selected_ids else "skip"
+            decision_label = "extract" if ep.id in selected_ids else "skip"
             decision_source = item.decision.decision_source
             threshold_band = item.decision.threshold_band
             trace = None
-            if decision == "skip" and item.decision.action == "extract":
+            if decision_label == "skip" and item.decision.action == "extract":
                 decision_source = "capacity_policy"
                 threshold_band = "capacity_skip"
 
@@ -332,7 +343,7 @@ class TriagePhase(ConsolidationPhase):
                     group_id=group_id,
                     episode_id=ep.id,
                     score=item.decision.score,
-                    decision=decision,
+                    decision=decision_label,
                     score_breakdown=score_breakdown,
                     llm_reason=judge_meta.get("reason"),
                     llm_tags=judge_meta.get("tags", []),
@@ -342,14 +353,14 @@ class TriagePhase(ConsolidationPhase):
             if context is not None:
                 trace = DecisionTrace(
                     cycle_id=cycle_id,
-                    group_id=group_id,
-                    phase=self.name,
-                    candidate_type="episode",
-                    candidate_id=ep.id,
-                    decision=decision,
-                    decision_source=decision_source,
-                    confidence=item.decision.score,
-                    threshold_band=threshold_band,
+                        group_id=group_id,
+                        phase=self.name,
+                        candidate_type="episode",
+                        candidate_id=ep.id,
+                        decision=decision_label,
+                        decision_source=decision_source,
+                        confidence=item.decision.score,
+                        threshold_band=threshold_band,
                     features=score_breakdown,
                     constraints_hit=list(item.decision.guard_reasons),
                     policy_version="utility_v1",
@@ -357,21 +368,21 @@ class TriagePhase(ConsolidationPhase):
                 context.add_decision_trace(trace)
                 context.add_decision_outcome_label(
                     DecisionOutcomeLabel(
-                        cycle_id=cycle_id,
-                        group_id=group_id,
-                        phase=self.name,
-                        decision_trace_id=trace.id,
-                        outcome_type="routing",
-                        label=decision,
-                        value=item.decision.score,
-                        metadata={"threshold_band": threshold_band},
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            phase=self.name,
+                            decision_trace_id=trace.id,
+                            outcome_type="routing",
+                            label=decision_label,
+                            value=item.decision.score,
+                            metadata={"threshold_band": threshold_band},
+                        )
                     )
-                )
 
             if dry_run:
                 continue
 
-            if decision == "extract" and self._manager:
+            if decision_label == "extract" and self._manager:
                 try:
                     await self._manager.project_episode(ep.id, group_id)
                     promoted += 1
@@ -406,7 +417,7 @@ class TriagePhase(ConsolidationPhase):
                                 metadata={"episode_id": ep.id},
                             )
                         )
-            elif decision == "skip":
+            elif decision_label == "skip":
                 await graph_store.update_episode(
                     ep.id,
                     {

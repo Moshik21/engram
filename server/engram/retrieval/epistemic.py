@@ -868,7 +868,8 @@ def extract_artifact_claims(
             )
             continue
 
-        content_line = _BULLET.match(line).group(1).strip() if _BULLET.match(line) else line
+        bullet_match = _BULLET.match(line)
+        content_line = bullet_match.group(1).strip() if bullet_match else line
         for predicate, value in _profile_claims_for_text(content_line):
             _append(
                 EvidenceClaim(

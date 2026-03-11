@@ -126,3 +126,181 @@ async def test_structural_and_cooccurrence_queries_parse_results():
 
     assert structural == [("a", "b", 4), ("c", "d", 3)]
     assert cooccurrence == 7
+
+
+@pytest.mark.asyncio
+async def test_store_evidence_persists_explicit_status_fields():
+    store = _make_store()
+    store._query = AsyncMock(return_value=_FakeResult([]))
+
+    await store.store_evidence(
+        [
+            {
+                "evidence_id": "evi_1",
+                "episode_id": "ep1",
+                "fact_class": "entity",
+                "confidence": 0.9,
+                "source_type": "client_proposal",
+                "payload": {"name": "Alice", "entity_type": "Person"},
+                "status": "committed",
+                "commit_reason": "committed_on_hot_path",
+                "committed_id": "ent_1",
+            },
+        ],
+        group_id="test",
+        default_status="committed",
+    )
+
+    params = store._query.call_args.args[1]
+    assert params["status"] == "committed"
+    assert params["commit_reason"] == "committed_on_hot_path"
+    assert params["committed_id"] == "ent_1"
+    assert params["resolved_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_pending_evidence_parses_deferred_rows():
+    store = _make_store()
+    store._query = AsyncMock(
+        return_value=_FakeResult(
+            [
+                [
+                    SimpleNamespace(
+                        properties={
+                            "evidence_id": "evi_1",
+                            "episode_id": "ep1",
+                            "group_id": "test",
+                            "fact_class": "entity",
+                            "confidence": 0.65,
+                            "source_type": "narrow_extractor",
+                            "extractor_name": "identity",
+                            "payload_json": '{"name":"Alice","entity_type":"Person"}',
+                            "signals_json": '["proper_name"]',
+                            "status": "deferred",
+                            "deferred_cycles": 2,
+                            "created_at": "2026-03-09T00:00:00",
+                        },
+                    ),
+                ],
+            ],
+        ),
+    )
+
+    pending = await store.get_pending_evidence(group_id="test")
+
+    assert len(pending) == 1
+    assert pending[0]["status"] == "deferred"
+    assert pending[0]["payload"]["name"] == "Alice"
+    query = store._query.call_args.args[0]
+    assert "'approved'" in query
+
+
+@pytest.mark.asyncio
+async def test_get_entity_count_uses_entity_query():
+    store = _make_store()
+    store._query = AsyncMock(return_value=_FakeResult([[5]]))
+
+    count = await store.get_entity_count("test")
+
+    assert count == 5
+
+
+@pytest.mark.asyncio
+async def test_store_evidence_persists_ambiguity_fields():
+    store = _make_store()
+    store._query = AsyncMock(return_value=_FakeResult([]))
+
+    await store.store_evidence(
+        [
+            {
+                "evidence_id": "evi_2",
+                "episode_id": "ep1",
+                "fact_class": "relationship",
+                "confidence": 0.61,
+                "source_type": "narrow_extractor",
+                "payload": {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
+                "ambiguity_tags": ["negation_scope"],
+                "ambiguity_score": 0.66,
+                "adjudication_request_id": "adj_123",
+                "status": "pending",
+                "commit_reason": "needs_adjudication",
+            },
+        ],
+        group_id="test",
+    )
+
+    params = store._query.call_args.args[1]
+    assert params["ambiguity_tags_json"] == '["negation_scope"]'
+    assert params["ambiguity_score"] == 0.66
+    assert params["adjudication_request_id"] == "adj_123"
+
+
+@pytest.mark.asyncio
+async def test_adjudication_request_round_trip_helpers():
+    store = _make_store()
+    store._query = AsyncMock(
+        side_effect=[
+            _FakeResult([]),
+            _FakeResult(
+                [
+                    [
+                        SimpleNamespace(
+                            properties={
+                                "request_id": "adj_123",
+                                "episode_id": "ep1",
+                                "group_id": "test",
+                                "status": "pending",
+                                "ambiguity_tags_json": '["coreference"]',
+                                "evidence_ids_json": '["evi_1"]',
+                                "selected_text": "She reminded me about the dentist.",
+                                "request_reason": "needs_adjudication:coreference",
+                                "attempt_count": 0,
+                                "created_at": "2026-03-09T00:00:00",
+                            },
+                        ),
+                    ],
+                ],
+            ),
+            _FakeResult(
+                [
+                    [
+                        SimpleNamespace(
+                            properties={
+                                "request_id": "adj_123",
+                                "episode_id": "ep1",
+                                "group_id": "test",
+                                "status": "pending",
+                                "ambiguity_tags_json": '["coreference"]',
+                                "evidence_ids_json": '["evi_1"]',
+                                "selected_text": "She reminded me about the dentist.",
+                                "request_reason": "needs_adjudication:coreference",
+                                "attempt_count": 0,
+                                "created_at": "2026-03-09T00:00:00",
+                            },
+                        ),
+                    ],
+                ],
+            ),
+        ],
+    )
+
+    await store.store_adjudication_requests(
+        [
+            {
+                "request_id": "adj_123",
+                "episode_id": "ep1",
+                "ambiguity_tags": ["coreference"],
+                "evidence_ids": ["evi_1"],
+                "selected_text": "She reminded me about the dentist.",
+                "request_reason": "needs_adjudication:coreference",
+                "created_at": "2026-03-09T00:00:00",
+            },
+        ],
+        group_id="test",
+    )
+    pending = await store.get_pending_adjudication_requests(group_id="test")
+    fetched = await store.get_adjudication_request("adj_123", group_id="test")
+
+    assert pending[0]["request_id"] == "adj_123"
+    assert pending[0]["ambiguity_tags"] == ["coreference"]
+    assert fetched["selected_text"] == "She reminded me about the dentist."

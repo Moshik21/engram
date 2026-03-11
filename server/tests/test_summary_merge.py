@@ -242,7 +242,7 @@ class TestRenderTierAttributes:
         """Attributes should appear inline in rendered output."""
         entities = [
             {
-                "name": "Konner",
+                "name": "Alex",
                 "type": "Person",
                 "summary": "Software engineer",
                 "activation": 0.95,

@@ -10,9 +10,11 @@ injects received events into the local EventBus for WebSocket delivery.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 from engram.events.bus import EventBus
 
@@ -20,6 +22,54 @@ logger = logging.getLogger(__name__)
 
 _BRIDGE_ORIGIN = "__redis_bridge__"
 _CHANNEL_PREFIX = "engram:events:"
+
+
+def _redis_url_candidates(url: str) -> list[str]:
+    """Return Redis URLs to try, preferring the caller-provided URL first."""
+    candidates = [url]
+    parsed = urlsplit(url)
+    if parsed.password:
+        return candidates
+    if parsed.hostname not in {None, "localhost", "127.0.0.1"}:
+        return candidates
+    if parsed.port not in {None, 6381}:
+        return candidates
+    password = os.environ.get("ENGRAM_REDIS__PASSWORD", "engram_dev")
+    netloc = parsed.hostname or "localhost"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    if parsed.username:
+        auth_netloc = f"{parsed.username}:{password}@{netloc}"
+    else:
+        auth_netloc = f":{password}@{netloc}"
+    fallback = urlunsplit(
+        (parsed.scheme, auth_netloc, parsed.path, parsed.query, parsed.fragment),
+    )
+    if fallback not in candidates:
+        candidates.append(fallback)
+    return candidates
+
+
+async def _connect_redis(url: str):
+    """Create a Redis client, retrying localhost defaults with auth when needed."""
+    import redis.asyncio as aioredis
+
+    last_error: Exception | None = None
+    for candidate in _redis_url_candidates(url):
+        client = aioredis.from_url(candidate, decode_responses=True)
+        try:
+            ping_result = client.ping()
+            if inspect.isawaitable(ping_result):
+                await ping_result
+            return client
+        except Exception as exc:
+            last_error = exc
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+    assert last_error is not None
+    raise last_error
 
 
 class RedisEventPublisher:
@@ -132,10 +182,7 @@ async def create_publisher(
     """Create a RedisEventPublisher, returning None if Redis is unavailable."""
     url = redis_url or os.environ.get("ENGRAM_REDIS__URL", "redis://localhost:6381/0")
     try:
-        import redis.asyncio as aioredis
-
-        client = aioredis.from_url(url, decode_responses=True)
-        await client.ping()
+        client = await _connect_redis(url)
         logger.info("Redis event publisher connected")
         return RedisEventPublisher(client, group_id)
     except Exception:
@@ -149,10 +196,7 @@ async def create_subscriber(
     """Create a RedisEventSubscriber, returning None if Redis is unavailable."""
     url = redis_url or os.environ.get("ENGRAM_REDIS__URL", "redis://localhost:6381/0")
     try:
-        import redis.asyncio as aioredis
-
-        client = aioredis.from_url(url, decode_responses=True)
-        await client.ping()
+        client = await _connect_redis(url)
         logger.info("Redis event subscriber connected")
         return RedisEventSubscriber(client, group_id, event_bus)
     except Exception:

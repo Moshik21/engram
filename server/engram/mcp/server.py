@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -14,15 +15,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
 
 from engram.config import ActivationConfig, EngramConfig
 from engram.events.bus import get_event_bus
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.retrieval.context import ConversationFingerprinter
+from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.graph_probe import GraphProbe
 from engram.retrieval.need import analyze_memory_need
@@ -31,6 +34,23 @@ from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
+
+
+async def _resolve_recall_need_thresholds(manager: GraphManager) -> RecallNeedThresholds:
+    """Support sync and async threshold providers."""
+    thresholds = cast(Any, manager).get_recall_need_thresholds(_group_id)
+    if inspect.isawaitable(thresholds):
+        thresholds = await thresholds
+    if isinstance(thresholds, RecallNeedThresholds):
+        return thresholds
+    return RecallNeedThresholds()
+
+
+async def _record_memory_need_analysis(manager: GraphManager, need: object) -> None:
+    """Support sync and async analysis recorders."""
+    result = cast(Any, manager).record_memory_need_analysis(_group_id, need)
+    if inspect.isawaitable(result):
+        await result
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
@@ -109,13 +129,13 @@ async def _init() -> None:
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    if hasattr(search_index, "initialize"):
-        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await search_index.initialize(db=graph_store._db)
-        else:
-            await search_index.initialize()
+    search_initializer = cast(Any, search_index).initialize
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await search_initializer(db=graph_store._db)
+    else:
+        await search_initializer()
 
-    extractor = EntityExtractor()
+    extractor = create_extractor(config)
     event_bus = get_event_bus()
     _manager = GraphManager(
         graph_store, activation_store, search_index, extractor,
@@ -256,9 +276,9 @@ async def _auto_recall(
             group_id=_group_id,
             conv_context=conv_context,
             cfg=cfg,
-            thresholds=manager.get_recall_need_thresholds(_group_id),
+            thresholds=await _resolve_recall_need_thresholds(manager),
         )
-        manager.record_memory_need_analysis(_group_id, need)
+        await _record_memory_need_analysis(manager, need)
         if cfg.recall_telemetry_enabled:
             publish_memory_need_analysis(
                 get_event_bus(),
@@ -409,7 +429,7 @@ async def _session_prime(
             group_id=_group_id,
             max_tokens=cfg.auto_recall_session_prime_max_tokens,
             topic_hint=topic,
-            format="briefing",
+            format="structured",
         )
         return result
     except Exception:
@@ -417,16 +437,39 @@ async def _session_prime(
         return None
 
 
+async def _get_episode_adjudications(manager, episode_id: str, group_id: str) -> list[dict]:
+    """Return episode adjudication work items when available."""
+    getter = getattr(manager, "get_episode_adjudications", None)
+    if getter is None:
+        return []
+    result = getter(episode_id, group_id)
+    if inspect.isawaitable(result):
+        result = await result
+    return result if isinstance(result, list) else []
+
+
 # ─── Tools ──────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-async def remember(content: str, source: str = "mcp") -> str:
+async def remember(
+    content: str,
+    source: str = "mcp",
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
+    model_tier: str = "default",
+) -> str:
     """Store a memory. Extracts entities and relationships from the text.
 
     Args:
         content: The text to remember (conversation excerpt, fact, note, etc.)
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+        proposed_entities: Optional client-proposed entities
+            [{"name": ..., "entity_type": ...}]
+        proposed_relationships: Optional client-proposed relationships
+            [{"subject": ..., "predicate": ..., "object": ...}]
+        model_tier: The calling model tier (opus/sonnet/haiku/default)
+            for confidence scoring
 
     Returns:
         JSON with status, episode_id, and message.
@@ -439,6 +482,9 @@ async def remember(content: str, source: str = "mcp") -> str:
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
+        model_tier=model_tier,
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
@@ -449,6 +495,19 @@ async def remember(content: str, source: str = "mcp") -> str:
         "episode_id": episode_id,
         "message": "Memory received. Entities and relationships extracted.",
     }
+    # Add remember_outcome for v2 pipeline
+    if cfg and cfg.evidence_extraction_enabled:
+        response["message"] = (
+            "Memory received. Evidence extracted and evaluated."
+        )
+        if cfg.edge_adjudication_client_enabled:
+            adjudications = await _get_episode_adjudications(
+                manager,
+                episode_id,
+                _group_id,
+            )
+            if adjudications:
+                response["adjudication_requests"] = adjudications
     if cfg and cfg.auto_recall_on_remember:
         prime = await _session_prime(content, manager, cfg)
         if prime:
@@ -471,6 +530,50 @@ async def remember(content: str, source: str = "mcp") -> str:
         ]
         manager._triggered_intentions = []
     return json.dumps(response)
+
+
+@mcp.tool()
+async def adjudicate_evidence(
+    request_id: str,
+    entities: list[dict] | None = None,
+    relationships: list[dict] | None = None,
+    reject_evidence_ids: list[str] | None = None,
+    model_tier: str = "default",
+    rationale: str | None = None,
+) -> str:
+    """Resolve a structured edge-adjudication work item.
+
+    Args:
+        request_id: The adjudication request returned by remember()
+        entities: Optional adjudicated entity proposals
+        relationships: Optional adjudicated relationship proposals
+        reject_evidence_ids: Optional evidence rows to explicitly reject
+        model_tier: The calling model tier (opus/sonnet/haiku/default)
+        rationale: Optional short rationale for provenance
+
+    Returns:
+        JSON with request status and committed IDs.
+    """
+    manager = _get_manager()
+    outcome = await manager.submit_adjudication_resolution(
+        request_id,
+        entities=entities,
+        relationships=relationships,
+        reject_evidence_ids=reject_evidence_ids,
+        source="client_adjudication",
+        model_tier=model_tier,
+        rationale=rationale,
+        group_id=_group_id,
+    )
+    return json.dumps(
+        {
+            "status": outcome.status,
+            "request_id": outcome.request_id,
+            "committed_ids": outcome.committed_ids,
+            "superseded_evidence_ids": outcome.superseded_evidence_ids,
+            "replacement_evidence_ids": outcome.replacement_evidence_ids,
+        },
+    )
 
 
 @mcp.tool()
@@ -612,7 +715,7 @@ async def recall(query: str, limit: int = 5) -> str:
             query,
             mode="explicit_recall",
             cfg=cfg,
-            thresholds=manager.get_recall_need_thresholds(_group_id),
+            thresholds=await _resolve_recall_need_thresholds(manager),
         )
         packets = [
             packet.to_dict()
@@ -642,7 +745,12 @@ async def recall(query: str, limit: int = 5) -> str:
 
     # Surface surprise connections (Wave 3)
     if hasattr(manager, '_surprise_cache') and manager._surprise_cache is not None:
-        surprises = manager._surprise_cache.get(_group_id, time.time())
+        surprise_cache = getattr(manager, "_surprise_cache", None)
+        surprises = (
+            surprise_cache.get(_group_id, time.time())
+            if surprise_cache is not None and hasattr(surprise_cache, "get")
+            else None
+        )
         if surprises:
             response_dict["surprise_connections"] = [
                 {
@@ -751,6 +859,7 @@ async def forget(
     if entity_name:
         result = await manager.forget_entity(entity_name, _group_id, reason=reason)
     else:
+        assert fact is not None
         result = await manager.forget_fact(
             subject_name=fact["subject"],
             predicate=fact["predicate"],
@@ -1331,16 +1440,38 @@ def engram_context_loader(topic: str | None = None) -> str:
 # ─── Entry point ────────────────────────────────────────────────────
 
 
-def main() -> None:
-    """Entry point for MCP stdio server."""
+def main(
+    transport: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+) -> None:
+    """Entry point for MCP server (stdio or streamable-http)."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         stream=sys.stderr,
     )
 
-    transport = os.environ.get("ENGRAM_TRANSPORT", "stdio")
-    mcp.run(transport=transport)
+    transport_name = transport or os.environ.get("ENGRAM_TRANSPORT", "stdio")
+    if transport_name not in {"stdio", "sse", "streamable-http"}:
+        raise ValueError(f"Unsupported transport: {transport_name}")
+    transport_literal = cast(
+        Literal["stdio", "sse", "streamable-http"],
+        transport_name,
+    )
+
+    if transport_literal in ("streamable-http", "sse"):
+        mcp.settings.host = host or os.environ.get("ENGRAM_MCP_HOST", "127.0.0.1")
+        mcp.settings.port = int(port or os.environ.get("ENGRAM_MCP_PORT", "8200"))
+        mcp.settings.stateless_http = True
+        logger.info(
+            "Starting MCP %s server at http://%s:%s/mcp",
+            transport_literal,
+            mcp.settings.host,
+            mcp.settings.port,
+        )
+
+    mcp.run(transport=transport_literal)
 
 
 if __name__ == "__main__":

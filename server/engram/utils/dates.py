@@ -6,7 +6,7 @@ keep that behavior stable while avoiding deprecated ``datetime.utcnow()`` APIs.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def utc_now() -> datetime:
@@ -17,7 +17,7 @@ def utc_now() -> datetime:
     warning cleanup does not silently change on-disk timestamp formats.
     """
 
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def utc_now_iso() -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -160,7 +160,10 @@ class GNNTrainer(GraphEmbeddingTrainer):
                         if neighbors:
                             h_neigh[node] = h[neighbors].mean(dim=0)
 
-                    h = functional.relu(layer["self_lin"](h) + layer["neigh_lin"](h_neigh))
+                    layer_dict = cast(Any, layer)
+                    self_lin = layer_dict["self_lin"]
+                    neigh_lin = layer_dict["neigh_lin"]
+                    h = functional.relu(self_lin(h) + neigh_lin(h_neigh))
                     h = functional.normalize(h, p=2, dim=-1)
                 return h
 
@@ -206,11 +209,14 @@ class GNNTrainer(GraphEmbeddingTrainer):
         # Extract weights for numpy inference
         saved_weights: dict[str, np.ndarray] = {}
         for i, layer in enumerate(model.layers):
+            layer_dict = cast(Any, layer)
+            self_lin = layer_dict["self_lin"]
+            neigh_lin = layer_dict["neigh_lin"]
             saved_weights[f"layer_{i}_self_weight"] = (
-                layer["self_lin"].weight.detach().numpy().T
+                self_lin.weight.detach().numpy().T
             )
             saved_weights[f"layer_{i}_neigh_weight"] = (
-                layer["neigh_lin"].weight.detach().numpy().T
+                neigh_lin.weight.detach().numpy().T
             )
 
         return final_emb, saved_weights

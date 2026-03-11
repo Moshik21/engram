@@ -11,9 +11,23 @@ export function NodeDetailPanel() {
   const activeRegionId = useEngramStore((s) => s.activeRegionId);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
   const expandNode = useEngramStore((s) => s.expandNode);
+  const pushEntityHistory = useEngramStore((s) => s.pushEntityHistory);
+  const entityGoBack = useEngramStore((s) => s.entityGoBack);
+  const entityGoForward = useEngramStore((s) => s.entityGoForward);
+  const canGoBack = useEngramStore((s) => s.canEntityGoBack);
+  const canGoForward = useEngramStore((s) => s.canEntityGoForward);
+  const isNavigatingHistory = useEngramStore((s) => s.isNavigatingHistory);
 
   const [cachedDetail, setDetail] = useState<EntityDetail | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  // Push to entity history when selectedNodeId changes (unless navigating)
+  useEffect(() => {
+    if (selectedNodeId && !isNavigatingHistory) {
+      pushEntityHistory(selectedNodeId);
+    }
+  }, [selectedNodeId, isNavigatingHistory, pushEntityHistory]);
 
   useEffect(() => {
     if (!selectedNodeId) {
@@ -37,7 +51,7 @@ export function NodeDetailPanel() {
     return () => {
       cancelled = true;
     };
-  }, [selectedNodeId]);
+  }, [selectedNodeId, retryKey]);
 
   const detail = cachedDetail?.id === selectedNodeId ? cachedDetail : null;
   const loading = Boolean(selectedNodeId) && detail === null && failedId !== selectedNodeId;
@@ -49,6 +63,20 @@ export function NodeDetailPanel() {
     },
     [activeRegionId, loadNeighborhood, selectNode]
   );
+
+  const handleBack = useCallback(() => {
+    const nodeId = entityGoBack();
+    if (nodeId) {
+      void loadNeighborhood(nodeId, undefined, { regionId: activeRegionId });
+    }
+  }, [entityGoBack, loadNeighborhood, activeRegionId]);
+
+  const handleForward = useCallback(() => {
+    const nodeId = entityGoForward();
+    if (nodeId) {
+      void loadNeighborhood(nodeId, undefined, { regionId: activeRegionId });
+    }
+  }, [entityGoForward, loadNeighborhood, activeRegionId]);
 
   if (!selectedNodeId) return null;
 
@@ -92,6 +120,19 @@ export function NodeDetailPanel() {
             background: `linear-gradient(90deg, transparent, ${typeColor}40, transparent)`,
           }}
         />
+        {/* Back/Forward buttons */}
+        <div style={{ display: "flex", gap: 2, marginRight: 6, marginTop: 2 }}>
+          <NavArrowButton
+            direction="back"
+            disabled={!canGoBack()}
+            onClick={handleBack}
+          />
+          <NavArrowButton
+            direction="forward"
+            disabled={!canGoForward()}
+            onClick={handleForward}
+          />
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2
             className="display"
@@ -162,6 +203,65 @@ export function NodeDetailPanel() {
           }}
         >
           <div className="skeleton" style={{ width: 100, height: 14 }} />
+        </div>
+      )}
+
+      {/* Error state */}
+      {failedId === selectedNodeId && (
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: 20,
+          }}
+        >
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+            Failed to load entity
+          </div>
+          <div
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted)",
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {selectedNodeId}
+          </div>
+          <button
+            onClick={() => {
+              setFailedId(null);
+              setRetryKey((k) => k + 1);
+            }}
+            style={{
+              padding: "5px 14px",
+              borderRadius: "var(--radius-sm)",
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--accent)",
+              fontFamily: "var(--font-body)",
+              fontSize: 12,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-hover)";
+              e.currentTarget.style.background = "rgba(34, 211, 238, 0.06)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -440,5 +540,44 @@ export function NodeDetailPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+function NavArrowButton({
+  direction,
+  disabled,
+  onClick,
+}: {
+  direction: "back" | "forward";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const arrow = direction === "back" ? "\u2190" : "\u2192";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={direction === "back" ? "Go back" : "Go forward"}
+      style={{
+        background: "none",
+        border: "none",
+        color: disabled ? "var(--text-ghost)" : "var(--text-secondary)",
+        cursor: disabled ? "default" : "pointer",
+        fontSize: 14,
+        lineHeight: 1,
+        padding: "2px 4px",
+        borderRadius: "var(--radius-xs)",
+        transition: "color 0.15s",
+        opacity: disabled ? 0.4 : 1,
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.color = "var(--text-primary)";
+      }}
+      onMouseLeave={(e) => {
+        if (!disabled) e.currentTarget.style.color = "var(--text-secondary)";
+      }}
+    >
+      {arrow}
+    </button>
   );
 }

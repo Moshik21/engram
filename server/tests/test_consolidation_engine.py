@@ -62,13 +62,14 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 12
+        assert len(cycle.phase_results) == 15
         assert cycle.total_duration_ms > 0
         phase_names = [pr.phase for pr in cycle.phase_results]
         assert phase_names == [
-            "triage", "merge", "infer", "replay", "prune",
-            "compact", "mature", "semanticize", "schema",
-            "reindex", "graph_embed", "dream",
+            "triage", "merge", "infer", "evidence_adjudication",
+            "edge_adjudication",
+            "replay", "prune", "compact", "mature", "semanticize",
+            "schema", "reindex", "graph_embed", "microglia", "dream",
         ]
 
     @pytest.mark.asyncio
@@ -86,9 +87,10 @@ class TestConsolidationEngine:
 
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
-            "triage", "merge", "infer", "replay", "prune",
-            "compact", "mature", "semanticize", "schema",
-            "reindex", "graph_embed", "dream",
+            "triage", "merge", "infer", "evidence_adjudication",
+            "edge_adjudication",
+            "replay", "prune", "compact", "mature", "semanticize",
+            "schema", "reindex", "graph_embed", "microglia", "dream",
         ]
 
     @pytest.mark.asyncio
@@ -140,7 +142,7 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 12
+        assert len(cycle.phase_results) == 15
         assert cycle.phase_results[0].status == "error"
         assert "Simulated merge failure" in cycle.phase_results[0].error
         # Other phases should succeed or be skipped (dream is disabled by default)
@@ -179,7 +181,7 @@ class TestConsolidationEngine:
         fetched = await consol_store.get_cycle(cycle.id, "test")
         assert fetched is not None
         assert fetched.status == "completed"
-        assert len(fetched.phase_results) == 12
+        assert len(fetched.phase_results) == 15
 
     @pytest.mark.asyncio
     async def test_is_running_property(self, engine):

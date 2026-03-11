@@ -34,12 +34,12 @@ class TestTemporalContradictionPipeline:
         extractor.add_result(
             ExtractionResult(
                 entities=[
-                    {"name": "Konner", "entity_type": "Person", "summary": "Lives in Mesa"},
+                    {"name": "Alex", "entity_type": "Person", "summary": "Lives in Mesa"},
                     {"name": "Mesa", "entity_type": "Location", "summary": "City in Arizona"},
                 ],
                 relationships=[
                     {
-                        "source": "Konner",
+                        "source": "Alex",
                         "target": "Mesa",
                         "predicate": "LIVES_IN",
                         "weight": 1.0,
@@ -52,12 +52,12 @@ class TestTemporalContradictionPipeline:
         extractor.add_result(
             ExtractionResult(
                 entities=[
-                    {"name": "Konner", "entity_type": "Person", "summary": "Moved to Denver"},
+                    {"name": "Alex", "entity_type": "Person", "summary": "Moved to Denver"},
                     {"name": "Denver", "entity_type": "Location", "summary": "City in Colorado"},
                 ],
                 relationships=[
                     {
-                        "source": "Konner",
+                        "source": "Alex",
                         "target": "Denver",
                         "predicate": "LIVES_IN",
                         "weight": 1.0,
@@ -72,14 +72,14 @@ class TestTemporalContradictionPipeline:
         await manager.ingest_episode("lives in Mesa", group_id="default")
         await manager.ingest_episode("moved to Denver", group_id="default")
 
-        # Find Konner's entity
-        entities = await graph_store.find_entities(name="Konner", group_id="default")
+        # Find Alex's entity
+        entities = await graph_store.find_entities(name="Alex", group_id="default")
         assert len(entities) == 1
-        konner_id = entities[0].id
+        alex_id = entities[0].id
 
         # Check LOCATED_IN relationships (LIVES_IN canonicalized to LOCATED_IN)
         all_rels = await graph_store.get_relationships(
-            konner_id, direction="outgoing", predicate="LOCATED_IN", active_only=False
+            alex_id, direction="outgoing", predicate="LOCATED_IN", active_only=False
         )
         active_rels = [r for r in all_rels if r.valid_to is None]
         invalidated_rels = [r for r in all_rels if r.valid_to is not None]

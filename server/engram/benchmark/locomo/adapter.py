@@ -1,4 +1,8 @@
-"""LoCoMo dataset adapter: loads JSON, converts to Engram episodes and probes."""
+"""LoCoMo dataset adapter: loads JSON, converts to Engram episodes and probes.
+
+Based on the LoCoMo benchmark dataset.
+Reference: https://github.com/snap-stanford/LoCoMo
+"""
 
 from __future__ import annotations
 
@@ -6,8 +10,9 @@ import json
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
-from engram.models.episode import Episode
+from engram.models.episode import Episode, EpisodeStatus
 
 
 @dataclass
@@ -55,32 +60,44 @@ def load_locomo_dataset(
         else:
             raw = list(raw.values())
 
-    conversations = []
+    conversations: list[LoCoMoConversation] = []
+    if not isinstance(raw, list):
+        return conversations
+
     for i, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
         if max_conversations and len(conversations) >= max_conversations:
             break
 
         conv_id = entry.get("conversation_id", entry.get("id", f"conv_{i}"))
+        conv_id = str(conv_id)
 
         # Extract turns
         turns = entry.get(
             "conversation",
             entry.get("turns", entry.get("dialogue", [])),
         )
+        if not isinstance(turns, list):
+            turns = []
 
         # Extract probes
         raw_probes = entry.get(
             "questions",
             entry.get("probes", entry.get("memory_probes", [])),
         )
-        probes = []
+        if not isinstance(raw_probes, list):
+            raw_probes = []
+        probes: list[LoCoMoProbe] = []
         for j, p in enumerate(raw_probes):
+            if not isinstance(p, dict):
+                continue
             probes.append(
                 LoCoMoProbe(
                     probe_id=p.get("id", f"{conv_id}_q{j}"),
-                    question=p.get("question", p.get("query", "")),
-                    answer=p.get("answer", p.get("ground_truth", "")),
-                    category=p.get("category", p.get("type", "")),
+                    question=str(p.get("question", p.get("query", ""))),
+                    answer=str(p.get("answer", p.get("ground_truth", ""))),
+                    category=str(p.get("category", p.get("type", ""))),
                 )
             )
 
@@ -102,6 +119,9 @@ def conversation_to_episodes(
     """Convert a LoCoMo conversation into Engram episodes (one per turn)."""
     episodes = []
     for i, turn in enumerate(conversation.turns):
+        if not isinstance(turn, dict):
+            turn = cast(dict[str, Any], {"content": str(turn)})
+
         # Extract text content from various LoCoMo formats
         text = turn.get("text") or turn.get("content") or turn.get("utterance") or str(turn)
 
@@ -114,7 +134,7 @@ def conversation_to_episodes(
             id=str(uuid.uuid4()),
             content=text,
             source=f"locomo:{conversation.conversation_id}",
-            status="completed",
+            status=EpisodeStatus.COMPLETED,
             group_id=group_id,
         )
         episodes.append(ep)

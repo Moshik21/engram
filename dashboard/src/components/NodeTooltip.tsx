@@ -115,6 +115,17 @@ export function NodeTooltip() {
             {formatRelativeTime(node.lastAccessed)}
           </span>
         </div>
+        <div
+          className="mono"
+          style={{
+            marginTop: 6,
+            fontSize: 9,
+            color: "var(--text-ghost)",
+            textAlign: "center",
+          }}
+        >
+          Right-click to expand &middot; E
+        </div>
       </div>
     </div>
   );

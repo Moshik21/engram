@@ -95,7 +95,7 @@ curl -sSL https://engram.run/install | bash
 
 Or manually:
 ```
-git clone https://github.com/Moshik21/engram.git
+git clone https://github.com/engram-labs/engram.git
 cd engram/server && uv sync
 uv run engram setup
 ```
@@ -182,7 +182,7 @@ Engram's architecture draws from established cognitive science:
 
 ## Links
 
-- [GitHub Repository](https://github.com/Moshik21/engram)
+- [GitHub Repository](https://github.com/engram-labs/engram)
 - [Documentation](https://engram.run/docs)
 - [Science & Architecture](https://engram.run/science)
 - [Vision — One Brain Per Person](https://engram.run/vision)

@@ -11,6 +11,7 @@ from engram.benchmark.showcase.models import (
     ScenarioProbe,
     ScenarioTurn,
     ShowcaseScenario,
+    TurnAction,
 )
 
 _QUICK_SCENARIOS = {
@@ -79,7 +80,7 @@ def _ambient_turns(
     seed: int,
     *,
     start_index: int,
-    action: str = "observe",
+    action: TurnAction = "observe",
 ) -> list[ScenarioTurn]:
     rng = random.Random((seed + 1) * (count + 17) + start_index)
     topics = [
@@ -889,11 +890,11 @@ def _meta_contamination_resistance(seed: int) -> ShowcaseScenario:
         ScenarioTurn(
             id="konner_style",
             action="remember",
-            content="Konner prefers concise writeups.",
+            content="Alex prefers concise writeups.",
             extraction=ExtractionSpec(
                 entities=[
                     _entity(
-                        "Konner",
+                        "Alex",
                         "Person",
                         summary="Primary user profile.",
                         attributes={"writing_style": "concise writeups"},
@@ -905,14 +906,14 @@ def _meta_contamination_resistance(seed: int) -> ShowcaseScenario:
         ScenarioTurn(
             id="konner_debug_noise",
             action="observe",
-            content="DEBUG ONLY: Konner activation score 0.91, pipeline=green, entity id ent_123.",
+            content="DEBUG ONLY: Alex activation score 0.91, pipeline=green, entity id ent_123.",
             source="showcase:meta",
         ),
         ScenarioTurn(
             id="konner_summary_noise",
             action="observe",
             content=(
-                "Assistant scratchpad: maybe Konner likes"
+                "Assistant scratchpad: maybe Alex likes"
                 " long-form status narratives? confidence=0.12"
             ),
             source="showcase:meta",
@@ -924,7 +925,7 @@ def _meta_contamination_resistance(seed: int) -> ShowcaseScenario:
             id="meta_probe",
             after_turn_index=2,
             operation="get_context",
-            topic_hint="Konner",
+            topic_hint="Alex",
             limit=budget.retrieval_limit,
             max_tokens=budget.evidence_max_tokens,
             required_evidence=["writing_style: concise writeups"],
@@ -935,7 +936,7 @@ def _meta_contamination_resistance(seed: int) -> ShowcaseScenario:
         )
     ]
     answer_task = _answer_task(
-        "Return Konner's writing style preference as JSON.",
+        "Return Alex's writing style preference as JSON.",
         {"writing_style": "concise writeups"},
     )
     return ShowcaseScenario(

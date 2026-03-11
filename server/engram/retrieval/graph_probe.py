@@ -33,6 +33,21 @@ _RELATIONAL_PREDICATES = {
 }
 
 
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+
 @dataclass
 class ProbeResult:
     """Output from the graph resonance probe."""
@@ -155,7 +170,7 @@ class GraphProbe:
         entity_scores: dict[str, float] = {}
 
         for entity_id in ranked_ids:
-            entity = entity_lookup.get(entity_id)
+            entity_match = entity_lookup.get(entity_id)
             rels = []
             try:
                 rels = await self._graph_store.get_relationships(
@@ -169,7 +184,7 @@ class GraphProbe:
                 base_match=candidate_scores.get(entity_id, 0.0),
                 relation_count=len(rels),
                 activation_state=activations.get(entity_id),
-                identity_core=bool(getattr(entity, "identity_core", False)),
+                identity_core=bool(getattr(entity_match, "identity_core", False)),
             )
 
         detected_entities = [
@@ -197,10 +212,10 @@ class GraphProbe:
         except Exception:
             return
         version = (
-            int(stats.get("entity_count", stats.get("entities", 0)))
+            _coerce_int(stats.get("entity_count", stats.get("entities", 0)))
             if isinstance(stats, dict)
             else 0,
-            int(stats.get("relationship_count", stats.get("relationships", 0)))
+            _coerce_int(stats.get("relationship_count", stats.get("relationships", 0)))
             if isinstance(stats, dict)
             else 0,
         )

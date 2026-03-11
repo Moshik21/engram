@@ -33,7 +33,7 @@ async def test_apply_engine_creates_and_links_entities():
     )
     episode = Episode(
         id="ep_apply",
-        content="Konner moved to Phoenix.",
+        content="Alex moved to Phoenix.",
         group_id="default",
     )
 
@@ -77,17 +77,17 @@ async def test_apply_engine_creates_relationships_from_claims():
     results = await engine.apply_relationships(
         [
             ClaimCandidate(
-                subject_text="Konner",
+                subject_text="Alex",
                 object_text="Phoenix",
                 predicate="lives in",
                 raw_payload={
-                    "source": "Konner",
+                    "source": "Alex",
                     "target": "Phoenix",
                     "predicate": "lives in",
                 },
             )
         ],
-        entity_map={"Konner": "ent_konner", "Phoenix": "ent_phoenix"},
+        entity_map={"Alex": "ent_alex", "Phoenix": "ent_phoenix"},
         meta_entity_names=set(),
         group_id="default",
         source_episode="ep_apply",

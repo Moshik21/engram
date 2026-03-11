@@ -236,3 +236,64 @@ CREATE TABLE IF NOT EXISTS schema_members (
     group_id         TEXT NOT NULL DEFAULT 'default',
     PRIMARY KEY (schema_entity_id, role_label, group_id)
 );
+
+-- Evidence-based extraction (v2)
+CREATE TABLE IF NOT EXISTS episode_evidence (
+    evidence_id     TEXT PRIMARY KEY,
+    episode_id      TEXT NOT NULL REFERENCES episodes(id),
+    group_id        TEXT NOT NULL DEFAULT 'default',
+    fact_class      TEXT NOT NULL,
+    confidence      REAL NOT NULL DEFAULT 0.0,
+    source_type     TEXT NOT NULL,
+    extractor_name  TEXT NOT NULL DEFAULT '',
+    payload_json    TEXT NOT NULL DEFAULT '{}',
+    source_span     TEXT,
+    signals_json    TEXT NOT NULL DEFAULT '[]',
+    ambiguity_tags_json TEXT NOT NULL DEFAULT '[]',
+    ambiguity_score REAL NOT NULL DEFAULT 0.0,
+    adjudication_request_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    commit_reason   TEXT,
+    committed_id    TEXT,
+    deferred_cycles INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    resolved_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_episode ON episode_evidence(episode_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_status ON episode_evidence(status);
+CREATE INDEX IF NOT EXISTS idx_evidence_adjudication_request ON episode_evidence(adjudication_request_id);
+
+CREATE TABLE IF NOT EXISTS episode_adjudications (
+    request_id       TEXT PRIMARY KEY,
+    episode_id       TEXT NOT NULL REFERENCES episodes(id),
+    group_id         TEXT NOT NULL DEFAULT 'default',
+    status           TEXT NOT NULL DEFAULT 'pending',
+    ambiguity_tags_json TEXT NOT NULL DEFAULT '[]',
+    evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+    selected_text    TEXT NOT NULL DEFAULT '',
+    request_reason   TEXT NOT NULL DEFAULT '',
+    resolution_source TEXT,
+    resolution_payload_json TEXT,
+    attempt_count    INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL,
+    resolved_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_episode_adjudications_episode ON episode_adjudications(episode_id);
+CREATE INDEX IF NOT EXISTS idx_episode_adjudications_status ON episode_adjudications(status);
+
+-- Complement tags (Microglia phase — graph immune surveillance)
+CREATE TABLE IF NOT EXISTS complement_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL CHECK(target_type IN ('edge', 'entity')),
+    target_id TEXT NOT NULL,
+    tag_type TEXT NOT NULL,
+    score REAL NOT NULL,
+    cycle_tagged INTEGER NOT NULL,
+    cycle_confirmed INTEGER,
+    cleared INTEGER NOT NULL DEFAULT 0,
+    group_id TEXT NOT NULL DEFAULT 'default',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(target_id, tag_type)
+);
+CREATE INDEX IF NOT EXISTS idx_complement_tags_target ON complement_tags(target_id, cleared);

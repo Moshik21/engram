@@ -20,12 +20,16 @@ import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import cast
+
+import aiosqlite
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeStatus
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
+from engram.storage.sqlite.hybrid_search import HybridSearchIndex
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -1416,7 +1420,7 @@ class CorpusGenerator:
             await self._bulk_load_sqlite(
                 corpus,
                 graph_store,
-                db,
+                cast(aiosqlite.Connection, db),
                 search_index,
                 structure_aware,
                 cfg,
@@ -1447,7 +1451,7 @@ class CorpusGenerator:
         self,
         corpus: CorpusSpec,
         graph_store: GraphStore,
-        db: object,
+        db: aiosqlite.Connection,
         search_index: SearchIndex,
         structure_aware: bool,
         cfg: ActivationConfig,
@@ -1554,13 +1558,7 @@ class CorpusGenerator:
         # 5. Index entities and episodes in search index
         # For FTS5: index_entity/index_episode are no-ops (triggers handle it)
         # For HybridSearchIndex: bulk-embed and batch-upsert vectors
-        has_vectors = (
-            hasattr(search_index, "_embeddings_enabled")
-            and search_index._embeddings_enabled
-            and hasattr(search_index, "_vectors")
-            and hasattr(search_index, "_provider")
-        )
-        if has_vectors:
+        if isinstance(search_index, HybridSearchIndex) and search_index._embeddings_enabled:
             await self._bulk_embed(corpus, search_index, structure_aware, cfg)
         else:
             # FTS5 no-ops, just call in case of custom SearchIndex
@@ -1586,14 +1584,13 @@ class CorpusGenerator:
         for rel in corpus.relationships:
             await graph_store.create_relationship(rel)
 
-        if structure_aware and hasattr(search_index, "_embeddings_enabled"):
-            if search_index._embeddings_enabled:
-                await self._reindex_structure_aware(
-                    corpus,
-                    search_index,
-                    entity_map,
-                    cfg,
-                )
+        if structure_aware and getattr(search_index, "_embeddings_enabled", False):
+            await self._reindex_structure_aware(
+                corpus,
+                search_index,
+                entity_map,
+                cfg,
+            )
 
         for episode in corpus.episodes:
             await graph_store.create_episode(episode)
@@ -1605,7 +1602,7 @@ class CorpusGenerator:
     async def _bulk_embed(
         self,
         corpus: CorpusSpec,
-        search_index: SearchIndex,
+        search_index: HybridSearchIndex,
         structure_aware: bool,
         cfg: ActivationConfig,
     ) -> None:
@@ -1642,7 +1639,7 @@ class CorpusGenerator:
         if text_list:
             all_embeddings = await provider.embed(text_list)
             if all_embeddings and len(all_embeddings) == len(eid_list):
-                items = []
+                items: list[tuple[str, str, str, str | None, list[float]]] = []
                 for eid, text, emb in zip(
                     eid_list,
                     text_list,
@@ -1673,14 +1670,14 @@ class CorpusGenerator:
         if ep_text_list:
             ep_embeddings = await provider.embed(ep_text_list)
             if ep_embeddings and len(ep_embeddings) == len(ep_ids):
-                items = []
+                episode_items: list[tuple[str, str, str, str | None, list[float]]] = []
                 for epid, text, emb in zip(
                     ep_ids,
                     ep_text_list,
                     ep_embeddings,
                 ):
                     ep = next(e for e in corpus.episodes if e.id == epid)
-                    items.append(
+                    episode_items.append(
                         (
                             epid,
                             "episode",
@@ -1689,7 +1686,7 @@ class CorpusGenerator:
                             emb,
                         )
                     )
-                await vectors.batch_upsert(items)
+                await vectors.batch_upsert(episode_items)
                 await vectors.db.commit()
 
     def _build_structure_texts(
@@ -3057,33 +3054,33 @@ class CorpusGenerator:
             # >80% of cluster members will contain their cluster's domain
             # keywords, making them FTS5-discoverable. Grade purely by
             # temporal signal here.
-            relevant: dict[str, int] = {}
+            temporal_relevant: dict[str, int] = {}
             for mid in cluster["members"]:
                 if mid in last_access_time:
                     days_ago = (self._now - last_access_time[mid]) / 86400.0
                     if days_ago < 7:
-                        relevant[mid] = 3
+                        temporal_relevant[mid] = 3
                     elif days_ago < 30:
-                        relevant[mid] = 2
+                        temporal_relevant[mid] = 2
             # Cluster members without recent access get grade 1 (cap 5)
             for mid in sorted(cluster["members"])[:5]:
-                if mid not in relevant:
-                    relevant[mid] = 1
+                if mid not in temporal_relevant:
+                    temporal_relevant[mid] = 1
 
             # Safety: if no grade-3 entities, use top-accessed cluster members
-            if not any(g == 3 for g in relevant.values()):
+            if not any(g == 3 for g in temporal_relevant.values()):
                 cluster_accessed = sorted(
                     [(mid, access_counts.get(mid, 0)) for mid in cluster["members"]],
                     key=lambda x: -x[1],
                 )
                 for mid, _ in cluster_accessed[:3]:
-                    relevant[mid] = 3
+                    temporal_relevant[mid] = 3
 
             queries.append(
                 GroundTruthQuery(
                     query_id=f"q_temporal_context_{query_idx:03d}",
                     query_text=query_text,
-                    relevant_entities=relevant,
+                    relevant_entities=temporal_relevant,
                     category="temporal_context",
                 )
             )
@@ -3110,7 +3107,7 @@ class CorpusGenerator:
         concept_ids_all = type_index.get("concept", [])
 
         for i in range(self._scale.semantic_queries):
-            relevant: dict[str, int] = {}
+            semantic_relevant: dict[str, int] = {}
             # Pick a focal entity (person) and grade by predicate richness
             focal_person = (
                 person_ids_all[(i * 7 + 3) % len(person_ids_all)]
@@ -3125,20 +3122,20 @@ class CorpusGenerator:
             uses_targets = set(person_preds.get("USES", []))
             multi_pred = works_targets | uses_targets
             for eid in sorted(multi_pred)[:5]:
-                relevant[eid] = 3
-            relevant[focal_person] = 3
+                semantic_relevant[eid] = 3
+            semantic_relevant[focal_person] = 3
 
             # Grade 2: connected via any single predicate
             for pred, targets in person_preds.items():
                 for eid in sorted(targets)[:3]:
-                    if eid not in relevant:
-                        relevant[eid] = 2
+                    if eid not in semantic_relevant:
+                        semantic_relevant[eid] = 2
 
             # Grade 1: 2-hop neighbors not already graded
             hop1, hop2 = self._bfs_2hop(focal_person, adj)
             for eid in sorted(hop2)[:5]:
-                if eid not in relevant:
-                    relevant[eid] = 1
+                if eid not in semantic_relevant:
+                    semantic_relevant[eid] = 1
 
             # Build query text using focal person's actual connections
             works_at_list = person_preds.get("WORKS_AT", [])
@@ -3182,7 +3179,7 @@ class CorpusGenerator:
                 GroundTruthQuery(
                     query_id=f"q_semantic_{query_idx:03d}",
                     query_text=query_text,
-                    relevant_entities=relevant,
+                    relevant_entities=semantic_relevant,
                     category="semantic",
                 )
             )

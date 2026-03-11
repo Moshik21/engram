@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from collections import defaultdict
+from typing import cast
 
 import numpy as np
 
@@ -166,7 +167,7 @@ def _types_allowed(entity_a, entity_b, require_same_type: bool) -> bool:
 
 
 def _pair_key(entity_a_id: str, entity_b_id: str) -> tuple[str, str]:
-    return tuple(sorted((entity_a_id, entity_b_id)))
+    return cast(tuple[str, str], tuple(sorted((entity_a_id, entity_b_id))))
 
 
 def _name_similarity(entity_a, entity_b, same_type_boost: float) -> float:
@@ -383,7 +384,7 @@ class EntityMergePhase(ConsolidationPhase):
         cycle_id: str,
         dry_run: bool = False,
         context: CycleContext | None = None,
-    ) -> PhaseResult:
+    ) -> tuple[PhaseResult, list[object]]:
         t0 = time.perf_counter()
         threshold = cfg.consolidation_merge_threshold
         max_merges = cfg.consolidation_merge_max_per_cycle
@@ -996,7 +997,7 @@ class EntityMergePhase(ConsolidationPhase):
         if len(embedded_ids) < 2:
             return None
 
-        mat = np.array([embeddings[eid] for eid in embedded_ids], dtype=np.float32)
+        mat = np.array([embeddings[eid] for eid in embedded_ids], dtype=np.float64)
 
         # L2-normalize rows for cosine similarity via dot product
         norms = np.linalg.norm(mat, axis=1, keepdims=True)
@@ -1184,7 +1185,8 @@ class EntityMergePhase(ConsolidationPhase):
             )
             text = response.content[0].text.strip()
             parsed = json.loads(text)
-            verdict = parsed.get("verdict", "keep_separate")
+            verdict_raw = parsed.get("verdict", "keep_separate")
+            verdict = verdict_raw if isinstance(verdict_raw, str) else "keep_separate"
             if verdict not in ("merge", "keep_separate"):
                 verdict = "keep_separate"
             return verdict

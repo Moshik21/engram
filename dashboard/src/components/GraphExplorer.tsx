@@ -216,6 +216,10 @@ export function GraphExplorer() {
       setRenderMode(current === "3d" ? "2d" : "3d");
     },
     showHelp: () => setShowHelp((v) => !v),
+    expandSelected: () => {
+      const selectedId = useEngramStore.getState().selectedNodeId;
+      if (selectedId) expandNode(selectedId);
+    },
   });
 
   // ── Tier system refs (stable across renders) ──
@@ -438,7 +442,10 @@ export function GraphExplorer() {
       // ── LOD: Update camera distance + zoom tier ──
       if (fg.camera) {
         const cam = fg.camera();
-        lod.updateCamera(cam.position.x, cam.position.y, cam.position.z, now);
+        const tierChanged = lod.updateCamera(cam.position.x, cam.position.y, cam.position.z, now);
+        if (tierChanged && edgeRendererRef.current) {
+          edgeRendererRef.current.setOpacity(lod.config.edgeOpacity);
+        }
       }
 
       // Pre-build O(1) lookup map from scene node objects (__data has x,y,z from d3-force)

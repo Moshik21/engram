@@ -103,11 +103,11 @@ class TestExtract:
                 {"name": "The Agent of Fate", "entity_type": "CreativeWork"},
             ],
             "relationships": [
-                {"source": "Konner", "target": "The Agent of Fate", "predicate": "CREATED"},
+                {"source": "Alex", "target": "The Agent of Fate", "predicate": "CREATED"},
             ],
         }
         extractor = self._make_extractor_with_response(json.dumps(data))
-        result = await extractor.extract("Konner wrote a fantasy book called The Agent of Fate")
+        result = await extractor.extract("Alex wrote a fantasy book called The Agent of Fate")
         assert len(result.entities) == 1
         assert result.entities[0]["entity_type"] == "CreativeWork"
         assert result.relationships[0]["predicate"] == "CREATED"

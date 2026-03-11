@@ -1,6 +1,6 @@
-.PHONY: up down restart logs status ps health build clean test lint
+.PHONY: up down restart logs status ps health build clean test lint bundle
 
-# Full-mode Engram: Docker stack + coherent rework integration enabled
+# Developer/manual full-mode Engram: source-built Docker stack + coherent rework integration enabled
 # docker-compose.yml defaults to:
 #   - consolidation_profile=standard (worker + consolidation + maturation)
 #   - integration_profile=rework (cue layer + cue recall + cue policy +
@@ -40,6 +40,9 @@ health: ## Quick health check
 
 build: ## Rebuild without starting
 	docker compose build
+
+bundle: ## Build the public install bundle into dist/install
+	python3 scripts/build_install_bundle.py
 
 clean: ## Stop and remove volumes (WARNING: deletes all data)
 	docker compose down -v

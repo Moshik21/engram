@@ -466,8 +466,9 @@ def test_engine_phase_order():
     e = ConsolidationEngine(AsyncMock(), AsyncMock(), AsyncMock(), cfg)
     phases = [p.name for p in e._phases]
     assert phases == [
-        "triage", "merge", "infer", "replay", "prune", "compact",
-        "mature", "semanticize", "schema", "reindex", "graph_embed", "dream",
+        "triage", "merge", "infer", "evidence_adjudication", "edge_adjudication", "replay",
+        "prune", "compact", "mature", "semanticize", "schema", "reindex",
+        "graph_embed", "microglia", "dream",
     ]
 
 

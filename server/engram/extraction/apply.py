@@ -28,6 +28,7 @@ from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.relationship import Relationship
+from engram.storage.protocols import ActivationStore, GraphStore
 from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
@@ -321,7 +322,7 @@ async def apply_relationship_fact(
                     group_id=group_id,
                 )
             except Exception:
-                pass
+                logger.warning("Failed to mark identity core for %s", eid_to_mark, exc_info=True)
 
     return RelationshipApplyResult(
         source_id=source_id,
@@ -342,8 +343,8 @@ class ApplyEngine:
 
     def __init__(
         self,
-        graph_store,
-        activation_store,
+        graph_store: GraphStore,
+        activation_store: ActivationStore,
         cfg: ActivationConfig,
         canonicalizer: PredicateCanonicalizer,
         *,

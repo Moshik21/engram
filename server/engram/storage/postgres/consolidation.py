@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]
 
 from engram.models.consolidation import (
     CalibrationSnapshot,

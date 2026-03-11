@@ -320,7 +320,7 @@ class TestRedisSearchIndex:
         ]
 
         idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
-        results = await idx._text_search("Konner books", group_id="grp1")
+        results = await idx._text_search("Alex books", group_id="grp1")
 
         assert len(results) == 1
         assert results[0][0] == "ent_1"
@@ -331,7 +331,7 @@ class TestRedisSearchIndex:
         assert call_args[0] == "FT.SEARCH"
         query_str = call_args[2]
         assert "@text:" in query_str
-        assert "Konner" in query_str
+        assert "Alex" in query_str
 
     async def test_search_supplements_with_text_when_knn_sparse(self):
         """search merges text results when KNN returns fewer than limit."""
@@ -354,7 +354,7 @@ class TestRedisSearchIndex:
         ]
 
         idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
-        results = await idx.search("Konner books", group_id="grp1", limit=20)
+        results = await idx.search("Alex books", group_id="grp1", limit=20)
 
         assert len(results) == 2
         ids = {r[0] for r in results}
@@ -379,7 +379,7 @@ class TestRedisSearchIndex:
         ]
 
         idx = RedisSearchIndex(redis, provider, make_config(dimensions=4))
-        results = await idx.search_episode_cues("Konner books", group_id="grp1", limit=20)
+        results = await idx.search_episode_cues("Alex books", group_id="grp1", limit=20)
 
         assert len(results) == 2
         ids = {result[0] for result in results}

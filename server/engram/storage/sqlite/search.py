@@ -201,7 +201,7 @@ class FTS5SearchIndex:
 
         try:
             cursor = await self.db.execute(sql, params)
-            rows = await cursor.fetchall()
+            rows = list(await cursor.fetchall())
         except Exception as e:
             logger.warning("FTS5 search failed for query %r: %s", query, e)
             return []
@@ -245,7 +245,7 @@ class FTS5SearchIndex:
 
         try:
             cursor = await self.db.execute(sql, params)
-            rows = await cursor.fetchall()
+            rows = list(await cursor.fetchall())
         except Exception as e:
             logger.warning("FTS5 episode search failed for query %r: %s", query, e)
             return []
@@ -283,7 +283,7 @@ class FTS5SearchIndex:
 
         try:
             cursor = await self.db.execute(sql, params)
-            rows = await cursor.fetchall()
+            rows = list(await cursor.fetchall())
         except Exception as e:
             logger.warning("FTS5 cue search failed for query %r: %s", query, e)
             return []

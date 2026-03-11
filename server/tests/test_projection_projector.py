@@ -13,16 +13,16 @@ from engram.extraction.projector import EpisodeProjector
 
 @pytest.mark.asyncio
 async def test_episode_projector_preserves_span_provenance():
-    text = "Konner moved to Phoenix and now works on Engram."
+    text = "Alex moved to Phoenix and now works on Engram."
     extractor = AsyncMock()
     extractor.extract = AsyncMock(
         return_value=ExtractionResult(
             entities=[
-                {"name": "Konner", "entity_type": "Person"},
+                {"name": "Alex", "entity_type": "Person"},
                 {"name": "Phoenix", "entity_type": "Location"},
             ],
             relationships=[
-                {"source": "Konner", "target": "Phoenix", "predicate": "LIVES_IN"},
+                {"source": "Alex", "target": "Phoenix", "predicate": "LIVES_IN"},
             ],
         )
     )

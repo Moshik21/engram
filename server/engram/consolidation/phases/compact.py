@@ -108,7 +108,12 @@ def compute_dropped_strength(
     Returns the sum of age^(-d) for each dropped timestamp, which can be
     added to consolidated_strength to preserve activation accuracy.
     """
-    return sum(max(min_age_seconds, now - t) ** (-decay_exponent) for t in dropped_timestamps)
+    return float(
+        sum(
+            max(min_age_seconds, now - t) ** (-decay_exponent)
+            for t in dropped_timestamps
+        )
+    )
 
 
 def logarithmic_compact(

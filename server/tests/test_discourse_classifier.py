@@ -53,11 +53,11 @@ class TestWorldDiscourse:
         assert classify_discourse(text) == "world"
 
     def test_creative_work(self):
-        text = "The Wound Between Worlds is a fantasy novel by Konner"
+        text = "The Wound Between Worlds is a fantasy novel by Alex"
         assert classify_discourse(text) == "world"
 
     def test_location_info(self):
-        text = "Konner lives in Mesa, Arizona and works remotely"
+        text = "Alex lives in Mesa, Arizona and works remotely"
         assert classify_discourse(text) == "world"
 
     def test_project_discussion(self):

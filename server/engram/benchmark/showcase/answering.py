@@ -80,12 +80,12 @@ def grade_answer(
             return 0, total
 
         if isinstance(expected, list):
-            expected_norm = sorted(_normalize(str(item)) for item in expected)
-            actual_norm = sorted(_normalize(str(item)) for item in (actual or []))
-            if actual_norm == expected_norm and expected_norm:
+            expected_list_norm = sorted(_normalize(str(item)) for item in expected)
+            actual_list_norm = sorted(_normalize(str(item)) for item in (actual or []))
+            if actual_list_norm == expected_list_norm and expected_list_norm:
                 matched_fields.append(field_name)
                 return 1, total
-            if not actual_norm:
+            if not actual_list_norm:
                 missing_fields.append(field_name)
             else:
                 incorrect_fields.append(field_name)

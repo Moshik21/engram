@@ -7,6 +7,7 @@ const SHORTCUTS = [
   { key: "Escape", action: "Deselect / close" },
   { key: "Space", action: "Center on selected node" },
   { key: "Alt + \u2190/\u2192", action: "History back / forward" },
+  { key: "E", action: "Expand selected node" },
   { key: "R", action: "Reset camera (zoom to fit)" },
   { key: "H", action: "Toggle heatmap" },
   { key: "L", action: "Toggle edge labels" },

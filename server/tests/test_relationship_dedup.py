@@ -126,10 +126,10 @@ async def test_merge_entities_deduplicates_incoming(store):
 async def test_meta_summary_rejected_in_merge_entities(store):
     """Merge entity with meta-contaminated summary — keeper summary unchanged."""
     await store.create_entity(
-        _entity("a", "Konner", summary="Father of four")
+        _entity("a", "Alex", summary="Father of four")
     )
     await store.create_entity(
-        _entity("b", "Konner2", summary="activation score 0.85 knowledge graph entity")
+        _entity("b", "Alex2", summary="activation score 0.85 knowledge graph entity")
     )
 
     await store.merge_entities("a", "b", GROUP)
@@ -198,8 +198,8 @@ def test_is_meta_summary_allows_normal():
 @pytest.mark.asyncio
 async def test_project_episode_skips_duplicate_relationship(store):
     """Ingesting same relationship twice should result in 1 active relationship."""
-    await store.create_entity(_entity("e1", "Konner"))
-    await store.create_entity(_entity("e2", "Kallon"))
+    await store.create_entity(_entity("e1", "Alex"))
+    await store.create_entity(_entity("e2", "Jamie"))
 
     # Create first relationship
     await store.create_relationship(_rel("r1", "e1", "e2", "PARENT_OF"))

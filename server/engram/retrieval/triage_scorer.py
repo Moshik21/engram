@@ -99,7 +99,7 @@ class EmbeddingSurpriseState:
         if self.count < 3:
             return 0.2
         var = (self._distance_sq_sum / self.count) - self.mean_distance ** 2
-        return max(var, 0.0) ** 0.5
+        return float(max(var, 0.0) ** 0.5)
 
     def update(self, embedding: np.ndarray) -> float:
         """Update centroid with new embedding, return raw cosine distance."""
@@ -134,7 +134,7 @@ class EmbeddingSurpriseState:
             return 0.5
         z = (distance - self.mean_distance) / std
         # Sigmoid: z=0 → 0.5, z=2 → 0.88, z=-2 → 0.12
-        return 1.0 / (1.0 + np.exp(-z))
+        return float(1.0 / (1.0 + np.exp(-z)))
 
 
 @dataclass
@@ -166,7 +166,7 @@ class CalibrationState:
         if self.n_samples < 30:
             return 0.5  # Cold start — return neutral
         logit = float(np.dot(self.weights, features))
-        return 1.0 / (1.0 + np.exp(-np.clip(logit, -10, 10)))
+        return float(1.0 / (1.0 + np.exp(-np.clip(logit, -10, 10))))
 
     def update(self, features: np.ndarray, extracted: bool) -> None:
         """Update sufficient statistics with new observation."""

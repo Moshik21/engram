@@ -13,6 +13,7 @@ export function SearchOverlay() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRequestRef = useRef(0);
 
@@ -30,6 +31,7 @@ export function SearchOverlay() {
         setResults([]);
       });
       setIsSearching(false);
+      setSearchError(null);
       return;
     }
 
@@ -48,12 +50,14 @@ export function SearchOverlay() {
         ) {
           return;
         }
+        setSearchError(null);
         startTransition(() => {
           setResults(data);
         });
       } catch (error: unknown) {
         if ((error as DOMException)?.name === "AbortError") return;
         if (requestId !== searchRequestRef.current) return;
+        setSearchError(error instanceof Error ? error.message : "Search failed");
         startTransition(() => {
           setResults([]);
         });
@@ -217,7 +221,13 @@ export function SearchOverlay() {
             );
           })}
 
-          {!isSearching && query.trim() && results.length === 0 && (
+          {searchError && (
+            <div style={{ padding: 16, textAlign: "center", color: "#fca5a5", fontSize: 12 }}>
+              {searchError}
+            </div>
+          )}
+
+          {!isSearching && !searchError && query.trim() && results.length === 0 && (
             <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
               No entities found
             </div>

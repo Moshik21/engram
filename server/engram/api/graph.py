@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.activation.engine import compute_activation
 from engram.api.deps import get_atlas_service, get_manager
+from engram.config import ActivationConfig
 from engram.security.middleware import get_tenant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
@@ -58,7 +63,8 @@ async def get_atlas(
             snapshot_id=snapshot_id,
         )
     except LookupError as exc:
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
+        logger.warning("Atlas snapshot lookup failed: %s", exc)
+        return JSONResponse(status_code=404, content={"detail": "Atlas snapshot not found"})
     payload = {
         "representation": _build_representation(
             scope="atlas",
@@ -164,7 +170,8 @@ async def get_region(
             snapshot_id=snapshot_id,
         )
     except LookupError as exc:
-        return JSONResponse(status_code=404, content={"detail": str(exc)})
+        logger.warning("Region or snapshot lookup failed: %s", exc)
+        return JSONResponse(status_code=404, content={"detail": "Region or snapshot not found"})
     if payload is None:
         return JSONResponse(
             status_code=404,
@@ -173,7 +180,7 @@ async def get_region(
     return JSONResponse(content=payload)
 
 
-def _build_node(entity: object, state: object, now: float, cfg: object) -> dict:
+def _build_node(entity: Any, state: Any, now: float, cfg: ActivationConfig) -> dict[str, Any]:
     """Build a JSON-serialisable node dict from an entity + activation state."""
     activation_current = 0.0
     access_count = 0
@@ -206,7 +213,7 @@ def _build_node(entity: object, state: object, now: float, cfg: object) -> dict:
     }
 
 
-def _build_edge(rel: object) -> dict:
+def _build_edge(rel: Any) -> dict[str, Any]:
     """Build a JSON-serialisable edge dict from a Relationship."""
     return {
         "id": rel.id,
@@ -225,7 +232,7 @@ async def get_neighborhood(
     request: Request,
     center: str | None = Query(None, description="Entity ID to center on"),
     depth: int = Query(2, ge=1, le=5, description="Number of hops"),
-    max_nodes: int = Query(50000, ge=1, le=100000, description="Max nodes to return"),
+    max_nodes: int = Query(2000, ge=1, le=10000, description="Max nodes to return"),
     min_activation: float = Query(0.0, ge=0.0, le=1.0, description="Min activation filter"),
 ) -> JSONResponse:
     """Return a subgraph neighborhood centered on an entity.
@@ -267,7 +274,7 @@ async def get_neighborhood(
         entity_ids = {e.id for e in all_entities}
         states = await manager._activation.batch_get(list(entity_ids))
 
-        nodes = []
+        nodes: list[dict[str, Any]] = []
         for entity in all_entities:
             node = _build_node(entity, states.get(entity.id), now, manager._cfg)
             if min_activation > 0.0 and node["activationCurrent"] < min_activation:
@@ -316,48 +323,55 @@ async def get_neighborhood(
     if not center_entity:
         return JSONResponse(status_code=404, content={"detail": f"Entity '{center}' not found"})
 
-    neighbor_pairs = await manager._graph.get_neighbors(center, hops=depth, group_id=group_id)
+    neighbor_pairs = await manager._graph.get_neighbors(
+        center, hops=depth, group_id=group_id, max_results=max_nodes * 3,
+    )
 
-    entities_map: dict[str, object] = {center: center_entity}
-    edges_map: dict[str, object] = {}
+    entities_map: dict[str, Any] = {center: center_entity}
+    edges_map: dict[str, Any] = {}
 
     for entity, rel in neighbor_pairs:
         entities_map[entity.id] = entity
         edges_map[rel.id] = rel
 
-    entity_ids = list(entities_map.keys())
-    states = await manager._activation.batch_get(entity_ids)
+    neighborhood_entity_ids = list(entities_map)
+    states = await manager._activation.batch_get(neighborhood_entity_ids)
 
-    nodes = []
+    neighborhood_nodes: list[dict[str, Any]] = []
     for eid, entity in entities_map.items():
-        nodes.append(_build_node(entity, states.get(eid), now, manager._cfg))
+        neighborhood_nodes.append(_build_node(entity, states.get(eid), now, manager._cfg))
 
-    total_in_neighborhood = len(nodes)
+    total_in_neighborhood = len(neighborhood_nodes)
 
     if min_activation > 0.0:
-        nodes = [n for n in nodes if n["activationCurrent"] >= min_activation]
+        neighborhood_nodes = [
+            n for n in neighborhood_nodes if n["activationCurrent"] >= min_activation
+        ]
 
     truncated = False
-    if len(nodes) > max_nodes:
-        nodes.sort(key=lambda n: n["activationCurrent"], reverse=True)
-        nodes = nodes[:max_nodes]
+    if len(neighborhood_nodes) > max_nodes:
+        neighborhood_nodes.sort(key=lambda n: n["activationCurrent"], reverse=True)
+        neighborhood_nodes = neighborhood_nodes[:max_nodes]
         truncated = True
 
-    remaining_ids = {n["id"] for n in nodes}
-    edges = [_build_edge(r) for r in edges_map.values()
-             if r.source_id in remaining_ids and r.target_id in remaining_ids]
+    remaining_ids = {n["id"] for n in neighborhood_nodes}
+    edges = [
+        _build_edge(r)
+        for r in edges_map.values()
+        if r.source_id in remaining_ids and r.target_id in remaining_ids
+    ]
 
     return JSONResponse(
         content={
             "centerId": center,
-            "nodes": nodes,
+            "nodes": neighborhood_nodes,
             "edges": edges,
             "representation": _build_representation(
                 scope="neighborhood",
                 layout="force",
                 represented_entity_count=total_in_neighborhood,
                 represented_edge_count=len(edges_map),
-                displayed_node_count=len(nodes),
+                displayed_node_count=len(neighborhood_nodes),
                 displayed_edge_count=len(edges),
                 truncated=truncated,
             ),
@@ -373,7 +387,7 @@ async def get_graph_at(
     center: str = Query(..., description="Entity ID to center on"),
     at: str = Query(..., description="ISO 8601 timestamp for point-in-time query"),
     depth: int = Query(2, ge=1, le=5, description="BFS hops"),
-    max_nodes: int = Query(50000, ge=1, le=100000, description="Max nodes"),
+    max_nodes: int = Query(2000, ge=1, le=10000, description="Max nodes"),
 ) -> JSONResponse:
     """Return a temporal subgraph — edges active at a specific point in time."""
     tenant = get_tenant(request)
@@ -392,10 +406,10 @@ async def get_graph_at(
     if not center_entity:
         return JSONResponse(status_code=404, content={"detail": f"Entity '{center}' not found"})
 
-    # BFS with time-filtered edges
+    # BFS with time-filtered edges (batch entity fetches per hop)
     visited: set[str] = {center}
     frontier: set[str] = {center}
-    entities_map: dict[str, object] = {center: center_entity}
+    entities_map: dict[str, Any] = {center: center_entity}
     edges_list: list[dict] = []
 
     for _ in range(depth):
@@ -408,9 +422,10 @@ async def get_graph_at(
                 if other not in visited:
                     visited.add(other)
                     next_frontier.add(other)
-                    ent = await manager._graph.get_entity(other, group_id)
-                    if ent:
-                        entities_map[other] = ent
+        # Batch-fetch all newly discovered entities for this hop
+        if next_frontier:
+            batch = await manager._graph.batch_get_entities(list(next_frontier), group_id)
+            entities_map.update(batch)
         frontier = next_frontier
         if not frontier:
             break

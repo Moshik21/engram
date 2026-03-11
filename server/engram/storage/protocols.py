@@ -15,11 +15,13 @@ from engram.models.consolidation import (
     DistillationExample,
     DreamAssociationRecord,
     DreamRecord,
+    EvidenceAdjudicationRecord,
     GraphEmbedRecord,
     IdentifierReviewRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
+    MicrogliaRecord,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
@@ -80,6 +82,9 @@ class GraphStore(Protocol):
     async def close(self) -> None: ...
     async def create_entity(self, entity: Entity) -> str: ...
     async def get_entity(self, entity_id: str, group_id: str) -> Entity | None: ...
+    async def batch_get_entities(
+        self, entity_ids: list[str], group_id: str,
+    ) -> dict[str, Entity]: ...
     async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None: ...
     async def delete_entity(self, entity_id: str, soft: bool = True, *, group_id: str) -> None: ...
     async def find_entities(
@@ -122,7 +127,8 @@ class GraphStore(Protocol):
         group_id: str = "default",
     ) -> list[Relationship]: ...
     async def get_neighbors(
-        self, entity_id: str, hops: int = 1, group_id: str | None = None
+        self, entity_id: str, hops: int = 1, group_id: str | None = None,
+        max_results: int = 5000,
     ) -> list[tuple[Entity, Relationship]]: ...
     async def get_all_edges(
         self,
@@ -265,6 +271,11 @@ class GraphStore(Protocol):
         limit: int = 100,
     ) -> list[Relationship]: ...
 
+    async def sample_edges(
+        self, group_id: str, limit: int = 500,
+        exclude_ids: set[str] | None = None,
+    ) -> list[Relationship]: ...
+
     # --- Maturation queries (Brain Architecture Phase 2A) ---
     async def get_entity_episode_count(
         self, entity_id: str, group_id: str,
@@ -305,6 +316,41 @@ class GraphStore(Protocol):
     ) -> None: ...
     async def increment_intention_fire_count(
         self, id: str, group_id: str,
+    ) -> None: ...
+
+    # --- Evidence storage (v2) ---
+    async def store_evidence(
+        self,
+        evidence: list[dict],
+        group_id: str = "default",
+        *,
+        default_status: str = "pending",
+    ) -> None: ...
+    async def get_pending_evidence(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]: ...
+    async def get_episode_evidence(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]: ...
+    async def update_evidence_status(
+        self, evidence_id: str, status: str, updates: dict | None = None,
+        group_id: str = "default",
+    ) -> None: ...
+    async def get_entity_count(self, group_id: str = "default") -> int: ...
+    async def store_adjudication_requests(
+        self, requests: list[dict], group_id: str = "default",
+    ) -> None: ...
+    async def get_episode_adjudications(
+        self, episode_id: str, group_id: str = "default",
+    ) -> list[dict]: ...
+    async def get_adjudication_request(
+        self, request_id: str, group_id: str = "default",
+    ) -> dict | None: ...
+    async def get_pending_adjudication_requests(
+        self, group_id: str = "default", limit: int = 100,
+    ) -> list[dict]: ...
+    async def update_adjudication_request(
+        self, request_id: str, updates: dict, group_id: str = "default",
     ) -> None: ...
 
 
@@ -470,6 +516,12 @@ class ConsolidationStore(Protocol):
     async def get_schema_records(
         self, cycle_id: str, group_id: str,
     ) -> list[SchemaRecord]: ...
+    async def save_evidence_adjudication_record(
+        self, record: EvidenceAdjudicationRecord,
+    ) -> None: ...
+    async def get_evidence_adjudication_records(
+        self, cycle_id: str, group_id: str,
+    ) -> list[EvidenceAdjudicationRecord]: ...
     async def save_decision_trace(self, record: DecisionTrace) -> None: ...
     async def get_decision_traces(
         self, cycle_id: str, group_id: str,
@@ -486,4 +538,19 @@ class ConsolidationStore(Protocol):
     async def get_calibration_snapshots(
         self, cycle_id: str, group_id: str,
     ) -> list[CalibrationSnapshot]: ...
+    async def save_microglia_record(self, record: MicrogliaRecord) -> None: ...
+    async def create_complement_tag(
+        self, target_type: str, target_id: str, tag_type: str,
+        score: float, cycle_tagged: int, group_id: str = "default",
+    ) -> int: ...
+    async def get_active_complement_tags(self, group_id: str = "default") -> list[dict]: ...
+    async def get_confirmed_tags(
+        self, min_age_cycles: int, current_cycle: int, group_id: str = "default",
+    ) -> list[dict]: ...
+    async def get_unconfirmed_tags(
+        self, max_cycle: int, group_id: str = "default",
+    ) -> list[dict]: ...
+    async def get_complement_tag(self, target_id: str, tag_type: str) -> dict | None: ...
+    async def confirm_complement_tag(self, tag_id: int, cycle_number: int) -> None: ...
+    async def clear_complement_tag(self, tag_id: int) -> None: ...
     async def cleanup(self, ttl_days: int = 90) -> int: ...

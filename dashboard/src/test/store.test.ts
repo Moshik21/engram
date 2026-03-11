@@ -722,7 +722,7 @@ describe("knowledgeSlice — new features", () => {
     mockedApi.getActivationSnapshot.mockResolvedValueOnce({
       topActivated: [
         { entityId: "e1", name: "Engram", entityType: "Project", currentActivation: 0.94, accessCount: 10, lastAccessedAt: null, decayRate: 0.5 },
-        { entityId: "e2", name: "Konner", entityType: "Person", currentActivation: 0.91, accessCount: 8, lastAccessedAt: null, decayRate: 0.5 },
+        { entityId: "e2", name: "Alex", entityType: "Person", currentActivation: 0.91, accessCount: 8, lastAccessedAt: null, decayRate: 0.5 },
       ],
     });
 

@@ -94,3 +94,103 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  full-mode:
+    name: Full Mode Docker
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: uv sync --frozen --dev
+
+      - name: Start source-built full stack
+        run: docker compose up -d --build
+
+      - name: Wait for health
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8100/health >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Run one full-mode parity test
+        working-directory: server
+        run: uv run pytest tests/storage/full/test_rework_parity.py::test_full_mode_cue_usage_projects_episode_and_preserves_recall_parity -q
+
+      - name: Print compose logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v
+
+  lite-linux:
+    name: Lite Smoke Linux
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run lite installer smoke test
+        run: bash scripts/test_lite_smoke.sh
+
+  lite-macos:
+    name: Lite Smoke macOS
+    runs-on: macos-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run lite installer smoke test
+        run: bash scripts/test_lite_smoke.sh
+
+  installer-linux:
+    name: Installer Smoke Linux
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Linux installer smoke test
+        run: bash scripts/test_installer_smoke.sh openclaw
+
+  installer-macos:
+    name: Installer Smoke macOS
+    runs-on: macos-latest
+    needs: [test, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run macOS installer smoke test
+        run: bash scripts/test_installer_smoke.sh --skip-runtime openclaw

@@ -114,15 +114,29 @@ def _merge_special_results(
     return special_results
 
 
-def _require_recall_capability(search_index, method_name: str, feature_name: str):
-    """Return a required recall method or raise if the backend cannot provide it."""
+def _optional_recall_capability(
+    search_index,
+    method_name: str,
+    feature_name: str,
+    *,
+    sibling_methods: tuple[str, ...] = (),
+):
+    """Return an optional recall method, or fail for partial implementations."""
     method = getattr(search_index, method_name, None)
     if callable(method):
         return method
-    raise RuntimeError(
-        f"{type(search_index).__name__} is missing required recall capability "
-        f"'{method_name}' for {feature_name}"
+    if any(callable(getattr(search_index, name, None)) for name in sibling_methods):
+        raise RuntimeError(
+            f"{type(search_index).__name__} is missing required recall capability "
+            f"'{method_name}' for {feature_name}",
+        )
+    logger.debug(
+        "%s missing optional recall capability '%s' for %s",
+        type(search_index).__name__,
+        method_name,
+        feature_name,
     )
+    return None
 
 
 async def retrieve(
@@ -287,67 +301,71 @@ async def retrieve(
     # Step 1.1: Episode search (runs in both modes)
     episode_candidates: list[ScoredResult] = []
     if cfg.episode_retrieval_enabled:
-        search_episodes = _require_recall_capability(
+        search_episodes = _optional_recall_capability(
             search_index,
             "search_episodes",
             "episode retrieval",
+            sibling_methods=("search_episode_cues",),
         )
-        try:
-            ep_results = await search_episodes(
-                query=query,
-                group_id=group_id,
-                limit=cfg.episode_retrieval_max * 3,
-            )
-            for ep_id, sem_sim in ep_results:
-                ep_score = original_weight_semantic * sem_sim * cfg.episode_retrieval_weight
-                episode_candidates.append(
-                    ScoredResult(
-                        node_id=ep_id,
-                        score=ep_score,
-                        semantic_similarity=sem_sim,
-                        activation=0.0,
-                        spreading=0.0,
-                        edge_proximity=0.0,
-                        exploration_bonus=0.0,
-                        result_type="episode",
-                    )
+        if search_episodes is not None:
+            try:
+                ep_results = await search_episodes(
+                    query=query,
+                    group_id=group_id,
+                    limit=cfg.episode_retrieval_max * 3,
                 )
-        except Exception as e:
-            logger.warning("Episode search failed (non-fatal): %s", e)
+                for ep_id, sem_sim in ep_results:
+                    ep_score = original_weight_semantic * sem_sim * cfg.episode_retrieval_weight
+                    episode_candidates.append(
+                        ScoredResult(
+                            node_id=ep_id,
+                            score=ep_score,
+                            semantic_similarity=sem_sim,
+                            activation=0.0,
+                            spreading=0.0,
+                            edge_proximity=0.0,
+                            exploration_bonus=0.0,
+                            result_type="episode",
+                        )
+                    )
+            except Exception as e:
+                logger.warning("Episode search failed (non-fatal): %s", e)
 
     # Step 1.2: Cue-backed episode search
     cue_candidates: list[ScoredResult] = []
     if cfg.cue_recall_enabled:
-        search_episode_cues = _require_recall_capability(
+        search_episode_cues = _optional_recall_capability(
             search_index,
             "search_episode_cues",
             "cue recall",
+            sibling_methods=("search_episodes",),
         )
-        try:
-            cue_results = await search_episode_cues(
-                query=query,
-                group_id=group_id,
-                limit=cfg.cue_recall_max * 3,
-            )
-            for ep_id, sem_sim in cue_results:
-                cue_score = original_weight_semantic * sem_sim * cfg.cue_recall_weight
-                cue_candidates.append(
-                    ScoredResult(
-                        node_id=ep_id,
-                        score=cue_score,
-                        semantic_similarity=sem_sim,
-                        activation=0.0,
-                        spreading=0.0,
-                        edge_proximity=0.0,
-                        exploration_bonus=0.0,
-                        result_type="cue_episode",
-                    )
+        if search_episode_cues is not None:
+            try:
+                cue_results = await search_episode_cues(
+                    query=query,
+                    group_id=group_id,
+                    limit=cfg.cue_recall_max * 3,
                 )
-        except Exception as e:
-            logger.warning("Cue search failed (non-fatal): %s", e)
+                for ep_id, sem_sim in cue_results:
+                    cue_score = original_weight_semantic * sem_sim * cfg.cue_recall_weight
+                    cue_candidates.append(
+                        ScoredResult(
+                            node_id=ep_id,
+                            score=cue_score,
+                            semantic_similarity=sem_sim,
+                            activation=0.0,
+                            spreading=0.0,
+                            edge_proximity=0.0,
+                            exploration_bonus=0.0,
+                            result_type="cue_episode",
+                        )
+                    )
+            except Exception as e:
+                logger.warning("Cue search failed (non-fatal): %s", e)
 
     # Step 1.8: Entity-first fallback when search finds few candidates
-    if len(candidates) < 3:
+    if not candidates:
         candidates = await _inject_entity_matches(
             query,
             group_id,
@@ -793,10 +811,10 @@ async def retrieve(
         )
 
         returned_ids = {r.node_id for r in results if r.result_type == "entity"}
-        all_candidate_ids = {eid for eid, _ in candidates}
+        all_candidate_id_set = {eid for eid, _ in candidates}
         for eid in returned_ids:
             await record_positive_feedback(eid, activation_store, cfg)
-        for eid in all_candidate_ids - returned_ids:
+        for eid in all_candidate_id_set - returned_ids:
             await record_negative_feedback(eid, activation_store, cfg)
 
     return results

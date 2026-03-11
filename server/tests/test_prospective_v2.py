@@ -846,12 +846,12 @@ class TestIntentionMetaContextFields:
         meta = IntentionMeta(
             trigger_text="voice mode",
             action_text="Remind about Voice Mode progress",
-            context="Konner is building a Voice Mode feature for the dashboard.",
+            context="Alex is building a Voice Mode feature for the dashboard.",
             see_also=["WebSocket latency", "audio pipeline"],
         )
         d = meta.model_dump()
         restored = IntentionMeta(**d)
-        assert restored.context == "Konner is building a Voice Mode feature for the dashboard."
+        assert restored.context == "Alex is building a Voice Mode feature for the dashboard."
         assert restored.see_also == ["WebSocket latency", "audio pipeline"]
 
     def test_backward_compat_old_dict_no_context(self):

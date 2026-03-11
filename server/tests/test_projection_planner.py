@@ -32,7 +32,7 @@ def test_projection_planner_prefers_late_correction_span():
 
 
 def test_projection_planner_keeps_short_episode_intact():
-    content = "Konner moved to Phoenix and is redesigning Engram extraction."
+    content = "Alex moved to Phoenix and is redesigning Engram extraction."
     cfg = ActivationConfig(projection_planner_enabled=True)
     episode = Episode(id="ep_short", content=content, group_id="default")
 

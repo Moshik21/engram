@@ -7,6 +7,7 @@ import struct
 
 import aiosqlite
 import numpy as np
+from numpy.typing import NDArray
 
 from engram.utils.dates import utc_now_iso
 
@@ -225,13 +226,13 @@ class SQLiteVectorStore:
             ids.append(row["id"])
             vecs.append(vec)
 
-        query_np = np.asarray(query_vector, dtype=np.float32)
+        query_np: NDArray[np.float64] = np.asarray(query_vector, dtype=np.float64)
         qn = np.linalg.norm(query_np)
         if qn == 0.0:
             return []
         query_np = query_np / qn
 
-        mat = np.array(vecs, dtype=np.float32)
+        mat: NDArray[np.float64] = np.array(vecs, dtype=np.float64)
         norms = np.linalg.norm(mat, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1, norms)
         mat = mat / norms

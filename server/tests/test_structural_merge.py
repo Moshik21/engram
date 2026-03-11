@@ -35,11 +35,11 @@ class MockEntity:
 
 class TestDedupSummaries:
     def test_removes_duplicate_sentences(self):
-        existing = "3-year-old child, son of Konner. Enjoys playing outside."
-        incoming = "3-year-old child, son of Konner. Likes dinosaurs."
+        existing = "3-year-old child, son of Alex. Enjoys playing outside."
+        incoming = "3-year-old child, son of Alex. Likes dinosaurs."
         result = _dedup_summaries(existing, incoming)
-        # "3-year-old child, son of Konner" should NOT be duplicated
-        assert result.count("son of Konner") == 1
+        # "3-year-old child, son of Alex" should NOT be duplicated
+        assert result.count("son of Alex") == 1
         assert "dinosaurs" in result
 
     def test_keeps_novel_content(self):
@@ -50,10 +50,10 @@ class TestDedupSummaries:
         assert "hiking" in result
 
     def test_identical_summaries(self):
-        text = "3-year-old child, son of Konner."
+        text = "3-year-old child, son of Alex."
         result = _dedup_summaries(text, text)
         # Should not double the text
-        assert result.count("Konner") == 1
+        assert result.count("Alex") == 1
 
     def test_empty_incoming(self):
         result = _dedup_summaries("Original summary.", "")
@@ -66,14 +66,14 @@ class TestDedupSummaries:
         assert len(result) <= 500
 
     def test_partial_overlap(self):
-        existing = "Kallon is a 3-year-old child. Son of Konner Moshier."
-        incoming = "Kallon is a child of Konner. He loves dinosaurs and trains."
+        existing = "Jamie is a 3-year-old child. Son of Alex Chen."
+        incoming = "Jamie is a child of Alex. He loves dinosaurs and trains."
         result = _dedup_summaries(existing, incoming)
-        # "child of Konner" overlaps with "Son of Konner Moshier" — should be deduped
+        # "child of Alex" overlaps with "Son of Alex Chen" — should be deduped
         assert "dinosaurs" in result
-        # Count sentences mentioning Konner — should be limited
-        konner_mentions = len(re.findall(r"Konner", result))
-        assert konner_mentions <= 2
+        # Count sentences mentioning Alex — should be limited
+        alex_mentions = len(re.findall(r"Alex", result))
+        assert alex_mentions <= 2
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +107,8 @@ async def _make_mocks(
 class TestExclusivitySignal:
     async def test_never_cooccur_with_shared_neighbors_boosts(self):
         """Entities that never co-occur + share neighbors = strong merge signal."""
-        ea = MockEntity(id="e1", name="Konner", entity_type="Person")
-        eb = MockEntity(id="e2", name="Konnor Moshier", entity_type="Person")
+        ea = MockEntity(id="e1", name="Alex", entity_type="Person")
+        eb = MockEntity(id="e2", name="Alex Chen", entity_type="Person")
 
         # High embedding similarity
         vec = np.ones(64, dtype=np.float32)
@@ -134,7 +134,7 @@ class TestExclusivitySignal:
 
     async def test_frequent_cooccurrence_penalizes(self):
         """Entities that frequently co-occur should NOT be merged (e.g., siblings)."""
-        ea = MockEntity(id="e1", name="Kallon", entity_type="Person")
+        ea = MockEntity(id="e1", name="Jamie", entity_type="Person")
         eb = MockEntity(id="e2", name="Kaleb", entity_type="Person")
 
         vec_a = np.random.default_rng(42).standard_normal(64).astype(np.float32)
@@ -234,9 +234,9 @@ class TestStructuralCandidateDiscovery:
 
         now = datetime.utcnow().isoformat()
         entities = {
-            "parent": Entity(id="parent", name="Konner", entity_type="Person",
+            "parent": Entity(id="parent", name="Alex", entity_type="Person",
                              group_id="default", created_at=now, updated_at=now),
-            "child1": Entity(id="child1", name="Kallon", entity_type="Person",
+            "child1": Entity(id="child1", name="Jamie", entity_type="Person",
                              group_id="default", created_at=now, updated_at=now),
             "child2": Entity(id="child2", name="Kaleb", entity_type="Person",
                              group_id="default", created_at=now, updated_at=now),
@@ -362,37 +362,37 @@ class TestPrefixFallback:
 
         now = datetime.utcnow().isoformat()
         await store.create_entity(Entity(
-            id="e1", name="Konner", entity_type="Person",
+            id="e1", name="Alex", entity_type="Person",
             group_id="default", created_at=now, updated_at=now,
         ))
         await store.create_entity(Entity(
-            id="e2", name="Konnor Moshier", entity_type="Person",
+            id="e2", name="Alex Chen", entity_type="Person",
             group_id="default", created_at=now, updated_at=now,
         ))
         return store
 
     async def test_prefix_finds_typo_variants(self):
-        """Searching 'Konnor' should find 'Konner' via prefix fallback."""
+        """Searching 'Alexa' should find 'Alex' via prefix fallback."""
         store = await self._setup_store()
-        candidates = await store.find_entity_candidates("Konnor", "default")
+        candidates = await store.find_entity_candidates("Alexa", "default")
         names = {c.name for c in candidates}
-        # Both "Konner" and "Konnor Moshier" share the "kon" prefix
-        assert "Konner" in names
-        assert "Konnor Moshier" in names
+        # Both "Alex" and "Alex Chen" share the "ale" prefix
+        assert "Alex" in names
+        assert "Alex Chen" in names
 
     async def test_prefix_short_name_skipped(self):
         """Names shorter than 3 chars shouldn't trigger prefix search."""
         store = await self._setup_store()
         # Very short name — no prefix fallback
-        candidates = await store.find_entity_candidates("Ko", "default")
+        candidates = await store.find_entity_candidates("Al", "default")
         # Should still work via FTS
         assert isinstance(candidates, list)
 
     async def test_exact_match_first(self):
         """Exact match should be found before prefix fallback."""
         store = await self._setup_store()
-        candidates = await store.find_entity_candidates("Konner", "default")
-        assert candidates[0].name == "Konner"
+        candidates = await store.find_entity_candidates("Alex", "default")
+        assert candidates[0].name == "Alex"
 
 
 # ---------------------------------------------------------------------------

@@ -160,13 +160,16 @@ class RedisActivationStore:
                 ]
                 states = await self.batch_get(entity_ids)
                 scored = []
-                for eid, state in states.items():
+                for eid, indexed_state in states.items():
                     act = compute_activation(
-                        state.access_history, now, self._cfg, state.consolidated_strength,
+                        indexed_state.access_history,
+                        now,
+                        self._cfg,
+                        indexed_state.consolidated_strength,
                     )
-                    scored.append((eid, state, act))
+                    scored.append((eid, indexed_state, act))
                 scored.sort(key=lambda x: x[2], reverse=True)
-                return [(eid, state) for eid, state, _ in scored[:limit]]
+                return [(eid, activation_state) for eid, activation_state, _ in scored[:limit]]
 
         # Fallback: SCAN all keys (original behavior for no group_id)
         scored = []
@@ -184,13 +187,16 @@ class RedisActivationStore:
                 if gid and gid != group_id:
                     continue
 
-            state = self._deserialize(data)
-            if state:
+            activation_state = self._deserialize(data)
+            if activation_state:
                 entity_id = key_str.removeprefix("act:")
                 act = compute_activation(
-                    state.access_history, now, self._cfg, state.consolidated_strength,
+                    activation_state.access_history,
+                    now,
+                    self._cfg,
+                    activation_state.consolidated_strength,
                 )
-                scored.append((entity_id, state, act))
+                scored.append((entity_id, activation_state, act))
 
         scored.sort(key=lambda x: x[2], reverse=True)
         return [(eid, state) for eid, state, _ in scored[:limit]]

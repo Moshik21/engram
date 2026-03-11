@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Any, cast
 
 from engram.models.atlas import AtlasSnapshot
 
@@ -34,14 +35,20 @@ class AtlasService:
         snapshot_id: str | None = None,
     ) -> AtlasSnapshot:
         if snapshot_id:
-            snapshot = await self._store.get_snapshot(snapshot_id, group_id)
+            snapshot = cast(
+                AtlasSnapshot | None,
+                await self._store.get_snapshot(snapshot_id, group_id),
+            )
             if snapshot is None:
                 raise LookupError(f"Snapshot '{snapshot_id}' not found")
             return snapshot
 
-        latest = await self._store.get_latest_snapshot(group_id)
+        latest = cast(AtlasSnapshot | None, await self._store.get_latest_snapshot(group_id))
         if force or latest is None or await self._needs_rebuild(latest, group_id):
-            snapshot = await self._builder.build(group_id, previous_snapshot=latest)
+            snapshot = cast(
+                AtlasSnapshot,
+                await cast(Any, self._builder).build(group_id, previous_snapshot=latest),
+            )
             await self._store.save_snapshot(snapshot)
             return snapshot
         return latest
@@ -51,7 +58,7 @@ class AtlasService:
         group_id: str,
         limit: int = 24,
     ) -> list:
-        return await self._store.list_snapshots(group_id, limit=limit)
+        return cast(list[Any], await self._store.list_snapshots(group_id, limit=limit))
 
     async def get_region_payload(
         self,
@@ -201,8 +208,8 @@ class AtlasService:
             return True
         generated_at = datetime.fromisoformat(snapshot.generated_at)
         if generated_at.tzinfo is None:
-            generated_at = generated_at.replace(tzinfo=UTC)
-        age_seconds = (datetime.now(UTC) - generated_at).total_seconds()
+            generated_at = generated_at.replace(tzinfo=timezone.utc)
+        age_seconds = (datetime.now(timezone.utc) - generated_at).total_seconds()
         if age_seconds > self._max_snapshot_age_seconds:
             return True
 

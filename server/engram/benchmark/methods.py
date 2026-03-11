@@ -517,6 +517,10 @@ async def run_retrieval(
     activation_states = await activation_store.batch_get(candidate_ids)
 
     # 3. Spreading activation (conditional)
+    spreading_bonuses: dict[str, float] = {}
+    hop_distances: dict[str, int] = {}
+    seed_node_ids: set[str] = set()
+
     if method.spreading_enabled:
         if cfg.spreading_strategy == "actr":
             # ACT-R: seeds come from working memory only
@@ -584,11 +588,6 @@ async def run_retrieval(
                 group_id=group_id,
             )
             candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
-    else:
-        spreading_bonuses: dict[str, float] = {}
-        hop_distances: dict[str, int] = {}
-        seed_node_ids: set[str] = set()
-
     # 4. Score candidates (Thompson Sampling or deterministic)
     if cfg.ts_enabled:
         scored = score_candidates_thompson(

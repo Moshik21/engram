@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from enum import Enum
+from typing import Any
 
 from engram.extraction.prompts import EXTRACTION_SYSTEM_CACHED
 
@@ -67,7 +68,7 @@ class EntityExtractor:
 
     def __init__(self, model: str = "claude-haiku-4-5-20251001") -> None:
         self._model = model
-        self._client = None
+        self._client: Any | None = None
 
     def _get_client(self):
         if self._client is None:
@@ -77,6 +78,17 @@ class EntityExtractor:
                 api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
             )
         return self._client
+
+    @staticmethod
+    def _extract_message_text(blocks: object) -> str:
+        if not isinstance(blocks, list):
+            return ""
+        parts: list[str] = []
+        for block in blocks:
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text:
+                parts.append(text)
+        return "".join(parts)
 
     def _estimate_max_tokens(self, text: str) -> int:
         """Estimate output tokens needed based on input size.
@@ -110,7 +122,7 @@ class EntityExtractor:
                 messages=[{"role": "user", "content": text}],
             )
 
-            response_text = message.content[0].text
+            response_text = self._extract_message_text(message.content)
 
             # Check for truncation before parsing
             if message.stop_reason == "max_tokens":
@@ -129,7 +141,7 @@ class EntityExtractor:
                         system=EXTRACTION_SYSTEM_CACHED,
                         messages=[{"role": "user", "content": text}],
                     )
-                    response_text = message.content[0].text
+                    response_text = self._extract_message_text(message.content)
                     if message.stop_reason == "max_tokens":
                         logger.error(
                             "Extraction still truncated at max budget (%d tokens). "
@@ -145,7 +157,7 @@ class EntityExtractor:
                         )
 
             response_text = self._strip_markdown_fences(response_text)
-            data = json.loads(response_text)
+            data = self._parse_json_lenient(response_text)
 
             entities = data.get("entities", [])
             relationships = data.get("relationships", [])
@@ -178,6 +190,33 @@ class EntityExtractor:
                 status=ExtractionStatus.API_ERROR,
                 error=str(e),
             )
+
+    @staticmethod
+    def _parse_json_lenient(text: str) -> dict[str, Any]:
+        """Parse JSON, tolerating trailing data from LLM responses.
+
+        Falls back to raw_decode when json.loads fails with 'Extra data',
+        which happens when the model emits two JSON blocks or appends
+        commentary after the closing brace.
+        """
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                return data
+            raise json.JSONDecodeError("expected object", text, 0)
+        except json.JSONDecodeError as e:
+            if "Extra data" in str(e):
+                decoder = json.JSONDecoder()
+                obj, _ = decoder.raw_decode(text)
+                logger.warning(
+                    "Extraction response had trailing data at char %d; "
+                    "parsed first JSON object only.",
+                    e.pos,
+                )
+                if isinstance(obj, dict):
+                    return obj
+                raise
+            raise
 
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:

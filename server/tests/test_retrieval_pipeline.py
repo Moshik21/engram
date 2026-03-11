@@ -285,21 +285,21 @@ class TestRetrievalPipeline:
 @pytest.mark.asyncio
 class TestEntityFirstFallback:
     async def test_entity_first_fallback_injects_when_search_empty(self):
-        """When search returns 0 results but entity 'Konner' exists, pipeline returns results."""
+        """When search returns 0 results but entity 'Alex' exists, pipeline returns results."""
         now = time.time()
-        konner = _FakeEntity(id="konner_id", name="Konner", entity_type="Person")
+        alex = _FakeEntity(id="alex_id", name="Alex", entity_type="Person")
         book = _FakeEntity(
             id="book_id", name="The Agent of Fate", entity_type="CreativeWork"
         )
 
         search_index = _FakeSearchIndex(
             [],
-            similarity_map={"konner_id": 0.3, "book_id": 0.2},
+            similarity_map={"alex_id": 0.3, "book_id": 0.2},
         )
         activation_store = _FakeActivationStore(
             {
-                "konner_id": ActivationState(
-                    node_id="konner_id",
+                "alex_id": ActivationState(
+                    node_id="alex_id",
                     access_history=[now - 10],
                     access_count=3,
                 ),
@@ -311,8 +311,8 @@ class TestEntityFirstFallback:
             }
         )
         graph_store = _FakeGraphStore(
-            adjacency={"konner_id": ["book_id"]},
-            entities=[konner, book],
+            adjacency={"alex_id": ["book_id"]},
+            entities=[alex, book],
         )
 
         cfg = ActivationConfig(
@@ -325,7 +325,7 @@ class TestEntityFirstFallback:
         )
 
         results = await retrieve(
-            query="books written by Konner",
+            query="books written by Alex",
             group_id="default",
             graph_store=graph_store,
             activation_store=activation_store,
@@ -335,7 +335,7 @@ class TestEntityFirstFallback:
         )
 
         result_ids = {r.node_id for r in results}
-        assert "konner_id" in result_ids
+        assert "alex_id" in result_ids
 
     async def test_entity_first_fallback_skipped_when_search_has_results(self):
         """When search returns 3+ results, find_entities is not called."""
@@ -353,20 +353,20 @@ class TestEntityFirstFallback:
 
     async def test_entity_first_fallback_injects_neighbors(self):
         """Entity found by name → 1-hop neighbors also injected."""
-        konner = _FakeEntity(id="konner_id", name="Konner")
+        alex = _FakeEntity(id="alex_id", name="Alex")
         graph_store = _FakeGraphStore(
-            adjacency={"konner_id": ["book_id", "project_id"]},
-            entities=[konner],
+            adjacency={"alex_id": ["book_id", "project_id"]},
+            entities=[alex],
         )
 
         result = await _inject_entity_matches(
-            query="books by Konner",
+            query="books by Alex",
             group_id="default",
             graph_store=graph_store,
             candidates=[],
         )
 
         result_ids = {eid for eid, _ in result}
-        assert "konner_id" in result_ids
+        assert "alex_id" in result_ids
         assert "book_id" in result_ids
         assert "project_id" in result_ids

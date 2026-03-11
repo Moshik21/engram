@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from enum import Enum
@@ -73,7 +74,9 @@ async def _check_redis() -> bool:
             os.environ.get("ENGRAM_REDIS__URL", "redis://localhost:6381"),
             socket_connect_timeout=2,
         )
-        await r.ping()
+        ping_result = r.ping()
+        if inspect.isawaitable(ping_result):
+            await ping_result
         await r.aclose()
         return True
     except Exception:
@@ -83,7 +86,7 @@ async def _check_redis() -> bool:
 async def _check_falkordb() -> bool:
     """Probe FalkorDB connectivity with a 2-second timeout."""
     try:
-        from falkordb import FalkorDB
+        from falkordb import FalkorDB  # type: ignore[import-untyped]
 
         db = FalkorDB(
             host=os.environ.get("ENGRAM_FALKORDB__HOST", "localhost"),

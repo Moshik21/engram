@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import re
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
+from engram.extraction.ambiguity import AmbiguityAnalyzer, AmbiguityGroup
 from engram.extraction.apply import (
     ApplyEngine,
     apply_relationship_fact,
@@ -20,14 +24,28 @@ from engram.extraction.apply import (
     resolve_relationship_temporals,
 )
 from engram.extraction.canonicalize import PredicateCanonicalizer
+from engram.extraction.client_proposals import proposals_to_evidence
+from engram.extraction.commit_policy import AdaptiveCommitPolicy, CommitThresholds
 from engram.extraction.cues import build_episode_cue
 from engram.extraction.discourse import classify_discourse
-from engram.extraction.extractor import EntityExtractor
-from engram.extraction.models import ApplyOutcome, ProjectionBundle
+from engram.extraction.evidence import (
+    CommitDecision,
+    EvidenceBundle,
+    EvidenceCandidate,
+    evidence_candidate_from_dict,
+)
+from engram.extraction.evidence_bridge import EvidenceBridge
+from engram.extraction.extractor import EntityExtractor, ExtractionResult
+from engram.extraction.models import ApplyOutcome, ProjectionBundle, ProjectionPlan
+from engram.extraction.narrow.pipeline import NarrowExtractionPipeline
+from engram.extraction.narrow_adapter import NarrowExtractorAdapter
+from engram.extraction.ollama_extractor import OllamaExtractor
 from engram.extraction.planner import ProjectionPlanner, summarize_plan
 from engram.extraction.policy import ProjectionPolicy
 from engram.extraction.post_apply import ProjectionPostProcessor
 from engram.extraction.projector import EpisodeProjector
+from engram.models.activation import ActivationState
+from engram.models.adjudication import AdjudicationRequest
 from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
@@ -78,6 +96,71 @@ class ProjectionError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool = False) -> None:
         super().__init__(message)
         self.retryable = retryable
+
+
+class EvidenceMaterializationFailure(RuntimeError):  # noqa: N818
+    """Raised when stored evidence cannot be materialized but the cycle may continue."""
+
+
+@dataclass
+class EvidenceMaterializationOutcome:
+    """Summary of applying bridged evidence into graph state."""
+
+    bundle: ProjectionBundle
+    apply_outcome: ApplyOutcome = field(default_factory=ApplyOutcome)
+    committed_ids: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def materialized(self) -> bool:
+        return bool(self.committed_ids)
+
+
+@dataclass
+class AdjudicationResolutionOutcome:
+    """Result of resolving an adjudication request."""
+
+    request_id: str
+    status: str
+    committed_ids: dict[str, str] = field(default_factory=dict)
+    superseded_evidence_ids: list[str] = field(default_factory=list)
+    replacement_evidence_ids: list[str] = field(default_factory=list)
+
+
+class _TopActivatedEntry(TypedDict):
+    id: str
+    name: str
+    entity_type: str
+    summary: str | None
+    activation: float
+    access_count: int
+
+
+def _extract_message_text(blocks: object) -> str:
+    """Join text-bearing Anthropic content blocks without assuming block types."""
+    if not isinstance(blocks, list):
+        return ""
+    parts: list[str] = []
+    for block in blocks:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return "".join(parts)
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    """Best-effort integer coercion for loose payloads and mocked test inputs."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 class GraphManager:
@@ -198,6 +281,663 @@ class GraphManager:
             index_entity_with_structure=self._index_entity_with_structure,
             list_intentions=self.list_intentions,
             update_intention_fire=self._update_intention_fire,
+        )
+
+        # Evidence extraction pipeline (v2) — lazy init
+        self._evidence_pipeline: NarrowExtractionPipeline | None = None
+        self._commit_policy: AdaptiveCommitPolicy | None = None
+        self._evidence_bridge: EvidenceBridge | None = None
+        self._ambiguity_analyzer: AmbiguityAnalyzer | None = None
+        if self._cfg.evidence_extraction_enabled:
+            self._evidence_pipeline = NarrowExtractionPipeline(self._cfg)
+            self._commit_policy = AdaptiveCommitPolicy(
+                thresholds=CommitThresholds(
+                    entity=self._cfg.evidence_commit_entity_threshold,
+                    relationship=self._cfg.evidence_commit_relationship_threshold,
+                    attribute=self._cfg.evidence_commit_attribute_threshold,
+                    temporal=self._cfg.evidence_commit_temporal_threshold,
+                ),
+                adaptive=self._cfg.evidence_adaptive_thresholds,
+            )
+            self._evidence_bridge = EvidenceBridge()
+            if self._cfg.edge_adjudication_enabled:
+                self._ambiguity_analyzer = AmbiguityAnalyzer(self._graph)
+
+    def _should_use_evidence_pipeline(
+        self,
+        *,
+        proposed_entities: list[dict] | None = None,
+        proposed_relationships: list[dict] | None = None,
+    ) -> bool:
+        """Use v2 when the active source of structure is evidence-shaped.
+
+        Tests and showcase baselines often inject deterministic/mock extractors
+        with curated outputs that still rely on the legacy projection path.
+        """
+        has_client_proposals = bool(proposed_entities or proposed_relationships)
+        extractor_supports_v2 = (
+            type(self._extractor) is EntityExtractor
+            or isinstance(self._extractor, (NarrowExtractorAdapter, OllamaExtractor))
+        )
+        if not extractor_supports_v2:
+            canned_result = getattr(self._extractor, "_result", None)
+            if (
+                isinstance(canned_result, ExtractionResult)
+                and not canned_result.entities
+                and not canned_result.relationships
+            ):
+                extractor_supports_v2 = True
+        return (
+            self._cfg.evidence_extraction_enabled
+            and self._evidence_pipeline is not None
+            and self._commit_policy is not None
+            and self._evidence_bridge is not None
+            and (extractor_supports_v2 or has_client_proposals)
+        )
+
+    def _build_evidence_bundle(
+        self,
+        *,
+        text: str,
+        episode_id: str,
+        group_id: str,
+        cue: EpisodeCue | None = None,
+        proposed_entities: list[dict] | None = None,
+        proposed_relationships: list[dict] | None = None,
+        model_tier: str = "default",
+    ) -> EvidenceBundle:
+        """Resolve the active evidence source for a projection."""
+        if self._cfg.evidence_client_proposals_enabled:
+            proposal_candidates = proposals_to_evidence(
+                proposed_entities,
+                proposed_relationships,
+                episode_id,
+                group_id,
+                model_tier,
+            )
+            if proposal_candidates:
+                return EvidenceBundle(
+                    episode_id=episode_id,
+                    group_id=group_id,
+                    candidates=proposal_candidates,
+                    extractor_stats={
+                        "client_proposals": {
+                            "count": len(proposal_candidates),
+                            "duration_ms": 0.0,
+                        },
+                    },
+                    total_ms=0.0,
+                )
+        if self._evidence_pipeline is None:
+            return EvidenceBundle(episode_id=episode_id, group_id=group_id)
+        return self._evidence_pipeline.extract(
+            text=text,
+            episode_id=episode_id,
+            group_id=group_id,
+            cue=cue,
+        )
+
+    @staticmethod
+    def _serialize_evidence_records(
+        evidence_pairs: list[tuple[EvidenceCandidate, CommitDecision]],
+        *,
+        status: str,
+        commit_reason: str | None = None,
+    ) -> list[dict]:
+        """Convert evidence candidates to storage rows with explicit status."""
+        rows: list[dict] = []
+        for evidence, _decision in evidence_pairs:
+            rows.append(
+                {
+                    "evidence_id": evidence.evidence_id,
+                    "episode_id": evidence.episode_id,
+                    "fact_class": evidence.fact_class,
+                    "confidence": evidence.confidence,
+                    "source_type": evidence.source_type,
+                    "extractor_name": evidence.extractor_name,
+                    "payload": evidence.payload,
+                    "source_span": evidence.source_span,
+                    "corroborating_signals": evidence.corroborating_signals,
+                    "ambiguity_tags": evidence.ambiguity_tags,
+                    "ambiguity_score": evidence.ambiguity_score,
+                    "adjudication_request_id": evidence.adjudication_request_id,
+                    "created_at": (
+                        evidence.created_at.isoformat()
+                        if hasattr(evidence.created_at, "isoformat")
+                        else str(evidence.created_at)
+                    ),
+                    "status": status,
+                    **({"commit_reason": commit_reason} if commit_reason else {}),
+                },
+            )
+        return rows
+
+    @staticmethod
+    def _serialize_candidate_records(
+        candidates: list[EvidenceCandidate],
+        *,
+        status: str,
+        commit_reason: str | None = None,
+    ) -> list[dict]:
+        """Convert raw evidence candidates to storage rows."""
+        return [
+            {
+                "evidence_id": candidate.evidence_id,
+                "episode_id": candidate.episode_id,
+                "fact_class": candidate.fact_class,
+                "confidence": candidate.confidence,
+                "source_type": candidate.source_type,
+                "extractor_name": candidate.extractor_name,
+                "payload": candidate.payload,
+                "source_span": candidate.source_span,
+                "corroborating_signals": candidate.corroborating_signals,
+                "ambiguity_tags": candidate.ambiguity_tags,
+                "ambiguity_score": candidate.ambiguity_score,
+                "adjudication_request_id": candidate.adjudication_request_id,
+                "created_at": (
+                    candidate.created_at.isoformat()
+                    if hasattr(candidate.created_at, "isoformat")
+                    else str(candidate.created_at)
+                ),
+                "status": status,
+                **({"commit_reason": commit_reason} if commit_reason else {}),
+            }
+            for candidate in candidates
+        ]
+
+    @staticmethod
+    def _candidate_payload_names(candidate: EvidenceCandidate) -> set[str]:
+        names: set[str] = set()
+        for key in ("name", "entity", "subject", "object", "nearby_entity"):
+            value = candidate.payload.get(key)
+            if not value:
+                continue
+            normalized = str(value).strip().lower()
+            if normalized and normalized not in {"user", "none"}:
+                names.add(normalized)
+        return names
+
+    def _build_adjudication_requests(
+        self,
+        episode_id: str,
+        group_id: str,
+        ambiguous_groups: list[AmbiguityGroup],
+    ) -> list[AdjudicationRequest]:
+        """Create persisted work items for ambiguous evidence groups."""
+        max_requests = max(1, self._cfg.edge_adjudication_max_requests_per_episode)
+        if len(ambiguous_groups) > max_requests:
+            overflow = ambiguous_groups[max_requests - 1 :]
+            merged = AmbiguityGroup()
+            for group in overflow:
+                merged.candidates.extend(group.candidates)
+                merged.ambiguity_tags.update(group.ambiguity_tags)
+                if len(group.selected_text) > len(merged.selected_text):
+                    merged.selected_text = group.selected_text
+            merged.request_reason = (
+                "needs_adjudication:" + ",".join(sorted(merged.ambiguity_tags))
+            )
+            ambiguous_groups = ambiguous_groups[: max_requests - 1] + [merged]
+        requests: list[AdjudicationRequest] = []
+        for group in ambiguous_groups:
+            request = AdjudicationRequest(
+                episode_id=episode_id,
+                group_id=group_id,
+                ambiguity_tags=sorted(group.ambiguity_tags),
+                evidence_ids=[candidate.evidence_id for candidate in group.candidates],
+                selected_text=group.selected_text,
+                request_reason=group.request_reason,
+            )
+            for candidate in group.candidates:
+                candidate.adjudication_request_id = request.request_id
+            requests.append(request)
+        return requests
+
+    @staticmethod
+    def _adjudication_instructions(tags: list[str]) -> str:
+        """Return MCP-facing instructions for an adjudication request."""
+        tag_list = ", ".join(tags)
+        return (
+            "Resolve only if highly confident. Use explicit entities and relationships "
+            f"for the ambiguous case ({tag_list}); otherwise leave it unresolved."
+        )
+
+    async def get_episode_adjudications(
+        self,
+        episode_id: str,
+        group_id: str = "default",
+    ) -> list[dict]:
+        """Return adjudication requests plus their current candidate evidence."""
+        requests = await self._graph.get_episode_adjudications(episode_id, group_id)
+        if not requests:
+            return []
+        evidence_rows = await self._graph.get_episode_evidence(episode_id, group_id)
+        by_id = {row["evidence_id"]: row for row in evidence_rows}
+        response: list[dict] = []
+        for request in requests:
+            if request.get("status") not in {"pending", "deferred", "error"}:
+                continue
+            response.append(
+                {
+                    "request_id": request["request_id"],
+                    "ambiguity_tags": request.get("ambiguity_tags", []),
+                    "selected_text": request.get("selected_text", ""),
+                    "candidate_evidence": [
+                        {
+                            "evidence_id": row["evidence_id"],
+                            "fact_class": row["fact_class"],
+                            "payload": row.get("payload", {}),
+                        }
+                        for evidence_id in request.get("evidence_ids", [])
+                        if (row := by_id.get(evidence_id)) is not None
+                    ],
+                    "instructions": self._adjudication_instructions(
+                        request.get("ambiguity_tags", []),
+                    ),
+                },
+            )
+        return response
+
+    @staticmethod
+    def _committed_id_map(
+        committed_pairs: list[tuple[EvidenceCandidate, CommitDecision]],
+        *,
+        entity_map: dict[str, str],
+        claims,
+        relationship_results: list[RelationshipApplyResult],
+    ) -> dict[str, str]:
+        """Resolve evidence IDs to durable entity/relationship IDs after apply."""
+        committed_ids: dict[str, str] = {}
+        for evidence, _decision in committed_pairs:
+            entity_name = None
+            if evidence.fact_class == "entity":
+                entity_name = evidence.payload.get("name")
+            elif evidence.fact_class == "attribute":
+                entity_name = evidence.payload.get("entity")
+            if entity_name and entity_name in entity_map:
+                committed_ids[evidence.evidence_id] = entity_map[entity_name]
+
+        for claim, result in zip(claims, relationship_results):
+            evidence_id = (claim.raw_payload or {}).get("evidence_id")
+            relationship_id = (
+                result.metadata.get("relationship_id")
+                or result.metadata.get("existing_relationship_id")
+            )
+            if not relationship_id:
+                continue
+            if evidence_id:
+                committed_ids[evidence_id] = relationship_id
+            for temporal_evidence_id in (
+                (claim.raw_payload or {}).get("temporal_evidence_ids", [])
+            ):
+                committed_ids[temporal_evidence_id] = relationship_id
+        return committed_ids
+
+    @staticmethod
+    def _apply_committed_ids(
+        evidence_rows: list[dict],
+        committed_ids: dict[str, str],
+    ) -> tuple[list[dict], list[dict]]:
+        """Split evidence rows into committed and unresolved sets."""
+        committed_rows: list[dict] = []
+        unresolved_rows: list[dict] = []
+        for row in evidence_rows:
+            committed_id = committed_ids.get(row["evidence_id"])
+            if committed_id:
+                row["committed_id"] = committed_id
+                committed_rows.append(row)
+            else:
+                unresolved_rows.append(row)
+        return committed_rows, unresolved_rows
+
+    @staticmethod
+    def _rehydrate_evidence_pairs(
+        evidence_rows: list[dict],
+    ) -> list[tuple[EvidenceCandidate, CommitDecision]]:
+        """Convert stored evidence rows back into committed evidence pairs."""
+        pairs: list[tuple[EvidenceCandidate, CommitDecision]] = []
+        for row in evidence_rows:
+            candidate = evidence_candidate_from_dict(row)
+            pairs.append(
+                (
+                    candidate,
+                    CommitDecision(
+                        evidence_id=candidate.evidence_id,
+                        action="commit",
+                        reason=row.get("commit_reason", "approved_for_materialization"),
+                        effective_confidence=candidate.confidence,
+                    ),
+                ),
+            )
+        return pairs
+
+    @staticmethod
+    def _evidence_projection_bundle(
+        episode: Episode,
+        entities,
+        claims,
+        recall_content: str | None = None,
+    ) -> ProjectionBundle:
+        """Build a minimal ProjectionBundle for evidence-driven apply/index flows."""
+        selected_text = recall_content or episode.content
+        return ProjectionBundle(
+            episode_id=episode.id,
+            plan=ProjectionPlan(
+                episode_id=episode.id,
+                strategy="evidence_materialized",
+                spans=[],
+                selected_text=selected_text,
+                selected_chars=len(selected_text),
+                total_chars=len(episode.content or ""),
+            ),
+            entities=entities,
+            claims=claims,
+        )
+
+    async def _index_materialized_bundle(
+        self,
+        *,
+        bundle: ProjectionBundle,
+        entity_map: dict[str, str],
+        group_id: str,
+        episode_id: str,
+    ) -> None:
+        """Index entities and the source episode without touching episode status."""
+        try:
+            for candidate in bundle.entities:
+                entity_id = entity_map.get(candidate.name)
+                if not entity_id:
+                    continue
+                entity = await self._graph.get_entity(entity_id, group_id)
+                if entity is None:
+                    continue
+                if self._cfg.structure_aware_embeddings:
+                    await self._index_entity_with_structure(entity, group_id)
+                else:
+                    await self._search.index_entity(entity)
+
+            episode = await self._graph.get_episode_by_id(episode_id, group_id)
+            if episode:
+                await self._search.index_episode(episode)
+        except Exception as embed_err:
+            logger.warning(
+                "Embedding failed for episode %s (non-fatal): %s",
+                episode_id,
+                embed_err,
+            )
+
+    async def materialize_evidence(
+        self,
+        *,
+        episode: Episode,
+        evidence_pairs: list[tuple[EvidenceCandidate, CommitDecision]],
+        group_id: str,
+        recall_content: str | None = None,
+        on_before_relationships=None,
+    ) -> EvidenceMaterializationOutcome:
+        """Bridge evidence into graph writes, index touched nodes, and return committed IDs."""
+        entities, claims = self._evidence_bridge.bridge(evidence_pairs)  # type: ignore[union-attr]
+        bundle = self._evidence_projection_bundle(
+            episode,
+            entities,
+            claims,
+            recall_content=recall_content,
+        )
+        if not bundle.entities and not bundle.claims:
+            return EvidenceMaterializationOutcome(bundle=bundle)
+
+        apply_outcome = await self._apply_engine.apply_entities(
+            bundle.entities,
+            episode,
+            group_id,
+            recall_content=recall_content,
+        )
+        entity_map = apply_outcome.entity_map
+        await self._apply_bootstrap_part_of_edges(episode, entity_map, group_id)
+        if on_before_relationships is not None:
+            await on_before_relationships()
+        apply_outcome.relationship_results = await self._apply_engine.apply_relationships(
+            bundle.claims,
+            entity_map=entity_map,
+            meta_entity_names=apply_outcome.meta_entity_names,
+            group_id=group_id,
+            source_episode=episode.id,
+        )
+        committed_ids = self._committed_id_map(
+            evidence_pairs,
+            entity_map=entity_map,
+            claims=bundle.claims,
+            relationship_results=apply_outcome.relationship_results,
+        )
+        if not committed_ids:
+            return EvidenceMaterializationOutcome(
+                bundle=bundle,
+                apply_outcome=apply_outcome,
+                committed_ids={},
+            )
+        await self._index_materialized_bundle(
+            bundle=bundle,
+            entity_map=entity_map,
+            group_id=group_id,
+            episode_id=episode.id,
+        )
+        self.invalidate_briefing_cache(group_id)
+        return EvidenceMaterializationOutcome(
+            bundle=bundle,
+            apply_outcome=apply_outcome,
+            committed_ids=committed_ids,
+        )
+
+    async def materialize_stored_evidence(
+        self,
+        episode_id: str,
+        evidence_rows: list[dict],
+        *,
+        group_id: str = "default",
+    ) -> EvidenceMaterializationOutcome:
+        """Materialize stored evidence rows into graph state for consolidation."""
+        episode = await self._graph.get_episode_by_id(episode_id, group_id)
+        if episode is None:
+            raise EvidenceMaterializationFailure(
+                f"episode_not_found:{episode_id}",
+            )
+        return await self.materialize_evidence(
+            episode=episode,
+            evidence_pairs=self._rehydrate_evidence_pairs(evidence_rows),
+            group_id=group_id,
+            recall_content=episode.content,
+        )
+
+    async def submit_adjudication_resolution(
+        self,
+        request_id: str,
+        *,
+        entities: list[dict] | None = None,
+        relationships: list[dict] | None = None,
+        reject_evidence_ids: list[str] | None = None,
+        source: str = "client_adjudication",
+        model_tier: str = "default",
+        rationale: str | None = None,
+        group_id: str = "default",
+    ) -> AdjudicationResolutionOutcome:
+        """Resolve an ambiguous request through the shared materialization path."""
+        request = await self._graph.get_adjudication_request(request_id, group_id)
+        if request is None:
+            raise ValueError(f"Adjudication request not found: {request_id}")
+        if request.get("status") not in {"pending", "deferred", "error"}:
+            raise ValueError(
+                f"Adjudication request is not open: {request_id}:{request.get('status')}",
+            )
+
+        episode_id = request["episode_id"]
+        episode = await self._graph.get_episode_by_id(episode_id, group_id)
+        if episode is None:
+            raise EvidenceMaterializationFailure(f"episode_not_found:{episode_id}")
+
+        resolution_payload = {
+            "entities": entities or [],
+            "relationships": relationships or [],
+            "reject_evidence_ids": reject_evidence_ids or [],
+            "model_tier": model_tier,
+            **({"rationale": rationale} if rationale else {}),
+        }
+        attempt_count = int(request.get("attempt_count", 0) or 0) + 1
+
+        episode_evidence = await self._graph.get_episode_evidence(episode_id, group_id)
+        request_evidence = [
+            row
+            for row in episode_evidence
+            if row["evidence_id"] in set(request.get("evidence_ids", []))
+        ]
+        active_request_evidence = [
+            row
+            for row in request_evidence
+            if row.get("status") in {"pending", "deferred", "approved"}
+        ]
+
+        rejected_ids = set(reject_evidence_ids or [])
+        for row in active_request_evidence:
+            if row["evidence_id"] not in rejected_ids:
+                continue
+            await self._graph.update_evidence_status(
+                row["evidence_id"],
+                "rejected",
+                updates={
+                    "commit_reason": f"rejected_by_adjudication:{request_id}",
+                },
+                group_id=group_id,
+            )
+
+        replacement_candidates = proposals_to_evidence(
+            entities,
+            relationships,
+            episode_id,
+            group_id,
+            model_tier,
+            source_type=source,
+            confidence_bonus=0.05,
+            adjudication_request_id=request_id,
+            rationale=rationale,
+            source_span=request.get("selected_text") or episode.content,
+        )
+
+        if not replacement_candidates:
+            remaining_unresolved = [
+                row
+                for row in active_request_evidence
+                if row["evidence_id"] not in rejected_ids
+            ]
+            status = "rejected" if not remaining_unresolved else "deferred"
+            await self._graph.update_adjudication_request(
+                request_id,
+                {
+                    "status": status,
+                    "resolution_source": source,
+                    "resolution_payload": resolution_payload,
+                    "attempt_count": attempt_count,
+                },
+                group_id,
+            )
+            return AdjudicationResolutionOutcome(
+                request_id=request_id,
+                status=status,
+                superseded_evidence_ids=[],
+                replacement_evidence_ids=[],
+            )
+
+        replacement_pairs = [
+            (
+                candidate,
+                CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="commit",
+                    reason=f"resolved_by_{source}",
+                    effective_confidence=candidate.confidence,
+                ),
+            )
+            for candidate in replacement_candidates
+        ]
+        materialization = await self.materialize_evidence(
+            episode=episode,
+            evidence_pairs=replacement_pairs,
+            group_id=group_id,
+            recall_content=request.get("selected_text") or episode.content,
+        )
+        replacement_rows = self._serialize_candidate_records(
+            replacement_candidates,
+            status="committed",
+            commit_reason=f"materialized_from_adjudication:{request_id}",
+        )
+        replacement_rows, unresolved_replacements = self._apply_committed_ids(
+            replacement_rows,
+            materialization.committed_ids,
+        )
+        if replacement_rows:
+            await self._graph.store_evidence(
+                replacement_rows,
+                group_id=group_id,
+                default_status="committed",
+            )
+        if unresolved_replacements:
+            for row in unresolved_replacements:
+                row["status"] = "deferred"
+                row["commit_reason"] = "adjudication_unmaterialized"
+            await self._graph.store_evidence(
+                unresolved_replacements,
+                group_id=group_id,
+                default_status="deferred",
+            )
+
+        if not materialization.materialized:
+            await self._graph.update_adjudication_request(
+                request_id,
+                {
+                    "status": "deferred",
+                    "resolution_source": source,
+                    "resolution_payload": resolution_payload,
+                    "attempt_count": attempt_count,
+                },
+                group_id,
+            )
+            return AdjudicationResolutionOutcome(
+                request_id=request_id,
+                status="deferred",
+                replacement_evidence_ids=[
+                    row["evidence_id"] for row in replacement_rows + unresolved_replacements
+                ],
+            )
+
+        superseded_ids: list[str] = []
+        for row in active_request_evidence:
+            if row["evidence_id"] in rejected_ids:
+                continue
+            await self._graph.update_evidence_status(
+                row["evidence_id"],
+                "superseded",
+                updates={
+                    "commit_reason": f"superseded_by_adjudication:{request_id}",
+                },
+                group_id=group_id,
+            )
+            superseded_ids.append(row["evidence_id"])
+
+        await self._graph.update_adjudication_request(
+            request_id,
+            {
+                "status": "materialized",
+                "resolution_source": source,
+                "resolution_payload": resolution_payload,
+                "attempt_count": attempt_count,
+            },
+            group_id,
+        )
+        return AdjudicationResolutionOutcome(
+            request_id=request_id,
+            status="materialized",
+            committed_ids=materialization.committed_ids,
+            superseded_evidence_ids=superseded_ids,
+            replacement_evidence_ids=[
+                row["evidence_id"] for row in replacement_rows + unresolved_replacements
+            ],
         )
 
     @staticmethod
@@ -500,7 +1240,10 @@ class GraphManager:
         if episode is None:
             return None
         state = getattr(episode, "projection_state", None)
-        return state.value if hasattr(state, "value") else state
+        value = getattr(state, "value", None)
+        if isinstance(value, str):
+            return value
+        return state if isinstance(state, str) else None
 
     @staticmethod
     def _cue_result_payload(cue: EpisodeCue, *, hit_increment: int = 0) -> dict[str, object]:
@@ -685,7 +1428,10 @@ class GraphManager:
             EpisodeProjectionState.QUEUED.value,
             EpisodeProjectionState.FAILED.value,
         }
-        hit_count = int(cue_updates.get("hit_count", cue.hit_count or 0))
+        hit_count = _coerce_int(
+            cue_updates.get("hit_count", cue.hit_count or 0),
+            cue.hit_count or 0,
+        )
         should_promote = (
             (
                 hit_count >= self._cfg.cue_recall_hit_threshold
@@ -864,6 +1610,9 @@ class GraphManager:
         self,
         episode_id: str,
         group_id: str = "default",
+        proposed_entities: list[dict] | None = None,
+        proposed_relationships: list[dict] | None = None,
+        model_tier: str = "default",
     ) -> None:
         """Run extraction, resolution, and embedding on a stored episode.
 
@@ -952,37 +1701,169 @@ class GraphManager:
             await self._update_episode_status(
                 episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
             )
-            bundle = await self._projector.project(plan)
-            if bundle.is_error:
-                raise ProjectionError(
-                    f"extractor_{bundle.extractor_status}: "
-                    f"{bundle.extractor_error or 'unknown_error'}",
-                    retryable=bundle.retryable,
+
+            used_evidence_materializer = False
+            if self._should_use_evidence_pipeline(
+                proposed_entities=proposed_entities,
+                proposed_relationships=proposed_relationships,
+            ):
+                # NEW PATH: narrow extractors -> evidence -> commit -> bridge -> apply
+                cue = await self._get_episode_cue(episode_id, group_id)
+                evidence_bundle = self._build_evidence_bundle(
+                    text=plan.selected_text,
+                    episode_id=episode_id,
+                    group_id=group_id,
+                    cue=cue,
+                    proposed_entities=proposed_entities,
+                    proposed_relationships=proposed_relationships,
+                    model_tier=model_tier,
+                )
+                if self._cfg.edge_adjudication_enabled and self._ambiguity_analyzer:
+                    ambiguity_analysis = await self._ambiguity_analyzer.analyze(
+                        text=plan.selected_text,
+                        bundle=evidence_bundle,
+                        group_id=group_id,
+                    )
+                    ambiguous_groups = ambiguity_analysis.ambiguous_groups
+                    evidence_bundle = EvidenceBundle(
+                        episode_id=evidence_bundle.episode_id,
+                        group_id=evidence_bundle.group_id,
+                        candidates=ambiguity_analysis.clean_candidates,
+                        extractor_stats=evidence_bundle.extractor_stats,
+                        total_ms=evidence_bundle.total_ms,
+                    )
+                    if ambiguous_groups:
+                        requests = self._build_adjudication_requests(
+                            episode_id,
+                            group_id,
+                            ambiguous_groups,
+                        )
+                        if requests:
+                            await self._graph.store_adjudication_requests(
+                                [request.to_dict() for request in requests],
+                                group_id=group_id,
+                            )
+                            ambiguous_candidates = [
+                                candidate
+                                for group in ambiguous_groups
+                                for candidate in group.candidates
+                                if candidate.adjudication_request_id
+                            ]
+                            ambiguous_rows = self._serialize_candidate_records(
+                                ambiguous_candidates,
+                                status="pending",
+                                commit_reason="needs_adjudication",
+                            )
+                            await self._graph.store_evidence(
+                                ambiguous_rows,
+                                group_id=group_id,
+                            )
+                raw_entity_count = await self._graph.get_entity_count(group_id)
+                entity_count = raw_entity_count if isinstance(raw_entity_count, int) else 0
+                decisions = self._commit_policy.evaluate(  # type: ignore[union-attr]
+                    evidence_bundle, entity_count,
+                )
+                committed = [
+                    (ev, d)
+                    for ev, d in zip(evidence_bundle.candidates, decisions)
+                    if d.action == "commit"
+                ]
+                deferred = [
+                    (ev, d)
+                    for ev, d in zip(evidence_bundle.candidates, decisions)
+                    if d.action == "defer"
+                ]
+                deferred_dicts = (
+                    self._serialize_evidence_records(deferred, status="deferred")
+                    if self._cfg.evidence_store_deferred and deferred
+                    else []
+                )
+                committed_dicts = (
+                    self._serialize_evidence_records(
+                        committed,
+                        status="committed",
+                        commit_reason="committed_on_hot_path",
+                    )
+                    if committed
+                    else []
                 )
 
-            await self._update_episode_status(
-                episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
-            )
-            now = time.time()
-            apply_outcome = await self._apply_engine.apply_entities(
-                bundle.entities,
-                episode,
-                group_id,
-                recall_content=plan.selected_text,
-            )
-            entity_map = apply_outcome.entity_map
-            await self._apply_bootstrap_part_of_edges(episode, entity_map, group_id)
+                await self._update_episode_status(
+                    episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+                )
+                now = time.time()
+                materialization = await self.materialize_evidence(
+                    episode=episode,
+                    evidence_pairs=committed,
+                    group_id=group_id,
+                    recall_content=plan.selected_text,
+                    on_before_relationships=lambda: self._update_episode_status(
+                        episode_id, EpisodeStatus.WRITING, group_id=group_id,
+                    ),
+                )
+                used_evidence_materializer = True
+                apply_outcome = materialization.apply_outcome
+                entity_map = apply_outcome.entity_map
+                committed_dicts, unmaterialized_rows = self._apply_committed_ids(
+                    committed_dicts,
+                    materialization.committed_ids,
+                )
+                if unmaterialized_rows and self._cfg.evidence_store_deferred:
+                    for row in unmaterialized_rows:
+                        row["status"] = "deferred"
+                        row["commit_reason"] = None
+                    deferred_dicts.extend(unmaterialized_rows)
 
-            await self._update_episode_status(
-                episode_id, EpisodeStatus.WRITING, group_id=group_id,
-            )
-            apply_outcome.relationship_results = await self._apply_engine.apply_relationships(
-                bundle.claims,
-                entity_map=entity_map,
-                meta_entity_names=apply_outcome.meta_entity_names,
-                group_id=group_id,
-                source_episode=episode_id,
-            )
+                if deferred_dicts:
+                    await self._graph.store_evidence(
+                        deferred_dicts,
+                        group_id=group_id,
+                        default_status="deferred",
+                    )
+                if committed_dicts:
+                    await self._graph.store_evidence(
+                        committed_dicts,
+                        group_id=group_id,
+                        default_status="committed",
+                    )
+                bundle = materialization.bundle
+            else:
+                # EXISTING PATH: LLM extractor (unchanged)
+                bundle = await self._projector.project(plan)
+                if bundle.is_error:
+                    raise ProjectionError(
+                        f"extractor_{bundle.extractor_status}: "
+                        f"{bundle.extractor_error or 'unknown_error'}",
+                        retryable=bundle.retryable,
+                    )
+
+                await self._update_episode_status(
+                    episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+                )
+                now = time.time()
+                apply_outcome = await self._apply_engine.apply_entities(
+                    bundle.entities,
+                    episode,
+                    group_id,
+                    recall_content=plan.selected_text,
+                )
+                entity_map = apply_outcome.entity_map
+                await self._apply_bootstrap_part_of_edges(
+                    episode, entity_map, group_id,
+                )
+
+                await self._update_episode_status(
+                    episode_id, EpisodeStatus.WRITING, group_id=group_id,
+                )
+                apply_outcome.relationship_results = (
+                    await self._apply_engine.apply_relationships(
+                        bundle.claims,
+                        entity_map=entity_map,
+                        meta_entity_names=apply_outcome.meta_entity_names,
+                        group_id=group_id,
+                        source_episode=episode_id,
+                    )
+                )
 
             await self._run_surprise_detection(
                 entity_map=entity_map,
@@ -1001,12 +1882,13 @@ class GraphManager:
                 group_id=group_id,
                 episode_id=episode_id,
             )
-            await self._index_projected_bundle(
-                bundle=bundle,
-                entity_map=entity_map,
-                group_id=group_id,
-                episode_id=episode_id,
-            )
+            if not used_evidence_materializer:
+                await self._index_projected_bundle(
+                    bundle=bundle,
+                    entity_map=entity_map,
+                    group_id=group_id,
+                    episode_id=episode_id,
+                )
 
             await self._update_episode_status(
                 episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
@@ -1057,7 +1939,8 @@ class GraphManager:
                 "Ingested episode %s: %d entities, %d relationships",
                 episode_id, len(bundle.entities), len(bundle.claims),
             )
-            self.invalidate_briefing_cache(group_id)
+            if not used_evidence_materializer:
+                self.invalidate_briefing_cache(group_id)
 
         except Exception as e:
             self._content_hashes_inflight.discard(content_hash)
@@ -1112,6 +1995,9 @@ class GraphManager:
         group_id: str = "default",
         source: str | None = None,
         session_id: str | None = None,
+        proposed_entities: list[dict] | None = None,
+        proposed_relationships: list[dict] | None = None,
+        model_tier: str = "default",
     ) -> str:
         """Ingest a text episode: store, extract, resolve, link.
 
@@ -1119,7 +2005,13 @@ class GraphManager:
         """
         episode_id = await self.store_episode(content, group_id, source, session_id)
         try:
-            await self.project_episode(episode_id, group_id)
+            await self.project_episode(
+                episode_id,
+                group_id,
+                proposed_entities=proposed_entities,
+                proposed_relationships=proposed_relationships,
+                model_tier=model_tier,
+            )
         except Exception:
             pass  # project_episode already sets FAILED status
         return episode_id
@@ -2428,7 +3320,12 @@ class GraphManager:
             for r in results[:self._cfg.retrieval_priming_top_n]:
                 if r.get("result_type") != "entity":
                     continue
-                entity_id = r.get("entity", {}).get("id")
+                entity_payload = r.get("entity")
+                entity_id = (
+                    entity_payload.get("id")
+                    if isinstance(entity_payload, dict)
+                    else None
+                )
                 if not entity_id:
                     continue
                 try:
@@ -2878,7 +3775,7 @@ class GraphManager:
                 predicate="TRIGGERED_BY",
                 weight=0.9,
                 group_id=group_id,
-                episode_id=None,
+                source_episode=None,
             )
             await self._graph.create_relationship(rel)
 
@@ -2981,7 +3878,16 @@ class GraphManager:
             return
 
         if hard:
-            await self._graph.delete_entity(intention_id, group_id=group_id)
+            delete_entity = self._graph.delete_entity
+            delete_signature = inspect.signature(delete_entity)
+            if "group_id" in delete_signature.parameters:
+                group_param = delete_signature.parameters["group_id"]
+                if group_param.kind is inspect.Parameter.KEYWORD_ONLY:
+                    await delete_entity(intention_id, soft=False, group_id=group_id)
+                else:
+                    await delete_entity(intention_id, group_id)
+            else:
+                await delete_entity(intention_id, group_id)
         else:
             entity = await self._graph.get_entity(intention_id, group_id)
             if entity:
@@ -3159,12 +4065,15 @@ class GraphManager:
         for k in keys_to_remove:
             del self._briefing_cache[k]
 
-    async def _synthesize_briefing(
+    def _template_briefing(
         self, structured_context: str, group_id: str, topic_hint: str | None,
     ) -> str:
-        """Call Claude Haiku to synthesize a brief narrative from structured context."""
-        import asyncio
+        """Render a brief narrative from structured context using templates.
 
+        No LLM call — deterministic, instant, always available.
+        Parses tier sections from the structured markdown and formats them
+        into 2-3 natural sentences.
+        """
         cache_key = (group_id, topic_hint)
         now = time.time()
         if cache_key in self._briefing_cache:
@@ -3172,36 +4081,51 @@ class GraphManager:
             if now - ts < self._cfg.briefing_cache_ttl_seconds:
                 return text
 
-        try:
-            import anthropic
+        sentences: list[str] = []
 
-            client = anthropic.Anthropic()
+        # Parse tier sections
+        tier1_lines: list[str] = []
+        tier2_lines: list[str] = []
+        tier3_lines: list[str] = []
+        current_tier: list[str] | None = None
 
-            def _call() -> str:
-                resp = client.messages.create(
-                    model=self._cfg.briefing_model,
-                    max_tokens=self._cfg.briefing_max_tokens,
-                    system=[{
-                        "type": "text",
-                        "text": (
-                            "You synthesize memory context into a brief, natural-sounding "
-                            "summary for an AI assistant about to start a conversation. "
-                            "Write 2-3 sentences: who the user is, what they're working on, "
-                            "and relevant recent context. Be concise and conversational. "
-                            "Do not mention activation scores or system internals."
-                        ),
-                        "cache_control": {"type": "ephemeral"},
-                    }],
-                    messages=[{"role": "user", "content": structured_context}],
-                )
-                return resp.content[0].text
+        for line in structured_context.split("\n"):
+            stripped = line.strip()
+            if "Identity" in stripped and stripped.startswith("#"):
+                current_tier = tier1_lines
+            elif "Project" in stripped and stripped.startswith("#"):
+                current_tier = tier2_lines
+            elif ("Recent" in stripped or "Activity" in stripped) and stripped.startswith("#"):
+                current_tier = tier3_lines
+            elif "Intention" in stripped and stripped.startswith("#"):
+                current_tier = None
+            elif current_tier is not None and stripped.startswith("- "):
+                current_tier.append(stripped[2:].strip())
 
-            briefing = await asyncio.to_thread(_call)
-            self._briefing_cache[cache_key] = (now, briefing)
-            return briefing
-        except Exception:
-            logger.warning("Briefing synthesis failed, falling back to structured", exc_info=True)
-            return structured_context
+        # Sentence 1: Identity
+        if tier1_lines:
+            # Pick the first few identity facts
+            identity_facts = tier1_lines[:3]
+            sentences.append("Known context: " + "; ".join(identity_facts) + ".")
+
+        # Sentence 2: Current project/topic
+        if tier2_lines:
+            project_facts = tier2_lines[:3]
+            prefix = f"Currently working on {topic_hint}: " if topic_hint else "Current focus: "
+            sentences.append(prefix + "; ".join(project_facts) + ".")
+
+        # Sentence 3: Recent activity
+        if tier3_lines:
+            recent_facts = tier3_lines[:3]
+            sentences.append("Recent activity: " + "; ".join(recent_facts) + ".")
+
+        if sentences:
+            briefing = " ".join(sentences)
+        else:
+            briefing = structured_context
+
+        self._briefing_cache[cache_key] = (now, briefing)
+        return briefing
 
     async def get_context(
         self,
@@ -3282,9 +4206,11 @@ class GraphManager:
         if topic_hint:
             results = await self.recall(query=topic_hint, group_id=group_id, limit=15)
             for r in results:
-                if r.get("result_type") == "episode":
+                if r.get("result_type") in {"episode", "cue_episode"}:
                     continue
-                ent = r["entity"]
+                ent = r.get("entity")
+                if not ent:
+                    continue
                 if ent["id"] in seen_ids:
                     continue
                 # Variable resolution based on hop distance
@@ -3375,10 +4301,16 @@ class GraphManager:
                     except Exception:
                         continue
 
-                    state = await self._activation.get_activation(ie.id)
+                    intention_state: ActivationState | None = await self._activation.get_activation(
+                        ie.id,
+                    )
                     act = 0.0
-                    if state:
-                        act = compute_activation(state.access_history, now, self._cfg)
+                    if intention_state:
+                        act = compute_activation(
+                            intention_state.access_history,
+                            now,
+                            self._cfg,
+                        )
                     warmth_ratio = (
                         act / meta.activation_threshold
                         if meta.activation_threshold > 0 else 0.0
@@ -3443,7 +4375,7 @@ class GraphManager:
 
         # Briefing format
         if format == "briefing" and self._cfg.briefing_enabled and all_entities:
-            briefing = await self._synthesize_briefing(context_text, group_id, topic_hint)
+            briefing = self._template_briefing(context_text, group_id, topic_hint)
             return {
                 "context": briefing,
                 "entity_count": len(all_entities),
@@ -3481,7 +4413,7 @@ class GraphManager:
         # Get top activated
         top = await self._activation.get_top_activated(group_id=group_id, limit=top_n * 2)
 
-        top_activated = []
+        top_activated: list[_TopActivatedEntry] = []
         active_count = 0
         dormant_count = 0
 

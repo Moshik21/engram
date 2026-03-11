@@ -19,7 +19,7 @@ const COLUMNS = [
       { label: "Benchmark Page", to: "/benchmarks" },
       {
         label: "GitHub",
-        to: "https://github.com/Moshik21/engram",
+        to: "https://github.com/engram-labs/engram",
         external: true,
       },
       { label: "API Reference", to: "/docs#api" },

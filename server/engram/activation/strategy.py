@@ -21,6 +21,7 @@ class SpreadingStrategy(Protocol):
         group_id: str | None = None,
         community_store=None,
         context_gate: ContextGate | None = None,
+        seed_entity_types: dict[str, str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes.
 

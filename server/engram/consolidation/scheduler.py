@@ -20,10 +20,12 @@ PHASE_TIERS: dict[str, str] = {
     "triage": "hot",
     "merge": "warm",
     "infer": "warm",
+    "evidence_adjudication": "warm",
     "compact": "warm",
     "mature": "warm",
     "semanticize": "warm",
     "reindex": "warm",
+    "microglia": "warm",
     "replay": "cold",
     "prune": "cold",
     "schema": "cold",
@@ -135,9 +137,13 @@ class ConsolidationScheduler:
                         logger.exception("Tiered consolidation cycle failed")
                 # Also check pressure (triggers full cycle)
                 if pressure_enabled:
+                    pressure = self._pressure
                     elapsed = now - self._last_cycle_time
-                    if elapsed >= self._cfg.consolidation_pressure_cooldown_seconds:
-                        pressure_value = self._pressure.get_pressure(
+                    if (
+                        pressure is not None
+                        and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
+                    ):
+                        pressure_value = pressure.get_pressure(
                             self._group_id, self._cfg,
                         )
                         if pressure_value >= self._cfg.consolidation_pressure_threshold:
@@ -150,38 +156,42 @@ class ConsolidationScheduler:
                                 self._last_cycle_time = now2
                                 for tier in self._last_tier_time:
                                     self._last_tier_time[tier] = now2
-                                if self._pressure:
-                                    self._pressure.reset(self._group_id)
+                                pressure.reset(self._group_id)
                             except Exception:
                                 logger.exception("Pressure consolidation cycle failed")
                 continue
 
             # --- Flat (legacy) scheduling ---
             elapsed = now - self._last_cycle_time
-            trigger: str | None = None
+            cycle_trigger: str | None = None
 
             if elapsed >= self._cfg.consolidation_interval_seconds:
-                trigger = "scheduled"
+                cycle_trigger = "scheduled"
 
-            if pressure_enabled and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds:
-                pressure_value = self._pressure.get_pressure(
+            pressure = self._pressure
+            if (
+                pressure_enabled
+                and pressure is not None
+                and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
+            ):
+                pressure_value = pressure.get_pressure(
                     self._group_id,
                     self._cfg,
                 )
                 if pressure_value >= self._cfg.consolidation_pressure_threshold:
-                    trigger = "pressure"
+                    cycle_trigger = "pressure"
 
-            if trigger is None:
+            if cycle_trigger is None:
                 continue
 
             try:
                 await self._engine.run_cycle(
                     group_id=self._group_id,
-                    trigger=trigger,
+                    trigger=cycle_trigger,
                 )
                 self._last_cycle_time = time.time()
-                if self._pressure:
-                    self._pressure.reset(self._group_id)
+                if pressure is not None:
+                    pressure.reset(self._group_id)
             except Exception:
                 logger.exception("Scheduled consolidation cycle failed")
 

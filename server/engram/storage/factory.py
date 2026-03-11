@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import cast
 
 from engram.config import EngramConfig
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
@@ -13,12 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 def _create_embedding_provider(config: EngramConfig):
-    """Resolve embedding provider from config with automatic fallback."""
+    """Resolve embedding provider from config with automatic fallback.
+
+    Resolution order for ``"auto"`` (default):
+    1. Voyage — if VOYAGE_API_KEY is set
+    2. Local (FastEmbed) — always available (default dependency)
+    3. Noop — vector search disabled, FTS5 still works
+    """
     from engram.embeddings.provider import NoopProvider, VoyageProvider
 
     provider_type = config.embedding.provider.lower()
 
-    if provider_type == "voyage":
+    # Normalize legacy "voyage" default to "auto" behavior
+    if provider_type in ("voyage", "auto"):
         api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
         if api_key:
             logger.info("Embedding provider: VoyageProvider (%s)", config.embedding.model)
@@ -28,8 +36,9 @@ def _create_embedding_provider(config: EngramConfig):
                 dimensions=config.embedding.dimensions,
                 batch_size=config.embedding.batch_size,
             )
-        # Fallback: try local if fastembed available
-        logger.warning("No VOYAGE_API_KEY — falling back to local embeddings")
+        if provider_type == "voyage":
+            # Explicit "voyage" without key — warn and fall back
+            logger.warning("No VOYAGE_API_KEY — falling back to local embeddings")
         provider_type = "local"
 
     if provider_type == "local":
@@ -48,7 +57,7 @@ def _create_embedding_provider(config: EngramConfig):
         except ImportError:
             logger.warning(
                 "fastembed not installed — vector search disabled. "
-                "Install with: pip install engram[local]"
+                "Install with: pip install fastembed"
             )
 
     # noop or fallback
@@ -168,13 +177,18 @@ def create_stores(
             else "noop"
         )
 
-        return (
-            FalkorDBGraphStore(config.falkordb, encryptor=encryptor),
-            RedisActivationStore(redis_client, cfg=config.activation),
-            RedisSearchIndex(
-                redis_client, provider=provider, config=config.embedding,
-                storage_dim=storage_dim,
-                embed_provider=embed_meta_provider,
-                embed_model=embed_meta_model,
+        return cast(
+            tuple[GraphStore, ActivationStore, SearchIndex],
+            (
+                FalkorDBGraphStore(config.falkordb, encryptor=encryptor),
+                RedisActivationStore(redis_client, cfg=config.activation),
+                RedisSearchIndex(
+                    redis_client,
+                    provider=provider,
+                    config=config.embedding,
+                    storage_dim=storage_dim,
+                    embed_provider=embed_meta_provider,
+                    embed_model=embed_meta_model,
+                ),
             ),
         )

@@ -140,6 +140,17 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     cfg=cfg,
                 )
 
+        # 3c. LTD sweep for low-activation entities (broader hygiene)
+        ltd_sweep_decayed = 0
+        if cfg.consolidation_dream_ltd_sweep_enabled and not dry_run:
+            ltd_sweep_decayed = await self._apply_ltd_low_activation_sweep(
+                activation_store=activation_store,
+                graph_store=graph_store,
+                group_id=group_id,
+                cfg=cfg,
+                now=now,
+            )
+
         # 4. Dream associations: discover cross-domain creative connections
         assoc_count = 0
         if cfg.consolidation_dream_associations_enabled:
@@ -160,7 +171,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             phase=self.name,
             status="success",
             items_processed=len(seeds or []),
-            items_affected=edges_boosted + assoc_count + edges_decayed,
+            items_affected=edges_boosted + assoc_count + edges_decayed + ltd_sweep_decayed,
             duration_ms=round(elapsed, 1),
         ), records
 
@@ -319,6 +330,100 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         if decayed:
             logger.info("Dream LTD: decayed %d unboosted edges by %.4f", decayed, decay)
+        return decayed
+
+    async def _apply_ltd_low_activation_sweep(
+        self,
+        activation_store,
+        graph_store,
+        group_id: str,
+        cfg: ActivationConfig,
+        now: float,
+    ) -> int:
+        """Sweep low-activation entities and decay their unboosted edges.
+
+        Complements seed-based LTD by targeting entities below the dream seed
+        floor (activation < 0.15). These entities never appear as seeds, so
+        their contaminated edges would otherwise persist indefinitely.
+
+        Uses a reduced decay rate to avoid aggressive pruning.
+        """
+        floor = cfg.consolidation_dream_activation_floor
+        sweep_size = cfg.consolidation_dream_ltd_sweep_size
+        sweep_decay = cfg.consolidation_dream_ltd_sweep_decay
+        min_weight = cfg.consolidation_dream_ltd_min_weight
+
+        # Sample entities with activation below the seed floor
+        all_entities = await activation_store.get_top_activated(
+            group_id=group_id,
+            limit=10000,
+            now=now,
+        )
+
+        low_act_ids: list[str] = []
+        for entity_id, state in all_entities:
+            act = compute_activation(state.access_history, now, cfg)
+            if act < floor:
+                low_act_ids.append(entity_id)
+
+        if not low_act_ids:
+            return 0
+
+        # Stochastic sample
+        rng = np.random.default_rng()
+        sample_size = min(sweep_size, len(low_act_ids))
+        sampled_ids = rng.choice(low_act_ids, size=sample_size, replace=False).tolist()
+
+        # Check identity-core entities to protect them
+        identity_core_ids: set[str] = set()
+        if hasattr(graph_store, "get_identity_core_entities"):
+            try:
+                core_entities = await graph_store.get_identity_core_entities(group_id)
+                identity_core_ids = {e.id for e in core_entities}
+            except Exception:
+                pass
+
+        decayed = 0
+        for entity_id in sampled_ids:
+            if entity_id in identity_core_ids:
+                continue
+
+            neighbors = await graph_store.get_active_neighbors_with_weights(
+                entity_id, group_id=group_id,
+            )
+            for neighbor_id, weight, predicate, *_rest in neighbors:
+                # Skip DREAM_ASSOCIATED edges (TTL-managed)
+                if predicate == "DREAM_ASSOCIATED":
+                    continue
+
+                # Skip identity-core neighbor edges
+                if neighbor_id in identity_core_ids:
+                    continue
+
+                # Skip edges below the floor
+                if weight <= min_weight:
+                    continue
+
+                # Apply reduced decay
+                capped_decay = min(sweep_decay, weight - min_weight)
+                if capped_decay <= 0:
+                    continue
+
+                await graph_store.update_relationship_weight(
+                    entity_id,
+                    neighbor_id,
+                    -capped_decay,
+                    max_weight=cfg.consolidation_dream_max_edge_weight,
+                    group_id=group_id,
+                    predicate=predicate,
+                )
+                decayed += 1
+
+        if decayed:
+            logger.info(
+                "Dream LTD sweep: decayed %d edges on %d low-activation entities by %.4f",
+                decayed, sample_size, sweep_decay,
+            )
         return decayed
 
     # ------------------------------------------------------------------
@@ -551,8 +656,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 if not ids_a or not ids_b:
                     continue
 
-                mat_a = np.array([embeddings[eid] for eid in ids_a], dtype=np.float32)
-                mat_b = np.array([embeddings[eid] for eid in ids_b], dtype=np.float32)
+                mat_a = np.array([embeddings[eid] for eid in ids_a], dtype=np.float64)
+                mat_b = np.array([embeddings[eid] for eid in ids_b], dtype=np.float64)
 
                 # Normalize for cosine similarity
                 norms_a = np.linalg.norm(mat_a, axis=1, keepdims=True)
@@ -571,10 +676,10 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
                     if g_ids_a and g_ids_b:
                         g_mat_a = np.array(
-                            [graph_embeddings[eid] for eid in g_ids_a], dtype=np.float32,
+                            [graph_embeddings[eid] for eid in g_ids_a], dtype=np.float64,
                         )
                         g_mat_b = np.array(
-                            [graph_embeddings[eid] for eid in g_ids_b], dtype=np.float32,
+                            [graph_embeddings[eid] for eid in g_ids_b], dtype=np.float64,
                         )
                         g_norms_a = np.linalg.norm(g_mat_a, axis=1, keepdims=True)
                         g_norms_b = np.linalg.norm(g_mat_b, axis=1, keepdims=True)

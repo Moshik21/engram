@@ -12,8 +12,11 @@ Replaces LLM judge with a weighted ensemble of:
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import numpy as np
+
+from engram.storage.protocols import GraphStore, SearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,7 @@ def compute_type_compatibility(
     """Return compatibility score [0, 1] for an entity-type pair."""
     domain_a = _entity_type_to_domain(type_a, domain_groups)
     domain_b = _entity_type_to_domain(type_b, domain_groups)
-    pair = tuple(sorted([domain_a, domain_b]))
+    pair = cast(tuple[str, str], tuple(sorted((domain_a, domain_b))))
     return DOMAIN_COMPATIBILITY.get(pair, 0.5)
 
 
@@ -124,15 +127,15 @@ def compute_ubiquity_score(
 async def compute_structural_score(
     entity_a_id: str,
     entity_b_id: str,
-    graph_store: object,
+    graph_store: GraphStore,
     group_id: str,
 ) -> float:
     """Score based on shared graph neighbors (triangle closure)."""
     try:
-        neighbors_a = await graph_store.get_active_neighbors_with_weights(  # type: ignore[union-attr]
+        neighbors_a = await graph_store.get_active_neighbors_with_weights(
             entity_a_id, group_id,
         )
-        neighbors_b = await graph_store.get_active_neighbors_with_weights(  # type: ignore[union-attr]
+        neighbors_b = await graph_store.get_active_neighbors_with_weights(
             entity_b_id, group_id,
         )
     except Exception:
@@ -169,8 +172,8 @@ async def score_infer_pair(
     ep_count_a: int,
     ep_count_b: int,
     total_episodes: int,
-    search_index: object,
-    graph_store: object,
+    search_index: SearchIndex,
+    graph_store: GraphStore,
     group_id: str,
     domain_groups: dict[str, list[str]] | None = None,
     approve_threshold: float = 0.65,
@@ -184,7 +187,7 @@ async def score_infer_pair(
     # Signal 1: Embedding coherence (weight 0.30)
     emb_score = 0.5  # neutral default
     try:
-        embeddings = await search_index.get_entity_embeddings(  # type: ignore[union-attr]
+        embeddings = await search_index.get_entity_embeddings(
             [entity_a_id, entity_b_id],
             group_id=group_id,
         )
@@ -221,7 +224,7 @@ async def score_infer_pair(
     # Signal 6: Graph embedding similarity (weight 0.05)
     graph_sim = 0.5  # neutral default
     try:
-        graph_embs = await search_index.get_graph_embeddings(  # type: ignore[union-attr]
+        graph_embs = await search_index.get_graph_embeddings(
             [entity_a_id, entity_b_id],
             method="node2vec",
             group_id=group_id,

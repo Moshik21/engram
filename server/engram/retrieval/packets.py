@@ -288,7 +288,7 @@ def _packet_summary(packet_type: str, entity: dict, evidence_lines: list[str]) -
         return summary[:180]
     if evidence_lines:
         return evidence_lines[0][:180]
-    return entity["name"]
+    return str(entity.get("name") or "")
 
 
 async def _build_relationship_lines(
