@@ -127,8 +127,13 @@ class TestEntityToContextDataDetailLevel:
     async def test_mention_returns_minimal(self, graph_manager):
         """Mention level should return only name and type."""
         ed = await graph_manager._entity_to_context_data(
-            "ent_1", "Python", "Technology", "A programming language",
-            "default", 1000.0, detail_level="mention",
+            "ent_1",
+            "Python",
+            "Technology",
+            "A programming language",
+            "default",
+            1000.0,
+            detail_level="mention",
         )
         assert ed["name"] == "Python"
         assert ed["type"] == "Technology"
@@ -144,13 +149,18 @@ class TestEntityToContextDataDetailLevel:
         from engram.models.relationship import Relationship
 
         graph_manager._activation.get_activation.return_value = ActivationState(
-            node_id="ent_1", access_history=[900.0, 950.0], access_count=2,
+            node_id="ent_1",
+            access_history=[900.0, 950.0],
+            access_count=2,
         )
         # Return 5 relationships - summary should only use 2
         rels = [
             Relationship(
-                id=f"r{i}", source_id="ent_1", target_id=f"ent_{i+10}",
-                predicate=f"PRED_{i}", group_id="default",
+                id=f"r{i}",
+                source_id="ent_1",
+                target_id=f"ent_{i + 10}",
+                predicate=f"PRED_{i}",
+                group_id="default",
             )
             for i in range(5)
         ]
@@ -163,8 +173,13 @@ class TestEntityToContextDataDetailLevel:
         graph_manager.resolve_entity_name = resolve_name
 
         ed = await graph_manager._entity_to_context_data(
-            "ent_1", "Python", "Technology", "A programming language",
-            "default", 1000.0, detail_level="summary",
+            "ent_1",
+            "Python",
+            "Technology",
+            "A programming language",
+            "default",
+            1000.0,
+            detail_level="summary",
         )
         assert ed["detail_level"] == "summary"
         assert len(ed["facts"]) == 2
@@ -179,18 +194,25 @@ class TestEntityToContextDataDetailLevel:
         from engram.models.relationship import Relationship
 
         graph_manager._activation.get_activation.return_value = ActivationState(
-            node_id="ent_1", access_history=[900.0], access_count=1,
+            node_id="ent_1",
+            access_history=[900.0],
+            access_count=1,
         )
         rels = [
             Relationship(
-                id=f"r{i}", source_id="ent_1", target_id=f"ent_{i+10}",
-                predicate=f"PRED_{i}", group_id="default",
+                id=f"r{i}",
+                source_id="ent_1",
+                target_id=f"ent_{i + 10}",
+                predicate=f"PRED_{i}",
+                group_id="default",
             )
             for i in range(7)
         ]
         graph_manager._graph.get_relationships.return_value = rels
         entity = Entity(
-            id="ent_1", name="Achilles Injury", entity_type="HealthCondition",
+            id="ent_1",
+            name="Achilles Injury",
+            entity_type="HealthCondition",
             attributes={"status": "recovering", "duration": "3 weeks"},
         )
         graph_manager._graph.get_entity.return_value = entity
@@ -201,8 +223,12 @@ class TestEntityToContextDataDetailLevel:
         graph_manager.resolve_entity_name = resolve_name
 
         ed = await graph_manager._entity_to_context_data(
-            "ent_1", "Achilles Injury", "HealthCondition",
-            "Tweaked Achilles tendon", "default", 1000.0,
+            "ent_1",
+            "Achilles Injury",
+            "HealthCondition",
+            "Tweaked Achilles tendon",
+            "default",
+            1000.0,
             detail_level="full",
         )
         assert ed["detail_level"] == "full"
@@ -217,8 +243,15 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Python", "type": "Technology", "detail_level": "mention",
-             "activation": 0.0, "facts": [], "attributes": None, "summary": None},
+            {
+                "name": "Python",
+                "type": "Technology",
+                "detail_level": "mention",
+                "activation": 0.0,
+                "facts": [],
+                "attributes": None,
+                "summary": None,
+            },
         ]
         text = GraphManager._render_tier("## Test", entities, [])
         assert "Python (Technology)" in text
@@ -228,9 +261,15 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "FastAPI", "type": "Technology", "detail_level": "summary",
-             "activation": 0.75, "summary": "Web framework",
-             "facts": ["FastAPI USES Python"], "attributes": None},
+            {
+                "name": "FastAPI",
+                "type": "Technology",
+                "detail_level": "summary",
+                "activation": 0.75,
+                "summary": "Web framework",
+                "facts": ["FastAPI USES Python"],
+                "attributes": None,
+            },
         ]
         text = GraphManager._render_tier("## Test", entities, [])
         assert "FastAPI (Technology, act=0.75) — Web framework" in text
@@ -240,10 +279,15 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Alex", "type": "Person", "detail_level": "full",
-             "activation": 0.95, "summary": "Software engineer",
-             "facts": ["Alex WORKS_AT Company"],
-             "attributes": {"status": "active", "role": "engineer"}},
+            {
+                "name": "Alex",
+                "type": "Person",
+                "detail_level": "full",
+                "activation": 0.95,
+                "summary": "Software engineer",
+                "facts": ["Alex WORKS_AT Company"],
+                "attributes": {"status": "active", "role": "engineer"},
+            },
         ]
         text = GraphManager._render_tier("## Test", entities, [])
         assert "Alex (Person, act=0.95)" in text
@@ -255,15 +299,33 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Alex", "type": "Person", "detail_level": "full",
-             "activation": 0.95, "summary": "Software engineer",
-             "facts": ["Alex WORKS_AT Acme"],
-             "attributes": {"role": "lead"}},
-            {"name": "FastAPI", "type": "Technology", "detail_level": "summary",
-             "activation": 0.6, "summary": "Web framework",
-             "facts": ["FastAPI USES Python"], "attributes": None},
-            {"name": "Redis", "type": "Technology", "detail_level": "mention",
-             "activation": 0.0, "facts": [], "attributes": None, "summary": None},
+            {
+                "name": "Alex",
+                "type": "Person",
+                "detail_level": "full",
+                "activation": 0.95,
+                "summary": "Software engineer",
+                "facts": ["Alex WORKS_AT Acme"],
+                "attributes": {"role": "lead"},
+            },
+            {
+                "name": "FastAPI",
+                "type": "Technology",
+                "detail_level": "summary",
+                "activation": 0.6,
+                "summary": "Web framework",
+                "facts": ["FastAPI USES Python"],
+                "attributes": None,
+            },
+            {
+                "name": "Redis",
+                "type": "Technology",
+                "detail_level": "mention",
+                "activation": 0.0,
+                "facts": [],
+                "attributes": None,
+                "summary": None,
+            },
         ]
         text = GraphManager._render_tier("## Test", entities, [])
         # Full: has attributes and facts inline
@@ -284,9 +346,14 @@ class TestRenderTierVariableResolution:
         from engram.graph_manager import GraphManager
 
         entities = [
-            {"name": "Test", "type": "Concept",
-             "activation": 0.5, "summary": "A test",
-             "facts": [], "attributes": None},
+            {
+                "name": "Test",
+                "type": "Concept",
+                "activation": 0.5,
+                "summary": "A test",
+                "facts": [],
+                "attributes": None,
+            },
         ]
         text = GraphManager._render_tier("## Test", entities, [])
         # Should render with activation (full mode)

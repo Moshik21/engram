@@ -81,7 +81,7 @@ def _dedup_summaries(existing: str, incoming: str, max_len: int = 500) -> str:
 
     # Split into sentences
     def _sentences(text: str) -> list[str]:
-        return [s.strip() for s in re.split(r'[.!?]+', text) if s.strip() and len(s.strip()) > 5]
+        return [s.strip() for s in re.split(r"[.!?]+", text) if s.strip() and len(s.strip()) > 5]
 
     existing_sents = _sentences(existing)
     incoming_sents = _sentences(incoming)
@@ -91,7 +91,7 @@ def _dedup_summaries(existing: str, incoming: str, max_len: int = 500) -> str:
 
     # Build token sets for existing sentences
     def _tokens(sent: str) -> set[str]:
-        return {w.lower() for w in re.findall(r'\b\w{3,}\b', sent)}
+        return {w.lower() for w in re.findall(r"\b\w{3,}\b", sent)}
 
     existing_token_sets = [_tokens(s) for s in existing_sents]
 
@@ -122,7 +122,7 @@ def _dedup_summaries(existing: str, incoming: str, max_len: int = 500) -> str:
         result = f"{existing.strip()} {novel_text}".strip()
 
     if len(result) > max_len:
-        result = result[:max_len - 3] + "..."
+        result = result[: max_len - 3] + "..."
     return result
 
 
@@ -287,7 +287,9 @@ class SQLiteGraphStore:
         return self._row_to_entity(row, group_id)
 
     async def batch_get_entities(
-        self, entity_ids: list[str], group_id: str,
+        self,
+        entity_ids: list[str],
+        group_id: str,
     ) -> dict[str, Entity]:
         if not entity_ids:
             return {}
@@ -369,7 +371,10 @@ class SQLiteGraphStore:
         return [self._row_to_entity(r, group_id) for r in rows]
 
     async def find_entity_candidates(
-        self, name: str, group_id: str, limit: int = 30,
+        self,
+        name: str,
+        group_id: str,
+        limit: int = 30,
     ) -> list[Entity]:
         """Retrieve candidate entities for fuzzy resolution via exact + FTS5 match."""
         seen_ids: set[str] = set()
@@ -516,12 +521,8 @@ class SQLiteGraphStore:
         conditions.append("group_id = ?")
         params.append(group_id)
         # Filter out edges to soft-deleted entities
-        conditions.append(
-            "source_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)"
-        )
-        conditions.append(
-            "target_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)"
-        )
+        conditions.append("source_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)")
+        conditions.append("target_id NOT IN (SELECT id FROM entities WHERE deleted_at IS NOT NULL)")
         where = " AND ".join(conditions)
         cursor = await self.db.execute(
             f"SELECT * FROM relationships WHERE {where}",
@@ -1274,7 +1275,10 @@ class SQLiteGraphStore:
         return {row[0]: row[1] for row in rows}
 
     async def find_structural_merge_candidates(
-        self, group_id: str, min_shared_neighbors: int = 3, limit: int = 200,
+        self,
+        group_id: str,
+        min_shared_neighbors: int = 3,
+        limit: int = 200,
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs sharing many neighbors (structural equivalence).
 
@@ -1304,6 +1308,7 @@ class SQLiteGraphStore:
 
         # Build neighbor sets: entity_id -> set of neighbor IDs
         from collections import defaultdict
+
         neighbors: dict[str, set[str]] = defaultdict(set)
         for row in rows:
             src, tgt = row[0], row[1]
@@ -1328,15 +1333,16 @@ class SQLiteGraphStore:
 
         # Filter and sort
         results = [
-            (a, b, count)
-            for (a, b), count in pair_counts.items()
-            if count >= min_shared_neighbors
+            (a, b, count) for (a, b), count in pair_counts.items() if count >= min_shared_neighbors
         ]
         results.sort(key=lambda x: -x[2])
         return results[:limit]
 
     async def get_episode_cooccurrence_count(
-        self, entity_id_a: str, entity_id_b: str, group_id: str,
+        self,
+        entity_id_a: str,
+        entity_id_b: str,
+        group_id: str,
     ) -> int:
         """Count episodes where both entities appear together.
 
@@ -1382,7 +1388,8 @@ class SQLiteGraphStore:
         LIMIT ?
         """
         cursor = await self.db.execute(
-            sql, (group_id, group_id, max_access_count, cutoff, limit),
+            sql,
+            (group_id, group_id, max_access_count, cutoff, limit),
         )
         rows = await cursor.fetchall()
         return [self._row_to_entity(r, group_id) for r in rows]
@@ -1410,7 +1417,9 @@ class SQLiteGraphStore:
         return row[0] if row else 0
 
     async def get_entity_temporal_span(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> tuple[str | None, str | None]:
         """Return (min_created_at, max_created_at) for episodes mentioning this entity."""
         cursor = await self.db.execute(
@@ -1426,7 +1435,9 @@ class SQLiteGraphStore:
         return (None, None)
 
     async def get_entity_relationship_types(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> list[str]:
         """Return distinct predicates connected to this entity."""
         cursor = await self.db.execute(
@@ -1516,7 +1527,8 @@ class SQLiteGraphStore:
                 if is_meta_summary(remove_summary):
                     logger.warning(
                         "Rejected meta-contaminated summary during merge into %s: %s",
-                        keep_id, remove_summary[:80],
+                        keep_id,
+                        remove_summary[:80],
                     )
                 else:
                     # Deduplicate sentences before appending
@@ -1961,7 +1973,9 @@ class SQLiteGraphStore:
     # --- Schema Formation (Brain Architecture Phase 3) ---
 
     async def get_schema_members(
-        self, schema_entity_id: str, group_id: str,
+        self,
+        schema_entity_id: str,
+        group_id: str,
     ) -> list[dict]:
         """Fetch schema member definitions for a schema entity."""
         cursor = await self.db.execute(
@@ -1981,7 +1995,10 @@ class SQLiteGraphStore:
         ]
 
     async def save_schema_members(
-        self, schema_entity_id: str, members: list[dict], group_id: str,
+        self,
+        schema_entity_id: str,
+        members: list[dict],
+        group_id: str,
     ) -> None:
         """Insert or replace schema member rows."""
         for m in members:
@@ -2000,7 +2017,10 @@ class SQLiteGraphStore:
         await self.db.commit()
 
     async def find_entities_by_type(
-        self, entity_type: str, group_id: str, limit: int = 100,
+        self,
+        entity_type: str,
+        group_id: str,
+        limit: int = 100,
     ) -> list[Entity]:
         """Return non-deleted entities of a specific type."""
         cursor = await self.db.execute(
@@ -2026,10 +2046,18 @@ class SQLiteGraphStore:
                 created_at, updated_at, expires_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                i.id, i.trigger_text, i.action_text, i.trigger_type,
-                i.entity_name, i.threshold, i.max_fires, i.fire_count,
-                1 if i.enabled else 0, i.group_id,
-                i.created_at.isoformat(), i.updated_at.isoformat(),
+                i.id,
+                i.trigger_text,
+                i.action_text,
+                i.trigger_type,
+                i.entity_name,
+                i.threshold,
+                i.max_fires,
+                i.fire_count,
+                1 if i.enabled else 0,
+                i.group_id,
+                i.created_at.isoformat(),
+                i.updated_at.isoformat(),
                 i.expires_at.isoformat() if i.expires_at else None,
             ),
         )
@@ -2048,7 +2076,9 @@ class SQLiteGraphStore:
         return self._row_to_intention(row)
 
     async def list_intentions(
-        self, group_id: str, enabled_only: bool = True,
+        self,
+        group_id: str,
+        enabled_only: bool = True,
     ) -> list:
         """List intentions for a group, filtering expired and optionally disabled."""
         if enabled_only:
@@ -2068,7 +2098,10 @@ class SQLiteGraphStore:
         return [self._row_to_intention(r) for r in rows]
 
     async def update_intention(
-        self, id: str, updates: dict, group_id: str,
+        self,
+        id: str,
+        updates: dict,
+        group_id: str,
     ) -> None:
         """Update intention fields."""
         allowed = {"trigger_text", "action_text", "threshold", "max_fires", "enabled", "expires_at"}
@@ -2091,7 +2124,10 @@ class SQLiteGraphStore:
         await self.db.commit()
 
     async def delete_intention(
-        self, id: str, group_id: str, soft: bool = True,
+        self,
+        id: str,
+        group_id: str,
+        soft: bool = True,
     ) -> None:
         """Delete an intention (soft = disable, hard = remove)."""
         if soft:
@@ -2107,7 +2143,9 @@ class SQLiteGraphStore:
         await self.db.commit()
 
     async def increment_intention_fire_count(
-        self, id: str, group_id: str,
+        self,
+        id: str,
+        group_id: str,
     ) -> None:
         """Increment fire_count by 1."""
         await self.db.execute(
@@ -2196,7 +2234,9 @@ class SQLiteGraphStore:
         await self.db.commit()
 
     async def get_pending_evidence(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]:
         """Get unresolved evidence candidates for adjudication."""
         sql = (
@@ -2213,7 +2253,9 @@ class SQLiteGraphStore:
         return [_evidence_row_to_dict(r) for r in rows]
 
     async def get_episode_evidence(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]:
         """Get all evidence for a specific episode."""
         sql = (
@@ -2230,7 +2272,10 @@ class SQLiteGraphStore:
         return [_evidence_row_to_dict(r) for r in rows]
 
     async def update_evidence_status(
-        self, evidence_id: str, status: str, updates: dict | None = None,
+        self,
+        evidence_id: str,
+        status: str,
+        updates: dict | None = None,
         group_id: str = "default",
     ) -> None:
         """Update evidence status and optional fields."""
@@ -2263,24 +2308,22 @@ class SQLiteGraphStore:
             params.append(utc_now_iso())
         params.extend([evidence_id, group_id])
         sql = (
-            f"UPDATE episode_evidence SET {', '.join(sets)} "
-            "WHERE evidence_id = ? AND group_id = ?"
+            f"UPDATE episode_evidence SET {', '.join(sets)} WHERE evidence_id = ? AND group_id = ?"
         )
         await self.db.execute(sql, params)
         await self.db.commit()
 
     async def get_entity_count(self, group_id: str = "default") -> int:
         """Count non-deleted entities in a group."""
-        sql = (
-            "SELECT COUNT(*) FROM entities "
-            "WHERE group_id = ? AND deleted_at IS NULL"
-        )
+        sql = "SELECT COUNT(*) FROM entities WHERE group_id = ? AND deleted_at IS NULL"
         cursor = await self.db.execute(sql, (group_id,))
         row = await cursor.fetchone()
         return int(_row_value(row, 0, 0))
 
     async def store_adjudication_requests(
-        self, requests: list[dict], group_id: str = "default",
+        self,
+        requests: list[dict],
+        group_id: str = "default",
     ) -> None:
         """Persist edge adjudication requests."""
         if not requests:
@@ -2318,7 +2361,9 @@ class SQLiteGraphStore:
         await self.db.commit()
 
     async def get_episode_adjudications(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]:
         """Get adjudication requests for an episode."""
         cursor = await self.db.execute(
@@ -2333,7 +2378,9 @@ class SQLiteGraphStore:
         return [_adjudication_row_to_dict(row) for row in rows]
 
     async def get_adjudication_request(
-        self, request_id: str, group_id: str = "default",
+        self,
+        request_id: str,
+        group_id: str = "default",
     ) -> dict | None:
         """Get a single adjudication request by ID."""
         cursor = await self.db.execute(
@@ -2347,7 +2394,9 @@ class SQLiteGraphStore:
         return _adjudication_row_to_dict(row) if row else None
 
     async def get_pending_adjudication_requests(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]:
         """Get unresolved adjudication requests for consolidation."""
         cursor = await self.db.execute(
@@ -2363,7 +2412,10 @@ class SQLiteGraphStore:
         return [_adjudication_row_to_dict(row) for row in rows]
 
     async def update_adjudication_request(
-        self, request_id: str, updates: dict, group_id: str = "default",
+        self,
+        request_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None:
         """Update adjudication request status and metadata."""
         if not updates:
@@ -2395,10 +2447,7 @@ class SQLiteGraphStore:
                 else None,
             )
         status = updates.get("status")
-        if (
-            status in {"materialized", "rejected", "expired"}
-            and "resolved_at" not in updates
-        ):
+        if status in {"materialized", "rejected", "expired"} and "resolved_at" not in updates:
             sets.append("resolved_at = ?")
             params.append(utc_now_iso())
         if not sets:
@@ -2418,9 +2467,7 @@ class SQLiteGraphStore:
         keys = row.keys()
         raw_status = row["status"]
         status = (
-            raw_status
-            if isinstance(raw_status, EpisodeStatus)
-            else EpisodeStatus(str(raw_status))
+            raw_status if isinstance(raw_status, EpisodeStatus) else EpisodeStatus(str(raw_status))
         )
         raw_projection_state = (
             row["projection_state"]
@@ -2451,9 +2498,7 @@ class SQLiteGraphStore:
             processing_duration_ms=(
                 row["processing_duration_ms"] if "processing_duration_ms" in keys else None
             ),
-            encoding_context=(
-                row["encoding_context"] if "encoding_context" in keys else None
-            ),
+            encoding_context=(row["encoding_context"] if "encoding_context" in keys else None),
             memory_tier=(
                 row["memory_tier"] if "memory_tier" in keys and row["memory_tier"] else "episodic"
             ),

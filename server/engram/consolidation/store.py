@@ -298,8 +298,7 @@ class SQLiteConsolidationStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_consol_schemas_cycle "
-            "ON consolidation_schemas(cycle_id)"
+            "CREATE INDEX IF NOT EXISTS idx_consol_schemas_cycle ON consolidation_schemas(cycle_id)"
         )
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS consolidation_decision_traces (
@@ -1116,7 +1115,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_maturation_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[MaturationRecord]:
         """Fetch maturation records for a cycle."""
         cursor = await self.db.execute(
@@ -1166,7 +1167,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_semantic_transition_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[SemanticTransitionRecord]:
         """Fetch semantic transition records for a cycle."""
         cursor = await self.db.execute(
@@ -1212,7 +1215,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_schema_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[SchemaRecord]:
         """Fetch schema records for a cycle."""
         cursor = await self.db.execute(
@@ -1237,7 +1242,8 @@ class SQLiteConsolidationStore:
         ]
 
     async def save_evidence_adjudication_record(
-        self, record: EvidenceAdjudicationRecord,
+        self,
+        record: EvidenceAdjudicationRecord,
     ) -> None:
         """Insert an evidence adjudication audit record."""
         await self.db.execute(
@@ -1259,7 +1265,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_evidence_adjudication_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[EvidenceAdjudicationRecord]:
         """Fetch evidence adjudication records for a cycle."""
         cursor = await self.db.execute(
@@ -1311,7 +1319,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_decision_traces(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DecisionTrace]:
         """Fetch decision traces for a cycle."""
         cursor = await self.db.execute(
@@ -1366,7 +1376,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_decision_outcome_labels(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DecisionOutcomeLabel]:
         """Fetch decision outcome labels for a cycle."""
         cursor = await self.db.execute(
@@ -1422,7 +1434,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_distillation_examples(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DistillationExample]:
         """Fetch persisted distillation examples for a cycle."""
         cursor = await self.db.execute(
@@ -1446,10 +1460,7 @@ class SQLiteConsolidationStore:
                 student_confidence=r["student_confidence"],
                 threshold_band=r["threshold_band"],
                 features=json.loads(r["features_json"]) if r["features_json"] else {},
-                correct=(
-                    None
-                    if r["correct"] is None else bool(r["correct"])
-                ),
+                correct=(None if r["correct"] is None else bool(r["correct"])),
                 metadata=json.loads(r["metadata_json"]) if r["metadata_json"] else {},
                 timestamp=r["timestamp"],
             )
@@ -1484,7 +1495,9 @@ class SQLiteConsolidationStore:
         await self.db.commit()
 
     async def get_calibration_snapshots(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[CalibrationSnapshot]:
         """Fetch calibration snapshots for a cycle."""
         cursor = await self.db.execute(
@@ -1539,7 +1552,8 @@ class SQLiteConsolidationStore:
         return cursor.lastrowid or 0
 
     async def get_active_complement_tags(
-        self, group_id: str = "default",
+        self,
+        group_id: str = "default",
     ) -> list[dict]:
         """Return all non-cleared complement tags."""
         cursor = await self.db.execute(
@@ -1552,9 +1566,14 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             {
-                "id": r[0], "target_type": r[1], "target_id": r[2],
-                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
-                "cycle_confirmed": r[6], "group_id": r[7],
+                "id": r[0],
+                "target_type": r[1],
+                "target_id": r[2],
+                "tag_type": r[3],
+                "score": r[4],
+                "cycle_tagged": r[5],
+                "cycle_confirmed": r[6],
+                "group_id": r[7],
             }
             for r in rows
         ]
@@ -1579,9 +1598,14 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             {
-                "id": r[0], "target_type": r[1], "target_id": r[2],
-                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
-                "cycle_confirmed": r[6], "group_id": r[7],
+                "id": r[0],
+                "target_type": r[1],
+                "target_id": r[2],
+                "tag_type": r[3],
+                "score": r[4],
+                "cycle_tagged": r[5],
+                "cycle_confirmed": r[6],
+                "group_id": r[7],
             }
             for r in rows
         ]
@@ -1605,15 +1629,22 @@ class SQLiteConsolidationStore:
         rows = await cursor.fetchall()
         return [
             {
-                "id": r[0], "target_type": r[1], "target_id": r[2],
-                "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
-                "cycle_confirmed": r[6], "group_id": r[7],
+                "id": r[0],
+                "target_type": r[1],
+                "target_id": r[2],
+                "tag_type": r[3],
+                "score": r[4],
+                "cycle_tagged": r[5],
+                "cycle_confirmed": r[6],
+                "group_id": r[7],
             }
             for r in rows
         ]
 
     async def get_complement_tag(
-        self, target_id: str, tag_type: str,
+        self,
+        target_id: str,
+        tag_type: str,
     ) -> dict | None:
         """Look up a single complement tag."""
         cursor = await self.db.execute(
@@ -1627,13 +1658,20 @@ class SQLiteConsolidationStore:
         if not r:
             return None
         return {
-            "id": r[0], "target_type": r[1], "target_id": r[2],
-            "tag_type": r[3], "score": r[4], "cycle_tagged": r[5],
-            "cycle_confirmed": r[6], "group_id": r[7],
+            "id": r[0],
+            "target_type": r[1],
+            "target_id": r[2],
+            "tag_type": r[3],
+            "score": r[4],
+            "cycle_tagged": r[5],
+            "cycle_confirmed": r[6],
+            "group_id": r[7],
         }
 
     async def confirm_complement_tag(
-        self, tag_id: int, cycle_number: int,
+        self,
+        tag_id: int,
+        cycle_number: int,
     ) -> None:
         """Mark a complement tag as confirmed."""
         await self.db.execute(

@@ -118,8 +118,9 @@ class AttributeEvidenceExtractor:
                             "value": value,
                         },
                         source_span=text[
-                            max(0, match.start() - 20):min(
-                                len(text), match.end() + 20,
+                            max(0, match.start() - 20) : min(
+                                len(text),
+                                match.end() + 20,
                             )
                         ],
                         corroborating_signals=[signal],
@@ -140,9 +141,7 @@ class AttributeEvidenceExtractor:
             nearby_matches = list(
                 _PROPER_NAMES.finditer(text[start:end]),
             )
-            nearby = (
-                nearby_matches[0].group() if nearby_matches else None
-            )
+            nearby = nearby_matches[0].group() if nearby_matches else None
             payload: dict = {
                 "attribute_type": "quantity",
                 "value": float(amount),
@@ -160,8 +159,9 @@ class AttributeEvidenceExtractor:
                     extractor_name=self.name,
                     payload=payload,
                     source_span=text[
-                        max(0, match.start() - 30):min(
-                            len(text), match.end() + 30,
+                        max(0, match.start() - 30) : min(
+                            len(text),
+                            match.end() + 30,
                         )
                     ],
                     corroborating_signals=["number_with_context"],
@@ -190,8 +190,9 @@ class AttributeEvidenceExtractor:
                             "state_signal": signal,
                         },
                         source_span=text[
-                            max(0, match.start() - 20):min(
-                                len(text), match.end() + 20,
+                            max(0, match.start() - 20) : min(
+                                len(text),
+                                match.end() + 20,
                             )
                         ],
                         corroborating_signals=[signal],

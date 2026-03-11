@@ -45,7 +45,9 @@ class TestIdentityEntityExtractor:
 
     def test_technical_token(self, extractor):
         results = extractor.extract(
-            "We use React and TypeScript for the frontend.", "ep1", "default",
+            "We use React and TypeScript for the frontend.",
+            "ep1",
+            "default",
         )
         names = [c.payload["name"] for c in results]
         assert "React" in names or "TypeScript" in names
@@ -54,7 +56,9 @@ class TestIdentityEntityExtractor:
 
     def test_stopwords_excluded(self, extractor):
         results = extractor.extract(
-            "The Monday meeting was about This project.", "ep1", "default",
+            "The Monday meeting was about This project.",
+            "ep1",
+            "default",
         )
         names = [c.payload["name"] for c in results]
         assert "The" not in names

@@ -111,9 +111,7 @@ async def _wait_for_full_services(
         timeout = float(os.environ.get("ENGRAM_FULL_MODE_WAIT_SECONDS", "20"))
     interval = retry_interval_seconds
     if interval is None:
-        interval = float(
-            os.environ.get("ENGRAM_FULL_MODE_RETRY_INTERVAL_SECONDS", "1")
-        )
+        interval = float(os.environ.get("ENGRAM_FULL_MODE_RETRY_INTERVAL_SECONDS", "1"))
 
     timeout = max(0.0, timeout)
     interval = max(0.1, interval)
@@ -133,8 +131,7 @@ async def _wait_for_full_services(
             return True
         if monotonic() >= deadline:
             logger.warning(
-                "Full-mode services did not become ready within %.1fs "
-                "(FalkorDB=%s, Redis=%s)",
+                "Full-mode services did not become ready within %.1fs (FalkorDB=%s, Redis=%s)",
                 timeout,
                 falkordb_ok,
                 redis_ok,

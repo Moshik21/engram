@@ -145,9 +145,7 @@ class AtlasService:
         bridge_count = len(connected_regions)
         for index, bridge in enumerate(connected_regions[:4]):
             if bridge_count > 1:
-                angle = (-math.pi / 2.0) + (
-                    (math.pi * index) / max(bridge_count - 1, 1)
-                )
+                angle = (-math.pi / 2.0) + ((math.pi * index) / max(bridge_count - 1, 1))
             else:
                 angle = 0.0
             nodes.append(

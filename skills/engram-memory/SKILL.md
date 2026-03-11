@@ -9,7 +9,7 @@ metadata:
     optionalEnv:
       - ANTHROPIC_API_KEY
     emoji: "\U0001F9E0"
-    homepage: https://github.com/engram-labs/engram
+    homepage: https://github.com/Moshik21/engram
 ---
 
 # Engram Memory
@@ -51,7 +51,7 @@ engramctl install-openclaw
 ### Advanced fallback (manual source)
 
 ```bash
-git clone https://github.com/engram-labs/engram.git ~/engram
+git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
 uv run engram setup
@@ -62,7 +62,7 @@ uv run engram setup
 For developers who want to run the MCP server from source without the installer:
 
 ```bash
-git clone https://github.com/engram-labs/engram.git ~/engram
+git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
 export ANTHROPIC_API_KEY=sk-ant-...

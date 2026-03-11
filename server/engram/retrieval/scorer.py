@@ -77,8 +77,11 @@ def score_candidates(
             decay = _tier_to_decay(entity_attributes.get(node_id, {}).get("mat_tier"), cfg)
         if state and state.access_history:
             base_act = compute_activation(
-                state.access_history, now, cfg,
-                state.consolidated_strength, decay,
+                state.access_history,
+                now,
+                cfg,
+                state.consolidated_strength,
+                decay,
             )
         else:
             base_act = 0.0
@@ -209,8 +212,11 @@ def score_candidates_thompson(
             decay = _tier_to_decay(entity_attributes.get(node_id, {}).get("mat_tier"), cfg)
         if state and state.access_history:
             base_act = compute_activation(
-                state.access_history, now, cfg,
-                state.consolidated_strength, decay,
+                state.access_history,
+                now,
+                cfg,
+                state.consolidated_strength,
+                decay,
             )
         else:
             base_act = 0.0
@@ -316,4 +322,4 @@ def extract_near_misses(
     """Return candidates just outside top-N (positions [top_n, top_n+window))."""
     if len(all_scored) <= top_n:
         return []
-    return all_scored[top_n: top_n + window]
+    return all_scored[top_n : top_n + window]

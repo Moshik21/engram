@@ -392,7 +392,11 @@ async def retrieve(
         )
 
         active_goals = await identify_active_goals(
-            graph_store, activation_store, group_id, cfg, cache=goal_cache,
+            graph_store,
+            activation_store,
+            group_id,
+            cfg,
+            cache=goal_cache,
         )
         goal_seeds = compute_goal_priming_seeds(active_goals, cfg)
 
@@ -426,11 +430,12 @@ async def retrieve(
                         seed_node_ids.add(item_id)
 
         # Step 3.6: Session entity seed injection (Wave 2)
-        if (cfg.conv_session_entity_seeds_enabled and conv_context is not None):
+        if cfg.conv_session_entity_seeds_enabled and conv_context is not None:
             for entry in conv_context.get_top_entities(cfg.conv_multi_query_top_entities):
                 if entry.entity_id not in seed_node_ids:
                     energy = cfg.conv_session_entity_seed_energy * min(
-                        1.0, entry.mention_weight / 5.0,
+                        1.0,
+                        entry.mention_weight / 5.0,
                     )
                     if energy > 0.0:
                         seeds.append((entry.entity_id, energy))
@@ -504,8 +509,11 @@ async def retrieve(
 
     # Step 4.6: Fingerprint similarity computation (Wave 2)
     conv_fingerprint_sim: dict[str, float] | None = None
-    if (cfg.conv_fingerprint_enabled and conv_context is not None
-            and cfg.conv_context_rerank_weight > 0.0):
+    if (
+        cfg.conv_fingerprint_enabled
+        and conv_context is not None
+        and cfg.conv_context_rerank_weight > 0.0
+    ):
         fingerprint = conv_context.get_fingerprint()
         if fingerprint is not None:
             try:
@@ -553,8 +561,11 @@ async def retrieve(
                     if not query_seed_ids:
                         # Fall back to top candidates as proxy seeds
                         query_seed_ids = [
-                            eid for eid, _ in sorted(
-                                candidates, key=lambda x: x[1], reverse=True,
+                            eid
+                            for eid, _ in sorted(
+                                candidates,
+                                key=lambda x: x[1],
+                                reverse=True,
                             )[:3]
                         ]
                         if not query_seed_ids:
@@ -563,16 +574,16 @@ async def retrieve(
                     # Fetch graph embeddings for seeds + candidates
                     all_ids = list(set(query_seed_ids + all_candidate_ids))
                     graph_embs = await search_index.get_graph_embeddings(
-                        all_ids, method=method, group_id=group_id,
+                        all_ids,
+                        method=method,
+                        group_id=group_id,
                     )
                     if not graph_embs:
                         continue
 
                     # Find seed entities that have graph embeddings
                     seed_embs = {
-                        sid: graph_embs[sid]
-                        for sid in query_seed_ids
-                        if sid in graph_embs
+                        sid: graph_embs[sid] for sid in query_seed_ids if sid in graph_embs
                     }
                     if not seed_embs:
                         continue
@@ -591,7 +602,8 @@ async def retrieve(
                         if eid in seed_embs:
                             continue  # Don't score seeds against themselves
                         graph_similarities[eid] = max(
-                            0.0, _cos_sim(query_graph_vec, g_emb),
+                            0.0,
+                            _cos_sim(query_graph_vec, g_emb),
                         )
                     break  # Found a method with data
 
@@ -610,11 +622,7 @@ async def retrieve(
             try:
                 ent = await graph_store.get_entity(eid, group_id)
                 if ent:
-                    attrs = (
-                        dict(ent.attributes)
-                        if isinstance(ent.attributes, dict)
-                        else {}
-                    )
+                    attrs = dict(ent.attributes) if isinstance(ent.attributes, dict) else {}
                     # Include entity_type for domain mapping
                     if ent.entity_type:
                         attrs["entity_type"] = ent.entity_type
@@ -636,7 +644,10 @@ async def retrieve(
                 attrs = entity_attributes.get(eid, {})
                 etype = attrs.get("entity_type", "Other")
                 bias = compute_state_bias(
-                    cog_state, attrs, etype, cfg,
+                    cog_state,
+                    attrs,
+                    etype,
+                    cfg,
                     domain_groups=cfg.domain_groups,
                 )
                 if bias > 0:

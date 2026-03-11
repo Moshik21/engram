@@ -20,7 +20,7 @@ Engram gives AI agents a brain that persists across sessions. Instead of losing 
 curl -sSL https://engram.run/install | bash
 ```
 
-Or manually: `git clone https://github.com/engram-labs/engram.git && cd engram/server && uv sync && uv run engram setup`
+Or manually: `git clone https://github.com/Moshik21/engram.git && cd engram/server && uv sync && uv run engram setup`
 
 ## CLI
 
@@ -34,7 +34,7 @@ Or manually: `git clone https://github.com/engram-labs/engram.git && cd engram/s
 
 - [MCP Server](https://engram.run/docs): `engram mcp` — recommended for Claude Code, Cursor, Windsurf
 - [REST API](https://engram.run/docs): `engram serve` — HTTP server at port 8100 with OpenAPI docs
-- [OpenClaw Skill](https://github.com/engram-labs/engram/tree/main/skills/engram-memory): ClawHub skill for persistent agent memory
+- [OpenClaw Skill](https://github.com/Moshik21/engram/tree/main/skills/engram-memory): ClawHub skill for persistent agent memory
 - [Docker Full Stack](https://engram.run/docs): `docker compose up -d --build` for FalkorDB + Redis + dashboard
 
 ## MCP Tools (15)
@@ -46,7 +46,7 @@ System: get_consolidation_status, trigger_consolidation, get_graph_state
 
 ## Links
 
-- [GitHub Repository](https://github.com/engram-labs/engram)
+- [GitHub Repository](https://github.com/Moshik21/engram)
 - [Documentation](https://engram.run/docs)
 - [Science & Architecture](https://engram.run/science)
 - [Vision](https://engram.run/vision)

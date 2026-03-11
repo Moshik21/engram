@@ -16,7 +16,9 @@ class TestTemporalEvidenceExtractor:
 
     def test_iso_date(self, extractor):
         results = extractor.extract(
-            "Meeting on 2026-03-15 with Alice.", "ep1", "default",
+            "Meeting on 2026-03-15 with Alice.",
+            "ep1",
+            "default",
         )
         assert len(results) >= 1
         assert any(c.payload.get("temporal_type") == "date" for c in results)
@@ -46,8 +48,5 @@ class TestTemporalEvidenceExtractor:
 
     def test_dedup_same_date(self, extractor):
         results = extractor.extract("Meeting yesterday. Also yesterday.", "ep1", "default")
-        dates = [
-            c for c in results
-            if c.payload.get("temporal_marker", "").lower() == "yesterday"
-        ]
+        dates = [c for c in results if c.payload.get("temporal_marker", "").lower() == "yesterday"]
         assert len(dates) == 1

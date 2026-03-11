@@ -163,7 +163,10 @@ async def worker_setup(tmp_path):
 
     extractor = MockExtractor()
     mgr = GraphManager(
-        graph_store, activation_store, search_index, extractor,
+        graph_store,
+        activation_store,
+        search_index,
+        extractor,
         cfg=cfg,
     )
 
@@ -226,10 +229,7 @@ async def test_turn_batching(worker_setup):
         group_id=GROUP,
         source="auto:prompt",
     )
-    ep2_content = (
-        "[assistant|Engram] Spreading activation is a method "
-        "used in cognitive science"
-    )
+    ep2_content = "[assistant|Engram] Spreading activation is a method used in cognitive science"
     ep2 = await mgr.store_episode(
         content=ep2_content,
         group_id=GROUP,
@@ -272,10 +272,7 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
         group_id=GROUP,
         source="auto:prompt",
     )
-    ep2_content = (
-        "[assistant|Engram] Spreading activation is a method "
-        "used in cognitive science"
-    )
+    ep2_content = "[assistant|Engram] Spreading activation is a method used in cognitive science"
     ep2 = await mgr.store_episode(
         content=ep2_content,
         group_id=GROUP,
@@ -317,9 +314,7 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
 
     recall_results = await mgr.recall("cognitive science", group_id=GROUP, limit=5)
     recalled_episode_ids = {
-        result["episode"]["id"]
-        for result in recall_results
-        if "episode" in result
+        result["episode"]["id"] for result in recall_results if "episode" in result
     }
     assert ep1 in recalled_episode_ids
     assert ep2 not in recalled_episode_ids
@@ -346,7 +341,8 @@ class TestInstallHooks:
 
         settings_path = tmp_path / "settings.json"
         result = install_hooks(
-            hooks_dir=hooks_dir, settings_path=settings_path,
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
         )
 
         assert result["settings_updated"] is True
@@ -395,7 +391,8 @@ class TestInstallHooks:
         settings_path.write_text(json.dumps(existing))
 
         install_hooks(
-            hooks_dir=hooks_dir, settings_path=settings_path,
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
         )
 
         settings = json.loads(settings_path.read_text())
@@ -427,10 +424,12 @@ class TestInstallHooks:
         settings_path = tmp_path / "settings.json"
 
         install_hooks(
-            hooks_dir=hooks_dir, settings_path=settings_path,
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
         )
         install_hooks(
-            hooks_dir=hooks_dir, settings_path=settings_path,
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
         )
 
         settings = json.loads(settings_path.read_text())

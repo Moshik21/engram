@@ -138,14 +138,14 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
     """Wizard defaults should produce a practical end-to-end MCP setup."""
     responses = iter(
         [
-            "auto",        # mode
+            "auto",  # mode
             "engram_dev",  # Falkor password
             "engram_dev",  # Redis password
-            "",            # consolidation profile -> default standard
-            "",            # recall profile -> default all
-            "",            # integration profile -> default rework
-            "n",           # auth
-            "n",           # encryption
+            "",  # consolidation profile -> default standard
+            "",  # recall profile -> default all
+            "",  # integration profile -> default rework
+            "n",  # auth
+            "n",  # encryption
         ]
     )
     monkeypatch.setattr("engram.setup.getpass.getpass", lambda _: "secret123")
@@ -165,10 +165,7 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
 def test_load_env_parses_file(tmp_path):
     """_load_env parses key=value lines, skips comments."""
     env = tmp_path / ".env"
-    env.write_text(
-        "# comment\nANTHROPIC_API_KEY=sk-123\n"
-        "# VOYAGE_API_KEY=\nENGRAM_MODE=lite\n\n"
-    )
+    env.write_text("# comment\nANTHROPIC_API_KEY=sk-123\n# VOYAGE_API_KEY=\nENGRAM_MODE=lite\n\n")
     result = _load_env(env)
     assert result == {"ANTHROPIC_API_KEY": "sk-123", "ENGRAM_MODE": "lite"}
 

@@ -30,15 +30,16 @@ async def test_versioning_columns_exist(tmp_path):
     await store.initialize(db=db)
 
     await store.upsert(
-        "e1", "entity", "default", "test",
+        "e1",
+        "entity",
+        "default",
+        "test",
         [1.0, 2.0, 3.0],
         embed_provider="local",
         embed_model="nomic-ai/nomic-embed-text-v1.5",
     )
 
-    cursor = await db.execute(
-        "SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'"
-    )
+    cursor = await db.execute("SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'")
     row = await cursor.fetchone()
     assert row["embed_provider"] == "local"
     assert row["embed_model"] == "nomic-ai/nomic-embed-text-v1.5"
@@ -78,15 +79,16 @@ async def test_versioning_migration_on_existing_db(tmp_path):
 
     # Insert with versioning metadata
     await store.upsert(
-        "e1", "entity", "default", "test",
+        "e1",
+        "entity",
+        "default",
+        "test",
         [1.0, 2.0],
         embed_provider="voyage",
         embed_model="voyage-4-lite",
     )
 
-    cursor = await db.execute(
-        "SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'"
-    )
+    cursor = await db.execute("SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'")
     row = await cursor.fetchone()
     assert row["embed_provider"] == "voyage"
     assert row["embed_model"] == "voyage-4-lite"
@@ -113,9 +115,7 @@ async def test_batch_upsert_with_versioning(tmp_path):
     ]
     await store.batch_upsert(items, embed_provider="local", embed_model="test-model")
 
-    cursor = await db.execute(
-        "SELECT embed_provider, embed_model FROM embeddings ORDER BY id"
-    )
+    cursor = await db.execute("SELECT embed_provider, embed_model FROM embeddings ORDER BY id")
     rows = await cursor.fetchall()
     assert len(rows) == 2
     for row in rows:
@@ -143,8 +143,11 @@ async def test_version_check_logs_mismatch(tmp_path, caplog):
     provider = _mock_provider(dim=2)
 
     idx = HybridSearchIndex(
-        fts=fts, vector_store=vectors, provider=provider,
-        embed_provider="local", embed_model="test",
+        fts=fts,
+        vector_store=vectors,
+        provider=provider,
+        embed_provider="local",
+        embed_model="test",
     )
 
     db = await aiosqlite.connect(db_path)
@@ -181,8 +184,11 @@ async def test_version_check_logs_provider_mismatch(tmp_path, caplog):
     provider = _mock_provider(dim=2)
 
     idx = HybridSearchIndex(
-        fts=fts, vector_store=vectors, provider=provider,
-        embed_provider="local", embed_model="test",
+        fts=fts,
+        vector_store=vectors,
+        provider=provider,
+        embed_provider="local",
+        embed_model="test",
     )
 
     db = await aiosqlite.connect(db_path)
@@ -192,8 +198,13 @@ async def test_version_check_logs_provider_mismatch(tmp_path, caplog):
 
     # Store a vector with different provider
     await vectors.upsert(
-        "e1", "entity", "default", "test", [1.0, 2.0],
-        embed_provider="voyage", embed_model="voyage-4-lite",
+        "e1",
+        "entity",
+        "default",
+        "test",
+        [1.0, 2.0],
+        embed_provider="voyage",
+        embed_model="voyage-4-lite",
     )
 
     with caplog.at_level(logging.WARNING):

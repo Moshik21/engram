@@ -18,7 +18,11 @@ def _make_manager() -> GraphManager:
     extractor = MagicMock()
     cfg = ActivationConfig()
     manager = GraphManager(
-        graph, activation, search, extractor, cfg=cfg,
+        graph,
+        activation,
+        search,
+        extractor,
+        cfg=cfg,
     )
     return manager
 
@@ -46,12 +50,7 @@ class TestTemplateBriefing:
 
     def test_missing_identity_tier(self):
         manager = _make_manager()
-        context = (
-            "## Project Context\n\n"
-            "- Building Engram\n\n"
-            "## Recent Activity\n\n"
-            "- Fixed bugs\n"
-        )
+        context = "## Project Context\n\n- Building Engram\n\n## Recent Activity\n\n- Fixed bugs\n"
         result = manager._template_briefing(context, "default", "Engram")
         assert "Engram" in result
         assert "Identity" not in result  # Should not mention missing tier
@@ -77,20 +76,13 @@ class TestTemplateBriefing:
 
     def test_topic_hint_in_project_sentence(self):
         manager = _make_manager()
-        context = (
-            "## Project Context\n\n"
-            "- Using Python for backend\n"
-        )
+        context = "## Project Context\n\n- Using Python for backend\n"
         result = manager._template_briefing(context, "default", "Engram")
         assert "Engram" in result
 
     def test_only_recent_activity(self):
         manager = _make_manager()
-        context = (
-            "## Recent Activity\n\n"
-            "- Deployed v2.0\n"
-            "- Fixed memory leak\n"
-        )
+        context = "## Recent Activity\n\n- Deployed v2.0\n- Fixed memory leak\n"
         result = manager._template_briefing(context, "default", None)
         assert "Deployed v2.0" in result or "memory leak" in result
 

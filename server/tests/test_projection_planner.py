@@ -10,9 +10,7 @@ from engram.models.episode import Episode
 
 
 def test_projection_planner_prefers_late_correction_span():
-    correction = (
-        "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
-    )
+    correction = "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
     filler = "Earlier note: I lived in Mesa and commuted to Tempe. "
     content = (filler * 180) + correction
     cfg = ActivationConfig(
@@ -44,9 +42,7 @@ def test_projection_planner_keeps_short_episode_intact():
 
 
 def test_projection_planner_can_disable_targeted_projection():
-    correction = (
-        "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
-    )
+    correction = "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
     filler = "Earlier note: I lived in Mesa and commuted to Tempe. "
     content = (filler * 180) + correction
     cfg = ActivationConfig(
@@ -65,9 +61,7 @@ def test_projection_planner_can_disable_targeted_projection():
 
 
 def test_projection_planner_can_disable_projector_v2():
-    correction = (
-        "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
-    )
+    correction = "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
     filler = "Earlier note: I lived in Mesa and commuted to Tempe. "
     content = (filler * 180) + correction
     cfg = ActivationConfig(

@@ -301,9 +301,11 @@ async def test_triage_scoring_heuristics():
         content: str
 
     # Long with many proper nouns > short with none
-    long_rich = Ep(content="Alice and Bob discussed the Python project at Google. "
-                   "They decided to use React and TypeScript for the frontend. "
-                   "Charlie from Anthropic joined the meeting in San Francisco.")
+    long_rich = Ep(
+        content="Alice and Bob discussed the Python project at Google. "
+        "They decided to use React and TypeScript for the frontend. "
+        "Charlie from Anthropic joined the meeting in San Francisco."
+    )
     short_empty = Ep(content="ok")
     medium = Ep(content="Some discussion about testing")
 

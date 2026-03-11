@@ -110,7 +110,8 @@ class EntityExtractor:
             if len(text) > _MAX_INPUT_CHARS:
                 logger.info(
                     "Truncating extraction input from %d to %d chars",
-                    len(text), _MAX_INPUT_CHARS,
+                    len(text),
+                    _MAX_INPUT_CHARS,
                 )
                 text = text[:_MAX_INPUT_CHARS]
             max_tokens = self._estimate_max_tokens(text)

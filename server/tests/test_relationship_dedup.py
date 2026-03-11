@@ -76,9 +76,7 @@ async def test_find_existing_relationship_ignores_expired(store):
     await store.create_relationship(_rel("r1", "e1", "e2", "PARENT_OF"))
 
     # Invalidate it
-    await store.invalidate_relationship(
-        "r1", datetime.utcnow() - timedelta(seconds=1), GROUP
-    )
+    await store.invalidate_relationship("r1", datetime.utcnow() - timedelta(seconds=1), GROUP)
 
     found = await store.find_existing_relationship("e1", "e2", "PARENT_OF", GROUP)
     assert found is None
@@ -125,9 +123,7 @@ async def test_merge_entities_deduplicates_incoming(store):
 @pytest.mark.asyncio
 async def test_meta_summary_rejected_in_merge_entities(store):
     """Merge entity with meta-contaminated summary — keeper summary unchanged."""
-    await store.create_entity(
-        _entity("a", "Alex", summary="Father of four")
-    )
+    await store.create_entity(_entity("a", "Alex", summary="Father of four"))
     await store.create_entity(
         _entity("b", "Alex2", summary="activation score 0.85 knowledge graph entity")
     )
@@ -144,12 +140,8 @@ async def test_meta_summary_rejected_in_merge_entities(store):
 async def test_merge_summary_500_char_cap(store):
     """Long summaries get truncated to 500 chars."""
     long_summary = "x" * 300
-    await store.create_entity(
-        _entity("a", "A", summary="y" * 250)
-    )
-    await store.create_entity(
-        _entity("b", "B", summary=long_summary)
-    )
+    await store.create_entity(_entity("a", "A", summary="y" * 250))
+    await store.create_entity(_entity("b", "B", summary=long_summary))
 
     await store.merge_entities("a", "b", GROUP)
 
@@ -168,7 +160,10 @@ async def test_meta_summary_rejected_for_all_types(store):
     from engram.graph_manager import GraphManager
 
     tech_entity = _entity(
-        "t1", "Python", entity_type="Technology", summary="A programming language",
+        "t1",
+        "Python",
+        entity_type="Technology",
+        summary="A programming language",
     )
     meta_summary = "activation score 0.5 knowledge graph entity"
 

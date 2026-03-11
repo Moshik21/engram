@@ -141,9 +141,7 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
 
                 if forced or meets_threshold:
                     reason = (
-                        f"forced_after_{cycles}_cycles"
-                        if forced
-                        else "promoted_by_adjudication"
+                        f"forced_after_{cycles}_cycles" if forced else "promoted_by_adjudication"
                     )
                     if not dry_run:
                         await graph_store.update_evidence_status(
@@ -340,8 +338,7 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
         fc = ev.get("fact_class", "")
         if fc == "entity":
             return (
-                f"entity:{payload.get('name', '').lower()}"
-                f":{payload.get('entity_type', '').lower()}"
+                f"entity:{payload.get('name', '').lower()}:{payload.get('entity_type', '').lower()}"
             )
         if fc == "relationship":
             return (

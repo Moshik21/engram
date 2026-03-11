@@ -10,7 +10,7 @@ const NAV_LINKS = [
   { to: "/docs", label: "Docs" },
 ] as const;
 
-const GITHUB_URL = "https://github.com/engram-labs/engram";
+const GITHUB_URL = "https://github.com/Moshik21/engram";
 
 export function Navigation() {
   const { pathname } = useLocation();

@@ -41,9 +41,7 @@ class DedupPolicyDecision:
 
 
 IDENTIFIER_ENTITY_TYPE = "Identifier"
-_COERCIBLE_IDENTIFIER_TYPES = frozenset(
-    {"Other", "Thing", "Technology", "Software", "Concept"}
-)
+_COERCIBLE_IDENTIFIER_TYPES = frozenset({"Other", "Thing", "Technology", "Software", "Concept"})
 
 _NUMERONYM_RE = re.compile(r"^[a-z]\d+[a-z]$", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -303,8 +301,7 @@ def should_promote_entity_type_to_identifier(entity_type: str | None) -> bool:
     """Return True when an entity type is generic enough to upcast to Identifier."""
     normalized_type = (entity_type or "Other").strip() or "Other"
     return (
-        normalized_type == IDENTIFIER_ENTITY_TYPE
-        or normalized_type in _COERCIBLE_IDENTIFIER_TYPES
+        normalized_type == IDENTIFIER_ENTITY_TYPE or normalized_type in _COERCIBLE_IDENTIFIER_TYPES
     )
 
 

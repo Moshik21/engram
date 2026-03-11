@@ -108,7 +108,10 @@ class RedisActivationStore:
             # Update sorted set index for get_top_activated
             if group_id:
                 act = compute_activation(
-                    state.access_history, now, self._cfg, state.consolidated_strength,
+                    state.access_history,
+                    now,
+                    self._cfg,
+                    state.consolidated_strength,
                 )
                 zkey = f"act_group:{group_id}"
                 pipe.zadd(zkey, {eid: act})
@@ -155,9 +158,7 @@ class RedisActivationStore:
             # Get top candidates from sorted set (fetch extra for re-scoring)
             candidates = await self._redis.zrevrange(zkey, 0, limit * 2 - 1)
             if candidates:
-                entity_ids = [
-                    c.decode() if isinstance(c, bytes) else c for c in candidates
-                ]
+                entity_ids = [c.decode() if isinstance(c, bytes) else c for c in candidates]
                 states = await self.batch_get(entity_ids)
                 scored = []
                 for eid, indexed_state in states.items():

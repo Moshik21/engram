@@ -16,6 +16,7 @@ from engram.embeddings.graph.skipgram import NumpySkipGram  # noqa: I001
 
 # ---- Skip-gram tests ----
 
+
 class TestNumpySkipGram:
     def test_basic_training(self):
         """Skip-gram should produce embeddings of correct shape."""
@@ -52,8 +53,12 @@ class TestNumpySkipGram:
             walks.append([0, 1, 2, 0, 1, 2])
             walks.append([7, 8, 9, 7, 8, 9])
         sg = NumpySkipGram(
-            vocab_size=10, dimensions=32, window=3,
-            epochs=5, lr=0.05, seed=42,
+            vocab_size=10,
+            dimensions=32,
+            window=3,
+            epochs=5,
+            lr=0.05,
+            seed=42,
         )
         emb = sg.train(walks)
 
@@ -64,6 +69,7 @@ class TestNumpySkipGram:
 
 
 # ---- Random walk tests ----
+
 
 class TestRandomWalks:
     def test_walk_length(self):
@@ -161,6 +167,7 @@ class TestRandomWalks:
 
 # ---- Node2VecTrainer integration tests ----
 
+
 class TestNode2VecTrainer:
     @pytest.mark.asyncio
     async def test_train_below_threshold(self):
@@ -196,10 +203,7 @@ class TestNode2VecTrainer:
 
         # Create a small connected graph
         entities = [type("E", (), {"id": f"e{i}"})() for i in range(20)]
-        neighbors = {
-            f"e{i}": [(f"e{(i+1) % 20}", 1.0, "RELATED_TO")]
-            for i in range(20)
-        }
+        neighbors = {f"e{i}": [(f"e{(i + 1) % 20}", 1.0, "RELATED_TO")] for i in range(20)}
 
         class MockGraph:
             async def find_entities(self, group_id, limit):

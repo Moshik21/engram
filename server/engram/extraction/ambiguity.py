@@ -123,15 +123,12 @@ class AmbiguityAnalyzer:
         ):
             tags.append("coreference")
 
-        if (
-            candidate.fact_class == "relationship"
-            and (
-                candidate.payload.get("polarity") == "negative"
-                or (
-                    source_text
-                    and _NEGATION_MARKERS.search(source_text)
-                    and _HEDGE_MARKERS.search(source_text)
-                )
+        if candidate.fact_class == "relationship" and (
+            candidate.payload.get("polarity") == "negative"
+            or (
+                source_text
+                and _NEGATION_MARKERS.search(source_text)
+                and _HEDGE_MARKERS.search(source_text)
             )
         ):
             tags.append("negation_scope")
@@ -163,10 +160,8 @@ class AmbiguityAnalyzer:
                     matches += 1
             elif other.fact_class in {"entity", "attribute"}:
                 name = (
-                    other.payload.get("name")
-                    or other.payload.get("entity")
-                    or ""
-                ).strip().lower()
+                    (other.payload.get("name") or other.payload.get("entity") or "").strip().lower()
+                )
                 if name == nearby:
                     matches += 1
         return matches
@@ -229,10 +224,7 @@ class AmbiguityAnalyzer:
                 continue
             target = None
             for group in groups:
-                if any(
-                    self._shares_context(candidate, existing)
-                    for existing in group.candidates
-                ):
+                if any(self._shares_context(candidate, existing) for existing in group.candidates):
                     target = group
                     break
             if target is None:
@@ -246,9 +238,7 @@ class AmbiguityAnalyzer:
         for group in groups:
             if not group.selected_text:
                 group.selected_text = text[:240]
-            group.request_reason = (
-                "needs_adjudication:" + ",".join(sorted(group.ambiguity_tags))
-            )
+            group.request_reason = "needs_adjudication:" + ",".join(sorted(group.ambiguity_tags))
         return groups
 
     def _shares_context(

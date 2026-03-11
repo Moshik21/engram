@@ -79,9 +79,7 @@ class RedisEventPublisher:
         self._redis = redis_client
         self._channel = f"{_CHANNEL_PREFIX}{group_id}"
 
-    async def __call__(
-        self, group_id: str, event_type: str, payload: dict, event: dict
-    ) -> None:
+    async def __call__(self, group_id: str, event_type: str, payload: dict, event: dict) -> None:
         """EventBus on-publish hook signature."""
         # Loop prevention: don't re-publish events that came from Redis
         if event.get("_origin") == _BRIDGE_ORIGIN:

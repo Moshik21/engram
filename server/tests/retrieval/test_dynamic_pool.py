@@ -89,7 +89,6 @@ class TestComputeDynamicLimits:
 
         assert no_type_limits == default_limits
 
-
     def test_creation_boosts_graph_pool(self):
         """CREATION query type should boost graph pool 2x (like ASSOCIATIVE)."""
         cfg = ActivationConfig()

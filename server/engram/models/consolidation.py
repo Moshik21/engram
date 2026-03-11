@@ -417,11 +417,11 @@ class MicrogliaRecord:
 
     cycle_id: str
     group_id: str
-    target_type: str        # "edge" | "entity_summary"
+    target_type: str  # "edge" | "entity_summary"
     target_id: str
-    action: str             # "tagged" | "confirmed" | "demoted" | "cleared" | "repaired"
-    tag_type: str           # "c1q_domain" | "c1q_embedding" | "c3_summary" | "c4_orphan"
+    action: str  # "tagged" | "confirmed" | "demoted" | "cleared" | "repaired"
+    tag_type: str  # "c1q_domain" | "c1q_embedding" | "c3_summary" | "c4_orphan"
     score: float
-    detail: str             # Human-readable reason
+    detail: str  # Human-readable reason
     id: str = field(default_factory=lambda: f"mcg_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)

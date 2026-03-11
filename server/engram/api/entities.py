@@ -99,10 +99,7 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
     rels = await manager._graph.get_relationships(entity_id, active_only=True, group_id=group_id)
 
     # Batch-fetch all related entities in one query (fixes N+1)
-    other_ids = list({
-        r.target_id if r.source_id == entity_id else r.source_id
-        for r in rels
-    })
+    other_ids = list({r.target_id if r.source_id == entity_id else r.source_id for r in rels})
     others_map = await manager._graph.batch_get_entities(other_ids, group_id) if other_ids else {}
 
     facts = []

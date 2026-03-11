@@ -133,10 +133,12 @@ async def compute_structural_score(
     """Score based on shared graph neighbors (triangle closure)."""
     try:
         neighbors_a = await graph_store.get_active_neighbors_with_weights(
-            entity_a_id, group_id,
+            entity_a_id,
+            group_id,
         )
         neighbors_b = await graph_store.get_active_neighbors_with_weights(
-            entity_b_id, group_id,
+            entity_b_id,
+            group_id,
         )
     except Exception:
         return 0.5
@@ -213,12 +215,18 @@ async def score_infer_pair(
 
     # Signal 4: Ubiquity penalty (weight 0.15)
     ubiquity_score = compute_ubiquity_score(
-        ep_count_a, ep_count_b, co_occurrence_count, total_episodes,
+        ep_count_a,
+        ep_count_b,
+        co_occurrence_count,
+        total_episodes,
     )
 
     # Signal 5: Graph structural plausibility (weight 0.10)
     structural_score = await compute_structural_score(
-        entity_a_id, entity_b_id, graph_store, group_id,
+        entity_a_id,
+        entity_b_id,
+        graph_store,
+        group_id,
     )
 
     # Signal 6: Graph embedding similarity (weight 0.05)

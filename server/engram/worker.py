@@ -239,12 +239,16 @@ class EpisodeWorker:
         """Three-tier confidence routing: extract / defer / skip."""
         if decision.action == "extract":
             logger.debug(
-                "Worker: extract immediately %s (score=%.3f)", episode_id, decision.score,
+                "Worker: extract immediately %s (score=%.3f)",
+                episode_id,
+                decision.score,
             )
             await self._process(episode_id, group_id, signals)
         elif decision.action == "skip":
             logger.debug(
-                "Worker: skip %s (score=%.3f)", episode_id, decision.score,
+                "Worker: skip %s (score=%.3f)",
+                episode_id,
+                decision.score,
             )
             await self._manager._graph.update_episode(
                 episode_id,
@@ -264,7 +268,9 @@ class EpisodeWorker:
             )
         else:
             logger.debug(
-                "Worker: defer to triage %s (score=%.3f)", episode_id, decision.score,
+                "Worker: defer to triage %s (score=%.3f)",
+                episode_id,
+                decision.score,
             )
             await self._manager._graph.update_episode(
                 episode_id,
@@ -337,9 +343,7 @@ class EpisodeWorker:
         else:
             await self._process(primary.episode_id, group_id)
 
-    async def _process_auto_episode(
-        self, ep: _PendingEpisode, group_id: str
-    ) -> None:
+    async def _process_auto_episode(self, ep: _PendingEpisode, group_id: str) -> None:
         """Process a single auto-captured episode with triage."""
         if self._cfg.triage_enabled:
             decision, signals = await self._score(ep.content, group_id)
@@ -358,9 +362,7 @@ class EpisodeWorker:
             await self._manager.project_episode(episode_id, group_id)
             await self._record_projection_outcome(episode_id, signals)
         except Exception:
-            logger.warning(
-                "Worker: extraction failed for %s", episode_id, exc_info=True
-            )
+            logger.warning("Worker: extraction failed for %s", episode_id, exc_info=True)
 
     async def _score(
         self,
@@ -439,8 +441,10 @@ class EpisodeWorker:
         if self._cfg.goal_priming_enabled:
             try:
                 goals = await identify_active_goals(
-                    self._manager._graph, self._manager._activation,
-                    group_id, self._cfg,
+                    self._manager._graph,
+                    self._manager._activation,
+                    group_id,
+                    self._cfg,
                 )
                 base_score += compute_goal_triage_boost(content, goals, self._cfg)
             except Exception:
@@ -565,17 +569,23 @@ class EpisodeWorker:
                 error=getattr(stored_episode, "error", None),
                 retry_count=getattr(stored_episode, "retry_count", 0),
                 processing_duration_ms=getattr(
-                    stored_episode, "processing_duration_ms", None,
+                    stored_episode,
+                    "processing_duration_ms",
+                    None,
                 ),
                 encoding_context=getattr(stored_episode, "encoding_context", None),
                 memory_tier=getattr(stored_episode, "memory_tier", "episodic"),
                 consolidation_cycles=getattr(
-                    stored_episode, "consolidation_cycles", 0,
+                    stored_episode,
+                    "consolidation_cycles",
+                    0,
                 ),
                 entity_coverage=getattr(stored_episode, "entity_coverage", 0.0),
                 projection_state=raw_projection_state,
                 last_projection_reason=getattr(
-                    stored_episode, "last_projection_reason", None,
+                    stored_episode,
+                    "last_projection_reason",
+                    None,
                 ),
                 last_projected_at=getattr(stored_episode, "last_projected_at", None),
             )
@@ -615,9 +625,8 @@ class EpisodeWorker:
                 },
                 group_id=group_id,
             )
-            if (
-                self._cfg.cue_vector_index_enabled
-                and hasattr(self._manager._search, "index_episode_cue")
+            if self._cfg.cue_vector_index_enabled and hasattr(
+                self._manager._search, "index_episode_cue"
             ):
                 await self._manager._search.index_episode_cue(cue)
         except Exception:
@@ -686,9 +695,8 @@ class EpisodeWorker:
         }
         try:
             await update_cue(episode_id, retired_updates, group_id=group_id)
-            if (
-                self._cfg.cue_vector_index_enabled
-                and hasattr(self._manager._search, "index_episode_cue")
+            if self._cfg.cue_vector_index_enabled and hasattr(
+                self._manager._search, "index_episode_cue"
             ):
                 retired_cue = (
                     cue.model_copy(update=retired_updates)

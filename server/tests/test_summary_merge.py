@@ -79,9 +79,7 @@ class TestMergeEntityAttributes:
 
     def test_rejects_meta_summary_for_creative_work(self):
         """Meta-summary should be rejected for CreativeWork entities."""
-        entity = _make_entity(
-            name="The Wound Between Worlds", entity_type="CreativeWork"
-        )
+        entity = _make_entity(name="The Wound Between Worlds", entity_type="CreativeWork")
         updates = GraphManager._merge_entity_attributes(
             entity, "Used as test case for indirect retrieval"
         )
@@ -96,9 +94,7 @@ class TestMergeEntityAttributes:
 
     def test_rejects_meta_summary_for_event(self):
         entity = _make_entity(name="Team Meeting", entity_type="Event")
-        updates = GraphManager._merge_entity_attributes(
-            entity, "Consolidated during triage phase"
-        )
+        updates = GraphManager._merge_entity_attributes(entity, "Consolidated during triage phase")
         assert "summary" not in updates
 
     def test_rejects_meta_summary_for_organization(self):
@@ -110,9 +106,7 @@ class TestMergeEntityAttributes:
 
     def test_rejects_meta_summary_for_technology(self):
         """All entity types now reject meta-summaries."""
-        entity = _make_entity(
-            name="Entity Resolution", entity_type="Technology"
-        )
+        entity = _make_entity(name="Entity Resolution", entity_type="Technology")
         updates = GraphManager._merge_entity_attributes(
             entity, "A technique for entity resolution in knowledge graphs"
         )
@@ -142,9 +136,7 @@ class TestMergeEntityAttributes:
         assert "data scientist" in updates["summary"]
 
     def test_allows_normal_summary_for_creative_work(self):
-        entity = _make_entity(
-            name="The Wound Between Worlds", entity_type="CreativeWork"
-        )
+        entity = _make_entity(name="The Wound Between Worlds", entity_type="CreativeWork")
         updates = GraphManager._merge_entity_attributes(
             entity, "A fantasy novel about interdimensional conflict"
         )
@@ -174,6 +166,7 @@ class TestMergeEntityAttributesDict:
             entity, None, new_attributes={"status": "recovering"}
         )
         import json
+
         assert "attributes" in updates
         assert json.loads(updates["attributes"]) == {"status": "recovering"}
 
@@ -184,6 +177,7 @@ class TestMergeEntityAttributesDict:
             entity, None, new_attributes={"status": "recovering"}
         )
         import json
+
         merged = json.loads(updates["attributes"])
         assert merged["status"] == "recovering"
         assert merged["severity"] == "mild"
@@ -195,6 +189,7 @@ class TestMergeEntityAttributesDict:
             entity, None, new_attributes={"level": "senior"}
         )
         import json
+
         merged = json.loads(updates["attributes"])
         assert merged == {"role": "engineer", "level": "senior"}
 
@@ -209,17 +204,13 @@ class TestMergeEntityAttributesDict:
     def test_none_new_attributes_no_update(self):
         """None new_attributes should not produce update."""
         entity = _make_entity(attributes={"role": "dev"})
-        updates = GraphManager._merge_entity_attributes(
-            entity, None, new_attributes=None
-        )
+        updates = GraphManager._merge_entity_attributes(entity, None, new_attributes=None)
         assert "attributes" not in updates
 
     def test_empty_dict_new_attributes_no_update(self):
         """Empty dict new_attributes should not produce update."""
         entity = _make_entity(attributes={"role": "dev"})
-        updates = GraphManager._merge_entity_attributes(
-            entity, None, new_attributes={}
-        )
+        updates = GraphManager._merge_entity_attributes(entity, None, new_attributes={})
         assert "attributes" not in updates
 
     def test_attributes_and_summary_both_merge(self):
@@ -231,6 +222,7 @@ class TestMergeEntityAttributesDict:
         assert "summary" in updates
         assert "Acme Corp" in updates["summary"]
         import json
+
         merged = json.loads(updates["attributes"])
         assert merged == {"role": "ds", "company": "Acme"}
 

@@ -65,9 +65,7 @@ class TestEdgeAdjudicationHotPath:
             group_id="default",
         )
         evidence = await graph_store.get_episode_evidence(episode_id, group_id="default")
-        relationship_rows = [
-            row for row in evidence if row["fact_class"] == "relationship"
-        ]
+        relationship_rows = [row for row in evidence if row["fact_class"] == "relationship"]
 
         assert len(requests) == 1
         assert requests[0]["ambiguity_tags"] == ["negation_scope"]
@@ -76,9 +74,7 @@ class TestEdgeAdjudicationHotPath:
         assert relationship_rows[0]["commit_reason"] == "needs_adjudication"
         assert relationship_rows[0]["adjudication_request_id"] == requests[0]["request_id"]
         assert all(
-            row["status"] == "committed"
-            for row in evidence
-            if row["fact_class"] == "entity"
+            row["status"] == "committed" for row in evidence if row["fact_class"] == "entity"
         )
 
     @pytest.mark.asyncio
@@ -91,9 +87,7 @@ class TestEdgeAdjudicationHotPath:
             content="Alice works at Google, but maybe not anymore.",
             source="test",
         )
-        request = (
-            await edge_manager.get_episode_adjudications(episode_id, group_id="default")
-        )[0]
+        request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
 
         outcome = await edge_manager.submit_adjudication_resolution(
             request["request_id"],
@@ -117,14 +111,12 @@ class TestEdgeAdjudicationHotPath:
         original_relationship = next(
             row
             for row in evidence
-            if row["fact_class"] == "relationship"
-            and row["source_type"] == "narrow_extractor"
+            if row["fact_class"] == "relationship" and row["source_type"] == "narrow_extractor"
         )
         replacement_relationship = next(
             row
             for row in evidence
-            if row["fact_class"] == "relationship"
-            and row["source_type"] == "client_adjudication"
+            if row["fact_class"] == "relationship" and row["source_type"] == "client_adjudication"
         )
         stored_request = await graph_store.get_adjudication_request(
             request["request_id"],
@@ -150,17 +142,14 @@ class TestEdgeAdjudicationHotPath:
             content="Alice works at Google, but maybe not anymore.",
             source="test",
         )
-        request = (
-            await edge_manager.get_episode_adjudications(episode_id, group_id="default")
-        )[0]
+        request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
         original_row = next(
             row
             for row in await graph_store.get_episode_evidence(
                 episode_id,
                 group_id="default",
             )
-            if row["fact_class"] == "relationship"
-            and row["source_type"] == "narrow_extractor"
+            if row["fact_class"] == "relationship" and row["source_type"] == "narrow_extractor"
         )
 
         outcome = await edge_manager.submit_adjudication_resolution(
@@ -204,9 +193,7 @@ class TestEdgeAdjudicationPhase:
             content="Alice works at Google, but maybe not anymore.",
             source="test",
         )
-        request = (
-            await edge_manager.get_episode_adjudications(episode_id, group_id="default")
-        )[0]
+        request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
         phase = EdgeAdjudicationPhase(graph_manager=edge_manager)
         phase._call_server_adjudicator = AsyncMock(
             return_value={
@@ -354,9 +341,7 @@ class TestEdgeAdjudicationPhase:
             content="Alice works at Google, but maybe not anymore.",
             source="test",
         )
-        request = (
-            await edge_manager.get_episode_adjudications(episode_id, group_id="default")
-        )[0]
+        request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
         await graph_store.db.execute(
             "UPDATE episode_adjudications SET created_at = ? WHERE request_id = ?",
             ("2026-03-01T00:00:00", request["request_id"]),
@@ -379,9 +364,7 @@ class TestEdgeAdjudicationPhase:
         )
         evidence = await graph_store.get_episode_evidence(episode_id, group_id="default")
         request_rows = [
-            row
-            for row in evidence
-            if row.get("adjudication_request_id") == request["request_id"]
+            row for row in evidence if row.get("adjudication_request_id") == request["request_id"]
         ]
 
         assert result.status == "success"

@@ -103,9 +103,11 @@ class TestSurpriseDetection:
         dormant_time = now - (30 * 86400)  # 30 days ago
 
         graph_store = AsyncMock()
-        graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[
-            ("neighbor_1", 0.8, "WORKS_AT", "Organization"),
-        ])
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            return_value=[
+                ("neighbor_1", 0.8, "WORKS_AT", "Organization"),
+            ]
+        )
 
         def _make_entity(ename):
             m = MagicMock()
@@ -114,18 +116,22 @@ class TestSurpriseDetection:
 
         entity_obj = _make_entity("TestEntity")
         neighbor_obj = _make_entity("Neighbor1")
-        graph_store.get_entity = AsyncMock(side_effect=lambda eid, gid: {
-            "ent_1": entity_obj,
-            "neighbor_1": neighbor_obj,
-        }.get(eid))
+        graph_store.get_entity = AsyncMock(
+            side_effect=lambda eid, gid: {
+                "ent_1": entity_obj,
+                "neighbor_1": neighbor_obj,
+            }.get(eid)
+        )
 
         activation_store = AsyncMock()
-        activation_store.get_activation = AsyncMock(return_value=ActivationState(
-            node_id="neighbor_1",
-            access_history=[dormant_time],
-            access_count=1,
-            last_accessed=dormant_time,
-        ))
+        activation_store.get_activation = AsyncMock(
+            return_value=ActivationState(
+                node_id="neighbor_1",
+                access_history=[dormant_time],
+                access_count=1,
+                last_accessed=dormant_time,
+            )
+        )
 
         surprises = await detect_surprises(
             entity_ids=["ent_1"],
@@ -151,20 +157,24 @@ class TestSurpriseDetection:
         recent_time = now - 3600  # 1 hour ago
 
         graph_store = AsyncMock()
-        graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[
-            ("neighbor_1", 0.8, "WORKS_AT", "Organization"),
-        ])
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            return_value=[
+                ("neighbor_1", 0.8, "WORKS_AT", "Organization"),
+            ]
+        )
         ent_mock = MagicMock()
         ent_mock.name = "X"
         graph_store.get_entity = AsyncMock(return_value=ent_mock)
 
         activation_store = AsyncMock()
-        activation_store.get_activation = AsyncMock(return_value=ActivationState(
-            node_id="neighbor_1",
-            access_history=[recent_time],
-            access_count=5,
-            last_accessed=recent_time,
-        ))
+        activation_store.get_activation = AsyncMock(
+            return_value=ActivationState(
+                node_id="neighbor_1",
+                access_history=[recent_time],
+                access_count=5,
+                last_accessed=recent_time,
+            )
+        )
 
         surprises = await detect_surprises(
             entity_ids=["ent_1"],
@@ -187,9 +197,11 @@ class TestSurpriseDetection:
         now = time.time()
 
         graph_store = AsyncMock()
-        graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[
-            ("neighbor_1", 0.2, "MENTIONED_WITH", "Other"),
-        ])
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            return_value=[
+                ("neighbor_1", 0.2, "MENTIONED_WITH", "Other"),
+            ]
+        )
         ent_mock = MagicMock()
         ent_mock.name = "X"
         graph_store.get_entity = AsyncMock(return_value=ent_mock)
@@ -219,21 +231,25 @@ class TestSurpriseDetection:
         dormant_time = now - (10 * 86400)
 
         graph_store = AsyncMock()
-        graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[
-            ("neighbor_1", 0.6, "USES", "Technology"),
-        ])
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            return_value=[
+                ("neighbor_1", 0.6, "USES", "Technology"),
+            ]
+        )
         ent_mock = MagicMock()
         ent_mock.name = "X"
         graph_store.get_entity = AsyncMock(return_value=ent_mock)
 
         # Set up activation so compute_activation returns ~0.05
         activation_store = AsyncMock()
-        activation_store.get_activation = AsyncMock(return_value=ActivationState(
-            node_id="neighbor_1",
-            access_history=[dormant_time],
-            access_count=1,
-            last_accessed=dormant_time,
-        ))
+        activation_store.get_activation = AsyncMock(
+            return_value=ActivationState(
+                node_id="neighbor_1",
+                access_history=[dormant_time],
+                access_count=1,
+                last_accessed=dormant_time,
+            )
+        )
 
         surprises = await detect_surprises(
             entity_ids=["ent_1"],
@@ -278,10 +294,14 @@ class TestSurpriseDetection:
         """Cache entries expire after TTL."""
         cache = SurpriseCache(ttl_seconds=10.0)
         conn = SurpriseConnection(
-            entity_id="e1", entity_name="E1",
-            connected_to_id="e2", connected_to_name="E2",
-            predicate="RELATED_TO", edge_weight=0.5,
-            activation_score=0.1, surprise_score=0.45,
+            entity_id="e1",
+            entity_name="E1",
+            connected_to_id="e2",
+            connected_to_name="E2",
+            predicate="RELATED_TO",
+            edge_weight=0.5,
+            activation_score=0.1,
+            surprise_score=0.45,
         )
         now = 1000.0
         cache.put("default", [conn], now)
@@ -292,10 +312,14 @@ class TestSurpriseDetection:
         """Cache clear removes all entries."""
         cache = SurpriseCache(ttl_seconds=300.0)
         conn = SurpriseConnection(
-            entity_id="e1", entity_name="E1",
-            connected_to_id="e2", connected_to_name="E2",
-            predicate="RELATED_TO", edge_weight=0.5,
-            activation_score=0.1, surprise_score=0.45,
+            entity_id="e1",
+            entity_name="E1",
+            connected_to_id="e2",
+            connected_to_name="E2",
+            predicate="RELATED_TO",
+            edge_weight=0.5,
+            activation_score=0.1,
+            surprise_score=0.45,
         )
         cache.put("default", [conn])
         cache.clear()
@@ -315,26 +339,40 @@ class TestRetrievalPriming:
         candidates = [("node_a", 0.5), ("node_b", 0.5)]
         states = {
             "node_a": ActivationState(
-                node_id="node_a", access_history=[now - 100],
-                access_count=1, last_accessed=now - 100,
+                node_id="node_a",
+                access_history=[now - 100],
+                access_count=1,
+                last_accessed=now - 100,
             ),
             "node_b": ActivationState(
-                node_id="node_b", access_history=[now - 100],
-                access_count=1, last_accessed=now - 100,
+                node_id="node_b",
+                access_history=[now - 100],
+                access_count=1,
+                last_accessed=now - 100,
             ),
         }
 
         # Score without priming
         base = score_candidates(
-            candidates=candidates, spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states, now=now, cfg=cfg,
+            candidates=candidates,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
         )
         base_scores = {r.node_id: r.score for r in base}
 
         # Score with priming boost on node_a
         boosted = score_candidates(
-            candidates=candidates, spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states, now=now, cfg=cfg,
+            candidates=candidates,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
             priming_boosts={"node_a": 0.15},
         )
         boosted_scores = {r.node_id: r.score for r in boosted}
@@ -365,12 +403,22 @@ class TestRetrievalPriming:
         candidates = [("node_a", 0.5)]
         states = {}
         base = score_candidates(
-            candidates=candidates, spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states, now=now, cfg=cfg,
+            candidates=candidates,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
         )
         with_priming = score_candidates(
-            candidates=candidates, spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states, now=now, cfg=cfg,
+            candidates=candidates,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
             priming_boosts=None,
         )
         assert base[0].score == with_priming[0].score
@@ -388,8 +436,13 @@ class TestRetrievalPriming:
             "node_b": cfg.retrieval_priming_boost * 0.5,
         }
         results = score_candidates(
-            candidates=candidates, spreading_bonuses={}, hop_distances={},
-            seed_node_ids=set(), activation_states=states, now=now, cfg=cfg,
+            candidates=candidates,
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
             priming_boosts=boosts,
         )
         scores = {r.node_id: r.score for r in results}
@@ -408,21 +461,41 @@ class TestGCMMR:
         from engram.retrieval.gc_mmr import apply_gc_mmr
 
         results = [
-            ScoredResult(node_id="a", score=1.0, semantic_similarity=1.0,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
-            ScoredResult(node_id="b", score=0.9, semantic_similarity=0.9,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
-            ScoredResult(node_id="c", score=0.8, semantic_similarity=0.8,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
+            ScoredResult(
+                node_id="a",
+                score=1.0,
+                semantic_similarity=1.0,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
+            ScoredResult(
+                node_id="b",
+                score=0.9,
+                semantic_similarity=0.9,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
+            ScoredResult(
+                node_id="c",
+                score=0.8,
+                semantic_similarity=0.8,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
         ]
 
         graph_store = AsyncMock()
         # b is connected to a, c is not connected to anything
-        graph_store.get_active_neighbors_with_weights = AsyncMock(side_effect=lambda nid, gid: {
-            "a": [("b", 0.8, "WORKS_AT", "Organization")],
-            "b": [("a", 0.8, "WORKS_AT", "Organization")],
-            "c": [],
-        }.get(nid, []))
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            side_effect=lambda nid, gid: {
+                "a": [("b", 0.8, "WORKS_AT", "Organization")],
+                "b": [("a", 0.8, "WORKS_AT", "Organization")],
+                "c": [],
+            }.get(nid, [])
+        )
 
         embeddings = {
             "a": [1.0, 0.0, 0.0],
@@ -431,8 +504,14 @@ class TestGCMMR:
         }
 
         reranked = await apply_gc_mmr(
-            results, graph_store, "default", embeddings,
-            lambda_rel=0.5, lambda_div=0.1, lambda_conn=0.4, top_n=3,
+            results,
+            graph_store,
+            "default",
+            embeddings,
+            lambda_rel=0.5,
+            lambda_div=0.1,
+            lambda_conn=0.4,
+            top_n=3,
         )
         # First pick is always "a" (highest relevance)
         assert reranked[0].node_id == "a"
@@ -444,10 +523,22 @@ class TestGCMMR:
         from engram.retrieval.gc_mmr import apply_gc_mmr
 
         results = [
-            ScoredResult(node_id="a", score=1.0, semantic_similarity=1.0,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
-            ScoredResult(node_id="b", score=0.5, semantic_similarity=0.5,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
+            ScoredResult(
+                node_id="a",
+                score=1.0,
+                semantic_similarity=1.0,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
+            ScoredResult(
+                node_id="b",
+                score=0.5,
+                semantic_similarity=0.5,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
         ]
         graph_store = AsyncMock()
         graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
@@ -462,20 +553,40 @@ class TestGCMMR:
 
         # Three results with equal scores but different connectivity
         results = [
-            ScoredResult(node_id="a", score=1.0, semantic_similarity=1.0,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
-            ScoredResult(node_id="b", score=0.99, semantic_similarity=0.99,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
-            ScoredResult(node_id="c", score=0.98, semantic_similarity=0.98,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
+            ScoredResult(
+                node_id="a",
+                score=1.0,
+                semantic_similarity=1.0,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
+            ScoredResult(
+                node_id="b",
+                score=0.99,
+                semantic_similarity=0.99,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
+            ScoredResult(
+                node_id="c",
+                score=0.98,
+                semantic_similarity=0.98,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
         ]
 
         graph_store = AsyncMock()
-        graph_store.get_active_neighbors_with_weights = AsyncMock(side_effect=lambda nid, gid: {
-            "a": [("c", 0.9, "EXPERT_IN", "Technology")],
-            "b": [],
-            "c": [("a", 0.9, "EXPERT_IN", "Technology")],
-        }.get(nid, []))
+        graph_store.get_active_neighbors_with_weights = AsyncMock(
+            side_effect=lambda nid, gid: {
+                "a": [("c", 0.9, "EXPERT_IN", "Technology")],
+                "b": [],
+                "c": [("a", 0.9, "EXPERT_IN", "Technology")],
+            }.get(nid, [])
+        )
 
         embeddings = {
             "a": [1.0, 0.0],
@@ -485,8 +596,14 @@ class TestGCMMR:
 
         # High connectivity weight — c should be picked after a
         reranked = await apply_gc_mmr(
-            results, graph_store, "default", embeddings,
-            lambda_rel=0.3, lambda_div=0.1, lambda_conn=0.6, top_n=3,
+            results,
+            graph_store,
+            "default",
+            embeddings,
+            lambda_rel=0.3,
+            lambda_div=0.1,
+            lambda_conn=0.6,
+            top_n=3,
         )
         assert reranked[0].node_id == "a"
         # c is connected to a, b is not
@@ -505,8 +622,14 @@ class TestGCMMR:
         from engram.retrieval.gc_mmr import apply_gc_mmr
 
         results = [
-            ScoredResult(node_id="a", score=1.0, semantic_similarity=1.0,
-                         activation=0.0, spreading=0.0, edge_proximity=0.0),
+            ScoredResult(
+                node_id="a",
+                score=1.0,
+                semantic_similarity=1.0,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+            ),
         ]
         graph_store = AsyncMock()
         reranked = await apply_gc_mmr(results, graph_store, "default", {}, top_n=5)
@@ -549,10 +672,14 @@ class TestIntegration:
         """Surprise connections appear in formatted recall response."""
         cache = SurpriseCache(ttl_seconds=300.0)
         conn = SurpriseConnection(
-            entity_id="e1", entity_name="Old Project",
-            connected_to_id="e2", connected_to_name="Current Topic",
-            predicate="RELATED_TO", edge_weight=0.7,
-            activation_score=0.05, surprise_score=0.665,
+            entity_id="e1",
+            entity_name="Old Project",
+            connected_to_id="e2",
+            connected_to_name="Current Topic",
+            predicate="RELATED_TO",
+            edge_weight=0.7,
+            activation_score=0.05,
+            surprise_score=0.665,
         )
         cache.put("default", [conn])
         surprises = cache.get("default", time.time())

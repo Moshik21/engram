@@ -20,8 +20,8 @@ class OIDCValidator:
 
     def __init__(
         self,
-        issuer: str,       # e.g. "https://clerk.your-app.com"
-        audience: str,     # e.g. "engram-api"
+        issuer: str,  # e.g. "https://clerk.your-app.com"
+        audience: str,  # e.g. "engram-api"
         group_claim: str = "org_id",  # JWT claim that maps to group_id
         jwks_cache_ttl: float = 300.0,  # 5 minutes
     ) -> None:
@@ -61,11 +61,11 @@ class OIDCValidator:
             claims = cast(
                 dict[str, Any],
                 jwt.decode(
-                token,
-                jwks,
-                algorithms=["RS256"],
-                audience=self._audience,
-                issuer=self._issuer,
+                    token,
+                    jwks,
+                    algorithms=["RS256"],
+                    audience=self._audience,
+                    issuer=self._issuer,
                 ),
             )
             # Extract group_id from configured claim

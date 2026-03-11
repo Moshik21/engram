@@ -19,15 +19,11 @@ def _fmt(value: float | None) -> str:
 
 
 def _summary_by_name(run_result: ShowcaseRunResult) -> dict:
-    return {
-        summary.baseline_name: summary for summary in run_result.baseline_summaries
-    }
+    return {summary.baseline_name: summary for summary in run_result.baseline_summaries}
 
 
 def _answer_summary_by_name(run_result: ShowcaseRunResult) -> dict:
-    return {
-        summary.baseline_name: summary for summary in run_result.answer_summaries
-    }
+    return {summary.baseline_name: summary for summary in run_result.answer_summaries}
 
 
 def _aggregate_primary_scenarios(run_result: ShowcaseRunResult) -> list[dict]:
@@ -127,8 +123,7 @@ def _winner_note(winner: str, tags: set[str], why: str) -> str:
     if winner == "engram_full":
         if "prospective" in tags:
             return (
-                "Prospective retrieval surfaced the right intention"
-                " from related entity activity."
+                "Prospective retrieval surfaced the right intention from related entity activity."
             )
         if "temporal" in tags or "negation" in tags:
             return "Current-state memory won without leaking stale or negated facts."

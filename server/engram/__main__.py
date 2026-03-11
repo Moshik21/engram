@@ -21,24 +21,27 @@ def main():
         description="Engram — persistent memory for AI agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Examples:\n"
-               "  engram setup              Interactive setup wizard\n"
-               "  engram serve              Start REST API at localhost:8100\n"
-               "  engram serve --port 9000  Custom port\n"
-               "  engram mcp                Start MCP server (stdio)\n"
-               "  engram mcp --transport streamable-http\n"
-               "                            Start MCP server (HTTP on :8200)\n"
-               "  engram health             Check if server is running\n",
+        "  engram setup              Interactive setup wizard\n"
+        "  engram serve              Start REST API at localhost:8100\n"
+        "  engram serve --port 9000  Custom port\n"
+        "  engram mcp                Start MCP server (stdio)\n"
+        "  engram mcp --transport streamable-http\n"
+        "                            Start MCP server (HTTP on :8200)\n"
+        "  engram health             Check if server is running\n",
     )
     subparsers = parser.add_subparsers(dest="command")
 
     # --- setup ---
     setup_parser = subparsers.add_parser("setup", help="Interactive setup wizard")
     setup_parser.add_argument(
-        "--env-path", default=None,
+        "--env-path",
+        default=None,
         help="Override .env output path (default: ~/.engram/.env)",
     )
     setup_parser.add_argument(
-        "--mode", choices=["lite", "full", "auto"], default=None,
+        "--mode",
+        choices=["lite", "full", "auto"],
+        default=None,
         help="Pre-select engine mode (skips mode prompt)",
     )
 
@@ -47,41 +50,50 @@ def main():
     serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
     serve_parser.add_argument("--port", type=int, default=8100, help="Port (default: 8100)")
     serve_parser.add_argument(
-        "--mode", choices=["lite", "full", "auto"], default="auto",
+        "--mode",
+        choices=["lite", "full", "auto"],
+        default="auto",
         help="Engine mode (default: auto-detect)",
     )
 
     # --- mcp ---
     mcp_parser = subparsers.add_parser("mcp", help="Start MCP server")
     mcp_parser.add_argument(
-        "--transport", choices=["stdio", "streamable-http", "sse"],
+        "--transport",
+        choices=["stdio", "streamable-http", "sse"],
         default="stdio",
         help="Transport protocol (default: stdio)",
     )
     mcp_parser.add_argument(
-        "--host", default="127.0.0.1",
+        "--host",
+        default="127.0.0.1",
         help="Bind address for HTTP transport (default: 127.0.0.1)",
     )
     mcp_parser.add_argument(
-        "--port", type=int, default=8200,
+        "--port",
+        type=int,
+        default=8200,
         help="Port for HTTP transport (default: 8200)",
     )
 
     # --- config ---
     config_parser = subparsers.add_parser("config", help="Edit configuration")
     config_parser.add_argument(
-        "--env-path", default=None,
+        "--env-path",
+        default=None,
         help="Override .env path (default: ~/.engram/.env)",
     )
 
     # --- hooks ---
     hooks_parser = subparsers.add_parser("hooks", help="Install AutoCapture hooks")
     hooks_parser.add_argument(
-        "--hooks-dir", default=None,
+        "--hooks-dir",
+        default=None,
         help="Override hooks directory (default: ~/.engram/hooks/)",
     )
     hooks_parser.add_argument(
-        "--settings-path", default=None,
+        "--settings-path",
+        default=None,
         help="Override Claude settings path (default: ~/.claude/settings.json)",
     )
 
@@ -96,13 +108,17 @@ def main():
 
     # Legacy flags (for backward compat with --transport http)
     parser.add_argument(
-        "--transport", choices=["stdio", "sse", "http"], default=None,
+        "--transport",
+        choices=["stdio", "sse", "http"],
+        default=None,
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--host", default="0.0.0.0", help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=8100, help=argparse.SUPPRESS)
     parser.add_argument(
-        "--mode", choices=["lite", "full", "auto"], default="auto",
+        "--mode",
+        choices=["lite", "full", "auto"],
+        default="auto",
         help=argparse.SUPPRESS,
     )
 
@@ -212,14 +228,17 @@ def main():
             try:
                 subprocess.run(
                     ["git", "pull", "--quiet"],
-                    cwd=repo_root, check=True,
+                    cwd=repo_root,
+                    check=True,
                 )
                 subprocess.run(
                     ["uv", "sync", "--quiet"],
-                    cwd=repo_root / "server", check=True,
+                    cwd=repo_root / "server",
+                    check=True,
                 )
                 # Show new version
                 from importlib.metadata import version as get_version
+
                 try:
                     v = get_version("engram")
                 except Exception:
@@ -245,6 +264,7 @@ def main():
     # --- version ---
     if args.command == "version":
         from importlib.metadata import version as get_version
+
         try:
             v = get_version("engram")
         except Exception:
@@ -261,9 +281,11 @@ def main():
         )
         if args.transport == "stdio":
             from engram.mcp.server import main as mcp_main
+
             mcp_main()
         else:
             import uvicorn
+
             uvicorn.run(
                 "engram.main:app",
                 host=args.host,

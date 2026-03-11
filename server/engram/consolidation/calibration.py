@@ -11,51 +11,63 @@ from engram.models.consolidation import (
     DistillationExample,
 )
 
-ORACLE_DECISION_SOURCES = frozenset({
-    "llm",
-    "llm_escalation",
-    "escalation",
-    "cross_encoder",
-})
+ORACLE_DECISION_SOURCES = frozenset(
+    {
+        "llm",
+        "llm_escalation",
+        "escalation",
+        "cross_encoder",
+    }
+)
 
-_POSITIVE_DECISIONS = frozenset({
-    "accept",
-    "extract",
-    "merge",
-    "merge_applied",
-    "created",
-    "updated_existing",
-    "applied",
-})
-_NEGATIVE_DECISIONS = frozenset({
-    "reject",
-    "skip",
-    "keep_separate",
-    "abstain",
-    "rejected",
-    "duplicate_skipped",
-})
-_POSITIVE_OUTCOMES = frozenset({
-    "applied",
-    "created",
-    "updated_existing",
-    "useful",
-    "supported",
-})
-_NEGATIVE_OUTCOMES = frozenset({
-    "duplicate_skipped",
-    "rejected",
-    "abstained",
-    "empty",
-    "failed",
-    "not_applied",
-})
-_DISTILLATION_OUTCOME_TYPES = frozenset({
-    "projection_yield",
-    "materialization",
-    "regret",
-    "reuse",
-})
+_POSITIVE_DECISIONS = frozenset(
+    {
+        "accept",
+        "extract",
+        "merge",
+        "merge_applied",
+        "created",
+        "updated_existing",
+        "applied",
+    }
+)
+_NEGATIVE_DECISIONS = frozenset(
+    {
+        "reject",
+        "skip",
+        "keep_separate",
+        "abstain",
+        "rejected",
+        "duplicate_skipped",
+    }
+)
+_POSITIVE_OUTCOMES = frozenset(
+    {
+        "applied",
+        "created",
+        "updated_existing",
+        "useful",
+        "supported",
+    }
+)
+_NEGATIVE_OUTCOMES = frozenset(
+    {
+        "duplicate_skipped",
+        "rejected",
+        "abstained",
+        "empty",
+        "failed",
+        "not_applied",
+    }
+)
+_DISTILLATION_OUTCOME_TYPES = frozenset(
+    {
+        "projection_yield",
+        "materialization",
+        "regret",
+        "reuse",
+    }
+)
 
 
 def build_distillation_examples(
@@ -161,8 +173,7 @@ def build_calibration_snapshots(
             if example.correct is not None and example.student_confidence is not None
         ]
         oracle_examples = [
-            example for example in phase_examples
-            if example.teacher_source.startswith("oracle:")
+            example for example in phase_examples if example.teacher_source.startswith("oracle:")
         ]
         abstain_count = sum(
             1
@@ -246,26 +257,30 @@ def _bucketize_examples(
         low = round(index * bucket_width, 4)
         high = round((index + 1) * bucket_width, 4)
         if not bucket:
-            summary.append({
-                "low": low,
-                "high": high,
-                "count": 0,
-                "accuracy": None,
-                "mean_confidence": None,
-            })
+            summary.append(
+                {
+                    "low": low,
+                    "high": high,
+                    "count": 0,
+                    "accuracy": None,
+                    "mean_confidence": None,
+                }
+            )
             continue
 
         accuracy = sum(1.0 for example in bucket if example.correct) / len(bucket)
-        mean_confidence = sum(
-            float(example.student_confidence or 0.0) for example in bucket
-        ) / len(bucket)
+        mean_confidence = sum(float(example.student_confidence or 0.0) for example in bucket) / len(
+            bucket
+        )
         ece += abs(mean_confidence - accuracy) * (len(bucket) / total)
-        summary.append({
-            "low": low,
-            "high": high,
-            "count": len(bucket),
-            "accuracy": round(accuracy, 4),
-            "mean_confidence": round(mean_confidence, 4),
-        })
+        summary.append(
+            {
+                "low": low,
+                "high": high,
+                "count": len(bucket),
+                "accuracy": round(accuracy, 4),
+                "mean_confidence": round(mean_confidence, 4),
+            }
+        )
 
     return summary, round(ece, 4)

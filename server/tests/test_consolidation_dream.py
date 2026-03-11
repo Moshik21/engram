@@ -503,8 +503,12 @@ class TestEdgeIdentification:
 
         assert len(boosts) == 2
         assert ("node_a", "node_b", "RELATES_TO") in boosts or (
-            "node_b", "node_a", "RELATES_TO"
+            "node_b",
+            "node_a",
+            "RELATES_TO",
         ) in boosts
         assert ("node_a", "node_b", "MENTIONED_WITH") in boosts or (
-            "node_b", "node_a", "MENTIONED_WITH"
+            "node_b",
+            "node_a",
+            "MENTIONED_WITH",
         ) in boosts

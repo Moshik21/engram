@@ -36,11 +36,13 @@ class NumpySkipGram:
             self._W_in = initial_in.astype(np.float32, copy=True)
         else:
             self._W_in = self._rng.uniform(
-                -0.5 / dimensions, 0.5 / dimensions,
+                -0.5 / dimensions,
+                0.5 / dimensions,
                 (vocab_size, dimensions),
             ).astype(np.float32)
         self._W_out = np.zeros(
-            (vocab_size, dimensions), dtype=np.float32,
+            (vocab_size, dimensions),
+            dtype=np.float32,
         )
 
     def train(self, walks: list[list[int]]) -> np.ndarray:

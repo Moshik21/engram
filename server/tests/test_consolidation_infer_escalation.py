@@ -14,6 +14,7 @@ from engram.models.entity import Entity
 
 def _entity(name, entity_type="Person", group_id="test"):
     import uuid
+
     return Entity(
         id=f"ent_{uuid.uuid4().hex[:8]}",
         name=name,
@@ -24,10 +25,7 @@ def _entity(name, entity_type="Person", group_id="test"):
 
 def _make_llm_response(verdict: str, reason: str = "test", count: int = 1):
     """Create a mock Anthropic API response (batched format for validation)."""
-    verdicts = [
-        {"rel": i, "verdict": verdict, "reason": reason}
-        for i in range(1, count + 1)
-    ]
+    verdicts = [{"rel": i, "verdict": verdict, "reason": reason} for i in range(1, count + 1)]
     content_block = MagicMock()
     content_block.text = json.dumps(verdicts)
     response = MagicMock()
@@ -126,7 +124,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",
@@ -167,7 +166,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",
@@ -205,7 +205,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",
@@ -255,7 +256,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_max_per_cycle=2,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",
@@ -294,7 +296,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         result, records = await phase.execute(
             group_id="test",
@@ -333,7 +336,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_model="claude-sonnet-4-6-20250514",
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",
@@ -371,7 +375,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, _ = await phase.execute(
             group_id="test",
@@ -409,7 +414,8 @@ class TestInferEscalation:
             consolidation_infer_escalation_enabled=True,
         )
         phase = EdgeInferencePhase(
-            llm_client=haiku_client, escalation_client=sonnet_client,
+            llm_client=haiku_client,
+            escalation_client=sonnet_client,
         )
         _, records = await phase.execute(
             group_id="test",

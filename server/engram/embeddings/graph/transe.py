@@ -38,13 +38,15 @@ class TransETrainer(GraphEmbeddingTrainer):
 
         # 1. Extract all relationship triples
         triples, entity_ids, relation_types = await self._extract_triples(
-            graph_store, group_id,
+            graph_store,
+            group_id,
         )
 
         if len(triples) < cfg.graph_embedding_transe_min_triples:
             logger.info(
                 "TransE: only %d triples (min %d), skipping",
-                len(triples), cfg.graph_embedding_transe_min_triples,
+                len(triples),
+                cfg.graph_embedding_transe_min_triples,
             )
             return {}
 
@@ -81,13 +83,16 @@ class TransETrainer(GraphEmbeddingTrainer):
 
         logger.info(
             "TransE: trained %d entity + %d relation embeddings (dim=%d)",
-            len(entity_ids), len(relation_types),
+            len(entity_ids),
+            len(relation_types),
             cfg.graph_embedding_transe_dimensions,
         )
         return result
 
     async def _extract_triples(
-        self, graph_store, group_id: str,
+        self,
+        graph_store,
+        group_id: str,
     ) -> tuple[list[tuple[str, str, str]], list[str], list[str]]:
         """Extract (head_id, predicate, tail_id) triples from the graph.
 
@@ -103,7 +108,9 @@ class TransETrainer(GraphEmbeddingTrainer):
         for eid in entity_ids:
             try:
                 rels = await graph_store.get_relationships(
-                    eid, direction="outgoing", group_id=group_id,
+                    eid,
+                    direction="outgoing",
+                    group_id=group_id,
                 )
                 for rel in rels:
                     if rel.target_id in entity_set:
@@ -148,7 +155,7 @@ class TransETrainer(GraphEmbeddingTrainer):
 
             total_loss = 0.0
             for batch_start in range(0, n_triples, batch_size):
-                batch_idx = perm[batch_start:batch_start + batch_size]
+                batch_idx = perm[batch_start : batch_start + batch_size]
                 batch = triple_arr[batch_idx]
 
                 heads = batch[:, 0]

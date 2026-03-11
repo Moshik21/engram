@@ -80,7 +80,8 @@ def evidence_cfg() -> ActivationConfig:
 
 @pytest_asyncio.fixture
 async def graph_manager(
-    graph_store: SQLiteGraphStore, evidence_cfg: ActivationConfig,
+    graph_store: SQLiteGraphStore,
+    evidence_cfg: ActivationConfig,
 ) -> GraphManager:
     search_index = SimpleNamespace(
         index_entity=AsyncMock(),

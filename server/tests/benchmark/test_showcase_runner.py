@@ -165,15 +165,13 @@ async def test_quick_mode_smoke_and_artifacts(tmp_path: Path):
     assert any(summary.baseline_name == "engram_full" for summary in result.baseline_summaries)
 
     scenario_catalog = {
-        scenario.id: scenario
-        for scenario in build_showcase_scenarios(mode="quick", seed=7)
+        scenario.id: scenario for scenario in build_showcase_scenarios(mode="quick", seed=7)
     }
     for scenario_result in result.scenario_results:
         if not scenario_result.available:
             continue
         probe_specs = {
-            probe.id: probe
-            for probe in scenario_catalog[scenario_result.scenario_id].probes
+            probe.id: probe for probe in scenario_catalog[scenario_result.scenario_id].probes
         }
         for probe_result in scenario_result.probe_results:
             assert probe_result.tokens_surfaced <= probe_specs[probe_result.probe_id].max_tokens
@@ -287,11 +285,7 @@ async def test_langgraph_store_memory_is_more_token_efficient_than_context_summa
     )
 
     by_name = {
-        name: [
-            scenario
-            for scenario in result.scenario_results
-            if scenario.baseline_name == name
-        ]
+        name: [scenario for scenario in result.scenario_results if scenario.baseline_name == name]
         for name in ["langgraph_store_memory", "context_summary"]
     }
     assert all(scenario.passed for scenario in by_name["langgraph_store_memory"])
@@ -329,11 +323,7 @@ async def test_mem0_style_memory_beats_markdown_canonical_on_current_state(
     )
 
     by_name = {
-        name: [
-            scenario
-            for scenario in result.scenario_results
-            if scenario.baseline_name == name
-        ]
+        name: [scenario for scenario in result.scenario_results if scenario.baseline_name == name]
         for name in ["mem0_style_memory", "markdown_canonical"]
     }
     assert all(scenario.passed for scenario in by_name["mem0_style_memory"])
@@ -358,11 +348,7 @@ async def test_graphiti_temporal_graph_beats_hybrid_rag_on_graph_temporal(
     )
 
     by_name = {
-        name: [
-            scenario
-            for scenario in result.scenario_results
-            if scenario.baseline_name == name
-        ]
+        name: [scenario for scenario in result.scenario_results if scenario.baseline_name == name]
         for name in ["graphiti_temporal_graph", "hybrid_rag_temporal"]
     }
     assert all(scenario.passed for scenario in by_name["graphiti_temporal_graph"])
@@ -469,8 +455,7 @@ async def test_external_track_status_writes_appendix_artifact(tmp_path: Path):
     assert result.external_track_results
     assert (tmp_path / "external" / "external_tracks.json").exists()
     external_track = next(
-        summary for summary in result.track_summaries
-        if summary.track == "external"
+        summary for summary in result.track_summaries if summary.track == "external"
     )
     assert external_track.executed is True
 

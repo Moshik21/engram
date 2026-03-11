@@ -23,18 +23,12 @@ class TestEvidencePipelineIntegration:
         assert len(bundle.candidates) > 0
 
         decisions = policy.evaluate(bundle, entity_count=0)  # cold start
-        committed = [
-            (ev, d)
-            for ev, d in zip(bundle.candidates, decisions)
-            if d.action == "commit"
-        ]
+        committed = [(ev, d) for ev, d in zip(bundle.candidates, decisions) if d.action == "commit"]
         assert len(committed) > 0  # cold start lowers thresholds
 
         entities, claims = bridge.bridge(committed)
         entity_names = [e.name for e in entities]
-        assert "Alex" in entity_names or any(
-            "konnor" in n.lower() for n in entity_names
-        )
+        assert "Alex" in entity_names or any("konnor" in n.lower() for n in entity_names)
 
     def test_full_pipeline_relationship(self):
         """Extract relationships, commit, bridge to ClaimCandidate."""
@@ -45,11 +39,7 @@ class TestEvidencePipelineIntegration:
         text = "Alice works at Google. Bob lives in New York."
         bundle = pipeline.extract(text, "ep1", "default")
         decisions = policy.evaluate(bundle, entity_count=0)
-        committed = [
-            (ev, d)
-            for ev, d in zip(bundle.candidates, decisions)
-            if d.action == "commit"
-        ]
+        committed = [(ev, d) for ev, d in zip(bundle.candidates, decisions) if d.action == "commit"]
         entities, claims = bridge.bridge(committed)
         predicates = [c.predicate for c in claims]
         assert len(predicates) > 0
@@ -63,11 +53,7 @@ class TestEvidencePipelineIntegration:
         text = "ok sounds good"
         bundle = pipeline.extract(text, "ep1", "default")
         decisions = policy.evaluate(bundle, entity_count=100)
-        committed = [
-            (ev, d)
-            for ev, d in zip(bundle.candidates, decisions)
-            if d.action == "commit"
-        ]
+        committed = [(ev, d) for ev, d in zip(bundle.candidates, decisions) if d.action == "commit"]
         entities, claims = bridge.bridge(committed)
         assert len(entities) == 0
         assert len(claims) == 0
@@ -97,18 +83,13 @@ class TestEvidencePipelineIntegration:
         decisions_normal = policy_normal.evaluate(bundle, entity_count=200)
 
         committed_cold = sum(1 for d in decisions_cold if d.action == "commit")
-        committed_normal = sum(
-            1 for d in decisions_normal if d.action == "commit"
-        )
+        committed_normal = sum(1 for d in decisions_normal if d.action == "commit")
         assert committed_cold >= committed_normal
 
     def test_evidence_ids_are_unique(self):
         """All evidence candidates should have unique IDs."""
         pipeline = NarrowExtractionPipeline()
-        text = (
-            "My name is Alex. I work at Anthropic. "
-            "I live in San Francisco."
-        )
+        text = "My name is Alex. I work at Anthropic. I live in San Francisco."
         bundle = pipeline.extract(text, "ep1", "default")
         ids = [c.evidence_id for c in bundle.candidates]
         assert len(ids) == len(set(ids))

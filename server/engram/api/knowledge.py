@@ -397,12 +397,14 @@ async def replay_queue(request: Request) -> JSONResponse:
             logger.warning("Failed to replay queue entry", exc_info=True)
             skipped += 1
 
-    return JSONResponse(content={
-        "status": "replayed",
-        "replayed": replayed,
-        "skipped": skipped,
-        "total": len(entries),
-    })
+    return JSONResponse(
+        content={
+            "status": "replayed",
+            "replayed": replayed,
+            "skipped": skipped,
+            "total": len(entries),
+        }
+    )
 
 
 @router.post("/remember")
@@ -506,74 +508,80 @@ async def recall(
         result_type = r.get("result_type", "entity")
         if result_type == "episode":
             ep = r["episode"]
-            items.append({
-                "resultType": "episode",
-                "episode": {
-                    "id": ep["id"],
-                    "content": ep["content"],
-                    "source": ep.get("source"),
-                    "createdAt": ep.get("created_at"),
-                },
-                "score": r["score"],
-                "scoreBreakdown": {
-                    "semantic": r["score_breakdown"]["semantic"],
-                    "activation": r["score_breakdown"]["activation"],
-                    "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                    "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                },
-            })
+            items.append(
+                {
+                    "resultType": "episode",
+                    "episode": {
+                        "id": ep["id"],
+                        "content": ep["content"],
+                        "source": ep.get("source"),
+                        "createdAt": ep.get("created_at"),
+                    },
+                    "score": r["score"],
+                    "scoreBreakdown": {
+                        "semantic": r["score_breakdown"]["semantic"],
+                        "activation": r["score_breakdown"]["activation"],
+                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
+                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
+                    },
+                }
+            )
         elif result_type == "cue_episode":
             cue = r["cue"]
             ep = r.get("episode", {})
-            items.append({
-                "resultType": "cue_episode",
-                "cue": {
-                    "episodeId": cue.get("episode_id"),
-                    "cueText": cue.get("cue_text"),
-                    "supportingSpans": cue.get("supporting_spans", []),
-                    "projectionState": cue.get("projection_state"),
-                    "routeReason": cue.get("route_reason"),
-                    "hitCount": cue.get("hit_count"),
-                    "surfacedCount": cue.get("surfaced_count"),
-                    "selectedCount": cue.get("selected_count"),
-                    "usedCount": cue.get("used_count"),
-                    "nearMissCount": cue.get("near_miss_count"),
-                    "policyScore": cue.get("policy_score"),
-                    "lastFeedbackAt": cue.get("last_feedback_at"),
-                    "lastProjectedAt": cue.get("last_projected_at"),
-                },
-                "episode": {
-                    "id": ep.get("id"),
-                    "source": ep.get("source"),
-                    "createdAt": ep.get("created_at"),
-                },
-                "score": r["score"],
-                "scoreBreakdown": {
-                    "semantic": r["score_breakdown"]["semantic"],
-                    "activation": r["score_breakdown"]["activation"],
-                    "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                    "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                },
-            })
+            items.append(
+                {
+                    "resultType": "cue_episode",
+                    "cue": {
+                        "episodeId": cue.get("episode_id"),
+                        "cueText": cue.get("cue_text"),
+                        "supportingSpans": cue.get("supporting_spans", []),
+                        "projectionState": cue.get("projection_state"),
+                        "routeReason": cue.get("route_reason"),
+                        "hitCount": cue.get("hit_count"),
+                        "surfacedCount": cue.get("surfaced_count"),
+                        "selectedCount": cue.get("selected_count"),
+                        "usedCount": cue.get("used_count"),
+                        "nearMissCount": cue.get("near_miss_count"),
+                        "policyScore": cue.get("policy_score"),
+                        "lastFeedbackAt": cue.get("last_feedback_at"),
+                        "lastProjectedAt": cue.get("last_projected_at"),
+                    },
+                    "episode": {
+                        "id": ep.get("id"),
+                        "source": ep.get("source"),
+                        "createdAt": ep.get("created_at"),
+                    },
+                    "score": r["score"],
+                    "scoreBreakdown": {
+                        "semantic": r["score_breakdown"]["semantic"],
+                        "activation": r["score_breakdown"]["activation"],
+                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
+                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
+                    },
+                }
+            )
         else:
             ent = r["entity"]
-            items.append({
-                "resultType": "entity",
-                "entity": {
-                    "id": ent["id"],
-                    "name": ent["name"],
-                    "entityType": ent["type"],
-                    "summary": ent.get("summary"),
-                },
-                "score": r["score"],
-                "scoreBreakdown": {
-                    "semantic": r["score_breakdown"]["semantic"],
-                    "activation": r["score_breakdown"]["activation"],
-                    "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                    "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                },
-                "relationships": r.get("relationships", []),
-            })
+            items.append(
+                {
+                    "resultType": "entity",
+                    "entity": {
+                        "id": ent["id"],
+                        "name": ent["name"],
+                        "entityType": ent["type"],
+                        "summary": ent.get("summary"),
+                    },
+                    "score": r["score"],
+                    "scoreBreakdown": {
+                        "semantic": r["score_breakdown"]["semantic"],
+                        "activation": r["score_breakdown"]["activation"],
+                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
+                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
+                    },
+                    "relationships": r.get("relationships", []),
+                }
+            )
 
     return JSONResponse(content={"items": items, "packets": packets, "query": q})
 
@@ -608,16 +616,18 @@ async def search_facts(
 
     items = []
     for r in results:
-        items.append({
-            "subject": r["subject"],
-            "predicate": r["predicate"],
-            "object": r["object"],
-            "validFrom": r.get("valid_from"),
-            "validTo": r.get("valid_to"),
-            "confidence": r.get("confidence"),
-            "sourceEpisode": r.get("source_episode"),
-            "createdAt": r.get("created_at"),
-        })
+        items.append(
+            {
+                "subject": r["subject"],
+                "predicate": r["predicate"],
+                "object": r["object"],
+                "validFrom": r.get("valid_from"),
+                "validTo": r.get("valid_to"),
+                "confidence": r.get("confidence"),
+                "sourceEpisode": r.get("source_episode"),
+                "createdAt": r.get("created_at"),
+            }
+        )
 
     return JSONResponse(content={"items": items})
 
@@ -643,13 +653,15 @@ async def get_context(
         format=format,
     )
 
-    return JSONResponse(content={
-        "context": result["context"],
-        "entityCount": result["entity_count"],
-        "factCount": result["fact_count"],
-        "tokenEstimate": result["token_estimate"],
-        "format": result.get("format", "structured"),
-    })
+    return JSONResponse(
+        content={
+            "context": result["context"],
+            "entityCount": result["entity_count"],
+            "factCount": result["fact_count"],
+            "tokenEstimate": result["token_estimate"],
+            "format": result.get("format", "structured"),
+        }
+    )
 
 
 @router.post("/forget")
@@ -789,12 +801,14 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
             context=body.context,
             see_also=body.see_also,
         )
-        return JSONResponse(content={
-            "status": "created",
-            "intentionId": intention_id,
-            "triggerText": body.trigger_text,
-            "actionText": body.action_text,
-        })
+        return JSONResponse(
+            content={
+                "status": "created",
+                "intentionId": intention_id,
+                "triggerText": body.trigger_text,
+                "actionText": body.action_text,
+            }
+        )
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": str(e)})
 
@@ -810,7 +824,8 @@ async def list_intentions(
     manager = get_manager()
 
     intention_entities = await manager.list_intentions(
-        group_id=group_id, enabled_only=enabled_only,
+        group_id=group_id,
+        enabled_only=enabled_only,
     )
 
     cfg = manager._cfg
@@ -833,8 +848,7 @@ async def list_intentions(
             if state:
                 activation = compute_activation(state.access_history, now, cfg)
             warmth_ratio = (
-                activation / meta.activation_threshold
-                if meta.activation_threshold > 0 else 0.0
+                activation / meta.activation_threshold if meta.activation_threshold > 0 else 0.0
             )
 
             item = {
@@ -858,16 +872,18 @@ async def list_intentions(
             items.append(item)
     else:
         for i in intention_entities:
-            items.append({
-                "id": i.id,
-                "triggerText": i.trigger_text,
-                "actionText": i.action_text,
-                "triggerType": i.trigger_type,
-                "threshold": i.threshold,
-                "fireCount": i.fire_count,
-                "maxFires": i.max_fires,
-                "enabled": i.enabled,
-            })
+            items.append(
+                {
+                    "id": i.id,
+                    "triggerText": i.trigger_text,
+                    "actionText": i.action_text,
+                    "triggerType": i.trigger_type,
+                    "threshold": i.threshold,
+                    "fireCount": i.fire_count,
+                    "maxFires": i.max_fires,
+                    "enabled": i.enabled,
+                }
+            )
 
     return JSONResponse(content={"intentions": items, "total": len(items)})
 
@@ -885,11 +901,13 @@ async def dismiss_intention(
 
     try:
         await manager.dismiss_intention(intention_id, group_id, hard=hard)
-        return JSONResponse(content={
-            "status": "dismissed",
-            "intentionId": intention_id,
-            "hard": hard,
-        })
+        return JSONResponse(
+            content={
+                "status": "dismissed",
+                "intentionId": intention_id,
+                "hard": hard,
+            }
+        )
     except Exception:
         return JSONResponse(status_code=404, content={"detail": "Intention not found"})
 
@@ -901,19 +919,23 @@ def _sse(data: dict) -> str:
 
 def _emit_tool(tool_call_id: str, tool_name: str, input_data: dict) -> str:
     """Emit AI SDK v6 synthetic tool call (input-available + output-available)."""
-    inp = _sse({
-        "type": "tool-input-available",
-        "toolCallId": tool_call_id,
-        "toolName": tool_name,
-        "input": input_data,
-        "dynamic": True,
-    })
-    out = _sse({
-        "type": "tool-output-available",
-        "toolCallId": tool_call_id,
-        "output": "displayed",
-        "dynamic": True,
-    })
+    inp = _sse(
+        {
+            "type": "tool-input-available",
+            "toolCallId": tool_call_id,
+            "toolName": tool_name,
+            "input": input_data,
+            "dynamic": True,
+        }
+    )
+    out = _sse(
+        {
+            "type": "tool-output-available",
+            "toolCallId": tool_call_id,
+            "output": "displayed",
+            "dynamic": True,
+        }
+    )
     return inp + out
 
 
@@ -1070,46 +1092,52 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
         for r in results:
             if r.get("result_type") == "episode":
                 ep = r["episode"]
-                items.append({
-                    "type": "episode",
-                    "content": ep["content"][:300],
-                    "source": ep.get("source"),
-                    "score": round(r["score"], 3),
-                })
+                items.append(
+                    {
+                        "type": "episode",
+                        "content": ep["content"][:300],
+                        "source": ep.get("source"),
+                        "score": round(r["score"], 3),
+                    }
+                )
             elif r.get("result_type") == "cue_episode":
                 cue = r["cue"]
                 ep = r.get("episode", {})
-                items.append({
-                    "type": "cue_episode",
-                    "cueText": cue.get("cue_text", "")[:240],
-                    "supportingSpans": cue.get("supporting_spans", [])[:2],
-                    "projectionState": cue.get("projection_state"),
-                    "policyScore": cue.get("policy_score"),
-                    "episodeId": cue.get("episode_id"),
-                    "source": ep.get("source"),
-                    "score": round(r["score"], 3),
-                })
+                items.append(
+                    {
+                        "type": "cue_episode",
+                        "cueText": cue.get("cue_text", "")[:240],
+                        "supportingSpans": cue.get("supporting_spans", [])[:2],
+                        "projectionState": cue.get("projection_state"),
+                        "policyScore": cue.get("policy_score"),
+                        "episodeId": cue.get("episode_id"),
+                        "source": ep.get("source"),
+                        "score": round(r["score"], 3),
+                    }
+                )
             else:
                 ent = r["entity"]
                 sb = r.get("score_breakdown", {})
-                items.append({
-                    "type": "entity",
-                    "name": ent["name"],
-                    "entityType": ent.get("type"),
-                    "summary": ent.get("summary"),
-                    "id": ent.get("id", ""),
-                    "score": round(r["score"], 3),
-                    "activation": round(sb.get("activation", 0), 3),
-                    "relationships": [
-                        {
-                            "predicate": rel.get("predicate"),
-                            "target": rel.get("target_name", rel.get("target_id", "")),
-                            "source": rel.get("source_name", rel.get("source_id", "")),
-                            "polarity": rel.get("polarity", "positive"),
-                        }
-                        for rel in r.get("relationships", [])[:10]
-                    ],
-                })
+                items.append(
+                    {
+                        "type": "entity",
+                        "name": ent["name"],
+                        "entityType": ent.get("type"),
+                        "summary": ent.get("summary"),
+                        "id": ent.get("id", ""),
+                        "score": round(r["score"], 3),
+                        "activation": round(sb.get("activation", 0), 3),
+                        "relationships": [
+                            {
+                                "predicate": rel.get("predicate"),
+                                "target": rel.get("target_name", rel.get("target_id", "")),
+                                "source": rel.get("source_name", rel.get("source_id", "")),
+                                "polarity": rel.get("polarity", "positive"),
+                            }
+                            for rel in r.get("relationships", [])[:10]
+                        ],
+                    }
+                )
         return json.dumps({"packets": packets, "results": items, "total": len(items)})
 
     elif tool_name == "search_entities":
@@ -1121,12 +1149,14 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
         )
         items = []
         for ent in results:
-            items.append({
-                "name": ent.get("name", ""),
-                "entityType": ent.get("type", ""),
-                "summary": ent.get("summary"),
-                "id": ent.get("id", ""),
-            })
+            items.append(
+                {
+                    "name": ent.get("name", ""),
+                    "entityType": ent.get("type", ""),
+                    "summary": ent.get("summary"),
+                    "id": ent.get("id", ""),
+                }
+            )
         return json.dumps({"entities": items, "total": len(items)})
 
     elif tool_name == "search_facts":
@@ -1148,17 +1178,20 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
             if key in seen:
                 continue
             seen.add(key)
-            items.append({
-                "subject": f["subject"],
-                "predicate": f["predicate"],
-                "object": f["object"],
-                "confidence": f.get("confidence"),
-            })
+            items.append(
+                {
+                    "subject": f["subject"],
+                    "predicate": f["predicate"],
+                    "object": f["object"],
+                    "confidence": f.get("confidence"),
+                }
+            )
             if len(items) >= requested_limit:
                 break
         logger.info(
             "Chat search_facts returned %d unique facts (from %d raw)",
-            len(items), len(results),
+            len(items),
+            len(results),
         )
         return json.dumps({"facts": items, "total": len(items)})
 
@@ -1181,8 +1214,7 @@ async def _apply_chat_recall_feedback(
         return
 
     target_lookup = {
-        target["lookup_id"]: target
-        for target in extract_recall_targets(recall_results)
+        target["lookup_id"]: target for target in extract_recall_targets(recall_results)
     }
     if not target_lookup:
         return
@@ -1303,14 +1335,16 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
     for r in recall_results:
         if r.get("result_type") == "entity":
             ent = r["entity"]
-            entities.append({
-                "id": ent["id"],
-                "name": ent["name"],
-                "entityType": ent.get("type", "Other"),
-                "summary": ent.get("summary"),
-                "score": round(r["score"], 3),
-                "activation": round(r["score_breakdown"].get("activation", 0), 3),
-            })
+            entities.append(
+                {
+                    "id": ent["id"],
+                    "name": ent["name"],
+                    "entityType": ent.get("type", "Other"),
+                    "summary": ent.get("summary"),
+                    "score": round(r["score"], 3),
+                    "activation": round(r["score_breakdown"].get("activation", 0), 3),
+                }
+            )
 
     if entities:
         tc_idx += 1
@@ -1338,30 +1372,38 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
                             break
                     nodes.append({"id": other_id, "name": other_name, "type": "Other"})
                     seen_ids.add(other_id)
-                edges.append({
-                    "source": source_id,
-                    "target": target_id,
-                    "predicate": rel.get("predicate", "RELATED"),
-                    "weight": rel.get("weight", 1.0),
-                })
+                edges.append(
+                    {
+                        "source": source_id,
+                        "target": target_id,
+                        "predicate": rel.get("predicate", "RELATED"),
+                        "weight": rel.get("weight", 1.0),
+                    }
+                )
             tc_idx += 1
-            lines += _emit_tool(f"tc_{tc_idx}", "show_relationship_graph", {
-                "centralEntity": ent["name"],
-                "nodes": nodes,
-                "edges": edges,
-            })
+            lines += _emit_tool(
+                f"tc_{tc_idx}",
+                "show_relationship_graph",
+                {
+                    "centralEntity": ent["name"],
+                    "nodes": nodes,
+                    "edges": edges,
+                },
+            )
             break  # only one graph per response
 
     # --- show_facts: when facts search returns results ---
     if facts:
         fact_items = []
         for f in facts[:10]:  # cap at 10
-            fact_items.append({
-                "subject": f["subject"],
-                "predicate": f["predicate"],
-                "object": f["object"],
-                "confidence": f.get("confidence"),
-            })
+            fact_items.append(
+                {
+                    "subject": f["subject"],
+                    "predicate": f["predicate"],
+                    "object": f["object"],
+                    "confidence": f.get("confidence"),
+                }
+            )
         tc_idx += 1
         lines += _emit_tool(f"tc_{tc_idx}", "show_facts", {"facts": fact_items})
 
@@ -1379,24 +1421,28 @@ def _build_tool_events(recall_results: list, facts: list) -> str:
     for r in recall_results:
         if r.get("result_type") == "episode":
             ep = r["episode"]
-            episodes.append({
-                "id": ep["id"],
-                "content": ep["content"][:200],
-                "source": ep.get("source"),
-                "createdAt": ep.get("created_at"),
-                "score": round(r["score"], 3),
-            })
+            episodes.append(
+                {
+                    "id": ep["id"],
+                    "content": ep["content"][:200],
+                    "source": ep.get("source"),
+                    "createdAt": ep.get("created_at"),
+                    "score": round(r["score"], 3),
+                }
+            )
         elif r.get("result_type") == "cue_episode":
             cue = r.get("cue", {})
             ep = r.get("episode", {})
-            episodes.append({
-                "id": cue.get("episode_id") or ep.get("id"),
-                "content": (cue.get("cue_text") or "")[:200],
-                "source": ep.get("source"),
-                "createdAt": ep.get("created_at"),
-                "score": round(r["score"], 3),
-                "latent": True,
-            })
+            episodes.append(
+                {
+                    "id": cue.get("episode_id") or ep.get("id"),
+                    "content": (cue.get("cue_text") or "")[:200],
+                    "source": ep.get("source"),
+                    "createdAt": ep.get("created_at"),
+                    "score": round(r["score"], 3),
+                    "latent": True,
+                }
+            )
 
     if episodes:
         tc_idx += 1
@@ -1602,17 +1648,22 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                     # Execute tool
                     try:
                         result_str = await _execute_tool(
-                            manager, group_id, tool_name, tool_input,
+                            manager,
+                            group_id,
+                            tool_name,
+                            tool_input,
                         )
                     except Exception as e:
                         logger.warning("Chat tool %s failed: %s", tool_name, e)
                         result_str = json.dumps({"error": str(e)})
 
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result_str,
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result_str,
+                        }
+                    )
 
                     # Accumulate for UI components
                     try:
@@ -1673,22 +1724,27 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                 # Emit in chunks for streaming feel
                 chunk_size = 20
                 for i in range(0, len(final_text), chunk_size):
-                    yield _sse({
-                        "type": "text-delta",
-                        "id": text_part_id,
-                        "delta": final_text[i : i + chunk_size],
-                    })
+                    yield _sse(
+                        {
+                            "type": "text-delta",
+                            "id": text_part_id,
+                            "delta": final_text[i : i + chunk_size],
+                        }
+                    )
                 yield _sse({"type": "text-end", "id": text_part_id})
 
             yield _sse({"type": "finish-step"})
-            yield _sse({
-                "type": "finish",
-                "finishReason": "stop",
-                **({"conversationId": conversation_id} if conversation_id else {}),
-            })
+            yield _sse(
+                {
+                    "type": "finish",
+                    "finishReason": "stop",
+                    **({"conversationId": conversation_id} if conversation_id else {}),
+                }
+            )
 
             # Fire-and-forget: persist messages + tag entities
             if conv_store and conversation_id and final_text:
+
                 async def _persist():
                     try:
                         await conv_store.add_messages_bulk(
@@ -1714,6 +1770,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                             )
                     except Exception:
                         logger.warning("Failed to persist chat messages", exc_info=True)
+
                 asyncio.create_task(_persist())
 
         except Exception as e:

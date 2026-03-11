@@ -172,7 +172,8 @@ class TestConversationContextCogState:
     def test_update_cognitive_state(self):
         ctx = ConversationContext()
         ctx.update_cognitive_state(
-            "how do I fix this bug?", salience_composite=0.3,
+            "how do I fix this bug?",
+            salience_composite=0.3,
         )
         state = ctx.cognitive_state
         assert state is not None
@@ -227,8 +228,12 @@ class TestScorerStateBias:
         from engram.retrieval.scorer import ScoredResult
 
         sr = ScoredResult(
-            node_id="e1", score=1.0, semantic_similarity=0.5,
-            activation=0.3, spreading=0.1, edge_proximity=0.0,
+            node_id="e1",
+            score=1.0,
+            semantic_similarity=0.5,
+            activation=0.3,
+            spreading=0.1,
+            edge_proximity=0.0,
         )
         assert sr.state_boost == 0.0
 

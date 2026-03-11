@@ -86,9 +86,7 @@ async def evaluate_memory_need_fixtures(
             family = need.trigger_family or "unknown"
             family_trigger_counts[family] = family_trigger_counts.get(family, 0) + 1
             if fixture.expect_recall:
-                family_true_positive_counts[family] = (
-                    family_true_positive_counts.get(family, 0) + 1
-                )
+                family_true_positive_counts[family] = family_true_positive_counts.get(family, 0) + 1
             need_type_hits[need.need_type] = need_type_hits.get(need.need_type, 0) + 1
             if need.decision_path == "graph_lift":
                 graph_lift_count += 1

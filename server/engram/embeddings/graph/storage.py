@@ -35,12 +35,10 @@ class GraphEmbeddingStore:
             )
         """)
         await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_graph_emb_group "
-            "ON graph_embeddings(group_id)"
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_group ON graph_embeddings(group_id)"
         )
         await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_graph_emb_method "
-            "ON graph_embeddings(method)"
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_method ON graph_embeddings(method)"
         )
         await db.commit()
 
@@ -63,10 +61,18 @@ class GraphEmbeddingStore:
         rows = []
         for entity_id, vec in embeddings.items():
             blob = pack_vector(vec)
-            rows.append((
-                entity_id, group_id, blob, len(vec), method,
-                model_version, now, now,
-            ))
+            rows.append(
+                (
+                    entity_id,
+                    group_id,
+                    blob,
+                    len(vec),
+                    method,
+                    model_version,
+                    now,
+                    now,
+                )
+            )
 
         await db.executemany(
             """INSERT INTO graph_embeddings

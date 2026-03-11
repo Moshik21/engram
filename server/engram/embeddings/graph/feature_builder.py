@@ -35,6 +35,6 @@ async def build_feature_matrix(
     for i, eid in enumerate(entity_ids):
         if eid in embeddings and embeddings[eid]:
             vec = embeddings[eid]
-            matrix[i, :len(vec)] = vec[:dim]
+            matrix[i, : len(vec)] = vec[:dim]
 
     return matrix

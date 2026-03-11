@@ -60,7 +60,8 @@ class TestIntentionMetaModel:
     def test_stored_in_entity_attributes(self):
         """IntentionMeta should be storable as Entity.attributes dict."""
         meta = IntentionMeta(
-            trigger_text="deploy", action_text="Run smoke tests",
+            trigger_text="deploy",
+            action_text="Run smoke tests",
         )
         entity = Entity(
             id="int_test123",
@@ -474,10 +475,13 @@ class TestGraphManagerCreateIntention:
 
         # Mock stores
         graph = AsyncMock()
-        graph.find_entity_candidates = AsyncMock(return_value=[
-            Entity(id="ent_auth", name="Auth Module", entity_type="Technology",
-                   group_id="default"),
-        ])
+        graph.find_entity_candidates = AsyncMock(
+            return_value=[
+                Entity(
+                    id="ent_auth", name="Auth Module", entity_type="Technology", group_id="default"
+                ),
+            ]
+        )
         graph.create_entity = AsyncMock()
         graph.create_relationship = AsyncMock()
 
@@ -621,10 +625,20 @@ class TestGraphManagerListIntentions:
         )
 
         entities = [
-            Entity(id="int_1", name="active", entity_type="Intention",
-                   group_id="default", attributes=enabled_meta.model_dump()),
-            Entity(id="int_2", name="inactive", entity_type="Intention",
-                   group_id="default", attributes=disabled_meta.model_dump()),
+            Entity(
+                id="int_1",
+                name="active",
+                entity_type="Intention",
+                group_id="default",
+                attributes=enabled_meta.model_dump(),
+            ),
+            Entity(
+                id="int_2",
+                name="inactive",
+                entity_type="Intention",
+                group_id="default",
+                attributes=disabled_meta.model_dump(),
+            ),
         ]
 
         graph = AsyncMock()
@@ -653,8 +667,13 @@ class TestGraphManagerListIntentions:
         )
 
         entities = [
-            Entity(id="int_1", name="done", entity_type="Intention",
-                   group_id="default", attributes=exhausted_meta.model_dump()),
+            Entity(
+                id="int_1",
+                name="done",
+                entity_type="Intention",
+                group_id="default",
+                attributes=exhausted_meta.model_dump(),
+            ),
         ]
 
         graph = AsyncMock()
@@ -681,8 +700,13 @@ class TestGraphManagerListIntentions:
         )
 
         entities = [
-            Entity(id="int_1", name="old", entity_type="Intention",
-                   group_id="default", attributes=expired_meta.model_dump()),
+            Entity(
+                id="int_1",
+                name="old",
+                entity_type="Intention",
+                group_id="default",
+                attributes=expired_meta.model_dump(),
+            ),
         ]
 
         graph = AsyncMock()
@@ -725,11 +749,18 @@ class TestIntentionEvents:
             prospective_memory_enabled=True,
         )
         manager = GraphManager(
-            graph, activation, search, extractor, cfg=cfg, event_bus=bus,
+            graph,
+            activation,
+            search,
+            extractor,
+            cfg=cfg,
+            event_bus=bus,
         )
 
         await manager.create_intention(
-            trigger_text="test", action_text="action", group_id="default",
+            trigger_text="test",
+            action_text="action",
+            group_id="default",
         )
 
         # Drain queue to find intention.created event
@@ -751,7 +782,9 @@ class TestIntentionEvents:
         queue = bus.subscribe("default")
 
         entity = Entity(
-            id="int_test", name="test", entity_type="Intention",
+            id="int_test",
+            name="test",
+            entity_type="Intention",
             group_id="default",
             attributes={"enabled": True, "trigger_text": "t", "action_text": "a"},
         )
@@ -765,7 +798,12 @@ class TestIntentionEvents:
 
         cfg = ActivationConfig(prospective_graph_embedded=True)
         manager = GraphManager(
-            graph, activation, search, extractor, cfg=cfg, event_bus=bus,
+            graph,
+            activation,
+            search,
+            extractor,
+            cfg=cfg,
+            event_bus=bus,
         )
 
         await manager.dismiss_intention("int_test", "default")
@@ -789,7 +827,9 @@ class TestIntentionEvents:
         queue = bus.subscribe("default")
 
         entity = Entity(
-            id="int_test", name="test", entity_type="Intention",
+            id="int_test",
+            name="test",
+            entity_type="Intention",
             group_id="default",
             attributes={
                 "trigger_text": "auth",
@@ -807,7 +847,12 @@ class TestIntentionEvents:
 
         cfg = ActivationConfig(prospective_graph_embedded=True)
         manager = GraphManager(
-            graph, activation, search, extractor, cfg=cfg, event_bus=bus,
+            graph,
+            activation,
+            search,
+            extractor,
+            cfg=cfg,
+            event_bus=bus,
         )
 
         await manager._update_intention_fire("int_test", "default", "ep_123")

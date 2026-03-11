@@ -97,7 +97,8 @@ class TestTieredSections:
     async def test_get_context_project_path_derives_hint(self, tiered_manager):
         """project_path='/foo/Engram' derives topic_hint='Engram' and finds project entities."""
         result = await tiered_manager.get_context(
-            group_id=GROUP, project_path="/foo/Engram",
+            group_id=GROUP,
+            project_path="/foo/Engram",
         )
         ctx = result["context"]
         # Should have a Project Context section with derived hint
@@ -107,7 +108,8 @@ class TestTieredSections:
     async def test_get_context_home_dir_skips_project(self, tiered_manager):
         """project_path=Path.home() should not produce a Project Context section."""
         result = await tiered_manager.get_context(
-            group_id=GROUP, project_path=str(Path.home()),
+            group_id=GROUP,
+            project_path=str(Path.home()),
         )
         ctx = result["context"]
         assert "## Project Context" not in ctx
@@ -131,10 +133,7 @@ class TestTieredSections:
             recent = sections[1]
             # Alex should NOT be listed as an entity line in Recent Activity
             # Entity lines start with "- Name (Type,"
-            entity_lines = [
-                ln for ln in recent.split("\n")
-                if ln.startswith("- Alex (")
-            ]
+            entity_lines = [ln for ln in recent.split("\n") if ln.startswith("- Alex (")]
             assert len(entity_lines) == 0, "Alex should not be duplicated in Recent Activity"
 
 
@@ -143,7 +142,8 @@ class TestBriefingFormat:
     async def test_briefing_format(self, tiered_manager):
         """Briefing format uses template-based rendering (no LLM call)."""
         result = await tiered_manager.get_context(
-            group_id=GROUP, format="briefing",
+            group_id=GROUP,
+            format="briefing",
         )
         assert result["format"] == "briefing"
         # Template briefing should contain entity information
@@ -170,7 +170,8 @@ class TestBriefingFormat:
     async def test_briefing_fallback_on_empty(self, tiered_manager):
         """Template briefing with no tier data falls back to structured context."""
         result = await tiered_manager.get_context(
-            group_id=GROUP, format="briefing",
+            group_id=GROUP,
+            format="briefing",
         )
         # Should return valid briefing format regardless
         assert result["format"] == "briefing"
@@ -181,7 +182,8 @@ class TestBriefingFormat:
         """briefing_enabled=False returns structured even when format='briefing'."""
         tiered_manager._cfg.briefing_enabled = False
         result = await tiered_manager.get_context(
-            group_id=GROUP, format="briefing",
+            group_id=GROUP,
+            format="briefing",
         )
         assert result["format"] == "structured"
 

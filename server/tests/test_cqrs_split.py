@@ -165,9 +165,7 @@ class TestProjectEpisode:
         assert manager._content_hashes_inflight == set()
 
     async def test_long_episode_uses_targeted_projection_plan(self):
-        correction = (
-            "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
-        )
+        correction = "Correction: I actually moved to Phoenix in 2024 and no longer live in Mesa."
         filler = "Earlier note: I lived in Mesa and commuted to Tempe. "
         content = (filler * 180) + correction
         assert correction not in content[:MAX_EXTRACTION_INPUT_CHARS]

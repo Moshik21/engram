@@ -62,7 +62,9 @@ async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
 
 @router.post("/{conversation_id}/messages")
 async def append_messages(
-    request: Request, conversation_id: str, body: BulkMessagesBody,
+    request: Request,
+    conversation_id: str,
+    body: BulkMessagesBody,
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
@@ -79,7 +81,9 @@ async def append_messages(
 
 @router.patch("/{conversation_id}")
 async def update_conversation(
-    request: Request, conversation_id: str, body: UpdateConversationBody,
+    request: Request,
+    conversation_id: str,
+    body: UpdateConversationBody,
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()

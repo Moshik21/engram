@@ -122,7 +122,8 @@ def _collect_config(preset_mode: str | None = None) -> dict:
 
     voyage = _ask(
         "Voyage AI key (enables vector search, blank to skip)",
-        default="", secret=True,
+        default="",
+        secret=True,
     )
     if voyage:
         cfg["VOYAGE_API_KEY"] = voyage
@@ -174,19 +175,14 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     # --- Recall Features ---
     _section("Recall Features")
     print(f"  {_DIM}off    = no smart recall{_RESET}")
-    print(
-        f"  {_DIM}wave1  = auto-recall + natural analyzer + structural signals{_RESET}"
-    )
-    print(
-        f"  {_DIM}wave2  = + graph grounding + conversation awareness + planner{_RESET}"
-    )
-    print(
-        f"  {_DIM}wave3  = + shift/impoverishment live + proactive intelligence{_RESET}"
-    )
+    print(f"  {_DIM}wave1  = auto-recall + natural analyzer + structural signals{_RESET}")
+    print(f"  {_DIM}wave2  = + graph grounding + conversation awareness + planner{_RESET}")
+    print(f"  {_DIM}wave3  = + shift/impoverishment live + proactive intelligence{_RESET}")
     print(f"  {_DIM}wave4  = + prospective memory (trigger-based intentions){_RESET}")
     print(f"  {_DIM}all    = all recall features enabled{_RESET}")
     recall_profile = _ask(
-        "Recall profile", default="all",
+        "Recall profile",
+        default="all",
         choices=["off", "wave1", "wave2", "wave3", "wave4", "all"],
     )
     cfg["ENGRAM_ACTIVATION__RECALL_PROFILE"] = recall_profile
@@ -195,8 +191,7 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     # --- Integration Profile ---
     _section("Integration Profile")
     print(
-        f"  {_DIM}off     = keep consolidation, recall, and cue/projection rollout "
-        f"separate{_RESET}"
+        f"  {_DIM}off     = keep consolidation, recall, and cue/projection rollout separate{_RESET}"
     )
     print(
         f"  {_DIM}rework  = recommended recall-ready preset with cue/projection "
@@ -261,39 +256,57 @@ def _generate_env(config: dict, env_path: Path) -> None:
 
     # Define sections for organized output
     sections: list[tuple[str, list[tuple[str, str | None]]]] = [
-        ("API Keys", [
-            ("ANTHROPIC_API_KEY", config.get("ANTHROPIC_API_KEY")),
-            ("VOYAGE_API_KEY", config.get("VOYAGE_API_KEY")),
-        ]),
-        ("Engine", [
-            ("ENGRAM_MODE", config.get("ENGRAM_MODE")),
-        ]),
-        ("Full Mode", [
-            ("ENGRAM_FALKORDB__PASSWORD", config.get("ENGRAM_FALKORDB__PASSWORD")),
-            ("ENGRAM_REDIS__URL", config.get("ENGRAM_REDIS__URL")),
-        ]),
-        ("Consolidation", [
-            (
-                "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE",
-                config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"),
-            ),
-        ]),
-        ("Recall", [
-            (
-                "ENGRAM_ACTIVATION__RECALL_PROFILE",
-                config.get("ENGRAM_ACTIVATION__RECALL_PROFILE"),
-            ),
-            (
-                "ENGRAM_ACTIVATION__INTEGRATION_PROFILE",
-                config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE"),
-            ),
-        ]),
-        ("Security", [
-            ("ENGRAM_AUTH__ENABLED", config.get("ENGRAM_AUTH__ENABLED")),
-            ("ENGRAM_AUTH__BEARER_TOKEN", config.get("ENGRAM_AUTH__BEARER_TOKEN")),
-            ("ENGRAM_ENCRYPTION__ENABLED", config.get("ENGRAM_ENCRYPTION__ENABLED")),
-            ("ENGRAM_ENCRYPTION__MASTER_KEY", config.get("ENGRAM_ENCRYPTION__MASTER_KEY")),
-        ]),
+        (
+            "API Keys",
+            [
+                ("ANTHROPIC_API_KEY", config.get("ANTHROPIC_API_KEY")),
+                ("VOYAGE_API_KEY", config.get("VOYAGE_API_KEY")),
+            ],
+        ),
+        (
+            "Engine",
+            [
+                ("ENGRAM_MODE", config.get("ENGRAM_MODE")),
+            ],
+        ),
+        (
+            "Full Mode",
+            [
+                ("ENGRAM_FALKORDB__PASSWORD", config.get("ENGRAM_FALKORDB__PASSWORD")),
+                ("ENGRAM_REDIS__URL", config.get("ENGRAM_REDIS__URL")),
+            ],
+        ),
+        (
+            "Consolidation",
+            [
+                (
+                    "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE",
+                    config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"),
+                ),
+            ],
+        ),
+        (
+            "Recall",
+            [
+                (
+                    "ENGRAM_ACTIVATION__RECALL_PROFILE",
+                    config.get("ENGRAM_ACTIVATION__RECALL_PROFILE"),
+                ),
+                (
+                    "ENGRAM_ACTIVATION__INTEGRATION_PROFILE",
+                    config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE"),
+                ),
+            ],
+        ),
+        (
+            "Security",
+            [
+                ("ENGRAM_AUTH__ENABLED", config.get("ENGRAM_AUTH__ENABLED")),
+                ("ENGRAM_AUTH__BEARER_TOKEN", config.get("ENGRAM_AUTH__BEARER_TOKEN")),
+                ("ENGRAM_ENCRYPTION__ENABLED", config.get("ENGRAM_ENCRYPTION__ENABLED")),
+                ("ENGRAM_ENCRYPTION__MASTER_KEY", config.get("ENGRAM_ENCRYPTION__MASTER_KEY")),
+            ],
+        ),
     ]
 
     for section_name, keys in sections:
@@ -385,6 +398,7 @@ def _smoke_test(config: dict) -> None:
     _section("Smoke Test")
     try:
         import engram  # noqa: F401
+
         _check("engram package importable")
     except ImportError as e:
         _warn(f"Import failed: {e}")
@@ -397,6 +411,7 @@ def _smoke_test(config: dict) -> None:
 
     try:
         import anthropic
+
         client = anthropic.Anthropic(api_key=api_key)
         client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -490,7 +505,9 @@ def _mask_value(value: str, secret: bool) -> str:
 
 
 def _render_menu(
-    config: dict[str, str], env_path: Path, dirty: bool,
+    config: dict[str, str],
+    env_path: Path,
+    dirty: bool,
 ) -> list[str]:
     """Render the settings menu. Returns list of keys in display order."""
     print("\033[2J\033[H", end="")  # clear screen
@@ -521,7 +538,8 @@ def _render_menu(
 
 
 def _edit_setting(
-    config: dict[str, str], idx: int,
+    config: dict[str, str],
+    idx: int,
 ) -> bool:
     """Edit a single setting. Returns True if changed."""
     key, section, label, secret, choices = _SETTINGS[idx]
@@ -569,9 +587,9 @@ def _resolve_env_path(env_path: Path | None = None) -> Path | None:
         return env_path if env_path.exists() else None
 
     candidates = [
-        _default_env_path(),                          # ~/.engram/.env
-        Path.cwd() / ".env",                          # ./server/.env
-        Path.cwd().parent / ".env",                   # ./Engram/.env (project root)
+        _default_env_path(),  # ~/.engram/.env
+        Path.cwd() / ".env",  # ./server/.env
+        Path.cwd().parent / ".env",  # ./Engram/.env (project root)
         Path(__file__).resolve().parent.parent.parent / ".env",  # relative to package
     ]
     for p in candidates:
@@ -603,7 +621,8 @@ def config_editor(env_path: Path | None = None) -> None:
             if dirty:
                 confirm = _ask(
                     "Unsaved changes. Quit without saving?",
-                    default="n", choices=["y", "n"],
+                    default="n",
+                    choices=["y", "n"],
                 )
                 if confirm != "y":
                     continue
@@ -726,6 +745,7 @@ def install_hooks(
         dst = hooks_dir / script_name
         if src.exists() and src != dst:
             import shutil
+
             shutil.copy2(src, dst)
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
@@ -783,9 +803,7 @@ def install_hooks(
             for new_entry in new_hooks:
                 nested_hooks = new_entry.get("hooks", [])
                 inner_cmds = [
-                    str(h.get("command", ""))
-                    for h in nested_hooks
-                    if isinstance(h, dict)
+                    str(h.get("command", "")) for h in nested_hooks if isinstance(h, dict)
                 ]
                 if not any(cmd in existing_cmds for cmd in inner_cmds):
                     existing_hooks[event_name].append(new_entry)

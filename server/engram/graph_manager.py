@@ -315,9 +315,8 @@ class GraphManager:
         with curated outputs that still rely on the legacy projection path.
         """
         has_client_proposals = bool(proposed_entities or proposed_relationships)
-        extractor_supports_v2 = (
-            type(self._extractor) is EntityExtractor
-            or isinstance(self._extractor, (NarrowExtractorAdapter, OllamaExtractor))
+        extractor_supports_v2 = type(self._extractor) is EntityExtractor or isinstance(
+            self._extractor, (NarrowExtractorAdapter, OllamaExtractor)
         )
         if not extractor_supports_v2:
             canned_result = getattr(self._extractor, "_result", None)
@@ -473,9 +472,7 @@ class GraphManager:
                 merged.ambiguity_tags.update(group.ambiguity_tags)
                 if len(group.selected_text) > len(merged.selected_text):
                     merged.selected_text = group.selected_text
-            merged.request_reason = (
-                "needs_adjudication:" + ",".join(sorted(merged.ambiguity_tags))
-            )
+            merged.request_reason = "needs_adjudication:" + ",".join(sorted(merged.ambiguity_tags))
             ambiguous_groups = ambiguous_groups[: max_requests - 1] + [merged]
         requests: list[AdjudicationRequest] = []
         for group in ambiguous_groups:
@@ -558,17 +555,14 @@ class GraphManager:
 
         for claim, result in zip(claims, relationship_results):
             evidence_id = (claim.raw_payload or {}).get("evidence_id")
-            relationship_id = (
-                result.metadata.get("relationship_id")
-                or result.metadata.get("existing_relationship_id")
+            relationship_id = result.metadata.get("relationship_id") or result.metadata.get(
+                "existing_relationship_id"
             )
             if not relationship_id:
                 continue
             if evidence_id:
                 committed_ids[evidence_id] = relationship_id
-            for temporal_evidence_id in (
-                (claim.raw_payload or {}).get("temporal_evidence_ids", [])
-            ):
+            for temporal_evidence_id in (claim.raw_payload or {}).get("temporal_evidence_ids", []):
                 committed_ids[temporal_evidence_id] = relationship_id
         return committed_ids
 
@@ -822,9 +816,7 @@ class GraphManager:
 
         if not replacement_candidates:
             remaining_unresolved = [
-                row
-                for row in active_request_evidence
-                if row["evidence_id"] not in rejected_ids
+                row for row in active_request_evidence if row["evidence_id"] not in rejected_ids
             ]
             status = "rejected" if not remaining_unresolved else "deferred"
             await self._graph.update_adjudication_request(
@@ -944,6 +936,7 @@ class GraphManager:
     def _is_meta_summary(text: str) -> bool:
         """Check if a summary fragment contains system-internal patterns."""
         from engram.utils.text_guards import is_meta_summary
+
         return is_meta_summary(text)
 
     @staticmethod
@@ -1100,8 +1093,7 @@ class GraphManager:
         should_record_positive = interaction_type == "confirmed" and self._cfg.ts_enabled
         should_record_negative = interaction_type == "corrected" and self._cfg.ts_enabled
         should_publish = (
-            self._cfg.recall_telemetry_enabled
-            or self._cfg.recall_usage_feedback_enabled
+            self._cfg.recall_telemetry_enabled or self._cfg.recall_usage_feedback_enabled
         )
 
         seen_ids: set[str] = set()
@@ -1433,12 +1425,8 @@ class GraphManager:
             cue.hit_count or 0,
         )
         should_promote = (
-            (
-                hit_count >= self._cfg.cue_recall_hit_threshold
-                or feedback.should_promote
-            )
-            and episode_projection_state in promotable_states
-        )
+            hit_count >= self._cfg.cue_recall_hit_threshold or feedback.should_promote
+        ) and episode_projection_state in promotable_states
         if should_promote:
             promotion_reason = (
                 "cue_recall_hits"
@@ -1527,14 +1515,10 @@ class GraphManager:
                     "source": source or "unknown",
                     "status": "queued",
                     "createdAt": (
-                        episode.created_at.isoformat() + "Z"
-                        if episode.created_at
-                        else ""
+                        episode.created_at.isoformat() + "Z" if episode.created_at else ""
                     ),
                     "updatedAt": (
-                        episode.created_at.isoformat() + "Z"
-                        if episode.created_at
-                        else ""
+                        episode.created_at.isoformat() + "Z" if episode.created_at else ""
                     ),
                     "entities": [],
                     "factsCount": 0,
@@ -1550,9 +1534,8 @@ class GraphManager:
                 cue = build_episode_cue(episode, self._cfg)
                 if cue is not None and hasattr(self._graph, "upsert_episode_cue"):
                     await self._graph.upsert_episode_cue(cue)
-                    if (
-                        self._cfg.cue_vector_index_enabled
-                        and hasattr(self._search, "index_episode_cue")
+                    if self._cfg.cue_vector_index_enabled and hasattr(
+                        self._search, "index_episode_cue"
                     ):
                         await self._search.index_episode_cue(cue)
                     await self._update_projection_state(
@@ -1591,11 +1574,7 @@ class GraphManager:
                     )
             except Exception:
                 logger.warning("Failed to generate/store episode cue", exc_info=True)
-        if (
-            self._cfg.decision_graph_enabled
-            and source != "auto:bootstrap"
-            and content.strip()
-        ):
+        if self._cfg.decision_graph_enabled and source != "auto:bootstrap" and content.strip():
             try:
                 await self._materialize_conversation_decisions(
                     content,
@@ -1633,7 +1612,9 @@ class GraphManager:
                 episode_id,
             )
             await self._update_episode_status(
-                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
+                episode_id,
+                EpisodeStatus.COMPLETED,
+                group_id=group_id,
                 skipped_triage=True,
             )
             await self._update_projection_state(
@@ -1646,11 +1627,11 @@ class GraphManager:
 
         # Discourse gate: skip pure system meta-commentary
         if classify_discourse(content) == "system":
-            logger.warning(
-                "project_episode: skipping system-discourse episode %s", episode_id
-            )
+            logger.warning("project_episode: skipping system-discourse episode %s", episode_id)
             await self._update_episode_status(
-                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
+                episode_id,
+                EpisodeStatus.COMPLETED,
+                group_id=group_id,
                 skipped_meta=True,
             )
             self._content_hashes.add(content_hash)
@@ -1699,7 +1680,9 @@ class GraphManager:
             )
 
             await self._update_episode_status(
-                episode_id, EpisodeStatus.EXTRACTING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.EXTRACTING,
+                group_id=group_id,
             )
 
             used_evidence_materializer = False
@@ -1761,7 +1744,8 @@ class GraphManager:
                 raw_entity_count = await self._graph.get_entity_count(group_id)
                 entity_count = raw_entity_count if isinstance(raw_entity_count, int) else 0
                 decisions = self._commit_policy.evaluate(  # type: ignore[union-attr]
-                    evidence_bundle, entity_count,
+                    evidence_bundle,
+                    entity_count,
                 )
                 committed = [
                     (ev, d)
@@ -1789,7 +1773,9 @@ class GraphManager:
                 )
 
                 await self._update_episode_status(
-                    episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+                    episode_id,
+                    EpisodeStatus.RESOLVING,
+                    group_id=group_id,
                 )
                 now = time.time()
                 materialization = await self.materialize_evidence(
@@ -1798,7 +1784,9 @@ class GraphManager:
                     group_id=group_id,
                     recall_content=plan.selected_text,
                     on_before_relationships=lambda: self._update_episode_status(
-                        episode_id, EpisodeStatus.WRITING, group_id=group_id,
+                        episode_id,
+                        EpisodeStatus.WRITING,
+                        group_id=group_id,
                     ),
                 )
                 used_evidence_materializer = True
@@ -1838,7 +1826,9 @@ class GraphManager:
                     )
 
                 await self._update_episode_status(
-                    episode_id, EpisodeStatus.RESOLVING, group_id=group_id,
+                    episode_id,
+                    EpisodeStatus.RESOLVING,
+                    group_id=group_id,
                 )
                 now = time.time()
                 apply_outcome = await self._apply_engine.apply_entities(
@@ -1849,20 +1839,22 @@ class GraphManager:
                 )
                 entity_map = apply_outcome.entity_map
                 await self._apply_bootstrap_part_of_edges(
-                    episode, entity_map, group_id,
+                    episode,
+                    entity_map,
+                    group_id,
                 )
 
                 await self._update_episode_status(
-                    episode_id, EpisodeStatus.WRITING, group_id=group_id,
+                    episode_id,
+                    EpisodeStatus.WRITING,
+                    group_id=group_id,
                 )
-                apply_outcome.relationship_results = (
-                    await self._apply_engine.apply_relationships(
-                        bundle.claims,
-                        entity_map=entity_map,
-                        meta_entity_names=apply_outcome.meta_entity_names,
-                        group_id=group_id,
-                        source_episode=episode_id,
-                    )
+                apply_outcome.relationship_results = await self._apply_engine.apply_relationships(
+                    bundle.claims,
+                    entity_map=entity_map,
+                    meta_entity_names=apply_outcome.meta_entity_names,
+                    group_id=group_id,
+                    source_episode=episode_id,
                 )
 
             await self._run_surprise_detection(
@@ -1891,7 +1883,9 @@ class GraphManager:
                 )
 
             await self._update_episode_status(
-                episode_id, EpisodeStatus.ACTIVATING, group_id=group_id,
+                episode_id,
+                EpisodeStatus.ACTIVATING,
+                group_id=group_id,
             )
             await self._store_emotional_encoding_context(
                 episode_id=episode_id,
@@ -1902,7 +1896,9 @@ class GraphManager:
 
             elapsed_ms = int((time.monotonic() - start_ms) * 1000)
             await self._update_episode_status(
-                episode_id, EpisodeStatus.COMPLETED, group_id=group_id,
+                episode_id,
+                EpisodeStatus.COMPLETED,
+                group_id=group_id,
                 processing_duration_ms=elapsed_ms,
             )
             projected_at = utc_now()
@@ -1937,7 +1933,9 @@ class GraphManager:
             )
             logger.info(
                 "Ingested episode %s: %d entities, %d relationships",
-                episode_id, len(bundle.entities), len(bundle.claims),
+                episode_id,
+                len(bundle.entities),
+                len(bundle.claims),
             )
             if not used_evidence_materializer:
                 self.invalidate_briefing_cache(group_id)
@@ -2055,8 +2053,10 @@ class GraphManager:
 
         # Check for existing Project entity
         existing = await self._graph.find_entities(
-            name=project_name, entity_type="Project",
-            group_id=group_id, limit=1,
+            name=project_name,
+            entity_type="Project",
+            group_id=group_id,
+            limit=1,
         )
 
         if existing:
@@ -2069,9 +2069,7 @@ class GraphManager:
             if last_bs:
                 try:
                     last_dt = datetime.fromisoformat(last_bs)
-                    age_seconds = (
-                        utc_now() - last_dt
-                    ).total_seconds()
+                    age_seconds = (utc_now() - last_dt).total_seconds()
                     if age_seconds < self._cfg.artifact_bootstrap_stale_seconds:
                         return {
                             "status": "already_bootstrapped",
@@ -2082,11 +2080,15 @@ class GraphManager:
 
             # Stale or never timestamped — refresh files
             files_observed = await self._observe_project_files(
-                p, project_name, group_id, session_id,
+                p,
+                project_name,
+                group_id,
+                session_id,
             )
 
             # Update timestamp
             import json as _json
+
             merged_attrs = {**attrs, "last_bootstrapped": now_iso}
             await self._graph.update_entity(
                 entity_id,
@@ -2094,14 +2096,20 @@ class GraphManager:
                 group_id=group_id,
             )
             await self._activation.record_access(
-                entity_id, time.time(), group_id=group_id,
+                entity_id,
+                time.time(),
+                group_id=group_id,
             )
 
-            self._publish(group_id, "project.refreshed", {
-                "project_name": project_name,
-                "project_entity_id": entity_id,
-                "files_observed": files_observed,
-            })
+            self._publish(
+                group_id,
+                "project.refreshed",
+                {
+                    "project_name": project_name,
+                    "project_entity_id": entity_id,
+                    "files_observed": files_observed,
+                },
+            )
 
             return {
                 "status": "refreshed",
@@ -2125,18 +2133,27 @@ class GraphManager:
         await self._graph.create_entity(entity)
         await self._index_entity_with_structure(entity, group_id)
         await self._activation.record_access(
-            entity_id, time.time(), group_id=group_id,
+            entity_id,
+            time.time(),
+            group_id=group_id,
         )
 
         files_observed = await self._observe_project_files(
-            p, project_name, group_id, session_id,
+            p,
+            project_name,
+            group_id,
+            session_id,
         )
 
-        self._publish(group_id, "project.bootstrapped", {
-            "project_name": project_name,
-            "project_entity_id": entity_id,
-            "files_observed": files_observed,
-        })
+        self._publish(
+            group_id,
+            "project.bootstrapped",
+            {
+                "project_name": project_name,
+                "project_entity_id": entity_id,
+                "files_observed": files_observed,
+            },
+        )
 
         return {
             "status": "bootstrapped",
@@ -2199,10 +2216,7 @@ class GraphManager:
                     group_id=group_id,
                 )
             if changed:
-                tagged = (
-                    f"[project-bootstrap|{project_name}|{rel_path}]\n"
-                    f"{truncated}"
-                )
+                tagged = f"[project-bootstrap|{project_name}|{rel_path}]\n{truncated}"
                 episode_id = await self.store_episode(
                     content=tagged,
                     group_id=group_id,
@@ -2211,10 +2225,14 @@ class GraphManager:
                 )
                 await self._graph.update_entity(
                     artifact_entity.id,
-                    {"attributes": json.dumps(self._merge_attributes(
-                        artifact_entity.attributes,
-                        {"last_episode_id": episode_id},
-                    ))},
+                    {
+                        "attributes": json.dumps(
+                            self._merge_attributes(
+                                artifact_entity.attributes,
+                                {"last_episode_id": episode_id},
+                            )
+                        )
+                    },
                     group_id=group_id,
                 )
             if self._cfg.decision_graph_enabled and claims:
@@ -2466,8 +2484,7 @@ class GraphManager:
         )
         stale_seconds = int(self._cfg.artifact_bootstrap_stale_seconds)
         stale_count = sum(
-            1 for artifact in artifacts
-            if self._artifact_is_stale(artifact, stale_seconds)
+            1 for artifact in artifacts if self._artifact_is_stale(artifact, stale_seconds)
         )
         fresh_count = max(0, len(artifacts) - stale_count)
         last_observed = None
@@ -2670,11 +2687,7 @@ class GraphManager:
             )
 
         memory_claims = build_memory_claims(memory_results)
-        artifact_claims = [
-            claim
-            for hit in artifact_hits
-            for claim in hit.supporting_claims
-        ]
+        artifact_claims = [claim for hit in artifact_hits for claim in hit.supporting_claims]
         runtime_claims = build_runtime_claims(runtime_state or {})
         implementation_claims: list[EvidenceClaim] = []
         all_claims = apply_claim_states(
@@ -2755,14 +2768,10 @@ class GraphManager:
             predicate=str(claim_data.get("predicate", "")),
             object=str(claim_data.get("object", "")),
             source_type=str(
-                claim_data.get("source_type")
-                or claim_data.get("sourceType")
-                or "artifact"
+                claim_data.get("source_type") or claim_data.get("sourceType") or "artifact"
             ),
             authority_type=str(
-                claim_data.get("authority_type")
-                or claim_data.get("authorityType")
-                or "canonical"
+                claim_data.get("authority_type") or claim_data.get("authorityType") or "canonical"
             ),
             externalization_state=str(
                 claim_data.get("externalization_state")
@@ -2770,9 +2779,7 @@ class GraphManager:
                 or "documented"
             ),
             claim_state=str(
-                claim_data.get("claim_state")
-                or claim_data.get("claimState")
-                or "mentioned"
+                claim_data.get("claim_state") or claim_data.get("claimState") or "mentioned"
             ),
             timestamp=claim_data.get("timestamp"),
             confidence=float(claim_data.get("confidence", 0.0) or 0.0),
@@ -3152,9 +3159,7 @@ class GraphManager:
                                     "id": ep.id,
                                     "source": ep.source,
                                     "created_at": (
-                                        ep.created_at.isoformat()
-                                        if ep.created_at
-                                        else None
+                                        ep.created_at.isoformat() if ep.created_at else None
                                     ),
                                 },
                                 "score": sr.score,
@@ -3249,10 +3254,7 @@ class GraphManager:
                         result_dict["recall_trace"] = sr.recall_trace
 
                     # Add warmth metadata for Intention entities
-                    if (
-                        entity.entity_type == "Intention"
-                        and self._cfg.prospective_graph_embedded
-                    ):
+                    if entity.entity_type == "Intention" and self._cfg.prospective_graph_embedded:
                         try:
                             from engram.models.prospective import IntentionMeta
 
@@ -3300,8 +3302,7 @@ class GraphManager:
                     results.append(result_dict)
 
         if self._query_prefers_current_state(query) and any(
-            result.get("result_type") == "entity"
-            for result in results
+            result.get("result_type") == "entity" for result in results
         ):
             results = [
                 result
@@ -3317,22 +3318,19 @@ class GraphManager:
         if self._cfg.retrieval_priming_enabled and results:
             priming_now = time.time()
             expiry = priming_now + self._cfg.retrieval_priming_ttl_seconds
-            for r in results[:self._cfg.retrieval_priming_top_n]:
+            for r in results[: self._cfg.retrieval_priming_top_n]:
                 if r.get("result_type") != "entity":
                     continue
                 entity_payload = r.get("entity")
-                entity_id = (
-                    entity_payload.get("id")
-                    if isinstance(entity_payload, dict)
-                    else None
-                )
+                entity_id = entity_payload.get("id") if isinstance(entity_payload, dict) else None
                 if not entity_id:
                     continue
                 try:
                     neighbors = await self._graph.get_active_neighbors_with_weights(
-                        entity_id, group_id,
+                        entity_id,
+                        group_id,
                     )
-                    for neighbor_info in neighbors[:self._cfg.retrieval_priming_max_neighbors]:
+                    for neighbor_info in neighbors[: self._cfg.retrieval_priming_max_neighbors]:
                         nid = neighbor_info[0]
                         weight = neighbor_info[1]
                         self._priming_buffer[nid] = (
@@ -3349,11 +3347,13 @@ class GraphManager:
                 if nm.result_type == "entity":
                     entity = await self._graph.get_entity(nm.node_id, group_id)
                     if entity:
-                        self._last_near_misses.append({
-                            "result_type": "entity",
-                            "entity": {"name": entity.name, "type": entity.entity_type},
-                            "score": round(nm.score, 4),
-                        })
+                        self._last_near_misses.append(
+                            {
+                                "result_type": "entity",
+                                "entity": {"name": entity.name, "type": entity.entity_type},
+                                "score": round(nm.score, 4),
+                            }
+                        )
                     continue
 
                 if nm.result_type != "cue_episode":
@@ -3390,8 +3390,8 @@ class GraphManager:
             from engram.retrieval.context import ConversationFingerprinter
 
             embed_fn = None
-            provider = getattr(self._search, '_provider', None)
-            if provider and hasattr(provider, 'embed_query'):
+            provider = getattr(self._search, "_provider", None)
+            if provider and hasattr(provider, "embed_query"):
                 embed_fn = provider.embed_query
             await ConversationFingerprinter.ingest_turn(
                 self._conv_context,
@@ -3664,9 +3664,7 @@ class GraphManager:
                 "message": (f"No active fact found: {subject_name} —{predicate}→ {object_name}."),
             }
 
-        await self._graph.invalidate_relationship(
-            target_rel.id, utc_now(), group_id=group_id
-        )
+        await self._graph.invalidate_relationship(target_rel.id, utc_now(), group_id=group_id)
 
         logger.info(
             "Forgot fact %s —%s→ %s, reason: %s",
@@ -3710,7 +3708,12 @@ class GraphManager:
             # v1 fallback: flat table — map v2 trigger_type to v1 equivalent
             v1_type = "semantic" if trigger_type == "activation" else trigger_type
             return await self._create_intention_v1(
-                trigger_text, action_text, v1_type, entity_name, threshold, group_id,
+                trigger_text,
+                action_text,
+                v1_type,
+                entity_name,
+                threshold,
+                group_id,
             )
 
         if trigger_type not in ("activation", "entity_mention"):
@@ -3783,13 +3786,17 @@ class GraphManager:
         await self._activation.record_access(intention_id, time.time(), group_id=group_id)
 
         # Publish event
-        self._publish(group_id, "intention.created", {
-            "intentionId": intention_id,
-            "triggerText": trigger_text,
-            "actionText": action_text,
-            "linkedEntityIds": linked_entity_ids,
-            "threshold": meta.activation_threshold,
-        })
+        self._publish(
+            group_id,
+            "intention.created",
+            {
+                "intentionId": intention_id,
+                "triggerText": trigger_text,
+                "actionText": action_text,
+                "linkedEntityIds": linked_entity_ids,
+                "threshold": meta.activation_threshold,
+            },
+        )
 
         logger.info("Created graph-embedded intention %s: %s", intention_id, trigger_text)
         return intention_id
@@ -3832,7 +3839,9 @@ class GraphManager:
         return await self._graph.create_intention(intention)
 
     async def list_intentions(
-        self, group_id: str = "default", enabled_only: bool = True,
+        self,
+        group_id: str = "default",
+        enabled_only: bool = True,
     ) -> list:
         """List intentions. v2 uses Entity nodes, v1 uses flat table."""
         if not self._cfg.prospective_graph_embedded:
@@ -3841,7 +3850,9 @@ class GraphManager:
         from engram.models.prospective import IntentionMeta
 
         entities = await self._graph.find_entities(
-            entity_type="Intention", group_id=group_id, limit=100,
+            entity_type="Intention",
+            group_id=group_id,
+            limit=100,
         )
 
         result = []
@@ -3870,7 +3881,10 @@ class GraphManager:
         return result
 
     async def dismiss_intention(
-        self, intention_id: str, group_id: str = "default", hard: bool = False,
+        self,
+        intention_id: str,
+        group_id: str = "default",
+        hard: bool = False,
     ) -> None:
         """Dismiss an intention. Soft-delete disables it; hard-delete removes the entity."""
         if not self._cfg.prospective_graph_embedded:
@@ -3894,16 +3908,24 @@ class GraphManager:
                 attrs = dict(entity.attributes or {})
                 attrs["enabled"] = False
                 await self._graph.update_entity(
-                    intention_id, {"attributes": attrs}, group_id=group_id,
+                    intention_id,
+                    {"attributes": attrs},
+                    group_id=group_id,
                 )
 
-        self._publish(group_id, "intention.dismissed", {
-            "intentionId": intention_id,
-            "hard": hard,
-        })
+        self._publish(
+            group_id,
+            "intention.dismissed",
+            {
+                "intentionId": intention_id,
+                "hard": hard,
+            },
+        )
 
     async def delete_intention(
-        self, intention_id: str, group_id: str = "default",
+        self,
+        intention_id: str,
+        group_id: str = "default",
     ) -> None:
         """Soft-delete an intention (backward compat)."""
         await self.dismiss_intention(intention_id, group_id, hard=False)
@@ -3921,7 +3943,8 @@ class GraphManager:
                     trigger_text=intention.trigger_text,
                     action_text=intention.action_text,
                     trigger_type=(
-                        "entity_mention" if intention.trigger_type == "entity_mention"
+                        "entity_mention"
+                        if intention.trigger_type == "entity_mention"
                         else "activation"
                     ),
                     entity_name=intention.entity_name,
@@ -3936,7 +3959,10 @@ class GraphManager:
         return migrated
 
     async def _update_intention_fire(
-        self, intention_id: str, group_id: str, episode_id: str | None = None,
+        self,
+        intention_id: str,
+        group_id: str,
+        episode_id: str | None = None,
     ) -> None:
         """Increment fire count and update last_fired for a graph-embedded intention."""
         entity = await self._graph.get_entity(intention_id, group_id)
@@ -3946,21 +3972,32 @@ class GraphManager:
         attrs["fire_count"] = attrs.get("fire_count", 0) + 1
         attrs["last_fired"] = utc_now_iso()
         await self._graph.update_entity(
-            intention_id, {"attributes": attrs}, group_id=group_id,
+            intention_id,
+            {"attributes": attrs},
+            group_id=group_id,
         )
-        self._publish(group_id, "intention.triggered", {
-            "intentionId": intention_id,
-            "triggerText": attrs.get("trigger_text", ""),
-            "actionText": attrs.get("action_text", ""),
-            "activation": 0.0,
-            "episodeId": episode_id,
-        })
+        self._publish(
+            group_id,
+            "intention.triggered",
+            {
+                "intentionId": intention_id,
+                "triggerText": attrs.get("trigger_text", ""),
+                "actionText": attrs.get("action_text", ""),
+                "activation": 0.0,
+                "episodeId": episode_id,
+            },
+        )
 
     # ─── Get context ────────────────────────────────────────────────
 
     async def _entity_to_context_data(
-        self, entity_id: str, name: str, entity_type: str,
-        summary: str, group_id: str, now: float,
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        summary: str,
+        group_id: str,
+        now: float,
         detail_level: str = "full",
     ) -> dict:
         """Build context data dict for a single entity with activation and facts.
@@ -3996,7 +4033,9 @@ class GraphManager:
         max_facts = 5 if detail_level == "full" else 2
         facts: list[str] = []
         rels = await self._graph.get_relationships(
-            entity_id, active_only=True, group_id=group_id,
+            entity_id,
+            active_only=True,
+            group_id=group_id,
         )
         for r in rels[:max_facts]:
             src = await self.resolve_entity_name(r.source_id, group_id)
@@ -4037,10 +4076,7 @@ class GraphManager:
                 if attrs:
                     attr_parts = [f"{k}: {v}" for k, v in list(attrs.items())[:5]]
                     summary_part += f" [{', '.join(attr_parts)}]"
-            lines.append(
-                f"- {ed['name']} ({ed['type']}, act={ed['activation']:.2f})"
-                f"{summary_part}"
-            )
+            lines.append(f"- {ed['name']} ({ed['type']}, act={ed['activation']:.2f}){summary_part}")
             # Render per-entity facts inline
             for fact in ed.get("facts", []):
                 lines.append(f"  - {fact}")
@@ -4066,7 +4102,10 @@ class GraphManager:
             del self._briefing_cache[k]
 
     def _template_briefing(
-        self, structured_context: str, group_id: str, topic_hint: str | None,
+        self,
+        structured_context: str,
+        group_id: str,
+        topic_hint: str | None,
     ) -> str:
         """Render a brief narrative from structured context using templates.
 
@@ -4158,7 +4197,10 @@ class GraphManager:
                     topic_hint = p.name
                 # Auto-create Project entity if missing
                 existing_projects = await self._graph.find_entities(
-                    name=p.name, entity_type="Project", group_id=group_id, limit=1,
+                    name=p.name,
+                    entity_type="Project",
+                    group_id=group_id,
+                    limit=1,
                 )
                 if existing_projects:
                     project_entity_id = existing_projects[0].id
@@ -4174,7 +4216,9 @@ class GraphManager:
                     )
                     await self._graph.create_entity(proj_entity)
                     await self._activation.record_access(
-                        project_entity_id, now, group_id=group_id,
+                        project_entity_id,
+                        now,
+                        group_id=group_id,
                     )
 
         # ── Layer 1: Identity Core ──
@@ -4186,8 +4230,12 @@ class GraphManager:
                 core_entities = await self._graph.get_identity_core_entities(group_id)
                 for ce in core_entities:
                     ed = await self._entity_to_context_data(
-                        ce.id, ce.name, ce.entity_type,
-                        ce.summary or "", group_id, now,
+                        ce.id,
+                        ce.name,
+                        ce.entity_type,
+                        ce.summary or "",
+                        group_id,
+                        now,
                         detail_level="full",
                     )
                     layer1_entities.append(ed)
@@ -4222,8 +4270,12 @@ class GraphManager:
                 else:
                     detail = "mention"
                 ed = await self._entity_to_context_data(
-                    ent["id"], ent["name"], ent["type"],
-                    ent.get("summary") or "", group_id, now,
+                    ent["id"],
+                    ent["name"],
+                    ent["type"],
+                    ent.get("summary") or "",
+                    group_id,
+                    now,
                     detail_level=detail,
                 )
                 layer2_entities.append(ed)
@@ -4234,15 +4286,20 @@ class GraphManager:
         if project_entity_id:
             try:
                 neighbors = await self._graph.get_neighbors(
-                    project_entity_id, hops=1, group_id=group_id,
+                    project_entity_id,
+                    hops=1,
+                    group_id=group_id,
                 )
                 for neighbor_ent, _rel in neighbors:
                     if neighbor_ent.id in seen_ids:
                         continue
                     ed = await self._entity_to_context_data(
-                        neighbor_ent.id, neighbor_ent.name,
+                        neighbor_ent.id,
+                        neighbor_ent.name,
                         neighbor_ent.entity_type,
-                        neighbor_ent.summary or "", group_id, now,
+                        neighbor_ent.summary or "",
+                        group_id,
+                        now,
                         detail_level="summary",
                     )
                     layer2_entities.append(ed)
@@ -4256,7 +4313,9 @@ class GraphManager:
 
         if layer2_entities:
             layer2_text = self._render_tier(
-                f"## Project Context ({topic_hint})", layer2_entities, layer2_facts,
+                f"## Project Context ({topic_hint})",
+                layer2_entities,
+                layer2_facts,
             )
         else:
             layer2_text = ""
@@ -4274,8 +4333,12 @@ class GraphManager:
                 continue
             act = compute_activation(state.access_history, now, self._cfg)
             ed = await self._entity_to_context_data(
-                entity.id, entity.name, entity.entity_type,
-                entity.summary or "", group_id, now,
+                entity.id,
+                entity.name,
+                entity.entity_type,
+                entity.summary or "",
+                group_id,
+                now,
                 detail_level="summary",
             )
             ed["activation"] = act  # use fresh computation
@@ -4312,8 +4375,7 @@ class GraphManager:
                             self._cfg,
                         )
                     warmth_ratio = (
-                        act / meta.activation_threshold
-                        if meta.activation_threshold > 0 else 0.0
+                        act / meta.activation_threshold if meta.activation_threshold > 0 else 0.0
                     )
 
                     # Filter out dormant intentions (below lowest warmth level)
@@ -4354,9 +4416,7 @@ class GraphManager:
 
         sections = [s for s in [layer1_text, layer2_text, layer3_text, layer4_text] if s]
         context_text = (
-            "\n\n".join(sections)
-            if sections
-            else "## Active Memory Context\n\nNo memories loaded."
+            "\n\n".join(sections) if sections else "## Active Memory Context\n\nNo memories loaded."
         )
 
         # Token estimate and truncation
@@ -4370,7 +4430,11 @@ class GraphManager:
         for ed in all_entities:
             await self._activation.record_access(ed["id"], now, group_id=group_id)
             await self._publish_access_event(
-                ed["id"], ed["name"], ed["type"], group_id, "context",
+                ed["id"],
+                ed["name"],
+                ed["type"],
+                group_id,
+                "context",
             )
 
         # Briefing format

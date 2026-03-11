@@ -102,8 +102,10 @@ def create_stores(
         provider_type = config.embedding.provider.lower()
         embed_meta_provider = provider_type
         embed_meta_model = (
-            config.embedding.model if provider_type == "voyage"
-            else config.embedding.local_model if provider_type == "local"
+            config.embedding.model
+            if provider_type == "voyage"
+            else config.embedding.local_model
+            if provider_type == "local"
             else "noop"
         )
 
@@ -152,7 +154,8 @@ def create_stores(
                 "none": _ssl.CERT_NONE,
             }
             redis_kwargs["ssl_cert_reqs"] = reqs_map.get(
-                config.redis.ssl_cert_reqs, _ssl.CERT_REQUIRED,
+                config.redis.ssl_cert_reqs,
+                _ssl.CERT_REQUIRED,
             )
         redis_client = aioredis.from_url(redis_url, **redis_kwargs)
 
@@ -172,8 +175,10 @@ def create_stores(
         provider_type = config.embedding.provider.lower()
         embed_meta_provider = provider_type
         embed_meta_model = (
-            config.embedding.model if provider_type == "voyage"
-            else config.embedding.local_model if provider_type == "local"
+            config.embedding.model
+            if provider_type == "voyage"
+            else config.embedding.local_model
+            if provider_type == "local"
             else "noop"
         )
 

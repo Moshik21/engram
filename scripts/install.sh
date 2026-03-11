@@ -19,7 +19,7 @@ die()   { warn "$1"; exit 1; }
 MODE="${1:-}"
 BIN_DIR="${ENGRAM_INSTALL_BIN_DIR:-$HOME/.local/bin}"
 ENGRAM_HOME="${ENGRAM_HOME:-$HOME/.engram}"
-RELEASE_REPOSITORY="${ENGRAM_RELEASE_REPOSITORY:-engram-labs/engram}"
+RELEASE_REPOSITORY="${ENGRAM_RELEASE_REPOSITORY:-Moshik21/engram}"
 
 ensure_supported_os() {
   case "$(uname -s)" in

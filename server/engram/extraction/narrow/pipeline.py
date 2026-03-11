@@ -78,7 +78,8 @@ class NarrowExtractionPipeline:
         )
 
     def _cross_corroborate(
-        self, candidates: list[EvidenceCandidate],
+        self,
+        candidates: list[EvidenceCandidate],
     ) -> list[EvidenceCandidate]:
         """Boost confidence when entity is mentioned by multiple extractors."""
         # Build entity name -> extractors map
@@ -99,16 +100,13 @@ class NarrowExtractionPipeline:
                         )
 
         # Boost entity candidates mentioned by relationship extractor too
-        multi_source = {
-            name for name, exts in entity_names.items() if len(exts) > 1
-        }
+        multi_source = {name for name, exts in entity_names.items() if len(exts) > 1}
         for c in candidates:
             if c.fact_class == "entity":
                 name = c.payload.get("name", "").lower()
                 if (
                     name in multi_source
-                    and "cross_extractor_corroboration"
-                    not in c.corroborating_signals
+                    and "cross_extractor_corroboration" not in c.corroborating_signals
                 ):
                     c.confidence = min(1.0, c.confidence + 0.10)
                     c.corroborating_signals.append(
@@ -118,7 +116,8 @@ class NarrowExtractionPipeline:
         return candidates
 
     def _deduplicate(
-        self, candidates: list[EvidenceCandidate],
+        self,
+        candidates: list[EvidenceCandidate],
     ) -> list[EvidenceCandidate]:
         """Merge duplicate entity candidates, keeping highest confidence."""
         entity_map: dict[str, EvidenceCandidate] = {}
@@ -137,14 +136,12 @@ class NarrowExtractionPipeline:
                 elif c.confidence > existing.confidence:
                     # Merge signals from both
                     c.corroborating_signals = list(
-                        set(c.corroborating_signals)
-                        | set(existing.corroborating_signals)
+                        set(c.corroborating_signals) | set(existing.corroborating_signals)
                     )
                     entity_map[key] = c
                 else:
                     existing.corroborating_signals = list(
-                        set(existing.corroborating_signals)
-                        | set(c.corroborating_signals)
+                        set(existing.corroborating_signals) | set(c.corroborating_signals)
                     )
             else:
                 non_entity.append(c)

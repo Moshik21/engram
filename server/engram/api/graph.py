@@ -247,9 +247,7 @@ async def get_neighborhood(
 
     # ── Full-graph mode: no center specified → load everything ──
     if not center:
-        all_entities = await manager._graph.find_entities(
-            group_id=group_id, limit=max_nodes
-        )
+        all_entities = await manager._graph.find_entities(group_id=group_id, limit=max_nodes)
         if not all_entities:
             representation = _build_representation(
                 scope="neighborhood",
@@ -324,7 +322,10 @@ async def get_neighborhood(
         return JSONResponse(status_code=404, content={"detail": f"Entity '{center}' not found"})
 
     neighbor_pairs = await manager._graph.get_neighbors(
-        center, hops=depth, group_id=group_id, max_results=max_nodes * 3,
+        center,
+        hops=depth,
+        group_id=group_id,
+        max_results=max_nodes * 3,
     )
 
     entities_map: dict[str, Any] = {center: center_entity}

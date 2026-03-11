@@ -89,11 +89,13 @@ class TestAdaptiveCommitPolicy:
 
     def test_multiple_candidates(self):
         policy = AdaptiveCommitPolicy()
-        bundle = _make_bundle([
-            _make_candidate("entity", 0.90),     # commit
-            _make_candidate("entity", 0.60),     # defer
-            _make_candidate("entity", 0.30),     # reject
-        ])
+        bundle = _make_bundle(
+            [
+                _make_candidate("entity", 0.90),  # commit
+                _make_candidate("entity", 0.60),  # defer
+                _make_candidate("entity", 0.30),  # reject
+            ]
+        )
         decisions = policy.evaluate(bundle, entity_count=100)
         assert [d.action for d in decisions] == ["commit", "defer", "reject"]
 

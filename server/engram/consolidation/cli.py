@@ -119,9 +119,11 @@ async def run(args: argparse.Namespace) -> None:
     total_processed = sum(pr.items_processed for pr in cycle.phase_results)
     total_affected = sum(pr.items_affected for pr in cycle.phase_results)
     mode_str = "DRY RUN" if cycle.dry_run else "LIVE"
-    print(f"\n[{mode_str}] Consolidation complete: "
-          f"{total_processed} items processed, {total_affected} affected, "
-          f"{cycle.total_duration_ms}ms")
+    print(
+        f"\n[{mode_str}] Consolidation complete: "
+        f"{total_processed} items processed, {total_affected} affected, "
+        f"{cycle.total_duration_ms}ms"
+    )
 
     await graph_store.close()
 

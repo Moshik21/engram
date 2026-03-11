@@ -43,7 +43,9 @@ class OllamaExtractor:
 
         if not text or not text.strip():
             return ExtractionResult(
-                entities=[], relationships=[], status=ExtractionStatus.EMPTY,
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.EMPTY,
             )
 
         if len(text) > _MAX_INPUT_CHARS:
@@ -71,7 +73,8 @@ class OllamaExtractor:
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(
-                    f"{self._base_url}/api/generate", json=payload,
+                    f"{self._base_url}/api/generate",
+                    json=payload,
                 )
                 resp.raise_for_status()
 
@@ -85,27 +88,33 @@ class OllamaExtractor:
 
             logger.info(
                 "Ollama extraction (%s): %d entities, %d relationships from %d chars",
-                self._model, len(entities), len(relationships), len(text),
+                self._model,
+                len(entities),
+                len(relationships),
+                len(text),
             )
 
-            status = (
-                ExtractionStatus.OK if entities or relationships
-                else ExtractionStatus.EMPTY
-            )
+            status = ExtractionStatus.OK if entities or relationships else ExtractionStatus.EMPTY
             return ExtractionResult(
-                entities=entities, relationships=relationships, status=status,
+                entities=entities,
+                relationships=relationships,
+                status=status,
             )
         except json.JSONDecodeError as e:
             logger.error("Failed to parse Ollama response as JSON: %s", e)
             return ExtractionResult(
-                entities=[], relationships=[],
-                status=ExtractionStatus.PARSE_ERROR, error=str(e),
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.PARSE_ERROR,
+                error=str(e),
             )
         except Exception as e:
             logger.error("Ollama extraction failed: %s", e)
             return ExtractionResult(
-                entities=[], relationships=[],
-                status=ExtractionStatus.API_ERROR, error=str(e),
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.API_ERROR,
+                error=str(e),
             )
 
     @staticmethod
@@ -131,7 +140,7 @@ class OllamaExtractor:
         text = text.strip()
         if text.startswith("```"):
             first_newline = text.index("\n")
-            text = text[first_newline + 1:]
+            text = text[first_newline + 1 :]
         if text.endswith("```"):
             text = text[:-3]
         return text.strip()

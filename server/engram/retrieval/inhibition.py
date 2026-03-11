@@ -63,8 +63,7 @@ def apply_predicate_inhibition(
         # Suppress the weaker group
         weaker_pred = p1 if w1 < w2 else p2
         weaker_targets = {
-            tgt if src in seed_node_ids else src
-            for src, tgt, _ in pred_groups[weaker_pred]
+            tgt if src in seed_node_ids else src for src, tgt, _ in pred_groups[weaker_pred]
         }
 
         for nid in weaker_targets:
@@ -99,7 +98,8 @@ async def apply_lateral_inhibition(
 
     try:
         seed_embs = await search_index.get_entity_embeddings(
-            seed_list, group_id=group_id,
+            seed_list,
+            group_id=group_id,
         )
     except Exception:
         return bonuses
@@ -114,7 +114,8 @@ async def apply_lateral_inhibition(
 
     try:
         cand_embs = await search_index.get_entity_embeddings(
-            candidate_ids, group_id=group_id,
+            candidate_ids,
+            group_id=group_id,
         )
     except Exception:
         return bonuses

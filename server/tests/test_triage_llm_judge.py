@@ -40,12 +40,14 @@ def _make_cfg(**overrides) -> ActivationConfig:
 def _mock_llm_response(extract: bool, score: float, reason: str, tags: list[str] | None = None):
     """Create a mock Anthropic response for triage judge."""
     content_block = MagicMock()
-    content_block.text = json.dumps({
-        "extract": extract,
-        "score": score,
-        "reason": reason,
-        "tags": tags or [],
-    })
+    content_block.text = json.dumps(
+        {
+            "extract": extract,
+            "score": score,
+            "reason": reason,
+            "tags": tags or [],
+        }
+    )
     response = MagicMock()
     response.content = [content_block]
     return response
@@ -59,7 +61,10 @@ class TestLLMJudgeScore:
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_llm_response(
-            True, 0.85, "rich factual content", ["technical", "factual"],
+            True,
+            0.85,
+            "rich factual content",
+            ["technical", "factual"],
         )
 
         result = _llm_judge_score("Alice works at Google", "claude-haiku-4-5-20251001")
@@ -74,7 +79,9 @@ class TestLLMJudgeScore:
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_llm_response(
-            False, 0.1, "greeting only",
+            False,
+            0.1,
+            "greeting only",
         )
 
         result = _llm_judge_score("hi", "claude-haiku-4-5-20251001")
@@ -100,7 +107,10 @@ class TestLLMJudgeScore:
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_llm_response(
-            True, 0.9, "personal health event", ["personal", "emotional"],
+            True,
+            0.9,
+            "personal health event",
+            ["personal", "emotional"],
         )
 
         result = _llm_judge_score(
@@ -117,7 +127,9 @@ class TestLLMJudgeScore:
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
         mock_client.messages.create.return_value = _mock_llm_response(
-            True, 0.5, "test",
+            True,
+            0.5,
+            "test",
         )
 
         _llm_judge_score("test", "claude-haiku-4-5-20251001")
@@ -134,7 +146,10 @@ class TestTriagePhaseWithLLMJudge:
     @patch("engram.consolidation.phases.triage._llm_judge_score")
     async def test_llm_judge_enabled_uses_llm_score(self, mock_judge):
         mock_judge.return_value = {
-            "extract": True, "score": 0.9, "reason": "test reason", "tags": ["factual"],
+            "extract": True,
+            "score": 0.9,
+            "reason": "test reason",
+            "tags": ["factual"],
         }
 
         episodes = [FakeEpisode(id="ep_1", content="Alice works at Google")]
@@ -195,7 +210,10 @@ class TestTriagePhaseWithLLMJudge:
     async def test_llm_judge_error_fallback(self, mock_judge):
         """Judge error returns fallback score, phase continues."""
         mock_judge.return_value = {
-            "extract": True, "score": 0.5, "reason": "llm_error_fallback", "tags": [],
+            "extract": True,
+            "score": 0.5,
+            "reason": "llm_error_fallback",
+            "tags": [],
         }
 
         episodes = [FakeEpisode(id="ep_1", content="test content")]

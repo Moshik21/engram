@@ -47,7 +47,9 @@ class TestRelationshipPatternExtractor:
 
     def test_dedup_same_relationship(self, extractor):
         results = extractor.extract(
-            "Alice works at Google. Alice works at Google.", "ep1", "default",
+            "Alice works at Google. Alice works at Google.",
+            "ep1",
+            "default",
         )
         rels = [c for c in results if c.payload.get("predicate") == "WORKS_AT"]
         assert len(rels) == 1

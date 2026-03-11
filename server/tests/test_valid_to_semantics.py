@@ -32,7 +32,11 @@ async def _create_entity(graph: SQLiteGraphStore, eid: str, name: str, etype: st
 
 
 async def _create_ttl_edge(
-    graph: SQLiteGraphStore, src: str, tgt: str, days_from_now: int, rel_id: str = "rel_ttl1",
+    graph: SQLiteGraphStore,
+    src: str,
+    tgt: str,
+    days_from_now: int,
+    rel_id: str = "rel_ttl1",
 ):
     valid_to = datetime.utcnow() + timedelta(days=days_from_now)
     rel = Relationship(
@@ -95,9 +99,7 @@ async def test_entity_with_ttl_edge_not_dead(graph):
 
     # Set entity to look old enough
     old_date = (datetime.utcnow() - timedelta(days=60)).isoformat()
-    await graph.db.execute(
-        "UPDATE entities SET created_at = ? WHERE id = ?", (old_date, "e1")
-    )
+    await graph.db.execute("UPDATE entities SET created_at = ? WHERE id = ?", (old_date, "e1"))
     await graph.db.commit()
 
     dead = await graph.get_dead_entities("default", min_age_days=30)
@@ -158,15 +160,23 @@ async def test_path_exists_within_hops(graph):
 
     # Direct e1->e2
     rel1 = Relationship(
-        id="rel_1", source_id="e1", target_id="e2",
-        predicate="RELATED_TO", weight=1.0, group_id="default",
+        id="rel_1",
+        source_id="e1",
+        target_id="e2",
+        predicate="RELATED_TO",
+        weight=1.0,
+        group_id="default",
     )
     await graph.create_relationship(rel1)
 
     # e2->e3
     rel2 = Relationship(
-        id="rel_2", source_id="e2", target_id="e3",
-        predicate="RELATED_TO", weight=1.0, group_id="default",
+        id="rel_2",
+        source_id="e2",
+        target_id="e3",
+        predicate="RELATED_TO",
+        weight=1.0,
+        group_id="default",
     )
     await graph.create_relationship(rel2)
 
@@ -205,7 +215,5 @@ async def test_get_expired_relationships(graph):
     assert expired[0].id == "rel_past"
 
     # Filter by predicate
-    expired_filtered = await graph.get_expired_relationships(
-        "default", predicate="NONEXISTENT"
-    )
+    expired_filtered = await graph.get_expired_relationships("default", predicate="NONEXISTENT")
     assert len(expired_filtered) == 0

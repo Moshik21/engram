@@ -194,11 +194,7 @@ class TestC3SummaryScorer:
 
     def test_c3_summary_repairs_partial_contamination(self):
         """Mixed summary: meta segments removed, clean segments kept."""
-        summary = (
-            "Alex is a software developer; "
-            "A node in the knowledge graph; "
-            "He enjoys hiking"
-        )
+        summary = "Alex is a software developer; A node in the knowledge graph; He enjoys hiking"
         score, cleaned = self.phase._score_c3_summary(summary)
         assert score > 0.0
         # Cleaned should contain real content but not meta
@@ -278,7 +274,9 @@ class TestScanSummariesIntegration:
         graph, activation, search = _make_stores()
 
         contaminated = _entity(
-            "e1", "Person", "Alice",
+            "e1",
+            "Person",
+            "Alice",
             summary="Alice is a developer; A node in the knowledge graph",
         )
         graph.find_entities = AsyncMock(return_value=[contaminated])
@@ -441,7 +439,7 @@ class TestMaxDemotionsCap:
             {
                 "id": f"tag_{i}",
                 "target_type": "edge",
-                "target_id": f"e{i}:e{i+10}:RELATES_TO",
+                "target_id": f"e{i}:e{i + 10}:RELATES_TO",
                 "tag_type": "c1q_domain",
                 "score": 0.8,
             }
@@ -549,9 +547,7 @@ class TestLtdSweep:
 
         # Entity with very low activation
         state = SimpleNamespace(access_history=[])
-        activation.get_top_activated = AsyncMock(
-            return_value=[("low_ent", state)]
-        )
+        activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
 
         graph.get_identity_core_entities = AsyncMock(return_value=[])
         graph.get_active_neighbors_with_weights = AsyncMock(
@@ -588,9 +584,7 @@ class TestLtdSweep:
         activation = AsyncMock()
 
         state = SimpleNamespace(access_history=[])
-        activation.get_top_activated = AsyncMock(
-            return_value=[("core_ent", state)]
-        )
+        activation.get_top_activated = AsyncMock(return_value=[("core_ent", state)])
 
         core = _entity("core_ent", "Person", "Alex", identity_core=True)
         graph.get_identity_core_entities = AsyncMock(return_value=[core])
@@ -628,9 +622,7 @@ class TestLtdSweep:
         activation = AsyncMock()
 
         state = SimpleNamespace(access_history=[])
-        activation.get_top_activated = AsyncMock(
-            return_value=[("low_ent", state)]
-        )
+        activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
 
         graph.get_identity_core_entities = AsyncMock(return_value=[])
         graph.get_active_neighbors_with_weights = AsyncMock(
@@ -705,27 +697,38 @@ class TestOrphanEdgeFix:
 
             # Create two entities and a relationship
             e1 = Entity(
-                id="e1", name="Alice", entity_type="Person",
+                id="e1",
+                name="Alice",
+                entity_type="Person",
                 group_id="default",
-                created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
             e2 = Entity(
-                id="e2", name="Bob", entity_type="Person",
+                id="e2",
+                name="Bob",
+                entity_type="Person",
                 group_id="default",
-                created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
             await store.create_entity(e1)
             await store.create_entity(e2)
 
             rel = Relationship(
-                id="r1", source_id="e1", target_id="e2",
-                predicate="KNOWS", weight=1.0, group_id="default",
+                id="r1",
+                source_id="e1",
+                target_id="e2",
+                predicate="KNOWS",
+                weight=1.0,
+                group_id="default",
             )
             await store.create_relationship(rel)
 
             # Before deletion: neighbor visible
             neighbors = await store.get_active_neighbors_with_weights(
-                "e1", group_id="default",
+                "e1",
+                group_id="default",
             )
             assert any(nid == "e2" for nid, *_ in neighbors)
 
@@ -737,7 +740,8 @@ class TestOrphanEdgeFix:
 
             # After deletion: neighbor excluded
             neighbors = await store.get_active_neighbors_with_weights(
-                "e1", group_id="default",
+                "e1",
+                group_id="default",
             )
             assert not any(nid == "e2" for nid, *_ in neighbors)
 

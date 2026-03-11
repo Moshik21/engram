@@ -217,13 +217,15 @@ _CONTRADICTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "ended",
         re.compile(
-            r"\b(?:stopped|quit|left|ended|cancelled|canceled)\b", re.I,
+            r"\b(?:stopped|quit|left|ended|cancelled|canceled)\b",
+            re.I,
         ),
     ),
     (
         "correction",
         re.compile(
-            r"\b(?:actually|correction|instead|updated|changed)\b", re.I,
+            r"\b(?:actually|correction|instead|updated|changed)\b",
+            re.I,
         ),
     ),
     (
@@ -236,10 +238,13 @@ _canonicalizer = PredicateCanonicalizer()
 
 
 def _has_contradiction_near(
-    text: str, start: int, end: int, window: int = 80,
+    text: str,
+    start: int,
+    end: int,
+    window: int = 80,
 ) -> bool:
     """Check if any contradiction marker appears near the match span."""
-    context = text[max(0, start - window):min(len(text), end + window)]
+    context = text[max(0, start - window) : min(len(text), end + window)]
     return any(pat.search(context) for _, pat in _CONTRADICTION_PATTERNS)
 
 
@@ -270,7 +275,9 @@ class RelationshipPatternExtractor:
                     continue
                 seen.add(key)
                 negated = _has_contradiction_near(
-                    text, match.start(), match.end(),
+                    text,
+                    match.start(),
+                    match.end(),
                 )
                 polarity = "negative" if negated else "positive"
                 signals = [signal]
@@ -291,8 +298,9 @@ class RelationshipPatternExtractor:
                             "polarity": polarity,
                         },
                         source_span=text[
-                            max(0, match.start() - 20):min(
-                                len(text), match.end() + 20,
+                            max(0, match.start() - 20) : min(
+                                len(text),
+                                match.end() + 20,
                             )
                         ],
                         corroborating_signals=signals,
@@ -309,7 +317,9 @@ class RelationshipPatternExtractor:
                     continue
                 seen.add(key)
                 negated = _has_contradiction_near(
-                    text, match.start(), match.end(),
+                    text,
+                    match.start(),
+                    match.end(),
                 )
                 polarity = "negative" if negated else "positive"
                 signals = [signal, "first_person"]
@@ -330,8 +340,9 @@ class RelationshipPatternExtractor:
                             "polarity": polarity,
                         },
                         source_span=text[
-                            max(0, match.start() - 20):min(
-                                len(text), match.end() + 20,
+                            max(0, match.start() - 20) : min(
+                                len(text),
+                                match.end() + 20,
                             )
                         ],
                         corroborating_signals=signals,
@@ -364,8 +375,9 @@ class RelationshipPatternExtractor:
                             "polarity": "positive",
                         },
                         source_span=text[
-                            max(0, match.start() - 20):min(
-                                len(text), match.end() + 20,
+                            max(0, match.start() - 20) : min(
+                                len(text),
+                                match.end() + 20,
                             )
                         ],
                         corroborating_signals=signals,

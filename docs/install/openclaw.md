@@ -52,7 +52,7 @@ engramctl install-openclaw
 Manual source-based setup remains available for development:
 
 ```bash
-git clone https://github.com/engram-labs/engram.git ~/engram
+git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
 uv run engram setup

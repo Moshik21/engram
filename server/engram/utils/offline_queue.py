@@ -57,9 +57,7 @@ def drain_queue(
                 try:
                     entries.append(json.loads(line))
                 except json.JSONDecodeError:
-                    logger.warning(
-                        "Skipping malformed queue entry at line %d", line_no
-                    )
+                    logger.warning("Skipping malformed queue entry at line %d", line_no)
     finally:
         try:
             tmp.unlink()

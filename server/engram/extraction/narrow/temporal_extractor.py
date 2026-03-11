@@ -37,7 +37,9 @@ _PROPER_NAMES = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)*\b")
 
 
 def _find_nearby_entity(
-    text: str, pos: int, window: int = 100,
+    text: str,
+    pos: int,
+    window: int = 100,
 ) -> str | None:
     """Find the closest proper name entity near a temporal marker."""
     start = max(0, pos - window)
@@ -91,8 +93,9 @@ class TemporalEvidenceExtractor:
                     extractor_name=self.name,
                     payload=payload,
                     source_span=text[
-                        max(0, match.start() - 30):min(
-                            len(text), match.end() + 30,
+                        max(0, match.start() - 30) : min(
+                            len(text),
+                            match.end() + 30,
                         )
                     ],
                     corroborating_signals=["date_pattern"],
@@ -124,8 +127,9 @@ class TemporalEvidenceExtractor:
                     extractor_name=self.name,
                     payload=payload,
                     source_span=text[
-                        max(0, match.start() - 30):min(
-                            len(text), match.end() + 30,
+                        max(0, match.start() - 30) : min(
+                            len(text),
+                            match.end() + 30,
                         )
                     ],
                     corroborating_signals=["duration_pattern"],
@@ -155,8 +159,9 @@ class TemporalEvidenceExtractor:
                     extractor_name=self.name,
                     payload=payload,
                     source_span=text[
-                        max(0, match.start() - 30):min(
-                            len(text), match.end() + 30,
+                        max(0, match.start() - 30) : min(
+                            len(text),
+                            match.end() + 30,
                         )
                     ],
                     corroborating_signals=["event_temporal_pattern"],

@@ -44,7 +44,9 @@ class TestAttributeEvidenceExtractor:
 
     def test_role_state(self, extractor):
         results = extractor.extract(
-            "I'm a software engineer at Anthropic.", "ep1", "default",
+            "I'm a software engineer at Anthropic.",
+            "ep1",
+            "default",
         )
         states = [c for c in results if c.payload.get("state_signal") == "role_state"]
         assert len(states) >= 1

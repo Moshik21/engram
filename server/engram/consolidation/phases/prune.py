@@ -50,7 +50,10 @@ class PrunePhase(ConsolidationPhase):
             from engram.retrieval.goals import identify_active_goals
 
             active_goals = await identify_active_goals(
-                graph_store, activation_store, group_id, cfg,
+                graph_store,
+                activation_store,
+                group_id,
+                cfg,
             )
             for goal in active_goals:
                 goal_neighbor_ids.add(goal.entity_id)
@@ -100,9 +103,7 @@ class PrunePhase(ConsolidationPhase):
                 ent_data_mat = await graph_store.get_entity(entity.id, group_id)
                 if ent_data_mat:
                     mat_attrs = (
-                        ent_data_mat.attributes
-                        if isinstance(ent_data_mat.attributes, dict)
-                        else {}
+                        ent_data_mat.attributes if isinstance(ent_data_mat.attributes, dict) else {}
                     )
                     mat_tier = mat_attrs.get("mat_tier", "episodic")
                     entity_age_days = (now - entity.created_at.timestamp()) / 86400

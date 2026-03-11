@@ -98,7 +98,7 @@ class EmbeddingSurpriseState:
     def std_distance(self) -> float:
         if self.count < 3:
             return 0.2
-        var = (self._distance_sq_sum / self.count) - self.mean_distance ** 2
+        var = (self._distance_sq_sum / self.count) - self.mean_distance**2
         return float(max(var, 0.0) ** 0.5)
 
     def update(self, embedding: np.ndarray) -> float:
@@ -120,7 +120,7 @@ class EmbeddingSurpriseState:
         # Update running stats
         self.count += 1
         self._distance_sum += distance
-        self._distance_sq_sum += distance ** 2
+        self._distance_sq_sum += distance**2
 
         # Update centroid via EMA
         self.centroid = self.alpha * embedding + (1.0 - self.alpha) * self.centroid
@@ -243,7 +243,9 @@ class TriageScorer:
         candidate_ids: set[str] = set()
         if graph_store and hasattr(graph_store, "find_entity_candidates"):
             candidate_count, candidate_ids = await _probe_entity_candidates(
-                content, graph_store, group_id,
+                content,
+                graph_store,
+                group_id,
             )
 
         entity_candidate_score = min(candidate_count / 8.0, 1.0)
@@ -260,14 +262,17 @@ class TriageScorer:
             gap_score = min(len(_PROPER_NAMES.findall(content)) / 5.0, 1.0)
 
         # 5. Yield prediction (0.10) — calibrated from past outcomes
-        calib_features = np.array([
-            surprise_score,
-            struct_score,
-            entity_candidate_score,
-            gap_score,
-            0.0,  # placeholder for emotional
-            0.0,  # placeholder for novelty
-        ], dtype=np.float32)
+        calib_features = np.array(
+            [
+                surprise_score,
+                struct_score,
+                entity_candidate_score,
+                gap_score,
+                0.0,  # placeholder for emotional
+                0.0,  # placeholder for novelty
+            ],
+            dtype=np.float32,
+        )
         yield_score = self._calibration.predict(calib_features)
         # Blend with default based on maturity
         blend = self._calibration.blend_factor
@@ -277,6 +282,7 @@ class TriageScorer:
         emotional_score = 0.0
         if cfg.emotional_salience_enabled:
             from engram.extraction.salience import compute_emotional_salience
+
             salience = compute_emotional_salience(content)
             emotional_score = salience.composite
 
@@ -290,7 +296,9 @@ class TriageScorer:
                 query = content[:200].strip()
                 if query:
                     matches = await search_index.search_episodes(
-                        query, group_id=group_id, limit=3,
+                        query,
+                        group_id=group_id,
+                        limit=3,
                     )
                     if matches:
                         top_score = matches[0][1]
@@ -307,6 +315,7 @@ class TriageScorer:
         goal_score = 0.0
         if goals and cfg.goal_priming_enabled:
             from engram.retrieval.goals import compute_goal_triage_boost
+
             goal_score = compute_goal_triage_boost(content, goals, cfg)
 
         # --- Weighted composite ---
@@ -323,8 +332,10 @@ class TriageScorer:
         )
 
         # Personal floor: guarantee extraction for emotionally rich content
-        if (cfg.emotional_salience_enabled
-                and emotional_score >= cfg.triage_personal_floor_threshold):
+        if (
+            cfg.emotional_salience_enabled
+            and emotional_score >= cfg.triage_personal_floor_threshold
+        ):
             composite = max(composite, cfg.triage_personal_floor)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -344,14 +355,17 @@ class TriageScorer:
 
     def record_outcome(self, signals: TriageSignals, extracted_entities: int) -> None:
         """Feed extraction outcome back to calibrator for self-improvement."""
-        features = np.array([
-            signals.embedding_surprise,
-            signals.structural_extractability,
-            signals.entity_candidate_count,
-            signals.knowledge_gap,
-            signals.emotional_salience,
-            signals.novelty,
-        ], dtype=np.float32)
+        features = np.array(
+            [
+                signals.embedding_surprise,
+                signals.structural_extractability,
+                signals.entity_candidate_count,
+                signals.knowledge_gap,
+                signals.emotional_salience,
+                signals.novelty,
+            ],
+            dtype=np.float32,
+        )
         self._calibration.update(features, extracted_entities > 0)
 
     @property
@@ -375,9 +389,7 @@ def get_shared_triage_scorer(cfg: ActivationConfig) -> TriageScorer:
         "triage_personal_boost": cfg.triage_personal_boost,
         "triage_personal_min_matches": cfg.triage_personal_min_matches,
     }
-    key = hashlib.sha1(
-        json.dumps(key_payload, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    key = hashlib.sha1(json.dumps(key_payload, sort_keys=True).encode("utf-8")).hexdigest()
     scorer = _SHARED_TRIAGE_SCORERS.get(key)
     if scorer is None:
         scorer = TriageScorer(cfg)
@@ -429,7 +441,9 @@ async def _probe_entity_candidates(
     for name in unique_names:
         try:
             candidates = await graph_store.find_entity_candidates(
-                name, group_id=group_id, limit=2,
+                name,
+                group_id=group_id,
+                limit=2,
             )
             for c in candidates:
                 entity_id = c[0] if isinstance(c, (list, tuple)) else getattr(c, "id", None)

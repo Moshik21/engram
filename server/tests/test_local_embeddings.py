@@ -127,8 +127,10 @@ class TestFactoryProviderResolution:
                 raise ImportError("no fastembed")
             return real_import(name, *args, **kwargs)
 
-        with patch.dict("os.environ", env_clean, clear=True), \
-             patch("builtins.__import__", side_effect=_no_fastembed):
+        with (
+            patch.dict("os.environ", env_clean, clear=True),
+            patch("builtins.__import__", side_effect=_no_fastembed),
+        ):
             provider = _create_embedding_provider(config)
         assert isinstance(provider, NoopProvider)
 
@@ -156,8 +158,11 @@ class TestFactoryProviderResolution:
         config = EngramConfig(
             embedding=EmbeddingConfig(provider="voyage", api_key=""),
         )
-        with patch.dict("os.environ", {k: v for k, v in __import__("os").environ.items()
-                                        if k != "VOYAGE_API_KEY"}, clear=True):
+        with patch.dict(
+            "os.environ",
+            {k: v for k, v in __import__("os").environ.items() if k != "VOYAGE_API_KEY"},
+            clear=True,
+        ):
             provider = _create_embedding_provider(config)
         assert isinstance(provider, FastEmbedProvider)
 

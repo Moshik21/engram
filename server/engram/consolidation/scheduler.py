@@ -144,7 +144,8 @@ class ConsolidationScheduler:
                         and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
                     ):
                         pressure_value = pressure.get_pressure(
-                            self._group_id, self._cfg,
+                            self._group_id,
+                            self._cfg,
                         )
                         if pressure_value >= self._cfg.consolidation_pressure_threshold:
                             try:

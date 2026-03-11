@@ -823,10 +823,7 @@ class TestPMIScoring:
 
 def _make_llm_response(verdict: str, reason: str = "test", count: int = 1):
     """Create a mock Anthropic API response (batched format)."""
-    verdicts = [
-        {"rel": i, "verdict": verdict, "reason": reason}
-        for i in range(1, count + 1)
-    ]
+    verdicts = [{"rel": i, "verdict": verdict, "reason": reason} for i in range(1, count + 1)]
     content_block = MagicMock()
     content_block.text = json.dumps(verdicts)
     response = MagicMock()

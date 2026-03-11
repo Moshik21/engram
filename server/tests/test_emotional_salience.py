@@ -118,33 +118,43 @@ class TestComputeNarrativeTension:
 class TestEmotionalSalience:
     def test_composite_weights(self):
         s = EmotionalSalience(
-            arousal=1.0, self_reference=1.0,
-            social_density=1.0, narrative_tension=1.0,
+            arousal=1.0,
+            self_reference=1.0,
+            social_density=1.0,
+            narrative_tension=1.0,
         )
         assert s.composite == pytest.approx(1.0)
 
     def test_composite_weight_distribution(self):
         s = EmotionalSalience(
-            arousal=1.0, self_reference=0.0,
-            social_density=0.0, narrative_tension=0.0,
+            arousal=1.0,
+            self_reference=0.0,
+            social_density=0.0,
+            narrative_tension=0.0,
         )
         assert s.composite == pytest.approx(0.35)
 
         s2 = EmotionalSalience(
-            arousal=0.0, self_reference=1.0,
-            social_density=0.0, narrative_tension=0.0,
+            arousal=0.0,
+            self_reference=1.0,
+            social_density=0.0,
+            narrative_tension=0.0,
         )
         assert s2.composite == pytest.approx(0.30)
 
         s3 = EmotionalSalience(
-            arousal=0.0, self_reference=0.0,
-            social_density=1.0, narrative_tension=0.0,
+            arousal=0.0,
+            self_reference=0.0,
+            social_density=1.0,
+            narrative_tension=0.0,
         )
         assert s3.composite == pytest.approx(0.20)
 
         s4 = EmotionalSalience(
-            arousal=0.0, self_reference=0.0,
-            social_density=0.0, narrative_tension=1.0,
+            arousal=0.0,
+            self_reference=0.0,
+            social_density=0.0,
+            narrative_tension=1.0,
         )
         assert s4.composite == pytest.approx(0.15)
 
@@ -154,10 +164,7 @@ class TestEmotionalSalience:
         assert salience.composite >= 0.15
 
     def test_technical_content_low_composite(self):
-        text = (
-            "React v19 introduces a new compiler architecture"
-            " for JavaScript applications."
-        )
+        text = "React v19 introduces a new compiler architecture for JavaScript applications."
         salience = compute_emotional_salience(text)
         assert salience.composite < 0.10
 
@@ -214,7 +221,7 @@ class TestTriageFormula:
         # Deeply personal content should hit the floor
         ep = SimpleNamespace(
             content="My mom was diagnosed with cancer and I'm worried about her. "
-                    "My dad is extremely devastated and we're not sure what to do.",
+            "My dad is extremely devastated and we're not sure what to do.",
             id="ep_personal",
         )
         score = asyncio.get_event_loop().run_until_complete(

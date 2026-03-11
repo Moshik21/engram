@@ -118,7 +118,9 @@ class FastEmbedProvider(EmbeddingProvider):
         self._dimensions: int = self._model.embedding_size  # type: ignore[attr-defined]
         self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
         logger.info(
-            "FastEmbedProvider ready: model=%s, dim=%d", model, self._dimensions,
+            "FastEmbedProvider ready: model=%s, dim=%d",
+            model,
+            self._dimensions,
         )
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

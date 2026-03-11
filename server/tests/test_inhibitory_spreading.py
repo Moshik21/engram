@@ -15,6 +15,7 @@ from engram.retrieval.inhibition import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _cfg(**overrides) -> ActivationConfig:
     defaults = {
         "inhibitory_spreading_enabled": True,
@@ -34,19 +35,24 @@ class _FakeSearchIndex:
         self._embeddings = embeddings
 
     async def get_entity_embeddings(
-        self, entity_ids: list[str], *, group_id: str = "default",
+        self,
+        entity_ids: list[str],
+        *,
+        group_id: str = "default",
     ) -> dict[str, list[float]]:
         return {eid: self._embeddings[eid] for eid in entity_ids if eid in self._embeddings}
 
 
 class _NoEmbeddingsIndex:
     """Search index without get_entity_embeddings."""
+
     pass
 
 
 # ---------------------------------------------------------------------------
 # Predicate inhibition tests
 # ---------------------------------------------------------------------------
+
 
 class TestPredicateInhibition:
     def test_weaker_group_suppressed(self):
@@ -62,7 +68,12 @@ class TestPredicateInhibition:
         ]
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=relationships,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=relationships,
         )
 
         # DISLIKES is weaker (1.0 < 2.0), broccoli should be suppressed
@@ -82,7 +93,12 @@ class TestPredicateInhibition:
         ]
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=relationships,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=relationships,
         )
 
         assert result["a"] == pytest.approx(0.5)
@@ -100,7 +116,12 @@ class TestPredicateInhibition:
         ]
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=relationships,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=relationships,
         )
 
         assert result["pizza"] == pytest.approx(0.5)
@@ -113,12 +134,22 @@ class TestPredicateInhibition:
         cfg = _cfg()
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=None,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=None,
         )
         assert result["a"] == pytest.approx(0.5)
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=[],
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=[],
         )
         assert result["a"] == pytest.approx(0.5)
 
@@ -134,7 +165,12 @@ class TestPredicateInhibition:
         ]
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=relationships,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=relationships,
         )
 
         # AVOIDS is weaker
@@ -155,7 +191,12 @@ class TestPredicateInhibition:
         ]
 
         result = apply_predicate_inhibition(
-            bonuses, seeds, None, "default", cfg, relationships=relationships,
+            bonuses,
+            seeds,
+            None,
+            "default",
+            cfg,
+            relationships=relationships,
         )
 
         # DISLIKES weaker (1.0 vs 2.0)
@@ -166,6 +207,7 @@ class TestPredicateInhibition:
 # Lateral inhibition tests
 # ---------------------------------------------------------------------------
 
+
 class TestLateralInhibition:
     @pytest.mark.asyncio
     async def test_graph_disconnected_suppressed(self):
@@ -174,10 +216,12 @@ class TestLateralInhibition:
         seed_emb = [1.0, 0.0, 0.0]
         cand_emb = [0.95, 0.05, 0.0]  # high similarity to seed
 
-        search_index = _FakeSearchIndex({
-            "seed1": seed_emb,
-            "cand1": cand_emb,
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "seed1": seed_emb,
+                "cand1": cand_emb,
+            }
+        )
 
         bonuses = {"cand1": 0.5}
         hop_distances: dict[str, int] = {}  # cand1 is graph-disconnected
@@ -185,7 +229,12 @@ class TestLateralInhibition:
         cfg = _cfg(inhibit_similarity_threshold=0.5)
 
         result = await apply_lateral_inhibition(
-            bonuses, hop_distances, seeds, search_index, "default", cfg,
+            bonuses,
+            hop_distances,
+            seeds,
+            search_index,
+            "default",
+            cfg,
         )
 
         # cand1 should be suppressed (disconnected + high similarity)
@@ -197,11 +246,13 @@ class TestLateralInhibition:
         seed_emb = [1.0, 0.0, 0.0]
         cand_emb = [0.95, 0.05, 0.0]
 
-        search_index = _FakeSearchIndex({
-            "seed1": seed_emb,
-            "cand_near": cand_emb,
-            "cand_far": cand_emb,
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "seed1": seed_emb,
+                "cand_near": cand_emb,
+                "cand_far": cand_emb,
+            }
+        )
 
         bonuses = {"cand_near": 0.5, "cand_far": 0.5}
         hop_distances = {"cand_near": 1, "cand_far": 3}
@@ -209,7 +260,12 @@ class TestLateralInhibition:
         cfg = _cfg(inhibit_similarity_threshold=0.5)
 
         result = await apply_lateral_inhibition(
-            bonuses, hop_distances, seeds, search_index, "default", cfg,
+            bonuses,
+            hop_distances,
+            seeds,
+            search_index,
+            "default",
+            cfg,
         )
 
         # 1-hop gets less inhibition than 3-hop
@@ -221,10 +277,12 @@ class TestLateralInhibition:
         seed_emb = [1.0, 0.0, 0.0]
         cand_emb = [0.0, 1.0, 0.0]  # orthogonal = 0 similarity
 
-        search_index = _FakeSearchIndex({
-            "seed1": seed_emb,
-            "cand1": cand_emb,
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "seed1": seed_emb,
+                "cand1": cand_emb,
+            }
+        )
 
         bonuses = {"cand1": 0.5}
         hop_distances: dict[str, int] = {}
@@ -232,7 +290,12 @@ class TestLateralInhibition:
         cfg = _cfg(inhibit_similarity_threshold=0.6)
 
         result = await apply_lateral_inhibition(
-            bonuses, hop_distances, seeds, search_index, "default", cfg,
+            bonuses,
+            hop_distances,
+            seeds,
+            search_index,
+            "default",
+            cfg,
         )
 
         assert result["cand1"] == pytest.approx(0.5)
@@ -244,7 +307,12 @@ class TestLateralInhibition:
 
         bonuses = {"a": 0.5, "b": 0.3}
         result = await apply_lateral_inhibition(
-            bonuses, {}, {"seed1"}, search_index, "default", _cfg(),
+            bonuses,
+            {},
+            {"seed1"},
+            search_index,
+            "default",
+            _cfg(),
         )
 
         assert result == bonuses
@@ -252,13 +320,20 @@ class TestLateralInhibition:
     @pytest.mark.asyncio
     async def test_graceful_with_empty_seed_embeddings(self):
         """Returns bonuses unchanged when seed embeddings are not found."""
-        search_index = _FakeSearchIndex({
-            "cand1": [1.0, 0.0],
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "cand1": [1.0, 0.0],
+            }
+        )
 
         bonuses = {"cand1": 0.5}
         result = await apply_lateral_inhibition(
-            bonuses, {}, {"seed_missing"}, search_index, "default", _cfg(),
+            bonuses,
+            {},
+            {"seed_missing"},
+            search_index,
+            "default",
+            _cfg(),
         )
 
         assert result["cand1"] == pytest.approx(0.5)
@@ -269,10 +344,12 @@ class TestLateralInhibition:
         seed_emb = [1.0, 0.0, 0.0]
         cand_emb = [0.99, 0.01, 0.0]  # very high similarity
 
-        search_index = _FakeSearchIndex({
-            "seed1": seed_emb,
-            "cand1": cand_emb,
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "seed1": seed_emb,
+                "cand1": cand_emb,
+            }
+        )
 
         # Start with a very small bonus
         bonuses = {"cand1": 0.01}
@@ -281,7 +358,12 @@ class TestLateralInhibition:
         cfg = _cfg(inhibit_strength=0.9, inhibit_similarity_threshold=0.5)
 
         result = await apply_lateral_inhibition(
-            bonuses, hop_distances, seeds, search_index, "default", cfg,
+            bonuses,
+            hop_distances,
+            seeds,
+            search_index,
+            "default",
+            cfg,
         )
 
         assert result["cand1"] >= 0.0
@@ -291,7 +373,12 @@ class TestLateralInhibition:
         """No crash with empty bonuses dict."""
         search_index = _FakeSearchIndex({"seed1": [1.0, 0.0]})
         result = await apply_lateral_inhibition(
-            {}, {}, {"seed1"}, search_index, "default", _cfg(),
+            {},
+            {},
+            {"seed1"},
+            search_index,
+            "default",
+            _cfg(),
         )
         assert result == {}
 
@@ -300,7 +387,12 @@ class TestLateralInhibition:
         """No crash with empty seeds."""
         search_index = _FakeSearchIndex({})
         result = await apply_lateral_inhibition(
-            {"a": 0.5}, {}, set(), search_index, "default", _cfg(),
+            {"a": 0.5},
+            {},
+            set(),
+            search_index,
+            "default",
+            _cfg(),
         )
         assert result["a"] == pytest.approx(0.5)
 
@@ -308,6 +400,7 @@ class TestLateralInhibition:
 # ---------------------------------------------------------------------------
 # Orchestrator tests
 # ---------------------------------------------------------------------------
+
 
 class TestApplyInhibition:
     @pytest.mark.asyncio
@@ -334,11 +427,13 @@ class TestApplyInhibition:
         seed_emb = [1.0, 0.0, 0.0]
         cand_emb = [0.95, 0.05, 0.0]
 
-        search_index = _FakeSearchIndex({
-            "seed1": seed_emb,
-            "pizza": cand_emb,
-            "broccoli": cand_emb,
-        })
+        search_index = _FakeSearchIndex(
+            {
+                "seed1": seed_emb,
+                "pizza": cand_emb,
+                "broccoli": cand_emb,
+            }
+        )
 
         bonuses = {"pizza": 0.5, "broccoli": 0.5}
         relationships = [
@@ -367,6 +462,7 @@ class TestApplyInhibition:
 # ---------------------------------------------------------------------------
 # Config tests
 # ---------------------------------------------------------------------------
+
 
 class TestConfigFields:
     def test_defaults_exist(self):

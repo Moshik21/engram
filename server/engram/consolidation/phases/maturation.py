@@ -66,14 +66,17 @@ class MaturationPhase(ConsolidationPhase):
 
         if not cfg.memory_maturation_enabled:
             return PhaseResult(
-                phase=self.name, status="skipped", duration_ms=_elapsed_ms(t0),
+                phase=self.name,
+                status="skipped",
+                duration_ms=_elapsed_ms(t0),
             ), []
 
         now = time.time()
         min_age_seconds = cfg.maturation_min_age_days * 86400
 
         candidates = await graph_store.find_entities(
-            group_id=group_id, limit=cfg.maturation_max_per_cycle,
+            group_id=group_id,
+            limit=cfg.maturation_max_per_cycle,
         )
 
         records: list[MaturationRecord] = []
@@ -127,9 +130,8 @@ class MaturationPhase(ConsolidationPhase):
                     new_tier = old_tier
 
             if new_tier == old_tier:
-                if (
-                    not dry_run
-                    and maturity_bundle_changed(attrs.get("maturity_features_v1"), bundle)
+                if not dry_run and maturity_bundle_changed(
+                    attrs.get("maturity_features_v1"), bundle
                 ):
                     cached_attrs = dict(attrs)
                     cached_attrs["maturity_features_v1"] = bundle

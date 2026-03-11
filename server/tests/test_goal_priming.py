@@ -112,7 +112,9 @@ class TestIdentifyActiveGoals:
         now = time.time()
         cfg = make_cfg(goal_priming_activation_floor=0.01)
         completed = MockEntity(
-            id="g1", name="Done Goal", entity_type="Goal",
+            id="g1",
+            name="Done Goal",
+            entity_type="Goal",
             attributes={"status": "completed"},
         )
         graph_store = make_graph_store(entities_by_type={"Goal": [completed]})
@@ -128,7 +130,9 @@ class TestIdentifyActiveGoals:
         now = time.time()
         cfg = make_cfg(goal_priming_activation_floor=0.01)
         abandoned = MockEntity(
-            id="g1", name="Old Goal", entity_type="Goal",
+            id="g1",
+            name="Old Goal",
+            entity_type="Goal",
             attributes={"status": "abandoned"},
         )
         graph_store = make_graph_store(entities_by_type={"Goal": [abandoned]})
@@ -155,7 +159,9 @@ class TestIdentifyActiveGoals:
         now = time.time()
         cfg = make_cfg(goal_priming_activation_floor=0.01)
         deleted = MockEntity(
-            id="g1", name="Deleted Goal", entity_type="Goal",
+            id="g1",
+            name="Deleted Goal",
+            entity_type="Goal",
             deleted_at="2025-01-01",
         )
         graph_store = make_graph_store(entities_by_type={"Goal": [deleted]})
@@ -170,14 +176,10 @@ class TestIdentifyActiveGoals:
     async def test_respects_max_goals(self):
         now = time.time()
         cfg = make_cfg(goal_priming_activation_floor=0.01, goal_priming_max_goals=2)
-        entities = [
-            MockEntity(id=f"g{i}", name=f"Goal {i}", entity_type="Goal")
-            for i in range(5)
-        ]
+        entities = [MockEntity(id=f"g{i}", name=f"Goal {i}", entity_type="Goal") for i in range(5)]
         graph_store = make_graph_store(entities_by_type={"Goal": entities})
         states = {
-            f"g{i}": MockActivationState(access_history=[now - 1], access_count=1)
-            for i in range(5)
+            f"g{i}": MockActivationState(access_history=[now - 1], access_count=1) for i in range(5)
         }
         activation_store = make_activation_store(states=states)
 
@@ -252,7 +254,11 @@ class TestGoalPrimingCache:
         activation_store = make_activation_store()
 
         goals = await identify_active_goals(
-            graph_store, activation_store, "default", cfg, cache=cache,
+            graph_store,
+            activation_store,
+            "default",
+            cfg,
+            cache=cache,
         )
         assert len(goals) == 1
         assert goals[0].name == "Cached"
@@ -265,7 +271,9 @@ class TestComputeGoalPrimingSeeds:
         cfg = make_cfg(goal_priming_boost=0.10)
         goals = [
             ActiveGoal(
-                entity_id="g1", name="Goal", activation=0.8,
+                entity_id="g1",
+                name="Goal",
+                activation=0.8,
                 neighbor_ids=["n1", "n2"],
             ),
         ]
@@ -378,14 +386,17 @@ class TestPruneProtection:
 
         graph_store = AsyncMock()
         graph_store.get_dead_entities = AsyncMock(return_value=[dead_entity])
-        graph_store.find_entities = AsyncMock(side_effect=lambda entity_type=None, **kw: (
-            [goal_entity] if entity_type == "Goal" else []
-        ))
+        graph_store.find_entities = AsyncMock(
+            side_effect=lambda entity_type=None, **kw: (
+                [goal_entity] if entity_type == "Goal" else []
+            )
+        )
         graph_store.get_active_neighbors_with_weights = AsyncMock(
             return_value=[("n1", 0.5, "RELATED_TO")],
         )
 
         activation_store = AsyncMock()
+
         # Goal has high activation
         async def get_act(entity_id):
             if entity_id == "g1":

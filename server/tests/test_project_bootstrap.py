@@ -78,11 +78,19 @@ async def test_bootstrap_observes_files(manager: GraphManager, tmp_project: Path
     # Mock store_episode to track calls
     stored_episodes: list[dict] = []
 
-    async def mock_store(content: str, group_id: str = "default",
-                         source: str | None = None, session_id: str | None = None) -> str:
-        stored_episodes.append({
-            "content": content, "source": source, "session_id": session_id,
-        })
+    async def mock_store(
+        content: str,
+        group_id: str = "default",
+        source: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
+        stored_episodes.append(
+            {
+                "content": content,
+                "source": source,
+                "session_id": session_id,
+            }
+        )
         return f"ep_test_{len(stored_episodes)}"
 
     manager.store_episode = mock_store
@@ -101,7 +109,8 @@ async def test_bootstrap_observes_files(manager: GraphManager, tmp_project: Path
 
 @pytest.mark.asyncio
 async def test_bootstrap_idempotent_when_fresh(
-    manager: GraphManager, tmp_project: Path,
+    manager: GraphManager,
+    tmp_project: Path,
 ):
     """Recent bootstrap returns already_bootstrapped, no re-observation."""
     recent_ts = datetime.utcnow().isoformat()
@@ -123,7 +132,8 @@ async def test_bootstrap_idempotent_when_fresh(
 
 @pytest.mark.asyncio
 async def test_bootstrap_refreshes_when_stale(
-    manager: GraphManager, tmp_project: Path,
+    manager: GraphManager,
+    tmp_project: Path,
 ):
     """Stale project (>24h) re-observes files and returns refreshed."""
     stale_ts = (datetime.utcnow() - timedelta(hours=25)).isoformat()
@@ -283,12 +293,17 @@ async def test_get_context_project_neighbors_in_layer2(tmp_path: Path):
     cfg.briefing_enabled = False
 
     project_entity = Entity(
-        id="ent_proj1", name=tmp_path.name, entity_type="Project",
+        id="ent_proj1",
+        name=tmp_path.name,
+        entity_type="Project",
         group_id="default",
     )
     neighbor_entity = Entity(
-        id="ent_neighbor1", name="FastAPI", entity_type="Technology",
-        summary="Web framework", group_id="default",
+        id="ent_neighbor1",
+        name="FastAPI",
+        entity_type="Technology",
+        summary="Web framework",
+        group_id="default",
     )
     mock_rel = MagicMock()
     mock_rel.predicate = "PART_OF"
@@ -333,13 +348,15 @@ async def test_project_episode_creates_part_of_edges():
     cfg.prospective_memory_enabled = False
 
     project_entity = Entity(
-        id="ent_proj1", name="myproject", entity_type="Project",
+        id="ent_proj1",
+        name="myproject",
+        entity_type="Project",
         group_id="default",
     )
 
     episode = Episode(
         id="ep_test1",
-        content='[project-bootstrap|myproject|README.md]\n# My Project\nHello world',
+        content="[project-bootstrap|myproject|README.md]\n# My Project\nHello world",
         source="auto:bootstrap",
         status=EpisodeStatus.QUEUED,
         group_id="default",
@@ -372,10 +389,7 @@ async def test_project_episode_creates_part_of_edges():
 
     # Check that PART_OF relationship was created
     create_rel_calls = graph.create_relationship.call_args_list
-    part_of_rels = [
-        c for c in create_rel_calls
-        if c[0][0].predicate == "PART_OF"
-    ]
+    part_of_rels = [c for c in create_rel_calls if c[0][0].predicate == "PART_OF"]
     assert len(part_of_rels) == 1
     rel = part_of_rels[0][0][0]
     assert rel.target_id == "ent_proj1"
@@ -398,11 +412,13 @@ async def test_bootstrap_endpoint():
     app.include_router(router)
 
     mock_manager = AsyncMock()
-    mock_manager.bootstrap_project = AsyncMock(return_value={
-        "status": "bootstrapped",
-        "project_entity_id": "ent_abc123",
-        "files_observed": ["README.md", "package.json"],
-    })
+    mock_manager.bootstrap_project = AsyncMock(
+        return_value={
+            "status": "bootstrapped",
+            "project_entity_id": "ent_abc123",
+            "files_observed": ["README.md", "package.json"],
+        }
+    )
 
     with (
         patch("engram.api.knowledge.get_manager", return_value=mock_manager),

@@ -126,12 +126,19 @@ def test_reconsolidation_returns_updates_when_overlap_sufficient():
     cfg = ActivationConfig(reconsolidation_overlap_threshold=0.10)
     entity = _make_entity(summary="a test entity with details")
     labile = LabileEntry(
-        entity_id="ent1", name="Test", entity_type="Person",
-        summary="a test entity with details", query="q", recalled_at=time.time(),
+        entity_id="ent1",
+        name="Test",
+        entity_type="Person",
+        summary="a test entity with details",
+        query="q",
+        recalled_at=time.time(),
     )
     # new_content shares words with summary
     result = attempt_reconsolidation(
-        entity, "the test entity has new details and info", labile, cfg,
+        entity,
+        "the test entity has new details and info",
+        labile,
+        cfg,
     )
     assert result is not None
     assert "summary" in result
@@ -141,12 +148,19 @@ def test_reconsolidation_returns_none_when_overlap_too_low():
     cfg = ActivationConfig(reconsolidation_overlap_threshold=0.90)
     entity = _make_entity(summary="a test entity")
     labile = LabileEntry(
-        entity_id="ent1", name="Test", entity_type="Person",
-        summary="a test entity", query="q", recalled_at=time.time(),
+        entity_id="ent1",
+        name="Test",
+        entity_type="Person",
+        summary="a test entity",
+        query="q",
+        recalled_at=time.time(),
     )
     # Completely different content
     result = attempt_reconsolidation(
-        entity, "quantum mechanics and physics", labile, cfg,
+        entity,
+        "quantum mechanics and physics",
+        labile,
+        cfg,
     )
     assert result is None
 
@@ -156,11 +170,18 @@ def test_reconsolidation_identity_core_summary_only():
     cfg = ActivationConfig(reconsolidation_overlap_threshold=0.10)
     entity = _make_entity(summary="Alex is a developer", identity_core=True)
     labile = LabileEntry(
-        entity_id="ent1", name="Alex", entity_type="Person",
-        summary="Alex is a developer", query="q", recalled_at=time.time(),
+        entity_id="ent1",
+        name="Alex",
+        entity_type="Person",
+        summary="Alex is a developer",
+        query="q",
+        recalled_at=time.time(),
     )
     result = attempt_reconsolidation(
-        entity, "Alex is a developer who also works on AI projects", labile, cfg,
+        entity,
+        "Alex is a developer who also works on AI projects",
+        labile,
+        cfg,
     )
     assert result is not None
     assert "summary" in result
@@ -171,11 +192,18 @@ def test_reconsolidation_summary_capped_at_500():
     long_summary = "a " * 250  # 500 chars
     entity = _make_entity(summary=long_summary.strip())
     labile = LabileEntry(
-        entity_id="ent1", name="Test", entity_type="Person",
-        summary=long_summary.strip(), query="q", recalled_at=time.time(),
+        entity_id="ent1",
+        name="Test",
+        entity_type="Person",
+        summary=long_summary.strip(),
+        query="q",
+        recalled_at=time.time(),
     )
     result = attempt_reconsolidation(
-        entity, "a new information about this entity a", labile, cfg,
+        entity,
+        "a new information about this entity a",
+        labile,
+        cfg,
     )
     if result and "summary" in result:
         assert len(result["summary"]) <= 500
@@ -185,8 +213,12 @@ def test_reconsolidation_no_update_when_no_new_info():
     cfg = ActivationConfig(reconsolidation_overlap_threshold=0.0)
     entity = _make_entity(summary="test")
     labile = LabileEntry(
-        entity_id="ent1", name="Test", entity_type="Person",
-        summary="test", query="q", recalled_at=time.time(),
+        entity_id="ent1",
+        name="Test",
+        entity_type="Person",
+        summary="test",
+        query="q",
+        recalled_at=time.time(),
     )
     # Empty new content
     result = attempt_reconsolidation(entity, "", labile, cfg)

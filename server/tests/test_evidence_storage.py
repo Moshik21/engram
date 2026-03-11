@@ -159,7 +159,8 @@ class TestStoreEvidence:
     async def test_store_and_retrieve(self, store_with_episode, sample_evidence):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         results = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         assert len(results) == 2
         # ordered by confidence DESC
@@ -176,13 +177,16 @@ class TestStoreEvidence:
     async def test_pending_evidence_limit(self, store_with_episode, sample_evidence):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         pending = await store_with_episode.get_pending_evidence(
-            group_id="default", limit=1,
+            group_id="default",
+            limit=1,
         )
         assert len(pending) == 1
 
     @pytest.mark.asyncio
     async def test_pending_includes_deferred_status(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         deferred = [dict(sample_evidence[0], status="deferred", deferred_cycles=2)]
         await store_with_episode.store_evidence(
@@ -197,7 +201,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_pending_includes_approved_status(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         approved = [
             dict(
@@ -218,7 +224,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_pending_excludes_superseded_status(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         superseded = [
             dict(
@@ -237,7 +245,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_store_committed_status_excluded_from_pending(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         committed = [
             dict(
@@ -252,7 +262,8 @@ class TestStoreEvidence:
             default_status="committed",
         )
         episode_rows = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         assert episode_rows[0]["status"] == "committed"
         assert episode_rows[0]["resolved_at"] is not None
@@ -261,7 +272,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_update_evidence_status_commit(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         evi_id = sample_evidence[0]["evidence_id"]
@@ -272,7 +285,8 @@ class TestStoreEvidence:
             group_id="default",
         )
         results = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         committed = [r for r in results if r["evidence_id"] == evi_id][0]
         assert committed["status"] == "committed"
@@ -282,7 +296,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_update_evidence_status_defer(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         evi_id = sample_evidence[0]["evidence_id"]
@@ -293,7 +309,8 @@ class TestStoreEvidence:
             group_id="default",
         )
         results = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         deferred = [r for r in results if r["evidence_id"] == evi_id][0]
         assert deferred["status"] == "deferred"
@@ -303,12 +320,16 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_pending_excludes_committed(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         evi_id = sample_evidence[0]["evidence_id"]
         await store_with_episode.update_evidence_status(
-            evi_id, "committed", group_id="default",
+            evi_id,
+            "committed",
+            group_id="default",
         )
         pending = await store_with_episode.get_pending_evidence(group_id="default")
         assert len(pending) == 1
@@ -316,13 +337,16 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_duplicate_evidence_ignored(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         # INSERT OR IGNORE
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         results = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         assert len(results) == 2
 
@@ -330,7 +354,8 @@ class TestStoreEvidence:
     async def test_payload_roundtrip(self, store_with_episode, sample_evidence):
         await store_with_episode.store_evidence(sample_evidence, group_id="default")
         results = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         entity_ev = [r for r in results if r["fact_class"] == "entity"][0]
         assert entity_ev["payload"]["name"] == "Alex"
@@ -338,7 +363,9 @@ class TestStoreEvidence:
 
     @pytest.mark.asyncio
     async def test_ambiguity_fields_roundtrip(
-        self, store_with_episode, sample_evidence,
+        self,
+        store_with_episode,
+        sample_evidence,
     ):
         rows = [
             dict(
@@ -352,7 +379,8 @@ class TestStoreEvidence:
         ]
         await store_with_episode.store_evidence(rows, group_id="default")
         stored = await store_with_episode.get_episode_evidence(
-            "ep_test_1", group_id="default",
+            "ep_test_1",
+            group_id="default",
         )
         assert stored[0]["ambiguity_tags"] == ["negation_scope"]
         assert stored[0]["ambiguity_score"] == 0.66

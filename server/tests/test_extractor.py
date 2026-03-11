@@ -160,14 +160,19 @@ class TestExtract:
         """HealthCondition entity type parses correctly from extraction response."""
         data = {
             "entities": [
-                {"name": "Type 2 Diabetes", "entity_type": "HealthCondition",
-                 "summary": "Chronic metabolic condition"},
-                {"name": "Pancreas", "entity_type": "BodyPart",
-                 "summary": "Organ that produces insulin"},
+                {
+                    "name": "Type 2 Diabetes",
+                    "entity_type": "HealthCondition",
+                    "summary": "Chronic metabolic condition",
+                },
+                {
+                    "name": "Pancreas",
+                    "entity_type": "BodyPart",
+                    "summary": "Organ that produces insulin",
+                },
             ],
             "relationships": [
-                {"source": "Type 2 Diabetes", "target": "Pancreas",
-                 "predicate": "AFFECTS"},
+                {"source": "Type 2 Diabetes", "target": "Pancreas", "predicate": "AFFECTS"},
             ],
         }
         extractor = self._make_extractor_with_response(json.dumps(data))
@@ -182,15 +187,16 @@ class TestExtract:
         """Emotion entity type parses correctly from extraction response."""
         data = {
             "entities": [
-                {"name": "Anxiety", "entity_type": "Emotion",
-                 "summary": "Feeling of worry and unease"},
+                {
+                    "name": "Anxiety",
+                    "entity_type": "Emotion",
+                    "summary": "Feeling of worry and unease",
+                },
             ],
             "relationships": [],
         }
         extractor = self._make_extractor_with_response(json.dumps(data))
-        result = await extractor.extract(
-            "I have been feeling a lot of anxiety about the move"
-        )
+        result = await extractor.extract("I have been feeling a lot of anxiety about the move")
         assert len(result.entities) == 1
         assert result.entities[0]["entity_type"] == "Emotion"
 
@@ -198,16 +204,24 @@ class TestExtract:
         """Goal, Preference, and Habit entity types parse correctly."""
         data = {
             "entities": [
-                {"name": "Run A Marathon", "entity_type": "Goal",
-                 "summary": "Aspiration to complete a marathon"},
-                {"name": "Morning Running", "entity_type": "Habit",
-                 "summary": "Daily morning running routine"},
-                {"name": "Plant-Based Diet", "entity_type": "Preference",
-                 "summary": "Prefers plant-based foods"},
+                {
+                    "name": "Run A Marathon",
+                    "entity_type": "Goal",
+                    "summary": "Aspiration to complete a marathon",
+                },
+                {
+                    "name": "Morning Running",
+                    "entity_type": "Habit",
+                    "summary": "Daily morning running routine",
+                },
+                {
+                    "name": "Plant-Based Diet",
+                    "entity_type": "Preference",
+                    "summary": "Prefers plant-based foods",
+                },
             ],
             "relationships": [
-                {"source": "Morning Running", "target": "Run A Marathon",
-                 "predicate": "SUPPORTS"},
+                {"source": "Morning Running", "target": "Run A Marathon", "predicate": "SUPPORTS"},
             ],
         }
         extractor = self._make_extractor_with_response(json.dumps(data))

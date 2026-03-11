@@ -101,10 +101,12 @@ class TestEvidenceBridge:
             "temporal",
             {"temporal_marker": "2026-01-15", "nearby_entity": "Alice"},
         )
-        entities, claims = bridge.bridge([
-            (ev_rel, _decision(ev_rel)),
-            (ev_temp, _decision(ev_temp)),
-        ])
+        entities, claims = bridge.bridge(
+            [
+                (ev_rel, _decision(ev_rel)),
+                (ev_temp, _decision(ev_temp)),
+            ]
+        )
         assert len(claims) == 1
         assert claims[0].temporal_hint == "2026-01-15"
         assert ev_temp.evidence_id in claims[0].raw_payload["temporal_evidence_ids"]

@@ -39,13 +39,17 @@ class NarrowExtractorAdapter:
         """Extract entities and relationships using narrow pipeline."""
         if not text or not text.strip():
             return ExtractionResult(
-                entities=[], relationships=[], status=ExtractionStatus.EMPTY,
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.EMPTY,
             )
 
         try:
             # 1. Run narrow extractors
             bundle = self._pipeline.extract(
-                text=text, episode_id="adapter", group_id="default",
+                text=text,
+                episode_id="adapter",
+                group_id="default",
             )
 
             # 2. Evaluate commit decisions
@@ -63,36 +67,44 @@ class NarrowExtractorAdapter:
             # 5. Convert to ExtractionResult dict format
             entities = []
             for ec in entity_candidates:
-                entities.append({
-                    "name": ec.name,
-                    "entity_type": ec.entity_type,
-                    "summary": ec.summary or "",
-                    **({"attributes": ec.attributes} if ec.attributes else {}),
-                })
+                entities.append(
+                    {
+                        "name": ec.name,
+                        "entity_type": ec.entity_type,
+                        "summary": ec.summary or "",
+                        **({"attributes": ec.attributes} if ec.attributes else {}),
+                    }
+                )
 
             relationships = []
             for cc in claim_candidates:
-                relationships.append({
-                    "source": cc.subject_text,
-                    "target": cc.object_text or "",
-                    "predicate": cc.predicate,
-                })
+                relationships.append(
+                    {
+                        "source": cc.subject_text,
+                        "target": cc.object_text or "",
+                        "predicate": cc.predicate,
+                    }
+                )
 
             logger.info(
                 "Narrow extraction: %d entities, %d relationships from %d chars (%.1fms)",
-                len(entities), len(relationships), len(text), bundle.total_ms,
+                len(entities),
+                len(relationships),
+                len(text),
+                bundle.total_ms,
             )
 
-            status = (
-                ExtractionStatus.OK if entities or relationships
-                else ExtractionStatus.EMPTY
-            )
+            status = ExtractionStatus.OK if entities or relationships else ExtractionStatus.EMPTY
             return ExtractionResult(
-                entities=entities, relationships=relationships, status=status,
+                entities=entities,
+                relationships=relationships,
+                status=status,
             )
         except Exception as e:
             logger.error("Narrow extraction failed: %s", e)
             return ExtractionResult(
-                entities=[], relationships=[],
-                status=ExtractionStatus.API_ERROR, error=str(e),
+                entities=[],
+                relationships=[],
+                status=ExtractionStatus.API_ERROR,
+                error=str(e),
             )

@@ -50,9 +50,7 @@ def collect_external_track_results(
             available=locomo_available,
             executed=False,
             availability_reason=(
-                None
-                if locomo_available
-                else "LoCoMo dataset path not provided or missing"
+                None if locomo_available else "LoCoMo dataset path not provided or missing"
             ),
             summary_metrics={
                 "purpose": "External multi-turn memory evaluation.",

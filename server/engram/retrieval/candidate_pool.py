@@ -256,11 +256,9 @@ async def generate_candidates(
     )
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
-    seed_ids = [
-        eid
-        for eid, score in search_results
-        if score >= cfg.seed_threshold
-    ][: limits["pool_graph_seed_count"]]
+    seed_ids = [eid for eid, score in search_results if score >= cfg.seed_threshold][
+        : limits["pool_graph_seed_count"]
+    ]
     graph_results = await _graph_neighborhood_pool(
         seed_ids,
         group_id,

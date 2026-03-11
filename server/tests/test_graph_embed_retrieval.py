@@ -102,8 +102,12 @@ class TestScorerGraphStructural:
     def test_graph_structural_field_on_result(self):
         """ScoredResult should have graph_structural field."""
         r = ScoredResult(
-            node_id="e1", score=1.0, semantic_similarity=0.5,
-            activation=0.3, spreading=0.1, edge_proximity=0.2,
+            node_id="e1",
+            score=1.0,
+            semantic_similarity=0.5,
+            activation=0.3,
+            spreading=0.1,
+            edge_proximity=0.2,
             graph_structural=0.7,
         )
         assert r.graph_structural == 0.7
@@ -180,8 +184,11 @@ class TestGraphEmbedPipelineFallback:
         query_seed_ids = list(seed_node_ids) if seed_node_ids else []
         if not query_seed_ids:
             query_seed_ids = [
-                eid for eid, _ in sorted(
-                    candidates, key=lambda x: x[1], reverse=True,
+                eid
+                for eid, _ in sorted(
+                    candidates,
+                    key=lambda x: x[1],
+                    reverse=True,
                 )[:3]
             ]
 

@@ -52,6 +52,7 @@ async def _record_memory_need_analysis(manager: GraphManager, need: object) -> N
     if inspect.isawaitable(result):
         await result
 
+
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     """Initialize storage on the same event loop as the MCP server."""
@@ -138,8 +139,12 @@ async def _init() -> None:
     extractor = create_extractor(config)
     event_bus = get_event_bus()
     _manager = GraphManager(
-        graph_store, activation_store, search_index, extractor,
-        cfg=config.activation, event_bus=event_bus,
+        graph_store,
+        activation_store,
+        search_index,
+        extractor,
+        cfg=config.activation,
+        event_bus=event_bus,
         runtime_mode=mode.value,
     )
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
@@ -249,7 +254,9 @@ def _extract_recall_query(content: str) -> str:
 
 
 async def _auto_recall(
-    content: str, manager: GraphManager, cfg: ActivationConfig,
+    content: str,
+    manager: GraphManager,
+    cfg: ActivationConfig,
 ) -> dict | None:
     """Piggyback lightweight recall on observe/remember calls."""
     if not cfg.auto_recall_enabled:
@@ -410,7 +417,9 @@ async def _auto_recall(
 
 
 async def _session_prime(
-    content: str | None, manager: GraphManager, cfg: ActivationConfig,
+    content: str | None,
+    manager: GraphManager,
+    cfg: ActivationConfig,
 ) -> dict | None:
     """Auto-prime context on first tool call in a session."""
     if not cfg.auto_recall_session_prime:
@@ -497,9 +506,7 @@ async def remember(
     }
     # Add remember_outcome for v2 pipeline
     if cfg and cfg.evidence_extraction_enabled:
-        response["message"] = (
-            "Memory received. Evidence extracted and evaluated."
-        )
+        response["message"] = "Memory received. Evidence extracted and evaluated."
         if cfg.edge_adjudication_client_enabled:
             adjudications = await _get_episode_adjudications(
                 manager,
@@ -740,11 +747,11 @@ async def recall(query: str, limit: int = 5) -> str:
     }
 
     # Append near-misses if available (Wave 2)
-    if hasattr(manager, '_last_near_misses') and manager._last_near_misses:
+    if hasattr(manager, "_last_near_misses") and manager._last_near_misses:
         response_dict["near_misses"] = manager._last_near_misses
 
     # Surface surprise connections (Wave 3)
-    if hasattr(manager, '_surprise_cache') and manager._surprise_cache is not None:
+    if hasattr(manager, "_surprise_cache") and manager._surprise_cache is not None:
         surprise_cache = getattr(manager, "_surprise_cache", None)
         surprises = (
             surprise_cache.get(_group_id, time.time())
@@ -1032,13 +1039,9 @@ async def mark_identity_core(entity_name: str, identity_core: bool = True) -> st
         JSON with status and entity details.
     """
     manager = _get_manager()
-    entities = await manager._graph.find_entities(
-        name=entity_name, group_id=_group_id, limit=1
-    )
+    entities = await manager._graph.find_entities(name=entity_name, group_id=_group_id, limit=1)
     if not entities:
-        return json.dumps(
-            {"status": "error", "message": f"Entity '{entity_name}' not found."}
-        )
+        return json.dumps({"status": "error", "message": f"Entity '{entity_name}' not found."})
     entity = entities[0]
     await manager._graph.update_entity(
         entity.id,
@@ -1200,14 +1203,16 @@ async def intend(
             context=context,
             see_also=see_also,
         )
-        return json.dumps({
-            "status": "created",
-            "intention_id": intention_id,
-            "trigger_type": trigger_type,
-            "linked_entities": entity_names or [],
-            "threshold": threshold or manager._cfg.prospective_activation_threshold,
-            "message": f"Intention set: will fire when '{trigger_text}' activates.",
-        })
+        return json.dumps(
+            {
+                "status": "created",
+                "intention_id": intention_id,
+                "trigger_type": trigger_type,
+                "linked_entities": entity_names or [],
+                "threshold": threshold or manager._cfg.prospective_activation_threshold,
+                "message": f"Intention set: will fire when '{trigger_text}' activates.",
+            }
+        )
     except ValueError as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -1226,12 +1231,14 @@ async def dismiss_intention(intention_id: str, hard: bool = False) -> str:
     manager = _get_manager()
     try:
         await manager.dismiss_intention(intention_id, _group_id, hard=hard)
-        return json.dumps({
-            "status": "dismissed",
-            "intention_id": intention_id,
-            "hard": hard,
-            "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
-        })
+        return json.dumps(
+            {
+                "status": "dismissed",
+                "intention_id": intention_id,
+                "hard": hard,
+                "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
+            }
+        )
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -1249,7 +1256,8 @@ async def list_intentions(enabled_only: bool = True) -> str:
     manager = _get_manager()
     cfg = manager._cfg
     intentions = await manager.list_intentions(
-        group_id=_group_id, enabled_only=enabled_only,
+        group_id=_group_id,
+        enabled_only=enabled_only,
     )
 
     items = []
@@ -1271,8 +1279,7 @@ async def list_intentions(enabled_only: bool = True) -> str:
             if state:
                 activation = compute_activation(state.access_history, now, cfg)
             warmth_ratio = (
-                activation / meta.activation_threshold
-                if meta.activation_threshold > 0 else 0.0
+                activation / meta.activation_threshold if meta.activation_threshold > 0 else 0.0
             )
 
             # Classify warmth
@@ -1288,36 +1295,40 @@ async def list_intentions(enabled_only: bool = True) -> str:
             else:
                 warmth_label = "dormant"
 
-            items.append({
-                "id": entity.id,
-                "trigger_text": meta.trigger_text,
-                "action_text": meta.action_text,
-                "trigger_type": meta.trigger_type,
-                "threshold": meta.activation_threshold,
-                "fire_count": meta.fire_count,
-                "max_fires": meta.max_fires,
-                "enabled": meta.enabled,
-                "priority": meta.priority,
-                "expires_at": meta.expires_at,
-                "warmth_ratio": round(warmth_ratio, 4),
-                "warmth_label": warmth_label,
-                "linked_entity_ids": meta.trigger_entity_ids,
-            })
+            items.append(
+                {
+                    "id": entity.id,
+                    "trigger_text": meta.trigger_text,
+                    "action_text": meta.action_text,
+                    "trigger_type": meta.trigger_type,
+                    "threshold": meta.activation_threshold,
+                    "fire_count": meta.fire_count,
+                    "max_fires": meta.max_fires,
+                    "enabled": meta.enabled,
+                    "priority": meta.priority,
+                    "expires_at": meta.expires_at,
+                    "warmth_ratio": round(warmth_ratio, 4),
+                    "warmth_label": warmth_label,
+                    "linked_entity_ids": meta.trigger_entity_ids,
+                }
+            )
     else:
         # v1 fallback
         for i in intentions:
-            items.append({
-                "id": i.id,
-                "trigger_text": i.trigger_text,
-                "action_text": i.action_text,
-                "trigger_type": i.trigger_type,
-                "entity_name": i.entity_name,
-                "threshold": i.threshold,
-                "fire_count": i.fire_count,
-                "max_fires": i.max_fires,
-                "enabled": i.enabled,
-                "expires_at": i.expires_at.isoformat() if i.expires_at else None,
-            })
+            items.append(
+                {
+                    "id": i.id,
+                    "trigger_text": i.trigger_text,
+                    "action_text": i.action_text,
+                    "trigger_type": i.trigger_type,
+                    "entity_name": i.entity_name,
+                    "threshold": i.threshold,
+                    "fire_count": i.fire_count,
+                    "max_fires": i.max_fires,
+                    "enabled": i.enabled,
+                    "expires_at": i.expires_at.isoformat() if i.expires_at else None,
+                }
+            )
 
     return json.dumps({"intentions": items, "total": len(items)})
 

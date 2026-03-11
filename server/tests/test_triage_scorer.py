@@ -205,9 +205,7 @@ async def test_scorer_personal_floor():
         "My dad is devastated."
     )
     signals = await scorer.score(content)
-    assert signals.composite >= 0.45, (
-        f"Personal content should hit floor, got {signals.composite}"
-    )
+    assert signals.composite >= 0.45, f"Personal content should hit floor, got {signals.composite}"
 
 
 @pytest.mark.asyncio
@@ -259,10 +257,14 @@ async def test_scorer_signals_dataclass():
     signals = await scorer.score("Alice and Bob went to Google headquarters in 2024")
 
     for field_name in [
-        "embedding_surprise", "structural_extractability",
-        "entity_candidate_count", "knowledge_gap",
-        "yield_prediction", "emotional_salience",
-        "novelty", "goal_boost",
+        "embedding_surprise",
+        "structural_extractability",
+        "entity_candidate_count",
+        "knowledge_gap",
+        "yield_prediction",
+        "emotional_salience",
+        "novelty",
+        "goal_boost",
     ]:
         val = getattr(signals, field_name)
         assert isinstance(val, float)

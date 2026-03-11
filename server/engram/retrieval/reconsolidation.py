@@ -72,8 +72,7 @@ class LabileWindowTracker:
         """Remove entries past their TTL."""
         now = time.time()
         expired = [
-            eid for eid, entry in self._entries.items()
-            if now - entry.recalled_at > self._ttl
+            eid for eid, entry in self._entries.items() if now - entry.recalled_at > self._ttl
         ]
         for eid in expired:
             del self._entries[eid]

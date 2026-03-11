@@ -85,12 +85,10 @@ class PostgresConsolidationStore:
                 "ADD COLUMN IF NOT EXISTS decision_confidence DOUBLE PRECISION"
             )
             await conn.execute(
-                "ALTER TABLE consolidation_merges "
-                "ADD COLUMN IF NOT EXISTS decision_source TEXT"
+                "ALTER TABLE consolidation_merges ADD COLUMN IF NOT EXISTS decision_source TEXT"
             )
             await conn.execute(
-                "ALTER TABLE consolidation_merges "
-                "ADD COLUMN IF NOT EXISTS decision_reason TEXT"
+                "ALTER TABLE consolidation_merges ADD COLUMN IF NOT EXISTS decision_reason TEXT"
             )
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS consolidation_inferred_edges (
@@ -564,7 +562,8 @@ class PostgresConsolidationStore:
                 review_status=r["review_status"],
                 metadata=(
                     json.loads(r["metadata"]) if isinstance(r["metadata"], str) else r["metadata"]
-                ) or {},
+                )
+                or {},
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -971,16 +970,19 @@ class PostgresConsolidationStore:
                 confidence=r["confidence"],
                 threshold_band=r["threshold_band"],
                 features=(
-                    json.loads(r["features"]) if isinstance(r["features"], str)
+                    json.loads(r["features"])
+                    if isinstance(r["features"], str)
                     else (r["features"] or {})
                 ),
                 constraints_hit=(
-                    json.loads(r["constraints_json"]) if isinstance(r["constraints_json"], str)
+                    json.loads(r["constraints_json"])
+                    if isinstance(r["constraints_json"], str)
                     else (r["constraints_json"] or [])
                 ),
                 policy_version=r["policy_version"],
                 metadata=(
-                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    json.loads(r["metadata"])
+                    if isinstance(r["metadata"], str)
                     else (r["metadata"] or {})
                 ),
                 timestamp=r["timestamp"],
@@ -1031,7 +1033,8 @@ class PostgresConsolidationStore:
                 label=r["label"],
                 value=r["value"],
                 metadata=(
-                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    json.loads(r["metadata"])
+                    if isinstance(r["metadata"], str)
                     else (r["metadata"] or {})
                 ),
                 timestamp=r["timestamp"],
@@ -1094,12 +1097,14 @@ class PostgresConsolidationStore:
                 student_confidence=r["student_confidence"],
                 threshold_band=r["threshold_band"],
                 features=(
-                    json.loads(r["features"]) if isinstance(r["features"], str)
+                    json.loads(r["features"])
+                    if isinstance(r["features"], str)
                     else (r["features"] or {})
                 ),
                 correct=r["correct"],
                 metadata=(
-                    json.loads(r["metadata"]) if isinstance(r["metadata"], str)
+                    json.loads(r["metadata"])
+                    if isinstance(r["metadata"], str)
                     else (r["metadata"] or {})
                 ),
                 timestamp=r["timestamp"],
@@ -1160,7 +1165,8 @@ class PostgresConsolidationStore:
                 mean_confidence=r["mean_confidence"],
                 expected_calibration_error=r["expected_calibration_error"],
                 summary=(
-                    json.loads(r["summary"]) if isinstance(r["summary"], str)
+                    json.loads(r["summary"])
+                    if isinstance(r["summary"], str)
                     else (r["summary"] or {})
                 ),
                 timestamp=r["timestamp"],

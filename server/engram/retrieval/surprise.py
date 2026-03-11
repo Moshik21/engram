@@ -47,7 +47,8 @@ async def detect_surprises(
     for entity_id in entity_ids:
         try:
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                entity_id, group_id,
+                entity_id,
+                group_id,
             )
         except Exception:
             continue
@@ -97,16 +98,18 @@ async def detect_surprises(
                 neighbor_name = nid
 
             surprise_score = weight * (1.0 - activation)
-            surprises.append(SurpriseConnection(
-                entity_id=nid,
-                entity_name=neighbor_name,
-                connected_to_id=entity_id,
-                connected_to_name=source_name,
-                predicate=predicate,
-                edge_weight=weight,
-                activation_score=activation,
-                surprise_score=surprise_score,
-            ))
+            surprises.append(
+                SurpriseConnection(
+                    entity_id=nid,
+                    entity_name=neighbor_name,
+                    connected_to_id=entity_id,
+                    connected_to_name=source_name,
+                    predicate=predicate,
+                    edge_weight=weight,
+                    activation_score=activation,
+                    surprise_score=surprise_score,
+                )
+            )
 
     surprises.sort(key=lambda s: s.surprise_score, reverse=True)
     return surprises
@@ -120,7 +123,10 @@ class SurpriseCache:
         self._entries: dict[str, tuple[float, list[SurpriseConnection]]] = {}
 
     def put(
-        self, group_id: str, surprises: list[SurpriseConnection], now: float | None = None,
+        self,
+        group_id: str,
+        surprises: list[SurpriseConnection],
+        now: float | None = None,
     ) -> None:
         ts = now if now is not None else time.time()
         self._entries[group_id] = (ts, list(surprises))

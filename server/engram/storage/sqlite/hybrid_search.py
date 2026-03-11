@@ -65,7 +65,11 @@ class HybridSearchIndex:
                     if self._storage_dim > 0:
                         embeddings = truncate_vectors(embeddings, self._storage_dim)
                     await self._vectors.upsert(
-                        entity.id, "entity", entity.group_id, text, embeddings[0],
+                        entity.id,
+                        "entity",
+                        entity.group_id,
+                        text,
+                        embeddings[0],
                         embed_provider=self._embed_provider,
                         embed_model=self._embed_model,
                     )
@@ -81,7 +85,10 @@ class HybridSearchIndex:
                     if self._storage_dim > 0:
                         embeddings = truncate_vectors(embeddings, self._storage_dim)
                     await self._vectors.upsert(
-                        episode.id, "episode", episode.group_id, episode.content,
+                        episode.id,
+                        "episode",
+                        episode.group_id,
+                        episode.content,
                         embeddings[0],
                         embed_provider=self._embed_provider,
                         embed_model=self._embed_model,
@@ -137,8 +144,7 @@ class HybridSearchIndex:
         if self._storage_dim > 0:
             embeddings = truncate_vectors(embeddings, self._storage_dim)
         items: list[tuple[str, str, str, str | None, list[float]]] = [
-            (e.id, "entity", e.group_id, t, vec)
-            for e, t, vec in zip(valid, texts, embeddings)
+            (e.id, "entity", e.group_id, t, vec) for e, t, vec in zip(valid, texts, embeddings)
         ]
         await self._vectors.batch_upsert(
             items,
@@ -204,8 +210,11 @@ class HybridSearchIndex:
         # Vector search uses the pre-computed query embedding
         try:
             vec_results = await self._vectors.search(
-                query_vec, group_id or "default", content_type="entity",
-                limit=limit * 2, storage_dim=self._storage_dim,
+                query_vec,
+                group_id or "default",
+                content_type="entity",
+                limit=limit * 2,
+                storage_dim=self._storage_dim,
             )
         except Exception as e:
             logger.warning("Vector search failed, falling back to FTS5: %s", e)
@@ -338,7 +347,7 @@ class HybridSearchIndex:
                 vec = unpack_vector(row["embedding"], row["dimensions"])
                 # Truncate stored vector if it's larger than storage_dim
                 if self._storage_dim > 0 and len(vec) > self._storage_dim:
-                    vec = vec[:self._storage_dim]
+                    vec = vec[: self._storage_dim]
                 results[eid] = max(0.0, cosine_similarity(query_vec, vec))
         return results
 
@@ -498,7 +507,10 @@ class HybridSearchIndex:
 
         store = GraphEmbeddingStore()
         return await store.get_embeddings(
-            self._vectors.db, entity_ids, method, group_id or "default",
+            self._vectors.db,
+            entity_ids,
+            method,
+            group_id or "default",
         )
 
     async def remove(self, entity_id: str) -> None:
@@ -522,14 +534,18 @@ class HybridSearchIndex:
                     logger.warning(
                         "Embedding dimension mismatch: %d vectors with dim=%d "
                         "(current=%d). Run consolidation reindex to update.",
-                        row["cnt"], row["dimensions"], current_dim,
+                        row["cnt"],
+                        row["dimensions"],
+                        current_dim,
                     )
                 stored_provider = row["embed_provider"] if "embed_provider" in row.keys() else ""
                 if stored_provider and stored_provider != self._embed_provider and row["cnt"] > 0:
                     logger.warning(
                         "Embedding provider mismatch: %d vectors from '%s' "
                         "(current='%s'). Run consolidation reindex to update.",
-                        row["cnt"], stored_provider, self._embed_provider,
+                        row["cnt"],
+                        stored_provider,
+                        self._embed_provider,
                     )
         except Exception:
             pass  # Non-fatal — table may not have versioning columns yet

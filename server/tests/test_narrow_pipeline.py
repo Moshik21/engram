@@ -37,9 +37,9 @@ class TestNarrowExtractionPipeline:
         text = "I work at Anthropic. Anthropic is great."
         bundle = pipeline.extract(text, "ep1", "default")
         anthropic_entities = [
-            c for c in bundle.candidates
-            if c.fact_class == "entity"
-            and c.payload.get("name") == "Anthropic"
+            c
+            for c in bundle.candidates
+            if c.fact_class == "entity" and c.payload.get("name") == "Anthropic"
         ]
         if anthropic_entities:
             assert any(
@@ -51,17 +51,14 @@ class TestNarrowExtractionPipeline:
         text = "My name is Alex. Alex is a developer."
         bundle = pipeline.extract(text, "ep1", "default")
         alex_entities = [
-            c for c in bundle.candidates
-            if c.fact_class == "entity"
-            and c.payload.get("name", "").lower() == "alex"
+            c
+            for c in bundle.candidates
+            if c.fact_class == "entity" and c.payload.get("name", "").lower() == "alex"
         ]
         assert len(alex_entities) == 1
 
     def test_multiple_fact_classes(self, pipeline):
-        text = (
-            "My name is Alex. I work at Anthropic. "
-            "Since 2024-01-15 I prefer Python."
-        )
+        text = "My name is Alex. I work at Anthropic. Since 2024-01-15 I prefer Python."
         bundle = pipeline.extract(text, "ep1", "default")
         fact_classes = {c.fact_class for c in bundle.candidates}
         assert "entity" in fact_classes
@@ -82,7 +79,10 @@ class TestNarrowExtractionPipeline:
             assert c.episode_id == "ep1"
             assert c.group_id == "default"
             assert c.fact_class in (
-                "entity", "relationship", "attribute", "temporal",
+                "entity",
+                "relationship",
+                "attribute",
+                "temporal",
             )
             assert 0.0 <= c.confidence <= 1.0
             assert c.source_type == "narrow_extractor"

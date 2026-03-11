@@ -361,8 +361,7 @@ def _negation_correction(seed: int) -> ShowcaseScenario:
         id="negation_correction",
         title="Negation And Correction",
         why_it_matters=(
-            "Negative polarity should suppress stale relationships"
-            " instead of appending noise."
+            "Negative polarity should suppress stale relationships instead of appending noise."
         ),
         turns=turns,
         probes=probes,
@@ -420,8 +419,7 @@ def _open_loop_recovery(seed: int, history_multiplier: int) -> ShowcaseScenario:
         id="open_loop_recovery",
         title="Open Loop Recovery",
         why_it_matters=(
-            "Latent unresolved work should return later"
-            " without keeping full history in prompt."
+            "Latent unresolved work should return later without keeping full history in prompt."
         ),
         turns=turns,
         probes=probes,
@@ -559,7 +557,8 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
             extraction=ExtractionSpec(
                 entities=[
                     _entity(
-                        "Bearer Validation", "Capability",
+                        "Bearer Validation",
+                        "Capability",
                         summary="Validation path for bearer credentials.",
                     ),
                     _entity("Sentinel Mesh", "Project", summary="Internal security routing mesh."),
@@ -633,8 +632,7 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
             expected_result_types=["entity"],
             capability_tags=["association", "graph"],
             note=(
-                "Graph spreading should connect lexically distant"
-                " but structurally linked entities."
+                "Graph spreading should connect lexically distant but structurally linked entities."
             ),
         )
     ]
@@ -646,8 +644,7 @@ def _cross_cluster_association(seed: int) -> ShowcaseScenario:
         id="cross_cluster_association",
         title="Cross Cluster Association",
         why_it_matters=(
-            "Graph-aware retrieval should outperform flat lexical"
-            " retrieval on associative queries."
+            "Graph-aware retrieval should outperform flat lexical retrieval on associative queries."
         ),
         turns=turns,
         probes=probes,
@@ -666,8 +663,7 @@ def _latent_open_loop_cue(seed: int, history_multiplier: int) -> ShowcaseScenari
             id="canary_open_loop",
             action="observe",
             content=(
-                "Rina mentioned the canary rollout still needs"
-                " canary keys rotated before Tuesday."
+                "Rina mentioned the canary rollout still needs canary keys rotated before Tuesday."
             ),
             source="showcase:meeting",
         ),
@@ -791,8 +787,7 @@ def _multi_session_continuity(seed: int, history_multiplier: int) -> ShowcaseSce
         id="multi_session_continuity",
         title="Multi Session Continuity",
         why_it_matters=(
-            "Durable project state should survive beyond the"
-            " immediate conversation window."
+            "Durable project state should survive beyond the immediate conversation window."
         ),
         turns=turns,
         probes=probes,
@@ -870,8 +865,7 @@ def _context_budget_compression(seed: int, history_multiplier: int) -> ShowcaseS
         id="context_budget_compression",
         title="Context Budget Compression",
         why_it_matters=(
-            "Structured memory should keep the key facts even"
-            " when raw notes get truncated."
+            "Structured memory should keep the key facts even when raw notes get truncated."
         ),
         turns=turns,
         probes=probes,
@@ -960,8 +954,7 @@ def _selective_extraction_efficiency(seed: int, history_multiplier: int) -> Show
             id="sparrow_board_note",
             action="observe",
             content=(
-                "Board decision: Sparrow Feature should sunset"
-                " next quarter after the migration."
+                "Board decision: Sparrow Feature should sunset next quarter after the migration."
             ),
             extraction=ExtractionSpec(
                 entities=[
@@ -1017,8 +1010,7 @@ def _selective_extraction_efficiency(seed: int, history_multiplier: int) -> Show
         id="selective_extraction_efficiency",
         title="Selective Extraction Efficiency",
         why_it_matters=(
-            "Engram should answer later questions without"
-            " projecting every observed turn."
+            "Engram should answer later questions without projecting every observed turn."
         ),
         turns=turns,
         probes=probes,
@@ -1173,8 +1165,7 @@ def _summary_drift_resistance(seed: int, history_multiplier: int) -> ShowcaseSce
             historical_evidence_allowed=False,
             capability_tags=["meta", "temporal"],
             note=(
-                "Paraphrases and exploratory notes should not"
-                " distort the canonical current style."
+                "Paraphrases and exploratory notes should not distort the canonical current style."
             ),
         )
     ]
@@ -1186,8 +1177,7 @@ def _summary_drift_resistance(seed: int, history_multiplier: int) -> ShowcaseSce
         id="summary_drift_resistance",
         title="Summary Drift Resistance",
         why_it_matters=(
-            "Repeated paraphrases and exploratory chatter"
-            " should not rewrite current truth."
+            "Repeated paraphrases and exploratory chatter should not rewrite current truth."
         ),
         turns=turns,
         probes=probes,

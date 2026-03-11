@@ -108,8 +108,7 @@ BASELINE_CATALOG: dict[str, BaselineCatalogEntry] = {
         accent="#10b981",
         archetype="Recent-turn context with a rolling deterministic summary.",
         description=(
-            "Strong context-window control without graph semantics "
-            "or durable memory objects."
+            "Strong context-window control without graph semantics or durable memory objects."
         ),
         fairness_notes="Honors the same probe budgets as every other measured baseline.",
         known_limitations="No persistent graph, cue recall, or associative traversal.",

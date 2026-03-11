@@ -93,9 +93,7 @@ class EpisodeProjector:
             or ""
         )
         object_text = (
-            rel_data.get("target")
-            or rel_data.get("target_entity")
-            or rel_data.get("target_name")
+            rel_data.get("target") or rel_data.get("target_entity") or rel_data.get("target_name")
         )
         predicate = (
             rel_data.get("predicate")

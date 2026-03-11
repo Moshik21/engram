@@ -140,8 +140,11 @@ def mat_cfg_with_age():
 
 
 def _make_entity(
-    entity_id="ent1", name="Test", attrs=None,
-    created_days_ago=30, identity_core=False,
+    entity_id="ent1",
+    name="Test",
+    attrs=None,
+    created_days_ago=30,
+    identity_core=False,
 ):
     entity = MagicMock()
     entity.id = entity_id
@@ -159,8 +162,13 @@ async def test_maturation_phase_skipped_when_disabled():
     cfg = ActivationConfig()
     phase = MaturationPhase()
     result, records = await phase.execute(
-        "default", AsyncMock(), AsyncMock(), AsyncMock(),
-        cfg, "cyc1", dry_run=False,
+        "default",
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        cfg,
+        "cyc1",
+        dry_run=False,
     )
     assert result.status == "skipped"
     assert records == []
@@ -178,8 +186,14 @@ async def test_maturation_phase_identity_core_auto_semantic(mat_cfg):
     phase = MaturationPhase()
     context = CycleContext()
     result, records = await phase.execute(
-        "default", graph, activation, search,
-        mat_cfg, "cyc1", dry_run=False, context=context,
+        "default",
+        graph,
+        activation,
+        search,
+        mat_cfg,
+        "cyc1",
+        dry_run=False,
+        context=context,
     )
     assert len(records) == 1
     assert records[0].new_tier == "semantic"
@@ -205,8 +219,13 @@ async def test_maturation_phase_transitional_threshold(mat_cfg):
 
     phase = MaturationPhase()
     result, records = await phase.execute(
-        "default", graph, activation, search,
-        mat_cfg, "cyc1", dry_run=False,
+        "default",
+        graph,
+        activation,
+        search,
+        mat_cfg,
+        "cyc1",
+        dry_run=False,
     )
     assert len(records) >= 1
     assert records[0].new_tier in ("transitional", "semantic")
@@ -223,8 +242,13 @@ async def test_maturation_phase_min_age_gate(mat_cfg_with_age):
 
     phase = MaturationPhase()
     result, records = await phase.execute(
-        "default", graph, activation, search,
-        mat_cfg_with_age, "cyc1", dry_run=False,
+        "default",
+        graph,
+        activation,
+        search,
+        mat_cfg_with_age,
+        "cyc1",
+        dry_run=False,
     )
     assert len(records) == 0
 
@@ -240,8 +264,13 @@ async def test_maturation_phase_dry_run(mat_cfg):
 
     phase = MaturationPhase()
     result, records = await phase.execute(
-        "default", graph, activation, search,
-        mat_cfg, "cyc1", dry_run=True,
+        "default",
+        graph,
+        activation,
+        search,
+        mat_cfg,
+        "cyc1",
+        dry_run=True,
     )
     assert len(records) == 1
     graph.update_entity.assert_not_called()
@@ -266,8 +295,14 @@ async def test_maturation_phase_populates_feature_cache(mat_cfg):
     phase = MaturationPhase()
     context = CycleContext()
     await phase.execute(
-        "default", graph, activation, AsyncMock(),
-        mat_cfg, "cyc1", dry_run=True, context=context,
+        "default",
+        graph,
+        activation,
+        AsyncMock(),
+        mat_cfg,
+        "cyc1",
+        dry_run=True,
+        context=context,
     )
 
     assert entity.id in context.maturity_feature_cache
@@ -286,8 +321,13 @@ async def test_maturation_phase_already_semantic_skipped(mat_cfg):
 
     phase = MaturationPhase()
     result, records = await phase.execute(
-        "default", graph, activation, search,
-        mat_cfg, "cyc1", dry_run=False,
+        "default",
+        graph,
+        activation,
+        search,
+        mat_cfg,
+        "cyc1",
+        dry_run=False,
     )
     assert len(records) == 0
 
@@ -337,8 +377,12 @@ async def test_semantic_transition_skipped_when_disabled():
     cfg = ActivationConfig()
     phase = SemanticTransitionPhase()
     result, records = await phase.execute(
-        "default", AsyncMock(), AsyncMock(), AsyncMock(),
-        cfg, "cyc1",
+        "default",
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+        cfg,
+        "cyc1",
     )
     assert result.status == "skipped"
 
@@ -356,8 +400,13 @@ async def test_semantic_transition_increments_cycles():
 
     phase = SemanticTransitionPhase()
     result, records = await phase.execute(
-        "default", graph, AsyncMock(), AsyncMock(),
-        cfg, "cyc1", dry_run=False,
+        "default",
+        graph,
+        AsyncMock(),
+        AsyncMock(),
+        cfg,
+        "cyc1",
+        dry_run=False,
     )
     # Should update consolidation_cycles to 3
     graph.update_episode.assert_called_once()
@@ -386,8 +435,14 @@ async def test_semantic_transition_promotes_on_coverage():
     phase = SemanticTransitionPhase()
     context = CycleContext()
     result, records = await phase.execute(
-        "default", graph, AsyncMock(), AsyncMock(),
-        cfg, "cyc1", dry_run=False, context=context,
+        "default",
+        graph,
+        AsyncMock(),
+        AsyncMock(),
+        cfg,
+        "cyc1",
+        dry_run=False,
+        context=context,
     )
     assert len(records) == 1
     assert records[0].new_tier == "transitional"
@@ -415,8 +470,14 @@ async def test_semantic_transition_uses_context_matured_entities():
     context.matured_entity_ids.update({"ent1", "ent2"})
     phase = SemanticTransitionPhase()
     result, records = await phase.execute(
-        "default", graph, AsyncMock(), AsyncMock(),
-        cfg, "cyc1", dry_run=True, context=context,
+        "default",
+        graph,
+        AsyncMock(),
+        AsyncMock(),
+        cfg,
+        "cyc1",
+        dry_run=True,
+        context=context,
     )
 
     assert result.items_affected == 1
@@ -450,8 +511,13 @@ async def test_prune_semantic_entity_survives():
 
     phase = PrunePhase()
     result, records = await phase.execute(
-        "default", graph, activation, AsyncMock(),
-        cfg, "cyc1", dry_run=False,
+        "default",
+        graph,
+        activation,
+        AsyncMock(),
+        cfg,
+        "cyc1",
+        dry_run=False,
     )
     assert len(records) == 0  # Not pruned
 
@@ -466,9 +532,21 @@ def test_engine_phase_order():
     e = ConsolidationEngine(AsyncMock(), AsyncMock(), AsyncMock(), cfg)
     phases = [p.name for p in e._phases]
     assert phases == [
-        "triage", "merge", "infer", "evidence_adjudication", "edge_adjudication", "replay",
-        "prune", "compact", "mature", "semanticize", "schema", "reindex",
-        "graph_embed", "microglia", "dream",
+        "triage",
+        "merge",
+        "infer",
+        "evidence_adjudication",
+        "edge_adjudication",
+        "replay",
+        "prune",
+        "compact",
+        "mature",
+        "semanticize",
+        "schema",
+        "reindex",
+        "graph_embed",
+        "microglia",
+        "dream",
     ]
 
 

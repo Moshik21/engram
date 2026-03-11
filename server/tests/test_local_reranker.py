@@ -27,6 +27,7 @@ class TestCreateReranker:
     def test_local_without_fastembed(self, monkeypatch):
         """When fastembed is not installed, falls back to NoopReranker."""
         import builtins
+
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):

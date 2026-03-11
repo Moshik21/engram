@@ -146,9 +146,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         consolidation_store: ConsolidationStore = cast(
             ConsolidationStore,
             PostgresConsolidationStore(
-            config.postgres.dsn,
-            min_pool_size=config.postgres.min_pool_size,
-            max_pool_size=config.postgres.max_pool_size,
+                config.postgres.dsn,
+                min_pool_size=config.postgres.min_pool_size,
+                max_pool_size=config.postgres.max_pool_size,
             ),
         )
         await consolidation_store.initialize()
@@ -221,7 +221,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
                 "none": _ssl.CERT_NONE,
             }
             metering_kwargs["ssl_cert_reqs"] = _reqs_map.get(
-                config.redis.ssl_cert_reqs, _ssl.CERT_REQUIRED,
+                config.redis.ssl_cert_reqs,
+                _ssl.CERT_REQUIRED,
             )
         redis_for_metering = _aioredis.from_url(config.redis.url, **metering_kwargs)
 
@@ -233,7 +234,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "recall": (config.rate_limit.recall_per_min, 60),
             "trigger": (config.rate_limit.trigger_per_hour, 3600),
             "chat": (config.rate_limit.chat_per_min, 60),
-        } if config.rate_limit.enabled else None,
+        }
+        if config.rate_limit.enabled
+        else None,
     )
     usage_meter = UsageMeter(redis_client=redis_for_metering)
 
@@ -243,7 +246,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         from engram.events.redis_bridge import create_subscriber
 
         redis_subscriber = await create_subscriber(
-            config.default_group_id, event_bus, redis_url=config.redis.url,
+            config.default_group_id,
+            event_bus,
+            redis_url=config.redis.url,
         )
         if redis_subscriber:
             await redis_subscriber.start()
@@ -426,7 +431,8 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
             logger.info("MCP streamable-http mounted at /mcp")
         except Exception:
             logger.warning(
-                "Failed to mount MCP transport", exc_info=True,
+                "Failed to mount MCP transport",
+                exc_info=True,
             )
 
     return app

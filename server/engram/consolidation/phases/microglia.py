@@ -30,15 +30,27 @@ _INCOMPATIBLE_TYPE_PAIRS: set[frozenset[str]] = {
 
 # Predicates that legitimately connect incompatible type pairs
 _ALLOWED_PREDICATES: set[str] = {
-    "DEVELOPS", "USES", "CREATED", "MAINTAINS", "WORKS_ON",
-    "WORKS_AT", "EXPERT_IN", "CONTRIBUTES_TO", "AUTHORED",
-    "MANAGES", "OWNS", "DESIGNED",
+    "DEVELOPS",
+    "USES",
+    "CREATED",
+    "MAINTAINS",
+    "WORKS_ON",
+    "WORKS_AT",
+    "EXPERT_IN",
+    "CONTRIBUTES_TO",
+    "AUTHORED",
+    "MANAGES",
+    "OWNS",
+    "DESIGNED",
 }
 
 # Generic predicates that indicate contamination
 _GENERIC_PREDICATES: set[str] = {
-    "RELATES_TO", "MENTIONED_WITH", "CO_OCCURS_WITH",
-    "ASSOCIATED_WITH", "CONNECTED_TO",
+    "RELATES_TO",
+    "MENTIONED_WITH",
+    "CO_OCCURS_WITH",
+    "ASSOCIATED_WITH",
+    "CONNECTED_TO",
 }
 
 
@@ -185,8 +197,7 @@ class MicrogliaPhase(ConsolidationPhase):
             phase=self.name,
             status="success",
             items_processed=(
-                cfg.microglia_scan_edges_per_cycle
-                + cfg.microglia_scan_entities_per_cycle
+                cfg.microglia_scan_edges_per_cycle + cfg.microglia_scan_entities_per_cycle
             ),
             items_affected=total_affected,
             duration_ms=round(elapsed, 1),
@@ -244,12 +255,14 @@ class MicrogliaPhase(ConsolidationPhase):
 
         try:
             embeddings = await search_index.get_entity_embeddings(
-                [source_id, target_id], group_id=group_id,
+                [source_id, target_id],
+                group_id=group_id,
             )
             if source_id not in embeddings or target_id not in embeddings:
                 return 0.0
 
             import numpy as np
+
             vec_a = np.array(embeddings[source_id], dtype=np.float32)
             vec_b = np.array(embeddings[target_id], dtype=np.float32)
             norm_a = np.linalg.norm(vec_a)
@@ -272,7 +285,7 @@ class MicrogliaPhase(ConsolidationPhase):
         if not summary:
             return 0.0, None
 
-        segments = [s.strip() for s in re.split(r'[;.]', summary) if s.strip()]
+        segments = [s.strip() for s in re.split(r"[;.]", summary) if s.strip()]
         if not segments:
             return 0.0, None
 
@@ -360,16 +373,18 @@ class MicrogliaPhase(ConsolidationPhase):
             if should_clear:
                 await consolidation_store.clear_complement_tag(tag["id"])
                 cleared += 1
-                records.append(MicrogliaRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    target_type=tag["target_type"],
-                    target_id=target_id,
-                    action="cleared",
-                    tag_type=tag["tag_type"],
-                    score=tag["score"],
-                    detail=f"Protected: {reason}",
-                ))
+                records.append(
+                    MicrogliaRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        target_type=tag["target_type"],
+                        target_id=target_id,
+                        action="cleared",
+                        tag_type=tag["tag_type"],
+                        score=tag["score"],
+                        detail=f"Protected: {reason}",
+                    )
+                )
 
         return cleared
 
@@ -407,7 +422,8 @@ class MicrogliaPhase(ConsolidationPhase):
 
                     # Get current weight
                     neighbors = await graph_store.get_active_neighbors_with_weights(
-                        src_id, group_id=group_id,
+                        src_id,
+                        group_id=group_id,
                     )
                     current_weight = None
                     for nid, w, pred, *_ in neighbors:
@@ -419,7 +435,9 @@ class MicrogliaPhase(ConsolidationPhase):
                         # Reduce to 10% of current weight
                         delta = -(current_weight * 0.9)
                         await graph_store.update_relationship_weight(
-                            src_id, tgt_id, delta,
+                            src_id,
+                            tgt_id,
+                            delta,
                             max_weight=3.0,
                             group_id=group_id,
                             predicate=predicate,
@@ -429,16 +447,18 @@ class MicrogliaPhase(ConsolidationPhase):
                         if context is not None:
                             context.microglia_demoted_edge_ids.add(target_id)
 
-                        records.append(MicrogliaRecord(
-                            cycle_id=cycle_id,
-                            group_id=group_id,
-                            target_type="edge",
-                            target_id=target_id,
-                            action="demoted",
-                            tag_type=tag_type,
-                            score=tag["score"],
-                            detail=f"Weight {current_weight:.3f} → {current_weight * 0.1:.3f}",
-                        ))
+                        records.append(
+                            MicrogliaRecord(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                target_type="edge",
+                                target_id=target_id,
+                                action="demoted",
+                                tag_type=tag_type,
+                                score=tag["score"],
+                                detail=f"Weight {current_weight:.3f} → {current_weight * 0.1:.3f}",
+                            )
+                        )
 
             # Clear the tag after demotion
             await consolidation_store.clear_complement_tag(tag["id"])
@@ -479,16 +499,23 @@ class MicrogliaPhase(ConsolidationPhase):
 
             # C1q Domain score
             domain_score = self._score_c1q_domain(
-                source_type, target_type, edge.predicate,
-                edge.weight, has_evidence, cfg,
+                source_type,
+                target_type,
+                edge.predicate,
+                edge.weight,
+                has_evidence,
+                cfg,
             )
 
             # C1q Embedding score (only for generic predicates)
             embedding_score = 0.0
             if domain_score < cfg.microglia_tag_threshold and edge.predicate in _GENERIC_PREDICATES:
                 embedding_score = await self._score_c1q_embedding(
-                    edge.source_id, edge.target_id, edge.predicate,
-                    search_index, group_id,
+                    edge.source_id,
+                    edge.target_id,
+                    edge.predicate,
+                    search_index,
+                    group_id,
                 )
 
             # Take the max score
@@ -510,16 +537,18 @@ class MicrogliaPhase(ConsolidationPhase):
                 )
 
             tagged += 1
-            records.append(MicrogliaRecord(
-                cycle_id=cycle_id,
-                group_id=group_id,
-                target_type="edge",
-                target_id=edge_key,
-                action="tagged",
-                tag_type=tag_type,
-                score=best_score,
-                detail=f"{source_type}→{edge.predicate}→{target_type} w={edge.weight:.2f}",
-            ))
+            records.append(
+                MicrogliaRecord(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    target_type="edge",
+                    target_id=edge_key,
+                    action="tagged",
+                    tag_type=tag_type,
+                    score=best_score,
+                    detail=f"{source_type}→{edge.predicate}→{target_type} w={edge.weight:.2f}",
+                )
+            )
 
         if tagged:
             logger.info("Microglia: tagged %d suspicious edges from %d scanned", tagged, len(edges))
@@ -570,7 +599,8 @@ class MicrogliaPhase(ConsolidationPhase):
                 # Find current weight
                 current_weight = 0.0
                 neighbors = await graph_store.get_active_neighbors_with_weights(
-                    src_id, group_id=group_id,
+                    src_id,
+                    group_id=group_id,
                 )
                 for nid, w, pred, *_ in neighbors:
                     if nid == tgt_id and pred == predicate:
@@ -581,7 +611,10 @@ class MicrogliaPhase(ConsolidationPhase):
                 has_evidence = False
                 try:
                     rels = await graph_store.get_relationships(
-                        src_id, direction="outgoing", predicate=predicate, group_id=group_id,
+                        src_id,
+                        direction="outgoing",
+                        predicate=predicate,
+                        group_id=group_id,
                     )
                     for r in rels:
                         if r.target_id == tgt_id and r.source_episode:
@@ -591,35 +624,43 @@ class MicrogliaPhase(ConsolidationPhase):
                     pass
 
                 rescore = self._score_c1q_domain(
-                    source_type, target_type, predicate,
-                    current_weight, has_evidence, cfg,
+                    source_type,
+                    target_type,
+                    predicate,
+                    current_weight,
+                    has_evidence,
+                    cfg,
                 )
 
                 if rescore >= cfg.microglia_confirm_threshold:
                     await consolidation_store.confirm_complement_tag(tag["id"], cycle_number)
                     confirmed += 1
-                    records.append(MicrogliaRecord(
-                        cycle_id=cycle_id,
-                        group_id=group_id,
-                        target_type="edge",
-                        target_id=target_id,
-                        action="confirmed",
-                        tag_type=tag["tag_type"],
-                        score=rescore,
-                        detail=f"Re-scored {rescore:.2f} >= {cfg.microglia_confirm_threshold}",
-                    ))
+                    records.append(
+                        MicrogliaRecord(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            target_type="edge",
+                            target_id=target_id,
+                            action="confirmed",
+                            tag_type=tag["tag_type"],
+                            score=rescore,
+                            detail=f"Re-scored {rescore:.2f} >= {cfg.microglia_confirm_threshold}",
+                        )
+                    )
                 else:
                     await consolidation_store.clear_complement_tag(tag["id"])
-                    records.append(MicrogliaRecord(
-                        cycle_id=cycle_id,
-                        group_id=group_id,
-                        target_type="edge",
-                        target_id=target_id,
-                        action="cleared",
-                        tag_type=tag["tag_type"],
-                        score=rescore,
-                        detail=f"Re-scored {rescore:.2f} < {cfg.microglia_confirm_threshold}",
-                    ))
+                    records.append(
+                        MicrogliaRecord(
+                            cycle_id=cycle_id,
+                            group_id=group_id,
+                            target_type="edge",
+                            target_id=target_id,
+                            action="cleared",
+                            tag_type=tag["tag_type"],
+                            score=rescore,
+                            detail=f"Re-scored {rescore:.2f} < {cfg.microglia_confirm_threshold}",
+                        )
+                    )
 
             elif tag["target_type"] == "entity":
                 # Re-check summary contamination
@@ -638,7 +679,8 @@ class MicrogliaPhase(ConsolidationPhase):
         if confirmed:
             logger.info(
                 "Microglia: confirmed %d tags from %d unconfirmed",
-                confirmed, len(unconfirmed),
+                confirmed,
+                len(unconfirmed),
             )
         return confirmed
 
@@ -681,16 +723,18 @@ class MicrogliaPhase(ConsolidationPhase):
                 if context is not None:
                     context.microglia_repaired_entity_ids.add(entity.id)
 
-                records.append(MicrogliaRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    target_type="entity_summary",
-                    target_id=entity.id,
-                    action="repaired",
-                    tag_type="c3_summary",
-                    score=score,
-                    detail=f"Removed {int(score * 100)}% meta segments from '{entity.name}'",
-                ))
+                records.append(
+                    MicrogliaRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        target_type="entity_summary",
+                        target_id=entity.id,
+                        action="repaired",
+                        tag_type="c3_summary",
+                        score=score,
+                        detail=f"Removed {int(score * 100)}% meta segments from '{entity.name}'",
+                    )
+                )
             elif cleaned is None and score >= cfg.microglia_tag_threshold:
                 # Entirely contaminated summary — tag for review
                 if consolidation_store is not None and not dry_run:
@@ -702,16 +746,18 @@ class MicrogliaPhase(ConsolidationPhase):
                         cycle_tagged=cycle_number,
                         group_id=group_id,
                     )
-                records.append(MicrogliaRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    target_type="entity_summary",
-                    target_id=entity.id,
-                    action="tagged",
-                    tag_type="c3_summary",
-                    score=score,
-                    detail=f"Fully contaminated summary for '{entity.name}'",
-                ))
+                records.append(
+                    MicrogliaRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        target_type="entity_summary",
+                        target_id=entity.id,
+                        action="tagged",
+                        tag_type="c3_summary",
+                        score=score,
+                        detail=f"Fully contaminated summary for '{entity.name}'",
+                    )
+                )
 
         if repaired:
             logger.info("Microglia: repaired %d contaminated summaries", repaired)
@@ -721,6 +767,7 @@ class MicrogliaPhase(ConsolidationPhase):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _extract_cycle_number(cycle_id: str) -> int:
     """Extract a numeric cycle identifier for tag lifecycle tracking."""
@@ -737,7 +784,7 @@ def _dedup_segments(segments: list[str], threshold: float = 0.6) -> list[str]:
         return []
 
     def _tokens(text: str) -> set[str]:
-        return {w.lower() for w in re.findall(r'\b\w{3,}\b', text)}
+        return {w.lower() for w in re.findall(r"\b\w{3,}\b", text)}
 
     result: list[str] = []
     result_token_sets: list[set[str]] = []

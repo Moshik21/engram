@@ -34,7 +34,10 @@ class UsageMeter:
         await pipe.execute()
 
     async def record_llm_tokens(
-        self, group_id: str, input_tokens: int, output_tokens: int,
+        self,
+        group_id: str,
+        input_tokens: int,
+        output_tokens: int,
     ) -> None:
         """Record LLM token usage. Fire-and-forget."""
         if self._redis is None:

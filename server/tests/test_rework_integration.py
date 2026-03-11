@@ -127,8 +127,7 @@ async def test_observe_creates_cue_and_surfaced_recall_stays_latent(tmp_path: Pa
         )
 
         assert any(
-            result.get("result_type") == "cue_episode"
-            and result["cue"]["episode_id"] == episode_id
+            result.get("result_type") == "cue_episode" and result["cue"]["episode_id"] == episode_id
             for result in results
         )
 
@@ -252,8 +251,7 @@ async def test_used_cue_feedback_schedules_worker_projection_and_enables_entity_
 
         entity_results = await manager.recall("React", group_id="default", limit=5)
         assert any(
-            result.get("result_type") == "entity"
-            and result["entity"]["name"] == "React"
+            result.get("result_type") == "entity" and result["entity"]["name"] == "React"
             for result in entity_results
         )
     finally:

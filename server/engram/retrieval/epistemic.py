@@ -233,20 +233,12 @@ class EpistemicRoutingController:
         state = self._get_state(group_id)
         route_counts = Counter(sample.mode for sample in state.routes)
         operator_counts = Counter(sample.operator for sample in state.routes)
-        scope_usage = Counter(
-            scope
-            for sample in state.routes
-            for scope in sample.scopes
-        )
+        scope_usage = Counter(scope for sample in state.routes for scope in sample.scopes)
         execution_counts = Counter(sample.status for sample in state.executions)
         source_counts = Counter(
-            source
-            for sample in state.executions
-            for source in sample.sources_used
+            source for sample in state.executions for source in sample.sources_used
         )
-        executed_operator_counts = Counter(
-            sample.operator for sample in state.executions
-        )
+        executed_operator_counts = Counter(sample.operator for sample in state.executions)
         return {
             "route_counts": dict(route_counts),
             "operator_counts": dict(operator_counts),
@@ -328,15 +320,13 @@ def route_question(
 
     domain = "personal"
     if project and (
-        personal
-        or getattr(memory_need, "need_type", "") in {"project_state", "open_loop"}
+        personal or getattr(memory_need, "need_type", "") in {"project_state", "open_loop"}
     ):
         domain = "mixed"
     elif runtime:
         domain = "runtime"
     elif project and any(
-        token in lowered
-        for token in ("launch", "distribution", "public", "skill", "integration")
+        token in lowered for token in ("launch", "distribution", "public", "skill", "integration")
     ):
         domain = "product"
     elif project:
@@ -454,10 +444,7 @@ def apply_answer_contract_to_evidence_plan(
     """Turn routed answer scopes into an enforceable evidence plan."""
     normalized_question = " ".join(question.strip().split())
     scopes = set(answer_contract.relevant_scopes)
-    memory_query = (
-        getattr(memory_need, "query_hint", None)
-        or normalized_question
-    )
+    memory_query = getattr(memory_need, "query_hint", None) or normalized_question
 
     required_sources: list[str] = []
     discouraged_sources: list[str] = []
@@ -469,14 +456,10 @@ def apply_answer_contract_to_evidence_plan(
         source_reasons["memory"] = "Historical continuity or prior discussion is relevant."
 
     only_historical = scopes == {"historical_discussion"}
-    require_artifacts = (
-        frame.mode != "remember"
-        and bool(scopes & {"repo_current", "install_default"})
+    require_artifacts = frame.mode != "remember" and bool(
+        scopes & {"repo_current", "install_default"}
     )
-    require_runtime = (
-        frame.mode != "remember"
-        and "runtime_current" in scopes
-    )
+    require_runtime = frame.mode != "remember" and "runtime_current" in scopes
 
     if frame.mode == "reconcile" and only_historical:
         plan.use_artifacts = False
@@ -493,8 +476,7 @@ def apply_answer_contract_to_evidence_plan(
             answer_contract,
         )
         source_reasons["artifacts"] = (
-            "Current repo posture or shipped install defaults are required "
-            "for a complete answer."
+            "Current repo posture or shipped install defaults are required for a complete answer."
         )
     elif plan.use_artifacts:
         source_queries["artifacts"] = _artifact_query_for_question(
@@ -545,9 +527,7 @@ def apply_answer_contract_to_evidence_plan(
 def infer_claim_state(claim: EvidenceClaim) -> str:
     """Infer how official or settled a normalized claim is."""
     provenance_text = " ".join(
-        str(value)
-        for value in claim.provenance.values()
-        if value is not None
+        str(value) for value in claim.provenance.values() if value is not None
     )
     text = f"{claim.object} {provenance_text}".strip()
 
@@ -785,11 +765,7 @@ def extract_artifact_claims(
     """Extract high-confidence claims from a bootstrapped artifact."""
     claims: list[EvidenceClaim] = []
     seen: set[str] = set()
-    lines = [
-        line.strip()
-        for line in content.splitlines()
-        if line.strip()
-    ]
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
 
     def _append(claim: EvidenceClaim) -> None:
         key = f"{claim.claim_key}::{claim.object.lower()}"
@@ -1250,19 +1226,11 @@ def render_epistemic_summary(bundle: EpistemicBundle) -> str:
         f"Reconciliation: {bundle.reconciliation.status}",
     ]
     if bundle.answer_contract.relevant_scopes:
-        lines.append(
-            "Relevant scopes: " + ", ".join(bundle.answer_contract.relevant_scopes[:5])
-        )
+        lines.append("Relevant scopes: " + ", ".join(bundle.answer_contract.relevant_scopes[:5]))
     if bundle.evidence_plan.required_next_sources:
-        lines.append(
-            "Required sources: "
-            + ", ".join(bundle.evidence_plan.required_next_sources)
-        )
+        lines.append("Required sources: " + ", ".join(bundle.evidence_plan.required_next_sources))
     if bundle.evidence_plan.discouraged_sources:
-        lines.append(
-            "Discouraged sources: "
-            + ", ".join(bundle.evidence_plan.discouraged_sources)
-        )
+        lines.append("Discouraged sources: " + ", ".join(bundle.evidence_plan.discouraged_sources))
     if bundle.evidence_plan.source_queries:
         query_parts = []
         for source in bundle.evidence_plan.required_next_sources or []:
@@ -1277,9 +1245,7 @@ def render_epistemic_summary(bundle: EpistemicBundle) -> str:
         if query_parts:
             lines.append("Source queries: " + "; ".join(query_parts[:3]))
     if bundle.claim_state_summary and bundle.claim_state_summary.get("dominantState"):
-        lines.append(
-            f"Claim-state focus: {bundle.claim_state_summary['dominantState']}"
-        )
+        lines.append(f"Claim-state focus: {bundle.claim_state_summary['dominantState']}")
     if bundle.reconciliation.answer_hints:
         lines.append(f"Policy: {bundle.reconciliation.answer_hints[0]}")
     if bundle.reconciliation.winning_claims:

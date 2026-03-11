@@ -117,6 +117,7 @@ class TestFeatureBuilder:
 # GNN trainer tests require torch — mark them
 try:
     import torch  # noqa: F401
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
@@ -165,7 +166,7 @@ class TestGNNTrainer:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         result = await trainer.train(MockGraph(), "default")
         assert len(result) == n

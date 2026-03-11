@@ -83,7 +83,9 @@ class GraphStore(Protocol):
     async def create_entity(self, entity: Entity) -> str: ...
     async def get_entity(self, entity_id: str, group_id: str) -> Entity | None: ...
     async def batch_get_entities(
-        self, entity_ids: list[str], group_id: str,
+        self,
+        entity_ids: list[str],
+        group_id: str,
     ) -> dict[str, Entity]: ...
     async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None: ...
     async def delete_entity(self, entity_id: str, soft: bool = True, *, group_id: str) -> None: ...
@@ -127,7 +129,10 @@ class GraphStore(Protocol):
         group_id: str = "default",
     ) -> list[Relationship]: ...
     async def get_neighbors(
-        self, entity_id: str, hops: int = 1, group_id: str | None = None,
+        self,
+        entity_id: str,
+        hops: int = 1,
+        group_id: str | None = None,
         max_results: int = 5000,
     ) -> list[tuple[Entity, Relationship]]: ...
     async def get_all_edges(
@@ -138,6 +143,7 @@ class GraphStore(Protocol):
     ) -> list[Relationship]:
         """Return active edges, optionally filtered to entity_ids."""
         ...
+
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
     ) -> list[tuple[str, float, str, str]]: ...  # (neighbor_id, weight, predicate, entity_type)
@@ -187,7 +193,10 @@ class GraphStore(Protocol):
     async def get_entity_type_counts(self, group_id: str | None = None) -> dict[str, int]: ...
 
     async def find_entity_candidates(
-        self, name: str, group_id: str, limit: int = 30,
+        self,
+        name: str,
+        group_id: str,
+        limit: int = 30,
     ) -> list[Entity]: ...
 
     # --- Consolidation methods ---
@@ -253,7 +262,8 @@ class GraphStore(Protocol):
     ) -> float | None: ...
 
     async def get_identity_core_entities(
-        self, group_id: str,
+        self,
+        group_id: str,
     ) -> list[Entity]: ...
 
     async def path_exists_within_hops(
@@ -272,50 +282,76 @@ class GraphStore(Protocol):
     ) -> list[Relationship]: ...
 
     async def sample_edges(
-        self, group_id: str, limit: int = 500,
+        self,
+        group_id: str,
+        limit: int = 500,
         exclude_ids: set[str] | None = None,
     ) -> list[Relationship]: ...
 
     # --- Maturation queries (Brain Architecture Phase 2A) ---
     async def get_entity_episode_count(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> int: ...
 
     async def get_entity_temporal_span(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> tuple[str | None, str | None]: ...
 
     async def get_entity_relationship_types(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> list[str]: ...
 
     # --- Schema Formation (Brain Architecture Phase 3) ---
     async def get_schema_members(
-        self, schema_entity_id: str, group_id: str,
+        self,
+        schema_entity_id: str,
+        group_id: str,
     ) -> list[dict]: ...
 
     async def save_schema_members(
-        self, schema_entity_id: str, members: list[dict], group_id: str,
+        self,
+        schema_entity_id: str,
+        members: list[dict],
+        group_id: str,
     ) -> None: ...
 
     async def find_entities_by_type(
-        self, entity_type: str, group_id: str, limit: int = 100,
+        self,
+        entity_type: str,
+        group_id: str,
+        limit: int = 100,
     ) -> list[Entity]: ...
 
     # --- Prospective memory (Wave 4) ---
     async def create_intention(self, intention: object) -> str: ...
     async def get_intention(self, id: str, group_id: str) -> object | None: ...
     async def list_intentions(
-        self, group_id: str, enabled_only: bool = True,
+        self,
+        group_id: str,
+        enabled_only: bool = True,
     ) -> list: ...
     async def update_intention(
-        self, id: str, updates: dict, group_id: str,
+        self,
+        id: str,
+        updates: dict,
+        group_id: str,
     ) -> None: ...
     async def delete_intention(
-        self, id: str, group_id: str, soft: bool = True,
+        self,
+        id: str,
+        group_id: str,
+        soft: bool = True,
     ) -> None: ...
     async def increment_intention_fire_count(
-        self, id: str, group_id: str,
+        self,
+        id: str,
+        group_id: str,
     ) -> None: ...
 
     # --- Evidence storage (v2) ---
@@ -327,30 +363,48 @@ class GraphStore(Protocol):
         default_status: str = "pending",
     ) -> None: ...
     async def get_pending_evidence(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]: ...
     async def get_episode_evidence(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]: ...
     async def update_evidence_status(
-        self, evidence_id: str, status: str, updates: dict | None = None,
+        self,
+        evidence_id: str,
+        status: str,
+        updates: dict | None = None,
         group_id: str = "default",
     ) -> None: ...
     async def get_entity_count(self, group_id: str = "default") -> int: ...
     async def store_adjudication_requests(
-        self, requests: list[dict], group_id: str = "default",
+        self,
+        requests: list[dict],
+        group_id: str = "default",
     ) -> None: ...
     async def get_episode_adjudications(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]: ...
     async def get_adjudication_request(
-        self, request_id: str, group_id: str = "default",
+        self,
+        request_id: str,
+        group_id: str = "default",
     ) -> dict | None: ...
     async def get_pending_adjudication_requests(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]: ...
     async def update_adjudication_request(
-        self, request_id: str, updates: dict, group_id: str = "default",
+        self,
+        request_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None: ...
 
 
@@ -462,93 +516,142 @@ class ConsolidationStore(Protocol):
     async def update_cycle(self, cycle: ConsolidationCycle) -> None: ...
     async def get_cycle(self, cycle_id: str, group_id: str) -> ConsolidationCycle | None: ...
     async def get_recent_cycles(
-        self, group_id: str, limit: int = 10,
+        self,
+        group_id: str,
+        limit: int = 10,
     ) -> list[ConsolidationCycle]: ...
     async def save_merge_record(self, record: MergeRecord) -> None: ...
     async def save_identifier_review_record(self, record: IdentifierReviewRecord) -> None: ...
     async def save_inferred_edge(self, edge: InferredEdge) -> None: ...
     async def save_prune_record(self, record: PruneRecord) -> None: ...
     async def get_merge_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[MergeRecord]: ...
     async def get_identifier_review_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[IdentifierReviewRecord]: ...
     async def get_inferred_edges(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[InferredEdge]: ...
     async def get_prune_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[PruneRecord]: ...
     async def save_reindex_record(self, record: ReindexRecord) -> None: ...
     async def get_reindex_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[ReindexRecord]: ...
     async def save_replay_record(self, record: ReplayRecord) -> None: ...
     async def get_replay_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[ReplayRecord]: ...
     async def save_dream_record(self, record: DreamRecord) -> None: ...
     async def get_dream_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DreamRecord]: ...
     async def save_dream_association_record(self, record: DreamAssociationRecord) -> None: ...
     async def get_dream_association_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DreamAssociationRecord]: ...
     async def save_triage_record(self, record: TriageRecord) -> None: ...
     async def get_triage_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[TriageRecord]: ...
     async def save_graph_embed_record(self, record: GraphEmbedRecord) -> None: ...
     async def get_graph_embed_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[GraphEmbedRecord]: ...
     async def save_maturation_record(self, record: MaturationRecord) -> None: ...
     async def get_maturation_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[MaturationRecord]: ...
     async def save_semantic_transition_record(self, record: SemanticTransitionRecord) -> None: ...
     async def get_semantic_transition_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[SemanticTransitionRecord]: ...
     async def save_schema_record(self, record: SchemaRecord) -> None: ...
     async def get_schema_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[SchemaRecord]: ...
     async def save_evidence_adjudication_record(
-        self, record: EvidenceAdjudicationRecord,
+        self,
+        record: EvidenceAdjudicationRecord,
     ) -> None: ...
     async def get_evidence_adjudication_records(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[EvidenceAdjudicationRecord]: ...
     async def save_decision_trace(self, record: DecisionTrace) -> None: ...
     async def get_decision_traces(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DecisionTrace]: ...
     async def save_decision_outcome_label(self, record: DecisionOutcomeLabel) -> None: ...
     async def get_decision_outcome_labels(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DecisionOutcomeLabel]: ...
     async def save_distillation_example(self, record: DistillationExample) -> None: ...
     async def get_distillation_examples(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[DistillationExample]: ...
     async def save_calibration_snapshot(self, record: CalibrationSnapshot) -> None: ...
     async def get_calibration_snapshots(
-        self, cycle_id: str, group_id: str,
+        self,
+        cycle_id: str,
+        group_id: str,
     ) -> list[CalibrationSnapshot]: ...
     async def save_microglia_record(self, record: MicrogliaRecord) -> None: ...
     async def create_complement_tag(
-        self, target_type: str, target_id: str, tag_type: str,
-        score: float, cycle_tagged: int, group_id: str = "default",
+        self,
+        target_type: str,
+        target_id: str,
+        tag_type: str,
+        score: float,
+        cycle_tagged: int,
+        group_id: str = "default",
     ) -> int: ...
     async def get_active_complement_tags(self, group_id: str = "default") -> list[dict]: ...
     async def get_confirmed_tags(
-        self, min_age_cycles: int, current_cycle: int, group_id: str = "default",
+        self,
+        min_age_cycles: int,
+        current_cycle: int,
+        group_id: str = "default",
     ) -> list[dict]: ...
     async def get_unconfirmed_tags(
-        self, max_cycle: int, group_id: str = "default",
+        self,
+        max_cycle: int,
+        group_id: str = "default",
     ) -> list[dict]: ...
     async def get_complement_tag(self, target_id: str, tag_type: str) -> dict | None: ...
     async def confirm_complement_tag(self, tag_id: int, cycle_number: int) -> None: ...

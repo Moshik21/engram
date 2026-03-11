@@ -2,7 +2,7 @@
 # Engram developer installer — repo clone + local uv environment.
 set -euo pipefail
 
-REPO="https://github.com/engram-labs/engram.git"
+REPO="https://github.com/Moshik21/engram.git"
 INSTALL_DIR="${ENGRAM_DIR:-$HOME/engram}"
 
 RED='\033[0;31m'

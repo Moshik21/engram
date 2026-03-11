@@ -40,9 +40,7 @@ class TestActivationAccessEvent:
         manager = GraphManager(
             graph_store, activation_store, search_index, extractor, event_bus=bus
         )
-        await manager.ingest_episode(
-            content="Alice knows Bob", group_id="default", source="test"
-        )
+        await manager.ingest_episode(content="Alice knows Bob", group_id="default", source="test")
 
         # Drain events
         while not queue.empty():
@@ -85,9 +83,7 @@ class TestActivationAccessEvent:
         manager = GraphManager(
             graph_store, activation_store, search_index, extractor, event_bus=bus
         )
-        await manager.ingest_episode(
-            content="Using Python", group_id="default", source="test"
-        )
+        await manager.ingest_episode(content="Using Python", group_id="default", source="test")
 
         # Subscribe after ingest to only capture recall events
         queue = bus.subscribe("default")
@@ -100,9 +96,7 @@ class TestActivationAccessEvent:
             collected.append(event)
 
         access_events = [e for e in collected if e["type"] == "activation.access"]
-        recall_events = [
-            e for e in access_events if e["payload"]["accessedVia"] == "recall"
-        ]
+        recall_events = [e for e in access_events if e["payload"]["accessedVia"] == "recall"]
         assert len(recall_events) >= 1
         assert recall_events[0]["payload"]["name"] == "Python"
 

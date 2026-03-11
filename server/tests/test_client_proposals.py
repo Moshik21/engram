@@ -15,9 +15,7 @@ class TestProposalsToEvidence:
         results = proposals_to_evidence(entities, None, "ep1", "default", "sonnet")
         assert len(results) == 2
         assert all(r.source_type == "client_proposal" for r in results)
-        assert all(
-            r.confidence == MODEL_TIER_CONFIDENCE["sonnet"] for r in results
-        )
+        assert all(r.confidence == MODEL_TIER_CONFIDENCE["sonnet"] for r in results)
 
     def test_relationship_proposals(self):
         rels = [{"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"}]
@@ -49,7 +47,11 @@ class TestProposalsToEvidence:
     def test_unknown_model_tier(self):
         entities = [{"name": "Test"}]
         results = proposals_to_evidence(
-            entities, None, "ep1", "default", "unknown_model",
+            entities,
+            None,
+            "ep1",
+            "default",
+            "unknown_model",
         )
         assert results[0].confidence == 0.70  # fallback to default
 

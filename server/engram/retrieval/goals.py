@@ -114,9 +114,7 @@ async def identify_active_goals(
                         entity_id=entity.id,
                         group_id=group_id,
                     )
-                    neighbor_ids = [
-                        n[0] for n in neighbors[: cfg.goal_priming_max_neighbors]
-                    ]
+                    neighbor_ids = [n[0] for n in neighbors[: cfg.goal_priming_max_neighbors]]
                 except Exception:
                     pass
 

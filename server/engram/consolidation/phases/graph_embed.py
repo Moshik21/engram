@@ -72,9 +72,7 @@ class GraphEmbedPhase(ConsolidationPhase):
         if is_full_cycle:
             full_retrain = True
         else:
-            total_entities = len(
-                await graph_store.find_entities(group_id=group_id, limit=100000)
-            )
+            total_entities = len(await graph_store.find_entities(group_id=group_id, limit=100000))
             change_ratio = len(affected) / max(total_entities, 1)
             full_retrain = change_ratio >= cfg.graph_embedding_retrain_threshold
 
@@ -112,8 +110,17 @@ class GraphEmbedPhase(ConsolidationPhase):
         # Node2Vec
         if cfg.graph_embedding_node2vec_enabled:
             record = await self._train_method(
-                "node2vec", graph_store, search_index, group_id,
-                cfg, cycle_id, dry_run, full_retrain, store, db, affected,
+                "node2vec",
+                graph_store,
+                search_index,
+                group_id,
+                cfg,
+                cycle_id,
+                dry_run,
+                full_retrain,
+                store,
+                db,
+                affected,
             )
             if record:
                 records.append(record)
@@ -124,12 +131,22 @@ class GraphEmbedPhase(ConsolidationPhase):
             if not full_retrain and (cycle_hash % cfg.graph_embedding_stagger_transe != 0):
                 logger.info(
                     "GraphEmbedPhase: skipping TransE (stagger cycle %d mod %d)",
-                    cycle_hash, cfg.graph_embedding_stagger_transe,
+                    cycle_hash,
+                    cfg.graph_embedding_stagger_transe,
                 )
             else:
                 record = await self._train_method(
-                    "transe", graph_store, search_index, group_id,
-                    cfg, cycle_id, dry_run, full_retrain, store, db, affected,
+                    "transe",
+                    graph_store,
+                    search_index,
+                    group_id,
+                    cfg,
+                    cycle_id,
+                    dry_run,
+                    full_retrain,
+                    store,
+                    db,
+                    affected,
                 )
                 if record:
                     records.append(record)
@@ -140,12 +157,22 @@ class GraphEmbedPhase(ConsolidationPhase):
             if not full_retrain and (cycle_hash % cfg.graph_embedding_stagger_gnn != 0):
                 logger.info(
                     "GraphEmbedPhase: skipping GNN (stagger cycle %d mod %d)",
-                    cycle_hash, cfg.graph_embedding_stagger_gnn,
+                    cycle_hash,
+                    cfg.graph_embedding_stagger_gnn,
                 )
             else:
                 record = await self._train_method(
-                    "gnn", graph_store, search_index, group_id,
-                    cfg, cycle_id, dry_run, full_retrain, store, db, affected,
+                    "gnn",
+                    graph_store,
+                    search_index,
+                    group_id,
+                    cfg,
+                    cycle_id,
+                    dry_run,
+                    full_retrain,
+                    store,
+                    db,
+                    affected,
                 )
                 if record:
                     records.append(record)
@@ -227,7 +254,8 @@ class GraphEmbedPhase(ConsolidationPhase):
                     )
                     method_full_retrain = True
                 embeddings = await trainer.train(
-                    graph_store, group_id,
+                    graph_store,
+                    group_id,
                     existing_embeddings=existing,
                     search_index=search_index,
                 )
@@ -239,7 +267,8 @@ class GraphEmbedPhase(ConsolidationPhase):
                     )
                     method_full_retrain = True
                 embeddings = await trainer.train(
-                    graph_store, group_id,
+                    graph_store,
+                    group_id,
                     existing_embeddings=existing,
                 )
 
@@ -254,11 +283,15 @@ class GraphEmbedPhase(ConsolidationPhase):
             if not dry_run and db is None:
                 logger.warning(
                     "GraphEmbedPhase: %s trained %d embeddings but db=None — discarding",
-                    method, len(embeddings),
+                    method,
+                    len(embeddings),
                 )
             if not dry_run and db is not None:
                 await store.upsert_batch(
-                    db, embeddings, method, group_id,
+                    db,
+                    embeddings,
+                    method,
+                    group_id,
                     model_version=model_version,
                 )
 
@@ -282,12 +315,15 @@ def _get_trainer(method: str, cfg: ActivationConfig):
     """Get the trainer instance for a method."""
     if method == "node2vec":
         from engram.embeddings.graph.node2vec import Node2VecTrainer
+
         return Node2VecTrainer(cfg)
     elif method == "transe":
         from engram.embeddings.graph.transe import TransETrainer
+
         return TransETrainer(cfg)
     elif method == "gnn":
         from engram.embeddings.graph.gnn import GNNTrainer
+
         return GNNTrainer(cfg)
     return None
 

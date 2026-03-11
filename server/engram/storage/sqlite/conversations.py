@@ -125,7 +125,9 @@ class SQLiteConversationStore:
             raise ConversationNotFoundError(conversation_id)
 
     async def list_conversations(
-        self, group_id: str, limit: int = 50,
+        self,
+        group_id: str,
+        limit: int = 50,
     ) -> list[dict]:
         cursor = await self.db.execute(
             """SELECT c.id, c.title, c.session_date, c.created_at, c.updated_at
@@ -148,14 +150,16 @@ class SQLiteConversationStore:
             ent_rows = await ent_cursor.fetchall()
             entity_ids = [r["entity_id"] for r in ent_rows]
 
-            results.append({
-                "id": conv_id,
-                "title": row["title"],
-                "sessionDate": row["session_date"],
-                "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"],
-                "entityIds": entity_ids,
-            })
+            results.append(
+                {
+                    "id": conv_id,
+                    "title": row["title"],
+                    "sessionDate": row["session_date"],
+                    "createdAt": row["created_at"],
+                    "updatedAt": row["updated_at"],
+                    "entityIds": entity_ids,
+                }
+            )
 
         return results
 
@@ -222,8 +226,7 @@ class SQLiteConversationStore:
                 "INSERT INTO conversation_messages"
                 " (id, conversation_id, role, content, parts_json, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
-                (msg_id, conversation_id, msg["role"],
-                 msg["content"], msg.get("partsJson"), now),
+                (msg_id, conversation_id, msg["role"], msg["content"], msg.get("partsJson"), now),
             )
         await self.db.execute(
             "UPDATE conversations SET updated_at = ? WHERE id = ? AND group_id = ?",
@@ -242,7 +245,10 @@ class SQLiteConversationStore:
         await self.db.commit()
 
     async def update_conversation(
-        self, conversation_id: str, group_id: str, title: str | None = None,
+        self,
+        conversation_id: str,
+        group_id: str,
+        title: str | None = None,
     ) -> bool:
         row = await self._get_conversation_row(conversation_id, group_id)
         if row is None:

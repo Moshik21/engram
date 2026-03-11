@@ -214,10 +214,7 @@ async def analyze_memory_need(
     )
     if (
         graph_probe is not None
-        and (
-            borderline_score >= active_thresholds.borderline_score
-            or override_probe_candidate
-        )
+        and (borderline_score >= active_thresholds.borderline_score or override_probe_candidate)
         and (cfg is None or getattr(cfg, "recall_need_graph_probe_enabled", False))
     ):
         probe_triggered = True
@@ -236,8 +233,7 @@ async def analyze_memory_need(
         and probe_result.resonance_score >= active_thresholds.resonance_score
     )
     should_recall = (
-        signal_report.linguistic_score >= active_thresholds.linguistic_score
-        or graph_lift
+        signal_report.linguistic_score >= active_thresholds.linguistic_score or graph_lift
     )
     if should_recall:
         need_type = _classify_signal_need(signal_report, lowered)
@@ -303,14 +299,14 @@ async def analyze_memory_need(
 
     return _finalize_need(
         _attach_signals(
-        MemoryNeed(
-            need_type="none",
-            should_recall=False,
-            confidence=0.7 if mode == "chat" else 0.82,
-            reasons=["no_strong_memory_signal"],
-        ),
-        signal_report,
-        probe_result,
+            MemoryNeed(
+                need_type="none",
+                should_recall=False,
+                confidence=0.7 if mode == "chat" else 0.82,
+                reasons=["no_strong_memory_signal"],
+            ),
+            signal_report,
+            probe_result,
         ),
         thresholds=active_thresholds,
         started_at=started_at,
@@ -653,10 +649,9 @@ def _planning_is_first_person(lowered: str) -> bool:
 
 def _is_user_anchored_introduction(report_text: str, report: SignalReport) -> bool:
     referents = {referent.lower() for referent in report.all_referents}
-    return (
-        any(marker in report_text for marker in ("my ", "our ", "this is my", "we have a new"))
-        or bool(referents & {"son", "daughter", "friend", "coworker", "manager", "boss", "kid"})
-    )
+    return any(
+        marker in report_text for marker in ("my ", "our ", "this is my", "we have a new")
+    ) or bool(referents & {"son", "daughter", "friend", "coworker", "manager", "boss", "kid"})
 
 
 def _finalize_need(

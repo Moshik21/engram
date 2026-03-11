@@ -156,9 +156,7 @@ class AtlasBuilder:
 
         for region_id in ranked_region_ids:
             members = region_members[region_id]
-            dominant_entity_types = Counter(
-                entity.entity_type or "Other" for entity in members
-            )
+            dominant_entity_types = Counter(entity.entity_type or "Other" for entity in members)
             scored_members = sorted(
                 members,
                 key=lambda entity: (
@@ -274,9 +272,7 @@ class AtlasBuilder:
                 for entity_id in entity_ids
             }
 
-        community_counts = Counter(
-            label for label in raw_assignments.values() if label is not None
-        )
+        community_counts = Counter(label for label in raw_assignments.values() if label is not None)
         buckets: dict[str, list[str]] = defaultdict(list)
         for entity in all_entities:
             raw_label = raw_assignments.get(entity.id)
@@ -339,8 +335,7 @@ class AtlasBuilder:
         previous_positions = {}
         if previous_snapshot:
             previous_positions = {
-                region.id: (region.x, region.y, region.z)
-                for region in previous_snapshot.regions
+                region.id: (region.x, region.y, region.z) for region in previous_snapshot.regions
             }
 
         identity_region_id = next(

@@ -218,8 +218,7 @@ async def test_full_mode_cue_usage_projects_episode_and_preserves_recall_parity(
             record_access=False,
         )
         assert any(
-            result.get("result_type") == "entity"
-            and result["entity"]["name"] == "React"
+            result.get("result_type") == "entity" and result["entity"]["name"] == "React"
             for result in entity_results
         )
 
@@ -230,8 +229,7 @@ async def test_full_mode_cue_usage_projects_episode_and_preserves_recall_parity(
             record_access=False,
         )
         assert any(
-            result.get("result_type") == "episode"
-            and result["episode"]["id"] == episode_id
+            result.get("result_type") == "episode" and result["episode"]["id"] == episode_id
             for result in episode_results
         )
     finally:

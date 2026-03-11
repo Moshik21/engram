@@ -56,7 +56,7 @@ class TestGraphEmbedPhase:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         class MockSearchIndex:
             pass
@@ -101,7 +101,7 @@ class TestGraphEmbedPhase:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         # Add an affected entity so phase doesn't skip
         context = CycleContext()
@@ -145,7 +145,7 @@ class TestGraphEmbedPhase:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         result, records = await phase.execute(
             group_id="default",
@@ -212,7 +212,7 @@ class TestGraphEmbedPhaseWarnings:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         class MockSearchIndex:
             pass
@@ -312,7 +312,7 @@ class TestGraphEmbedIncremental:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         context = CycleContext(trigger="tiered:cold")
         context.affected_entity_ids.add("e0")
@@ -360,7 +360,7 @@ class TestGraphEmbedIncremental:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         context = CycleContext(trigger="tiered:cold")
         # 5 out of 20 = 25% > 5% threshold
@@ -407,7 +407,7 @@ class TestGraphEmbedIncremental:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
         context = CycleContext(trigger="tiered:cold")
         context.affected_entity_ids.add("e0")
@@ -454,19 +454,23 @@ class TestGraphEmbedIncremental:
         entities = [type("E", (), {"id": f"e{i}"})() for i in range(n)]
 
         def make_rel(src, tgt, pred):
-            return type("R", (), {
-                "source_id": src,
-                "target_id": tgt,
-                "predicate": pred,
-            })()
+            return type(
+                "R",
+                (),
+                {
+                    "source_id": src,
+                    "target_id": tgt,
+                    "predicate": pred,
+                },
+            )()
 
         relationships = {}
         for i in range(n):
             rels = []
             if i < n - 1:
-                rels.append(make_rel(f"e{i}", f"e{i+1}", "NEXT"))
+                rels.append(make_rel(f"e{i}", f"e{i + 1}", "NEXT"))
             if i % 2 == 0 and i + 2 < n:
-                rels.append(make_rel(f"e{i}", f"e{i+2}", "SKIP"))
+                rels.append(make_rel(f"e{i}", f"e{i + 2}", "SKIP"))
             relationships[f"e{i}"] = rels
 
         class MockGraph:
@@ -475,7 +479,7 @@ class TestGraphEmbedIncremental:
 
             async def get_active_neighbors_with_weights(self, eid, group_id):
                 idx = int(eid[1:])
-                return [(f"e{(idx+1) % n}", 1.0, "REL")]
+                return [(f"e{(idx + 1) % n}", 1.0, "REL")]
 
             async def get_relationships(self, eid, direction, group_id):
                 return relationships.get(eid, [])

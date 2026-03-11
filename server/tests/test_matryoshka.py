@@ -91,9 +91,7 @@ async def test_hybrid_search_with_storage_dim(tmp_path):
     assert row["dimensions"] == 2
 
     # Verify versioning metadata
-    cursor = await db.execute(
-        "SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'"
-    )
+    cursor = await db.execute("SELECT embed_provider, embed_model FROM embeddings WHERE id = 'e1'")
     row = await cursor.fetchone()
     assert row["embed_provider"] == "local"
     assert row["embed_model"] == "test-model"
@@ -118,8 +116,11 @@ async def test_batch_index_entities(tmp_path):
     )
 
     idx = HybridSearchIndex(
-        fts=fts, vector_store=vectors, provider=provider,
-        embed_provider="local", embed_model="test",
+        fts=fts,
+        vector_store=vectors,
+        provider=provider,
+        embed_provider="local",
+        embed_model="test",
     )
 
     import aiosqlite
@@ -134,8 +135,11 @@ async def test_batch_index_entities(tmp_path):
     entities = [
         Entity(id="e1", name="Alpha", group_id="default", entity_type="Thing"),
         Entity(
-            id="e2", name="Beta", summary="A beta entity",
-            group_id="default", entity_type="Thing",
+            id="e2",
+            name="Beta",
+            summary="A beta entity",
+            group_id="default",
+            entity_type="Thing",
         ),
     ]
 
@@ -171,7 +175,9 @@ async def test_batch_index_with_truncation(tmp_path):
     provider = _mock_provider(dim=4, embed_return=[[1.0, 2.0, 3.0, 4.0]])
 
     idx = HybridSearchIndex(
-        fts=fts, vector_store=vectors, provider=provider,
+        fts=fts,
+        vector_store=vectors,
+        provider=provider,
         storage_dim=2,
     )
 

@@ -254,9 +254,7 @@ def _append_identifier_review(
             entity_b_type=entity_b.entity_type,
             raw_similarity=round(raw_similarity, 4),
             adjusted_similarity=(
-                round(adjusted_similarity, 4)
-                if adjusted_similarity is not None
-                else None
+                round(adjusted_similarity, 4) if adjusted_similarity is not None else None
             ),
             decision_source=decision_source,
             decision_reason=decision.reason,
@@ -444,7 +442,10 @@ class EntityMergePhase(ConsolidationPhase):
         ann_llm_candidates: list[tuple] = []  # Semantic dupes needing LLM review
         if cfg.consolidation_merge_use_embeddings:
             ann_pairs = await self._find_candidates_via_embeddings(
-                entities, search_index, group_id, cfg,
+                entities,
+                search_index,
+                group_id,
+                cfg,
                 require_same_type=require_same_type,
             )
             if ann_pairs is not None:
@@ -624,7 +625,11 @@ class EntityMergePhase(ConsolidationPhase):
             ce_enabled = getattr(cfg, "consolidation_cross_encoder_enabled", True)
             for ea, eb, _sim in uncached:
                 verdict, conf, signals = await score_merge_pair(
-                    ea, eb, search_index, graph_store, group_id,
+                    ea,
+                    eb,
+                    search_index,
+                    graph_store,
+                    group_id,
                     cross_encoder_enabled=ce_enabled,
                 )
                 if context is not None:
@@ -670,7 +675,8 @@ class EntityMergePhase(ConsolidationPhase):
                 if len(ann_llm_candidates) > ann_cap:
                     logger.info(
                         "Merge: capped ANN→LLM candidates from %d to %d",
-                        len(ann_llm_candidates), ann_cap,
+                        len(ann_llm_candidates),
+                        ann_cap,
                     )
 
             # Also collect name-based soft-zone pairs (traditional path)
@@ -687,7 +693,9 @@ class EntityMergePhase(ConsolidationPhase):
 
             if all_llm_candidates:
                 llm_merges = self._run_llm_merge_pass(
-                    all_llm_candidates, cfg, dry_run,
+                    all_llm_candidates,
+                    cfg,
+                    dry_run,
                 )
                 for ea_id, eb_id in llm_merges:
                     union(ea_id, eb_id)
@@ -715,7 +723,8 @@ class EntityMergePhase(ConsolidationPhase):
                 structural_uncached = [
                     (id_to_entity[a], id_to_entity[b], 0.0)
                     for a, b, _count in structural_pairs
-                    if a in id_to_entity and b in id_to_entity
+                    if a in id_to_entity
+                    and b in id_to_entity
                     and _types_allowed(id_to_entity[a], id_to_entity[b], require_same_type)
                     and frozenset({a, b}) not in self._keep_separate_cache
                     and find(a) != find(b)  # Not already merged
@@ -727,7 +736,11 @@ class EntityMergePhase(ConsolidationPhase):
                     )
                     for ea, eb, _sim in structural_uncached:
                         verdict, conf, signals = await score_merge_pair(
-                            ea, eb, search_index, graph_store, group_id,
+                            ea,
+                            eb,
+                            search_index,
+                            graph_store,
+                            group_id,
                             cross_encoder_enabled=ce_enabled,
                         )
                         reason = signals.get("reason")
@@ -787,7 +800,8 @@ class EntityMergePhase(ConsolidationPhase):
                 allow_exact_identifier_cross_type = (
                     decision_meta is not None
                     and decision_meta.get("source") == "identifier_policy"
-                    and decision_meta.get("reason") in {
+                    and decision_meta.get("reason")
+                    in {
                         "identifier_exact_match",
                         "hybrid_code_match",
                     }
@@ -1143,7 +1157,11 @@ class EntityMergePhase(ConsolidationPhase):
                     elif verdict == "uncertain" and cfg.consolidation_merge_escalation_enabled:
                         # Escalate to Sonnet (one at a time)
                         esc_verdict = self._escalate_merge(
-                            ea, eb, sim, cfg, client,
+                            ea,
+                            eb,
+                            sim,
+                            cfg,
+                            client,
                         )
                         if esc_verdict == "merge":
                             approved_merges.append((ea.id, eb.id))
@@ -1154,9 +1172,7 @@ class EntityMergePhase(ConsolidationPhase):
 
             except Exception as exc:
                 # Log batch failure with all pair names
-                pair_names = ", ".join(
-                    f"{ea.name}/{eb.name}" for ea, eb, _sim in batch
-                )
+                pair_names = ", ".join(f"{ea.name}/{eb.name}" for ea, eb, _sim in batch)
                 logger.warning("Merge LLM judge failed for batch [%s]: %s", pair_names, exc)
 
         return approved_merges

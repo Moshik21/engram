@@ -171,8 +171,7 @@ class ConsolidationEngine:
 
         try:
             selected_phases = [
-                phase for phase in self._phases
-                if phase_names is None or phase.name in phase_names
+                phase for phase in self._phases if phase_names is None or phase.name in phase_names
             ]
             self._validate_phase_capabilities(selected_phases)
 

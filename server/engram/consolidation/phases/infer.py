@@ -253,7 +253,12 @@ class EdgeInferencePhase(ConsolidationPhase):
         # --- Multi-signal auto-validation (replaces LLM when enabled) ---
         if cfg.consolidation_infer_auto_validation_enabled:
             await self._run_auto_validation_pass(
-                records, graph_store, search_index, cfg, group_id, dry_run,
+                records,
+                graph_store,
+                search_index,
+                cfg,
+                group_id,
+                dry_run,
             )
         elif cfg.consolidation_infer_llm_enabled:
             await self._run_llm_validation_pass(
@@ -335,10 +340,13 @@ class EdgeInferencePhase(ConsolidationPhase):
                             decision_trace_id=trace.id,
                             outcome_type="materialization",
                             label=rec.materialization_action,
-                            value=1.0 if rec.materialization_action in {
+                            value=1.0
+                            if rec.materialization_action
+                            in {
                                 "created",
                                 "updated_existing",
-                            } else 0.0,
+                            }
+                            else 0.0,
                             metadata={"predicate": rec.predicate},
                         )
                     )
@@ -369,8 +377,11 @@ class EdgeInferencePhase(ConsolidationPhase):
             r
             for r in records
             if r.confidence >= threshold
-            and r.infer_type in (
-                "co_occurrence", "co_occurrence_pmi", "transitivity",
+            and r.infer_type
+            in (
+                "co_occurrence",
+                "co_occurrence_pmi",
+                "transitivity",
             )
         ][:max_validations]
 
@@ -434,7 +445,8 @@ class EdgeInferencePhase(ConsolidationPhase):
                         )
 
                         ce_verdict, ce_score = await refine_infer_verdict(
-                            entity_a, entity_b,
+                            entity_a,
+                            entity_b,
                             "MENTIONED_WITH",
                             _score,
                             approve_threshold=cfg.consolidation_infer_auto_approve_threshold,
@@ -563,9 +575,7 @@ class EdgeInferencePhase(ConsolidationPhase):
         """Re-validate uncertain edges via Sonnet escalation model."""
         max_escalations = cfg.consolidation_infer_escalation_max_per_cycle
 
-        candidates = [
-            r for r in records if r.llm_verdict == "uncertain"
-        ][:max_escalations]
+        candidates = [r for r in records if r.llm_verdict == "uncertain"][:max_escalations]
 
         if not candidates:
             return
@@ -649,8 +659,13 @@ class EdgeInferencePhase(ConsolidationPhase):
             source_episode = f"consolidation:{cycle_id}"
             if rec.infer_type == "transitivity":
                 source_episode = f"consolidation:{cycle_id}:transitivity"
-            weight = rec.confidence if rec.infer_type == "transitivity" else min(
-                1.0, rec.co_occurrence_count / 10.0,
+            weight = (
+                rec.confidence
+                if rec.infer_type == "transitivity"
+                else min(
+                    1.0,
+                    rec.co_occurrence_count / 10.0,
+                )
             )
             apply_result = await GraphManager._apply_relationship_fact(
                 graph_store,
@@ -673,10 +688,9 @@ class EdgeInferencePhase(ConsolidationPhase):
                 source_episode,
             )
             rec.materialization_action = apply_result.action
-            rec.relationship_id = (
-                apply_result.metadata.get("relationship_id")
-                or apply_result.metadata.get("existing_relationship_id")
-            )
+            rec.relationship_id = apply_result.metadata.get(
+                "relationship_id"
+            ) or apply_result.metadata.get("existing_relationship_id")
             if apply_result.created or apply_result.action == "updated_existing":
                 affected += 1
                 if context is not None:

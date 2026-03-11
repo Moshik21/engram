@@ -103,9 +103,7 @@ async def execute_recall_plan(
         _merge_results(merged_scores, trace, direct_intent, direct_results or [])
 
     sub_intents = [
-        intent
-        for intent in plan.intents
-        if intent.intent_type != "direct" and intent.query_text
+        intent for intent in plan.intents if intent.intent_type != "direct" and intent.query_text
     ]
     if sub_intents:
         tasks = [

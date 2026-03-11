@@ -55,9 +55,7 @@ class MemoryNeed:
             "turnPreview": turn_preview,
         }
         if self.signal_scores:
-            payload["signalScores"] = {
-                k: round(v, 4) for k, v in self.signal_scores.items()
-            }
+            payload["signalScores"] = {k: round(v, 4) for k, v in self.signal_scores.items()}
         if self.trigger_family:
             payload["triggerFamily"] = self.trigger_family
         if self.trigger_kind:
@@ -71,9 +69,7 @@ class MemoryNeed:
         if self.decision_path:
             payload["decisionPath"] = self.decision_path
         if self.thresholds:
-            payload["thresholds"] = {
-                key: round(value, 4) for key, value in self.thresholds.items()
-            }
+            payload["thresholds"] = {key: round(value, 4) for key, value in self.thresholds.items()}
         if self.analyzer_latency_ms > 0:
             payload["analyzerLatencyMs"] = round(self.analyzer_latency_ms, 4)
         if self.probe_triggered:

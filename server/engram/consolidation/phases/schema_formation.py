@@ -77,11 +77,13 @@ def _fingerprint_to_members(
     """Convert fingerprint triples to schema_members rows."""
     members = []
     for i, (src_type, predicate, tgt_type) in enumerate(sorted(fingerprint)):
-        members.append({
-            "role_label": f"r{i}_{src_type}_{predicate}_{tgt_type}",
-            "member_type": tgt_type,
-            "member_predicate": predicate,
-        })
+        members.append(
+            {
+                "role_label": f"r{i}_{src_type}_{predicate}_{tgt_type}",
+                "member_type": tgt_type,
+                "member_predicate": predicate,
+            }
+        )
     return members
 
 
@@ -94,13 +96,9 @@ def _schema_matches_fingerprint(
     if len(schema_members) != len(expected):
         return False
     existing_set = {
-        (m["role_label"], m["member_type"], m["member_predicate"])
-        for m in schema_members
+        (m["role_label"], m["member_type"], m["member_predicate"]) for m in schema_members
     }
-    expected_set = {
-        (m["role_label"], m["member_type"], m["member_predicate"])
-        for m in expected
-    }
+    expected_set = {(m["role_label"], m["member_type"], m["member_predicate"]) for m in expected}
     return existing_set == expected_set
 
 
@@ -119,8 +117,7 @@ def _get_schema_support(
     elif isinstance(bundle, dict):
         try:
             mature = (
-                float(bundle.get("maturity_score", 0.0))
-                >= cfg.maturation_transitional_threshold
+                float(bundle.get("maturity_score", 0.0)) >= cfg.maturation_transitional_threshold
             )
         except (TypeError, ValueError):
             mature = False
@@ -237,25 +234,27 @@ class SchemaFormationPhase(ConsolidationPhase):
 
         if not cfg.schema_formation_enabled:
             return PhaseResult(
-                phase=self.name, status="skipped", duration_ms=_elapsed_ms(t0),
+                phase=self.name,
+                status="skipped",
+                duration_ms=_elapsed_ms(t0),
             ), []
 
         # 1. Scan entities — prefer mature entities if available
         entities: list[Entity] = await graph_store.find_entities(
-            group_id=group_id, limit=cfg.schema_max_entities_scan,
+            group_id=group_id,
+            limit=cfg.schema_max_entities_scan,
         )
 
         if not entities:
             return PhaseResult(
-                phase=self.name, status="skipped",
-                items_processed=0, duration_ms=_elapsed_ms(t0),
+                phase=self.name,
+                status="skipped",
+                items_processed=0,
+                duration_ms=_elapsed_ms(t0),
             ), []
 
         # Filter to non-deleted, non-Schema entities
-        entities = [
-            e for e in entities
-            if e.deleted_at is None and e.entity_type != "Schema"
-        ]
+        entities = [e for e in entities if e.deleted_at is None and e.entity_type != "Schema"]
 
         # Build entity cache
         entity_cache: dict[str, Entity] = {e.id: e for e in entities}
@@ -266,14 +265,19 @@ class SchemaFormationPhase(ConsolidationPhase):
 
         for entity in entities:
             rels = await graph_store.get_relationships(
-                entity.id, direction="both", group_id=group_id,
+                entity.id,
+                direction="both",
+                group_id=group_id,
             )
             if len(rels) < cfg.schema_min_edges:
                 scanned += 1
                 continue
 
             fp = compute_fingerprint(
-                entity.entity_type, rels, entity_cache, entity.id,
+                entity.entity_type,
+                rels,
+                entity_cache,
+                entity.id,
             )
             if len(fp) >= cfg.schema_min_edges:
                 motif_counter[fp].append(entity.id)
@@ -300,7 +304,9 @@ class SchemaFormationPhase(ConsolidationPhase):
         created = 0
 
         existing_schemas = await graph_store.find_entities_by_type(
-            "Schema", group_id, limit=200,
+            "Schema",
+            group_id,
+            limit=200,
         )
 
         for fp, instance_ids, support_summary in candidates:
@@ -311,7 +317,8 @@ class SchemaFormationPhase(ConsolidationPhase):
             matched_schema = None
             for schema_entity in existing_schemas:
                 members = await graph_store.get_schema_members(
-                    schema_entity.id, group_id,
+                    schema_entity.id,
+                    group_id,
                 )
                 if _schema_matches_fingerprint(members, fp):
                     matched_schema = schema_entity
@@ -321,7 +328,9 @@ class SchemaFormationPhase(ConsolidationPhase):
                 # Reinforce existing schema
                 if not dry_run:
                     await activation_store.record_access(
-                        matched_schema.id, time.time(), group_id,
+                        matched_schema.id,
+                        time.time(),
+                        group_id,
                     )
                     attrs = (
                         matched_schema.attributes
@@ -337,15 +346,17 @@ class SchemaFormationPhase(ConsolidationPhase):
                         {"attributes": json.dumps(attrs)},
                         group_id,
                     )
-                records.append(SchemaRecord(
-                    cycle_id=cycle_id,
-                    group_id=group_id,
-                    schema_entity_id=matched_schema.id,
-                    schema_name=matched_schema.name,
-                    instance_count=len(instance_ids),
-                    predicate_count=len(fp),
-                    action="reinforced",
-                ))
+                records.append(
+                    SchemaRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        schema_entity_id=matched_schema.id,
+                        schema_name=matched_schema.name,
+                        instance_count=len(instance_ids),
+                        predicate_count=len(fp),
+                        action="reinforced",
+                    )
+                )
                 continue
 
             # Create new schema
@@ -394,15 +405,17 @@ class SchemaFormationPhase(ConsolidationPhase):
                     context.schema_entity_ids.add(schema_id)
                     context.affected_entity_ids.add(schema_id)
 
-            records.append(SchemaRecord(
-                cycle_id=cycle_id,
-                group_id=group_id,
-                schema_entity_id=schema_id,
-                schema_name=schema_name,
-                instance_count=len(instance_ids),
-                predicate_count=len(fp),
-                action="created",
-            ))
+            records.append(
+                SchemaRecord(
+                    cycle_id=cycle_id,
+                    group_id=group_id,
+                    schema_entity_id=schema_id,
+                    schema_name=schema_name,
+                    instance_count=len(instance_ids),
+                    predicate_count=len(fp),
+                    action="created",
+                )
+            )
             created += 1
 
         return PhaseResult(

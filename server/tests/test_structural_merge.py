@@ -126,7 +126,11 @@ class TestExclusivitySignal:
         )
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert signals["exclusivity"] > 0.7
         # Person booster + exclusivity should push this over threshold
@@ -155,7 +159,11 @@ class TestExclusivitySignal:
         )
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert signals["exclusivity"] == -0.3
         assert verdict == "keep_separate"
@@ -168,7 +176,11 @@ class TestExclusivitySignal:
         search_index, graph_store = await _make_mocks(cooccurrence=0)
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert signals["exclusivity"] == 0.3
 
@@ -201,7 +213,11 @@ class TestExclusivitySignal:
         )
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # Structural equivalence booster: nbr_score >= 0.40 and exclusivity >= 0.7
         assert signals["neighbor_overlap"] == 1.0
@@ -234,57 +250,103 @@ class TestStructuralCandidateDiscovery:
 
         now = datetime.utcnow().isoformat()
         entities = {
-            "parent": Entity(id="parent", name="Alex", entity_type="Person",
-                             group_id="default", created_at=now, updated_at=now),
-            "child1": Entity(id="child1", name="Jamie", entity_type="Person",
-                             group_id="default", created_at=now, updated_at=now),
-            "child2": Entity(id="child2", name="Kaleb", entity_type="Person",
-                             group_id="default", created_at=now, updated_at=now),
-            "child3": Entity(id="child3", name="Ovando", entity_type="Person",
-                             group_id="default", created_at=now, updated_at=now),
-            "child4": Entity(id="child4", name="Benjamin", entity_type="Person",
-                             group_id="default", created_at=now, updated_at=now),
-            "dupe": Entity(id="dupe", name="Fourth Son", entity_type="Person",
-                           group_id="default", created_at=now, updated_at=now),
+            "parent": Entity(
+                id="parent",
+                name="Alex",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
+            "child1": Entity(
+                id="child1",
+                name="Jamie",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
+            "child2": Entity(
+                id="child2",
+                name="Kaleb",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
+            "child3": Entity(
+                id="child3",
+                name="Ovando",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
+            "child4": Entity(
+                id="child4",
+                name="Benjamin",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
+            "dupe": Entity(
+                id="dupe",
+                name="Fourth Son",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            ),
         }
         for e in entities.values():
             await store.create_entity(e)
 
         # All children are children of parent
         for child_id in ["child1", "child2", "child3", "child4", "dupe"]:
-            await store.create_relationship(Relationship(
-                id=f"rel_{child_id}_parent",
-                source_id=child_id,
-                target_id="parent",
-                predicate="CHILD_OF",
-                group_id="default",
-                created_at=now,
-            ))
+            await store.create_relationship(
+                Relationship(
+                    id=f"rel_{child_id}_parent",
+                    source_id=child_id,
+                    target_id="parent",
+                    predicate="CHILD_OF",
+                    group_id="default",
+                    created_at=now,
+                )
+            )
 
         # Siblings: all children know each other
         sibling_pairs = [
-            ("child1", "child2"), ("child1", "child3"), ("child1", "child4"),
-            ("child2", "child3"), ("child2", "child4"),
+            ("child1", "child2"),
+            ("child1", "child3"),
+            ("child1", "child4"),
+            ("child2", "child3"),
+            ("child2", "child4"),
             ("child3", "child4"),
             # dupe also has sibling relationships
-            ("dupe", "child1"), ("dupe", "child2"), ("dupe", "child3"),
+            ("dupe", "child1"),
+            ("dupe", "child2"),
+            ("dupe", "child3"),
         ]
         for i, (a, b) in enumerate(sibling_pairs):
-            await store.create_relationship(Relationship(
-                id=f"sib_{i}",
-                source_id=a,
-                target_id=b,
-                predicate="SIBLING_OF",
-                group_id="default",
-                created_at=now,
-            ))
+            await store.create_relationship(
+                Relationship(
+                    id=f"sib_{i}",
+                    source_id=a,
+                    target_id=b,
+                    predicate="SIBLING_OF",
+                    group_id="default",
+                    created_at=now,
+                )
+            )
 
         return store
 
     async def test_finds_structural_duplicates(self):
         store = await self._setup_graph()
         candidates = await store.find_structural_merge_candidates(
-            "default", min_shared_neighbors=3,
+            "default",
+            min_shared_neighbors=3,
         )
         # "child4" (Benjamin) and "dupe" (Fourth Son) share parent + 3 siblings
         pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
@@ -294,7 +356,8 @@ class TestStructuralCandidateDiscovery:
         store = await self._setup_graph()
         # High threshold should filter out pairs with fewer shared neighbors
         candidates = await store.find_structural_merge_candidates(
-            "default", min_shared_neighbors=5,
+            "default",
+            min_shared_neighbors=5,
         )
         # Most pairs won't have 5+ shared neighbors
         pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
@@ -306,7 +369,9 @@ class TestStructuralCandidateDiscovery:
 
         # No episode links — should return 0
         count = await store.get_episode_cooccurrence_count(
-            "child4", "dupe", "default",
+            "child4",
+            "dupe",
+            "default",
         )
         assert count == 0
 
@@ -317,28 +382,37 @@ class TestStructuralCandidateDiscovery:
 
         now = datetime.utcnow().isoformat()
         ep = Episode(
-            id="ep1", content="Test episode", group_id="default",
-            created_at=now, status="completed",
+            id="ep1",
+            content="Test episode",
+            group_id="default",
+            created_at=now,
+            status="completed",
         )
         await store.create_episode(ep)
         await store.link_episode_entity("ep1", "child1")
         await store.link_episode_entity("ep1", "child2")
 
         count = await store.get_episode_cooccurrence_count(
-            "child1", "child2", "default",
+            "child1",
+            "child2",
+            "default",
         )
         assert count == 1
 
         # child4 and dupe still don't co-occur
         count = await store.get_episode_cooccurrence_count(
-            "child4", "dupe", "default",
+            "child4",
+            "dupe",
+            "default",
         )
         assert count == 0
 
     async def test_limit_respected(self):
         store = await self._setup_graph()
         candidates = await store.find_structural_merge_candidates(
-            "default", min_shared_neighbors=2, limit=2,
+            "default",
+            min_shared_neighbors=2,
+            limit=2,
         )
         assert len(candidates) <= 2
 
@@ -361,14 +435,26 @@ class TestPrefixFallback:
         from engram.models.entity import Entity
 
         now = datetime.utcnow().isoformat()
-        await store.create_entity(Entity(
-            id="e1", name="Alex", entity_type="Person",
-            group_id="default", created_at=now, updated_at=now,
-        ))
-        await store.create_entity(Entity(
-            id="e2", name="Alex Chen", entity_type="Person",
-            group_id="default", created_at=now, updated_at=now,
-        ))
+        await store.create_entity(
+            Entity(
+                id="e1",
+                name="Alex",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await store.create_entity(
+            Entity(
+                id="e2",
+                name="Alex Chen",
+                entity_type="Person",
+                group_id="default",
+                created_at=now,
+                updated_at=now,
+            )
+        )
         return store
 
     async def test_prefix_finds_typo_variants(self):
@@ -431,7 +517,11 @@ class TestEnsembleWeights:
         )
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # Structural equivalence booster should fire
         assert conf >= 0.85
@@ -459,7 +549,11 @@ class TestEnsembleWeights:
         graph_store.get_episode_cooccurrence_count.side_effect = Exception("not available")
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # Should still benefit from strong structural booster
         assert signals["neighbor_overlap"] == 1.0

@@ -148,8 +148,7 @@ def useful_packet_rate(samples: list[RecallEvalSample]) -> float:
     if surfaced == 0:
         return 0.0
     used = sum(
-        min(max(0, sample.packets_used), max(0, sample.packets_surfaced))
-        for sample in samples
+        min(max(0, sample.packets_used), max(0, sample.packets_surfaced)) for sample in samples
     )
     return used / surfaced
 
@@ -160,8 +159,7 @@ def false_recall_rate(samples: list[RecallEvalSample]) -> float:
     if surfaced == 0:
         return 0.0
     false_recalls = sum(
-        min(max(0, sample.false_recalls), max(0, sample.packets_surfaced))
-        for sample in samples
+        min(max(0, sample.false_recalls), max(0, sample.packets_surfaced)) for sample in samples
     )
     return false_recalls / surfaced
 

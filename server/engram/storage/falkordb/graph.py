@@ -265,7 +265,9 @@ class FalkorDBGraphStore:
         return self._node_to_entity(node, group_id)
 
     async def batch_get_entities(
-        self, entity_ids: list[str], group_id: str,
+        self,
+        entity_ids: list[str],
+        group_id: str,
     ) -> dict[str, Entity]:
         if not entity_ids:
             return {}
@@ -346,7 +348,10 @@ class FalkorDBGraphStore:
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
 
     async def find_entity_candidates(
-        self, name: str, group_id: str, limit: int = 30,
+        self,
+        name: str,
+        group_id: str,
+        limit: int = 30,
     ) -> list[Entity]:
         """Retrieve candidate entities for fuzzy resolution via CONTAINS search."""
         seen_ids: set[str] = set()
@@ -436,9 +441,7 @@ class FalkorDBGraphStore:
                 "weight": rel.weight,
                 "valid_from": rel.valid_from.isoformat() if rel.valid_from else None,
                 "valid_to": rel.valid_to.isoformat() if rel.valid_to else None,
-                "created_at": (
-                    rel.created_at.isoformat() if rel.created_at else utc_now_iso()
-                ),
+                "created_at": (rel.created_at.isoformat() if rel.created_at else utc_now_iso()),
                 "confidence": rel.confidence,
                 "source_episode": rel.source_episode,
                 "group_id": rel.group_id,
@@ -460,10 +463,7 @@ class FalkorDBGraphStore:
         elif direction == "incoming":
             match = "MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity {id: $eid})"
         else:
-            match = (
-                "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) "
-                "WHERE (s.id = $eid OR t.id = $eid)"
-            )
+            match = "MATCH (s:Entity)-[r:RELATES_TO]-(t:Entity) WHERE (s.id = $eid OR t.id = $eid)"
 
         conditions = []
         params: dict = {"eid": entity_id, "now": utc_now_iso()}
@@ -584,8 +584,13 @@ class FalkorDBGraphStore:
                  AND r.group_id = $gid
                  AND (r.valid_to IS NULL OR r.valid_to > $now)
                RETURN r LIMIT 1""",
-            {"src": source_id, "tgt": target_id, "predicate": predicate,
-             "gid": group_id, "now": now},
+            {
+                "src": source_id,
+                "tgt": target_id,
+                "predicate": predicate,
+                "gid": group_id,
+                "now": now,
+            },
         )
         if result.result_set:
             return self._edge_to_relationship(result.result_set[0][0])
@@ -801,8 +806,7 @@ class FalkorDBGraphStore:
                 ),
                 "last_projection_reason": episode.last_projection_reason,
                 "last_projected_at": (
-                    episode.last_projected_at.isoformat()
-                    if episode.last_projected_at else None
+                    episode.last_projected_at.isoformat() if episode.last_projected_at else None
                 ),
             },
         )
@@ -990,8 +994,11 @@ class FalkorDBGraphStore:
         for key, value in updates.items():
             prop = remap.get(key, key)
             if key in {
-                "entity_mentions", "temporal_markers", "quote_spans",
-                "contradiction_keys", "first_spans",
+                "entity_mentions",
+                "temporal_markers",
+                "quote_spans",
+                "contradiction_keys",
+                "first_spans",
             }:
                 params[prop] = json.dumps(value)
             elif key == "projection_state" and hasattr(value, "value"):
@@ -1354,8 +1361,12 @@ class FalkorDBGraphStore:
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs that co-occur in episodes but lack a relationship."""
         since_clause = ""
-        params: dict = {"gid": group_id, "min_co": min_co_occurrence, "limit": limit,
-                       "now": utc_now_iso()}
+        params: dict = {
+            "gid": group_id,
+            "min_co": min_co_occurrence,
+            "limit": limit,
+            "now": utc_now_iso(),
+        }
         if since:
             since_clause = "AND ep.created_at >= $since"
             params["since"] = since.isoformat()
@@ -1397,7 +1408,10 @@ class FalkorDBGraphStore:
         return {row[0]: row[1] for row in result.result_set}
 
     async def find_structural_merge_candidates(
-        self, group_id: str, min_shared_neighbors: int = 3, limit: int = 200,
+        self,
+        group_id: str,
+        min_shared_neighbors: int = 3,
+        limit: int = 200,
     ) -> list[tuple[str, str, int]]:
         """Find entity pairs that share many active neighbors."""
         result = await self._query(
@@ -1423,7 +1437,10 @@ class FalkorDBGraphStore:
         return [(row[0], row[1], row[2]) for row in result.result_set]
 
     async def get_episode_cooccurrence_count(
-        self, entity_id_a: str, entity_id_b: str, group_id: str,
+        self,
+        entity_id_a: str,
+        entity_id_b: str,
+        group_id: str,
     ) -> int:
         """Count episodes where both entities are linked."""
         result = await self._query(
@@ -1460,8 +1477,11 @@ class FalkorDBGraphStore:
                ORDER BY n.access_count ASC, n.created_at ASC
                LIMIT $limit""",
             {
-                "gid": group_id, "cutoff": cutoff, "max_access": max_access_count,
-                "limit": limit, "now": utc_now_iso(),
+                "gid": group_id,
+                "cutoff": cutoff,
+                "max_access": max_access_count,
+                "limit": limit,
+                "now": utc_now_iso(),
             },
         )
         return [self._node_to_entity(row[0], group_id) for row in result.result_set]
@@ -1489,7 +1509,9 @@ class FalkorDBGraphStore:
         return result.result_set[0][0] or 0
 
     async def get_entity_temporal_span(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> tuple[str | None, str | None]:
         """Return the first and last episode timestamps mentioning this entity."""
         result = await self._query(
@@ -1504,7 +1526,9 @@ class FalkorDBGraphStore:
         return (row[0], row[1])
 
     async def get_entity_relationship_types(
-        self, entity_id: str, group_id: str,
+        self,
+        entity_id: str,
+        group_id: str,
     ) -> list[str]:
         """Return distinct active predicates connected to this entity."""
         result = await self._query(
@@ -1541,13 +1565,17 @@ class FalkorDBGraphStore:
             target_id = row[1]
             # Check if keeper already has the same edge — skip if duplicate
             existing = await self.find_existing_relationship(
-                keep_id, target_id, old_rel.predicate, group_id,
+                keep_id,
+                target_id,
+                old_rel.predicate,
+                group_id,
             )
             if existing:
                 # Update weight if new is higher
                 if old_rel.weight > existing.weight:
                     await self.update_relationship_weight(
-                        keep_id, target_id,
+                        keep_id,
+                        target_id,
                         old_rel.weight - existing.weight,
                         group_id=group_id,
                         predicate=old_rel.predicate,
@@ -1571,16 +1599,11 @@ class FalkorDBGraphStore:
                         "predicate": old_rel.predicate,
                         "weight": old_rel.weight,
                         "valid_from": (
-                            old_rel.valid_from.isoformat()
-                            if old_rel.valid_from else None
+                            old_rel.valid_from.isoformat() if old_rel.valid_from else None
                         ),
-                        "valid_to": (
-                            old_rel.valid_to.isoformat()
-                            if old_rel.valid_to else None
-                        ),
+                        "valid_to": (old_rel.valid_to.isoformat() if old_rel.valid_to else None),
                         "created_at": (
-                            old_rel.created_at.isoformat()
-                            if old_rel.created_at else None
+                            old_rel.created_at.isoformat() if old_rel.created_at else None
                         ),
                         "confidence": old_rel.confidence,
                         "source_episode": old_rel.source_episode,
@@ -1608,12 +1631,16 @@ class FalkorDBGraphStore:
             source_id = row[1]
             # Check if keeper already has the same incoming edge
             existing = await self.find_existing_relationship(
-                source_id, keep_id, old_rel.predicate, group_id,
+                source_id,
+                keep_id,
+                old_rel.predicate,
+                group_id,
             )
             if existing:
                 if old_rel.weight > existing.weight:
                     await self.update_relationship_weight(
-                        source_id, keep_id,
+                        source_id,
+                        keep_id,
                         old_rel.weight - existing.weight,
                         group_id=group_id,
                         predicate=old_rel.predicate,
@@ -1637,16 +1664,11 @@ class FalkorDBGraphStore:
                         "predicate": old_rel.predicate,
                         "weight": old_rel.weight,
                         "valid_from": (
-                            old_rel.valid_from.isoformat()
-                            if old_rel.valid_from else None
+                            old_rel.valid_from.isoformat() if old_rel.valid_from else None
                         ),
-                        "valid_to": (
-                            old_rel.valid_to.isoformat()
-                            if old_rel.valid_to else None
-                        ),
+                        "valid_to": (old_rel.valid_to.isoformat() if old_rel.valid_to else None),
                         "created_at": (
-                            old_rel.created_at.isoformat()
-                            if old_rel.created_at else None
+                            old_rel.created_at.isoformat() if old_rel.created_at else None
                         ),
                         "confidence": old_rel.confidence,
                         "source_episode": old_rel.source_episode,
@@ -1688,7 +1710,8 @@ class FalkorDBGraphStore:
                 if is_meta_summary(remove_summary):
                     logger.warning(
                         "Rejected meta-contaminated summary during merge into %s: %s",
-                        keep_id, remove_summary[:80],
+                        keep_id,
+                        remove_summary[:80],
                     )
                 else:
                     merged_summary = f"{keep_summary} {remove_summary}".strip()
@@ -1807,8 +1830,7 @@ class FalkorDBGraphStore:
                 WHERE r.group_id = $gid AND r.predicate = $pred
                   {active_clause}
                 RETURN r LIMIT $limit""",
-            {"gid": group_id, "pred": predicate, "limit": limit,
-             "now": utc_now_iso()},
+            {"gid": group_id, "pred": predicate, "limit": limit, "now": utc_now_iso()},
         )
         seen_ids: set[str] = set()
         rels = []
@@ -1927,9 +1949,7 @@ class FalkorDBGraphStore:
             entity_mentions=json.loads(props.get("cue_entity_mentions_json", "[]") or "[]"),
             temporal_markers=json.loads(props.get("cue_temporal_markers_json", "[]") or "[]"),
             quote_spans=json.loads(props.get("cue_quote_spans_json", "[]") or "[]"),
-            contradiction_keys=json.loads(
-                props.get("cue_contradiction_keys_json", "[]") or "[]"
-            ),
+            contradiction_keys=json.loads(props.get("cue_contradiction_keys_json", "[]") or "[]"),
             first_spans=json.loads(props.get("cue_first_spans_json", "[]") or "[]"),
             hit_count=props.get("cue_hit_count", 0) or 0,
             surfaced_count=props.get("cue_surfaced_count", 0) or 0,
@@ -1970,18 +1990,26 @@ class FalkorDBGraphStore:
     # --- Schema Formation (Brain Architecture Phase 3) stubs ---
 
     async def get_schema_members(
-        self, schema_entity_id: str, group_id: str,
+        self,
+        schema_entity_id: str,
+        group_id: str,
     ) -> list[dict]:
         """Stub — FalkorDB schema members not yet implemented."""
         return []
 
     async def save_schema_members(
-        self, schema_entity_id: str, members: list[dict], group_id: str,
+        self,
+        schema_entity_id: str,
+        members: list[dict],
+        group_id: str,
     ) -> None:
         """Stub — FalkorDB schema members not yet implemented."""
 
     async def find_entities_by_type(
-        self, entity_type: str, group_id: str, limit: int = 100,
+        self,
+        entity_type: str,
+        group_id: str,
+        limit: int = 100,
     ) -> list[Entity]:
         """Return non-deleted entities of a specific type."""
         result = await self._query(
@@ -2034,7 +2062,9 @@ class FalkorDBGraphStore:
         return self._node_to_intention(result.result_set[0][0])
 
     async def list_intentions(
-        self, group_id: str, enabled_only: bool = True,
+        self,
+        group_id: str,
+        enabled_only: bool = True,
     ) -> list:
         """List intentions for a group, filtering expired and optionally disabled."""
         if enabled_only:
@@ -2055,7 +2085,10 @@ class FalkorDBGraphStore:
         return [self._node_to_intention(row[0]) for row in result.result_set]
 
     async def update_intention(
-        self, id: str, updates: dict, group_id: str,
+        self,
+        id: str,
+        updates: dict,
+        group_id: str,
     ) -> None:
         """Update intention fields."""
         allowed = {"trigger_text", "action_text", "threshold", "max_fires", "enabled", "expires_at"}
@@ -2071,14 +2104,14 @@ class FalkorDBGraphStore:
             return
         set_parts.append("n.updated_at = $updated_at")
         params["updated_at"] = utc_now_iso()
-        cypher = (
-            f"MATCH (n:Intention {{id: $id, group_id: $gid}}) "
-            f"SET {', '.join(set_parts)}"
-        )
+        cypher = f"MATCH (n:Intention {{id: $id, group_id: $gid}}) SET {', '.join(set_parts)}"
         await self._query(cypher, params)
 
     async def delete_intention(
-        self, id: str, group_id: str, soft: bool = True,
+        self,
+        id: str,
+        group_id: str,
+        soft: bool = True,
     ) -> None:
         """Delete an intention (soft = disable, hard = remove)."""
         if soft:
@@ -2094,7 +2127,9 @@ class FalkorDBGraphStore:
             )
 
     async def increment_intention_fire_count(
-        self, id: str, group_id: str,
+        self,
+        id: str,
+        group_id: str,
     ) -> None:
         """Increment fire_count by 1."""
         await self._query(
@@ -2169,7 +2204,9 @@ class FalkorDBGraphStore:
             )
 
     async def get_pending_evidence(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]:
         """Get unresolved evidence candidates for adjudication."""
         result = await self._query(
@@ -2181,7 +2218,9 @@ class FalkorDBGraphStore:
         return [_evidence_node_to_dict(row[0]) for row in result.result_set]
 
     async def get_episode_evidence(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]:
         """Get all evidence associated with an episode."""
         result = await self._query(
@@ -2249,7 +2288,9 @@ class FalkorDBGraphStore:
         return result.result_set[0][0] if result.result_set else 0
 
     async def store_adjudication_requests(
-        self, requests: list[dict], group_id: str = "default",
+        self,
+        requests: list[dict],
+        group_id: str = "default",
     ) -> None:
         """Persist edge adjudication requests."""
         for req in requests:
@@ -2289,7 +2330,9 @@ class FalkorDBGraphStore:
             )
 
     async def get_episode_adjudications(
-        self, episode_id: str, group_id: str = "default",
+        self,
+        episode_id: str,
+        group_id: str = "default",
     ) -> list[dict]:
         """Get adjudication requests for an episode."""
         result = await self._query(
@@ -2300,7 +2343,9 @@ class FalkorDBGraphStore:
         return [_adjudication_node_to_dict(row[0]) for row in result.result_set]
 
     async def get_adjudication_request(
-        self, request_id: str, group_id: str = "default",
+        self,
+        request_id: str,
+        group_id: str = "default",
     ) -> dict | None:
         """Get a single adjudication request by ID."""
         result = await self._query(
@@ -2313,7 +2358,9 @@ class FalkorDBGraphStore:
         return _adjudication_node_to_dict(result.result_set[0][0])
 
     async def get_pending_adjudication_requests(
-        self, group_id: str = "default", limit: int = 100,
+        self,
+        group_id: str = "default",
+        limit: int = 100,
     ) -> list[dict]:
         """Get unresolved adjudication requests for consolidation."""
         result = await self._query(
@@ -2325,7 +2372,10 @@ class FalkorDBGraphStore:
         return [_adjudication_node_to_dict(row[0]) for row in result.result_set]
 
     async def update_adjudication_request(
-        self, request_id: str, updates: dict, group_id: str = "default",
+        self,
+        request_id: str,
+        updates: dict,
+        group_id: str = "default",
     ) -> None:
         """Update adjudication request fields."""
         if not updates:
@@ -2358,10 +2408,7 @@ class FalkorDBGraphStore:
                 else None
             )
         status = updates.get("status")
-        if (
-            status in {"materialized", "rejected", "expired"}
-            and "resolved_at" not in updates
-        ):
+        if status in {"materialized", "rejected", "expired"} and "resolved_at" not in updates:
             set_parts.append("a.resolved_at = $resolved_at_auto")
             params["resolved_at_auto"] = utc_now_iso()
         if not set_parts:

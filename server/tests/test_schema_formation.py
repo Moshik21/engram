@@ -29,17 +29,24 @@ def _entity(
     attrs: dict | None = None,
 ) -> Entity:
     return Entity(
-        id=eid, name=name, entity_type=etype, group_id="default",
+        id=eid,
+        name=name,
+        entity_type=etype,
+        group_id="default",
         attributes=attrs or {},
-        created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
     )
 
 
 def _rel(src: str, tgt: str, predicate: str = "KNOWS") -> Relationship:
     return Relationship(
         id=f"rel_{src}_{tgt}",
-        source_id=src, target_id=tgt, predicate=predicate,
-        weight=1.0, group_id="default",
+        source_id=src,
+        target_id=tgt,
+        predicate=predicate,
+        weight=1.0,
+        group_id="default",
     )
 
 
@@ -91,10 +98,12 @@ def test_compute_fingerprint_missing_cache_entry():
 
 
 def test_generate_schema_name():
-    fp = frozenset({
-        ("Person", "EXPERT_IN", "Technology"),
-        ("Person", "MEMBER_OF", "Organization"),
-    })
+    fp = frozenset(
+        {
+            ("Person", "EXPERT_IN", "Technology"),
+            ("Person", "MEMBER_OF", "Organization"),
+        }
+    )
     name = _generate_schema_name(fp)
     assert "Person" in name
     assert "EXPERT_IN" in name
@@ -118,10 +127,12 @@ def test_fingerprint_to_members():
 
 
 def test_fingerprint_to_members_multi():
-    fp = frozenset({
-        ("Person", "EXPERT_IN", "Technology"),
-        ("Person", "MEMBER_OF", "Organization"),
-    })
+    fp = frozenset(
+        {
+            ("Person", "EXPERT_IN", "Technology"),
+            ("Person", "MEMBER_OF", "Organization"),
+        }
+    )
     members = _fingerprint_to_members(fp)
     assert len(members) == 2
 
@@ -144,10 +155,12 @@ def test_schema_matches_fingerprint_no_match():
 
 def test_schema_matches_fingerprint_different_length():
     fp1 = frozenset({("Person", "EXPERT_IN", "Technology")})
-    fp2 = frozenset({
-        ("Person", "EXPERT_IN", "Technology"),
-        ("Person", "MEMBER_OF", "Organization"),
-    })
+    fp2 = frozenset(
+        {
+            ("Person", "EXPERT_IN", "Technology"),
+            ("Person", "MEMBER_OF", "Organization"),
+        }
+    )
     members = _fingerprint_to_members(fp1)
     assert _schema_matches_fingerprint(members, fp2) is False
 
@@ -208,9 +221,14 @@ def _make_phase_deps(entities=None, rels_by_entity=None, existing_schemas=None):
 async def _run_phase(graph_store, activation_store, search_index, cfg, context=None, dry_run=False):
     phase = SchemaFormationPhase()
     return await phase.execute(
-        group_id="test", graph_store=graph_store,
-        activation_store=activation_store, search_index=search_index,
-        cfg=cfg, cycle_id="cyc1", context=context, dry_run=dry_run,
+        group_id="test",
+        graph_store=graph_store,
+        activation_store=activation_store,
+        search_index=search_index,
+        cfg=cfg,
+        cycle_id="cyc1",
+        context=context,
+        dry_run=dry_run,
     )
 
 
@@ -247,7 +265,8 @@ async def test_phase_creates_schema_when_enough_instances():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -257,7 +276,11 @@ async def test_phase_creates_schema_when_enough_instances():
     context = CycleContext()
 
     result, records = await _run_phase(
-        graph_store, activation_store, search_index, cfg, context,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
+        context,
     )
 
     assert result.items_affected >= 1
@@ -286,7 +309,8 @@ async def test_phase_does_not_create_when_too_few_instances():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -310,7 +334,8 @@ async def test_phase_does_not_create_when_too_few_edges():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -339,7 +364,8 @@ async def test_phase_skips_noisy_motif_when_support_is_weak():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -383,7 +409,8 @@ async def test_phase_prefers_stable_supported_motif():
     rels_map["org1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -412,7 +439,8 @@ async def test_phase_reinforces_existing_schema():
     expected_members = _fingerprint_to_members(fp)
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
         existing_schemas=[existing_schema],
     )
     graph_store.get_schema_members = AsyncMock(return_value=expected_members)
@@ -448,7 +476,8 @@ async def test_phase_respects_max_per_cycle():
         rels_map[f"tgt_{pattern_idx}"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -473,7 +502,8 @@ async def test_phase_respects_dry_run():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -482,7 +512,11 @@ async def test_phase_respects_dry_run():
     )
 
     result, records = await _run_phase(
-        graph_store, activation_store, search_index, cfg, dry_run=True,
+        graph_store,
+        activation_store,
+        search_index,
+        cfg,
+        dry_run=True,
     )
 
     assert len(records) >= 1
@@ -502,7 +536,8 @@ async def test_phase_schema_record_fields():
     rels_map["tech1"] = []
 
     graph_store, activation_store, search_index = _make_phase_deps(
-        entities=entities, rels_by_entity=rels_map,
+        entities=entities,
+        rels_by_entity=rels_map,
     )
     cfg = ActivationConfig(
         schema_formation_enabled=True,
@@ -533,9 +568,21 @@ def test_engine_has_15_phases():
     phases = [p.name for p in e._phases]
     assert len(phases) == 15
     assert phases == [
-        "triage", "merge", "infer", "evidence_adjudication", "edge_adjudication", "replay",
-        "prune", "compact", "mature", "semanticize", "schema", "reindex",
-        "graph_embed", "microglia", "dream",
+        "triage",
+        "merge",
+        "infer",
+        "evidence_adjudication",
+        "edge_adjudication",
+        "replay",
+        "prune",
+        "compact",
+        "mature",
+        "semanticize",
+        "schema",
+        "reindex",
+        "graph_embed",
+        "microglia",
+        "dream",
     ]
 
 

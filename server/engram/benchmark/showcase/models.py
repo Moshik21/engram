@@ -22,15 +22,9 @@ def estimate_tokens(text: str) -> int:
 def to_serializable(value: Any) -> Any:
     """Convert dataclasses and nested containers into JSON-safe primitives."""
     if is_dataclass(value) and not isinstance(value, type):
-        return {
-            key: to_serializable(item)
-            for key, item in asdict(value).items()
-        }
+        return {key: to_serializable(item) for key, item in asdict(value).items()}
     if isinstance(value, dict):
-        return {
-            str(key): to_serializable(item)
-            for key, item in value.items()
-        }
+        return {str(key): to_serializable(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [to_serializable(item) for item in value]
     return value

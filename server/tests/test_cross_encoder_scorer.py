@@ -136,7 +136,10 @@ class TestRefineInferVerdict:
             return_value=0.9,
         ):
             verdict, score = await refine_infer_verdict(
-                ea, eb, "WORKS_AT", 0.50,
+                ea,
+                eb,
+                "WORKS_AT",
+                0.50,
             )
             # 0.5*0.9 + 0.5*0.5 = 0.45 + 0.25 = 0.70 > 0.65
             assert verdict == "approved"
@@ -152,7 +155,10 @@ class TestRefineInferVerdict:
             return_value=0.1,
         ):
             verdict, score = await refine_infer_verdict(
-                ea, eb, "MENTIONED_WITH", 0.45,
+                ea,
+                eb,
+                "MENTIONED_WITH",
+                0.45,
             )
             # 0.5*0.1 + 0.5*0.45 = 0.05 + 0.225 = 0.275 < 0.40
             assert verdict == "rejected"
@@ -168,7 +174,10 @@ class TestRefineInferVerdict:
             return_value=0.5,
         ):
             verdict, score = await refine_infer_verdict(
-                ea, eb, "MENTIONED_WITH", 0.50,
+                ea,
+                eb,
+                "MENTIONED_WITH",
+                0.50,
             )
             # 0.5*0.5 + 0.5*0.5 = 0.50 — uncertain
             assert verdict == "uncertain"
@@ -184,7 +193,10 @@ class TestRefineInferVerdict:
             return_value=None,
         ):
             verdict, score = await refine_infer_verdict(
-                ea, eb, "MENTIONED_WITH", 0.50,
+                ea,
+                eb,
+                "MENTIONED_WITH",
+                0.50,
             )
             assert verdict == "uncertain"
             assert score == 0.50

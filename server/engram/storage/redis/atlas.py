@@ -69,9 +69,7 @@ class RedisAtlasStore:
         summaries: list[AtlasSnapshotSummary] = []
         for raw_snapshot_id in snapshot_ids:
             snapshot_id = (
-                raw_snapshot_id.decode()
-                if isinstance(raw_snapshot_id, bytes)
-                else raw_snapshot_id
+                raw_snapshot_id.decode() if isinstance(raw_snapshot_id, bytes) else raw_snapshot_id
             )
             snapshot = await self.get_snapshot(snapshot_id, group_id)
             if snapshot is None:

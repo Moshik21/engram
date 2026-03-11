@@ -47,35 +47,48 @@ class TestIntentionModel:
 class TestIsActive:
     def test_active_intention(self):
         i = Intention(
-            id="int_1", trigger_text="test", action_text="action",
-            enabled=True, fire_count=0, max_fires=5,
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
+            enabled=True,
+            fire_count=0,
+            max_fires=5,
         )
         assert _is_active(i) is True
 
     def test_disabled_intention(self):
         i = Intention(
-            id="int_1", trigger_text="test", action_text="action",
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
             enabled=False,
         )
         assert _is_active(i) is False
 
     def test_exhausted_intention(self):
         i = Intention(
-            id="int_1", trigger_text="test", action_text="action",
-            fire_count=5, max_fires=5,
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
+            fire_count=5,
+            max_fires=5,
         )
         assert _is_active(i) is False
 
     def test_expired_intention(self):
         i = Intention(
-            id="int_1", trigger_text="test", action_text="action",
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         assert _is_active(i) is False
 
     def test_future_expiry_is_active(self):
         i = Intention(
-            id="int_1", trigger_text="test", action_text="action",
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
             expires_at=datetime.utcnow() + timedelta(days=30),
         )
         assert _is_active(i) is True
@@ -101,8 +114,10 @@ class TestCosineSimilarity:
 class TestTriggerMatching:
     async def test_entity_mention_trigger_fires(self):
         intention = Intention(
-            id="int_1", trigger_text="Python mentioned",
-            action_text="check migration", trigger_type="entity_mention",
+            id="int_1",
+            trigger_text="Python mentioned",
+            action_text="check migration",
+            trigger_type="entity_mention",
             entity_name="Python",
         )
         matches = await check_triggers(
@@ -117,8 +132,10 @@ class TestTriggerMatching:
 
     async def test_entity_mention_case_insensitive(self):
         intention = Intention(
-            id="int_1", trigger_text="python mentioned",
-            action_text="check it", trigger_type="entity_mention",
+            id="int_1",
+            trigger_text="python mentioned",
+            action_text="check it",
+            trigger_type="entity_mention",
             entity_name="python",
         )
         matches = await check_triggers(
@@ -131,8 +148,10 @@ class TestTriggerMatching:
 
     async def test_entity_mention_no_match(self):
         intention = Intention(
-            id="int_1", trigger_text="Rust mentioned",
-            action_text="check it", trigger_type="entity_mention",
+            id="int_1",
+            trigger_text="Rust mentioned",
+            action_text="check it",
+            trigger_type="entity_mention",
             entity_name="Rust",
         )
         matches = await check_triggers(
@@ -150,8 +169,10 @@ class TestTriggerMatching:
             return [0.1, 0.9, 0.0]
 
         intention = Intention(
-            id="int_1", trigger_text="Python upgrades",
-            action_text="migration plan exists", threshold=0.5,
+            id="int_1",
+            trigger_text="Python upgrades",
+            action_text="migration plan exists",
+            threshold=0.5,
         )
         matches = await check_triggers(
             content="We are upgrading Python",
@@ -170,8 +191,10 @@ class TestTriggerMatching:
             return [0.0, 0.1, 0.9]
 
         intention = Intention(
-            id="int_1", trigger_text="Python upgrades",
-            action_text="migration plan", threshold=0.95,
+            id="int_1",
+            trigger_text="Python upgrades",
+            action_text="migration plan",
+            threshold=0.95,
         )
         matches = await check_triggers(
             content="We went grocery shopping",
@@ -183,45 +206,62 @@ class TestTriggerMatching:
 
     async def test_disabled_intention_skipped(self):
         intention = Intention(
-            id="int_1", trigger_text="test",
-            action_text="action", trigger_type="entity_mention",
-            entity_name="Python", enabled=False,
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
+            trigger_type="entity_mention",
+            entity_name="Python",
+            enabled=False,
         )
         matches = await check_triggers(
-            content="", entity_names=["Python"],
-            intentions=[intention], embed_fn=None,
+            content="",
+            entity_names=["Python"],
+            intentions=[intention],
+            embed_fn=None,
         )
         assert len(matches) == 0
 
     async def test_max_fires_respected(self):
         intention = Intention(
-            id="int_1", trigger_text="test",
-            action_text="action", trigger_type="entity_mention",
-            entity_name="Python", fire_count=5, max_fires=5,
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
+            trigger_type="entity_mention",
+            entity_name="Python",
+            fire_count=5,
+            max_fires=5,
         )
         matches = await check_triggers(
-            content="", entity_names=["Python"],
-            intentions=[intention], embed_fn=None,
+            content="",
+            entity_names=["Python"],
+            intentions=[intention],
+            embed_fn=None,
         )
         assert len(matches) == 0
 
     async def test_expired_intention_skipped(self):
         intention = Intention(
-            id="int_1", trigger_text="test",
-            action_text="action", trigger_type="entity_mention",
+            id="int_1",
+            trigger_text="test",
+            action_text="action",
+            trigger_type="entity_mention",
             entity_name="Python",
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         matches = await check_triggers(
-            content="", entity_names=["Python"],
-            intentions=[intention], embed_fn=None,
+            content="",
+            entity_names=["Python"],
+            intentions=[intention],
+            embed_fn=None,
         )
         assert len(matches) == 0
 
     async def test_empty_intentions_returns_empty(self):
         matches = await check_triggers(
-            content="anything", entity_names=["A"],
-            intentions=[], embed_fn=None,
+            content="anything",
+            entity_names=["A"],
+            intentions=[],
+            embed_fn=None,
         )
         assert matches == []
 
@@ -235,12 +275,16 @@ class TestTriggerMatching:
 
         intentions = [
             Intention(
-                id="int_1", trigger_text="medium match",
-                action_text="action1", threshold=0.5,
+                id="int_1",
+                trigger_text="medium match",
+                action_text="action1",
+                threshold=0.5,
             ),
             Intention(
-                id="int_2", trigger_text="high match",
-                action_text="action2", threshold=0.5,
+                id="int_2",
+                trigger_text="high match",
+                action_text="action2",
+                threshold=0.5,
             ),
         ]
         matches = await check_triggers(
@@ -255,8 +299,10 @@ class TestTriggerMatching:
     async def test_no_embed_fn_skips_semantic(self):
         """Semantic triggers should be skipped when embed_fn is None."""
         intention = Intention(
-            id="int_1", trigger_text="Python upgrades",
-            action_text="plan exists", threshold=0.5,
+            id="int_1",
+            trigger_text="Python upgrades",
+            action_text="plan exists",
+            threshold=0.5,
         )
         matches = await check_triggers(
             content="We are upgrading Python",
@@ -300,12 +346,18 @@ class TestSQLiteIntentionStorage:
 
     async def test_list_intentions_enabled_only(self, graph_store):
         i1 = Intention(
-            id="int_a", trigger_text="a", action_text="a",
-            group_id="default", enabled=True,
+            id="int_a",
+            trigger_text="a",
+            action_text="a",
+            group_id="default",
+            enabled=True,
         )
         i2 = Intention(
-            id="int_b", trigger_text="b", action_text="b",
-            group_id="default", enabled=False,
+            id="int_b",
+            trigger_text="b",
+            action_text="b",
+            group_id="default",
+            enabled=False,
         )
         await graph_store.create_intention(i1)
         await graph_store.create_intention(i2)
@@ -319,7 +371,9 @@ class TestSQLiteIntentionStorage:
 
     async def test_increment_fire_count(self, graph_store):
         intention = Intention(
-            id="int_fire", trigger_text="t", action_text="a",
+            id="int_fire",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -331,7 +385,9 @@ class TestSQLiteIntentionStorage:
 
     async def test_delete_intention_soft(self, graph_store):
         intention = Intention(
-            id="int_del", trigger_text="t", action_text="a",
+            id="int_del",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -343,7 +399,9 @@ class TestSQLiteIntentionStorage:
 
     async def test_delete_intention_hard(self, graph_store):
         intention = Intention(
-            id="int_del2", trigger_text="t", action_text="a",
+            id="int_del2",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -354,12 +412,16 @@ class TestSQLiteIntentionStorage:
 
     async def test_list_intentions_filters_expired(self, graph_store):
         expired = Intention(
-            id="int_exp", trigger_text="old", action_text="old",
+            id="int_exp",
+            trigger_text="old",
+            action_text="old",
             group_id="default",
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         active = Intention(
-            id="int_act", trigger_text="new", action_text="new",
+            id="int_act",
+            trigger_text="new",
+            action_text="new",
             group_id="default",
             expires_at=datetime.utcnow() + timedelta(days=30),
         )
@@ -373,12 +435,17 @@ class TestSQLiteIntentionStorage:
 
     async def test_update_intention(self, graph_store):
         intention = Intention(
-            id="int_upd", trigger_text="t", action_text="a",
-            group_id="default", threshold=0.7,
+            id="int_upd",
+            trigger_text="t",
+            action_text="a",
+            group_id="default",
+            threshold=0.7,
         )
         await graph_store.create_intention(intention)
         await graph_store.update_intention(
-            "int_upd", {"threshold": 0.9, "enabled": False}, "default",
+            "int_upd",
+            {"threshold": 0.9, "enabled": False},
+            "default",
         )
         fetched = await graph_store.get_intention("int_upd", "default")
         assert fetched.threshold == 0.9
@@ -386,7 +453,9 @@ class TestSQLiteIntentionStorage:
 
     async def test_get_intention_wrong_group(self, graph_store):
         intention = Intention(
-            id="int_grp", trigger_text="t", action_text="a",
+            id="int_grp",
+            trigger_text="t",
+            action_text="a",
             group_id="group_a",
         )
         await graph_store.create_intention(intention)
@@ -431,12 +500,18 @@ class TestFalkorDBIntentionStorage:
 
     async def test_list_intentions_enabled_only(self, graph_store):
         i1 = Intention(
-            id="int_fka", trigger_text="a", action_text="a",
-            group_id="default", enabled=True,
+            id="int_fka",
+            trigger_text="a",
+            action_text="a",
+            group_id="default",
+            enabled=True,
         )
         i2 = Intention(
-            id="int_fkb", trigger_text="b", action_text="b",
-            group_id="default", enabled=False,
+            id="int_fkb",
+            trigger_text="b",
+            action_text="b",
+            group_id="default",
+            enabled=False,
         )
         await graph_store.create_intention(i1)
         await graph_store.create_intention(i2)
@@ -450,7 +525,9 @@ class TestFalkorDBIntentionStorage:
 
     async def test_increment_fire_count(self, graph_store):
         intention = Intention(
-            id="int_fkfire", trigger_text="t", action_text="a",
+            id="int_fkfire",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -462,7 +539,9 @@ class TestFalkorDBIntentionStorage:
 
     async def test_delete_intention_soft(self, graph_store):
         intention = Intention(
-            id="int_fkdel", trigger_text="t", action_text="a",
+            id="int_fkdel",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -474,7 +553,9 @@ class TestFalkorDBIntentionStorage:
 
     async def test_delete_intention_hard(self, graph_store):
         intention = Intention(
-            id="int_fkdel2", trigger_text="t", action_text="a",
+            id="int_fkdel2",
+            trigger_text="t",
+            action_text="a",
             group_id="default",
         )
         await graph_store.create_intention(intention)
@@ -485,12 +566,16 @@ class TestFalkorDBIntentionStorage:
 
     async def test_list_intentions_filters_expired(self, graph_store):
         expired = Intention(
-            id="int_fkexp", trigger_text="old", action_text="old",
+            id="int_fkexp",
+            trigger_text="old",
+            action_text="old",
             group_id="default",
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         active = Intention(
-            id="int_fkact", trigger_text="new", action_text="new",
+            id="int_fkact",
+            trigger_text="new",
+            action_text="new",
             group_id="default",
             expires_at=datetime.utcnow() + timedelta(days=30),
         )
@@ -504,12 +589,17 @@ class TestFalkorDBIntentionStorage:
 
     async def test_update_intention(self, graph_store):
         intention = Intention(
-            id="int_fkupd", trigger_text="t", action_text="a",
-            group_id="default", threshold=0.7,
+            id="int_fkupd",
+            trigger_text="t",
+            action_text="a",
+            group_id="default",
+            threshold=0.7,
         )
         await graph_store.create_intention(intention)
         await graph_store.update_intention(
-            "int_fkupd", {"threshold": 0.9, "enabled": False}, "default",
+            "int_fkupd",
+            {"threshold": 0.9, "enabled": False},
+            "default",
         )
         fetched = await graph_store.get_intention("int_fkupd", "default")
         assert fetched.threshold == 0.9
@@ -517,7 +607,9 @@ class TestFalkorDBIntentionStorage:
 
     async def test_get_intention_wrong_group(self, graph_store):
         intention = Intention(
-            id="int_fkgrp", trigger_text="t", action_text="a",
+            id="int_fkgrp",
+            trigger_text="t",
+            action_text="a",
             group_id="group_a",
         )
         await graph_store.create_intention(intention)
@@ -655,17 +747,28 @@ class TestRecallProfile:
         cfg_all = ActivationConfig(recall_profile="all")
         cfg_w4 = ActivationConfig(recall_profile="wave4")
         flags = [
-            "auto_recall_enabled", "auto_recall_on_observe",
-            "auto_recall_on_remember", "auto_recall_session_prime",
-            "recall_usage_feedback_enabled", "recall_need_analyzer_enabled",
-            "recall_need_structural_enabled", "recall_need_graph_probe_enabled",
-            "recall_need_shift_enabled", "recall_need_impoverishment_enabled",
-            "recall_need_shift_shadow_only", "recall_need_impoverishment_shadow_only",
-            "conv_context_enabled", "conv_fingerprint_enabled",
-            "conv_multi_query_enabled", "conv_session_entity_seeds_enabled",
-            "conv_near_miss_enabled", "conv_topic_shift_enabled",
-            "surprise_detection_enabled", "retrieval_priming_enabled",
-            "gc_mmr_enabled", "prospective_memory_enabled",
+            "auto_recall_enabled",
+            "auto_recall_on_observe",
+            "auto_recall_on_remember",
+            "auto_recall_session_prime",
+            "recall_usage_feedback_enabled",
+            "recall_need_analyzer_enabled",
+            "recall_need_structural_enabled",
+            "recall_need_graph_probe_enabled",
+            "recall_need_shift_enabled",
+            "recall_need_impoverishment_enabled",
+            "recall_need_shift_shadow_only",
+            "recall_need_impoverishment_shadow_only",
+            "conv_context_enabled",
+            "conv_fingerprint_enabled",
+            "conv_multi_query_enabled",
+            "conv_session_entity_seeds_enabled",
+            "conv_near_miss_enabled",
+            "conv_topic_shift_enabled",
+            "surprise_detection_enabled",
+            "retrieval_priming_enabled",
+            "gc_mmr_enabled",
+            "prospective_memory_enabled",
         ]
         for flag in flags:
             assert getattr(cfg_all, flag) == getattr(cfg_w4, flag), f"{flag} mismatch"
@@ -730,7 +833,8 @@ class TestGraphManagerIntegration:
         # entity_mention requires entity_name
         with pytest.raises(ValueError, match="entity_name required"):
             await gm.create_intention(
-                trigger_text="test", action_text="action",
+                trigger_text="test",
+                action_text="action",
                 trigger_type="entity_mention",
             )
 
@@ -764,7 +868,8 @@ class TestGraphManagerIntegration:
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
         intent_id = await gm.create_intention(
-            trigger_text="test", action_text="action",
+            trigger_text="test",
+            action_text="action",
         )
         await gm.delete_intention(intent_id)
 

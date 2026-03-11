@@ -223,10 +223,21 @@ class TestEnginePhaseOrder:
         assert len(cycle.phase_results) == 15
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
-            "triage", "merge", "infer", "evidence_adjudication",
+            "triage",
+            "merge",
+            "infer",
+            "evidence_adjudication",
             "edge_adjudication",
-            "replay", "prune", "compact", "mature", "semanticize",
-            "schema", "reindex", "graph_embed", "microglia", "dream",
+            "replay",
+            "prune",
+            "compact",
+            "mature",
+            "semanticize",
+            "schema",
+            "reindex",
+            "graph_embed",
+            "microglia",
+            "dream",
         ]
 
     @pytest.mark.asyncio

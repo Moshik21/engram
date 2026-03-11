@@ -30,9 +30,11 @@ class TestOfflineQueue:
     def test_malformed_lines_skipped(self, tmp_path: Path) -> None:
         queue_path = tmp_path / "queue.jsonl"
         queue_path.write_text(
-            json.dumps({"content": "good"}) + "\n"
+            json.dumps({"content": "good"})
+            + "\n"
             + "not valid json\n"
-            + json.dumps({"content": "also good"}) + "\n"
+            + json.dumps({"content": "also good"})
+            + "\n"
         )
 
         entries = drain_queue(queue_path)
@@ -42,11 +44,7 @@ class TestOfflineQueue:
 
     def test_blank_lines_skipped(self, tmp_path: Path) -> None:
         queue_path = tmp_path / "queue.jsonl"
-        queue_path.write_text(
-            "\n"
-            + json.dumps({"content": "data"}) + "\n"
-            + "\n"
-        )
+        queue_path.write_text("\n" + json.dumps({"content": "data"}) + "\n" + "\n")
 
         entries = drain_queue(queue_path)
         assert len(entries) == 1

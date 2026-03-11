@@ -79,11 +79,7 @@ def maturity_bundle_changed(
         return True
 
     def _stable_view(bundle: dict[str, Any]) -> dict[str, Any]:
-        return {
-            key: value
-            for key, value in bundle.items()
-            if key != "computed_at"
-        }
+        return {key: value for key, value in bundle.items() if key != "computed_at"}
 
     return _stable_view(cached) != _stable_view(current)
 
@@ -124,7 +120,8 @@ async def extract_maturity_features(
     else:
         episode_count = await graph_store.get_entity_episode_count(entity.id, group_id)
         min_created_at, max_created_at = await graph_store.get_entity_temporal_span(
-            entity.id, group_id,
+            entity.id,
+            group_id,
         )
         temporal_span_days = _compute_temporal_span_days(min_created_at, max_created_at)
         relationship_types = await graph_store.get_entity_relationship_types(entity.id, group_id)
@@ -133,8 +130,7 @@ async def extract_maturity_features(
         state = await activation_store.get_activation(entity.id)
         access_history = sorted(getattr(state, "access_history", []) or [])
         access_intervals = [
-            access_history[i + 1] - access_history[i]
-            for i in range(len(access_history) - 1)
+            access_history[i + 1] - access_history[i] for i in range(len(access_history) - 1)
         ]
         components = compute_maturity_components(
             episode_count,

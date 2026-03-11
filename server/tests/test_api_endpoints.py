@@ -238,14 +238,8 @@ class TestGraphAtlas:
         first = await atlas_service.get_snapshot("default", force=True)
         second = await atlas_service.get_snapshot("default", force=True)
 
-        first_regions = {
-            region.id: (region.x, region.y, region.z)
-            for region in first.regions
-        }
-        second_regions = {
-            region.id: (region.x, region.y, region.z)
-            for region in second.regions
-        }
+        first_regions = {region.id: (region.x, region.y, region.z) for region in first.regions}
+        second_regions = {region.id: (region.x, region.y, region.z) for region in second.regions}
         assert first_regions
         assert first_regions == second_regions
 
@@ -271,9 +265,7 @@ class TestGraphAtlas:
         assert first_snapshot_id in history_ids
         assert history[0]["id"] == second_snapshot_id
 
-        snapshot_resp = await api_client.get(
-            f"/api/graph/atlas?snapshot_id={first_snapshot_id}"
-        )
+        snapshot_resp = await api_client.get(f"/api/graph/atlas?snapshot_id={first_snapshot_id}")
         assert snapshot_resp.status_code == 200
         snapshot = snapshot_resp.json()
         assert snapshot["representation"]["snapshotId"] == first_snapshot_id

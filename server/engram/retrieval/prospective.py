@@ -76,13 +76,15 @@ async def check_triggers(
     # Entity mention matching (instant, no embedding needed)
     for intention in entity_triggers:
         if intention.entity_name and intention.entity_name.lower() in entity_names_lower:
-            matches.append(IntentionMatch(
-                intention_id=intention.id,
-                trigger_text=intention.trigger_text,
-                action_text=intention.action_text,
-                similarity=1.0,
-                matched_via="entity_mention",
-            ))
+            matches.append(
+                IntentionMatch(
+                    intention_id=intention.id,
+                    trigger_text=intention.trigger_text,
+                    action_text=intention.action_text,
+                    similarity=1.0,
+                    matched_via="entity_mention",
+                )
+            )
 
     # Semantic matching (requires embeddings)
     if semantic_triggers and embed_fn is not None and content.strip():
@@ -102,13 +104,15 @@ async def check_triggers(
                 sim = _cosine_similarity(content_embedding, trigger_embedding)
                 threshold = threshold_override or intention.threshold
                 if sim >= threshold:
-                    matches.append(IntentionMatch(
-                        intention_id=intention.id,
-                        trigger_text=intention.trigger_text,
-                        action_text=intention.action_text,
-                        similarity=sim,
-                        matched_via="semantic",
-                    ))
+                    matches.append(
+                        IntentionMatch(
+                            intention_id=intention.id,
+                            trigger_text=intention.trigger_text,
+                            action_text=intention.action_text,
+                            similarity=sim,
+                            matched_via="semantic",
+                        )
+                    )
 
     # Sort by similarity descending
     matches.sort(key=lambda m: m.similarity, reverse=True)
@@ -180,15 +184,17 @@ async def check_intention_activations(
         # Fast path: entity_mention trigger
         if meta.trigger_type == "entity_mention":
             if meta.trigger_entity_ids and extracted_entity_ids & set(meta.trigger_entity_ids):
-                matches.append(IntentionMatch(
-                    intention_id=entity.id,
-                    trigger_text=meta.trigger_text,
-                    action_text=meta.action_text,
-                    similarity=1.0,
-                    matched_via="entity_mention",
-                    context=meta.context,
-                    see_also=meta.see_also,
-                ))
+                matches.append(
+                    IntentionMatch(
+                        intention_id=entity.id,
+                        trigger_text=meta.trigger_text,
+                        action_text=meta.action_text,
+                        similarity=1.0,
+                        matched_via="entity_mention",
+                        context=meta.context,
+                        see_also=meta.see_also,
+                    )
+                )
                 continue
 
         # Activation path: base_activation + spreading_bonus
@@ -208,15 +214,17 @@ async def check_intention_activations(
         total_activation = base_activation + spreading_bonus + trigger_spreading
 
         if total_activation >= meta.activation_threshold:
-            matches.append(IntentionMatch(
-                intention_id=entity.id,
-                trigger_text=meta.trigger_text,
-                action_text=meta.action_text,
-                similarity=round(total_activation, 4),
-                matched_via="activation",
-                context=meta.context,
-                see_also=meta.see_also,
-            ))
+            matches.append(
+                IntentionMatch(
+                    intention_id=entity.id,
+                    trigger_text=meta.trigger_text,
+                    action_text=meta.action_text,
+                    similarity=round(total_activation, 4),
+                    matched_via="activation",
+                    context=meta.context,
+                    see_also=meta.see_also,
+                )
+            )
 
     # Sort by priority (lower order first), then by activation (higher first)
     matches.sort(

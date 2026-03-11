@@ -12,8 +12,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_ENV_FILES = (
     str(Path.home() / ".engram" / ".env"),  # global config
-    str(_REPO_ROOT / ".env"),               # repo-root local config
-    ".env",                                 # cwd override
+    str(_REPO_ROOT / ".env"),  # repo-root local config
+    ".env",  # cwd override
 )
 
 
@@ -242,7 +242,9 @@ class ActivationConfig(BaseModel):
     cue_recall_weight: float = Field(default=0.65, ge=0.0, le=1.0)
     cue_recall_max: int = Field(default=2, ge=0, le=20)
     cue_recall_hit_threshold: int = Field(
-        default=2, ge=1, le=20,
+        default=2,
+        ge=1,
+        le=20,
         description="Promote cue-backed episodes to scheduled projection after this many hits",
     )
     cue_policy_learning_enabled: bool = Field(
@@ -250,27 +252,39 @@ class ActivationConfig(BaseModel):
         description="Adapt cue projection scheduling from recall feedback signals",
     )
     cue_policy_schedule_threshold: float = Field(
-        default=0.9, ge=0.0, le=2.0,
+        default=0.9,
+        ge=0.0,
+        le=2.0,
         description="Feedback policy score threshold for scheduling projection",
     )
     cue_policy_surface_weight: float = Field(
-        default=0.08, ge=0.0, le=1.0,
+        default=0.08,
+        ge=0.0,
+        le=1.0,
         description="Weight assigned to surfaced cue interactions",
     )
     cue_policy_select_weight: float = Field(
-        default=0.18, ge=0.0, le=1.0,
+        default=0.18,
+        ge=0.0,
+        le=1.0,
         description="Weight assigned to selected cue interactions",
     )
     cue_policy_use_weight: float = Field(
-        default=0.35, ge=0.0, le=1.0,
+        default=0.35,
+        ge=0.0,
+        le=1.0,
         description="Weight assigned to used cue interactions",
     )
     cue_policy_near_miss_weight: float = Field(
-        default=0.12, ge=0.0, le=1.0,
+        default=0.12,
+        ge=0.0,
+        le=1.0,
         description="Weight assigned to repeated cue near-miss interactions",
     )
     cue_policy_score_cap: float = Field(
-        default=1.5, ge=0.5, le=5.0,
+        default=1.5,
+        ge=0.5,
+        le=5.0,
         description="Upper bound for accumulated cue policy score",
     )
     cue_policy_source_boosts: dict[str, float] = Field(
@@ -328,7 +342,8 @@ class ActivationConfig(BaseModel):
 
     # --- Memory consolidation ---
     consolidation_profile: str = Field(
-        default="off", pattern="^(off|observe|conservative|standard)$",
+        default="off",
+        pattern="^(off|observe|conservative|standard)$",
     )
     integration_profile: str = Field(
         default="off",
@@ -349,21 +364,26 @@ class ActivationConfig(BaseModel):
         description="Run phases at different frequencies (hot/warm/cold tiers)",
     )
     consolidation_tier_hot_seconds: float = Field(
-        default=900.0, ge=60.0, le=86400.0,
+        default=900.0,
+        ge=60.0,
+        le=86400.0,
         description="Hot tier interval (triage): 15 min default",
     )
     consolidation_tier_warm_seconds: float = Field(
-        default=7200.0, ge=300.0, le=86400.0,
+        default=7200.0,
+        ge=300.0,
+        le=86400.0,
         description=(
             "Warm tier interval (merge, infer, compact, mature, semanticize, "
             "reindex): 2 hours default"
         ),
     )
     consolidation_tier_cold_seconds: float = Field(
-        default=21600.0, ge=1800.0, le=86400.0,
+        default=21600.0,
+        ge=1800.0,
+        le=86400.0,
         description=(
-            "Cold tier interval (replay, prune, schema, graph_embed, dream): "
-            "6 hours default"
+            "Cold tier interval (replay, prune, schema, graph_embed, dream): 6 hours default"
         ),
     )
     consolidation_merge_threshold: float = Field(default=0.88, ge=0.5, le=1.0)
@@ -377,11 +397,15 @@ class ActivationConfig(BaseModel):
         description="Use embedding cosine similarity for merge pre-filtering",
     )
     consolidation_merge_embedding_threshold: float = Field(
-        default=0.85, ge=0.5, le=1.0,
+        default=0.85,
+        ge=0.5,
+        le=1.0,
         description="Min cosine similarity to consider entities as merge candidates",
     )
     consolidation_merge_embedding_min_coverage: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Min fraction of entities with embeddings to use ANN approach",
     )
 
@@ -392,7 +416,9 @@ class ActivationConfig(BaseModel):
     consolidation_merge_escalation_enabled: bool = Field(default=False)
     consolidation_merge_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
     consolidation_merge_ann_llm_max: int = Field(
-        default=20, ge=1, le=100,
+        default=20,
+        ge=1,
+        le=100,
         description="Max ANN semantic candidates to send to LLM merge judge per cycle",
     )
 
@@ -402,15 +428,21 @@ class ActivationConfig(BaseModel):
         description="Use multi-signal deterministic scorer instead of LLM for merge decisions",
     )
     consolidation_merge_auto_threshold: float = Field(
-        default=0.82, ge=0.5, le=1.0,
+        default=0.82,
+        ge=0.5,
+        le=1.0,
         description="Confidence threshold for auto-merge in multi-signal scorer",
     )
     consolidation_merge_reject_threshold: float = Field(
-        default=0.55, ge=0.0, le=1.0,
+        default=0.55,
+        ge=0.0,
+        le=1.0,
         description="Confidence below this = auto-reject in multi-signal scorer",
     )
     consolidation_merge_structural_min_neighbors: int = Field(
-        default=3, ge=2, le=10,
+        default=3,
+        ge=2,
+        le=10,
         description="Min shared neighbors for structural merge candidate discovery",
     )
     consolidation_identifier_review_enabled: bool = Field(
@@ -421,11 +453,15 @@ class ActivationConfig(BaseModel):
         ),
     )
     consolidation_identifier_review_min_similarity: float = Field(
-        default=0.8, ge=0.0, le=1.0,
+        default=0.8,
+        ge=0.0,
+        le=1.0,
         description="Min raw name similarity before a blocked identifier pair is queued for review",
     )
     consolidation_identifier_review_max_per_cycle: int = Field(
-        default=100, ge=1, le=1000,
+        default=100,
+        ge=1,
+        le=1000,
         description="Max suspicious identifier review records to persist per cycle",
     )
 
@@ -464,11 +500,15 @@ class ActivationConfig(BaseModel):
         description="Use multi-signal deterministic scorer instead of LLM for edge validation",
     )
     consolidation_infer_auto_approve_threshold: float = Field(
-        default=0.65, ge=0.0, le=1.0,
+        default=0.65,
+        ge=0.0,
+        le=1.0,
         description="Score threshold for auto-approving inferred edges",
     )
     consolidation_infer_auto_reject_threshold: float = Field(
-        default=0.40, ge=0.0, le=1.0,
+        default=0.40,
+        ge=0.0,
+        le=1.0,
         description="Score below this = auto-reject inferred edges",
     )
 
@@ -482,15 +522,21 @@ class ActivationConfig(BaseModel):
         description="Compute rolling calibration snapshots from recent consolidation cycles",
     )
     consolidation_calibration_window_cycles: int = Field(
-        default=25, ge=1, le=500,
+        default=25,
+        ge=1,
+        le=500,
         description="How many recent cycles to include in calibration summaries",
     )
     consolidation_calibration_min_examples: int = Field(
-        default=10, ge=1, le=1000,
+        default=10,
+        ge=1,
+        le=1000,
         description="Minimum labeled examples required before reporting calibration metrics",
     )
     consolidation_calibration_bins: int = Field(
-        default=5, ge=2, le=20,
+        default=5,
+        ge=2,
+        le=20,
         description="Number of confidence buckets for calibration summaries",
     )
 
@@ -530,11 +576,15 @@ class ActivationConfig(BaseModel):
         description="Decay unboosted edges during dream (LTD analog)",
     )
     consolidation_dream_ltd_decay: float = Field(
-        default=0.005, ge=0.001, le=0.1,
+        default=0.005,
+        ge=0.001,
+        le=0.1,
         description="Weight subtracted per cycle from unboosted seed-connected edges",
     )
     consolidation_dream_ltd_min_weight: float = Field(
-        default=0.1, ge=0.01, le=1.0,
+        default=0.1,
+        ge=0.01,
+        le=1.0,
         description="Floor weight below which edges are not decayed",
     )
 
@@ -555,7 +605,8 @@ class ActivationConfig(BaseModel):
     consolidation_dream_assoc_max_duration_ms: int = Field(default=5000, ge=500, le=30000)
     consolidation_dream_assoc_top_n_per_domain: int = Field(default=20, ge=5, le=200)
     consolidation_dream_assoc_min_graph_embeddings: int = Field(
-        default=10, ge=0,
+        default=10,
+        ge=0,
         description="Min graph embeddings required for structural blending in dream associations",
     )
 
@@ -571,30 +622,40 @@ class ActivationConfig(BaseModel):
     # --- Triage (phase 0) ---
     triage_enabled: bool = Field(default=False, description="Enable triage phase in consolidation")
     triage_extract_ratio: float = Field(
-        default=0.35, ge=0.0, le=1.0,
+        default=0.35,
+        ge=0.0,
+        le=1.0,
         description="Fraction of QUEUED episodes to extract (0.0-1.0)",
     )
     triage_min_score: float = Field(
-        default=0.2, ge=0.0, le=1.0,
+        default=0.2,
+        ge=0.0,
+        le=1.0,
         description="Minimum score to consider for extraction",
     )
 
     # --- Triage personal narrative boost ---
     triage_personal_boost_enabled: bool = Field(
-        default=True, description="Boost personal/emotional content in triage scoring",
+        default=True,
+        description="Boost personal/emotional content in triage scoring",
     )
     triage_personal_boost: float = Field(
-        default=0.15, ge=0.0, le=0.5,
+        default=0.15,
+        ge=0.0,
+        le=0.5,
         description="Score boost for personal narrative content",
     )
     triage_personal_min_matches: int = Field(
-        default=2, ge=1, le=10,
+        default=2,
+        ge=1,
+        le=10,
         description="Minimum personal keyword matches to trigger boost",
     )
 
     # --- Triage LLM judge ---
     triage_llm_judge_enabled: bool = Field(
-        default=False, description="Use Haiku as triage judge (replaces heuristics)",
+        default=False,
+        description="Use Haiku as triage judge (replaces heuristics)",
     )
     triage_llm_judge_model: str = Field(
         default="claude-haiku-4-5-20251001",
@@ -624,25 +685,35 @@ class ActivationConfig(BaseModel):
         description="Escalate borderline scores to LLM judge (only when multi-signal enabled)",
     )
     triage_llm_escalation_low: float = Field(
-        default=0.35, ge=0.0, le=1.0,
+        default=0.35,
+        ge=0.0,
+        le=1.0,
         description="Lower bound of borderline band for LLM escalation",
     )
     triage_llm_escalation_high: float = Field(
-        default=0.55, ge=0.0, le=1.0,
+        default=0.55,
+        ge=0.0,
+        le=1.0,
         description="Upper bound of borderline band for LLM escalation",
     )
     triage_llm_escalation_max_per_cycle: int = Field(
-        default=5, ge=0, le=50,
+        default=5,
+        ge=0,
+        le=50,
         description="Max episodes per triage cycle to escalate to LLM",
     )
 
     # --- Worker confidence routing ---
     worker_extract_threshold: float = Field(
-        default=0.70, ge=0.0, le=1.0,
+        default=0.70,
+        ge=0.0,
+        le=1.0,
         description="Worker extracts immediately above this score (no triage needed)",
     )
     worker_skip_threshold: float = Field(
-        default=0.15, ge=0.0, le=1.0,
+        default=0.15,
+        ge=0.0,
+        le=1.0,
         description="Worker skips below this score (no triage needed)",
     )
 
@@ -664,7 +735,9 @@ class ActivationConfig(BaseModel):
         description="Enable the progressive planner/projector pipeline for episode projection",
     )
     projection_max_retries: int = Field(
-        default=2, ge=0, le=10,
+        default=2,
+        ge=0,
+        le=10,
         description="Max retryable projection attempts before dead-letter state",
     )
     projection_planner_enabled: bool = Field(
@@ -672,44 +745,64 @@ class ActivationConfig(BaseModel):
         description="Use deterministic span planning before extractor calls",
     )
     projection_span_target_chars: int = Field(
-        default=1400, ge=200, le=8000,
+        default=1400,
+        ge=200,
+        le=8000,
         description="Target span size for projection planning",
     )
     projection_span_max_chars: int = Field(
-        default=2200, ge=400, le=8000,
+        default=2200,
+        ge=400,
+        le=8000,
         description="Hard cap for an individual planned span",
     )
     projection_min_span_chars: int = Field(
-        default=300, ge=50, le=4000,
+        default=300,
+        ge=50,
+        le=4000,
         description="Minimum planned span size before emitting a chunk",
     )
     projection_span_budget: int = Field(
-        default=3, ge=1, le=10,
+        default=3,
+        ge=1,
+        le=10,
         description="Maximum number of primary spans to select per projection",
     )
     projection_neighbor_span_radius: int = Field(
-        default=1, ge=0, le=3,
+        default=1,
+        ge=0,
+        le=3,
         description="Number of adjacent spans to include for context expansion",
     )
 
     # --- Identity core ---
     identity_core_enabled: bool = Field(
-        default=True, description="Enable identity core protected entity subgraph",
+        default=True,
+        description="Enable identity core protected entity subgraph",
     )
     identity_predicates: list[str] = Field(
         default_factory=lambda: [
-            "FAMILY_OF", "PARENT_OF", "CHILD_OF", "SIBLING_OF",
-            "MARRIED_TO", "PARTNER_OF", "LIVES_IN", "WORKS_AT",
+            "FAMILY_OF",
+            "PARENT_OF",
+            "CHILD_OF",
+            "SIBLING_OF",
+            "MARRIED_TO",
+            "PARTNER_OF",
+            "LIVES_IN",
+            "WORKS_AT",
         ],
         description="Relationship predicates that trigger identity core auto-detection",
     )
 
     # --- Cross-domain penalty (topic-aware spreading) ---
     cross_domain_penalty_enabled: bool = Field(
-        default=False, description="Penalize spreading activation across topic domains",
+        default=False,
+        description="Penalize spreading activation across topic domains",
     )
     cross_domain_penalty_factor: float = Field(
-        default=0.3, ge=0.0, le=1.0,
+        default=0.3,
+        ge=0.0,
+        le=1.0,
         description="Multiplier applied when spreading crosses topic domains",
     )
     domain_groups: dict[str, list[str]] = Field(
@@ -726,67 +819,111 @@ class ActivationConfig(BaseModel):
 
     # --- Inhibitory spreading (Brain Architecture) ---
     inhibitory_spreading_enabled: bool = Field(
-        default=False, description="Enable inhibitory spreading activation",
+        default=False,
+        description="Enable inhibitory spreading activation",
     )
     inhibit_strength: float = Field(
-        default=0.3, ge=0.0, le=1.0, description="Strength of lateral inhibition",
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Strength of lateral inhibition",
     )
     inhibit_similarity_threshold: float = Field(
-        default=0.6, ge=0.0, le=1.0, description="Min cosine similarity for lateral inhibition",
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Min cosine similarity for lateral inhibition",
     )
     inhibit_max_seed_anchors: int = Field(
-        default=5, ge=1, le=20, description="Max seed entities for inhibition anchoring",
+        default=5,
+        ge=1,
+        le=20,
+        description="Max seed entities for inhibition anchoring",
     )
     inhibition_predicate_suppression: bool = Field(
-        default=True, description="Suppress contradictory predicate groups",
+        default=True,
+        description="Suppress contradictory predicate groups",
     )
 
     # --- Goal-relevance gating (Brain Architecture) ---
     goal_priming_enabled: bool = Field(
-        default=False, description="Enable goal-priming in retrieval and triage",
+        default=False,
+        description="Enable goal-priming in retrieval and triage",
     )
     goal_priming_boost: float = Field(
-        default=0.10, ge=0.0, le=0.5, description="Spreading activation boost for goal neighbors",
+        default=0.10,
+        ge=0.0,
+        le=0.5,
+        description="Spreading activation boost for goal neighbors",
     )
     goal_priming_activation_floor: float = Field(
-        default=0.15, ge=0.0, le=1.0,
+        default=0.15,
+        ge=0.0,
+        le=1.0,
         description="Min activation for a goal to be considered active",
     )
     goal_priming_max_goals: int = Field(
-        default=5, ge=1, le=20, description="Max active goals to consider",
+        default=5,
+        ge=1,
+        le=20,
+        description="Max active goals to consider",
     )
     goal_priming_max_neighbors: int = Field(
-        default=10, ge=1, le=50, description="Max 1-hop neighbors per goal",
+        default=10,
+        ge=1,
+        le=50,
+        description="Max 1-hop neighbors per goal",
     )
     goal_priming_cache_ttl_seconds: float = Field(
-        default=60.0, ge=5.0, le=600.0, description="TTL for goal priming cache",
+        default=60.0,
+        ge=5.0,
+        le=600.0,
+        description="TTL for goal priming cache",
     )
     goal_triage_weight: float = Field(
-        default=0.10, ge=0.0, le=0.5, description="Triage score boost for goal-relevant content",
+        default=0.10,
+        ge=0.0,
+        le=0.5,
+        description="Triage score boost for goal-relevant content",
     )
     goal_prune_protection: bool = Field(
-        default=True, description="Protect goal-related entities from pruning",
+        default=True,
+        description="Protect goal-related entities from pruning",
     )
 
     # --- Emotional salience (Brain Architecture) ---
     emotional_salience_enabled: bool = Field(
-        default=True, description="Enable emotional salience scoring (pure regex, no LLM)",
+        default=True,
+        description="Enable emotional salience scoring (pure regex, no LLM)",
     )
     emotional_triage_weight: float = Field(
-        default=0.25, ge=0.0, le=1.0,
+        default=0.25,
+        ge=0.0,
+        le=1.0,
         description="Weight for emotional composite in triage scoring",
     )
     emotional_prune_resistance: float = Field(
-        default=0.15, ge=0.0, le=1.0, description="Activation floor boost for emotional entities",
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Activation floor boost for emotional entities",
     )
     emotional_retrieval_boost: float = Field(
-        default=0.08, ge=0.0, le=0.5, description="Retrieval score boost scaled by emo_composite",
+        default=0.08,
+        ge=0.0,
+        le=0.5,
+        description="Retrieval score boost scaled by emo_composite",
     )
     triage_personal_floor: float = Field(
-        default=0.45, ge=0.0, le=1.0, description="Minimum triage score for personal content",
+        default=0.45,
+        ge=0.0,
+        le=1.0,
+        description="Minimum triage score for personal content",
     )
     triage_personal_floor_threshold: float = Field(
-        default=0.15, ge=0.0, le=1.0,
+        default=0.15,
+        ge=0.0,
+        le=1.0,
         description="Emotional composite threshold to activate personal floor",
     )
 
@@ -796,27 +933,36 @@ class ActivationConfig(BaseModel):
         description="Enable cognitive state biasing in retrieval",
     )
     state_domain_weight: float = Field(
-        default=0.06, ge=0.0, le=0.3,
+        default=0.06,
+        ge=0.0,
+        le=0.3,
         description="Weight for domain affinity bias",
     )
     state_arousal_match_weight: float = Field(
-        default=0.04, ge=0.0, le=0.3,
+        default=0.04,
+        ge=0.0,
+        le=0.3,
         description="Weight for arousal level matching",
     )
     state_arousal_ema_alpha: float = Field(
-        default=0.3, ge=0.0, le=1.0,
+        default=0.3,
+        ge=0.0,
+        le=1.0,
         description="EMA decay for session arousal tracking",
     )
 
     # --- Context tiers ---
     context_identity_budget: int = Field(
-        default=200, description="Token budget for identity core tier in get_context",
+        default=200,
+        description="Token budget for identity core tier in get_context",
     )
     context_project_budget: int = Field(
-        default=400, description="Token budget for project context tier in get_context",
+        default=400,
+        description="Token budget for project context tier in get_context",
     )
     context_recency_budget: int = Field(
-        default=400, description="Token budget for recent activity tier in get_context",
+        default=400,
+        description="Token budget for recent activity tier in get_context",
     )
 
     # --- Extraction provider ---
@@ -829,29 +975,36 @@ class ActivationConfig(BaseModel):
         ),
     )
     ollama_model: str = Field(
-        default="llama3.1:8b", description="Ollama model for extraction",
+        default="llama3.1:8b",
+        description="Ollama model for extraction",
     )
     ollama_base_url: str = Field(
-        default="http://localhost:11434", description="Ollama API base URL",
+        default="http://localhost:11434",
+        description="Ollama API base URL",
     )
 
     # --- Briefing format ---
     briefing_enabled: bool = Field(
-        default=True, description="Enable LLM briefing format for get_context",
+        default=True,
+        description="Enable LLM briefing format for get_context",
     )
     briefing_model: str = Field(
-        default="claude-haiku-4-5-20251001", description="Model for briefing synthesis",
+        default="claude-haiku-4-5-20251001",
+        description="Model for briefing synthesis",
     )
     briefing_cache_ttl_seconds: float = Field(
-        default=300.0, description="TTL for briefing cache entries",
+        default=300.0,
+        description="TTL for briefing cache entries",
     )
     briefing_max_tokens: int = Field(
-        default=300, description="Max tokens for briefing response",
+        default=300,
+        description="Max tokens for briefing response",
     )
 
     # --- Recall profile (enables Wave 1-4 features) ---
     recall_profile: str = Field(
-        default="off", pattern="^(off|wave1|wave2|wave3|wave4|all)$",
+        default="off",
+        pattern="^(off|wave1|wave2|wave3|wave4|all)$",
     )
 
     # --- Background episode worker ---
@@ -859,34 +1012,54 @@ class ActivationConfig(BaseModel):
 
     # --- AutoRecall (piggyback on observe/remember) ---
     auto_recall_enabled: bool = Field(
-        default=False, description="Enable auto-recall on observe/remember",
+        default=False,
+        description="Enable auto-recall on observe/remember",
     )
     auto_recall_limit: int = Field(
-        default=3, ge=1, le=10, description="Max entities returned",
+        default=3,
+        ge=1,
+        le=10,
+        description="Max entities returned",
     )
     auto_recall_min_score: float = Field(
-        default=0.3, ge=0.0, le=1.0, description="Min composite score",
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Min composite score",
     )
     auto_recall_cooldown_seconds: float = Field(
-        default=60.0, ge=10.0, le=300.0, description="Topic dedup cooldown",
+        default=60.0,
+        ge=10.0,
+        le=300.0,
+        description="Topic dedup cooldown",
     )
     auto_recall_max_per_minute: int = Field(
-        default=3, ge=1, le=10, description="Rate limit per minute",
+        default=3,
+        ge=1,
+        le=10,
+        description="Rate limit per minute",
     )
     auto_recall_on_observe: bool = Field(
-        default=True, description="Run auto-recall on observe",
+        default=True,
+        description="Run auto-recall on observe",
     )
     auto_recall_on_remember: bool = Field(
-        default=True, description="Run auto-recall on remember",
+        default=True,
+        description="Run auto-recall on remember",
     )
     auto_recall_session_prime: bool = Field(
-        default=True, description="Auto-prime context on first call",
+        default=True,
+        description="Auto-prime context on first call",
     )
     auto_recall_session_prime_max_tokens: int = Field(
-        default=500, ge=100, le=2000, description="Session prime token budget",
+        default=500,
+        ge=100,
+        le=2000,
+        description="Session prime token budget",
     )
     recall_need_analyzer_enabled: bool = Field(
-        default=False, description="Enable heuristic memory-need analysis before recall",
+        default=False,
+        description="Enable heuristic memory-need analysis before recall",
     )
     recall_need_graph_probe_enabled: bool = Field(
         default=False,
@@ -947,8 +1120,7 @@ class ActivationConfig(BaseModel):
     recall_need_post_response_safety_net_enabled: bool = Field(
         default=False,
         description=(
-            "Retry knowledge-chat replies once when memory-needed turns get "
-            "a generic response"
+            "Retry knowledge-chat replies once when memory-needed turns get a generic response"
         ),
     )
     epistemic_routing_enabled: bool = Field(
@@ -990,152 +1162,238 @@ class ActivationConfig(BaseModel):
         description="How long bootstrapped project artifacts stay fresh before refresh",
     )
     recall_telemetry_enabled: bool = Field(
-        default=False, description="Emit structured recall telemetry events",
+        default=False,
+        description="Emit structured recall telemetry events",
     )
     recall_usage_feedback_enabled: bool = Field(
         default=False,
         description="Enable surfaced/selected/used feedback semantics for recall",
     )
     recall_planner_enabled: bool = Field(
-        default=False, description="Enable planner-driven multi-intent recall",
+        default=False,
+        description="Enable planner-driven multi-intent recall",
     )
     recall_planner_max_intents: int = Field(
-        default=4, ge=1, le=8, description="Max intents emitted by the recall planner",
+        default=4,
+        ge=1,
+        le=8,
+        description="Max intents emitted by the recall planner",
     )
     recall_planner_subquery_limit: int = Field(
-        default=25, ge=5, le=100, description="Per-intent semantic search budget",
+        default=25,
+        ge=5,
+        le=100,
+        description="Per-intent semantic search budget",
     )
     recall_packets_enabled: bool = Field(
-        default=True, description="Return packetized memory alongside raw recall results",
+        default=True,
+        description="Return packetized memory alongside raw recall results",
     )
     recall_packet_auto_limit: int = Field(
-        default=2, ge=1, le=5, description="Max packets for auto-surfaced recall",
+        default=2,
+        ge=1,
+        le=5,
+        description="Max packets for auto-surfaced recall",
     )
     recall_packet_explicit_limit: int = Field(
-        default=3, ge=1, le=8, description="Max packets for explicit recall surfaces",
+        default=3,
+        ge=1,
+        le=8,
+        description="Max packets for explicit recall surfaces",
     )
     recall_packet_chat_limit: int = Field(
-        default=2, ge=1, le=5, description="Max packets for chat tool recall output",
+        default=2,
+        ge=1,
+        le=5,
+        description="Max packets for chat tool recall output",
     )
 
     # --- Conversation Awareness (Wave 2) ---
     conv_context_enabled: bool = Field(
-        default=False, description="Enable conversation-context-aware retrieval",
+        default=False,
+        description="Enable conversation-context-aware retrieval",
     )
     conv_fingerprint_enabled: bool = Field(
-        default=False, description="Enable rolling EMA fingerprint",
+        default=False,
+        description="Enable rolling EMA fingerprint",
     )
     conv_fingerprint_alpha: float = Field(
-        default=0.85, ge=0.0, le=1.0, description="EMA decay per turn",
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="EMA decay per turn",
     )
     conv_multi_query_enabled: bool = Field(
-        default=False, description="Enable multi-query decomposition",
+        default=False,
+        description="Enable multi-query decomposition",
     )
     conv_multi_query_turns: int = Field(
-        default=3, ge=1, le=10, description="Recent turns for topic sub-query",
+        default=3,
+        ge=1,
+        le=10,
+        description="Recent turns for topic sub-query",
     )
     conv_multi_query_top_entities: int = Field(
-        default=5, ge=1, le=20, description="Top session entities for entity sub-query",
+        default=5,
+        ge=1,
+        le=20,
+        description="Top session entities for entity sub-query",
     )
     conv_session_entity_seeds_enabled: bool = Field(
-        default=False, description="Inject session entities as spreading seeds",
+        default=False,
+        description="Inject session entities as spreading seeds",
     )
     conv_session_entity_seed_energy: float = Field(
-        default=0.2, ge=0.0, le=1.0, description="Base seed energy for session entities",
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Base seed energy for session entities",
     )
     conv_near_miss_enabled: bool = Field(
-        default=False, description="Enable near-miss detection",
+        default=False,
+        description="Enable near-miss detection",
     )
     conv_near_miss_window: int = Field(
-        default=5, ge=1, le=20, description="Number of near-miss candidates to track",
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of near-miss candidates to track",
     )
     conv_context_rerank_weight: float = Field(
-        default=0.05, ge=0.0, le=0.3, description="Weight for fingerprint context boost",
+        default=0.05,
+        ge=0.0,
+        le=0.3,
+        description="Weight for fingerprint context boost",
     )
 
     # --- Topic Shift Detection (Wave 3) ---
     conv_topic_shift_enabled: bool = Field(
-        default=False, description="Enable topic shift detection in conversation",
+        default=False,
+        description="Enable topic shift detection in conversation",
     )
     conv_topic_shift_threshold: float = Field(
-        default=0.60, ge=0.0, le=1.0,
+        default=0.60,
+        ge=0.0,
+        le=1.0,
         description="Cosine similarity threshold below which a topic shift is detected",
     )
     conv_topic_shift_recall_boost: int = Field(
-        default=5, ge=3, le=20,
+        default=5,
+        ge=3,
+        le=20,
         description="Number of recall hints on topic shift",
     )
 
     # --- Surprise Detection (Wave 3) ---
     surprise_detection_enabled: bool = Field(
-        default=False, description="Enable surprise connection detection",
+        default=False,
+        description="Enable surprise connection detection",
     )
     surprise_activation_floor: float = Field(
-        default=0.2, ge=0.0, le=1.0,
+        default=0.2,
+        ge=0.0,
+        le=1.0,
         description="Max activation for a neighbor to be considered a surprise",
     )
     surprise_dormancy_days: int = Field(
-        default=7, ge=1, le=90,
+        default=7,
+        ge=1,
+        le=90,
         description="Min days since last access for dormancy check",
     )
     surprise_edge_weight_min: float = Field(
-        default=0.3, ge=0.0, le=1.0,
+        default=0.3,
+        ge=0.0,
+        le=1.0,
         description="Min edge weight for surprise detection",
     )
     surprise_max_per_episode: int = Field(
-        default=3, ge=1, le=10,
+        default=3,
+        ge=1,
+        le=10,
         description="Max surprise connections to cache per episode",
     )
     surprise_cache_ttl_seconds: float = Field(
-        default=300.0, ge=30.0, le=3600.0,
+        default=300.0,
+        ge=30.0,
+        le=3600.0,
         description="TTL for surprise cache entries",
     )
 
     # --- Retrieval Priming (Wave 3) ---
     retrieval_priming_enabled: bool = Field(
-        default=False, description="Enable retrieval priming (boost 1-hop neighbors)",
+        default=False,
+        description="Enable retrieval priming (boost 1-hop neighbors)",
     )
     retrieval_priming_top_n: int = Field(
-        default=3, ge=1, le=10,
+        default=3,
+        ge=1,
+        le=10,
         description="Number of top results to prime from",
     )
     retrieval_priming_boost: float = Field(
-        default=0.15, ge=0.01, le=0.5,
+        default=0.15,
+        ge=0.01,
+        le=0.5,
         description="Base boost for primed entities",
     )
     retrieval_priming_ttl_seconds: float = Field(
-        default=30.0, ge=5.0, le=300.0,
+        default=30.0,
+        ge=5.0,
+        le=300.0,
         description="TTL for priming boosts",
     )
     retrieval_priming_max_neighbors: int = Field(
-        default=5, ge=1, le=20,
+        default=5,
+        ge=1,
+        le=20,
         description="Max neighbors to prime per result entity",
     )
 
     # --- Prospective Memory (Wave 4) ---
     prospective_memory_enabled: bool = Field(
-        default=False, description="Enable prospective memory trigger matching",
+        default=False,
+        description="Enable prospective memory trigger matching",
     )
     prospective_similarity_threshold: float = Field(
-        default=0.7, ge=0.0, le=1.0, description="Default cosine similarity threshold",
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Default cosine similarity threshold",
     )
     prospective_max_fires: int = Field(
-        default=5, ge=1, le=50, description="Default max fires per intention",
+        default=5,
+        ge=1,
+        le=50,
+        description="Default max fires per intention",
     )
     prospective_ttl_days: int = Field(
-        default=90, ge=1, le=365, description="Default TTL for intentions",
+        default=90,
+        ge=1,
+        le=365,
+        description="Default TTL for intentions",
     )
     prospective_max_per_episode: int = Field(
-        default=3, ge=1, le=10, description="Max triggered intentions per episode",
+        default=3,
+        ge=1,
+        le=10,
+        description="Max triggered intentions per episode",
     )
     prospective_activation_threshold: float = Field(
-        default=0.5, ge=0.0, le=1.0, description="Default activation threshold for v2 intentions",
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Default activation threshold for v2 intentions",
     )
     prospective_graph_embedded: bool = Field(
-        default=True, description="Use v2 graph-embedded intentions (vs v1 flat table)",
+        default=True,
+        description="Use v2 graph-embedded intentions (vs v1 flat table)",
     )
     prospective_cooldown_seconds: float = Field(
-        default=300.0, ge=0.0, le=86400.0, description="Min seconds between fires for an intention",
+        default=300.0,
+        ge=0.0,
+        le=86400.0,
+        description="Min seconds between fires for an intention",
     )
     prospective_warmth_levels: list[float] = Field(
         default_factory=lambda: [0.3, 0.6, 0.8],
@@ -1147,15 +1405,21 @@ class ActivationConfig(BaseModel):
 
     # --- Graph embedding training control ---
     graph_embedding_retrain_threshold: float = Field(
-        default=0.05, ge=0.0, le=1.0,
+        default=0.05,
+        ge=0.0,
+        le=1.0,
         description="Fraction of entities that must be affected to trigger full retrain",
     )
     graph_embedding_stagger_transe: int = Field(
-        default=3, ge=1, le=10,
+        default=3,
+        ge=1,
+        le=10,
         description="Run TransE every Nth consolidation cycle",
     )
     graph_embedding_stagger_gnn: int = Field(
-        default=5, ge=1, le=10,
+        default=5,
+        ge=1,
+        le=10,
         description="Run GNN every Nth consolidation cycle",
     )
 
@@ -1333,18 +1597,25 @@ class ActivationConfig(BaseModel):
 
     # --- GC-MMR (Wave 3) ---
     gc_mmr_enabled: bool = Field(
-        default=False, description="Enable graph-connected MMR re-ranking",
+        default=False,
+        description="Enable graph-connected MMR re-ranking",
     )
     gc_mmr_lambda_relevance: float = Field(
-        default=0.7, ge=0.0, le=1.0,
+        default=0.7,
+        ge=0.0,
+        le=1.0,
         description="Relevance weight in GC-MMR",
     )
     gc_mmr_lambda_diversity: float = Field(
-        default=0.2, ge=0.0, le=1.0,
+        default=0.2,
+        ge=0.0,
+        le=1.0,
         description="Diversity penalty weight in GC-MMR",
     )
     gc_mmr_lambda_connectivity: float = Field(
-        default=0.1, ge=0.0, le=1.0,
+        default=0.1,
+        ge=0.0,
+        le=1.0,
         description="Graph connectivity bonus weight in GC-MMR",
     )
 

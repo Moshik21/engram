@@ -83,7 +83,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         # 2. Run spreading for each seed and accumulate edge boosts
         edge_boosts: dict[tuple[str, str, str], float] = {}
-        for seed_id, energy in (seeds or []):
+        for seed_id, energy in seeds or []:
             bonuses, _ = await spread_activation(
                 [(seed_id, energy)],
                 graph_store,
@@ -134,11 +134,11 @@ class DreamSpreadingPhase(ConsolidationPhase):
         if cfg.consolidation_dream_ltd_enabled and seeds and not dry_run:
             edges_decayed = await self._apply_ltd_decay(
                 seeds=seeds,
-                    boosted_edges=edge_boosts,
-                    graph_store=graph_store,
-                    group_id=group_id,
-                    cfg=cfg,
-                )
+                boosted_edges=edge_boosts,
+                graph_store=graph_store,
+                group_id=group_id,
+                cfg=cfg,
+            )
 
         # 3c. LTD sweep for low-activation entities (broader hygiene)
         ltd_sweep_decayed = 0
@@ -297,7 +297,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         for seed_id in seed_ids:
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                seed_id, group_id=group_id,
+                seed_id,
+                group_id=group_id,
             )
             for neighbor_id, weight, predicate, *_rest in neighbors:
                 # Skip DREAM_ASSOCIATED edges (TTL-managed)
@@ -389,7 +390,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 continue
 
             neighbors = await graph_store.get_active_neighbors_with_weights(
-                entity_id, group_id=group_id,
+                entity_id,
+                group_id=group_id,
             )
             for neighbor_id, weight, predicate, *_rest in neighbors:
                 # Skip DREAM_ASSOCIATED edges (TTL-managed)
@@ -422,7 +424,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
         if decayed:
             logger.info(
                 "Dream LTD sweep: decayed %d edges on %d low-activation entities by %.4f",
-                decayed, sample_size, sweep_decay,
+                decayed,
+                sample_size,
+                sweep_decay,
             )
         return decayed
 
@@ -460,7 +464,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
         pruned_ids = context.pruned_entity_ids if context else set()
         entities = await graph_store.find_entities(group_id=group_id, limit=5000)
         eligible = [
-            e for e in entities
+            e
+            for e in entities
             if e.id not in pruned_ids
             and e.summary
             and len(e.summary) >= cfg.consolidation_dream_assoc_min_summary_len
@@ -488,7 +493,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
             for method in ("node2vec", "transe", "gnn"):
                 try:
                     g_embs = await search_index.get_graph_embeddings(
-                        all_ids, method=method, group_id=group_id,
+                        all_ids,
+                        method=method,
+                        group_id=group_id,
                     )
                     if g_embs and len(g_embs) > cfg.consolidation_dream_assoc_min_graph_embeddings:
                         graph_embeddings = g_embs
@@ -498,7 +505,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         # 4. Compute cross-domain similarities
         candidates = self._compute_cross_domain_similarities(
-            domain_buckets, embeddings, cfg,
+            domain_buckets,
+            embeddings,
+            cfg,
             graph_embeddings=graph_embeddings,
         )
 
@@ -527,7 +536,8 @@ class DreamSpreadingPhase(ConsolidationPhase):
             structural_proximity = 0.0
             try:
                 connected = await graph_store.path_exists_within_hops(
-                    src_id, tgt_id,
+                    src_id,
+                    tgt_id,
                     max_hops=cfg.consolidation_dream_assoc_structural_max_hops,
                     group_id=group_id,
                 )
@@ -676,10 +686,12 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
                     if g_ids_a and g_ids_b:
                         g_mat_a = np.array(
-                            [graph_embeddings[eid] for eid in g_ids_a], dtype=np.float64,
+                            [graph_embeddings[eid] for eid in g_ids_a],
+                            dtype=np.float64,
                         )
                         g_mat_b = np.array(
-                            [graph_embeddings[eid] for eid in g_ids_b], dtype=np.float64,
+                            [graph_embeddings[eid] for eid in g_ids_b],
+                            dtype=np.float64,
                         )
                         g_norms_a = np.linalg.norm(g_mat_a, axis=1, keepdims=True)
                         g_norms_b = np.linalg.norm(g_mat_b, axis=1, keepdims=True)

@@ -34,11 +34,14 @@ class SemanticTransitionPhase(ConsolidationPhase):
 
         if not cfg.episode_transition_enabled:
             return PhaseResult(
-                phase=self.name, status="skipped", duration_ms=_elapsed_ms(t0),
+                phase=self.name,
+                status="skipped",
+                duration_ms=_elapsed_ms(t0),
             ), []
 
         episodes = await graph_store.get_episodes(
-            group_id=group_id, limit=cfg.episode_transition_max_per_cycle,
+            group_id=group_id,
+            limit=cfg.episode_transition_max_per_cycle,
         )
 
         records: list[SemanticTransitionRecord] = []
@@ -72,9 +75,8 @@ class SemanticTransitionPhase(ConsolidationPhase):
                     if ent:
                         attrs = ent.attributes if isinstance(ent.attributes, dict) else {}
                         mat_tier = attrs.get("mat_tier", "episodic")
-                        if (
-                            mat_tier in ("transitional", "semantic")
-                            or _context_marks_entity_mature(context, eid, cfg)
+                        if mat_tier in ("transitional", "semantic") or _context_marks_entity_mature(
+                            context, eid, cfg
                         ):
                             mature_count += 1
                 coverage = mature_count / len(linked_entity_ids)

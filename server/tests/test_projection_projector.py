@@ -52,4 +52,3 @@ async def test_episode_projector_preserves_span_provenance():
     assert set(bundle.warnings) == {"targeted_projection", "planned_subset_only"}
     assert bundle.entities[0].source_span_ids == ["span_0"]
     assert bundle.claims[0].source_span_ids == ["span_0"]
-

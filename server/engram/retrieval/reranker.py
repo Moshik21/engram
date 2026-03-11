@@ -113,9 +113,7 @@ class FastEmbedReranker(RerankerProvider):
         top_n = min(top_n, len(documents))
         texts = [text for _, text in documents]
 
-        scores = await asyncio.to_thread(
-            lambda: list(self._model.rerank(query, texts))
-        )
+        scores = await asyncio.to_thread(lambda: list(self._model.rerank(query, texts)))
 
         paired = [(documents[i][0], scores[i]) for i in range(len(documents))]
         paired.sort(key=lambda x: x[1], reverse=True)

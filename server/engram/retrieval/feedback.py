@@ -53,9 +53,7 @@ def extract_recall_targets(recall_results: list[dict]) -> list[dict]:
     for result in recall_results:
         result_type = result.get("result_type")
         cue = result.get("cue")
-        if result_type == "cue_episode" or (
-            result_type is None and isinstance(cue, dict)
-        ):
+        if result_type == "cue_episode" or (result_type is None and isinstance(cue, dict)):
             if not isinstance(cue, dict):
                 continue
             episode = result.get("episode", {})
@@ -200,9 +198,7 @@ def _matches_text_fragment(normalized_response: str, text: str | None) -> bool:
 
     label_tokens = {"mentions", "spans", "quotes", "time"}
     tokens = [
-        token
-        for token in normalized_text.split()
-        if len(token) >= 4 and token not in label_tokens
+        token for token in normalized_text.split() if len(token) >= 4 and token not in label_tokens
     ]
     for size in range(min(4, len(tokens)), 1, -1):
         for idx in range(len(tokens) - size + 1):

@@ -64,21 +64,16 @@ def score_probe(
             if item.result_type in set(probe.disallowed_result_types)
         }
     )
-    historical_violation = (
-        not probe.historical_evidence_allowed
-        and any(item.result_type in {"episode", "cue_episode"} for item in evidence)
+    historical_violation = not probe.historical_evidence_allowed and any(
+        item.result_type in {"episode", "cue_episode"} for item in evidence
     )
 
     tokens_surfaced = sum(item.tokens for item in evidence)
     required_hit_rate = (
-        len(required_hits) / len(probe.required_evidence)
-        if probe.required_evidence
-        else 1.0
+        len(required_hits) / len(probe.required_evidence) if probe.required_evidence else 1.0
     )
     forbidden_hit_rate = (
-        len(forbidden_hits) / len(probe.forbidden_evidence)
-        if probe.forbidden_evidence
-        else 0.0
+        len(forbidden_hits) / len(probe.forbidden_evidence) if probe.forbidden_evidence else 0.0
     )
     token_efficiency = (
         0.0
@@ -186,12 +181,8 @@ def summarize_baseline(
             return 0.0
         return capability_passes.get(tag, 0) / total
 
-    tokens_per_passed_scenario = (
-        passed_tokens / passed_scenarios if passed_scenarios > 0 else 0.0
-    )
-    selective_ratio = (
-        projected_turns / observed_turns if observed_turns > 0 else 0.0
-    )
+    tokens_per_passed_scenario = passed_tokens / passed_scenarios if passed_scenarios > 0 else 0.0
+    selective_ratio = projected_turns / observed_turns if observed_turns > 0 else 0.0
 
     return BaselineSummary(
         baseline_name=baseline_name,
@@ -201,22 +192,14 @@ def summarize_baseline(
         availability_reason=availability_reason,
         scenario_pass_rate=scenario_pass_rate,
         capability_pass_rates=capability_pass_rates,
-        false_recall_rate=(
-            false_recall_probes / total_probes if total_probes > 0 else 0.0
-        ),
+        false_recall_rate=(false_recall_probes / total_probes if total_probes > 0 else 0.0),
         temporal_correctness=_tag_rate("temporal"),
         negation_correctness=_tag_rate("negation"),
         open_loop_recovery=_tag_rate("open_loop"),
         prospective_trigger_rate=_tag_rate("prospective"),
-        required_hit_rate=(
-            required_hit_total / total_probes if total_probes > 0 else 0.0
-        ),
-        forbidden_hit_rate=(
-            forbidden_hit_total / total_probes if total_probes > 0 else 0.0
-        ),
-        token_efficiency=(
-            token_efficiency_total / total_probes if total_probes > 0 else 0.0
-        ),
+        required_hit_rate=(required_hit_total / total_probes if total_probes > 0 else 0.0),
+        forbidden_hit_rate=(forbidden_hit_total / total_probes if total_probes > 0 else 0.0),
+        token_efficiency=(token_efficiency_total / total_probes if total_probes > 0 else 0.0),
         tokens_per_passed_scenario=tokens_per_passed_scenario,
         latency_p50_ms=latency_p50,
         latency_p95_ms=latency_p95,

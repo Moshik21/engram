@@ -71,10 +71,12 @@ def _try_ollama(cfg: ActivationConfig, *, strict: bool):
 
             logger.info(
                 "Extraction provider: Ollama (%s at %s)",
-                cfg.ollama_model, cfg.ollama_base_url,
+                cfg.ollama_model,
+                cfg.ollama_base_url,
             )
             return OllamaExtractor(
-                model=cfg.ollama_model, base_url=cfg.ollama_base_url,
+                model=cfg.ollama_model,
+                base_url=cfg.ollama_base_url,
             )
     except Exception:
         pass

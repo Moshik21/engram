@@ -236,12 +236,14 @@ class TestAutoRecall:
         cfg = self._make_cfg()
         manager = AsyncMock()
         long_summary = "A" * 200
-        manager.recall.return_value = [{
-            "entity": {"name": "Test", "type": "Concept", "summary": long_summary},
-            "score": 0.9,
-            "result_type": "entity",
-            "relationships": [],
-        }]
+        manager.recall.return_value = [
+            {
+                "entity": {"name": "Test", "type": "Concept", "summary": long_summary},
+                "score": 0.9,
+                "result_type": "entity",
+                "relationships": [],
+            }
+        ]
         result = await _auto_recall("Working with Test concept here today", manager, cfg)
         assert result is not None
         assert len(result["entities"][0]["summary"]) <= 100
@@ -252,18 +254,20 @@ class TestAutoRecall:
         mock_cooldown.is_throttled.return_value = False
         cfg = self._make_cfg()
         manager = AsyncMock()
-        manager.recall.return_value = [{
-            "entity": {"name": "Test", "type": "Concept", "summary": "A test"},
-            "score": 0.9,
-            "result_type": "entity",
-            "relationships": [
-                {"predicate": "REL1", "source_id": "s", "target_id": "t"},
-                {"predicate": "REL2", "source_id": "s", "target_id": "t"},
-                {"predicate": "REL3", "source_id": "s", "target_id": "t"},
-                {"predicate": "REL4", "source_id": "s", "target_id": "t"},
-                {"predicate": "REL5", "source_id": "s", "target_id": "t"},
-            ],
-        }]
+        manager.recall.return_value = [
+            {
+                "entity": {"name": "Test", "type": "Concept", "summary": "A test"},
+                "score": 0.9,
+                "result_type": "entity",
+                "relationships": [
+                    {"predicate": "REL1", "source_id": "s", "target_id": "t"},
+                    {"predicate": "REL2", "source_id": "s", "target_id": "t"},
+                    {"predicate": "REL3", "source_id": "s", "target_id": "t"},
+                    {"predicate": "REL4", "source_id": "s", "target_id": "t"},
+                    {"predicate": "REL5", "source_id": "s", "target_id": "t"},
+                ],
+            }
+        ]
         result = await _auto_recall("Working with Test concept in the project", manager, cfg)
         assert result is not None
         assert len(result["entities"][0]["top_facts"]) == 3
@@ -436,7 +440,8 @@ class TestObserveWithAutoRecall:
         mock_manager = AsyncMock()
         mock_manager.store_episode.return_value = "ep-123"
         mock_manager.get_context.return_value = {
-            "context": "User is a developer", "entity_count": 5,
+            "context": "User is a developer",
+            "entity_count": 5,
         }
         mock_manager.recall.return_value = []
         session = SessionState(auto_recall_primed=False, last_recall_time=0.0)

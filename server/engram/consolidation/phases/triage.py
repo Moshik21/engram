@@ -66,7 +66,7 @@ def _llm_judge_score(content: str, model: str) -> dict:
         text = _extract_message_text(response.content).strip()
         if text.startswith("```"):
             first_nl = text.index("\n")
-            text = text[first_nl + 1:]
+            text = text[first_nl + 1 :]
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
@@ -183,7 +183,10 @@ class TriagePhase(ConsolidationPhase):
                 world_episodes.append(ep)
 
         goals = await identify_active_goals(
-            graph_store, activation_store, group_id, cfg,
+            graph_store,
+            activation_store,
+            group_id,
+            cfg,
         )
 
         llm_metadata: dict[str, dict] = {}
@@ -235,7 +238,9 @@ class TriagePhase(ConsolidationPhase):
                         continue
                     ep_content = getattr(scored.episode, "content", "") or ""
                     judge_result = await asyncio.to_thread(
-                        _llm_judge_score, ep_content, cfg.triage_llm_judge_model,
+                        _llm_judge_score,
+                        ep_content,
+                        cfg.triage_llm_judge_model,
                     )
                     llm_metadata[scored.episode.id] = judge_result
                     decision = apply_episode_utility_policy(
@@ -306,11 +311,10 @@ class TriagePhase(ConsolidationPhase):
                 duration_ms=_elapsed_ms(t0),
             ), records
 
-        guarded_ids = {
-            item.episode.id for item in scored_episodes if item.decision.guard_reasons
-        }
+        guarded_ids = {item.episode.id for item in scored_episodes if item.decision.guard_reasons}
         eligible = [
-            item for item in scored_episodes
+            item
+            for item in scored_episodes
             if item.decision.action == "extract" and item.episode.id not in guarded_ids
         ]
         extract_budget = 0
@@ -353,14 +357,14 @@ class TriagePhase(ConsolidationPhase):
             if context is not None:
                 trace = DecisionTrace(
                     cycle_id=cycle_id,
-                        group_id=group_id,
-                        phase=self.name,
-                        candidate_type="episode",
-                        candidate_id=ep.id,
-                        decision=decision_label,
-                        decision_source=decision_source,
-                        confidence=item.decision.score,
-                        threshold_band=threshold_band,
+                    group_id=group_id,
+                    phase=self.name,
+                    candidate_type="episode",
+                    candidate_id=ep.id,
+                    decision=decision_label,
+                    decision_source=decision_source,
+                    confidence=item.decision.score,
+                    threshold_band=threshold_band,
                     features=score_breakdown,
                     constraints_hit=list(item.decision.guard_reasons),
                     policy_version="utility_v1",
@@ -368,16 +372,16 @@ class TriagePhase(ConsolidationPhase):
                 context.add_decision_trace(trace)
                 context.add_decision_outcome_label(
                     DecisionOutcomeLabel(
-                            cycle_id=cycle_id,
-                            group_id=group_id,
-                            phase=self.name,
-                            decision_trace_id=trace.id,
-                            outcome_type="routing",
-                            label=decision_label,
-                            value=item.decision.score,
-                            metadata={"threshold_band": threshold_band},
-                        )
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        phase=self.name,
+                        decision_trace_id=trace.id,
+                        outcome_type="routing",
+                        label=decision_label,
+                        value=item.decision.score,
+                        metadata={"threshold_band": threshold_band},
                     )
+                )
 
             if dry_run:
                 continue
@@ -489,7 +493,9 @@ class TriagePhase(ConsolidationPhase):
                 query = content[:200].strip()
                 if query:
                     matches = await search_index.search_episodes(
-                        query, group_id=group_id, limit=3,
+                        query,
+                        group_id=group_id,
+                        limit=3,
                     )
                     if matches:
                         top_score = matches[0][1]

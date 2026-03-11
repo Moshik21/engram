@@ -455,9 +455,7 @@ async def test_worker_skips_system_discourse():
     worker.start("default", bus)
 
     # System meta-commentary content (2+ system pattern matches)
-    meta_content = (
-        "Entity ent_abc123 has activation score 0.91 in the retrieval pipeline"
-    )
+    meta_content = "Entity ent_abc123 has activation score 0.91 in the retrieval pipeline"
     event = _queued_event(episode_id="ep_meta", content=meta_content)
     bus.publish("default", "episode.queued", event["payload"])
 

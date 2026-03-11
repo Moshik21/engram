@@ -89,11 +89,7 @@ class ProjectionPostProcessor:
         now: float,
         surprise_cache,
     ) -> None:
-        if (
-            not self._cfg.surprise_detection_enabled
-            or surprise_cache is None
-            or not entity_map
-        ):
+        if not self._cfg.surprise_detection_enabled or surprise_cache is None or not entity_map:
             return
 
         try:

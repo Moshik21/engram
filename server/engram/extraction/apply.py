@@ -137,16 +137,10 @@ async def apply_relationship_fact(
 ) -> RelationshipApplyResult:
     """Apply extracted relationship semantics through one shared path."""
     source_name = (
-        rel_data.get("source")
-        or rel_data.get("source_entity")
-        or rel_data.get("source_name")
-        or ""
+        rel_data.get("source") or rel_data.get("source_entity") or rel_data.get("source_name") or ""
     )
     target_name = (
-        rel_data.get("target")
-        or rel_data.get("target_entity")
-        or rel_data.get("target_name")
-        or ""
+        rel_data.get("target") or rel_data.get("target_entity") or rel_data.get("target_name") or ""
     )
     source_id = rel_data.get("source_id") or entity_map.get(source_name)
     target_id = rel_data.get("target_id") or entity_map.get(target_name)
@@ -536,7 +530,8 @@ class ApplyEngine:
                 graph_store=self._graph,
                 canonicalizer=self._canonicalizer,
                 cfg=self._cfg,
-                rel_data=claim.raw_payload or {
+                rel_data=claim.raw_payload
+                or {
                     "source": claim.subject_text,
                     "target": claim.object_text,
                     "predicate": claim.predicate,

@@ -137,8 +137,11 @@ class TestRedisEventPublisher:
         pub = RedisEventPublisher(mock_redis, "default")
 
         event = {
-            "seq": 1, "type": "test", "timestamp": 1000.0,
-            "group_id": "default", "payload": {},
+            "seq": 1,
+            "type": "test",
+            "timestamp": 1000.0,
+            "group_id": "default",
+            "payload": {},
         }
         # Should not raise
         await pub("default", "test", {}, event)
@@ -158,12 +161,14 @@ class TestRedisEventSubscriber:
         mock_redis.aclose = AsyncMock()
         sub = RedisEventSubscriber(mock_redis, "default", bus)
 
-        event_data = json.dumps({
-            "seq": 42,
-            "type": "entity.created",
-            "group_id": "default",
-            "payload": {"name": "Bob"},
-        })
+        event_data = json.dumps(
+            {
+                "seq": 42,
+                "type": "entity.created",
+                "group_id": "default",
+                "payload": {"name": "Bob"},
+            }
+        )
 
         # Simulate a single message then stop
         async def mock_listen():

@@ -119,10 +119,14 @@ class TestComputeGraphHealth:
         await graph_store.store_evidence(evidence, group_id="default")
         # Commit 2 of 4
         await graph_store.update_evidence_status(
-            "evi_rate_0", "committed", group_id="default",
+            "evi_rate_0",
+            "committed",
+            group_id="default",
         )
         await graph_store.update_evidence_status(
-            "evi_rate_1", "committed", group_id="default",
+            "evi_rate_1",
+            "committed",
+            group_id="default",
         )
 
         health = await compute_graph_health(graph_store, "default")

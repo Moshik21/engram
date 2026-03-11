@@ -99,12 +99,10 @@ class SQLiteVectorStore:
             )
         """)
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_graph_emb_group "
-            "ON graph_embeddings(group_id)"
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_group ON graph_embeddings(group_id)"
         )
         await self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_graph_emb_method "
-            "ON graph_embeddings(method)"
+            "CREATE INDEX IF NOT EXISTS idx_graph_emb_method ON graph_embeddings(method)"
         )
         await self.db.commit()
 
@@ -141,8 +139,18 @@ class SQLiteVectorStore:
                 embed_provider = excluded.embed_provider,
                 embed_model = excluded.embed_model
             """,
-            (item_id, content_type, group_id, text_content, blob, len(embedding),
-             now, now, embed_provider, embed_model),
+            (
+                item_id,
+                content_type,
+                group_id,
+                text_content,
+                blob,
+                len(embedding),
+                now,
+                now,
+                embed_provider,
+                embed_model,
+            ),
         )
         await self.db.commit()
 

@@ -736,7 +736,7 @@ export default function SciencePage() {
                 Read the Docs
               </Link>
               <a
-                href="https://github.com/engram-labs/engram"
+                href="https://github.com/Moshik21/engram"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{

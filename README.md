@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://github.com/engram-labs/engram/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <img src="https://github.com/Moshik21/engram/actions/workflows/ci.yml/badge.svg" alt="CI">
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/react-19-61dafb" alt="React 19">
   <img src="https://img.shields.io/badge/tests-pytest%20%2B%20vitest-blue" alt="Pytest + Vitest">
@@ -115,7 +115,7 @@ bash scripts/dev-install.sh
 Or manually:
 
 ```bash
-git clone https://github.com/engram-labs/engram.git ~/engram
+git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
 uv run engram setup

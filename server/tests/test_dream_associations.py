@@ -54,10 +54,17 @@ def _dream_cfg(**overrides) -> ActivationConfig:
 
 
 def _make_entity(
-    eid: str, name: str, etype: str, summary: str = "A sufficiently long summary",
+    eid: str,
+    name: str,
+    etype: str,
+    summary: str = "A sufficiently long summary",
 ) -> Entity:
     return Entity(
-        id=eid, name=name, entity_type=etype, summary=summary, group_id="default",
+        id=eid,
+        name=name,
+        entity_type=etype,
+        summary=summary,
+        group_id="default",
     )
 
 
@@ -114,10 +121,7 @@ class TestDomainPartitioning:
     def test_top_n_per_domain_limit(self):
         phase = DreamSpreadingPhase()
         cfg = _dream_cfg(consolidation_dream_assoc_top_n_per_domain=5)
-        entities = [
-            _make_entity(f"e{i}", f"Tech{i}", "Technology")
-            for i in range(10)
-        ]
+        entities = [_make_entity(f"e{i}", f"Tech{i}", "Technology") for i in range(10)]
         buckets = phase._partition_by_domain(entities, cfg)
 
         assert len(buckets["technical"]) == 5
@@ -142,9 +146,7 @@ class TestCrossDomainSimilarities:
             "p1": [0.9, 0.1, 0.0, 0.0],  # Similar to t1
         }
 
-        candidates = phase._compute_cross_domain_similarities(
-            domain_buckets, embeddings, cfg
-        )
+        candidates = phase._compute_cross_domain_similarities(domain_buckets, embeddings, cfg)
 
         assert len(candidates) > 0
         src, tgt, d1, d2, sim = candidates[0]
@@ -169,9 +171,7 @@ class TestCrossDomainSimilarities:
             "p1": [0.0, 1.0, 0.0, 0.0],  # Orthogonal to t1
         }
 
-        candidates = phase._compute_cross_domain_similarities(
-            domain_buckets, embeddings, cfg
-        )
+        candidates = phase._compute_cross_domain_similarities(domain_buckets, embeddings, cfg)
 
         # Below 0.2 threshold
         assert len(candidates) == 0
@@ -195,9 +195,7 @@ class TestCrossDomainSimilarities:
             "t2": [0.95, 0.05, 0.0, 0.0],
         }
 
-        candidates = phase._compute_cross_domain_similarities(
-            domain_buckets, embeddings, cfg
-        )
+        candidates = phase._compute_cross_domain_similarities(domain_buckets, embeddings, cfg)
 
         # Only one domain → no cross-domain pairs
         assert len(candidates) == 0
@@ -217,9 +215,7 @@ class TestHebbianExclusion:
         ]
 
         bonuses = {"n2": 0.5}
-        boosts = await phase._accumulate_edge_boosts(
-            "seed1", bonuses, graph_store, "default", cfg
-        )
+        boosts = await phase._accumulate_edge_boosts("seed1", bonuses, graph_store, "default", cfg)
 
         # Should be empty because DREAM_ASSOCIATED is excluded
         assert len(boosts) == 0
@@ -236,9 +232,7 @@ class TestHebbianExclusion:
         ]
 
         bonuses = {"n2": 0.5, "seed1": 0.0}
-        boosts = await phase._accumulate_edge_boosts(
-            "seed1", bonuses, graph_store, "default", cfg
-        )
+        boosts = await phase._accumulate_edge_boosts("seed1", bonuses, graph_store, "default", cfg)
 
         # Should have at least one boost
         assert len(boosts) > 0

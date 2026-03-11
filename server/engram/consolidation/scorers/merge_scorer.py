@@ -20,8 +20,15 @@ from engram.extraction.resolver import compute_similarity
 STOPWORDS = {"the", "a", "an", "of", "for", "and", "in", "on", "to", "is", "at", "by"}
 
 TECH_SUFFIXES = {
-    ".js", ".py", ".rs", ".ts",
-    " language", " framework", " library", " lang", " sdk",
+    ".js",
+    ".py",
+    ".rs",
+    ".ts",
+    " language",
+    " framework",
+    " library",
+    " lang",
+    " sdk",
 }
 
 # Canonical alias table -- known equivalences that string algorithms can't catch
@@ -74,12 +81,52 @@ COMPATIBLE_CROSS_TYPES = {
 }
 
 _SUMMARY_STOP = {
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "has", "have", "had", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "can", "shall", "to",
-    "of", "in", "for", "on", "with", "at", "by", "from", "as",
-    "into", "through", "during", "before", "after", "and", "but",
-    "or", "not", "that", "this", "it", "its",
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "has",
+    "have",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "shall",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "and",
+    "but",
+    "or",
+    "not",
+    "that",
+    "this",
+    "it",
+    "its",
 }
 
 # ---------------------------------------------------------------------------
@@ -150,12 +197,7 @@ def numeronym_match(a: str, b: str) -> float:
     count = int(count_str)
 
     # Check: first letter matches, last letter matches, middle char count matches
-    if (
-        long_
-        and long_[0] == first
-        and long_[-1] == last
-        and len(long_) - 2 == count
-    ):
+    if long_ and long_[0] == first and long_[-1] == last and len(long_) - 2 == count:
         return 0.95
 
     return 0.0
@@ -351,7 +393,9 @@ async def score_merge_pair(
     exclusivity_score = 0.0
     try:
         cooccurrence = await graph_store.get_episode_cooccurrence_count(
-            ea.id, eb.id, group_id,
+            ea.id,
+            eb.id,
+            group_id,
         )
         if cooccurrence == 0:
             # Never co-occur — strong positive signal for merge
@@ -389,11 +433,7 @@ async def score_merge_pair(
     if emb_score >= 0.95 and sum_score >= 0.60:
         confidence = max(confidence, 0.88)
     # Person first-name/full-name: high fuzzy + high embedding
-    if (
-        ea.entity_type == eb.entity_type == "Person"
-        and name_score >= 0.70
-        and emb_score >= 0.70
-    ):
+    if ea.entity_type == eb.entity_type == "Person" and name_score >= 0.70 and emb_score >= 0.70:
         confidence = max(confidence, 0.85)
     # Structural equivalence: high neighbor overlap + never co-occur = same entity
     if nbr_score >= 0.40 and exclusivity_score >= 0.7 and emb_score >= 0.50:
@@ -424,7 +464,10 @@ async def score_merge_pair(
                 )
 
                 verdict, refined = await refine_merge_verdict(
-                    ea, eb, confidence, merge_threshold,
+                    ea,
+                    eb,
+                    confidence,
+                    merge_threshold,
                 )
                 signals["cross_encoder_refined"] = True
                 return verdict, refined, signals

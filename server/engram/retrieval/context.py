@@ -68,9 +68,7 @@ class ConversationContext:
     ) -> None:
         """Append a turn and optionally update the live conversation fingerprint."""
         should_update_fingerprint = (
-            self.is_live_source(source)
-            if update_fingerprint is None
-            else update_fingerprint
+            self.is_live_source(source) if update_fingerprint is None else update_fingerprint
         )
         self._turns.append(
             ConversationTurnEntry(
@@ -109,8 +107,7 @@ class ConversationContext:
 
             a = self._alpha
             self._fingerprint = [
-                a * old + (1.0 - a) * new
-                for old, new in zip(self._fingerprint, embedding)
+                a * old + (1.0 - a) * new for old, new in zip(self._fingerprint, embedding)
             ]
         # L2 normalize
         norm = math.sqrt(sum(x * x for x in self._fingerprint))
@@ -229,7 +226,7 @@ class ConversationContext:
         """Record an entity type encountered in this session."""
         self._recent_entity_types.append(entity_type)
         if len(self._recent_entity_types) > self._max_entity_types:
-            self._recent_entity_types = self._recent_entity_types[-self._max_entity_types:]
+            self._recent_entity_types = self._recent_entity_types[-self._max_entity_types :]
 
     @property
     def recent_entity_types(self) -> list[str]:
@@ -251,9 +248,7 @@ class ConversationContext:
 
         mode = infer_cognitive_mode(query)
         # EMA for arousal
-        self._arousal_ema = (
-            alpha * salience_composite + (1 - alpha) * self._arousal_ema
-        )
+        self._arousal_ema = alpha * salience_composite + (1 - alpha) * self._arousal_ema
         self._cognitive_state = CognitiveState(
             arousal_level=self._arousal_ema,
             mode=mode,
@@ -294,9 +289,7 @@ class ConversationFingerprinter:
         """Add a turn to the context, embedding it if possible."""
         embedding = None
         should_embed = (
-            ctx.is_live_source(source)
-            if update_fingerprint is None
-            else update_fingerprint
+            ctx.is_live_source(source) if update_fingerprint is None else update_fingerprint
         )
         if embed_fn and text and should_embed:
             try:

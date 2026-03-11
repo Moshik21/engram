@@ -128,7 +128,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", default=os.environ.get("ENGRAM_RELEASE_VERSION", "dev"))
     parser.add_argument("--output-dir", default=str(ROOT / "dist" / "install"))
-    parser.add_argument("--image-namespace", default="ghcr.io/engram-labs")
+    parser.add_argument("--image-namespace", default="ghcr.io/moshik21")
     parser.add_argument("--server-image-name", default="engram-server")
     parser.add_argument("--dashboard-image-name", default="engram-dashboard")
     args = parser.parse_args()

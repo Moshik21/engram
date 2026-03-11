@@ -43,7 +43,8 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
         if len(entity_ids) < cfg.graph_embedding_node2vec_min_entities:
             logger.info(
                 "Node2Vec: only %d entities (min %d), skipping",
-                len(entity_ids), cfg.graph_embedding_node2vec_min_entities,
+                len(entity_ids),
+                cfg.graph_embedding_node2vec_min_entities,
             )
             return {}
 
@@ -52,9 +53,7 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
         adj_idx: dict[int, list[tuple[int, float]]] = {}
         for eid, neighbors in adj.items():
             src_idx = id_to_idx[eid]
-            adj_idx[src_idx] = [
-                (id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx
-            ]
+            adj_idx[src_idx] = [(id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx]
 
         initial_in = _build_initial_matrix(
             entity_ids,
@@ -64,7 +63,11 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
 
         # 3. Generate walks and train (CPU-bound, run in thread)
         embeddings_matrix = await asyncio.to_thread(
-            self._train_sync, adj_idx, len(entity_ids), cfg, initial_in,
+            self._train_sync,
+            adj_idx,
+            len(entity_ids),
+            cfg,
+            initial_in,
         )
 
         # 4. Map back to entity IDs
@@ -74,7 +77,8 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
 
         logger.info(
             "Node2Vec: trained %d entity embeddings (dim=%d)",
-            len(result), cfg.graph_embedding_node2vec_dimensions,
+            len(result),
+            cfg.graph_embedding_node2vec_dimensions,
         )
         return result
 
@@ -103,9 +107,7 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
         adj_idx: dict[int, list[tuple[int, float]]] = {}
         for eid, neighbors in adj.items():
             src_idx = id_to_idx[eid]
-            adj_idx[src_idx] = [
-                (id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx
-            ]
+            adj_idx[src_idx] = [(id_to_idx[nid], w) for nid, w in neighbors if nid in id_to_idx]
 
         initial_in = _build_initial_matrix(
             ordered_entity_ids,
@@ -126,12 +128,15 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
 
         logger.info(
             "Node2Vec incremental: trained %d entity embeddings (dim=%d)",
-            len(result), cfg.graph_embedding_node2vec_dimensions,
+            len(result),
+            cfg.graph_embedding_node2vec_dimensions,
         )
         return result
 
     async def _build_adjacency(
-        self, graph_store, group_id: str,
+        self,
+        graph_store,
+        group_id: str,
     ) -> tuple[dict[str, list[tuple[str, float]]], list[str]]:
         """Build weighted adjacency list from graph store.
 
@@ -145,7 +150,8 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
         for eid in entity_ids:
             try:
                 neighbors = await graph_store.get_active_neighbors_with_weights(
-                    eid, group_id=group_id,
+                    eid,
+                    group_id=group_id,
                 )
                 for nid, weight, _pred, *_rest in neighbors:
                     if nid in entity_set:
@@ -170,7 +176,8 @@ class Node2VecTrainer(GraphEmbeddingTrainer):
         for eid in ordered_ids:
             try:
                 neighbors = await graph_store.get_active_neighbors_with_weights(
-                    eid, group_id=group_id,
+                    eid,
+                    group_id=group_id,
                 )
                 for nid, weight, _pred, *_rest in neighbors:
                     if nid in entity_set:

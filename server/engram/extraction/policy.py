@@ -59,9 +59,7 @@ class ProjectionPolicy:
                 priority + (source_boost * 0.5) + discourse_boost,
             )
             boosted_into_schedule = original_priority < 0.55 and priority >= 0.55
-            if source_reason is not None and (
-                route_reason == "default" or boosted_into_schedule
-            ):
+            if source_reason is not None and (route_reason == "default" or boosted_into_schedule):
                 route_reason = source_reason
 
         state = self._projection_state(

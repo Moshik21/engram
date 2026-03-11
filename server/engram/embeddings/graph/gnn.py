@@ -55,7 +55,8 @@ class GNNTrainer(GraphEmbeddingTrainer):
         if len(entity_ids) < cfg.graph_embedding_gnn_min_entities:
             logger.info(
                 "GNN: only %d entities (min %d), skipping",
-                len(entity_ids), cfg.graph_embedding_gnn_min_entities,
+                len(entity_ids),
+                cfg.graph_embedding_gnn_min_entities,
             )
             return {}
 
@@ -67,7 +68,8 @@ class GNNTrainer(GraphEmbeddingTrainer):
         for eid in entity_ids:
             try:
                 neighbors = await graph_store.get_active_neighbors_with_weights(
-                    eid, group_id=group_id,
+                    eid,
+                    group_id=group_id,
                 )
                 src_idx = id_to_idx[eid]
                 for nid, _w, _pred, *_rest in neighbors:
@@ -109,7 +111,8 @@ class GNNTrainer(GraphEmbeddingTrainer):
 
         logger.info(
             "GNN: trained %d entity embeddings (dim=%d)",
-            len(result), cfg.graph_embedding_gnn_output_dim,
+            len(result),
+            cfg.graph_embedding_gnn_output_dim,
         )
         return result
 
@@ -145,10 +148,14 @@ class GNNTrainer(GraphEmbeddingTrainer):
                 self.layers = nn.ModuleList()
                 dims = [input_dim] + [hidden_dim] * (num_layers - 1) + [output_dim]
                 for i in range(num_layers):
-                    self.layers.append(nn.ModuleDict({
-                        "self_lin": nn.Linear(dims[i], dims[i + 1], bias=False),
-                        "neigh_lin": nn.Linear(dims[i], dims[i + 1], bias=False),
-                    }))
+                    self.layers.append(
+                        nn.ModuleDict(
+                            {
+                                "self_lin": nn.Linear(dims[i], dims[i + 1], bias=False),
+                                "neigh_lin": nn.Linear(dims[i], dims[i + 1], bias=False),
+                            }
+                        )
+                    )
 
             def forward(self, x: torch.Tensor, adj_dict: dict[int, list[int]]) -> torch.Tensor:
                 h = x
@@ -212,11 +219,7 @@ class GNNTrainer(GraphEmbeddingTrainer):
             layer_dict = cast(Any, layer)
             self_lin = layer_dict["self_lin"]
             neigh_lin = layer_dict["neigh_lin"]
-            saved_weights[f"layer_{i}_self_weight"] = (
-                self_lin.weight.detach().numpy().T
-            )
-            saved_weights[f"layer_{i}_neigh_weight"] = (
-                neigh_lin.weight.detach().numpy().T
-            )
+            saved_weights[f"layer_{i}_self_weight"] = self_lin.weight.detach().numpy().T
+            saved_weights[f"layer_{i}_neigh_weight"] = neigh_lin.weight.detach().numpy().T
 
         return final_emb, saved_weights

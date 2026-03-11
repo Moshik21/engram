@@ -109,10 +109,7 @@ def compute_dropped_strength(
     added to consolidated_strength to preserve activation accuracy.
     """
     return float(
-        sum(
-            max(min_age_seconds, now - t) ** (-decay_exponent)
-            for t in dropped_timestamps
-        )
+        sum(max(min_age_seconds, now - t) ** (-decay_exponent) for t in dropped_timestamps)
     )
 
 

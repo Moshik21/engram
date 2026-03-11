@@ -246,10 +246,12 @@ class TestScoreMergePair:
             search_index.get_entity_embeddings.return_value = {}
 
         if neighbors_a is not None or neighbors_b is not None:
+
             async def _get_neighbors(eid, gid):
                 if eid == "e1":
                     return neighbors_a or []
                 return neighbors_b or []
+
             graph_store.get_active_neighbors_with_weights.side_effect = _get_neighbors
         else:
             graph_store.get_active_neighbors_with_weights.return_value = []
@@ -270,7 +272,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks(embeddings=embeddings)
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "merge"
         assert conf >= 0.82
@@ -282,7 +288,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks()
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "keep_separate"
         assert signals.get("reason") == "incompatible_types"
@@ -294,7 +304,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks()
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "keep_separate"
 
@@ -314,7 +328,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks(embeddings=embeddings)
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # canonical_match gives 0.98 + 0.03 type boost = 1.0 name score
         # 0.40 * 1.0 = 0.40 from name alone; with high embedding should exceed 0.82
@@ -331,7 +349,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks(embeddings=embeddings)
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # Same name (exact) + same embeddings, compatible types
         assert verdict == "merge"
@@ -348,7 +370,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks(embeddings=embeddings)
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "merge"
         assert conf >= 0.95
@@ -364,7 +390,11 @@ class TestScoreMergePair:
         graph_store.get_active_neighbors_with_weights.return_value = []
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         # Should still work based on name alone
         assert signals["embedding"] == 0.0
@@ -391,7 +421,11 @@ class TestScoreMergePair:
         )
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "merge"
         assert signals["neighbor_overlap"] == 1.0
@@ -413,7 +447,11 @@ class TestScoreMergePair:
         graph_store.get_episode_cooccurrence_count.return_value = 0
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "keep_separate"
         assert conf == 0.0
@@ -426,7 +464,11 @@ class TestScoreMergePair:
         search_index, graph_store = await self._make_mocks()
 
         verdict, conf, signals = await score_merge_pair(
-            ea, eb, search_index, graph_store, "default",
+            ea,
+            eb,
+            search_index,
+            graph_store,
+            "default",
         )
         assert verdict == "merge"
         assert conf >= 0.99

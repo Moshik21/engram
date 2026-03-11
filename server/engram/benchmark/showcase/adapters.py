@@ -61,11 +61,7 @@ _STOP_WORDS = {
 
 
 def _tokenize(text: str) -> list[str]:
-    return [
-        token
-        for token in _TOKEN_RE.findall(text.lower())
-        if token not in _STOP_WORDS
-    ]
+    return [token for token in _TOKEN_RE.findall(text.lower()) if token not in _STOP_WORDS]
 
 
 def _lexical_score(query: str, text: str) -> float:
@@ -1091,9 +1087,7 @@ class HybridRagTemporalAdapter(VectorRagAdapter):
         structured = self._notebook.render_markdown_sections()
         if structured:
             ranked = [
-                (note, score)
-                for note, score in ranked
-                if note.kind not in {"episode", "summary"}
+                (note, score) for note, score in ranked if note.kind not in {"episode", "summary"}
             ]
             for index, note in enumerate(reversed(structured)):
                 ranked.insert(0, (note, 2.0 - (index * 0.1)))
@@ -1241,11 +1235,9 @@ class LangGraphStoreMemoryAdapter(_RawNoteAdapter):
         )
 
     def _visible_notes(self) -> list[_StoredNote]:
-        recent = [
-            note
-            for note in self._active_notes()
-            if note.kind == "episode"
-        ][-self._recent_note_count :]
+        recent = [note for note in self._active_notes() if note.kind == "episode"][
+            -self._recent_note_count :
+        ]
         return self._structured_notes() + recent
 
     def _score_note(self, note: _StoredNote, query: str) -> float:
@@ -1322,11 +1314,7 @@ class Mem0StyleMemoryAdapter(_RawNoteAdapter):
         self._records_by_id[record.record_id] = record
 
     def _active_records(self) -> list[_StructuredMemoryRecord]:
-        return [
-            record
-            for record in self._records_by_key.values()
-            if record.active
-        ]
+        return [record for record in self._records_by_key.values() if record.active]
 
     def _record_score(self, record: _StructuredMemoryRecord, query: str) -> float:
         score = _lexical_score(query, record.search_text)
@@ -2018,9 +2006,7 @@ class EngramAdapter(BaselineAdapter):
             )
         if result.get("intention_meta"):
             meta = result["intention_meta"]
-            lines.append(
-                f"priority={meta.get('priority')} action={meta.get('action_text')}"
-            )
+            lines.append(f"priority={meta.get('priority')} action={meta.get('action_text')}")
         return EvidenceItem(
             result_type="entity",
             text="\n".join(line for line in lines if line),

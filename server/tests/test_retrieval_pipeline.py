@@ -288,9 +288,7 @@ class TestEntityFirstFallback:
         """When search returns 0 results but entity 'Alex' exists, pipeline returns results."""
         now = time.time()
         alex = _FakeEntity(id="alex_id", name="Alex", entity_type="Person")
-        book = _FakeEntity(
-            id="book_id", name="The Agent of Fate", entity_type="CreativeWork"
-        )
+        book = _FakeEntity(id="book_id", name="The Agent of Fate", entity_type="CreativeWork")
 
         search_index = _FakeSearchIndex(
             [],

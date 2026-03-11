@@ -205,9 +205,7 @@ class EpistemicBundle:
             "memoryClaims": [claim.to_dict() for claim in self.memory_claims],
             "artifactClaims": [claim.to_dict() for claim in self.artifact_claims],
             "runtimeClaims": [claim.to_dict() for claim in self.runtime_claims],
-            "implementationClaims": [
-                claim.to_dict() for claim in self.implementation_claims
-            ],
+            "implementationClaims": [claim.to_dict() for claim in self.implementation_claims],
             "artifactHits": [hit.to_dict() for hit in self.artifact_hits],
             "memoryResults": self.memory_results,
             "runtimeState": self.runtime_state,

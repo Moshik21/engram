@@ -61,9 +61,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/engram-labs/engram"
-Repository = "https://github.com/engram-labs/engram.git"
-Issues = "https://github.com/engram-labs/engram/issues"
+Homepage = "https://github.com/Moshik21/engram"
+Repository = "https://github.com/Moshik21/engram.git"
+Issues = "https://github.com/Moshik21/engram/issues"
 
 [project.scripts]
 engram = "engram.__main__:main"

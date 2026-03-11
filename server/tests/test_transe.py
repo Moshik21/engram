@@ -61,21 +61,25 @@ class TestTransETrainer:
 
         # Create relationship objects with proper attributes
         def make_rel(src, tgt, pred):
-            return type("R", (), {
-                "source_id": src,
-                "target_id": tgt,
-                "predicate": pred,
-            })()
+            return type(
+                "R",
+                (),
+                {
+                    "source_id": src,
+                    "target_id": tgt,
+                    "predicate": pred,
+                },
+            )()
 
         relationships = {}
         for i in range(n_entities):
             rels = []
             # WORKS_AT chain
             if i < n_entities - 1:
-                rels.append(make_rel(f"e{i}", f"e{i+1}", "WORKS_AT"))
+                rels.append(make_rel(f"e{i}", f"e{i + 1}", "WORKS_AT"))
             # KNOWS chain (every other)
             if i % 2 == 0 and i + 2 < n_entities:
-                rels.append(make_rel(f"e{i}", f"e{i+2}", "KNOWS"))
+                rels.append(make_rel(f"e{i}", f"e{i + 2}", "KNOWS"))
             relationships[f"e{i}"] = rels
 
         class MockGraph:
@@ -107,20 +111,24 @@ class TestTransETrainer:
         trainer = TransETrainer(cfg)
 
         def make_rel(src, tgt, pred):
-            return type("R", (), {
-                "source_id": src,
-                "target_id": tgt,
-                "predicate": pred,
-            })()
+            return type(
+                "R",
+                (),
+                {
+                    "source_id": src,
+                    "target_id": tgt,
+                    "predicate": pred,
+                },
+            )()
 
         n = 30
         entities = [type("E", (), {"id": f"e{i}"})() for i in range(n)]
         relationships: dict[str, list] = {f"e{i}": [] for i in range(n)}
         # Create enough triples: chain + cross-links
         for i in range(n - 1):
-            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i+1}", "A"))
+            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i + 1}", "A"))
         for i in range(0, n - 2, 2):
-            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i+2}", "B"))
+            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i + 2}", "B"))
 
         class MockGraph:
             async def find_entities(self, group_id, limit):
@@ -151,17 +159,21 @@ class TestTransETrainer:
         trainer = TransETrainer(cfg)
 
         def make_rel(src, tgt, pred):
-            return type("R", (), {
-                "source_id": src,
-                "target_id": tgt,
-                "predicate": pred,
-            })()
+            return type(
+                "R",
+                (),
+                {
+                    "source_id": src,
+                    "target_id": tgt,
+                    "predicate": pred,
+                },
+            )()
 
         n = 20
         entities = [type("E", (), {"id": f"e{i}"})() for i in range(n)]
         relationships: dict[str, list] = {f"e{i}": [] for i in range(n)}
         for i in range(n - 1):
-            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i+1}", "NEXT"))
+            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i + 1}", "NEXT"))
 
         class MockGraph:
             async def find_entities(self, group_id, limit):
@@ -202,17 +214,21 @@ class TestTransETrainer:
         trainer = TransETrainer(cfg)
 
         def make_rel(src, tgt, pred):
-            return type("R", (), {
-                "source_id": src,
-                "target_id": tgt,
-                "predicate": pred,
-            })()
+            return type(
+                "R",
+                (),
+                {
+                    "source_id": src,
+                    "target_id": tgt,
+                    "predicate": pred,
+                },
+            )()
 
         n = 20
         entities = [type("E", (), {"id": f"e{i}"})() for i in range(n)]
         relationships: dict[str, list] = {f"e{i}": [] for i in range(n)}
         for i in range(n - 1):
-            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i+1}", "NEXT"))
+            relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i + 1}", "NEXT"))
         # Add self-loops
         for i in range(0, n, 3):
             relationships[f"e{i}"].append(make_rel(f"e{i}", f"e{i}", "SELF_REF"))

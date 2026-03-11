@@ -333,11 +333,7 @@ class ProjectionPlanner:
 
         # If we substantially under-filled the budget, favor broader coverage.
         if selected_chars < max_total_chars * 0.55 and len(selected) < len(spans):
-            remaining = [
-                spans[idx]
-                for idx in ranked_indices
-                if idx not in selected_indices
-            ]
+            remaining = [spans[idx] for idx in ranked_indices if idx not in selected_indices]
             for span in remaining:
                 if selected_chars + len(span.text) > max_total_chars:
                     continue
@@ -353,9 +349,7 @@ class ProjectionPlanner:
 def summarize_plan(plan: ProjectionPlan) -> dict[str, object]:
     """Return compact plan metadata for observability events."""
     avg_score = (
-        round(sum(span.score for span in plan.spans) / len(plan.spans), 4)
-        if plan.spans
-        else 0.0
+        round(sum(span.score for span in plan.spans) / len(plan.spans), 4) if plan.spans else 0.0
     )
     return {
         "strategy": plan.strategy,

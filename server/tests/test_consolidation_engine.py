@@ -66,10 +66,21 @@ class TestConsolidationEngine:
         assert cycle.total_duration_ms > 0
         phase_names = [pr.phase for pr in cycle.phase_results]
         assert phase_names == [
-            "triage", "merge", "infer", "evidence_adjudication",
+            "triage",
+            "merge",
+            "infer",
+            "evidence_adjudication",
             "edge_adjudication",
-            "replay", "prune", "compact", "mature", "semanticize",
-            "schema", "reindex", "graph_embed", "microglia", "dream",
+            "replay",
+            "prune",
+            "compact",
+            "mature",
+            "semanticize",
+            "schema",
+            "reindex",
+            "graph_embed",
+            "microglia",
+            "dream",
         ]
 
     @pytest.mark.asyncio
@@ -87,10 +98,21 @@ class TestConsolidationEngine:
 
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
-            "triage", "merge", "infer", "evidence_adjudication",
+            "triage",
+            "merge",
+            "infer",
+            "evidence_adjudication",
             "edge_adjudication",
-            "replay", "prune", "compact", "mature", "semanticize",
-            "schema", "reindex", "graph_embed", "microglia", "dream",
+            "replay",
+            "prune",
+            "compact",
+            "mature",
+            "semanticize",
+            "schema",
+            "reindex",
+            "graph_embed",
+            "microglia",
+            "dream",
         ]
 
     @pytest.mark.asyncio
@@ -205,6 +227,7 @@ class TestConsolidationEngine:
 
         # Create enough entities for node2vec
         from engram.models.entity import Entity
+
         for i in range(20):
             entity = Entity(
                 id=f"ent_{i}",
@@ -271,7 +294,11 @@ class TestConsolidationEngine:
 
     @pytest.mark.asyncio
     async def test_phase_capability_validation_fails_cycle(
-        self, store, activation, search, consol_store,
+        self,
+        store,
+        activation,
+        search,
+        consol_store,
     ):
         class MissingCapabilityPhase(ConsolidationPhase):
             @property
@@ -300,7 +327,11 @@ class TestConsolidationEngine:
 
     @pytest.mark.asyncio
     async def test_decision_traces_persisted_from_context(
-        self, store, activation, search, consol_store,
+        self,
+        store,
+        activation,
+        search,
+        consol_store,
     ):
         class TracePhase(ConsolidationPhase):
             @property
@@ -360,7 +391,11 @@ class TestConsolidationEngine:
 
     @pytest.mark.asyncio
     async def test_stage3_learning_artifacts_persisted(
-        self, store, activation, search, consol_store,
+        self,
+        store,
+        activation,
+        search,
+        consol_store,
     ):
         class LearningPhase(ConsolidationPhase):
             @property

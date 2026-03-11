@@ -14,7 +14,7 @@ def test_system_prompt_covers_natural_followups():
         "talked to Sarah about it",
         "still dealing with that bug",
         "which son plays soccer?",
-        ):
+    ):
         assert phrase in ENGRAM_SYSTEM_PROMPT
 
 

@@ -103,20 +103,14 @@ class RecallNeedController:
         total_analyses = len(analyses)
         trigger_count = sum(1 for sample in analyses if sample.should_recall)
         family_counts = Counter(
-            sample.trigger_family or "unknown"
-            for sample in analyses
-            if sample.should_recall
+            sample.trigger_family or "unknown" for sample in analyses if sample.should_recall
         )
         interaction_counts = Counter(sample.interaction_type for sample in interactions)
         analyzer_latencies = [
-            sample.analyzer_latency_ms
-            for sample in analyses
-            if sample.analyzer_latency_ms > 0
+            sample.analyzer_latency_ms for sample in analyses if sample.analyzer_latency_ms > 0
         ]
         probe_latencies = [
-            sample.probe_latency_ms
-            for sample in analyses
-            if sample.probe_latency_ms > 0
+            sample.probe_latency_ms for sample in analyses if sample.probe_latency_ms > 0
         ]
         probe_triggered = sum(1 for sample in analyses if sample.probe_triggered)
         graph_lift_count = sum(1 for sample in analyses if sample.decision_path == "graph_lift")

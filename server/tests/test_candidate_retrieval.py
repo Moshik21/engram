@@ -83,7 +83,8 @@ class TestFindEntityCandidates:
     async def test_multiple_token_match(self, graph):
         await _create_entity(graph, "Spreading Activation")
         candidates = await graph.find_entity_candidates(
-            "ACT-R Spreading Activation", "default",
+            "ACT-R Spreading Activation",
+            "default",
         )
         assert len(candidates) >= 1
         assert any("Spreading" in c.name for c in candidates)

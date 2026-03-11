@@ -144,7 +144,8 @@ def _transcript_hashes(scenarios) -> dict[str, str]:
 
 
 def _overall_vector_provider_family(
-    selected_baselines: list[str], engram_vector_provider: str,
+    selected_baselines: list[str],
+    engram_vector_provider: str,
 ) -> str:
     vector_families: set[str] = set()
     for baseline in selected_baselines:
@@ -232,7 +233,9 @@ def _build_showcase_summaries(
             family = (
                 BASELINE_CATALOG[baseline_name].family
                 if baseline_name in BASELINE_CATALOG
-                else "ablation" if baseline_name in ablation_baselines else "alternative"
+                else "ablation"
+                if baseline_name in ablation_baselines
+                else "alternative"
             )
         summaries.append(
             summarize_baseline(
@@ -331,9 +334,7 @@ def _track_summaries(
                 executed=answer_reason is None,
                 available=answer_reason is None and bool(answer_summaries),
                 availability_reason=answer_reason,
-                headline_metric=(
-                    None if engram_answer is None else engram_answer.answer_pass_rate
-                ),
+                headline_metric=(None if engram_answer is None else engram_answer.answer_pass_rate),
                 notes=["Shared answer prompt + deterministic grader."],
             )
         )
@@ -364,9 +365,7 @@ def _supporting_artifacts(project_root: Path) -> dict[str, str]:
 def _build_readme_snippet(run_result: ShowcaseRunResult) -> str | None:
     if not run_result.baseline_summaries:
         return None
-    summary_by_name = {
-        summary.baseline_name: summary for summary in run_result.baseline_summaries
-    }
+    summary_by_name = {summary.baseline_name: summary for summary in run_result.baseline_summaries}
     engram = summary_by_name.get("engram_full")
     primary_competitors = [
         summary_by_name[name]
@@ -392,9 +391,7 @@ def _summary_payload(summary, baseline_id: str) -> dict[str, object]:
     return {
         "name": summary.baseline_name,
         "display_name": (
-            entry.display_name
-            if entry is not None
-            else baseline_id.replace("_", " ").title()
+            entry.display_name if entry is not None else baseline_id.replace("_", " ").title()
         ),
         "family": summary.baseline_family,
         "comparison_group": None if entry is None else entry.comparison_group,
@@ -418,9 +415,7 @@ def _summary_payload(summary, baseline_id: str) -> dict[str, object]:
 
 
 def _build_website_summary(run_result: ShowcaseRunResult) -> dict[str, object]:
-    summary_by_name = {
-        summary.baseline_name: summary for summary in run_result.baseline_summaries
-    }
+    summary_by_name = {summary.baseline_name: summary for summary in run_result.baseline_summaries}
     headline_summaries = [
         _summary_payload(summary_by_name[name], name)
         for name in run_result.headline_baselines
@@ -647,13 +642,11 @@ async def run_showcase_benchmark(
         selected_control,
         selected_appendix,
         selected_ablations,
-    ) = (
-        _resolve_baseline_groups(
-            baseline_names=baseline_names,
-            primary_baselines=primary_baselines,
-            appendix_baselines=appendix_baselines,
-            include_ablations=include_ablations,
-        )
+    ) = _resolve_baseline_groups(
+        baseline_names=baseline_names,
+        primary_baselines=primary_baselines,
+        appendix_baselines=appendix_baselines,
+        include_ablations=include_ablations,
     )
     selected_primary = selected_headline + selected_control
     project_root = Path(__file__).resolve().parents[3]

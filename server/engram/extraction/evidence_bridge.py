@@ -99,11 +99,7 @@ class EvidenceBridge:
                     if ev.payload.get("valid_from")
                     else {}
                 ),
-                **(
-                    {"valid_to": ev.payload.get("valid_to")}
-                    if ev.payload.get("valid_to")
-                    else {}
-                ),
+                **({"valid_to": ev.payload.get("valid_to")} if ev.payload.get("valid_to") else {}),
                 "confidence": ev.confidence,
                 "signals": ev.corroborating_signals,
                 "temporal_evidence_ids": [],
@@ -116,7 +112,8 @@ class EvidenceBridge:
         )
 
     def _attribute_to_entity(
-        self, ev: EvidenceCandidate,
+        self,
+        ev: EvidenceCandidate,
     ) -> EntityCandidate | None:
         """Convert attribute evidence to an EntityCandidate with attributes dict."""
         entity_name = ev.payload.get("entity")

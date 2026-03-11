@@ -19,7 +19,7 @@ EXTRACTION_SYSTEM_PROMPT = (
     "    {\n"
     '      "name": "Entity Name",\n'
     '      "entity_type": "Person|Organization|Project|Technology|'
-    'Concept|Location|Event|CreativeWork|Article|Software|'
+    "Concept|Location|Event|CreativeWork|Article|Software|"
     'HealthCondition|BodyPart|Emotion|Goal|Preference|Habit|Intention|Identifier|Other",\n'
     "  Type guidance:\n"
     "  - Project: work initiative, research project, business venture\n"

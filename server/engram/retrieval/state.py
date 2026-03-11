@@ -77,7 +77,9 @@ def get_time_bucket(hour: int | None = None) -> str:
 _MODE_DOMAIN_AFFINITY: dict[str, dict[str, float]] = {
     "task": {"technical": 0.8, "knowledge": 0.5, "personal": 0.2},
     "exploratory": {
-        "knowledge": 0.8, "creative": 0.6, "technical": 0.4,
+        "knowledge": 0.8,
+        "creative": 0.6,
+        "technical": 0.4,
     },
     "reflective": {"personal": 0.9, "health": 0.6, "creative": 0.5},
     "neutral": {},
