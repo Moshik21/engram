@@ -10,7 +10,7 @@ It works with both lite and full Engram installs.
 ### Lite (recommended — no Docker)
 
 ```bash
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 Select **[1] Lite** when prompted, then answer **yes** to "Install OpenClaw skill?".
@@ -18,7 +18,7 @@ Select **[1] Lite** when prompted, then answer **yes** to "Install OpenClaw skil
 ### Full (Docker)
 
 ```bash
-curl -sSL https://engram.run/install | bash -s -- full
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- full
 ```
 
 Then install the skill:
@@ -30,7 +30,7 @@ engramctl install-openclaw
 Or use the combined openclaw mode:
 
 ```bash
-curl -sSL https://engram.run/install | bash -s -- openclaw
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
 ## Runtime contract

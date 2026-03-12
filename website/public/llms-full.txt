@@ -97,7 +97,7 @@ Manual/pressure/scheduled triggers bypass tiering and run all phases.
 
 One-line install:
 ```
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 Or manually:
@@ -141,7 +141,7 @@ Runs FalkorDB, Redis, server (port 8100), and dashboard (port 3000).
 
 ### OpenClaw Skill
 ```
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 cd ~/engram/server && uv run engram serve
 cp -r ~/engram/skills/engram-memory ~/.openclaw/skills/
 ```

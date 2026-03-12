@@ -8,13 +8,13 @@ a prebuilt local Docker stack — no repo clone, no image builds.
 ## One-click install
 
 ```bash
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 Select **[2] Full** when prompted. Or skip the prompt:
 
 ```bash
-curl -sSL https://engram.run/install | bash -s -- full
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- full
 ```
 
 What it does:

@@ -17,7 +17,7 @@ Engram gives AI agents a brain that persists across sessions. Instead of losing 
 ## Install
 
 ```
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 Or manually: `git clone https://github.com/Moshik21/engram.git && cd engram/server && uv sync && uv run engram setup`

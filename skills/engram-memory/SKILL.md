@@ -25,7 +25,7 @@ The Engram server must be running locally.
 ### Lite install (recommended — no Docker)
 
 ```bash
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 Select **Lite** when prompted, then answer **yes** to "Install OpenClaw skill?".
@@ -37,7 +37,7 @@ engramctl start
 ### Full install (Docker)
 
 ```bash
-curl -sSL https://engram.run/install | bash -s -- openclaw
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
 ### Already have Engram running?

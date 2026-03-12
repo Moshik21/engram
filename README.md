@@ -69,7 +69,7 @@ Engram stores conversations as episodes, turns important people, facts, and rela
 ### One-Click Install
 
 ```bash
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 The installer prompts you to choose a mode:
@@ -98,7 +98,7 @@ Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-do
 ### One-Click OpenClaw Install
 
 ```bash
-curl -sSL https://engram.run/install | bash -s -- openclaw
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
 Or install lite and say **yes** to "Install OpenClaw skill?" during setup.
@@ -1188,8 +1188,8 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 
 ```bash
 # Public local install
-curl -sSL https://engram.run/install | bash     # Full Docker product
-curl -sSL https://engram.run/install | bash -s -- openclaw
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash     # Full Docker product
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 engramctl status
 engramctl update
 
@@ -1274,7 +1274,7 @@ installed, the installer exits with exact next-step instructions instead of
 trying to provision it automatically. After Docker is running, retry:
 
 ```bash
-curl -sSL https://engram.run/install | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
 **"Connection refused" when MCP connects to Docker services**
