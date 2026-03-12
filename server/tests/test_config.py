@@ -48,16 +48,11 @@ class TestEngramConfig:
         repo_env.write_text("ENGRAM_MODE=full\n")
 
         monkeypatch.chdir(server_dir)
-        monkeypatch.setattr(
-            EngramConfig,
-            "model_config",
-            {
-                **EngramConfig.model_config,
-                "env_file": ("nonexistent-global.env", str(repo_env), ".env"),
-            },
-        )
+        monkeypatch.delenv("ENGRAM_MODE", raising=False)
 
-        config = EngramConfig()
+        config = EngramConfig(
+            _env_file=("nonexistent-global.env", str(repo_env), ".env"),
+        )
         assert config.mode == "full"
 
 
