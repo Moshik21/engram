@@ -120,8 +120,20 @@ const consolidationPhases = [
     desc: "Discover implicit relationships between entities that co-occur but were never explicitly linked.",
   },
   {
+    name: "Adjudicate",
+    desc: "Resolve ambiguous entity and relationship evidence that extraction could not commit with high confidence.",
+  },
+  {
     name: "Replay",
     desc: "Re-extract recent episodes to catch entities and relationships missed on the first pass.",
+  },
+  {
+    name: "Prune",
+    desc: "Soft-delete entities that are old, rarely accessed, and low-activation. Forgetting as maintenance.",
+  },
+  {
+    name: "Compact",
+    desc: "Logarithmic bucketing of access history to bound storage growth without losing activation signal.",
   },
   {
     name: "Mature",
@@ -132,8 +144,24 @@ const consolidationPhases = [
     desc: "Promote episodes whose linked entities have matured, shifting them into long-term storage.",
   },
   {
-    name: "Prune",
-    desc: "Soft-delete entities that are old, rarely accessed, and low-activation. Forgetting as maintenance.",
+    name: "Schema",
+    desc: "Detect recurring structural motifs in the graph and promote them to first-class schema entities.",
+  },
+  {
+    name: "Reindex",
+    desc: "Re-embed entities affected by earlier phases to keep vector representations current.",
+  },
+  {
+    name: "Graph Embed",
+    desc: "Train structural graph embeddings (Node2Vec, TransE) for topology-aware retrieval signals.",
+  },
+  {
+    name: "Microglia",
+    desc: "Graph immune surveillance — prune bad edges, fix meta-contaminated summaries, enforce type constraints.",
+  },
+  {
+    name: "Dream",
+    desc: "Offline spreading activation strengthens pathways. Cross-domain associations discovered via embedding similarity.",
   },
 ];
 

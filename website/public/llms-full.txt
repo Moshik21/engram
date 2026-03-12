@@ -1,6 +1,6 @@
 # Engram
 
-> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 12-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
+> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 15-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
 
 ## What Engram Does
 
@@ -35,11 +35,11 @@ One brain per person. Not one brain per project. Projects are topology (regions 
 - Memory-tier-aware scoring
 - Reconsolidation: recently recalled entities enter 5-minute labile window for summary updates (max 3 modifications)
 
-## 12-Phase Consolidation Pipeline
+## 15-Phase Consolidation Pipeline
 
 Offline cycles that run on a three-tier schedule:
 - **Hot tier** (every 15 min): triage
-- **Warm tier** (every 2 hr): merge, infer, compact, mature, semanticize, reindex
+- **Warm tier** (every 2 hr): merge, infer, evidence_adjudicate, compact, mature, semanticize, reindex, microglia
 - **Cold tier** (every 6 hr): replay, prune, schema, graph_embed, dream
 
 Manual/pressure/scheduled triggers bypass tiering and run all phases.
@@ -49,23 +49,27 @@ Manual/pressure/scheduled triggers bypass tiering and run all phases.
 1. **Triage**: Scores QUEUED episodes by heuristics (length, keyword density, novelty via FTS5). Promotes top ~35% for extraction, skips the rest.
 2. **Merge**: Fuzzy-matches duplicate entities. 6-signal scoring: name analysis (0.35) + embedding cosine (0.25) + neighbor Jaccard (0.15) + summary Dice (0.10) + referential exclusivity (0.15). Handles acronyms (JS/JavaScript), numeronyms (K8s/Kubernetes), tech suffixes. Union-find clustering.
 3. **Infer**: Creates edges for co-occurring entities via PMI + 6-signal validation (embedding coherence, type compatibility, ubiquity penalty, structural plausibility). Self-correcting via Dream LTD.
-4. **Replay**: Re-extracts recent episodes to find missed entities. Skips during tiered scheduling if no upstream graph changes.
-5. **Prune**: Soft-deletes dead entities (no relationships, access_count <= 2, older than 14 days). Activation safety net: entities with activation > 0.05 survive. Memory-tier-aware: semantic entities survive 180 days.
-6. **Compact**: Logarithmic bucketing of access history to bound storage growth.
-7. **Mature**: Graduates entities episodic → transitional → semantic based on maturity score (source diversity, temporal span, relationship richness, access regularity). Identity core entities auto-promote.
-8. **Semanticize**: Promotes episodes from episodic → transitional → semantic based on entity coverage fraction and consolidation cycle count.
-9. **Schema**: Detects recurring structural motifs (predicate-type fingerprints), promotes to first-class Schema entities. Instances connect via INSTANCE_OF edges.
-10. **Reindex**: Re-embeds entities affected by earlier phases.
-11. **Graph Embed**: Trains structural graph embeddings (Node2Vec, TransE, GNN). Incremental retraining with 5% change threshold.
-12. **Dream**: Offline spreading activation to strengthen pathways. Dream associations discover cross-domain entity pairs via embedding similarity, create temporary DREAM_ASSOCIATED edges with TTL. LTD decay for unboosted edges (0.005/cycle, floor 0.1).
+4. **Evidence Adjudicate**: Resolve ambiguous entity and relationship evidence that extraction could not commit with high confidence.
+5. **Edge Adjudicate**: Budgeted offline adjudication of unresolved ambiguous edges.
+6. **Replay**: Re-extracts recent episodes to find missed entities. Skips during tiered scheduling if no upstream graph changes.
+7. **Prune**: Soft-deletes dead entities (no relationships, access_count <= 2, older than 14 days). Activation safety net: entities with activation > 0.05 survive. Memory-tier-aware: semantic entities survive 180 days.
+8. **Compact**: Logarithmic bucketing of access history to bound storage growth.
+9. **Mature**: Graduates entities episodic → transitional → semantic based on maturity score (source diversity, temporal span, relationship richness, access regularity). Identity core entities auto-promote.
+10. **Semanticize**: Promotes episodes from episodic → transitional → semantic based on entity coverage fraction and consolidation cycle count.
+11. **Schema**: Detects recurring structural motifs (predicate-type fingerprints), promotes to first-class Schema entities. Instances connect via INSTANCE_OF edges.
+12. **Reindex**: Re-embeds entities affected by earlier phases.
+13. **Graph Embed**: Trains structural graph embeddings (Node2Vec, TransE, GNN). Incremental retraining with 5% change threshold.
+14. **Microglia**: Graph immune surveillance — prune bad edges, fix meta-contaminated summaries, enforce type constraints.
+15. **Dream**: Offline spreading activation to strengthen pathways. Dream associations discover cross-domain entity pairs via embedding similarity, create temporary DREAM_ASSOCIATED edges with TTL. LTD decay for unboosted edges (0.005/cycle, floor 0.1).
 
 ## MCP Server
 
-15 tools exposed via stdio transport for any MCP-compatible agent (Claude Code, Cursor, Windsurf, etc.).
+19 tools exposed via stdio transport for any MCP-compatible agent (Claude Code, Cursor, Windsurf, etc.).
 
 ### Capture Tools
 - `observe` — Store raw text for background processing. Fast, cheap, no LLM call.
 - `remember` — Store important information with full extraction. Extracts entities and relationships.
+- `adjudicate_evidence` — Resolve ambiguous entity or relationship evidence.
 - `forget` — Mark a memory, entity, or fact as forgotten (soft delete).
 - `bootstrap_project` — Auto-observe key project files (README, Makefile, etc.) and create a Project entity.
 
@@ -73,7 +77,9 @@ Manual/pressure/scheduled triggers bypass tiering and run all phases.
 - `recall` — Retrieve memories relevant to a query using activation-aware search.
 - `search_entities` — Search for specific entities by name or type.
 - `search_facts` — Search for facts and relationships in the knowledge graph.
+- `search_artifacts` — Search bootstrapped project artifacts (README, design docs, config).
 - `get_context` — Return pre-assembled context string of most activated memories. Use at conversation start.
+- `route_question` — Classify questions for epistemic routing (memory vs artifact vs reconciliation).
 
 ### Management Tools
 - `mark_identity_core` — Protect important entities from pruning. For core personal identity.
@@ -85,6 +91,7 @@ Manual/pressure/scheduled triggers bypass tiering and run all phases.
 - `get_consolidation_status` — Check consolidation state and latest cycle summary.
 - `trigger_consolidation` — Run a consolidation cycle manually.
 - `get_graph_state` — Return graph statistics and top-activated nodes.
+- `get_runtime_state` — Check effective mode, active profiles, enabled flags.
 
 ## Install
 
@@ -145,7 +152,8 @@ All settings in `server/engram/config.py`, overridable via environment variables
 
 - `consolidation_profile`: off (default) | observe | conservative | standard
 - `recall_profile`: off (default) | wave1 | wave2 | wave3 | wave4 | all
-- `ANTHROPIC_API_KEY`: Required for entity extraction (Claude Haiku)
+- `extraction_provider`: auto | anthropic | ollama | narrow (auto tries Anthropic → Ollama → narrow deterministic pipeline)
+- `ANTHROPIC_API_KEY`: Optional. Enables LLM-backed extraction. Without it, the narrow deterministic pipeline handles extraction.
 - `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard` — env var format
 
 Standard profile enables: triage, worker, dream associations, graph embeddings, LLM merge/infer judges, pressure-triggered scheduling, three-tier scheduling.
@@ -183,7 +191,7 @@ Engram's architecture draws from established cognitive science:
 ## Links
 
 - [GitHub Repository](https://github.com/Moshik21/engram)
-- [Documentation](https://engram.run/docs)
-- [Science & Architecture](https://engram.run/science)
-- [Vision — One Brain Per Person](https://engram.run/vision)
-- [Roadmap](https://engram.run/roadmap)
+- [Documentation](https://engram-roan.vercel.app/docs)
+- [Science & Architecture](https://engram-roan.vercel.app/science)
+- [Vision — One Brain Per Person](https://engram-roan.vercel.app/vision)
+- [Roadmap](https://engram-roan.vercel.app/roadmap)

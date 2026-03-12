@@ -1,6 +1,6 @@
 # Engram
 
-> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 12-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
+> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 15-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
 
 Engram gives AI agents a brain that persists across sessions. Instead of losing context when a conversation ends, Engram builds a knowledge graph of entities, relationships, and facts extracted from conversations — then retrieves them using spreading activation when relevant.
 
@@ -9,9 +9,9 @@ Engram gives AI agents a brain that persists across sessions. Instead of losing 
 - **Dual mode**: SQLite (lite, zero infrastructure) or FalkorDB + Redis (full, production-ready)
 - **CQRS ingestion**: `observe` (fast, no LLM) vs `remember` (full extraction + entity resolution)
 - **ACT-R activation**: Recency/frequency ranking computed lazily from access history
-- **12-phase consolidation**: triage, merge, infer, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, dream
+- **15-phase consolidation**: triage, merge, infer, evidence_adjudicate, edge_adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream
 - **Memory maturation**: Entities graduate episodic → transitional → semantic with differential decay
-- **MCP server**: 15 tools via stdio transport for any MCP-compatible agent
+- **MCP server**: 19 tools via stdio transport for any MCP-compatible agent
 - **Privacy-first**: Memory storage is local. No centralized data collection.
 
 ## Install
@@ -32,28 +32,28 @@ Or manually: `git clone https://github.com/Moshik21/engram.git && cd engram/serv
 
 ## Integration
 
-- [MCP Server](https://engram.run/docs): `engram mcp` — recommended for Claude Code, Cursor, Windsurf
-- [REST API](https://engram.run/docs): `engram serve` — HTTP server at port 8100 with OpenAPI docs
+- [MCP Server](https://engram-roan.vercel.app/docs): `engram mcp` — recommended for Claude Code, Cursor, Windsurf
+- [REST API](https://engram-roan.vercel.app/docs): `engram serve` — HTTP server at port 8100 with OpenAPI docs
 - [OpenClaw Skill](https://github.com/Moshik21/engram/tree/main/skills/engram-memory): ClawHub skill for persistent agent memory
-- [Docker Full Stack](https://engram.run/docs): `docker compose up -d --build` for FalkorDB + Redis + dashboard
+- [Docker Full Stack](https://engram-roan.vercel.app/docs): `docker compose up -d --build` for FalkorDB + Redis + dashboard
 
-## MCP Tools (15)
+## MCP Tools (19)
 
-Capture: observe, remember, forget, bootstrap_project
-Retrieval: recall, search_entities, search_facts, get_context
+Capture: observe, remember, adjudicate_evidence, forget, bootstrap_project
+Retrieval: recall, search_entities, search_facts, search_artifacts, get_context, route_question
 Management: mark_identity_core, intend, dismiss_intention, list_intentions
-System: get_consolidation_status, trigger_consolidation, get_graph_state
+System: get_consolidation_status, trigger_consolidation, get_graph_state, get_runtime_state
 
 ## Links
 
 - [GitHub Repository](https://github.com/Moshik21/engram)
-- [Documentation](https://engram.run/docs)
-- [Science & Architecture](https://engram.run/science)
-- [Vision](https://engram.run/vision)
-- [Roadmap](https://engram.run/roadmap)
+- [Documentation](https://engram-roan.vercel.app/docs)
+- [Science & Architecture](https://engram-roan.vercel.app/science)
+- [Vision](https://engram-roan.vercel.app/vision)
+- [Roadmap](https://engram-roan.vercel.app/roadmap)
 
 ## Optional
 
-- [Consolidation Deep Dive](https://engram.run/docs#consolidation)
-- [Cognitive Science Foundations](https://engram.run/science)
-- [Federated Policy Intelligence Vision](https://engram.run/roadmap)
+- [Consolidation Deep Dive](https://engram-roan.vercel.app/docs#consolidation)
+- [Cognitive Science Foundations](https://engram-roan.vercel.app/science)
+- [Federated Policy Intelligence Vision](https://engram-roan.vercel.app/roadmap)

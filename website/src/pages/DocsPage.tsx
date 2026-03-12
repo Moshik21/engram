@@ -10,7 +10,7 @@ const INSTALL_TABS = [
     label: "MCP Server",
     badge: "Recommended",
     heading: "MCP SERVER",
-    commands: ["cd server", "uv sync", "uv run python -m engram.mcp.server"],
+    commands: ["cd server", "uv sync", "uv run engram mcp"],
     description:
       "Starts Engram in lite mode with SQLite. Zero dependencies beyond Python. Connect any MCP-compatible agent and start building memory immediately.",
   },
@@ -28,7 +28,7 @@ const INSTALL_TABS = [
     label: "REST API",
     badge: null,
     heading: "REST API",
-    commands: ["cd server", "uv run uvicorn engram.main:app --port 8100"],
+    commands: ["cd server", "uv run engram serve"],
     description:
       "Lightweight HTTP server for non-MCP integrations. Interactive docs available at localhost:8100/docs.",
   },
@@ -37,12 +37,15 @@ const INSTALL_TABS = [
 const MCP_TOOLS = [
   { name: "observe", desc: "Store raw text for background processing", cat: "capture" },
   { name: "remember", desc: "Store important information with full extraction", cat: "capture" },
+  { name: "adjudicate_evidence", desc: "Resolve ambiguous entity or relationship evidence", cat: "capture" },
   { name: "forget", desc: "Remove outdated information", cat: "capture" },
   { name: "bootstrap_project", desc: "Auto-observe key project files", cat: "capture" },
   { name: "recall", desc: "Retrieve relevant memories", cat: "retrieval" },
   { name: "search_entities", desc: "Look up specific entities", cat: "retrieval" },
   { name: "search_facts", desc: "Find specific facts and relationships", cat: "retrieval" },
+  { name: "search_artifacts", desc: "Search bootstrapped project artifacts", cat: "retrieval" },
   { name: "get_context", desc: "Get broad overview of what you know", cat: "retrieval" },
+  { name: "route_question", desc: "Classify questions for epistemic routing", cat: "retrieval" },
   { name: "mark_identity_core", desc: "Protect important entities from pruning", cat: "management" },
   { name: "intend", desc: "Create prospective memory intentions", cat: "management" },
   { name: "dismiss_intention", desc: "Disable an active intention", cat: "management" },
@@ -50,6 +53,7 @@ const MCP_TOOLS = [
   { name: "get_consolidation_status", desc: "Check consolidation state", cat: "system" },
   { name: "trigger_consolidation", desc: "Run consolidation manually", cat: "system" },
   { name: "get_graph_state", desc: "Inspect the knowledge graph", cat: "system" },
+  { name: "get_runtime_state", desc: "Check effective mode, profiles, and flags", cat: "system" },
 ] as const;
 
 const CATEGORIES: { key: string; label: string; color: string }[] = [
@@ -64,7 +68,7 @@ const CONCEPT_CARDS = [
   { title: "Entities", desc: "People, projects, concepts extracted into a knowledge graph that matures over time." },
   { title: "Relationships", desc: "Typed edges between entities: WORKS_AT, PREFERS, KNOWS. ~25 canonical predicates." },
   { title: "Activation", desc: "ACT-R inspired recency/frequency ranking. Computed lazily from access history." },
-  { title: "Consolidation", desc: "12 offline phases: triage, merge, infer, replay, prune, compact, mature, semanticize, schema, reindex, graph embed, dream." },
+  { title: "Consolidation", desc: "15 offline phases on a three-tier schedule. Triage, merge, infer, adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph embed, microglia, dream." },
   { title: "Cues", desc: "Lightweight latent memory traces that surface relevant context before full extraction." },
 ] as const;
 
@@ -72,6 +76,8 @@ const PHASES = [
   { name: "triage", tier: "Hot", interval: "15 min", desc: "Score queued episodes, promote top ~35% for extraction" },
   { name: "merge", tier: "Warm", interval: "2 hr", desc: "Fuzzy-match duplicate entities via multi-signal scoring" },
   { name: "infer", tier: "Warm", interval: "2 hr", desc: "Create edges for co-occurring entities via PMI" },
+  { name: "evidence_adjudicate", tier: "Warm", interval: "2 hr", desc: "Resolve ambiguous entity and relationship evidence" },
+  { name: "edge_adjudicate", tier: "Warm", interval: "2 hr", desc: "Budgeted offline adjudication of unresolved edges" },
   { name: "replay", tier: "Cold", interval: "6 hr", desc: "Re-extract recent episodes to find missed entities" },
   { name: "prune", tier: "Cold", interval: "6 hr", desc: "Soft-delete dead entities with low access" },
   { name: "compact", tier: "Warm", interval: "2 hr", desc: "Logarithmic bucketing of access history" },
@@ -80,13 +86,15 @@ const PHASES = [
   { name: "schema", tier: "Cold", interval: "6 hr", desc: "Detect recurring structural motifs" },
   { name: "reindex", tier: "Warm", interval: "2 hr", desc: "Re-embed entities affected by earlier phases" },
   { name: "graph_embed", tier: "Cold", interval: "6 hr", desc: "Train structural embeddings (Node2Vec, TransE)" },
+  { name: "microglia", tier: "Warm", interval: "2 hr", desc: "Graph immune surveillance — prune bad edges, fix summaries" },
   { name: "dream", tier: "Cold", interval: "6 hr", desc: "Spreading activation + cross-domain connections" },
 ] as const;
 
 const CONFIG_FIELDS = [
   { field: "consolidation_profile", values: "off | observe | conservative | standard", desc: "Controls which consolidation phases run. Off by default." },
   { field: "recall_profile", values: "off | wave1 | wave2 | wave3 | wave4 | all", desc: "Controls retrieval pipeline depth. Each wave adds more signal." },
-  { field: "ANTHROPIC_API_KEY", values: "sk-ant-...", desc: "Required for entity extraction and LLM-backed features." },
+  { field: "extraction_provider", values: "auto | anthropic | ollama | narrow", desc: "Extraction backend. Auto tries Anthropic, then Ollama, then deterministic narrow pipeline." },
+  { field: "ANTHROPIC_API_KEY", values: "sk-ant-...", desc: "Optional. Enables LLM-backed extraction. Without it, the narrow deterministic pipeline handles extraction." },
 ] as const;
 
 /* ──────────────────────────── sub-components ──────────────────────── */
@@ -273,7 +281,7 @@ export function DocsPage() {
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px" }}>
           <ScrollReveal>
             <Label>MCP TOOLS</Label>
-            <Heading>15 tools for memory management</Heading>
+            <Heading>19 tools for memory management</Heading>
             <p style={{ ...body, fontSize: 15, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 40, maxWidth: 600 }}>
               Engram exposes a complete memory interface through the Model Context Protocol. Every tool is available via stdio transport.
             </p>
@@ -370,7 +378,7 @@ export function DocsPage() {
           <ScrollReveal delay={160}>
             <h3 style={{ ...body, fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Consolidation Pipeline</h3>
             <p style={{ ...body, fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 20 }}>
-              Twelve phases on a three-tier schedule. Manual triggers bypass tiering and run all phases.
+              Fifteen phases on a three-tier schedule. Manual triggers bypass tiering and run all phases.
             </p>
 
             <div style={{ borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>

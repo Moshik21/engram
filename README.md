@@ -7,6 +7,7 @@
 </p>
 
 <p align="center">
+  <a href="https://engram-roan.vercel.app">Website</a> &middot;
   <a href="#quickstart">Quickstart</a> &middot;
   <a href="#how-it-works">How It Works</a> &middot;
   <a href="#mcp-integration">MCP Integration</a> &middot;
@@ -17,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="https://engram-roan.vercel.app"><img src="https://img.shields.io/badge/website-engram-8b5cf6" alt="Website"></a>
   <img src="https://github.com/Moshik21/engram/actions/workflows/ci.yml/badge.svg" alt="CI">
   <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/react-19-61dafb" alt="React 19">
@@ -771,7 +773,7 @@ This means obvious high-value content is extracted within seconds, obvious noise
 
 ## MCP Integration
 
-Engram exposes 16 MCP tools for AI agents:
+Engram exposes 19 MCP tools for AI agents:
 
 | Tool | Purpose |
 |------|---------|
@@ -791,8 +793,11 @@ Engram exposes 16 MCP tools for AI agents:
 | `get_consolidation_status` | Check consolidation status |
 | `route_question` | Epistemic routing — decides whether a question needs memory, artifact inspection, or runtime state, and returns an answer contract |
 | `bootstrap_project` | Auto-observe key project files and create a Project entity (idempotent) |
+| `adjudicate_evidence` | Resolve ambiguous entity or relationship evidence |
+| `search_artifacts` | Search bootstrapped project artifacts (README, design docs, config) |
+| `get_runtime_state` | Check effective mode, active profiles, and enabled flags |
 
-Plus `search_artifacts` and `get_runtime_state` tools (available when `integration_profile=rework`), 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`), and 2 prompts (`engram_system`, `engram_context_loader`).
+Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`) and 2 prompts (`engram_system`, `engram_context_loader`).
 
 ### Automatic Memory Behavior
 
@@ -1219,12 +1224,12 @@ server/engram/
   activation/       # ACT-R engine (BFS, PPR, strategy pattern)
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
-  consolidation/    # 12-phase engine, scheduler, pressure accumulator
+  consolidation/    # 15-phase engine, scheduler, pressure accumulator
   embeddings/       # Embedding providers (Voyage AI cloud, fastembed local, noop)
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
   ingestion/        # CQRS ingestion paths
-  mcp/              # MCP server (15 tools, 3 resources, 2 prompts)
+  mcp/              # MCP server (19 tools, 3 resources, 2 prompts)
   models/           # Pydantic data models
   retrieval/        # Pipeline, scorer, router, reranker, MMR
   security/         # Auth middleware, AES-256-GCM encryption, OIDC, rate limiting

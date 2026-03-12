@@ -61,7 +61,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Moshik21/engram"
+Homepage = "https://engram-roan.vercel.app"
 Repository = "https://github.com/Moshik21/engram.git"
 Issues = "https://github.com/Moshik21/engram/issues"
 
