@@ -62,9 +62,9 @@ class TestEpisodeRetrievalConfig:
         assert cfg.episode_retrieval_weight == 0.8
 
     def test_default_episode_retrieval_max(self):
-        """Episode retrieval max defaults to 3."""
+        """Episode retrieval max defaults to 5."""
         cfg = ActivationConfig()
-        assert cfg.episode_retrieval_max == 3
+        assert cfg.episode_retrieval_max == 5
 
 
 # ── FTS5 search_episodes tests ──────────────────────────────────────

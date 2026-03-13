@@ -49,6 +49,7 @@ class Episode(BaseModel):
     status: EpisodeStatus = EpisodeStatus.PENDING
     group_id: str = "default"
     session_id: str | None = None
+    conversation_date: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime | None = None
     error: str | None = None

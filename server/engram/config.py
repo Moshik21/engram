@@ -234,7 +234,75 @@ class ActivationConfig(BaseModel):
     # --- Episode retrieval ---
     episode_retrieval_enabled: bool = Field(default=True)
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
-    episode_retrieval_max: int = Field(default=3, ge=0, le=20)
+    episode_retrieval_max: int = Field(default=5, ge=0, le=20)
+    recall_episode_content_limit: int = Field(
+        default=2000,
+        ge=0,
+        le=50000,
+        description="Max chars of episode content in recall results (0 = unlimited)",
+    )
+    recall_tier_aware_truncation_enabled: bool = Field(
+        default=False,
+        description=(
+            "Vary truncation by memory tier: episodic=full,"
+            " transitional=gist, semantic=summary"
+        ),
+    )
+    recall_transitional_content_limit: int = Field(
+        default=500,
+        ge=0,
+        le=50000,
+        description="Max chars for transitional-tier episodes (0 = unlimited)",
+    )
+    recall_semantic_content_limit: int = Field(
+        default=200,
+        ge=0,
+        le=50000,
+        description="Max chars for semantic-tier episodes (0 = unlimited)",
+    )
+
+    # --- Entity-linked episode traversal ---
+    entity_episode_traversal_enabled: bool = Field(
+        default=True,
+        description="Follow entity->episode graph links during recall",
+    )
+    entity_episode_max_entities: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Max entities to traverse for linked episodes",
+    )
+    entity_episode_max_per_entity: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max episodes to fetch per traversed entity",
+    )
+    entity_episode_weight: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Score weight for entity-linked episodes (multiplied by parent entity score)",
+    )
+
+    # --- Temporal contiguity ---
+    temporal_contiguity_enabled: bool = Field(
+        default=False,
+        description="Boost adjacent episodes from the same session when one is recalled",
+    )
+    temporal_contiguity_max_adjacent: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Max adjacent episodes to fetch per recalled episode",
+    )
+    temporal_contiguity_weight: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Score weight for contiguous episodes (multiplied by parent episode score)",
+    )
+
     cue_recall_enabled: bool = Field(
         default=False,
         description="Allow cue-backed latent episodes to participate in recall",
@@ -1056,6 +1124,19 @@ class ActivationConfig(BaseModel):
         ge=100,
         le=2000,
         description="Session prime token budget",
+    )
+    # --- recall_lite (fast entity-probe on every observe/remember) ---
+    auto_recall_token_budget: int = Field(
+        default=300,
+        ge=50,
+        le=1000,
+        description="Approximate token budget for recall_lite context per turn (~4 chars/token)",
+    )
+    auto_recall_cache_ttl_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=1800.0,
+        description="TTL for session entity cache in recall_lite",
     )
     recall_need_analyzer_enabled: bool = Field(
         default=False,

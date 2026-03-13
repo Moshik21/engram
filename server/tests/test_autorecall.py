@@ -12,7 +12,7 @@ from engram.config import ActivationConfig
 from engram.mcp.server import (
     RecallCooldown,
     SessionState,
-    _auto_recall,
+    _auto_recall_full,
     _extract_recall_query,
     _session_prime,
 )
@@ -129,7 +129,7 @@ class TestAutoRecall:
     async def test_returns_none_when_disabled(self):
         cfg = self._make_cfg(auto_recall_enabled=False)
         manager = AsyncMock()
-        result = await _auto_recall("Some content about React", manager, cfg)
+        result = await _auto_recall_full("Some content about React", manager, cfg)
         assert result is None
         manager.recall.assert_not_called()
 
@@ -138,7 +138,7 @@ class TestAutoRecall:
         manager = AsyncMock()
         # _auto_recall returns None early for empty query (short content)
         # but it still needs _extract_recall_query to return "" first
-        result = await _auto_recall("hi", manager, cfg)
+        result = await _auto_recall_full("hi", manager, cfg)
         assert result is None
 
     @patch("engram.mcp.server._recall_cooldown")
@@ -151,7 +151,7 @@ class TestAutoRecall:
             self._make_result("React", 0.8),
             self._make_result("Next.js", 0.6),
         ]
-        result = await _auto_recall("Working with React and Next.js framework", manager, cfg)
+        result = await _auto_recall_full("Working with React and Next.js framework", manager, cfg)
         assert result is not None
         assert result["source"] == "auto_recall"
         assert len(result["entities"]) == 2
@@ -168,7 +168,7 @@ class TestAutoRecall:
             self._make_result("React", 0.8),
             self._make_result("LowScore", 0.2),
         ]
-        result = await _auto_recall("Working with React and LowScore tools", manager, cfg)
+        result = await _auto_recall_full("Working with React and LowScore tools", manager, cfg)
         assert result is not None
         assert len(result["entities"]) == 1
         assert result["entities"][0]["name"] == "React"
@@ -182,7 +182,7 @@ class TestAutoRecall:
         manager.recall.return_value = [
             self._make_result("React", 0.8, result_type="episode"),
         ]
-        result = await _auto_recall("Working with React framework here", manager, cfg)
+        result = await _auto_recall_full("Working with React framework here", manager, cfg)
         assert result is None
 
     @patch("engram.mcp.server._recall_cooldown")
@@ -203,7 +203,7 @@ class TestAutoRecall:
                 "score": 0.8,
             },
         ]
-        result = await _auto_recall("Working with React framework here", manager, cfg)
+        result = await _auto_recall_full("Working with React framework here", manager, cfg)
         assert result is not None
         assert result["cue_episodes"][0]["episode_id"] == "ep_1"
         assert result["cue_episodes"][0]["projection_state"] == "cue_only"
@@ -214,7 +214,7 @@ class TestAutoRecall:
         mock_cooldown.is_throttled.return_value = True
         cfg = self._make_cfg()
         manager = AsyncMock()
-        result = await _auto_recall("Working with React framework here", manager, cfg)
+        result = await _auto_recall_full("Working with React framework here", manager, cfg)
         assert result is None
         manager.recall.assert_not_called()
 
@@ -225,7 +225,7 @@ class TestAutoRecall:
         mock_session.last_recall_time = time.time() - 10  # 10s ago, within 30s window
         cfg = self._make_cfg()
         manager = AsyncMock()
-        result = await _auto_recall("Working with React framework here", manager, cfg)
+        result = await _auto_recall_full("Working with React framework here", manager, cfg)
         assert result is None
         manager.recall.assert_not_called()
 
@@ -244,7 +244,7 @@ class TestAutoRecall:
                 "relationships": [],
             }
         ]
-        result = await _auto_recall("Working with Test concept here today", manager, cfg)
+        result = await _auto_recall_full("Working with Test concept here today", manager, cfg)
         assert result is not None
         assert len(result["entities"][0]["summary"]) <= 100
 
@@ -268,7 +268,7 @@ class TestAutoRecall:
                 ],
             }
         ]
-        result = await _auto_recall("Working with Test concept in the project", manager, cfg)
+        result = await _auto_recall_full("Working with Test concept in the project", manager, cfg)
         assert result is not None
         assert len(result["entities"][0]["top_facts"]) == 3
 
@@ -283,7 +283,7 @@ class TestAutoRecall:
             self._make_result("React", 0.8),
         ]
 
-        result = await _auto_recall("Working with React framework here", manager, cfg)
+        result = await _auto_recall_full("Working with React framework here", manager, cfg)
 
         assert result is not None
         assert result["packets"]
@@ -296,7 +296,7 @@ class TestAutoRecall:
         cfg = self._make_cfg(recall_need_analyzer_enabled=True)
         manager = AsyncMock()
         manager._conv_context = None
-        result = await _auto_recall("thanks", manager, cfg)
+        result = await _auto_recall_full("thanks", manager, cfg)
         assert result is None
         manager.recall.assert_not_called()
 
@@ -309,7 +309,7 @@ class TestAutoRecall:
         manager._conv_context = None
         manager.recall.return_value = [self._make_result("React", 0.8)]
 
-        result = await _auto_recall("How's the React migration going?", manager, cfg)
+        result = await _auto_recall_full("How's the React migration going?", manager, cfg)
 
         assert result is not None
         call_kwargs = manager.recall.call_args.kwargs
@@ -329,7 +329,7 @@ class TestAutoRecall:
         manager._conv_context = None
         manager.recall.return_value = [self._make_result("React", 0.8)]
 
-        result = await _auto_recall("How's the React migration going?", manager, cfg)
+        result = await _auto_recall_full("How's the React migration going?", manager, cfg)
 
         assert result is not None
         call_kwargs = manager.recall.call_args.kwargs
@@ -403,22 +403,22 @@ class TestObserveWithAutoRecall:
         )
         mock_manager = AsyncMock()
         mock_manager.store_episode.return_value = "ep-123"
-        mock_manager.recall.return_value = [
+        mock_manager.recall_lite.return_value = [
             {
-                "entity": {"name": "React", "type": "Technology", "summary": "UI lib"},
-                "score": 0.8,
-                "result_type": "entity",
-                "relationships": [],
+                "name": "React",
+                "type": "Technology",
+                "summary": "UI lib",
+                "confidence": 0.8,
+                "identity_core": False,
+                "top_facts": [],
             }
         ]
         session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
-        cooldown = RecallCooldown(max_per_minute=10, cooldown_seconds=60.0)
 
         with (
             patch.object(server, "_manager", mock_manager),
             patch.object(server, "_session", session),
             patch.object(server, "_activation_cfg", cfg),
-            patch.object(server, "_recall_cooldown", cooldown),
             patch.object(server, "_group_id", "default"),
         ):
             raw = await server.observe("Working on a React migration to Next.js project")
@@ -426,6 +426,7 @@ class TestObserveWithAutoRecall:
 
         assert result["status"] == "stored"
         assert "recalled_context" in result
+        assert result["recalled_context"]["source"] == "recall_lite"
         assert result["recalled_context"]["entities"][0]["name"] == "React"
 
     async def test_observe_returns_session_context_on_first_call(self):
@@ -443,15 +444,13 @@ class TestObserveWithAutoRecall:
             "context": "User is a developer",
             "entity_count": 5,
         }
-        mock_manager.recall.return_value = []
+        mock_manager.recall_lite.return_value = []
         session = SessionState(auto_recall_primed=False, last_recall_time=0.0)
-        cooldown = RecallCooldown(max_per_minute=10, cooldown_seconds=60.0)
 
         with (
             patch.object(server, "_manager", mock_manager),
             patch.object(server, "_session", session),
             patch.object(server, "_activation_cfg", cfg),
-            patch.object(server, "_recall_cooldown", cooldown),
             patch.object(server, "_group_id", "default"),
         ):
             raw = await server.observe("Working on a React migration to Next.js project")
@@ -501,22 +500,22 @@ class TestRememberWithAutoRecall:
         )
         mock_manager = AsyncMock()
         mock_manager.ingest_episode.return_value = "ep-456"
-        mock_manager.recall.return_value = [
+        mock_manager.recall_lite.return_value = [
             {
-                "entity": {"name": "Python", "type": "Technology", "summary": "Language"},
-                "score": 0.7,
-                "result_type": "entity",
-                "relationships": [],
+                "name": "Python",
+                "type": "Technology",
+                "summary": "Language",
+                "confidence": 0.7,
+                "identity_core": False,
+                "top_facts": [],
             }
         ]
         session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
-        cooldown = RecallCooldown(max_per_minute=10, cooldown_seconds=60.0)
 
         with (
             patch.object(server, "_manager", mock_manager),
             patch.object(server, "_session", session),
             patch.object(server, "_activation_cfg", cfg),
-            patch.object(server, "_recall_cooldown", cooldown),
             patch.object(server, "_group_id", "default"),
         ):
             raw = await server.remember("User prefers Python for backend development work")
@@ -524,6 +523,7 @@ class TestRememberWithAutoRecall:
 
         assert result["status"] == "stored"
         assert "recalled_context" in result
+        assert result["recalled_context"]["source"] == "recall_lite"
         assert result["recalled_context"]["entities"][0]["name"] == "Python"
 
     async def test_remember_clean_when_disabled(self):

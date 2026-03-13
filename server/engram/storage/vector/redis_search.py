@@ -600,3 +600,27 @@ class RedisSearchIndex:
         pattern_ep = f"{self._key_prefix}*:vec:episode:{entity_id}"
         async for key in self._redis.scan_iter(match=pattern_ep, count=100):
             await self._redis.delete(key)
+
+    async def delete_group(self, group_id: str) -> None:
+        """Remove all vector keys for a given *group_id*.
+
+        Keys follow the pattern ``{prefix}{group_id}:vec:{type}:{id}``.
+        We SCAN with that pattern and delete in batches of 200 to avoid
+        blocking Redis for too long.
+        """
+        pattern = f"{self._key_prefix}{group_id}:vec:*"
+        batch: list[bytes | str] = []
+        try:
+            async for key in self._redis.scan_iter(match=pattern, count=200):
+                batch.append(key)
+                if len(batch) >= 200:
+                    await self._redis.delete(*batch)
+                    batch = []
+            if batch:
+                await self._redis.delete(*batch)
+        except Exception as exc:
+            logger.warning(
+                "RedisSearchIndex.delete_group(%s) failed: %s",
+                group_id,
+                exc,
+            )

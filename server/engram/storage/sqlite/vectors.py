@@ -260,6 +260,12 @@ class SQLiteVectorStore:
             )
         await self.db.commit()
 
+    async def delete_group(self, group_id: str) -> None:
+        """Remove all embeddings for *group_id*."""
+        await self.db.execute("DELETE FROM embeddings WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM graph_embeddings WHERE group_id = ?", (group_id,))
+        await self.db.commit()
+
     async def has_embeddings(self, group_id: str) -> bool:
         """Check if any embeddings exist for a group."""
         cursor = await self.db.execute(

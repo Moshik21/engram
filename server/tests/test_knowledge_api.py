@@ -208,6 +208,7 @@ class TestRemember:
             content="Alice works at Google",
             group_id="default",
             source="dashboard",
+            conversation_date=None,
             proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
             proposed_relationships=[
                 {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},

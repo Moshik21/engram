@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status ps health build clean test lint bundle
+.PHONY: up down restart logs status ps health build clean test lint bundle mcp
 
 # Developer/manual full-mode Engram: source-built Docker stack + coherent rework integration enabled
 # docker-compose.yml defaults to:
@@ -46,6 +46,14 @@ bundle: ## Build the public install bundle into dist/install
 
 clean: ## Stop and remove volumes (WARNING: deletes all data)
 	docker compose down -v
+
+mcp: ## Start MCP server (streamable HTTP on port 8200, connects to Docker full stack)
+	cd server && ENGRAM_MODE=full \
+		ENGRAM_FALKORDB__HOST=localhost \
+		ENGRAM_FALKORDB__PORT=6380 \
+		ENGRAM_FALKORDB__PASSWORD=$${ENGRAM_FALKORDB_PASSWORD:-engram_dev} \
+		ENGRAM_REDIS__URL=redis://:$${ENGRAM_REDIS_PASSWORD:-engram_dev}@localhost:6381/0 \
+		uv run python -m engram.mcp.server --transport streamable-http
 
 # Development commands
 

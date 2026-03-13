@@ -305,6 +305,10 @@ class FTS5SearchIndex:
         """Removal is handled by entity deletion triggers."""
         pass
 
+    async def delete_group(self, group_id: str) -> None:
+        """No-op — FTS5 content tables are synced via triggers on the source tables."""
+        pass
+
     async def compute_similarity(
         self,
         query: str,

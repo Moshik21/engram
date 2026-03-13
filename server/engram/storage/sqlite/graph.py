@@ -180,6 +180,7 @@ class SQLiteGraphStore:
             "TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE episode_evidence ADD COLUMN ambiguity_score REAL NOT NULL DEFAULT 0.0",
             "ALTER TABLE episode_evidence ADD COLUMN adjudication_request_id TEXT",
+            "ALTER TABLE episodes ADD COLUMN conversation_date TEXT",
         ]
         for sql in migrations:
             try:
@@ -341,6 +342,52 @@ class SQLiteGraphStore:
                 "DELETE FROM entities WHERE id = ? AND group_id = ?",
                 (entity_id, group_id),
             )
+        await self.db.commit()
+
+    async def delete_group(self, group_id: str) -> None:
+        """Delete all data belonging to *group_id*.
+
+        Deletion order respects foreign-key constraints:
+        episode_entities → episode_cues → episodes → relationships →
+        schema_members → graph_embeddings → episode_evidence →
+        episode_adjudications → intentions → entities.
+        """
+        # Junction tables first (reference episodes / entities)
+        await self.db.execute(
+            """DELETE FROM episode_entities
+               WHERE episode_id IN (SELECT id FROM episodes WHERE group_id = ?)""",
+            (group_id,),
+        )
+        await self.db.execute(
+            "DELETE FROM episode_cues WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM episodes WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM relationships WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM schema_members WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM graph_embeddings WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM episode_evidence WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM episode_adjudications WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM intentions WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM complement_tags WHERE group_id = ?", (group_id,)
+        )
+        await self.db.execute(
+            "DELETE FROM entities WHERE group_id = ?", (group_id,)
+        )
         await self.db.commit()
 
     async def find_entities(
@@ -822,12 +869,13 @@ class SQLiteGraphStore:
         now_iso = utc_now_iso()
         await self.db.execute(
             """INSERT INTO episodes
-               (id, content, source, status, group_id, session_id, created_at,
+               (id, content, source, status, group_id, session_id,
+                conversation_date, created_at,
                 updated_at, error, retry_count, processing_duration_ms,
                 encoding_context, memory_tier, consolidation_cycles,
                 entity_coverage, projection_state, last_projection_reason,
                 last_projected_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 episode.id,
                 content,
@@ -835,6 +883,7 @@ class SQLiteGraphStore:
                 episode.status.value if hasattr(episode.status, "value") else episode.status,
                 episode.group_id,
                 episode.session_id,
+                episode.conversation_date.isoformat() if episode.conversation_date else None,
                 episode.created_at.isoformat() if episode.created_at else now_iso,
                 episode.updated_at.isoformat() if episode.updated_at else now_iso,
                 episode.error,
@@ -931,6 +980,52 @@ class SQLiteGraphStore:
         )
         rows = await cursor.fetchall()
         return [row["entity_id"] for row in rows]
+
+    async def get_episodes_for_entity(
+        self,
+        entity_id: str,
+        group_id: str = "default",
+        limit: int = 20,
+    ) -> list[str]:
+        """Return episode IDs linked to an entity, newest first."""
+        cursor = await self.db.execute(
+            """SELECT ee.episode_id FROM episode_entities ee
+               JOIN episodes ep ON ep.id = ee.episode_id
+               WHERE ee.entity_id = ? AND ep.group_id = ?
+               ORDER BY ep.created_at DESC
+               LIMIT ?""",
+            (entity_id, group_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [row["episode_id"] for row in rows]
+
+    async def get_adjacent_episodes(
+        self,
+        episode_id: str,
+        group_id: str,
+        limit: int = 3,
+    ) -> list[Episode]:
+        """Get temporally adjacent episodes from the same session."""
+        cursor = await self.db.execute(
+            "SELECT session_id, created_at FROM episodes WHERE id = ? AND group_id = ?",
+            (episode_id, group_id),
+        )
+        ref = await cursor.fetchone()
+        if not ref or not ref["session_id"]:
+            return []
+
+        session_id = ref["session_id"]
+        ref_created = ref["created_at"]
+
+        cursor = await self.db.execute(
+            """SELECT * FROM episodes
+               WHERE session_id = ? AND group_id = ? AND id != ?
+               ORDER BY ABS(julianday(created_at) - julianday(?))
+               LIMIT ?""",
+            (session_id, group_id, episode_id, ref_created, limit),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_episode(row, group_id) for row in rows]
 
     async def upsert_episode_cue(self, cue: EpisodeCue) -> None:
         """Insert or update the cue record for an episode."""
@@ -2487,6 +2582,9 @@ class SQLiteGraphStore:
             status=status,
             group_id=row_group,
             session_id=row["session_id"] if "session_id" in keys else None,
+            conversation_date=(
+                _parse_dt(row["conversation_date"]) if "conversation_date" in keys else None
+            ),
             created_at=_parse_dt(row["created_at"]) or utc_now(),
             updated_at=_parse_dt(row["updated_at"]) if "updated_at" in keys else None,
             error=row["error"] if "error" in keys else None,

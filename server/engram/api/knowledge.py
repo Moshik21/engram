@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any, cast
 
 import anthropic
@@ -131,6 +132,7 @@ def _dedup_check(content: str) -> bool:
 class ObserveBody(BaseModel):
     content: str
     source: str = "dashboard"
+    conversation_date: str | None = None
 
 
 class AutoObserveBody(BaseModel):
@@ -139,11 +141,13 @@ class AutoObserveBody(BaseModel):
     project: str = "unknown"
     role: str = "user"
     session_id: str | None = None
+    conversation_date: str | None = None
 
 
 class RememberBody(BaseModel):
     content: str
     source: str = "dashboard"
+    conversation_date: str | None = None
     proposed_entities: list[dict] | None = None
     proposed_relationships: list[dict] | None = None
     model_tier: str = "default"
@@ -329,10 +333,17 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
+    conv_dt = None
+    if body.conversation_date:
+        try:
+            conv_dt = datetime.fromisoformat(body.conversation_date)
+        except (ValueError, TypeError):
+            pass
     episode_id = await manager.store_episode(
         content=body.content,
         group_id=group_id,
         source=body.source,
+        conversation_date=conv_dt,
     )
 
     return JSONResponse(content={"status": "observed", "episodeId": episode_id})
@@ -352,11 +363,18 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
 
     manager = get_manager()
 
+    conv_dt = None
+    if body.conversation_date:
+        try:
+            conv_dt = datetime.fromisoformat(body.conversation_date)
+        except (ValueError, TypeError):
+            pass
     episode_id = await manager.store_episode(
         content=body.content,
         group_id=group_id,
         source=body.source,
         session_id=body.session_id,
+        conversation_date=conv_dt,
     )
 
     return JSONResponse(content={"status": "observed", "episodeId": episode_id})
@@ -414,10 +432,17 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
+    conv_dt = None
+    if body.conversation_date:
+        try:
+            conv_dt = datetime.fromisoformat(body.conversation_date)
+        except (ValueError, TypeError):
+            pass
     episode_id = await manager.ingest_episode(
         content=body.content,
         group_id=group_id,
         source=body.source,
+        conversation_date=conv_dt,
         proposed_entities=body.proposed_entities,
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,

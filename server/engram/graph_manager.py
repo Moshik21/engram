@@ -1487,6 +1487,7 @@ class GraphManager:
         group_id: str = "default",
         source: str | None = None,
         session_id: str | None = None,
+        conversation_date: datetime | None = None,
     ) -> str:
         """Store a raw episode without extraction. Fast path for bulk capture.
 
@@ -1502,6 +1503,7 @@ class GraphManager:
             projection_state=EpisodeProjectionState.QUEUED,
             group_id=group_id,
             session_id=session_id,
+            conversation_date=conversation_date,
             created_at=utc_now(),
         )
         await self._graph.create_episode(episode)
@@ -1993,6 +1995,7 @@ class GraphManager:
         group_id: str = "default",
         source: str | None = None,
         session_id: str | None = None,
+        conversation_date: datetime | None = None,
         proposed_entities: list[dict] | None = None,
         proposed_relationships: list[dict] | None = None,
         model_tier: str = "default",
@@ -2001,7 +2004,9 @@ class GraphManager:
 
         Returns the episode ID. Thin wrapper over store_episode + project_episode.
         """
-        episode_id = await self.store_episode(content, group_id, source, session_id)
+        episode_id = await self.store_episode(
+            content, group_id, source, session_id, conversation_date=conversation_date,
+        )
         try:
             await self.project_episode(
                 episode_id,
@@ -3063,6 +3068,37 @@ class GraphManager:
         )
         await self._search.index_entity(enriched)
 
+    def _truncate_episode_content(self, ep: Episode, cue=None) -> str:
+        """Truncate episode content based on memory tier.
+
+        When tier-aware truncation is disabled, uses flat recall_episode_content_limit.
+        When enabled: episodic uses recall_episode_content_limit,
+        transitional uses recall_transitional_content_limit,
+        semantic uses recall_semantic_content_limit.
+        For transitional/semantic with a cue, prefer cue.cue_text over raw content.
+        """
+        limit = self._cfg.recall_episode_content_limit
+
+        if self._cfg.recall_tier_aware_truncation_enabled:
+            tier = getattr(ep, "memory_tier", "episodic") or "episodic"
+            if tier == "transitional":
+                limit = self._cfg.recall_transitional_content_limit
+                # Prefer cue text for transitional tier
+                if cue is not None and hasattr(cue, "cue_text") and cue.cue_text:
+                    content = cue.cue_text
+                    return content[:limit] if limit > 0 else content
+            elif tier == "semantic":
+                limit = self._cfg.recall_semantic_content_limit
+                # Prefer cue text for semantic tier
+                if cue is not None and hasattr(cue, "cue_text") and cue.cue_text:
+                    content = cue.cue_text
+                    return content[:limit] if limit > 0 else content
+
+        content = ep.content
+        if limit > 0:
+            return content[:limit]
+        return content
+
     async def recall(
         self,
         query: str,
@@ -3161,6 +3197,11 @@ class GraphManager:
                                     "created_at": (
                                         ep.created_at.isoformat() if ep.created_at else None
                                     ),
+                                    "conversation_date": (
+                                        ep.conversation_date.isoformat()
+                                        if ep.conversation_date
+                                        else None
+                                    ),
                                 },
                                 "score": sr.score,
                                 "score_breakdown": {
@@ -3179,9 +3220,14 @@ class GraphManager:
                         {
                             "episode": {
                                 "id": ep.id,
-                                "content": ep.content[:500],
+                                "content": self._truncate_episode_content(ep),
                                 "source": ep.source,
                                 "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                                "conversation_date": (
+                                    ep.conversation_date.isoformat()
+                                    if ep.conversation_date
+                                    else None
+                                ),
                             },
                             "score": sr.score,
                             "score_breakdown": {
@@ -3301,6 +3347,136 @@ class GraphManager:
 
                     results.append(result_dict)
 
+        # --- Entity-linked episode traversal ---
+        # For top-scoring entities in results, follow graph links to find
+        # additional episodes where those entities were mentioned.
+        if self._cfg.entity_episode_traversal_enabled:
+            entity_scores: list[tuple[str, float]] = []
+            for r in results:
+                if r.get("result_type") == "entity":
+                    ent_payload = r.get("entity")
+                    if isinstance(ent_payload, dict) and ent_payload.get("id"):
+                        entity_scores.append((ent_payload["id"], r.get("score", 0.0)))
+            # Sort by score descending and take top-N entities
+            entity_scores.sort(key=lambda x: x[1], reverse=True)
+            top_entities = entity_scores[: self._cfg.entity_episode_max_entities]
+
+            for ent_id, ent_score in top_entities:
+                try:
+                    linked_ep_ids = await self._graph.get_episodes_for_entity(
+                        ent_id,
+                        group_id=group_id,
+                        limit=self._cfg.entity_episode_max_per_entity,
+                    )
+                except Exception:
+                    continue
+                for ep_id in linked_ep_ids:
+                    if ep_id in seen_episode_ids:
+                        continue
+                    ep = await self._graph.get_episode_by_id(ep_id, group_id)
+                    if not ep:
+                        continue
+                    if (
+                        self._episode_projection_state_value(ep)
+                        == EpisodeProjectionState.MERGED.value
+                    ):
+                        continue
+                    seen_episode_ids.add(ep.id)
+                    linked_entities = await self._graph.get_episode_entities(ep.id)
+                    traversal_score = ent_score * self._cfg.entity_episode_weight
+                    results.append(
+                        {
+                            "episode": {
+                                "id": ep.id,
+                                "content": self._truncate_episode_content(ep),
+                                "source": ep.source,
+                                "created_at": (
+                                    ep.created_at.isoformat() if ep.created_at else None
+                                ),
+                                "conversation_date": (
+                                    ep.conversation_date.isoformat()
+                                    if ep.conversation_date
+                                    else None
+                                ),
+                            },
+                            "score": traversal_score,
+                            "score_breakdown": {
+                                "semantic": 0.0,
+                                "activation": 0.0,
+                                "edge_proximity": 0.0,
+                                "exploration_bonus": 0.0,
+                                "entity_traversal": True,
+                                "parent_entity_id": ent_id,
+                            },
+                            "result_type": "episode",
+                            "linked_entities": linked_entities,
+                        }
+                    )
+
+        # --- Temporal contiguity effect ---
+        # For top-scoring recalled episodes, fetch adjacent episodes from same session
+        if self._cfg.temporal_contiguity_enabled:
+            episode_items: list[tuple[str, float]] = []
+            for r in results:
+                if r.get("result_type") == "episode":
+                    ep_payload = r.get("episode")
+                    if isinstance(ep_payload, dict) and ep_payload.get("id"):
+                        episode_items.append((ep_payload["id"], r.get("score", 0.0)))
+            # Sort by score descending and take top-N
+            episode_items.sort(key=lambda x: x[1], reverse=True)
+            top_episodes = episode_items[: self._cfg.temporal_contiguity_max_adjacent]
+
+            for ep_id, ep_score in top_episodes:
+                try:
+                    adjacent = await self._graph.get_adjacent_episodes(
+                        ep_id,
+                        group_id=group_id,
+                        limit=self._cfg.temporal_contiguity_max_adjacent,
+                    )
+                except Exception:
+                    continue
+                for adj_ep in adjacent:
+                    if adj_ep.id in seen_episode_ids:
+                        continue
+                    if (
+                        self._episode_projection_state_value(adj_ep)
+                        == EpisodeProjectionState.MERGED.value
+                    ):
+                        continue
+                    seen_episode_ids.add(adj_ep.id)
+                    linked_entities = await self._graph.get_episode_entities(adj_ep.id)
+                    contiguity_score = ep_score * self._cfg.temporal_contiguity_weight
+                    results.append(
+                        {
+                            "episode": {
+                                "id": adj_ep.id,
+                                "content": self._truncate_episode_content(adj_ep),
+                                "source": adj_ep.source,
+                                "created_at": (
+                                    adj_ep.created_at.isoformat()
+                                    if adj_ep.created_at
+                                    else None
+                                ),
+                                "conversation_date": (
+                                    getattr(adj_ep, "conversation_date", None).isoformat()
+                                    if getattr(adj_ep, "conversation_date", None)
+                                    else None
+                                ),
+                            },
+                            "score": contiguity_score,
+                            "score_breakdown": {
+                                "semantic": 0.0,
+                                "activation": 0.0,
+                                "edge_proximity": 0.0,
+                                "exploration_bonus": 0.0,
+                                "temporal_contiguity": True,
+                                "parent_episode_id": ep_id,
+                            },
+                            "result_type": "episode",
+                            "linked_entities": linked_entities,
+                        }
+                    )
+
         if self._query_prefers_current_state(query) and any(
             result.get("result_type") == "entity" for result in results
         ):
@@ -3400,6 +3576,166 @@ class GraphManager:
                 source=f"recall_query:{interaction_source}",
                 update_fingerprint=False,
             )
+
+        return results
+
+    # ─── Lightweight recall (fast entity probe) ─────────────────────
+
+    # Pre-compiled patterns for entity mention extraction
+    _RE_PROPER_NOUNS = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b")
+    _RE_QUOTED = re.compile(r'"([^"]{2,})"')
+    _RE_AT_MENTION = re.compile(r"@(\w+)")
+    _RE_HASHTAG = re.compile(r"#(\w+)")
+    _RE_ALL_CAPS = re.compile(r"\b[A-Z]{2,}\b")
+
+    async def recall_lite(
+        self,
+        text: str,
+        group_id: str,
+        session_cache: dict[str, tuple[float, dict]] | None = None,
+        token_budget: int = 300,
+        cache_ttl: float = 300.0,
+    ) -> list[dict]:
+        """Fast entity-probe recall. ~3-5ms. Safe to run on every turn.
+
+        Unlike full recall(), this skips embeddings, spreading activation, and reranking.
+        It extracts entity mentions from text, probes the graph via FTS5, and returns
+        compact entity summaries with top relationships.
+
+        Args:
+            text: User message to probe for entity mentions
+            group_id: Memory partition
+            session_cache: Optional shared cache dict mapping entity_id -> (timestamp, result_dict).
+                Caller owns the cache; this method reads and writes to it.
+            token_budget: Approximate token limit for returned context (~4 chars/token)
+            cache_ttl: Seconds before cached entries expire
+
+        Returns:
+            List of compact entity dicts with keys: name, type, summary, confidence,
+            identity_core, top_facts
+        """
+        if not text or not text.strip() or self._graph is None:
+            return []
+
+        # ── Step 1: Extract potential entity mentions from text ──────
+        mentions: list[str] = []
+
+        # Proper noun sequences (e.g. "John Smith", "React Router")
+        mentions.extend(self._RE_PROPER_NOUNS.findall(text))
+
+        # Quoted strings
+        mentions.extend(self._RE_QUOTED.findall(text))
+
+        # @-mentions and #hashtags
+        mentions.extend(self._RE_AT_MENTION.findall(text))
+        mentions.extend(self._RE_HASHTAG.findall(text))
+
+        # Acronyms / all-caps tokens (e.g. "API", "AWS", "SQL")
+        mentions.extend(self._RE_ALL_CAPS.findall(text))
+
+        # Deduplicate while preserving order
+        seen_lower: set[str] = set()
+        unique_mentions: list[str] = []
+        for m in mentions:
+            key = m.strip().lower()
+            if key and key not in seen_lower and len(key) >= 2:
+                seen_lower.add(key)
+                unique_mentions.append(m.strip())
+
+        if not unique_mentions:
+            return []
+
+        now = time.time()
+        if session_cache is None:
+            session_cache = {}
+
+        # ── Step 2-4: Probe graph for each mention ──────────────────
+        tokens_per_entity = 40
+        identity_core_results: list[dict] = []
+        normal_results: list[dict] = []
+
+        for mention in unique_mentions:
+            # Find best matching entity via FTS5
+            candidates = await self._graph.find_entity_candidates(
+                mention, group_id, limit=3
+            )
+            if not candidates:
+                continue
+
+            entity = candidates[0]
+
+            # Check session cache
+            if entity.id in session_cache:
+                ts, cached_result = session_cache[entity.id]
+                if now - ts < cache_ttl:
+                    if cached_result.get("identity_core"):
+                        identity_core_results.append(cached_result)
+                    else:
+                        normal_results.append(cached_result)
+                    continue
+
+            # Fetch top relationships (limit=3 for compactness)
+            rels = await self._graph.get_relationships(
+                entity.id, group_id=group_id
+            )
+            top_rels = rels[:3]
+
+            # Resolve target/source names for fact strings
+            top_facts: list[str] = []
+            for rel in top_rels:
+                # Determine the "other" entity in the relationship
+                other_id = (
+                    rel.target_id if rel.source_id == entity.id else rel.source_id
+                )
+                other_name = await self.resolve_entity_name(other_id, group_id)
+                if rel.source_id == entity.id:
+                    top_facts.append(f"{rel.predicate} {other_name}")
+                else:
+                    top_facts.append(f"{other_name} {rel.predicate}")
+
+            # Determine confidence tier from entity memory tier
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            mat_tier = attrs.get("mat_tier", "episodic")
+            if mat_tier == "semantic":
+                confidence = "known"
+            elif mat_tier == "transitional":
+                confidence = "likely"
+            else:
+                confidence = "recent"
+
+            result_dict = {
+                "name": entity.name,
+                "type": entity.entity_type,
+                "summary": (entity.summary or "")[:120],
+                "confidence": confidence,
+                "identity_core": bool(getattr(entity, "identity_core", False)),
+                "top_facts": top_facts,
+            }
+
+            # Update session cache
+            session_cache[entity.id] = (now, result_dict)
+
+            if result_dict["identity_core"]:
+                identity_core_results.append(result_dict)
+            else:
+                normal_results.append(result_dict)
+
+        # ── Step 7: Pack into token budget ───────────────────────────
+        # Identity-core entities are always included (free against budget)
+        results: list[dict] = list(identity_core_results)
+        remaining_budget = token_budget  # identity_core is free
+
+        for entry in normal_results:
+            if remaining_budget < tokens_per_entity:
+                break
+            results.append(entry)
+            remaining_budget -= tokens_per_entity
+
+        # If over budget, truncate summaries on non-identity entries
+        if remaining_budget < 0:
+            for entry in results:
+                if not entry.get("identity_core"):
+                    entry["summary"] = (entry.get("summary") or "")[:60]
 
         return results
 

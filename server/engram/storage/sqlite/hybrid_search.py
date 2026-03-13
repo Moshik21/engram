@@ -518,6 +518,11 @@ class HybridSearchIndex:
         await self._fts.remove(entity_id)
         await self._vectors.remove(entity_id)
 
+    async def delete_group(self, group_id: str) -> None:
+        """Remove all embeddings for *group_id* (FTS5 is cleaned via triggers)."""
+        await self._fts.delete_group(group_id)
+        await self._vectors.delete_group(group_id)
+
     async def _check_embedding_version(self) -> None:
         """Warn if stored embeddings have different dimensions or provider."""
         if not self._embeddings_enabled:

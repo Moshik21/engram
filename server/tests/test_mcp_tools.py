@@ -770,6 +770,7 @@ class TestJSONResponses:
             group_id="default",
             source="mcp",
             session_id=mcp_server._session.session_id,
+            conversation_date=None,
             proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
             proposed_relationships=[
                 {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
@@ -815,7 +816,7 @@ class TestJSONResponses:
             ),
         )
         monkeypatch.setattr(mcp_server, "_ingest_live_turn", AsyncMock())
-        monkeypatch.setattr(mcp_server, "_auto_recall", AsyncMock(return_value=None))
+        monkeypatch.setattr(mcp_server, "_auto_recall_lite", AsyncMock(return_value=None))
         monkeypatch.setattr(mcp_server, "_session_prime", AsyncMock(return_value=None))
 
         raw = await mcp_server.remember(content="ambiguous memory")

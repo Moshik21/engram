@@ -322,6 +322,27 @@ class FalkorDBGraphStore:
                 {"id": entity_id, "gid": group_id},
             )
 
+    async def delete_group(self, group_id: str) -> None:
+        """Delete all nodes and relationships belonging to *group_id*.
+
+        Removes Episode, EpisodeCue, Entity, and Relationship nodes
+        (plus all edges connected to them) in a single DETACH DELETE
+        per label to avoid oversized transactions.
+        """
+        for label in ("EpisodeCue", "Episode", "Relationship", "Intention", "Entity"):
+            try:
+                await self._query(
+                    f"MATCH (n:{label} {{group_id: $gid}}) DETACH DELETE n",
+                    {"gid": group_id},
+                )
+            except Exception:
+                logger.debug(
+                    "delete_group: failed to delete %s nodes for %s",
+                    label,
+                    group_id,
+                    exc_info=True,
+                )
+
     async def find_entities(
         self,
         name: str | None = None,
@@ -781,7 +802,8 @@ class FalkorDBGraphStore:
                 entity_coverage: $entity_coverage,
                 projection_state: $projection_state,
                 last_projection_reason: $last_projection_reason,
-                last_projected_at: $last_projected_at
+                last_projected_at: $last_projected_at,
+                conversation_date: $conversation_date
             })""",
             {
                 "id": episode.id,
@@ -807,6 +829,9 @@ class FalkorDBGraphStore:
                 "last_projection_reason": episode.last_projection_reason,
                 "last_projected_at": (
                     episode.last_projected_at.isoformat() if episode.last_projected_at else None
+                ),
+                "conversation_date": (
+                    episode.conversation_date.isoformat() if episode.conversation_date else None
                 ),
             },
         )
@@ -870,6 +895,44 @@ class FalkorDBGraphStore:
             {"eid": episode_id},
         )
         return [row[0] for row in result.result_set]
+
+    async def get_episodes_for_entity(
+        self,
+        entity_id: str,
+        group_id: str = "default",
+        limit: int = 20,
+    ) -> list[str]:
+        """Return episode IDs linked to an entity, newest first."""
+        result = await self._query(
+            """MATCH (ep:Episode {group_id: $gid})-[:HAS_ENTITY]->(ent:Entity {id: $eid})
+               RETURN ep.id
+               ORDER BY ep.created_at DESC
+               LIMIT $lim""",
+            {"eid": entity_id, "gid": group_id, "lim": limit},
+        )
+        return [row[0] for row in result.result_set]
+
+    async def get_adjacent_episodes(
+        self,
+        episode_id: str,
+        group_id: str,
+        limit: int = 3,
+    ) -> list[Episode]:
+        """Get temporally adjacent episodes from the same session."""
+        result = await self._query(
+            """MATCH (ref:Episode {id: $id, group_id: $gid})
+               WHERE ref.session_id IS NOT NULL
+               MATCH (ep:Episode {session_id: ref.session_id, group_id: $gid})
+               WHERE ep.id <> $id
+               RETURN ep
+               ORDER BY ep.created_at
+               LIMIT $lim""",
+            {"id": episode_id, "gid": group_id, "lim": limit},
+        )
+        episodes = []
+        for record in result.result_set:
+            episodes.append(self._node_to_episode(record[0], group_id))
+        return episodes
 
     async def link_episode_entity(self, episode_id: str, entity_id: str) -> None:
         await self._query(
@@ -1915,6 +1978,7 @@ class FalkorDBGraphStore:
             status=props.get("status", "pending"),
             group_id=node_group,
             session_id=props.get("session_id"),
+            conversation_date=_parse_dt(props.get("conversation_date")),
             created_at=_parse_dt(props.get("created_at")) or utc_now(),
             updated_at=_parse_dt(props.get("updated_at")),
             error=props.get("error"),

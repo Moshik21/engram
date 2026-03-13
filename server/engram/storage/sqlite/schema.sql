@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     status          TEXT NOT NULL DEFAULT 'pending',
     group_id        TEXT NOT NULL DEFAULT 'default',
     session_id      TEXT,
+    conversation_date TEXT,
     created_at      TEXT NOT NULL,
     encoding_context TEXT,
     memory_tier     TEXT DEFAULT 'episodic',
@@ -102,6 +103,8 @@ CREATE TABLE IF NOT EXISTS episode_entities (
     entity_id       TEXT NOT NULL REFERENCES entities(id),
     PRIMARY KEY (episode_id, entity_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_episode_entities_entity ON episode_entities(entity_id);
 
 -- FTS5 virtual table for text search
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(

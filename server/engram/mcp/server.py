@@ -77,6 +77,7 @@ class SessionState:
     last_activity: datetime = field(default_factory=datetime.utcnow)
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
+    recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
 
 
 class RecallCooldown:
@@ -253,12 +254,52 @@ def _extract_recall_query(content: str) -> str:
     return first_sentence[:200]
 
 
-async def _auto_recall(
+async def _auto_recall_lite(
     content: str,
     manager: GraphManager,
     cfg: ActivationConfig,
 ) -> dict | None:
-    """Piggyback lightweight recall on observe/remember calls."""
+    """Lightweight entity-probe recall piggybacked on observe/remember.
+
+    Uses recall_lite() instead of full recall pipeline. ~3-5ms.
+    Always runs — no gating, no cooldown, no need analysis.
+    """
+    if len(content) < 20:
+        return None
+
+    session = _get_session()
+
+    try:
+        results = await manager.recall_lite(
+            text=content,
+            group_id=_group_id,
+            session_cache=session.recall_cache,
+            token_budget=cfg.auto_recall_token_budget,
+            cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+        )
+    except Exception:
+        logger.debug("recall_lite failed", exc_info=True)
+        return None
+
+    if not results:
+        return None
+
+    return {
+        "source": "recall_lite",
+        "entities": results,
+    }
+
+
+async def _auto_recall_full(
+    content: str,
+    manager: GraphManager,
+    cfg: ActivationConfig,
+) -> dict | None:
+    """Full recall pipeline piggybacked on observe/remember calls.
+
+    Kept for backwards compatibility and explicit recall paths.
+    Uses need analysis, cooldown, topic dedup, packet assembly.
+    """
     if not cfg.auto_recall_enabled:
         return None
 
@@ -464,6 +505,7 @@ async def _get_episode_adjudications(manager, episode_id: str, group_id: str) ->
 async def remember(
     content: str,
     source: str = "mcp",
+    conversation_date: str | None = None,
     proposed_entities: list[dict] | None = None,
     proposed_relationships: list[dict] | None = None,
     model_tier: str = "default",
@@ -473,6 +515,7 @@ async def remember(
     Args:
         content: The text to remember (conversation excerpt, fact, note, etc.)
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+        conversation_date: Optional ISO 8601 date string for when the conversation happened
         proposed_entities: Optional client-proposed entities
             [{"name": ..., "entity_type": ...}]
         proposed_relationships: Optional client-proposed relationships
@@ -486,11 +529,18 @@ async def remember(
     manager = _get_manager()
     session = _get_session()
     cfg = _activation_cfg
+    conv_dt = None
+    if conversation_date:
+        try:
+            conv_dt = datetime.fromisoformat(conversation_date)
+        except (ValueError, TypeError):
+            pass
     episode_id = await manager.ingest_episode(
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
+        conversation_date=conv_dt,
         proposed_entities=proposed_entities,
         proposed_relationships=proposed_relationships,
         model_tier=model_tier,
@@ -519,7 +569,7 @@ async def remember(
         prime = await _session_prime(content, manager, cfg)
         if prime:
             response["session_context"] = prime
-        recalled = await _auto_recall(content, manager, cfg)
+        recalled = await _auto_recall_lite(content, manager, cfg)
         if recalled:
             response["recalled_context"] = recalled
     # Surface triggered intentions (Wave 4)
@@ -584,12 +634,13 @@ async def adjudicate_evidence(
 
 
 @mcp.tool()
-async def observe(content: str, source: str = "mcp") -> str:
+async def observe(content: str, source: str = "mcp", conversation_date: str | None = None) -> str:
     """Store raw text without extraction. Fast path for bulk capture.
 
     Args:
         content: The text to store (conversation excerpt, fact, note, etc.)
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+        conversation_date: Optional ISO 8601 date string for when the conversation happened
 
     Returns:
         JSON with status, episode_id, and message.
@@ -597,11 +648,18 @@ async def observe(content: str, source: str = "mcp") -> str:
     manager = _get_manager()
     session = _get_session()
     cfg = _activation_cfg
+    conv_dt = None
+    if conversation_date:
+        try:
+            conv_dt = datetime.fromisoformat(conversation_date)
+        except (ValueError, TypeError):
+            pass
     episode_id = await manager.store_episode(
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
+        conversation_date=conv_dt,
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
@@ -616,7 +674,7 @@ async def observe(content: str, source: str = "mcp") -> str:
         prime = await _session_prime(content, manager, cfg)
         if prime:
             response["session_context"] = prime
-        recalled = await _auto_recall(content, manager, cfg)
+        recalled = await _auto_recall_lite(content, manager, cfg)
         if recalled:
             response["recalled_context"] = recalled
     # Surface triggered intentions (Wave 4)
@@ -665,6 +723,24 @@ async def recall(query: str, limit: int = 5) -> str:
     formatted = []
     for r in results:
         if r.get("result_type") == "episode":
+            formatted.append(
+                {
+                    "result_type": "episode",
+                    "episode_id": r["episode"]["id"],
+                    "content": r["episode"]["content"],
+                    "source": r["episode"].get("source"),
+                    "created_at": r["episode"].get("created_at"),
+                    "score": round(r["score"], 4),
+                    "score_breakdown": {
+                        k: round(v, 4)
+                        for k, v in r.get("score_breakdown", {}).items()
+                    },
+                    "linked_entities": [
+                        e["name"] if isinstance(e, dict) else e
+                        for e in r.get("linked_entities", [])
+                    ],
+                }
+            )
             continue
         if r.get("result_type") == "cue_episode":
             cue = r.get("cue", {})

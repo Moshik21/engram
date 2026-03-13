@@ -82,6 +82,7 @@ async def list_episodes(
                 "projectionState": _enum_value(getattr(ep, "projection_state", None)),
                 "lastProjectionReason": getattr(ep, "last_projection_reason", None),
                 "lastProjectedAt": _iso_z(getattr(ep, "last_projected_at", None)),
+                "conversationDate": _iso_z(getattr(ep, "conversation_date", None)),
                 "createdAt": _iso_z(ep.created_at),
                 "updatedAt": _iso_z(ep.updated_at),
                 "error": ep.error,
