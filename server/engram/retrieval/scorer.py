@@ -27,7 +27,10 @@ class ScoredResult:
     state_boost: float = 0.0
     hop_distance: int | None = None
     result_type: str = "entity"
+    source: str = ""
+    chunk_context: str | None = None
     planner_support: float = 0.0
+    relevance_confidence: float = 0.0
     planner_intents: list[str] = field(default_factory=list)
     recall_trace: list[dict] = field(default_factory=list)
 

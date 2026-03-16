@@ -1,4 +1,7 @@
-"""LongMemEval benchmark runner: load, ingest, query, judge, aggregate."""
+"""LongMemEval benchmark runner: load, ingest, query, evaluate, aggregate.
+
+Zero LLM calls — uses embedding-based answer containment for evaluation.
+"""
 
 from __future__ import annotations
 
@@ -18,8 +21,9 @@ from engram.benchmark.longmemeval.dataset import (
     load_dataset,
 )
 from engram.benchmark.longmemeval.evaluator import (
+    compute_containment_score,
     compute_retrieval_metrics,
-    judge_answer,
+    judge_by_containment,
 )
 from engram.config import ActivationConfig
 
@@ -46,6 +50,7 @@ class InstanceResult:
     ingest_sessions: int
     num_entities: int
     num_episodes: int
+    containment_score: float = 0.0
 
 
 @dataclass
@@ -59,6 +64,7 @@ class TypeMetrics:
     avg_latency_ms: float
     avg_recall_at_5: float
     avg_ndcg_at_5: float
+    avg_containment: float = 0.0
 
 
 @dataclass
@@ -69,12 +75,11 @@ class LongMemEvalResult:
     extraction_mode: str
     embedding_provider: str
     consolidation_used: bool
-    reader_model: str
-    judge_model: str
     total_instances: int
     total_correct: int
     overall_accuracy: float
     category_accuracy: float
+    avg_containment: float
     type_metrics: list[TypeMetrics]
     instance_results: list[InstanceResult]
     adapter_stats: AdapterStats
@@ -87,12 +92,12 @@ class LongMemEvalResult:
             "extraction_mode": self.extraction_mode,
             "embedding_provider": self.embedding_provider,
             "consolidation_used": self.consolidation_used,
-            "reader_model": self.reader_model,
-            "judge_model": self.judge_model,
+            "assessment_method": "embedding_containment",
             "total_instances": self.total_instances,
             "total_correct": self.total_correct,
             "overall_accuracy": round(self.overall_accuracy, 4),
             "category_accuracy": round(self.category_accuracy, 4),
+            "avg_containment": round(self.avg_containment, 4),
             "type_metrics": [
                 {
                     "question_type": tm.question_type,
@@ -102,6 +107,7 @@ class LongMemEvalResult:
                     "avg_latency_ms": round(tm.avg_latency_ms, 1),
                     "avg_recall_at_5": round(tm.avg_recall_at_5, 4),
                     "avg_ndcg_at_5": round(tm.avg_ndcg_at_5, 4),
+                    "avg_containment": round(tm.avg_containment, 4),
                 }
                 for tm in self.type_metrics
             ],
@@ -112,7 +118,6 @@ class LongMemEvalResult:
                 "extraction_calls": self.adapter_stats.extraction_calls,
                 "embedding_calls": self.adapter_stats.embedding_calls,
                 "recall_calls": self.adapter_stats.recall_calls,
-                "reader_calls": self.adapter_stats.reader_calls,
                 "total_ingest_ms": round(self.adapter_stats.total_ingest_ms, 1),
                 "total_query_ms": round(self.adapter_stats.total_query_ms, 1),
             },
@@ -124,6 +129,7 @@ class LongMemEvalResult:
                     "correct": ir.correct,
                     "hypothesis": ir.hypothesis,
                     "gold_answer": ir.gold_answer,
+                    "containment_score": round(ir.containment_score, 4),
                     "retrieval_metrics": {k: round(v, 4) for k, v in ir.retrieval_metrics.items()},
                     "query_latency_ms": round(ir.query_latency_ms, 1),
                     "num_entities": ir.num_entities,
@@ -149,9 +155,7 @@ async def run_longmemeval(
     extraction_mode: str = "narrow",
     embedding_provider: str = "local",
     consolidation: bool = False,
-    reader_model: str = "claude-haiku-4-5-20251001",
-    judge_model: str = "claude-haiku-4-5-20251001",
-    judge_provider: str = "anthropic",
+    containment_threshold: float = 0.72,
     top_k: int = 10,
     max_instances: int | None = None,
     n_per_type: int | None = None,
@@ -160,7 +164,7 @@ async def run_longmemeval(
     checkpoint_path: str | Path | None = None,
     verbose: bool = False,
 ) -> LongMemEvalResult:
-    """Run the full LongMemEval benchmark.
+    """Run the full LongMemEval benchmark (zero LLM calls).
 
     Args:
         dataset_path: Path to the dataset JSON file.
@@ -168,9 +172,7 @@ async def run_longmemeval(
         extraction_mode: How to extract entities (none/narrow/full/auto).
         embedding_provider: Embedding provider (none/local/voyage/auto).
         consolidation: Whether to run consolidation after ingestion.
-        reader_model: Model for composing answers from evidence.
-        judge_model: Model for judging answers.
-        judge_provider: Provider for judge ("anthropic" or "openai").
+        containment_threshold: Cosine similarity threshold for correct.
         top_k: Number of results to retrieve per query.
         max_instances: Maximum total instances to process.
         n_per_type: If set, use stratified sampling with this many per type.
@@ -197,11 +199,13 @@ async def run_longmemeval(
         dataset = dataset.subset(max_instances)
 
     logger.info(
-        "Running LongMemEval (%s): %d instances, extraction=%s, embeddings=%s",
+        "Running LongMemEval (%s): %d instances, extraction=%s, embeddings=%s, "
+        "assessment=embedding_containment (threshold=%.2f)",
         variant,
         len(dataset.instances),
         extraction_mode,
         embedding_provider,
+        containment_threshold,
     )
 
     # Configure Engram
@@ -212,7 +216,6 @@ async def run_longmemeval(
         cfg=cfg,
         extraction_mode=extraction_mode,
         consolidation=consolidation,
-        reader_model=reader_model,
         top_k=top_k,
     )
 
@@ -243,8 +246,7 @@ async def run_longmemeval(
             result = await _process_instance(
                 adapter=adapter,
                 instance=instance,
-                judge_model=judge_model,
-                judge_provider=judge_provider,
+                containment_threshold=containment_threshold,
             )
             instance_results.append(result)
 
@@ -273,6 +275,7 @@ async def run_longmemeval(
                     ingest_sessions=instance.num_sessions,
                     num_entities=0,
                     num_episodes=0,
+                    containment_score=0.0,
                 )
             )
 
@@ -290,17 +293,22 @@ async def run_longmemeval(
         sum(tm.accuracy for tm in non_abstention) / len(non_abstention) if non_abstention else 0.0
     )
 
+    # Average containment score
+    containment_scores = [r.containment_score for r in instance_results]
+    avg_containment = (
+        sum(containment_scores) / len(containment_scores) if containment_scores else 0.0
+    )
+
     result = LongMemEvalResult(
         variant=variant,
         extraction_mode=extraction_mode,
         embedding_provider=embedding_provider,
         consolidation_used=consolidation,
-        reader_model=reader_model,
-        judge_model=judge_model,
         total_instances=len(instance_results),
         total_correct=total_correct,
         overall_accuracy=overall_accuracy,
         category_accuracy=category_accuracy,
+        avg_containment=avg_containment,
         type_metrics=type_metrics,
         instance_results=instance_results,
         adapter_stats=adapter.stats,
@@ -316,8 +324,7 @@ async def run_longmemeval(
 async def _process_instance(
     adapter: EngramLongMemEvalAdapter,
     instance: LongMemEvalInstance,
-    judge_model: str,
-    judge_provider: str,
+    containment_threshold: float,
 ) -> InstanceResult:
     """Process a single LongMemEval instance: ingest, query, judge."""
     # Ingest all sessions
@@ -326,16 +333,25 @@ async def _process_instance(
     # Query
     query_result = await adapter.query_instance(instance)
 
-    # Judge answer
-    verdict = await judge_answer(
+    # Compute embedding-based containment score
+    embed_fn = adapter.get_embed_fn()
+    containment_score = 0.0
+    if embed_fn and query_result.evidence:
+        containment_score = await compute_containment_score(
+            gold_answer=instance.answer,
+            evidence_texts=query_result.evidence,
+            embed_fn=embed_fn,
+        )
+
+    # Judge by containment
+    verdict = judge_by_containment(
         question_id=instance.question_id,
         question_type=instance.question_type,
-        question=instance.question,
-        gold_answer=instance.answer,
-        predicted_answer=query_result.hypothesis,
+        containment_score=containment_score,
         is_abstention=instance.is_abstention,
-        judge_model=judge_model,
-        judge_provider=judge_provider,
+        threshold=containment_threshold,
+        hypothesis=query_result.hypothesis,
+        gold_answer=instance.answer,
     )
 
     # Compute retrieval metrics
@@ -361,6 +377,7 @@ async def _process_instance(
         ingest_sessions=instance.num_sessions,
         num_entities=query_result.num_entities,
         num_episodes=query_result.num_episodes,
+        containment_score=containment_score,
     )
 
 
@@ -384,6 +401,7 @@ def _aggregate_type_metrics(
         latencies = [r.query_latency_ms for r in type_results]
         recall_5 = [r.retrieval_metrics.get("recall@5", 0.0) for r in type_results]
         ndcg_5 = [r.retrieval_metrics.get("ndcg@5", 0.0) for r in type_results]
+        containments = [r.containment_score for r in type_results]
 
         metrics.append(
             TypeMetrics(
@@ -394,6 +412,7 @@ def _aggregate_type_metrics(
                 avg_latency_ms=(sum(latencies) / len(latencies) if latencies else 0.0),
                 avg_recall_at_5=(sum(recall_5) / len(recall_5) if recall_5 else 0.0),
                 avg_ndcg_at_5=(sum(ndcg_5) / len(ndcg_5) if ndcg_5 else 0.0),
+                avg_containment=(sum(containments) / len(containments) if containments else 0.0),
             )
         )
 
@@ -434,6 +453,7 @@ def _load_checkpoint(
                     ingest_sessions=entry.get("ingest_sessions", 0),
                     num_entities=entry.get("num_entities", 0),
                     num_episodes=entry.get("num_episodes", 0),
+                    containment_score=entry.get("containment_score", 0.0),
                 )
             )
         logger.info("Loaded checkpoint with %d completed instances", len(completed))
@@ -466,6 +486,7 @@ def _save_checkpoint(path: str | Path, results: list[InstanceResult]) -> None:
                 "ingest_sessions": r.ingest_sessions,
                 "num_entities": r.num_entities,
                 "num_episodes": r.num_episodes,
+                "containment_score": r.containment_score,
             }
             for r in results
         ]

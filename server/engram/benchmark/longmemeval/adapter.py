@@ -1,6 +1,6 @@
-"""Engram adapter for LongMemEval: ingest sessions, query, compose answers.
+"""Engram adapter for LongMemEval: ingest sessions, query, collect evidence.
 
-Uses the real running Engram infrastructure (FalkorDB, Redis, Voyage)
+Uses the real running Engram infrastructure (HelixDB, embeddings)
 with a dedicated group_id per question for isolation.
 
 Key design choices for benchmark accuracy:
@@ -10,12 +10,13 @@ Key design choices for benchmark accuracy:
   with dates, not entity-summary abstractions that lose detail).
 - Full episode content is fetched post-recall to bypass the 500-char
   truncation in the recall pipeline.
+- Zero LLM calls: no reader, no judge.  Evidence is returned raw
+  for embedding-based evaluation.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass
@@ -52,6 +53,41 @@ _TEMPORAL_PATTERNS = re.compile(
 )
 
 
+def _parse_session_date(raw: str) -> datetime | None:
+    """Parse a LongMemEval session date string into a datetime.
+
+    LongMemEval uses the format ``"2023/04/10 (Mon) 17:50"``.
+    Also handles ISO 8601 and common date-only formats as fallbacks.
+    """
+    if not raw:
+        return None
+
+    # Strip parenthesised day-of-week like "(Mon)" so strptime can match
+    cleaned = re.sub(r"\s*\([A-Za-z]+\)\s*", " ", raw).strip()
+
+    for fmt in (
+        "%Y/%m/%d %H:%M",    # LongMemEval primary format
+        "%Y/%m/%d",           # date-only variant
+        "%Y-%m-%dT%H:%M:%S",  # ISO with time
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%B %d, %Y",
+        "%b %d, %Y",
+    ):
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+
+    # Last resort: fromisoformat handles many ISO variants
+    try:
+        return datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def _is_temporal_query(question: str) -> bool:
     """Detect if a question requires temporal reasoning."""
     return bool(_TEMPORAL_PATTERNS.search(question))
@@ -67,7 +103,6 @@ class AdapterStats:
     extraction_calls: int = 0
     embedding_calls: int = 0
     recall_calls: int = 0
-    reader_calls: int = 0
     total_ingest_ms: float = 0.0
     total_query_ms: float = 0.0
 
@@ -89,8 +124,10 @@ class QueryResult:
 class EngramLongMemEvalAdapter:
     """Uses the real Engram stack with a dedicated group_id per question.
 
-    Connects to the running FalkorDB/Redis/Voyage infrastructure and
+    Connects to the running HelixDB/embedding infrastructure and
     uses group_id isolation to keep benchmark data separate.
+
+    Zero LLM calls: evidence is collected raw for embedding-based evaluation.
     """
 
     def __init__(
@@ -99,14 +136,14 @@ class EngramLongMemEvalAdapter:
         *,
         extraction_mode: str = "auto",
         consolidation: bool = False,
-        reader_model: str = "claude-haiku-4-5-20251001",
         top_k: int = 10,
+        shared_group: bool = False,
     ) -> None:
         self._cfg = cfg
         self._extraction_mode = extraction_mode
         self._consolidation = consolidation
-        self._reader_model = reader_model
         self._top_k = top_k
+        self._shared_group = shared_group
         self.stats = AdapterStats()
 
         # Shared infrastructure (initialized once)
@@ -127,25 +164,17 @@ class EngramLongMemEvalAdapter:
         if self._initialized:
             return
 
-        # Load ~/.engram/.env into os.environ so resolver, reader,
-        # and judge all see ANTHROPIC_API_KEY, VOYAGE_API_KEY, etc.
+        # Load .env files so resolver sees ENGRAM_MODE, GEMINI_API_KEY, etc.
         from pathlib import Path
 
         from dotenv import load_dotenv
 
         load_dotenv(Path.home() / ".engram" / ".env", override=False)
+        load_dotenv()  # Also load ./server/.env or ./.env
 
         self._config = EngramConfig()
         if self._cfg is not None:
             self._config.activation = self._cfg
-
-        # Push config values into os.environ so resolve_mode's
-        # _check_falkordb/_check_redis can find them (pydantic-settings
-        # loads .env into the config object but not os.environ).
-        _push_env("ENGRAM_FALKORDB__HOST", self._config.falkordb.host)
-        _push_env("ENGRAM_FALKORDB__PORT", str(self._config.falkordb.port))
-        _push_env("ENGRAM_FALKORDB__PASSWORD", self._config.falkordb.password)
-        _push_env("ENGRAM_REDIS__URL", self._config.redis.url)
 
         mode = await resolve_mode(self._config.mode)
         logger.info("LongMemEval adapter connecting: mode=%s", mode.value)
@@ -162,7 +191,17 @@ class EngramLongMemEvalAdapter:
         logger.info("LongMemEval adapter initialized on real infrastructure")
 
     def _group_id_for(self, question_id: str) -> str:
-        """Generate an isolated group_id for a question."""
+        """Generate a group_id for a question.
+
+        Per-question isolation (default): each question gets its own group,
+        matching the benchmark's design where each question has its own
+        conversation history (1-6 sessions).
+
+        Shared mode: all episodes in one group, simulating a real user's
+        full memory. Set via ``self._shared_group`` constructor parameter.
+        """
+        if self._shared_group:
+            return GROUP_PREFIX
         return f"{GROUP_PREFIX}_{question_id}"
 
     async def _setup_manager(self, question_id: str) -> None:
@@ -176,6 +215,11 @@ class EngramLongMemEvalAdapter:
         self._current_group_id = self._group_id_for(question_id)
 
         cfg = self._cfg or ActivationConfig()
+        # Benchmark: give ALL result slots to episodes.
+        cfg.passage_first_entity_budget = 0
+        # Disable graph structural embedding search — no graph embeddings
+        # are trained during the benchmark.
+        cfg.weight_graph_structural = 0.0
         self._manager = GraphManager(
             self._graph_store,
             self._activation_store,
@@ -215,8 +259,9 @@ class EngramLongMemEvalAdapter:
         assert self._manager is not None
         assert self._current_group_id is not None
 
-        # Clean up any previous data for this question (re-run safety)
-        await self.cleanup_group(instance.question_id)
+        # Clean up previous data for this question (safe with per-question groups)
+        if not self._shared_group:
+            await self.cleanup_group(instance.question_id)
 
         start = time.perf_counter()
         group_id = self._current_group_id
@@ -234,15 +279,7 @@ class EngramLongMemEvalAdapter:
             # Parse session date to a datetime for structured sorting/filtering.
             conv_dt: datetime | None = None
             if session.date:
-                try:
-                    conv_dt = datetime.fromisoformat(session.date)
-                except (ValueError, TypeError):
-                    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y", "%b %d, %Y"):
-                        try:
-                            conv_dt = datetime.strptime(session.date, fmt)
-                            break
-                        except ValueError:
-                            continue
+                conv_dt = _parse_session_date(session.date)
 
             if self._extraction_mode == "none":
                 await self._manager.store_episode(
@@ -327,7 +364,10 @@ class EngramLongMemEvalAdapter:
             )
 
     async def query_instance(self, instance: LongMemEvalInstance) -> QueryResult:
-        """Query Engram with a LongMemEval question."""
+        """Query Engram with a LongMemEval question.
+
+        Returns raw evidence texts — no LLM reader, no LLM judge.
+        """
         assert self._manager is not None
         assert self._current_group_id is not None
 
@@ -349,10 +389,8 @@ class EngramLongMemEvalAdapter:
         )
 
         # Separate results by type for evidence composition.
-        # Episodes are collected as (date_str, text) tuples so we can
-        # sort chronologically for temporal / knowledge-update queries.
         entity_evidence: list[str] = []
-        episode_evidence_with_dates: list[tuple[str | None, str]] = []
+        episode_evidence: list[tuple[str, str]] = []  # (date, text)
         evidence_scores: list[float] = []
         retrieved_session_ids: list[str] = []
         num_entities = 0
@@ -370,60 +408,54 @@ class EngramLongMemEvalAdapter:
                     entity_evidence.append(f"{name}: {summary}")
                     num_entities += 1
                 for rel in entity.get("relationships", []):
-                    src = rel.get("source", "")
+                    src = rel.get("source_id") or rel.get("source", "")
                     pred = rel.get("predicate", "")
-                    tgt = rel.get("target", "")
+                    tgt = rel.get("target_id") or rel.get("target", "")
                     rel_text = f"{src} {pred} {tgt}"
-                    if rel_text.strip():
+                    if rel_text.strip() and pred:
                         entity_evidence.append(rel_text)
 
             elif r.get("result_type") == "cue_episode":
                 ep = r.get("episode", {})
                 cue = r.get("cue", {})
-                content = cue.get("compressed_content", "") or ep.get("content", "")
+                raw_content = ep.get("content", "")
+                chunk_ctx = cue.get("compressed_content", "")
                 source = ep.get("source", "")
                 ep_text = await self._enrich_episode_text(
-                    ep.get("id", ""), content, source, group_id
+                    ep.get("id", ""), chunk_ctx or raw_content, source, group_id
                 )
                 if ep_text:
-                    ep_date = ep.get("conversation_date") or ep.get("created_at")
-                    episode_evidence_with_dates.append((ep_date, ep_text))
+                    ep_date = ep.get("conversation_date") or ep.get("created_at") or ""
+                    episode_evidence.append((ep_date, ep_text))
                     num_episodes += 1
                 self._track_session_id(source, retrieved_session_ids)
 
             elif "episode" in r:
                 ep = r["episode"]
-                content = ep.get("content", "")
+                raw_content = ep.get("content", "")
                 source = ep.get("source", "")
                 ep_text = await self._enrich_episode_text(
-                    ep.get("id", ""), content, source, group_id
+                    ep.get("id", ""), raw_content, source, group_id
                 )
                 if ep_text:
-                    ep_date = ep.get("conversation_date") or ep.get("created_at")
-                    episode_evidence_with_dates.append((ep_date, ep_text))
+                    ep_date = ep.get("conversation_date") or ep.get("created_at") or ""
+                    episode_evidence.append((ep_date, ep_text))
                     num_episodes += 1
                 self._track_session_id(source, retrieved_session_ids)
 
         # Sort episodes chronologically for temporal/knowledge-update queries
-        # so the reader LLM sees events in time order.
         if is_temporal or instance.question_type == "knowledge-update":
-            episode_evidence_with_dates.sort(key=lambda x: x[0] or "")
-        episode_evidence = [text for _, text in episode_evidence_with_dates]
+            episode_evidence.sort(key=lambda x: x[0])
 
-        # Compose evidence with episodes first (they preserve
-        # temporal detail that entity summaries abstract away).
+        # Build flat evidence list
+        episode_texts = [text for _, text in episode_evidence]
         if is_temporal:
-            evidence_texts = episode_evidence + entity_evidence
+            evidence_texts = episode_texts + entity_evidence
         else:
-            # Interleave: original order preserves relevance ranking
-            evidence_texts = self._interleave_evidence(entity_evidence, episode_evidence)
+            evidence_texts = self._interleave_evidence(entity_evidence, episode_texts)
 
-        hypothesis = await self._compose_answer(
-            question=instance.question,
-            question_date=instance.question_date,
-            question_type=instance.question_type,
-            evidence=evidence_texts,
-        )
+        # Hypothesis = concatenation of top evidence (no LLM reader)
+        hypothesis = self._build_hypothesis(evidence_texts)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         self.stats.total_query_ms += elapsed_ms
@@ -438,6 +470,21 @@ class EngramLongMemEvalAdapter:
             num_entities=num_entities,
             num_episodes=num_episodes,
         )
+
+    @staticmethod
+    def _build_hypothesis(evidence: list[str]) -> str:
+        """Build a hypothesis from top evidence (no LLM).
+
+        Returns concatenated top evidence.  Evaluation uses embedding
+        containment against gold answer, not text matching against
+        this hypothesis.
+        """
+        if not evidence:
+            return "I don't have enough information to answer this question."
+        combined = " ".join(e.strip() for e in evidence[:3] if e.strip())
+        if len(combined) > 1000:
+            combined = combined[:997] + "..."
+        return combined
 
     async def _enrich_episode_text(
         self,
@@ -493,135 +540,13 @@ class EngramLongMemEvalAdapter:
                 ei += 1
         return result
 
-    async def _compose_answer(
-        self,
-        question: str,
-        question_date: str,
-        question_type: str,
-        evidence: list[str],
-    ) -> str:
-        """Compose a natural language answer from retrieved evidence."""
-        if not evidence:
-            return "I don't have enough information to answer this question."
-
-        evidence_text = ""
-        for i, e in enumerate(evidence[:15]):
-            chunk = e[:3000]
-            evidence_text += f"\n[{i + 1}] {chunk}\n"
-            if len(evidence_text) > 15000:
-                break
-
-        # Use question-type-specific reader prompts
-        if question_type == "temporal-reasoning":
-            prompt = self._temporal_reader_prompt(question, question_date, evidence_text)
-        elif question_type == "knowledge-update":
-            prompt = self._knowledge_update_reader_prompt(question, question_date, evidence_text)
-        else:
-            prompt = self._default_reader_prompt(question, question_date, evidence_text)
-
-        try:
-            return await self._call_reader(prompt)
-        except Exception:
-            logger.warning(
-                "Reader LLM failed, falling back to concatenation",
-                exc_info=True,
-            )
-            return self._fallback_answer(evidence)
-
-    @staticmethod
-    def _temporal_reader_prompt(question: str, question_date: str, evidence_text: str) -> str:
-        return (
-            "You are answering a question that requires temporal "
-            "reasoning about past conversations.\n\n"
-            "IMPORTANT temporal reasoning instructions:\n"
-            "- Look for dates, timestamps, and time references in "
-            "the evidence (e.g. 'January 15', 'last Saturday', "
-            "'three months ago').\n"
-            "- Evidence items tagged with [Conversation from ...] or "
-            "[Session from ...] tell you WHEN that conversation "
-            "happened.\n"
-            "- For 'which came first' questions, compare the dates "
-            "of the relevant events.\n"
-            "- For 'how many days/months' questions, calculate the "
-            "difference between the specific dates mentioned.\n"
-            "- For 'most recent' questions, find the event with "
-            "the latest date.\n"
-            "- Pay close attention to ALL temporal cues — explicit "
-            "dates, relative references ('last week', 'yesterday'), "
-            "and session timestamps.\n"
-            "- Do NOT say 'I don't know' if the evidence contains "
-            "the relevant dates — work through the reasoning.\n\n"
-            f"The question is being asked on {question_date}.\n"
-            f"\nRetrieved memories:\n{evidence_text}\n"
-            f"\nQuestion: {question}\n"
-            "\nAnswer concisely and directly. Show your temporal "
-            "reasoning briefly (e.g. 'X happened on Jan 5, Y on "
-            "Jan 12, so X came first'):"
-        )
-
-    @staticmethod
-    def _knowledge_update_reader_prompt(
-        question: str, question_date: str, evidence_text: str
-    ) -> str:
-        return (
-            "You are answering a question about information that "
-            "may have changed over time.\n\n"
-            "IMPORTANT instructions:\n"
-            "- If the same topic appears multiple times with "
-            "different values, use the MOST RECENT information.\n"
-            "- Look for session dates to determine which "
-            "information is newest.\n"
-            "- Explicitly state that you're using the latest "
-            "information if values have changed.\n"
-            f"\nThe question is being asked on {question_date}.\n"
-            f"\nRetrieved memories:\n{evidence_text}\n"
-            f"\nQuestion: {question}\n"
-            "\nAnswer concisely with the most current information:"
-        )
-
-    @staticmethod
-    def _default_reader_prompt(question: str, question_date: str, evidence_text: str) -> str:
-        return (
-            "Based on the retrieved memories below, answer the "
-            "question.\n"
-            "If the memories truly lack the needed information, "
-            'say "I don\'t know."\n'
-            "For preference questions, give specific "
-            "recommendations based on stated preferences.\n"
-            "Look carefully through ALL evidence items before "
-            "concluding information is missing.\n"
-            f"Consider that the question is being asked on "
-            f"{question_date}.\n"
-            "If information has changed over time, use the most "
-            "recent.\n"
-            f"\nRetrieved memories:\n{evidence_text}\n"
-            f"\nQuestion: {question}\n"
-            "\nAnswer concisely and directly:"
-        )
-
-    async def _call_reader(self, prompt: str) -> str:
-        """Call the reader LLM to compose an answer."""
-        self.stats.reader_calls += 1
-
-        import anthropic
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        client = anthropic.AsyncAnthropic(api_key=api_key or None)
-        response = await client.messages.create(
-            model=self._reader_model,
-            max_tokens=500,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return response.content[0].text.strip()
-
-    def _fallback_answer(self, evidence: list[str]) -> str:
-        """Fallback: concatenate top evidence as the answer."""
-        if not evidence:
-            return "I don't know."
-        combined = " ".join(e.strip() for e in evidence[:3] if e.strip())
-        if len(combined) > 500:
-            combined = combined[:497] + "..."
-        return combined
+    def get_embed_fn(self):
+        """Return the embedding function for use by the evaluator."""
+        if self._search_index is not None:
+            provider = getattr(self._search_index, "_provider", None)
+            if provider and provider.dimension() > 0:
+                return provider.embed
+        return None
 
     async def cleanup_group(self, question_id: str) -> None:
         """Remove all data for a specific question's group_id."""
@@ -640,7 +565,31 @@ class EngramLongMemEvalAdapter:
             logger.debug("Could not clean up group %s (search)", group_id, exc_info=True)
 
     async def close(self) -> None:
-        """Clean up resources."""
+        """Clean up resources and report embedding statistics."""
+        # Report embedding stats if available
+        if self._search_index is not None and hasattr(self._search_index, "embed_stats"):
+            stats = self._search_index.embed_stats
+            total_eps = stats.get("episodes_indexed", 0) + stats.get("episodes_failed", 0)
+            logger.info(
+                "LongMemEval embedding stats: "
+                "episodes=%d/%d indexed (%.1f%%), "
+                "chunks=%d/%d, entities=%d/%d, "
+                "retries=%d, fallback=%d",
+                stats.get("episodes_indexed", 0),
+                total_eps,
+                100.0 * stats.get("episodes_indexed", 0) / total_eps if total_eps else 0,
+                stats.get("chunks_indexed", 0),
+                stats.get("chunks_failed", 0),
+                stats.get("entities_indexed", 0),
+                stats.get("entities_failed", 0),
+                stats.get("retries", 0),
+                stats.get("fallback_used", 0),
+            )
+        if self._search_index is not None:
+            try:
+                await self._search_index.close()
+            except Exception:
+                pass
         if self._graph_store is not None:
             try:
                 await self._graph_store.close()
@@ -651,12 +600,6 @@ class EngramLongMemEvalAdapter:
         self._search_index = None
         self._manager = None
         self._initialized = False
-
-
-def _push_env(key: str, value: str) -> None:
-    """Set an env var only if it has a non-empty value and isn't already set."""
-    if value and key not in os.environ:
-        os.environ[key] = value
 
 
 class _NoopExtractor:

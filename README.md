@@ -10,6 +10,8 @@
   <a href="https://engram-roan.vercel.app">Website</a> &middot;
   <a href="#quickstart">Quickstart</a> &middot;
   <a href="#how-it-works">How It Works</a> &middot;
+  <a href="#helixdb">HelixDB</a> &middot;
+  <a href="#multimodal-memory">Multimodal</a> &middot;
   <a href="#mcp-integration">MCP Integration</a> &middot;
   <a href="#one-click-openclaw-install">OpenClaw</a> &middot;
   <a href="#dashboard">Dashboard</a> &middot;
@@ -74,8 +76,10 @@ curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install
 
 The installer prompts you to choose a mode:
 
-- **Lite** (recommended) — SQLite backend, no Docker needed, all features included
-- **Full** — FalkorDB + Redis via Docker, dashboard, scale/perf
+- **Helix native** (recommended) — HelixDB in-process via PyO3, no Docker, best quality + speed
+- **Lite** — SQLite backend, no Docker needed, all features included
+- **Helix HTTP** — HelixDB via Docker, graph+vector in one
+- **Full** — FalkorDB + Redis via Docker, legacy high throughput
 
 Skip the prompt with `bash -s -- lite` or `bash -s -- full`.
 
@@ -93,7 +97,7 @@ engramctl uninstall
 Upgrade from lite to full when you outgrow SQLite: `engramctl upgrade` (starts
 fresh graph store — SQLite data preserved on disk for reference).
 
-Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md)
+Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
 ### One-Click OpenClaw Install
 
@@ -123,12 +127,29 @@ uv sync
 uv run engram setup
 ```
 
-### Option 1: Source-Built MCP Server
+### Option 1: Native Mode (recommended — best quality, no Docker)
 
 ```bash
 cd server
 uv sync
-uv run engram mcp
+make build-native         # Build PyO3 extension (one-time)
+make mcp-native           # MCP server (stdio) with native HelixDB
+# or: make up-native       # REST API with native HelixDB
+```
+
+This starts Engram with HelixDB running **in-process** via a Rust PyO3 binding
+(`helix_native`). Zero network overhead, ~97ms search latency, no Docker
+required. Same 167 compiled queries, same retrieval quality. Best nDCG@10 of all
+modes (0.448). The setup wizard defaults to `consolidation_profile=standard`,
+`recall_profile=all`, and `integration_profile=rework`.
+
+### Option 2: Lite Mode (zero setup)
+
+```bash
+cd server
+uv sync
+uv run engram mcp        # MCP server (stdio)
+# or: uv run engram serve  # REST API
 ```
 
 This starts Engram in **lite mode** (zero infrastructure beyond Python) using
@@ -136,11 +157,26 @@ SQLite for storage. The setup wizard still defaults to the same recall-ready
 posture: `consolidation_profile=standard`, `recall_profile=all`, and
 `integration_profile=rework`.
 
-### Option 2: Source-Built Full Stack with Dashboard
+### Option 3: Helix Mode (production, multi-service)
+
+```bash
+# Option A: Helix CLI
+helix push dev
+
+# Option B: Docker Compose
+cp .env.example .env
+# Edit .env: set ANTHROPIC_API_KEY (required), optionally GEMINI_API_KEY or VOYAGE_API_KEY
+make up-helix            # or: docker compose -f docker-compose.helix.yml up -d --build
+```
+
+This starts HelixDB (single service) with graph+vector+BM25 unified. Same dashboard
+and API. Best retrieval quality. Details: [`docs/install/helix.md`](docs/install/helix.md).
+
+### Option 4: Full Mode (FalkorDB + Redis)
 
 ```bash
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY (required), optionally VOYAGE_API_KEY
+# Edit .env: set ANTHROPIC_API_KEY (required), optionally GEMINI_API_KEY or VOYAGE_API_KEY
 make up                  # or: docker compose up -d --build
 ```
 
@@ -148,7 +184,7 @@ This is the existing source-built compose flow for developers. The public
 installer does **not** use this path; it downloads a release bundle and pulls
 prebuilt images instead.
 
-### Option 3: REST API Only
+### Option 5: REST API Only
 
 ```bash
 cd server
@@ -159,54 +195,132 @@ uv run engram serve
 
 ## How It Works
 
+### Storage Modes
+
+Engram runs in four modes with identical APIs:
+
+| Mode | Backend | Docker | Best For |
+|------|---------|--------|----------|
+| **Lite** | SQLite | None | Zero setup, single user |
+| **Helix (native)** | HelixDB in-process (PyO3) | **None** | **Best quality + speed, recommended** |
+| **Helix (HTTP)** | HelixDB Docker | 1 container | Production, multi-service |
+| **Full** | FalkorDB + Redis | 2 containers | Legacy, high throughput |
+
+Mode is auto-detected (Helix → FalkorDB+Redis → SQLite) or set explicitly via `ENGRAM_MODE=helix|full|lite`. Helix transport is selected via `ENGRAM_HELIX__TRANSPORT=native|http|grpc` (default: `http`).
+
 ### Architecture
 
-Engram runs in two modes with identical APIs:
-
-| Layer | Lite Mode (default) | Full Mode (Docker) |
-|-------|--------------------|--------------------|
-| Graph | SQLite (WAL, FTS5) | FalkorDB (Cypher) |
-| Activation | In-memory dict | Redis hashes (7-day TTL) |
-| Search | FTS5 + numpy cosine | Redis Search HNSW (1024d) |
-| Embeddings | Optional (Voyage AI) | Optional (Voyage AI) |
-
-Mode is auto-detected: probes Redis + FalkorDB with a 2s timeout, falls back to lite.
+| Layer | Lite Mode | Helix Native (PyO3) | Helix HTTP (Docker) | Full Mode (Docker) |
+|-------|-----------|---------------------|--------------------|--------------------|
+| Graph | SQLite (WAL, FTS5) | HelixDB in-process (HelixQL) | HelixDB (HelixQL) | FalkorDB (Cypher) |
+| Activation | In-memory dict | In-memory dict | In-memory dict | Redis hashes (7-day TTL) |
+| Search | FTS5 + numpy cosine | HelixDB native HNSW + BM25 | HelixDB native HNSW + BM25 | Redis Search HNSW (1024d) |
+| Embeddings | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) |
+| Infrastructure | Zero | Zero | 1 Docker service | 2 Docker services |
 
 ### Data Persistence
 
-All data persists across server restarts in both modes:
+All data persists across server restarts in all modes:
 
-| Data | Lite Mode | Full Mode |
-|------|-----------|-----------|
-| Knowledge graph | SQLite (`~/.engram/engram.db`) | FalkorDB (Docker volume `engram_falkordb_data`) |
-| Activation store | In-memory (rebuilt from access history) | Redis (Docker volume `engram_redis_data`) |
-| Search index | SQLite FTS5 (same db file) | Redis Search (same Redis volume) |
-| Consolidation history | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) |
-| Episode content | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) |
+| Data | Lite Mode | Helix Native (PyO3) | Helix HTTP (Docker) | Full Mode |
+|------|-----------|---------------------|---------------------|-----------|
+| Knowledge graph | SQLite (`~/.engram/engram.db`) | HelixDB (`~/.engram/helix/`) | HelixDB (Docker volume `engram_helix_data`) | FalkorDB (Docker volume `engram_falkordb_data`) |
+| Activation store | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | Redis (Docker volume `engram_redis_data`) |
+| Search index | SQLite FTS5 (same db file) | HelixDB native (same directory) | HelixDB native (same volume) | Redis Search (same Redis volume) |
+| Consolidation history | SQLite (same db file) | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) | SQLite (Docker volume `engram_server_data`) |
+| Episode content | SQLite (same db file) | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) | SQLite (Docker volume `engram_server_data`) |
 
-In full mode, consolidation audit records and episode content are stored in a SQLite sidecar database at `/home/engram/.engram/engram.db` inside the server container. This is persisted via the `engram_server_data` Docker volume — cycle history, triage records, and audit trails survive container rebuilds.
+In native mode, all data lives on the local filesystem with no Docker volumes. In full and helix HTTP modes, consolidation audit records and episode content are stored in a SQLite sidecar database at `/home/engram/.engram/engram.db` inside the server container. This is persisted via the `engram_server_data` Docker volume — cycle history, triage records, and audit trails survive container rebuilds.
 
-To **reset all data** (both modes):
+To **reset all data**:
 
 ```bash
 # Lite mode
 rm ~/.engram/engram.db
 
+# Helix mode (Docker) — WARNING: deletes everything
+docker compose -f docker-compose.helix.yml down -v
+
 # Full mode (Docker) — WARNING: deletes everything
 docker compose down -v
 ```
+
+### HelixDB
+
+HelixDB is the recommended backend, unifying graph, vector, and full-text search in one engine. It is available in two transport modes:
+
+- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 167 compiled queries. No Docker required. This is the recommended transport. Build with `make build-native`.
+- **HTTP mode**: Standard client-server over localhost. Good for production multi-service deployments. One Docker container replaces two (FalkorDB + Redis).
+
+**Why HelixDB:**
+- **Native graph algorithms** — BFS, Dijkstra shortest path, and spreading activation run server-side in HelixQL
+- **Server-side vector search** — HNSW index with post-filtering, no separate vector store needed
+- **Field-level BM25 indexing** — custom enhancement: only fields annotated with the `BM25` schema prefix are full-text indexed (e.g., `Episode.content`, `Entity.name`, `Entity.summary`), preventing metadata fields from diluting search relevance
+- **Unified BM25 + vector** — full-text and semantic search in the same engine with RRF fusion
+- **HelixQL query language** — 167 compiled queries in the schema (`server/engram/storage/helix/schema.hx`, ~1400 lines)
+- **Best retrieval quality** — nDCG@10 of 0.448 (native) / 0.412 (HTTP) vs SQLite 0.390 and FalkorDB 0.406 (see [Benchmarks](#benchmarks))
+
+**Getting started:**
+
+```bash
+# Option A: Native mode (recommended — no Docker)
+make build-native         # Build PyO3 extension (one-time)
+make mcp-native           # MCP server with native HelixDB
+# or: make up-native       # REST API with native HelixDB
+
+# Option B: Helix CLI (HTTP mode)
+helix push dev
+
+# Option C: Docker Compose (HTTP mode)
+make up-helix
+
+# Set mode explicitly (or let auto-detection find it)
+ENGRAM_MODE=helix uv run engram serve
+```
+
+#### HDB Optimization Journey
+
+HelixDB transport performance has been progressively optimized through four iterations:
+
+| Iteration | Optimization | Impact |
+|-----------|-------------|--------|
+| **HDB-1** | Batch endpoint | 5-10x for multi-query ops |
+| **HDB-2** | HTTP/2 support | Connection multiplexing |
+| **HDB-3** | gRPC transport | Binary protocol, lower overhead |
+| **HDB-4** | PyO3 native binding (`helix_native`) | ~97ms latency, zero Docker |
+
+Configuration:
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `ENGRAM_HELIX__HOST` | `localhost` | HelixDB host (HTTP/gRPC modes) |
+| `ENGRAM_HELIX__PORT` | `6969` | HelixDB port (HTTP/gRPC modes) |
+| `ENGRAM_HELIX__TRANSPORT` | `http` | Transport: `native` \| `http` \| `grpc` |
+
+Details: [`docs/install/helix.md`](docs/install/helix.md)
 
 ### API Keys
 
 Engram uses external APIs for two things: extracting structure from text and (optionally) embedding entities for semantic search.
 
-#### Anthropic API (required)
+#### Extraction Provider (auto-detected)
+
+Engram auto-detects the best available extraction provider in priority order: **Anthropic** (Claude Haiku) -> **Ollama** (local LLM) -> **Narrow** (deterministic, zero LLM). The narrow pipeline uses staged regex-based extractors (`IdentityFactExtractor`, `AffiliationExtractor`, etc.) that require no API key and no LLM at all. Set explicitly via `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=auto|anthropic|ollama|narrow`.
 
 ```bash
+# Option A: Anthropic (best quality)
 export ANTHROPIC_API_KEY=sk-ant-...   # Get a key at console.anthropic.com
+
+# Option B: Ollama (local LLM, no API key)
+# Requires ollama running locally with a model pulled
+
+# Option C: Narrow (deterministic, zero LLM, default fallback)
+# No setup needed — works out of the box
 ```
 
-**What it does**: When you `remember` something (or when the background worker promotes an `observe`d episode), Engram sends the text to Claude Haiku (`claude-haiku-4-5-20251001`) to extract entities, relationships, temporal markers, structured attributes, and polarity. The extraction prompt recognizes 17 entity types (including health, emotional, and personal domains), ~73 predicate synonyms that canonicalize to ~25 semantic groups, and handles negation/uncertainty ("stopped using X" invalidates existing edges). This is what turns unstructured text into a knowledge graph. Without it, Engram can't extract structure from memories.
+**With Anthropic**: When you `remember` something (or when the background worker promotes an `observe`d episode), Engram sends the text to Claude Haiku (`claude-haiku-4-5-20251001`) to extract entities, relationships, temporal markers, structured attributes, and polarity. The extraction prompt recognizes 17 entity types (including health, emotional, and personal domains), ~73 predicate synonyms that canonicalize to ~25 semantic groups, and handles negation/uncertainty ("stopped using X" invalidates existing edges). This produces the highest-quality knowledge graph.
+
+**Without Anthropic**: The narrow deterministic pipeline handles extraction using pattern matching and heuristics. Quality is lower than LLM extraction but sufficient for basic operation with zero API cost.
 
 **Cost**: Claude Haiku is Anthropic's fastest, cheapest model. A typical extraction uses ~500-1,500 input tokens and ~200-800 output tokens. At Haiku's pricing (~$0.80/1M input, ~$4/1M output), that's roughly **$0.001-0.005 per memory extracted**. Engram is designed to minimize LLM usage:
 
@@ -218,9 +332,19 @@ export ANTHROPIC_API_KEY=sk-ant-...   # Get a key at console.anthropic.com
 
 #### Embeddings (optional)
 
-Engram supports two embedding providers for semantic vector search. If neither is configured, it falls back to keyword-only search.
+Engram supports three embedding providers for semantic vector search, auto-detected in priority order: Gemini → Voyage → FastEmbed (local) → Noop. If none is configured, it falls back to keyword-only search.
 
-**Option A: Voyage AI (cloud)**
+**Option A: Gemini Embedding 2 (cloud, multimodal)**
+
+```bash
+export GEMINI_API_KEY=...   # Get a key at aistudio.google.com
+```
+
+Uses Google's [Gemini Embedding 2](https://ai.google.dev/gemini-api/docs/embeddings) (`gemini-embedding-2-preview`) — the first multimodal embedding model. Embeds text, images, audio, video, and PDFs into a unified 3072-dimensional vector space. Task-aware prefixing (`RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search) improves retrieval quality. Supports Matryoshka (MRL) — prefix-slice vectors to 256d for fast approximate comparisons without retraining. Free tier available.
+
+Setting `GEMINI_API_KEY` automatically enables Gemini as the embedding provider. This also unlocks multimodal memory (see [Multimodal Memory](#multimodal-memory) below).
+
+**Option B: Voyage AI (cloud)**
 
 ```bash
 export VOYAGE_API_KEY=pa-...   # Get a key at dash.voyageai.com
@@ -228,7 +352,7 @@ export VOYAGE_API_KEY=pa-...   # Get a key at dash.voyageai.com
 
 Embeds each entity into a 1024-dimensional vector (`voyage-4-lite` model). Cost: ~$0.01 per 1M tokens embedded.
 
-**Option B: Local embeddings (offline, private)**
+**Option C: Local embeddings (offline, private)**
 
 ```bash
 pip install engram[local]     # or: uv sync --extra local
@@ -237,17 +361,18 @@ export ENGRAM_EMBEDDING__PROVIDER=local
 
 Uses [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). The model (~130MB) is downloaded on first use and cached locally. No API key required.
 
-**Auto-fallback**: If `provider=voyage` (default) but no `VOYAGE_API_KEY` is set, Engram automatically falls back to local embeddings when fastembed is installed. If neither is available, vector search is disabled (keyword search still works).
+**Auto-fallback**: Provider priority is Gemini → Voyage → FastEmbed (local) → Noop. If your configured provider's API key is missing, Engram falls to the next available provider. If none is available, vector search is disabled (keyword search still works).
 
 **Without embeddings**: Engram still works — retrieval uses FTS5 keyword matching, ACT-R activation, and spreading activation. You lose semantic similarity but keep everything else.
 
-| | Anthropic (required) | Voyage AI (optional) | Local (optional) |
-|---|---|---|---|
-| **Purpose** | Entity extraction from text | Semantic vector search | Semantic vector search |
-| **Model** | Claude Haiku | voyage-4-lite (1024d) | Nomic Embed v1.5 (768d) |
-| **When called** | `remember`, promoted `observe`, consolidation replay, knowledge chat | Entity creation + reindex | Entity creation + reindex |
-| **Cost per call** | ~$0.001-0.005 | ~$0.00001 | Free (CPU) |
-| **Without it** | Engram can't ingest memories | Falls back to keyword search | Falls back to keyword search |
+| | Anthropic (recommended) | Gemini (optional) | Voyage AI (optional) | Local (optional) |
+|---|---|---|---|---|
+| **Purpose** | Entity extraction from text | Multimodal vector search | Semantic vector search | Semantic vector search |
+| **Model** | Claude Haiku | gemini-embedding-2-preview (3072d) | voyage-4-lite (1024d) | Nomic Embed v1.5 (768d) |
+| **When called** | `remember`, promoted `observe`, consolidation replay, knowledge chat | Entity creation + reindex + multimodal ingest | Entity creation + reindex | Entity creation + reindex |
+| **Cost per call** | ~$0.001-0.005 | Free tier available | ~$0.00001 | Free (CPU) |
+| **Multimodal** | No | Yes (text, images, audio, video, PDFs) | No | No |
+| **Without it** | Falls back to Ollama or narrow deterministic extraction | Falls back to Voyage/local/keyword | Falls back to local/keyword | Falls back to keyword search |
 
 #### Where LLM Is Used (and Where It Isn't)
 
@@ -256,7 +381,7 @@ Engram is designed to minimize LLM dependency. The only operation that *requires
 | Operation | Uses LLM? | What Happens |
 |-----------|-----------|--------------|
 | **`observe`** (store episode) | No | Episode stored in ~5ms. If `cue_layer_enabled`, Engram also builds an `EpisodeCue`, indexes cue text, and can route the episode to `cue_only` or `scheduled` before any LLM call. |
-| **`remember`** (extract + store) | Yes | Claude Haiku extracts entities, relationships, attributes, temporal markers, and polarity through the same projector/apply pipeline used for promoted episodes. |
+| **`remember`** (extract + store) | Depends | Extraction provider auto-detected: Anthropic (Claude Haiku) -> Ollama -> Narrow (deterministic, zero LLM). Extracts entities, relationships, attributes, temporal markers, and polarity through the projector/apply pipeline. |
 | **`recall`** (retrieve memories) | No | Pure DB: FTS5/vector search, ACT-R activation, planner support, cue recall, spreading activation, re-ranking, packet assembly. Zero API calls. |
 | **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation remains available as an explicit opt-in fallback. |
 | **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
@@ -375,6 +500,32 @@ Engram includes a 5-layer defense against meta-contamination — when debugging 
 | **MCP prompt warning** | System prompt | Instructs AI agents not to store debugging output, activation scores, or system telemetry as memories. |
 
 This prevents every debugging session from degrading the knowledge graph. The `observe` path is especially protected since meta-commentary tends to be keyword-dense and would otherwise score high on triage heuristics.
+
+### Multimodal Memory
+
+Engram supports multimodal episodes — images, audio, video, and PDF attachments alongside text. When the Gemini Embedding 2 provider is active, all modalities are embedded into a unified 3072-dimensional vector space, enabling cross-modal search (text queries find image episodes and vice versa).
+
+**MCP tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `observe_image` | Store an image with optional text description; embeds via Gemini for cross-modal recall |
+| `observe_file` | Store a file (PDF, audio, video) with optional text description |
+| `remember` | Supports `image` parameter for image-augmented memory extraction |
+
+**REST API:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/knowledge/observe-image` | Store image episode with multimodal embedding |
+| POST | `/api/knowledge/observe-file` | Store file episode (PDF, audio, video) with multimodal embedding |
+
+**How it works:**
+- Attachments are embedded alongside text using Gemini Embedding 2's unified vector space
+- Text queries find image/audio/video episodes through shared embedding geometry
+- Image queries find related text episodes (and vice versa)
+- Standard retrieval pipeline (ACT-R activation, spreading activation, reranking) applies to multimodal results
+- Requires `GEMINI_API_KEY` to be set (Gemini Embedding 2 is the only provider supporting multimodal inputs)
 
 ### One Brain Per Person
 
@@ -1023,6 +1174,18 @@ uv run python scripts/benchmark_ab.py --entities 5000
 uv run python scripts/benchmark_echo_chamber.py --queries 200
 ```
 
+### Backend Comparison
+
+| Metric | Lite (SQLite) | Native (PyO3) | Helix (HTTP) | Full (FalkorDB) |
+|--------|:---:|:---:|:---:|:---:|
+| **nDCG@10** | 0.390 | **0.448** | 0.412 | 0.406 |
+| **MRR** | 0.762 | **0.832** | 0.815 | 0.665 |
+| **Precision@10** | 0.310 | **0.372** | 0.356 | 0.396 |
+| **Search avg (ms)** | 161 | **238** | 425 | 421 |
+| **Infrastructure** | 0 services | **0 services** | 1 service | 2 services |
+
+Native PyO3 mode achieves the best retrieval quality across nDCG@10 and MRR while requiring zero infrastructure — HelixDB runs in-process with no Docker. The 238ms search latency is nearly 2x faster than HTTP mode (425ms) since it eliminates all network overhead. Lite mode remains the fastest per-query but with lower retrieval quality.
+
 ### Results (1K entities, with embeddings)
 
 | Method | P@5 | MRR | Best Category |
@@ -1034,6 +1197,58 @@ uv run python scripts/benchmark_echo_chamber.py --queries 200
 Full pipeline with spreading activation shows +28% P@5 improvement over pure search. Frequency queries (identifying most-accessed entities) are the standout at 94% precision — this is where ACT-R activation shines.
 
 **Query categories**: direct lookup, recency, frequency, associative, temporal, semantic, graph traversal, cross-cluster. **Core script metrics**: P@5, R@10, MRR, nDCG@5, latency percentiles, bootstrap CI (1,000 resamples).
+
+### LongMemEval (ICLR 2025)
+
+Engram is benchmarked against [LongMemEval](https://arxiv.org/abs/2407.05045), the standard long-term memory evaluation suite from ICLR 2025. The benchmark tests whether a memory system can answer questions about a user's past conversations across 6 categories: single-session (user, assistant, preference), multi-session, temporal reasoning, and knowledge update.
+
+**Methodology**: Claude Code connects to Engram via MCP, calls `recall` to retrieve evidence, then answers. The baseline stuffs all conversation history into context with no retrieval. Both use Claude Sonnet 4.6 on the same 30 stratified questions (5 per type). Evaluation uses hybrid embedding containment + token overlap judging. No LLM judge calls.
+
+| | Baseline (context stuffing) | Engram (MCP recall) |
+|---|---|---|
+| **Accuracy** | 96.7% (29/30) | **100% (30/30)** |
+| **Tokens per question** | ~8,400 | **~2,200** |
+| **Total tokens** | ~257K | **~66K** |
+| **Token reduction** | -- | **74%** |
+
+The baseline failed one single-session-preference question — Claude had the answer in context but couldn't find it buried in 40K+ chars. Engram's retrieval found it instantly.
+
+**Scaling**: Context stuffing is O(N) — every query pays the cost of the entire history. Engram is O(1) — retrieval cost is constant regardless of memory size. At 1,000 conversations, stuffing requires ~2M tokens per query (exceeds any context window). Engram still returns in ~2,200 tokens.
+
+| System | Accuracy |
+|---|---|
+| **Engram + Sonnet 4.6** | **100.0%** |
+| Baseline (Sonnet 4.6 + full context) | 96.7% |
+| Observational Memory (gpt-5-mini) | 94.9% |
+| EmergenceMem Internal | 86.0% |
+| Observational Memory (gpt-4o) | 84.2% |
+| Oracle GPT-4o | 82.4% |
+| Supermemory | 81.6% |
+| Zep/Graphiti | 71.2% |
+| Full-context GPT-4o | 60.2% |
+| Naive RAG | 52.0% |
+
+> **Note**: Results are from a 30-question stratified sample (5 per type). Full 500-question benchmark run pending. Published baselines use the LongMemEval_S variant with GPT-4o reader; Engram uses the oracle variant with Sonnet 4.6.
+
+**Raw results**: [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json) (Engram) and [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json) (baseline).
+
+**Run it yourself**:
+
+```bash
+cd server
+
+# Baseline (Claude Code CLI, Max subscription)
+uv run python scripts/benchmark_baseline.py run \
+    --dataset data/longmemeval/longmemeval_oracle.json \
+    --n-per-type 5 --output results/baseline.json --verbose
+
+# Engram (Claude Code CLI + Engram MCP, Max subscription)
+uv run python scripts/benchmark_agent_sdk.py run \
+    --dataset data/longmemeval/longmemeval_oracle.json \
+    --n-per-type 5 --output results/engram.json --verbose
+```
+
+### Recall Behavior Metrics
 
 The benchmark module also includes Phase 6 evaluation primitives for recall behavior:
 
@@ -1057,15 +1272,23 @@ For first-time setup, run the wizard: `cd server && uv run python -m engram setu
 Key environment variables (or copy `.env.example` to `.env`):
 
 ```bash
-# Required
-ANTHROPIC_API_KEY=sk-ant-...          # Claude Haiku for entity extraction
+# Optional — Extraction (auto-detects: Anthropic → Ollama → Narrow deterministic)
+ANTHROPIC_API_KEY=sk-ant-...          # Claude Haiku for entity extraction (best quality; narrow fallback works without it)
 
-# Optional
+# Optional — Embeddings (priority: Gemini → Voyage → local → noop)
+GEMINI_API_KEY=...                     # Google Gemini API key for multimodal embeddings (aistudio.google.com)
 VOYAGE_API_KEY=pa-...                  # Voyage AI embeddings (optional, get key at dash.voyageai.com)
-ENGRAM_EMBEDDING__PROVIDER=local       # local | voyage | noop (auto-fallback if no Voyage key)
+ENGRAM_EMBEDDING__PROVIDER=auto        # auto | gemini | voyage | local | noop (auto-detects by API key priority)
 ENGRAM_EMBEDDING__LOCAL_MODEL=nomic-ai/nomic-embed-text-v1.5  # fastembed model name
+
+# Optional — General
 ENGRAM_GROUP_ID=default                # Your brain ID (one per person, not per project)
-ENGRAM_MODE=auto                       # auto | lite | full
+ENGRAM_MODE=auto                       # auto | lite | helix | full
+
+# Optional — HelixDB connection (for helix mode)
+ENGRAM_HELIX__HOST=localhost           # HelixDB host (default: localhost)
+ENGRAM_HELIX__PORT=6969                # HelixDB port (default: 6969)
+ENGRAM_HELIX__TRANSPORT=http           # Transport: native | http | grpc (default: http)
 
 # Consolidation (off by default in code; Docker Compose defaults to standard)
 ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard   # Set to enable: off | observe | conservative | standard
@@ -1154,7 +1377,7 @@ Engram uses a 2-model architecture: Haiku for all high-volume work, Sonnet for e
 
 | Role | Model | Config Field | When Used |
 |------|-------|-------------|-----------|
-| **Extraction** | Claude Haiku 4.5 | `EntityExtractor(model=...)` | `remember`, promoted `observe`, replay |
+| **Extraction** | Auto: Anthropic (Haiku 4.5) -> Ollama -> Narrow (deterministic) | `extraction_provider` | `remember`, promoted `observe`, replay |
 | **Triage Judge** | Claude Haiku 4.5 | `triage_llm_judge_model` | Scoring queued episodes (replaces heuristics) |
 | **Infer Validation** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_infer_auto_validation_enabled` | Validating inferred edges |
 | **Merge Judge** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_merge_multi_signal_enabled` | Judging borderline entity merges |
@@ -1182,7 +1405,7 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 
 - Python 3.10+ with [uv](https://docs.astral.sh/uv/)
 - Node.js 22+ with pnpm (for dashboard)
-- Docker (optional, for full mode)
+- Docker (optional, for helix or full mode)
 
 ### Commands
 
@@ -1215,6 +1438,19 @@ make restart                                  # Stop + rebuild + start
 make logs                                     # Tail all logs (make logs-server for server only)
 make status                                   # Container status + health check
 make clean                                    # Stop + delete volumes (WARNING: deletes data)
+
+# Native mode (PyO3 — no Docker, recommended)
+make build-native                             # Build PyO3 extension (one-time, requires Rust toolchain)
+make up-native                                # Start server with native HelixDB
+make mcp-native                               # Start MCP with native HelixDB
+make patch-helix                              # Re-apply HDB fork changes after helix push
+
+# Docker (HelixDB HTTP mode) — single-service graph+vector backend
+make up-helix                                 # Build + start Helix stack (HelixDB + server + dashboard)
+make down-helix                               # Stop Helix stack
+make restart-helix                            # Rebuild and restart
+make logs-helix                               # Tail Helix stack logs
+make mcp-helix                                # MCP server (streamable HTTP, connects to Docker Helix)
 ```
 
 ### Project Structure
@@ -1225,7 +1461,7 @@ server/engram/
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
   consolidation/    # 15-phase engine, scheduler, pressure accumulator
-  embeddings/       # Embedding providers (Voyage AI cloud, fastembed local, noop)
+  embeddings/       # Embedding providers (Gemini multimodal, Voyage AI cloud, fastembed local, noop)
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
   ingestion/        # CQRS ingestion paths
@@ -1233,7 +1469,7 @@ server/engram/
   models/           # Pydantic data models
   retrieval/        # Pipeline, scorer, router, reranker, MMR
   security/         # Auth middleware, AES-256-GCM encryption, OIDC, rate limiting
-  storage/          # SQLite, FalkorDB, Redis implementations
+  storage/          # HelixDB, SQLite, FalkorDB, Redis implementations
   worker.py         # Background episode processor (EventBus-driven)
 
 dashboard/src/
@@ -1282,4 +1518,19 @@ The MCP server runs on your host machine, connecting to Docker via mapped ports.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE)
+Engram is licensed under **Apache 2.0** — see [LICENSE](LICENSE).
+
+### Third-Party License Notice: HelixDB
+
+HelixDB is licensed under **AGPL-3.0**. How this affects you depends on which transport you use:
+
+| Transport | License impact | Default? |
+|-----------|---------------|----------|
+| **HTTP / gRPC** (Docker) | **No impact** — HelixDB runs as a separate service. Engram stays Apache 2.0. | Yes (default) |
+| **Native (PyO3)** | **AGPL applies** — HelixDB is linked into the Python process. Your deployment must comply with AGPL-3.0 terms. | No (opt-in) |
+
+**If you use the default HTTP or gRPC transport**, HelixDB is a separate process communicating over the network. This is the same as using PostgreSQL or Redis — no license contamination. Your code and any extensions you build remain under whatever license you choose.
+
+**If you use native mode** (`make build-native`), the HelixDB engine is compiled into a Python extension module and runs in-process. Under AGPL-3.0, this may require you to make your source code available if you provide the software as a network service. This is fine for personal use, self-hosted deployments, and open-source projects. For commercial/proprietary use with native mode, contact the [HelixDB team](https://github.com/HelixDB/helix-db) about commercial licensing options.
+
+The Lite (SQLite) and Full (FalkorDB + Redis) backends have no AGPL concerns.

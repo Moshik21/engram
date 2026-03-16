@@ -48,7 +48,7 @@ from engram.models.activation import ActivationState
 from engram.models.adjudication import AdjudicationRequest
 from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
+from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.epistemic import ArtifactHit, EpistemicBundle, EvidenceClaim
 from engram.models.recall import MemoryInteractionEvent
@@ -1488,6 +1488,7 @@ class GraphManager:
         source: str | None = None,
         session_id: str | None = None,
         conversation_date: datetime | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> str:
         """Store a raw episode without extraction. Fast path for bulk capture.
 
@@ -1505,6 +1506,7 @@ class GraphManager:
             session_id=session_id,
             conversation_date=conversation_date,
             created_at=utc_now(),
+            attachments=attachments or [],
         )
         await self._graph.create_episode(episode)
         self._publish(
@@ -1999,13 +2001,16 @@ class GraphManager:
         proposed_entities: list[dict] | None = None,
         proposed_relationships: list[dict] | None = None,
         model_tier: str = "default",
+        attachments: list[Attachment] | None = None,
     ) -> str:
         """Ingest a text episode: store, extract, resolve, link.
 
         Returns the episode ID. Thin wrapper over store_episode + project_episode.
         """
         episode_id = await self.store_episode(
-            content, group_id, source, session_id, conversation_date=conversation_date,
+            content, group_id, source, session_id,
+            conversation_date=conversation_date,
+            attachments=attachments,
         )
         try:
             await self.project_episode(
@@ -3216,30 +3221,31 @@ class GraphManager:
                         )
                         continue
 
-                    results.append(
-                        {
-                            "episode": {
-                                "id": ep.id,
-                                "content": self._truncate_episode_content(ep),
-                                "source": ep.source,
-                                "created_at": ep.created_at.isoformat() if ep.created_at else None,
-                                "conversation_date": (
-                                    ep.conversation_date.isoformat()
-                                    if ep.conversation_date
-                                    else None
-                                ),
-                            },
-                            "score": sr.score,
-                            "score_breakdown": {
-                                "semantic": sr.semantic_similarity,
-                                "activation": sr.activation,
-                                "edge_proximity": sr.edge_proximity,
-                                "exploration_bonus": sr.exploration_bonus,
-                            },
-                            "result_type": "episode",
-                            "linked_entities": linked_entities,
-                        }
-                    )
+                    ep_result: dict = {
+                        "episode": {
+                            "id": ep.id,
+                            "content": self._truncate_episode_content(ep),
+                            "source": ep.source,
+                            "created_at": ep.created_at.isoformat() if ep.created_at else None,
+                            "conversation_date": (
+                                ep.conversation_date.isoformat()
+                                if ep.conversation_date
+                                else None
+                            ),
+                        },
+                        "score": sr.score,
+                        "score_breakdown": {
+                            "semantic": sr.semantic_similarity,
+                            "activation": sr.activation,
+                            "edge_proximity": sr.edge_proximity,
+                            "exploration_bonus": sr.exploration_bonus,
+                        },
+                        "result_type": "episode",
+                        "linked_entities": linked_entities,
+                    }
+                    if sr.chunk_context:
+                        ep_result["chunk_context"] = sr.chunk_context
+                    results.append(ep_result)
             else:
                 entity = await self._graph.get_entity(sr.node_id, group_id)
                 if entity:
@@ -3560,6 +3566,81 @@ class GraphManager:
                         "score": round(nm.score, 4),
                     }
                 )
+
+        # --- Relevance confidence scoring ---
+        if self._cfg.relevance_confidence_enabled and results:
+            try:
+                from engram.retrieval.relevance import RelevanceScorer
+
+                provider = getattr(self._search, "_provider", None)
+                if provider and provider.dimension() > 0:
+                    scorer = RelevanceScorer(provider)
+
+                    # Collect text inputs for scoring
+                    entity_summaries: dict[str, str] = {}
+                    episode_contents: dict[str, str] = {}
+                    chunk_texts: dict[str, str] = {}
+
+                    for r in results:
+                        if r.get("result_type") == "entity":
+                            ent = r.get("entity", {})
+                            if ent.get("id") and ent.get("summary"):
+                                entity_summaries[ent["id"]] = ent["summary"]
+                        elif r.get("result_type") in {"episode", "cue_episode"}:
+                            ep = r.get("episode", {})
+                            ep_id = ep.get("id", "")
+                            if ep_id and ep.get("content"):
+                                episode_contents[ep_id] = ep["content"]
+                            chunk = r.get("chunk_context") or ""
+                            if not chunk and r.get("result_type") == "cue_episode":
+                                cue_data = r.get("cue", {})
+                                chunk = cue_data.get("compressed_content", "")
+                            if ep_id and chunk:
+                                chunk_texts[ep_id] = chunk
+
+                    # Reuse query_vec from search to avoid redundant embed call
+                    query_vec = getattr(self._search, "_last_query_vec", None)
+
+                    # Build temporary ScoredResult list for scoring
+                    from engram.retrieval.scorer import ScoredResult
+
+                    temp_scored: list[ScoredResult] = []
+                    for r in results:
+                        rt = r.get("result_type", "entity")
+                        bd = r.get("score_breakdown", {})
+                        node_id = ""
+                        if rt == "entity":
+                            node_id = r.get("entity", {}).get("id", "")
+                        elif rt in {"episode", "cue_episode"}:
+                            node_id = r.get("episode", {}).get("id", "")
+                        temp_scored.append(
+                            ScoredResult(
+                                node_id=node_id,
+                                score=r.get("score", 0.0),
+                                semantic_similarity=bd.get("semantic", 0.0),
+                                activation=bd.get("activation", 0.0),
+                                spreading=0.0,
+                                edge_proximity=bd.get("edge_proximity", 0.0),
+                                result_type=rt,
+                            )
+                        )
+
+                    await scorer.score_results(
+                        query=query,
+                        results=temp_scored,
+                        entity_summaries=entity_summaries,
+                        episode_contents=episode_contents,
+                        chunk_texts=chunk_texts,
+                        query_vec=query_vec,
+                    )
+
+                    # Write relevance back into result dicts
+                    for r, ts in zip(results, temp_scored):
+                        bd = r.get("score_breakdown")
+                        if isinstance(bd, dict):
+                            bd["relevance_confidence"] = round(ts.relevance_confidence, 4)
+            except Exception:
+                logger.debug("Relevance scoring failed, continuing without it", exc_info=True)
 
         # Update conversation fingerprint (Wave 2)
         if self._conv_context is not None and self._cfg.conv_fingerprint_enabled:
@@ -4033,12 +4114,17 @@ class GraphManager:
         group_id: str = "default",
         context: str | None = None,
         see_also: list[str] | None = None,
+        refresh_trigger: str = "manual",
     ) -> str:
         """Create a new prospective memory intention.
 
         In v2 (graph-embedded), creates an Entity node with type 'Intention'
         and TRIGGERED_BY edges to related entities. Falls back to flat table
         when prospective_graph_embedded=False.
+
+        For pinned contexts (trigger_type="refresh_context"), the trigger_text
+        serves as the topic query. Set refresh_trigger="after_consolidation"
+        to auto-refresh the cached result after each consolidation cycle.
         """
         if not self._cfg.prospective_graph_embedded:
             # v1 fallback: flat table — map v2 trigger_type to v1 equivalent
@@ -4052,7 +4138,7 @@ class GraphManager:
                 group_id,
             )
 
-        if trigger_type not in ("activation", "entity_mention"):
+        if trigger_type not in ("activation", "entity_mention", "refresh_context"):
             raise ValueError(f"Invalid trigger_type: {trigger_type}")
         if trigger_type == "entity_mention" and not entity_names and not entity_name:
             raise ValueError("entity_names (or entity_name) required for entity_mention trigger")
@@ -4087,6 +4173,7 @@ class GraphManager:
             origin="explicit",
             context=context,
             see_also=see_also,
+            refresh_trigger=refresh_trigger,
         )
 
         # Create as Entity node
@@ -4322,6 +4409,30 @@ class GraphManager:
                 "activation": 0.0,
                 "episodeId": episode_id,
             },
+        )
+
+    async def update_intention_meta(
+        self,
+        intention_id: str,
+        group_id: str,
+        updates: dict,
+    ) -> None:
+        """Update specific fields in an intention's IntentionMeta attributes.
+
+        Args:
+            intention_id: The intention entity ID.
+            group_id: The group ID.
+            updates: Dict of IntentionMeta field names to new values.
+        """
+        entity = await self._graph.get_entity(intention_id, group_id)
+        if not entity:
+            return
+        attrs = dict(entity.attributes or {})
+        attrs.update(updates)
+        await self._graph.update_entity(
+            intention_id,
+            {"attributes": attrs},
+            group_id=group_id,
         )
 
     # ─── Get context ────────────────────────────────────────────────
@@ -4739,6 +4850,40 @@ class GraphManager:
             except Exception:
                 logger.debug("Intention tier in get_context failed (non-fatal)", exc_info=True)
 
+        # ── Layer 5: Pinned Contexts ──
+        layer5_text = ""
+        pinned_contexts: list[dict] = []
+        if self._cfg.prospective_memory_enabled and self._cfg.prospective_graph_embedded:
+            try:
+                from engram.models.prospective import IntentionMeta as _IntMeta5
+
+                pinned_entities = await self.list_intentions(group_id, enabled_only=True)
+                pinned_lines: list[str] = []
+                for pe in pinned_entities:
+                    attrs = pe.attributes or {}
+                    try:
+                        pmeta = _IntMeta5(**attrs)
+                    except Exception:
+                        continue
+                    if pmeta.trigger_type != "refresh_context":
+                        continue
+                    if not pmeta.pinned_result:
+                        continue
+                    pinned_contexts.append(
+                        {
+                            "topic": pmeta.trigger_text,
+                            "result": pmeta.pinned_result,
+                            "last_refreshed": pmeta.last_refreshed,
+                        }
+                    )
+                    pinned_lines.append(
+                        f"### {pmeta.trigger_text}\n{pmeta.pinned_result}"
+                    )
+                if pinned_lines:
+                    layer5_text = "## Pinned Contexts\n\n" + "\n\n".join(pinned_lines)
+            except Exception:
+                logger.debug("Pinned context tier in get_context failed (non-fatal)", exc_info=True)
+
         # ── Assemble ──
         all_entities = layer1_entities + layer2_entities + layer3_entities
         all_facts = layer1_facts + layer2_facts + layer3_facts
@@ -4750,7 +4895,8 @@ class GraphManager:
                 seen_facts.add(f)
                 unique_facts.append(f)
 
-        sections = [s for s in [layer1_text, layer2_text, layer3_text, layer4_text] if s]
+        all_layers = [layer1_text, layer2_text, layer3_text, layer4_text, layer5_text]
+        sections = [s for s in all_layers if s]
         context_text = (
             "\n\n".join(sections) if sections else "## Active Memory Context\n\nNo memories loaded."
         )
@@ -4776,21 +4922,27 @@ class GraphManager:
         # Briefing format
         if format == "briefing" and self._cfg.briefing_enabled and all_entities:
             briefing = self._template_briefing(context_text, group_id, topic_hint)
-            return {
+            result = {
                 "context": briefing,
                 "entity_count": len(all_entities),
                 "fact_count": len(unique_facts),
                 "token_estimate": self._estimate_tokens(briefing),
                 "format": "briefing",
             }
+            if pinned_contexts:
+                result["pinned_contexts"] = pinned_contexts
+            return result
 
-        return {
+        result = {
             "context": context_text,
             "entity_count": len(all_entities),
             "fact_count": len(unique_facts),
             "token_estimate": token_estimate,
             "format": "structured",
         }
+        if pinned_contexts:
+            result["pinned_contexts"] = pinned_contexts
+        return result
 
     # ─── Get graph state ────────────────────────────────────────────
 

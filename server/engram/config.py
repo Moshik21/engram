@@ -43,6 +43,19 @@ class RedisConfig(BaseModel):
     ssl_cert_reqs: str = ""  # "required" | "optional" | "none"
 
 
+class HelixDBConfig(BaseModel):
+    host: str = "localhost"
+    port: int = 6969
+    grpc_port: int = 6970
+    transport: str = "http"  # "http" | "grpc" | "native" | "auto"
+    api_endpoint: str = ""  # for cloud deployments
+    api_key: str = ""
+    config_path: str = "helixdb-cfg"
+    verbose: bool = False
+    max_workers: int = 4
+    data_dir: str = ""  # Native transport: LMDB data dir (~/.helix/engram-native)
+
+
 class PostgreSQLConfig(BaseModel):
     dsn: str = ""  # postgresql://user:pass@host:5432/engram
     min_pool_size: int = 2
@@ -50,12 +63,13 @@ class PostgreSQLConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    provider: str = "auto"  # "auto" | "voyage" | "local" | "noop"
-    model: str = "voyage-4-lite"
+    provider: str = "auto"  # "auto" | "gemini" | "voyage" | "local" | "noop"
+    model: str = "voyage-4-lite"  # voyage model name
+    gemini_model: str = "gemini-embedding-2-preview"
     local_model: str = "nomic-ai/nomic-embed-text-v1.5"  # fastembed model
-    dimensions: int = 1024
+    dimensions: int = 0  # 0 = use provider default (gemini=3072, voyage=1024, local=768)
     storage_dimensions: int = 0  # 0 = same as native dimension (no truncation)
-    api_key: str = ""
+    api_key: str = ""  # voyage API key
     batch_size: int = 64
     fts_weight: float = 0.3
     vec_weight: float = 0.7
@@ -167,6 +181,27 @@ class ActivationConfig(BaseModel):
     pool_wm_limit: int = Field(default=15, ge=5, le=50)
     pool_total_limit: int = Field(default=80, ge=20, le=1000)
 
+    # --- Entity query retrieval ---
+    entity_query_retrieval_enabled: bool = Field(default=True)
+    pool_entity_query_limit: int = Field(default=20, ge=1, le=100)
+
+    # --- HyDE (Hypothetical Document Embedding) ---
+    hyde_enabled: bool = Field(
+        default=False,
+        description="Use HyDE for vector search queries (requires LLM, disabled by default)",
+    )
+    hyde_model: str = Field(default="claude-haiku-4-5-20251001")
+
+    # --- Graph query expansion (LLM-free HyDE alternative) ---
+    graph_query_expansion_enabled: bool = Field(
+        default=True,
+        description="Expand queries using knowledge graph context (LLM-free HyDE alternative)",
+    )
+    template_reformulation_enabled: bool = Field(
+        default=True,
+        description="Convert questions to statement form for better embedding match",
+    )
+
     # --- Re-ranker ---
     reranker_enabled: bool = Field(default=True)
     reranker_provider: str = Field(default="local", pattern="^(cohere|local|noop)$")
@@ -236,7 +271,7 @@ class ActivationConfig(BaseModel):
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
     episode_retrieval_max: int = Field(default=5, ge=0, le=20)
     recall_episode_content_limit: int = Field(
-        default=2000,
+        default=15000,
         ge=0,
         le=50000,
         description="Max chars of episode content in recall results (0 = unlimited)",
@@ -301,6 +336,55 @@ class ActivationConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Score weight for contiguous episodes (multiplied by parent episode score)",
+    )
+
+    # --- Temporal retrieval scoring ---
+    temporal_retrieval_enabled: bool = Field(
+        default=True,
+        description="Apply recency/oldness boosts to episode scores based on temporal query cues",
+    )
+    recency_halflife_days: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=365.0,
+        description="Half-life in days for recency exponential decay in temporal scoring",
+    )
+
+    # --- Chunk search ---
+    chunk_search_enabled: bool = Field(
+        default=True,
+        description="Search episode chunks for sub-episode precision during recall",
+    )
+    chunk_topic_segmentation: bool = Field(
+        default=True,
+        description="Use embedding-based topic segmentation instead of size-based chunking",
+    )
+    chunk_topic_threshold: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=0.9,
+        description="Cosine similarity threshold below which a topic boundary is detected",
+    )
+
+    # --- Retrieval strategy ---
+    retrieval_strategy: str = Field(
+        default="passage_first",
+        pattern="^(passage_first|entity_first|hybrid)$",
+        description=(
+            "Primary retrieval strategy: passage_first prioritises episodes/chunks, "
+            "entity_first prioritises entity graph, hybrid balances both"
+        ),
+    )
+    passage_first_entity_budget: int = Field(
+        default=-1,
+        ge=-1,
+        le=100,
+        description=(
+            "Max entity slots in passage_first mode. "
+            "-1 = use heuristic (min(3, top_n//3)), "
+            "0 = no entities (all slots to episodes). "
+            "Useful for benchmarks where entity summaries add noise."
+        ),
     )
 
     cue_recall_enabled: bool = Field(
@@ -404,6 +488,8 @@ class ActivationConfig(BaseModel):
             "CHILD_OF": 0.8,
             "TREATS": 0.8,
             "TRIGGERED_BY": 0.9,
+            "ENABLES": 0.75,
+            "PREVENTS": 0.7,
         }
     )
     predicate_weight_default: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -1035,11 +1121,12 @@ class ActivationConfig(BaseModel):
 
     # --- Extraction provider ---
     extraction_provider: str = Field(
-        default="auto",
+        default="narrow",
         pattern="^(auto|anthropic|ollama|narrow)$",
         description=(
-            "Extraction backend: 'auto' tries anthropic→ollama→narrow. "
-            "'narrow' is the zero-dependency deterministic fallback."
+            "Extraction backend: 'narrow' (default) is zero-cost deterministic. "
+            "'auto' tries anthropic→ollama→narrow. "
+            "'anthropic' uses Claude Haiku for richer extraction (requires API key)."
         ),
     )
     ollama_model: str = Field(
@@ -1289,6 +1376,24 @@ class ActivationConfig(BaseModel):
         description="Max packets for chat tool recall output",
     )
 
+    # --- Relevance Confidence ---
+    relevance_confidence_enabled: bool = Field(
+        default=True,
+        description="Compute embedding-based relevance confidence per result",
+    )
+    relevance_confidence_threshold: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Min relevance to include in results (0 = return all)",
+    )
+    relevance_abstention_threshold: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Below this relevance → 'I don't remember'",
+    )
+
     # --- Conversation Awareness (Wave 2) ---
     conv_context_enabled: bool = Field(
         default=False,
@@ -1320,6 +1425,17 @@ class ActivationConfig(BaseModel):
         le=20,
         description="Top session entities for entity sub-query",
     )
+
+    # --- Query decomposition (temporal / multi-hop) ---
+    query_decomposition_enabled: bool = Field(
+        default=True,
+        description="Decompose complex temporal/multi-hop queries into atomic sub-queries",
+    )
+    query_decomposition_model: str = Field(
+        default="claude-haiku-4-5-20251001",
+        description="Model used for LLM-based query decomposition",
+    )
+
     conv_session_entity_seeds_enabled: bool = Field(
         default=False,
         description="Inject session entities as spreading seeds",
@@ -1864,13 +1980,14 @@ class EngramConfig(BaseSettings):
         extra="ignore",
     )
 
-    mode: Literal["lite", "full", "auto"] = "auto"
+    mode: Literal["lite", "full", "helix", "auto"] = "auto"
     default_group_id: str = "default"
 
     # Sub-configs
     server: ServerConfig = Field(default_factory=ServerConfig)
     sqlite: SQLiteConfig = Field(default_factory=SQLiteConfig)
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
+    helix: HelixDBConfig = Field(default_factory=HelixDBConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     postgres: PostgreSQLConfig = Field(default_factory=PostgreSQLConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)

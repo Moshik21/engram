@@ -114,12 +114,13 @@ def _build_episode_packet(
     content = (episode.get("content") or "").strip()
     created_at = episode.get("created_at") or "unknown time"
     score = float(result.get("score", 0.0))
+    relevance = float(result.get("score_breakdown", {}).get("relevance_confidence", 0.0))
     return MemoryPacket(
         packet_type="episode_packet",
         title=f"Episode: {created_at}",
         summary=content[:180],
         why_now=_why_now(query, memory_need, "episode_packet"),
-        confidence=_confidence(score, 0.0),
+        confidence=_confidence(score, 0.0, relevance),
         episode_ids=[episode["id"]],
         evidence_lines=[content[:180]],
         provenance=[f"episode:{episode['id']}", f"score:{round(score, 4)}"],
@@ -137,6 +138,7 @@ def _build_cue_packet(
     cue_text = (cue.get("cue_text") or "").strip()
     supporting_spans = cue.get("supporting_spans") or []
     score = float(result.get("score", 0.0))
+    relevance = float(result.get("score_breakdown", {}).get("relevance_confidence", 0.0))
     summary = cue_text[:180] if cue_text else f"Latent memory from {episode_id}"
     evidence_lines = [span[:180] for span in supporting_spans[:2]] or [summary]
     projection_state = cue.get("projection_state") or "cue_only"
@@ -145,7 +147,7 @@ def _build_cue_packet(
         title=f"Latent Memory: {episode_id}",
         summary=summary,
         why_now=_why_now(query, memory_need, "cue_packet"),
-        confidence=_confidence(score, 0.0),
+        confidence=_confidence(score, 0.0, relevance),
         episode_ids=[episode_id],
         evidence_lines=evidence_lines,
         provenance=[
@@ -177,7 +179,9 @@ async def _build_entity_packet(
 
     summary = _packet_summary(packet_type, entity, evidence_lines)
     score = float(result.get("score", 0.0))
-    planner_support = float(result.get("score_breakdown", {}).get("planner_support", 0.0))
+    breakdown = result.get("score_breakdown", {})
+    planner_support = float(breakdown.get("planner_support", 0.0))
+    relevance = float(breakdown.get("relevance_confidence", 0.0))
     relationship_ids = [rel.get("id") for rel in relationships if rel.get("id")]
     intents = result.get("supporting_intents", [])
     provenance = [f"entity:{entity['id']}", f"score:{round(score, 4)}"]
@@ -188,7 +192,7 @@ async def _build_entity_packet(
         title=_packet_title(packet_type, entity["name"]),
         summary=summary,
         why_now=_why_now(query, memory_need, packet_type, intents=intents),
-        confidence=_confidence(score, planner_support),
+        confidence=_confidence(score, planner_support, relevance),
         entity_ids=[entity["id"]],
         relationship_ids=relationship_ids,
         evidence_lines=evidence_lines[:3],
@@ -213,11 +217,16 @@ def _build_timeline_packet(
     episode_ids: list[str] = []
     provenance: list[str] = []
     max_score = 0.0
+    max_relevance = 0.0
 
     for result in episodes:
         episode = result["episode"]
         episode_ids.append(episode["id"])
         max_score = max(max_score, float(result.get("score", 0.0)))
+        max_relevance = max(
+            max_relevance,
+            float(result.get("score_breakdown", {}).get("relevance_confidence", 0.0)),
+        )
         created_at = episode.get("created_at") or "unknown time"
         content = (episode.get("content") or "").strip()
         evidence_lines.append(f"{created_at}: {content[:140]}")
@@ -233,7 +242,7 @@ def _build_timeline_packet(
             title=f"Timeline: {query[:60]}",
             summary=summary[:220],
             why_now=_why_now(query, memory_need, "timeline_packet"),
-            confidence=_confidence(max_score, 0.0),
+            confidence=_confidence(max_score, 0.0, max_relevance),
             episode_ids=episode_ids,
             evidence_lines=evidence_lines,
             provenance=provenance,
@@ -339,7 +348,14 @@ def _why_now(
     return f"Relevant to the recall query: {query[:80]}"
 
 
-def _confidence(score: float, planner_support: float) -> float:
+def _confidence(
+    score: float,
+    planner_support: float,
+    relevance: float = 0.0,
+) -> float:
+    if relevance > 0:
+        return min(0.99, relevance)
+    # Fallback for results without embeddings
     clamped_score = max(0.0, min(score, 1.0))
     clamped_support = max(0.0, min(planner_support, 1.0))
     return min(0.99, max(clamped_score, (clamped_score * 0.7) + (clamped_support * 0.3)))

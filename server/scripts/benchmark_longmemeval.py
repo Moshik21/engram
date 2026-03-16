@@ -55,9 +55,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
         extraction_mode=args.extraction,
         embedding_provider=args.embeddings,
         consolidation=args.consolidation,
-        reader_model=args.reader_model,
-        judge_model=args.judge_model,
-        judge_provider=args.judge_provider,
+        containment_threshold=args.containment_threshold,
         top_k=args.top_k,
         max_instances=args.max_instances,
         n_per_type=args.n_per_type,
@@ -101,6 +99,7 @@ def cmd_report(args: argparse.Namespace) -> None:
             avg_latency_ms=tm.get("avg_latency_ms", 0),
             avg_recall_at_5=tm.get("avg_recall_at_5", 0),
             avg_ndcg_at_5=tm.get("avg_ndcg_at_5", 0),
+            avg_containment=tm.get("avg_containment", 0),
         )
         for tm in data.get("type_metrics", [])
     ]
@@ -113,7 +112,6 @@ def cmd_report(args: argparse.Namespace) -> None:
         extraction_calls=stats_data.get("extraction_calls", 0),
         embedding_calls=stats_data.get("embedding_calls", 0),
         recall_calls=stats_data.get("recall_calls", 0),
-        reader_calls=stats_data.get("reader_calls", 0),
         total_ingest_ms=stats_data.get("total_ingest_ms", 0),
         total_query_ms=stats_data.get("total_query_ms", 0),
     )
@@ -136,6 +134,7 @@ def cmd_report(args: argparse.Namespace) -> None:
             ingest_sessions=inst.get("ingest_sessions", 0),
             num_entities=inst.get("num_entities", 0),
             num_episodes=inst.get("num_episodes", 0),
+            containment_score=inst.get("containment_score", 0),
         )
         for inst in data.get("instances", [])
     ]
@@ -145,12 +144,11 @@ def cmd_report(args: argparse.Namespace) -> None:
         extraction_mode=data.get("extraction_mode", "unknown"),
         embedding_provider=data.get("embedding_provider", "unknown"),
         consolidation_used=data.get("consolidation_used", False),
-        reader_model=data.get("reader_model", "unknown"),
-        judge_model=data.get("judge_model", "unknown"),
         total_instances=data.get("total_instances", 0),
         total_correct=data.get("total_correct", 0),
         overall_accuracy=data.get("overall_accuracy", 0),
         category_accuracy=data.get("category_accuracy", 0),
+        avg_containment=data.get("avg_containment", 0),
         type_metrics=type_metrics,
         instance_results=instance_results,
         adapter_stats=adapter_stats,
@@ -197,9 +195,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--embeddings",
-        choices=["none", "local", "voyage", "auto"],
-        default="local",
-        help="Embedding provider (default: local)",
+        choices=["none", "local", "voyage", "gemini", "auto"],
+        default="auto",
+        help="Embedding provider (default: auto — uses Gemini if key available)",
     )
     run.add_argument(
         "--consolidation",
@@ -207,20 +205,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run consolidation after ingestion",
     )
     run.add_argument(
-        "--reader-model",
-        default="claude-haiku-4-5-20251001",
-        help="Model for answer composition",
-    )
-    run.add_argument(
-        "--judge-model",
-        default="claude-haiku-4-5-20251001",
-        help="Model for answer evaluation",
-    )
-    run.add_argument(
-        "--judge-provider",
-        choices=["anthropic", "openai"],
-        default="anthropic",
-        help="Judge provider (default: anthropic)",
+        "--containment-threshold",
+        type=float,
+        default=0.65,
+        help="Cosine similarity threshold for correct (default: 0.72)",
     )
     run.add_argument(
         "--top-k",

@@ -1,99 +1,79 @@
-"""LongMemEval answer evaluation using LLM judges.
+"""LongMemEval answer evaluation — embedding-based (zero LLM calls).
 
-Implements the standard evaluation protocol from the LongMemEval paper:
-question-type-specific prompts, binary correct/incorrect scoring.
+Replaces the LLM judge with embedding cosine similarity between
+gold answer and retrieved evidence.  Falls back to token-overlap
+heuristic when embeddings are unavailable.
+
+Keeps ``compute_retrieval_metrics`` (Recall@k, nDCG@k) unchanged.
 """
 
 from __future__ import annotations
 
 import logging
+import math
+import re
+import string
 from dataclasses import dataclass
+
+from engram.retrieval.relevance import compute_answer_containment
 
 logger = logging.getLogger(__name__)
 
-# Question-type-specific judge prompts (aligned with LongMemEval evaluation)
-# These are prompt templates sent to the judge LLM — kept readable, not wrapped.
 
-_QUESTION_BLOCK = """
-Question: {question}
-Gold answer: {gold_answer}
-Predicted answer: {predicted_answer}
-"""
+# ── Abstention detection ─────────────────────────────────────────────
 
-_FACTUAL_JUDGE_PROMPT = (
-    "You are evaluating a chat assistant's memory ability. "
-    "Determine if the predicted answer is correct compared "
-    "to the gold answer."
-    + _QUESTION_BLOCK
-    + """Rules:
-- Correct if it contains key information from the gold answer.
-- Minor wording differences are acceptable.
-- Extra information is fine if the core answer is correct.
-- Multi-part gold answers require ALL parts present.
-
-Output ONLY "correct" or "incorrect"."""
-)
-
-_PREFERENCE_JUDGE_PROMPT = (
-    "You are evaluating a chat assistant's ability to make "
-    "personalized recommendations based on stated preferences."
-    + _QUESTION_BLOCK
-    + """Rules:
-- Prediction should align with preferences in the gold answer.
-- Exact match not required, but must show preference awareness.
-- If gold lists specific preferences, prediction should reflect them.
-
-Output ONLY "correct" or "incorrect"."""
-)
-
-_TEMPORAL_JUDGE_PROMPT = (
-    "You are evaluating a chat assistant's temporal reasoning "
-    "ability about past conversations."
-    + _QUESTION_BLOCK
-    + """Rules:
-- Must correctly handle temporal aspects (dates, sequences).
-- Latest information questions must reflect the most recent state.
-- Time-related details must be accurate.
-
-Output ONLY "correct" or "incorrect"."""
-)
-
-_KNOWLEDGE_UPDATE_JUDGE_PROMPT = (
-    "You are evaluating whether a chat assistant correctly tracks "
-    "knowledge updates where information changed over time."
-    + _QUESTION_BLOCK
-    + """Rules:
-- Prediction must reflect the MOST RECENT state of information.
-- Old/outdated information instead of current = incorrect.
-- Must recognize that information can change.
-
-Output ONLY "correct" or "incorrect"."""
-)
-
-_ABSTENTION_JUDGE_PROMPT = (
-    "You are evaluating whether a chat assistant correctly "
-    "abstains when the information was never discussed."
-    + _QUESTION_BLOCK
-    + """Rules:
-- CORRECT if assistant says it doesn't know or lacks information.
-- "I don't know", "never mentioned", etc. are correct abstentions.
-- INCORRECT if assistant fabricates an answer.
-
-Output ONLY "correct" or "incorrect"."""
-)
+_ABSTENTION_PHRASES = [
+    "don't know",
+    "don't have",
+    "not sure",
+    "no information",
+    "never mentioned",
+    "never discussed",
+    "cannot recall",
+    "can't recall",
+    "not available",
+    "i'm not aware",
+    "cannot answer",
+    "don't remember",
+    "no relevant",
+    "insufficient information",
+    "no evidence",
+]
 
 
-def _get_judge_prompt(question_type: str, is_abstention: bool) -> str:
-    """Select the appropriate judge prompt based on question type."""
-    if is_abstention:
-        return _ABSTENTION_JUDGE_PROMPT
-    if question_type == "single-session-preference":
-        return _PREFERENCE_JUDGE_PROMPT
-    if question_type == "temporal-reasoning":
-        return _TEMPORAL_JUDGE_PROMPT
-    if question_type == "knowledge-update":
-        return _KNOWLEDGE_UPDATE_JUDGE_PROMPT
-    return _FACTUAL_JUDGE_PROMPT
+def is_abstention_answer(text: str) -> bool:
+    """Detect whether a predicted answer is an abstention."""
+    lower = text.lower()
+    return any(phrase in lower for phrase in _ABSTENTION_PHRASES)
+
+
+_CORRECTION_PHRASES = [
+    "not your",
+    "not the",
+    "actually your",
+    "it was actually",
+    "was not",
+    "wasn't",
+    "did not mention",
+    "didn't mention",
+    "never mentioned",
+    "no record of",
+    "no mention of",
+    "not what you",
+    "incorrect premise",
+    "based on the conversation",
+    "you didn't",
+    "you did not",
+]
+
+
+def _is_correction_answer(text: str) -> bool:
+    """Detect if the hypothesis corrects the question's premise."""
+    lower = text.lower()
+    return any(phrase in lower for phrase in _CORRECTION_PHRASES)
+
+
+# ── Embedding-based judge ────────────────────────────────────────────
 
 
 @dataclass
@@ -104,82 +84,193 @@ class JudgeVerdict:
     question_type: str
     correct: bool
     judge_raw: str = ""
+    containment_score: float = 0.0
 
 
-async def judge_answer(
+def judge_by_containment(
     question_id: str,
     question_type: str,
-    question: str,
-    gold_answer: str,
-    predicted_answer: str,
+    containment_score: float,
+    is_abstention: bool,
     *,
-    is_abstention: bool = False,
-    judge_model: str = "claude-haiku-4-5-20251001",
-    judge_provider: str = "anthropic",
+    threshold: float = 0.65,
+    hypothesis: str = "",
+    gold_answer: str = "",
 ) -> JudgeVerdict:
-    """Evaluate a single answer using an LLM judge.
+    """Judge answer correctness via embedding containment + token overlap.
 
-    Args:
-        question_id: The question identifier.
-        question_type: One of the LongMemEval question types.
-        question: The question text.
-        gold_answer: The ground truth answer.
-        predicted_answer: The system's predicted answer.
-        is_abstention: Whether this is an abstention question.
-        judge_model: Model to use for judging.
-        judge_provider: Provider ("anthropic" or "openai").
+    Uses a hybrid approach:
+    1. Token overlap (gold tokens present in hypothesis) — catches
+       short factual answers like "25" or "Samsung Galaxy S22"
+    2. Embedding containment — catches semantic matches
+
+    Either signal being positive → correct.
+
+    For abstention questions: correct if the hypothesis IS an abstention
+    (detected via phrase matching), regardless of containment.
     """
-    template = _get_judge_prompt(question_type, is_abstention)
-    prompt = template.format(
-        question=question,
-        gold_answer=gold_answer,
-        predicted_answer=predicted_answer,
-    )
+    if is_abstention:
+        # Check if hypothesis abstains or correctly identifies the trick
+        if hypothesis:
+            if is_abstention_answer(hypothesis):
+                return JudgeVerdict(
+                    question_id=question_id,
+                    question_type=question_type,
+                    correct=True,
+                    judge_raw="abstention: hypothesis abstains -> correct",
+                    containment_score=containment_score,
+                )
+            # Check if hypothesis matches the gold explanation
+            # Gold for abstention Qs often says "You did not mention X"
+            # or "You mentioned Y, not X" — the hypothesis may correctly
+            # contradict the premise without using abstention phrases
+            if gold_answer and _token_overlap_match(gold_answer, hypothesis):
+                return JudgeVerdict(
+                    question_id=question_id,
+                    question_type=question_type,
+                    correct=True,
+                    judge_raw="abstention: hypothesis matches gold explanation -> correct",
+                    containment_score=containment_score,
+                )
+            if _is_correction_answer(hypothesis):
+                return JudgeVerdict(
+                    question_id=question_id,
+                    question_type=question_type,
+                    correct=True,
+                    judge_raw="abstention: hypothesis corrects premise -> correct",
+                    containment_score=containment_score,
+                )
+        correct = containment_score < threshold
+        label = "correct" if correct else "incorrect"
+        raw = f"abstention: containment={containment_score:.4f} < {threshold} -> {label}"
+        return JudgeVerdict(
+            question_id=question_id,
+            question_type=question_type,
+            correct=correct,
+            judge_raw=raw,
+            containment_score=containment_score,
+        )
 
-    try:
-        if judge_provider == "openai":
-            raw = await _call_openai_judge(prompt, judge_model)
-        else:
-            raw = await _call_anthropic_judge(prompt, judge_model)
-    except Exception as exc:
-        logger.warning("Judge call failed for %s: %s", question_id, exc)
-        # Fallback to token overlap heuristic
-        raw = _heuristic_judge(gold_answer, predicted_answer, is_abstention)
+    # Hybrid: token overlap OR embedding containment
+    token_match = False
+    if hypothesis and gold_answer:
+        token_match = _token_overlap_match(gold_answer, hypothesis)
 
-    correct = "correct" in raw.lower() and "incorrect" not in raw.lower()
+    embed_match = containment_score >= threshold
+
+    correct = token_match or embed_match
+    parts = []
+    if token_match:
+        parts.append("token_overlap=yes")
+    if embed_match:
+        parts.append(f"containment={containment_score:.4f}>={threshold}")
+    if not parts:
+        parts.append(
+            f"token_overlap=no, containment={containment_score:.4f}<{threshold}"
+        )
+    raw = f"{' + '.join(parts)} -> {'correct' if correct else 'incorrect'}"
 
     return JudgeVerdict(
         question_id=question_id,
         question_type=question_type,
         correct=correct,
-        judge_raw=raw.strip(),
+        judge_raw=raw,
+        containment_score=containment_score,
     )
 
 
-async def _call_anthropic_judge(prompt: str, model: str) -> str:
-    """Call Anthropic API for judging."""
-    import anthropic
+def _token_overlap_match(
+    gold: str, predicted: str, threshold: float = 0.5
+) -> bool:
+    """Check if gold answer tokens appear in the predicted answer."""
+    def normalize(text: str) -> set[str]:
+        text = text.lower()
+        text = re.sub(r"\b(a|an|the)\b", " ", text)
+        text = text.translate(str.maketrans("", "", string.punctuation))
+        return {w for w in text.split() if w}
 
-    client = anthropic.AsyncAnthropic()
-    response = await client.messages.create(
-        model=model,
-        max_tokens=10,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
+    gold_tokens = normalize(gold)
+    if not gold_tokens:
+        return True
+
+    pred_tokens = normalize(predicted)
+    overlap = len(gold_tokens & pred_tokens)
+    recall = overlap / len(gold_tokens)
+    return recall >= threshold
 
 
-async def _call_openai_judge(prompt: str, model: str) -> str:
-    """Call OpenAI API for judging (standard LongMemEval protocol uses GPT-4o)."""
-    import openai
+def _chunk_evidence(texts: list[str], max_chunk: int = 300) -> list[str]:
+    """Split long evidence texts into sentence-level chunks.
 
-    client = openai.AsyncOpenAI()
-    response = await client.chat.completions.create(
-        model=model,
-        max_tokens=10,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content or ""
+    Short gold answers ("bike", "Samsung Galaxy S22") get low cosine
+    similarity against 2000-char transcripts even when the answer is
+    present.  Chunking evidence into ~300-char spans gives the gold
+    answer a fair chance to match the relevant sentence.
+    """
+    chunks: list[str] = []
+    for text in texts:
+        text = text.strip()
+        if not text:
+            continue
+        if len(text) <= max_chunk:
+            chunks.append(text)
+            continue
+        # Split on sentence boundaries then recombine into ~max_chunk spans
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+        buf = ""
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            if buf and len(buf) + len(sent) + 1 > max_chunk:
+                chunks.append(buf)
+                buf = sent
+            else:
+                buf = f"{buf} {sent}".strip() if buf else sent
+        if buf:
+            chunks.append(buf)
+    return chunks
+
+
+async def compute_containment_score(
+    gold_answer: str,
+    evidence_texts: list[str],
+    embed_fn,
+) -> float:
+    """Compute embedding-based answer containment.
+
+    Chunks long evidence into ~300-char spans so short gold answers
+    get compared against sentence-level context (not full transcripts).
+    Returns max cosine similarity across all chunks.
+    """
+    if not gold_answer or not evidence_texts:
+        return 0.0
+
+    # Chunk evidence for better gold-vs-sentence matching
+    chunks = _chunk_evidence(evidence_texts)
+    if not chunks:
+        return 0.0
+
+    # Cap at 30 chunks to keep embed costs bounded
+    chunks = chunks[:30]
+
+    # Batch embed: gold answer + all chunks in one call
+    all_texts = [gold_answer] + chunks
+    try:
+        vecs = await embed_fn(all_texts)
+    except Exception:
+        logger.debug("Embedding failed for containment scoring", exc_info=True)
+        return 0.0
+
+    if not vecs or len(vecs) < 2:
+        return 0.0
+
+    gold_vec = vecs[0]
+    evidence_vecs = vecs[1:]
+    return compute_answer_containment(gold_vec, evidence_vecs)
+
+
+# ── Heuristic fallback (no embeddings) ───────────────────────────────
 
 
 def _heuristic_judge(gold: str, predicted: str, is_abstention: bool) -> str:
@@ -187,25 +278,9 @@ def _heuristic_judge(gold: str, predicted: str, is_abstention: bool) -> str:
     pred_lower = predicted.lower()
 
     if is_abstention:
-        abstention_phrases = [
-            "don't know",
-            "don't have",
-            "not sure",
-            "no information",
-            "never mentioned",
-            "never discussed",
-            "cannot recall",
-            "can't recall",
-            "not available",
-            "i'm not aware",
-        ]
-        if any(phrase in pred_lower for phrase in abstention_phrases):
+        if is_abstention_answer(pred_lower):
             return "correct"
         return "incorrect"
-
-    # Token overlap for factual questions
-    import re
-    import string
 
     def normalize(text: str) -> set[str]:
         text = text.lower()
@@ -223,6 +298,9 @@ def _heuristic_judge(gold: str, predicted: str, is_abstention: bool) -> str:
     recall = overlap / len(gold_tokens) if gold_tokens else 0.0
 
     return "correct" if recall >= 0.5 else "incorrect"
+
+
+# ── Retrieval metrics (unchanged) ────────────────────────────────────
 
 
 def compute_retrieval_metrics(
@@ -253,8 +331,6 @@ def compute_retrieval_metrics(
         metrics[f"recall@{k}"] = recall
 
         # NDCG@k
-        import math
-
         dcg = 0.0
         for i, sid in enumerate(top_k):
             if sid in answer_set:

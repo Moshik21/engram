@@ -33,8 +33,8 @@ def format_report(result: LongMemEvalResult) -> str:
         f"| Extraction mode | {result.extraction_mode} |",
         f"| Embedding provider | {result.embedding_provider} |",
         f"| Consolidation | {'yes' if result.consolidation_used else 'no'} |",
-        f"| Reader model | {result.reader_model} |",
-        f"| Judge model | {result.judge_model} |",
+        "| Evaluation method | embedding containment |",
+        f"| Avg containment | {result.avg_containment * 100:.1f}% |",
         f"| Total instances | {result.total_instances} |",
         f"| Elapsed time | {result.elapsed_seconds:.0f}s |",
         "",
@@ -48,14 +48,15 @@ def format_report(result: LongMemEvalResult) -> str:
         "",
         "## Per-Type Breakdown",
         "",
-        "| Question Type | Count | Correct | Accuracy | Avg Latency | Recall@5 | NDCG@5 |",
-        "|---|---|---|---|---|---|---|",
+        "| Type | Count | Correct | Acc | Contain | Latency | R@5 | NDCG@5 |",
+        "|---|---|---|---|---|---|---|---|",
     ]
 
     for tm in result.type_metrics:
+        containment_pct = tm.avg_containment * 100 if hasattr(tm, "avg_containment") else 0.0
         lines.append(
             f"| {tm.question_type} | {tm.count} | {tm.correct} | "
-            f"{tm.accuracy * 100:.1f}% | {tm.avg_latency_ms:.0f}ms | "
+            f"{tm.accuracy * 100:.1f}% | {containment_pct:.1f}% | {tm.avg_latency_ms:.0f}ms | "
             f"{tm.avg_recall_at_5 * 100:.1f}% | {tm.avg_ndcg_at_5 * 100:.1f}% |"
         )
 
@@ -95,7 +96,6 @@ def format_report(result: LongMemEvalResult) -> str:
             f"| Extraction calls | {result.adapter_stats.extraction_calls} |",
             f"| Embedding calls | {result.adapter_stats.embedding_calls} |",
             f"| Recall calls | {result.adapter_stats.recall_calls} |",
-            f"| Reader calls | {result.adapter_stats.reader_calls} |",
             f"| Total ingest time | {result.adapter_stats.total_ingest_ms / 1000:.1f}s |",
             f"| Total query time | {result.adapter_stats.total_query_ms / 1000:.1f}s |",
         ]

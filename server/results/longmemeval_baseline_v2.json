@@ -1,0 +1,312 @@
+{
+  "variant": "oracle",
+  "model": "sonnet",
+  "auth": "max_subscription",
+  "assessment_method": "baseline_no_engram",
+  "total_instances": 30,
+  "total_correct": 29,
+  "overall_accuracy": 0.9667,
+  "elapsed_seconds": 1111.6,
+  "instances": [
+    {
+      "question_id": "4d6b87c8",
+      "question_type": "knowledge-update",
+      "question": "How many titles are currently on my to-watch list?",
+      "gold_answer": "25",
+      "hypothesis": "Based on the conversations, you mentioned having **25 titles** on your to-watch list (as stated in the May 28th session).",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6522>=0.65 -> correct",
+      "containment_score": 0.6522
+    },
+    {
+      "question_id": "852ce960",
+      "question_type": "knowledge-update",
+      "question": "What was the amount I was pre-approved for when I got my mortgage from Wells Fargo?",
+      "gold_answer": "$400,000",
+      "hypothesis": "Based on the conversation from August 11, 2023, you were pre-approved for **$350,000** from Wells Fargo for a $325,000 home purchase.",
+      "correct": true,
+      "judge_raw": "containment=0.6796>=0.65 -> correct",
+      "containment_score": 0.6796
+    },
+    {
+      "question_id": "1cea1afa",
+      "question_type": "knowledge-update",
+      "question": "How many Instagram followers do I currently have?",
+      "gold_answer": "600",
+      "hypothesis": "Based on the conversations, you had **600 followers** as of May 25, 2023. No later update to your follower count appears in the provided conversations.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.6078
+    },
+    {
+      "question_id": "18bc8abd",
+      "question_type": "knowledge-update",
+      "question": "What brand of BBQ sauce am I currently obsessed with?",
+      "gold_answer": "Kansas City Masterpiece",
+      "hypothesis": "Based on the June 30th conversation, you mentioned being \"currently obsessed with Kansas City Masterpiece BBQ sauce\" on your ribs.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.6382
+    },
+    {
+      "question_id": "01493427",
+      "question_type": "knowledge-update",
+      "question": "How many new postcards have I added to my collection since I started collecting again?",
+      "gold_answer": "25",
+      "hypothesis": "Based on the conversations, you mentioned adding **25 new postcards** to your collection since you started collecting again (noted in your November 30, 2023 session).",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.6311
+    },
+    {
+      "question_id": "60bf93ed",
+      "question_type": "multi-session",
+      "question": "How many days did it take for my laptop backpack to arrive after I bought it?",
+      "gold_answer": "5 days. 6 days (including the last day) is also acceptable.",
+      "hypothesis": "Based on the conversations, you bought the backpack on 1/15 and it arrived on 1/20, so it took **5 days** to arrive.",
+      "correct": true,
+      "judge_raw": "containment=0.7363>=0.65 -> correct",
+      "containment_score": 0.7363
+    },
+    {
+      "question_id": "gpt4_2ba83207",
+      "question_type": "multi-session",
+      "question": "Which grocery store did I spend the most money at in the past month?",
+      "gold_answer": "Thrive Market",
+      "hypothesis": "Based on the conversations, you spent the most at **Thrive Market** \u2014 approximately **$150** on an online order of organic and sustainable products last month. This was higher than Walmart (~$120), Trader Joe's (~$80), and Publix via Instacart (~$60).",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.5659
+    },
+    {
+      "question_id": "gpt4_7fce9456",
+      "question_type": "multi-session",
+      "question": "How many properties did I view before making an offer on the townhouse in the Brookside neighborhood?",
+      "gold_answer": "I viewed four properties before making an offer on the townhouse in the Brookside neighborhood. The reasons I didn't make an offer on them were: the kitchen of the bungalow needed serious renovation, the property in Cedar Creek was out of my budget, the noise from the highway was a deal-breaker for the 1-bedroom condo, and my offer on the 2-bedroom condo was rejected due to a higher bid.",
+      "hypothesis": "Based on the conversations, you viewed **4 properties** before making an offer on the Brookside townhouse:\n\n1. A 3-bedroom bungalow in **Oakwood** (January 22nd)\n2. A property in **Cedar Creek** (February 1st) \u2014 out of budget\n3. A 1-bedroom condo (February 10th) \u2014 rejected due to highway noise\n4. A 2-bedroom condo (February 15th) \u2014 offer rejected on the 17th due to a higher bid\n\nYou then viewed the Brookside townhouse on February 22nd and made an offer on February 25th.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.8459>=0.65 -> correct",
+      "containment_score": 0.8459
+    },
+    {
+      "question_id": "bc149d6b",
+      "question_type": "multi-session",
+      "question": "What is the total weight of the new feed I purchased in the past two months?",
+      "gold_answer": "70 pounds",
+      "hypothesis": "Based on the conversations, you purchased a **50-pound batch of layer feed** (May 23) and **20 pounds of organic scratch grains** (May 30), for a total of **70 pounds**.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.627
+    },
+    {
+      "question_id": "gpt4_f2262a51",
+      "question_type": "multi-session",
+      "question": "How many different doctors did I visit?",
+      "gold_answer": "I visited three different doctors: a primary care physician, an ENT specialist, and a dermatologist.",
+      "hypothesis": "You visited **3 different doctors**: Dr. Patel (ENT specialist), Dr. Lee (dermatologist), and Dr. Smith (primary care physician).",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.8879>=0.65 -> correct",
+      "containment_score": 0.8879
+    },
+    {
+      "question_id": "c4f10528",
+      "question_type": "single-session-assistant",
+      "question": "I'm planning to visit Bandung again and I was wondering if you could remind me of the name of that restaurant in Cihampelas Walk that serves a great Nasi Goreng?",
+      "gold_answer": "Miss Bee Providore",
+      "hypothesis": "Based on the conversation, the restaurant is **Miss Bee Providore**, located in the Cihampelas Walk area. Their signature **Miss Bee's Nasi Goreng** is a must-try \u2014 it's served with prawn crackers and topped with a fried egg.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.5801
+    },
+    {
+      "question_id": "6ae235be",
+      "question_type": "single-session-assistant",
+      "question": "I remember you told me about the refining processes at CITGO's three refineries earlier. Can you remind me what kind of processes are used at the Lake Charles Refinery?",
+      "gold_answer": "Atmospheric distillation, fluid catalytic cracking (FCC), alkylation, and hydrotreating.",
+      "hypothesis": "Based on the earlier conversation, the Lake Charles Refinery uses these processes:\n\n1. **Atmospheric distillation** \u2014 the first step, where crude oil is heated and separated into fractions based on boiling points\n2. **Fluid catalytic cracking (FCC)** \u2014 breaks down heavier crude oil fractions into lighter, more valuable products like gasoline and diesel\n3. **Alkylation** \u2014 combines smaller molecules to form larger ones, creating high-octane gasoline components\n4. **Hydrotreating** \u2014 removes impur",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.8350>=0.65 -> correct",
+      "containment_score": 0.835
+    },
+    {
+      "question_id": "dc439ea3",
+      "question_type": "single-session-assistant",
+      "question": "I was looking back at our previous conversation about Native American powwows and I was wondering, which traditional game did you say was often performed by skilled dancers at powwows?",
+      "gold_answer": "Hoop Dance",
+      "hypothesis": "Based on the previous conversation, the **Hoop Dance** was described as the traditional dance performed by skilled dancers at powwows. It was described as involving \"intricate movements with multiple hoops.\"",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6756>=0.65 -> correct",
+      "containment_score": 0.6756
+    },
+    {
+      "question_id": "18dcd5a5",
+      "question_type": "single-session-assistant",
+      "question": "I'm going back to our previous chat about the Lost Temple of the Djinn one-shot. Can you remind me how many mummies the party will face in the temple?",
+      "gold_answer": "4",
+      "hypothesis": "The party will face **4 mummies** in the Lost Temple of the Djinn.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6553>=0.65 -> correct",
+      "containment_score": 0.6553
+    },
+    {
+      "question_id": "51b23612",
+      "question_type": "single-session-assistant",
+      "question": "I was going through our previous conversation about political propaganda and humor, and I was wondering if you could remind me of that Soviet cartoon you mentioned that mocked Western culture?",
+      "gold_answer": "Nu, pogodi!",
+      "hypothesis": "The Soviet cartoon mentioned was **\"Nu, pogodi!\"** \u2014 it was described as mocking Western culture and portraying the Soviet Union as superior.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6503>=0.65 -> correct",
+      "containment_score": 0.6503
+    },
+    {
+      "question_id": "75f70248",
+      "question_type": "single-session-preference",
+      "question": "I've been sneezing quite a bit lately. Do you think it might be my living room?",
+      "gold_answer": "The user would prefer responses that consider the potential impact of their cat, Luna, and her shedding on their sneezing, as well as the recent deep clean of the living room and its possible effect on stirring up dust. They might not prefer responses that fail to take into account these specific details previously mentioned, such as generic suggestions or unrelated factors.",
+      "hypothesis": "Based on the conversation, it's quite possible! Given that you have a cat that sheds a lot, your living room could be a source of allergens triggering your sneezing. Cat dander, dust, and pet hair are common culprits. The conversation covered several steps to address this \u2014 regular vacuuming with a HEPA filter vacuum, dusting with a damp microfiber cloth, changing air filters, and getting an air-purifying plant like the spider plant or snake plant you were planning on.\n\nI don't have enough infor",
+      "correct": true,
+      "judge_raw": "containment=0.8170>=0.65 -> correct",
+      "containment_score": 0.817
+    },
+    {
+      "question_id": "8a2466db",
+      "question_type": "single-session-preference",
+      "question": "Can you recommend some resources where I can learn more about video editing?",
+      "gold_answer": "The user would prefer responses that suggest resources specifically tailored to Adobe Premiere Pro, especially those that delve into its advanced settings. They might not prefer general video editing resources or resources related to other video editing software.",
+      "hypothesis": "Based on the conversation, the assistant already recommended several resources in the first response: Adobe Premiere Pro's official documentation and tutorials, YouTube channels like Premiere Bro, Video Copilot, and Adobe Creative Cloud, online courses on Udemy, LinkedIn Learning, and Skillshare, and community forums like Reddit's r/premierepro and Adobe's Premiere Pro forum.",
+      "correct": true,
+      "judge_raw": "containment=0.8177>=0.65 -> correct",
+      "containment_score": 0.8177
+    },
+    {
+      "question_id": "95228167",
+      "question_type": "single-session-preference",
+      "question": "I'm getting excited about my visit to the music store this weekend. Any tips on what to look for in a new guitar?",
+      "gold_answer": "The user would prefer responses that highlight the differences between Fender Stratocaster and Gibson Les Paul electric guitars, such as the feel of the neck, weight, and sound profile. They might not prefer general tips on buying an electric guitar or suggestions that do not take into account their current guitar and desired upgrade.",
+      "hypothesis": "Based on your conversation, here are some targeted tips for your music store visit:\n\n1. **Try both a Strat and Les Paul** \u2014 You've been comparing them, so play both back-to-back to feel the difference in neck profile, weight, and tone firsthand.\n\n2. **Test the coil-tap/split feature** \u2014 Since you discussed this, specifically ask to try Les Paul models with this feature and toggle it while playing to hear the tonal difference.\n\n3. **Play in open D tuning** \u2014 Ask the store to tune a guitar to DADF",
+      "correct": true,
+      "judge_raw": "containment=0.7945>=0.65 -> correct",
+      "containment_score": 0.7945
+    },
+    {
+      "question_id": "195a1a1b",
+      "question_type": "single-session-preference",
+      "question": "Can you suggest some activities that I can do in the evening?",
+      "gold_answer": "The user would prefer suggestions that involve relaxing activities that can be done in the evening, preferably before 9:30 pm. They would not prefer suggestions that involve using their phone or watching TV, as these activities have been affecting their sleep quality.",
+      "hypothesis": "Based on your earlier conversation about winding down by 9:30 pm, here are some evening activities that fit your schedule:\n\n**Relaxing Activities:**\n- Reading a light book or magazine\n- Gentle yoga or stretching\n- Journaling or reflecting on your day\n- Taking a warm bath or shower\n- Listening to calming music or podcasts\n\n**Productive (but low-stress) Activities:**\n- Preparing your schedule or to-do list for the next day\n- Light meal prep or cooking a relaxing dinner\n- Organizing your workspace ",
+      "correct": true,
+      "judge_raw": "containment=0.7960>=0.65 -> correct",
+      "containment_score": 0.796
+    },
+    {
+      "question_id": "fca70973",
+      "question_type": "single-session-preference",
+      "question": "I am planning another theme park weekend; do you have any suggestions?",
+      "gold_answer": "The user would prefer theme park suggestions that cater to their interest in both thrill rides and special events, utilizing their previous experiences at Disneyland, Knott's Berry Farm, Six Flags Magic Mountain, and Universal Studios Hollywood as a reference point. They would also appreciate recommendations that highlight unique food experiences and nighttime shows. The user might not prefer suggestions that focus solely on one aspect of theme parks, such as only thrill rides or only family-friendly attractions, and may not be interested in parks that lack special events or unique dining options.",
+      "hypothesis": "I don't have enough information to answer this question.",
+      "correct": false,
+      "judge_raw": "token_overlap=no, containment=0.5707<0.65 -> incorrect",
+      "containment_score": 0.5707
+    },
+    {
+      "question_id": "f4f1d8a4_abs",
+      "question_type": "single-session-user",
+      "question": "What did my dad gave me as a birthday gift?",
+      "gold_answer": "You did not mention this information. You mentioned receiving a birthday gift from your sister, but not your dad.",
+      "hypothesis": "I don't have enough information to answer this question.",
+      "correct": true,
+      "judge_raw": "abstention: hypothesis abstains -> correct",
+      "containment_score": 0.6412
+    },
+    {
+      "question_id": "311778f1",
+      "question_type": "single-session-user",
+      "question": "How many hours did I spend watching documentaries on Netflix last month?",
+      "gold_answer": "10",
+      "hypothesis": "Based on the conversation, you mentioned spending **10 hours** watching documentaries on Netflix last month.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6671>=0.65 -> correct",
+      "containment_score": 0.6671
+    },
+    {
+      "question_id": "a06e4cfe",
+      "question_type": "single-session-user",
+      "question": "What is my preferred gin-to-vermouth ratio for a classic gin martini?",
+      "gold_answer": "3:1",
+      "hypothesis": "Your preferred gin-to-vermouth ratio is **3:1**, with a dash of citrus bitters.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.6478
+    },
+    {
+      "question_id": "1faac195",
+      "question_type": "single-session-user",
+      "question": "Where does my sister Emily live?",
+      "gold_answer": "Denver",
+      "hypothesis": "Your sister Emily lives in Denver.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.6567>=0.65 -> correct",
+      "containment_score": 0.6567
+    },
+    {
+      "question_id": "60d45044",
+      "question_type": "single-session-user",
+      "question": "What type of rice is my favorite?",
+      "gold_answer": "Japanese short-grain rice",
+      "hypothesis": "Based on the conversation, your favorite rice is **Japanese short-grain rice**.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.7301>=0.65 -> correct",
+      "containment_score": 0.7301
+    },
+    {
+      "question_id": "gpt4_2487a7cb",
+      "question_type": "temporal-reasoning",
+      "question": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+      "gold_answer": "'Data Analysis using Python' webinar",
+      "hypothesis": "Based on the conversations, you attended the \"Data Analysis using Python\" webinar first (two months before the conversation) and the \"Effective Time Management\" workshop more recently (last Saturday).",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.7005>=0.65 -> correct",
+      "containment_score": 0.7005
+    },
+    {
+      "question_id": "gpt4_4cd9eba1",
+      "question_type": "temporal-reasoning",
+      "question": "How many weeks have I been accepted into the exchange program when I started attending the pre-departure orientation sessions?",
+      "gold_answer": "one week",
+      "hypothesis": "Based on the conversations, the user was accepted on March 20th and started attending pre-departure orientation sessions on March 27th \u2014 so they had been accepted for **1 week** when they started attending the sessions.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes -> correct",
+      "containment_score": 0.5865
+    },
+    {
+      "question_id": "gpt4_b0863698",
+      "question_type": "temporal-reasoning",
+      "question": "How many days ago did I participate in the 5K charity run?",
+      "gold_answer": "7 days ago. 8 days (including the last day) is also acceptable.",
+      "hypothesis": "Based on the conversation, you participated in the 5K charity run on **2023/03/19 (Sunday)**, and the question was asked on **2023/03/26 (Sunday)** \u2014 that is **7 days ago**.",
+      "correct": true,
+      "judge_raw": "containment=0.7583>=0.65 -> correct",
+      "containment_score": 0.7583
+    },
+    {
+      "question_id": "gpt4_45189cb4",
+      "question_type": "temporal-reasoning",
+      "question": "What is the order of the sports events I watched in January?",
+      "gold_answer": "First, I attended a NBA game at the Staples Center, then I watched the College Football National Championship game, and finally, I watched the NFL playoffs.",
+      "hypothesis": "Based on the conversations, the chronological order is:\n\n1. **Lakers vs. Chicago Bulls (NBA)** \u2014 January 5, attended in person at Staples Center with coworkers\n2. **College Football National Championship (Georgia vs. Alabama, 33-18)** \u2014 January 14, watched at home with family\n3. **Kansas City Chiefs vs. Buffalo Bills (NFL Divisional Round)** \u2014 around January 21, watched at friend Mike's place",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.8163>=0.65 -> correct",
+      "containment_score": 0.8163
+    },
+    {
+      "question_id": "gpt4_e072b769",
+      "question_type": "temporal-reasoning",
+      "question": "How many weeks ago did I start using the cashback app 'Ibotta'?",
+      "gold_answer": "3 weeks ago",
+      "hypothesis": "Based on the conversation, you mentioned you had \"just downloaded\" Ibotta on 2023/04/16. Since the question was asked on 2023/05/06, that was approximately **3 weeks ago**.",
+      "correct": true,
+      "judge_raw": "token_overlap=yes + containment=0.7009>=0.65 -> correct",
+      "containment_score": 0.7009
+    }
+  ]
+}

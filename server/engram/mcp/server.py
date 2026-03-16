@@ -24,6 +24,7 @@ from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
+from engram.models.episode import Attachment
 from engram.retrieval.context import ConversationFingerprinter
 from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.feedback import publish_memory_need_analysis
@@ -509,6 +510,8 @@ async def remember(
     proposed_entities: list[dict] | None = None,
     proposed_relationships: list[dict] | None = None,
     model_tier: str = "default",
+    image_data: str | None = None,
+    image_mime: str = "image/png",
 ) -> str:
     """Store a memory. Extracts entities and relationships from the text.
 
@@ -522,6 +525,8 @@ async def remember(
             [{"subject": ..., "predicate": ..., "object": ...}]
         model_tier: The calling model tier (opus/sonnet/haiku/default)
             for confidence scoring
+        image_data: Optional base64 encoded image to attach to the memory
+        image_mime: MIME type of the attached image (default "image/png")
 
     Returns:
         JSON with status, episode_id, and message.
@@ -535,6 +540,13 @@ async def remember(
             conv_dt = datetime.fromisoformat(conversation_date)
         except (ValueError, TypeError):
             pass
+    attachments: list[Attachment] = []
+    if image_data:
+        attachments.append(Attachment(
+            mime_type=image_mime,
+            data_url=image_data,
+            description=content[:200] if content else "",
+        ))
     episode_id = await manager.ingest_episode(
         content=content,
         group_id=_group_id,
@@ -544,6 +556,7 @@ async def remember(
         proposed_entities=proposed_entities,
         proposed_relationships=proposed_relationships,
         model_tier=model_tier,
+        attachments=attachments or None,
     )
     session.episode_count += 1
     session.last_activity = datetime.utcnow()
@@ -695,6 +708,90 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
 
 
 @mcp.tool()
+async def observe_image(
+    image_data: str,
+    mime_type: str = "image/png",
+    description: str = "",
+    source: str = "mcp",
+) -> str:
+    """Store an image in memory. Fast path — no extraction.
+
+    Args:
+        image_data: Base64 encoded image data
+        mime_type: MIME type of the image (default "image/png")
+        description: Optional text description of what the image shows
+        source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+
+    Returns:
+        JSON with status, episode_id, and message.
+    """
+    manager = _get_manager()
+    session = _get_session()
+    content = description or "Image observation"
+    attachment = Attachment(
+        mime_type=mime_type,
+        data_url=image_data,
+        description=description,
+    )
+    episode_id = await manager.store_episode(
+        content=content,
+        group_id=_group_id,
+        source=source,
+        session_id=session.session_id,
+        attachments=[attachment],
+    )
+    session.episode_count += 1
+    session.last_activity = datetime.utcnow()
+    return json.dumps({
+        "status": "stored",
+        "episode_id": episode_id,
+        "message": "Image stored for background processing.",
+    })
+
+
+@mcp.tool()
+async def observe_file(
+    file_data: str,
+    mime_type: str,
+    description: str = "",
+    source: str = "mcp",
+) -> str:
+    """Store a file (PDF, audio, video) in memory. Fast path — no extraction.
+
+    Args:
+        file_data: Base64 encoded file data
+        mime_type: MIME type of the file (e.g., "application/pdf", "audio/mp3", "video/mp4")
+        description: Optional text description of the file contents
+        source: Where this memory came from (e.g., "claude_desktop", "claude_code")
+
+    Returns:
+        JSON with status, episode_id, and message.
+    """
+    manager = _get_manager()
+    session = _get_session()
+    content = description or "File observation"
+    attachment = Attachment(
+        mime_type=mime_type,
+        data_url=file_data,
+        description=description,
+    )
+    episode_id = await manager.store_episode(
+        content=content,
+        group_id=_group_id,
+        source=source,
+        session_id=session.session_id,
+        attachments=[attachment],
+    )
+    session.episode_count += 1
+    session.last_activity = datetime.utcnow()
+    return json.dumps({
+        "status": "stored",
+        "episode_id": episode_id,
+        "message": "File stored for background processing.",
+    })
+
+
+@mcp.tool()
 async def recall(query: str, limit: int = 5) -> str:
     """Retrieve memories relevant to a query using activation-aware search.
 
@@ -723,6 +820,7 @@ async def recall(query: str, limit: int = 5) -> str:
     formatted = []
     for r in results:
         if r.get("result_type") == "episode":
+            bd = r.get("score_breakdown", {})
             formatted.append(
                 {
                     "result_type": "episode",
@@ -731,9 +829,13 @@ async def recall(query: str, limit: int = 5) -> str:
                     "source": r["episode"].get("source"),
                     "created_at": r["episode"].get("created_at"),
                     "score": round(r["score"], 4),
+                    "relevance_confidence": round(
+                        bd.get("relevance_confidence", 0.0), 4
+                    ),
                     "score_breakdown": {
                         k: round(v, 4)
-                        for k, v in r.get("score_breakdown", {}).items()
+                        for k, v in bd.items()
+                        if isinstance(v, (int, float))
                     },
                     "linked_entities": [
                         e["name"] if isinstance(e, dict) else e
@@ -744,6 +846,7 @@ async def recall(query: str, limit: int = 5) -> str:
             continue
         if r.get("result_type") == "cue_episode":
             cue = r.get("cue", {})
+            bd = r.get("score_breakdown", {})
             formatted.append(
                 {
                     "result_type": "cue_episode",
@@ -753,8 +856,12 @@ async def recall(query: str, limit: int = 5) -> str:
                     "route_reason": cue.get("route_reason"),
                     "episode_id": cue.get("episode_id"),
                     "score": round(r["score"], 4),
+                    "relevance_confidence": round(
+                        bd.get("relevance_confidence", 0.0), 4
+                    ),
                     "score_breakdown": {
-                        k: round(v, 4) for k, v in r.get("score_breakdown", {}).items()
+                        k: round(v, 4) for k, v in bd.items()
+                        if isinstance(v, (int, float))
                     },
                 }
             )
@@ -777,6 +884,7 @@ async def recall(query: str, limit: int = 5) -> str:
         state = await manager._activation.get_activation(entity["id"])
         access_count = state.access_count if state else 0
 
+        bd = r.get("score_breakdown", {})
         formatted.append(
             {
                 "result_type": "entity",
@@ -784,8 +892,12 @@ async def recall(query: str, limit: int = 5) -> str:
                 "entity_type": entity["type"],
                 "summary": entity.get("summary"),
                 "composite_score": round(r["score"], 4),
+                "relevance_confidence": round(
+                    bd.get("relevance_confidence", 0.0), 4
+                ),
                 "score_breakdown": {
-                    k: round(v, 4) for k, v in r.get("score_breakdown", {}).items()
+                    k: round(v, 4) for k, v in bd.items()
+                    if isinstance(v, (int, float))
                 },
                 "related_facts": related_facts,
                 "access_count": access_count,
@@ -1240,6 +1352,7 @@ async def intend(
     priority: str = "normal",
     context: str | None = None,
     see_also: list[str] | None = None,
+    refresh_trigger: str = "manual",
 ) -> str:
     """Create a graph-embedded intention (prospective memory trigger).
 
@@ -1247,13 +1360,21 @@ async def intend(
     entities are activated in the knowledge graph. Use for "remind me when
     X happens" or "next time I work on Y, tell me Z" behavior.
 
+    Use trigger_type="refresh_context" with refresh_trigger="after_consolidation"
+    for persistent context queries (pinned contexts) that auto-refresh after
+    each consolidation cycle. The trigger_text serves as the topic query.
+    Results are cached on the intention and included in get_context() output.
+
     Args:
         trigger_text: Natural language description of the trigger condition
-            (e.g., "auth module", "Python upgrades", "job interview")
+            (e.g., "auth module", "Python upgrades", "job interview").
+            For pinned contexts, this is the topic query.
         action_text: What to surface when the trigger fires
-            (e.g., "Check the XSS fix before deploying")
-        trigger_type: "activation" (spreading activation threshold) or
-            "entity_mention" (fires when named entity appears in content)
+            (e.g., "Check the XSS fix before deploying").
+            For pinned contexts, a short label for the pinned query.
+        trigger_type: "activation" (spreading activation threshold),
+            "entity_mention" (fires when named entity appears in content),
+            or "refresh_context" (pinned context query).
         entity_names: Entity names to link via TRIGGERED_BY edges. These
             entities activate the intention through graph spreading.
         threshold: Activation threshold override (0.0-1.0, default 0.5)
@@ -1262,6 +1383,8 @@ async def intend(
             the agent can act on the intention without additional recall/search.
         see_also: Breadcrumb topic hints ("cliffhangers"). The agent will
             mention these as conversational hooks rather than searching them.
+        refresh_trigger: "manual" (default) or "after_consolidation" (auto-refresh
+            pinned context after each consolidation cycle).
 
     Returns:
         JSON with status, intention_id, linked entities, and threshold.
@@ -1278,6 +1401,7 @@ async def intend(
             group_id=_group_id,
             context=context,
             see_also=see_also,
+            refresh_trigger=refresh_trigger,
         )
         return json.dumps(
             {
@@ -1371,23 +1495,28 @@ async def list_intentions(enabled_only: bool = True) -> str:
             else:
                 warmth_label = "dormant"
 
-            items.append(
-                {
-                    "id": entity.id,
-                    "trigger_text": meta.trigger_text,
-                    "action_text": meta.action_text,
-                    "trigger_type": meta.trigger_type,
-                    "threshold": meta.activation_threshold,
-                    "fire_count": meta.fire_count,
-                    "max_fires": meta.max_fires,
-                    "enabled": meta.enabled,
-                    "priority": meta.priority,
-                    "expires_at": meta.expires_at,
-                    "warmth_ratio": round(warmth_ratio, 4),
-                    "warmth_label": warmth_label,
-                    "linked_entity_ids": meta.trigger_entity_ids,
-                }
-            )
+            item = {
+                "id": entity.id,
+                "trigger_text": meta.trigger_text,
+                "action_text": meta.action_text,
+                "trigger_type": meta.trigger_type,
+                "threshold": meta.activation_threshold,
+                "fire_count": meta.fire_count,
+                "max_fires": meta.max_fires,
+                "enabled": meta.enabled,
+                "priority": meta.priority,
+                "expires_at": meta.expires_at,
+                "warmth_ratio": round(warmth_ratio, 4),
+                "warmth_label": warmth_label,
+                "linked_entity_ids": meta.trigger_entity_ids,
+            }
+            # Include pinned context fields when applicable
+            if meta.trigger_type == "refresh_context":
+                item["refresh_trigger"] = meta.refresh_trigger
+                item["last_refreshed"] = meta.last_refreshed
+                if meta.pinned_result:
+                    item["has_pinned_result"] = True
+            items.append(item)
     else:
         # v1 fallback
         for i in intentions:
