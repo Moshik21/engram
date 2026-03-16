@@ -1,0 +1,13 @@
+[project]
+name = "helixdb-cfg"
+queries = "./db/"
+container_runtime = "docker"
+
+[local.dev]
+port = 6969
+build_mode = "release"
+embedding_model = "gemini:gemini-embedding-2-preview:RETRIEVAL_DOCUMENT"
+
+[cloud]
+
+[enterprise]

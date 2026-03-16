@@ -105,10 +105,17 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         runtime_mode=mode.value,
     )
 
-    if mode == EngineMode.LITE:
+    if mode == EngineMode.HELIX:
+        from engram.storage.helix.atlas import HelixAtlasStore
+
+        # Share the async HelixClient across all Helix stores
+        helix_client = getattr(graph_store, "_helix_client", None)
+        atlas_store: AtlasStore = HelixAtlasStore(config.helix, client=helix_client)
+        await atlas_store.initialize()
+    elif mode == EngineMode.LITE:
         from engram.storage.sqlite.atlas import SQLiteAtlasStore
 
-        atlas_store: AtlasStore = SQLiteAtlasStore(str(config.get_sqlite_path()))
+        atlas_store = SQLiteAtlasStore(str(config.get_sqlite_path()))
         if hasattr(graph_store, "_db"):
             await atlas_store.initialize(db=graph_store._db)
         else:
@@ -137,10 +144,18 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_store,
     )
 
-    # Consolidation engine + store (Postgres when DSN is set, otherwise SQLite)
+    # Consolidation engine + store
     from engram.consolidation.engine import ConsolidationEngine
 
-    if config.postgres.dsn:
+    if mode == EngineMode.HELIX:
+        from engram.storage.helix.consolidation import HelixConsolidationStore
+
+        consolidation_store: ConsolidationStore = cast(
+            ConsolidationStore,
+            HelixConsolidationStore(config.helix, client=helix_client),
+        )
+        await consolidation_store.initialize()
+    elif config.postgres.dsn:
         from engram.storage.postgres.consolidation import PostgresConsolidationStore
 
         consolidation_store: ConsolidationStore = cast(
@@ -253,14 +268,20 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         if redis_subscriber:
             await redis_subscriber.start()
 
-    # Conversation store (shares SQLite connection in lite mode)
-    from engram.storage.sqlite.conversations import SQLiteConversationStore
+    # Conversation store
+    if mode == EngineMode.HELIX:
+        from engram.storage.helix.conversations import HelixConversationStore
 
-    conversation_store = SQLiteConversationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await conversation_store.initialize(db=graph_store._db)
-    else:
+        conversation_store = HelixConversationStore(config.helix, client=helix_client)
         await conversation_store.initialize()
+    else:
+        from engram.storage.sqlite.conversations import SQLiteConversationStore
+
+        conversation_store = SQLiteConversationStore(str(config.get_sqlite_path()))
+        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+            await conversation_store.initialize(db=graph_store._db)
+        else:
+            await conversation_store.initialize()
 
     _app_state.update(
         {

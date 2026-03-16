@@ -2,6 +2,7 @@
 
 import time
 import uuid
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -12,13 +13,14 @@ from engram.models.activation import ActivationState
 from engram.models.consolidation import IdentifierReviewRecord, MergeRecord
 from engram.models.entity import Entity
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
 
 
 @pytest_asyncio.fixture
 async def store(tmp_path):
-    s = SQLiteGraphStore(str(tmp_path / "test.db"))
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
+    s = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await s.initialize()
     yield s
     await s.close()
@@ -26,8 +28,19 @@ async def store(tmp_path):
 
 @pytest_asyncio.fixture
 async def search(store):
-    idx = FTS5SearchIndex(store._db_path)
-    await idx.initialize(db=store._db)
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    idx = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=0,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    await idx.initialize()
     return idx
 
 
@@ -47,20 +60,25 @@ def _entity(name, entity_type="Person", group_id="test", access_count=0, **kwarg
     )
 
 
+@pytest.fixture
+def gid():
+    return f"test_{uuid4().hex[:8]}"
+
+
 class TestEntityMergePhase:
     """Tests for EntityMergePhase."""
 
     @pytest.mark.asyncio
-    async def test_similar_names_merged(self, store, activation, search):
-        e1 = _entity("John Smith")
-        e2 = _entity("john smith")
+    async def test_similar_names_merged(self, store, activation, search, gid):
+        e1 = _entity("John Smith", group_id=gid)
+        e2 = _entity("john smith", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -74,16 +92,16 @@ class TestEntityMergePhase:
         assert records[0].similarity >= 0.85
 
     @pytest.mark.asyncio
-    async def test_below_threshold_not_merged(self, store, activation, search):
-        e1 = _entity("Alice Johnson")
-        e2 = _entity("Bob Williams")
+    async def test_below_threshold_not_merged(self, store, activation, search, gid):
+        e1 = _entity("Alice Johnson", group_id=gid)
+        e2 = _entity("Bob Williams", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.88)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -95,16 +113,16 @@ class TestEntityMergePhase:
         assert result.items_affected == 0
 
     @pytest.mark.asyncio
-    async def test_numeric_identifiers_do_not_merge(self, store, activation, search):
-        e1 = _entity("1712061", entity_type="Thing")
-        e2 = _entity("1712018", entity_type="Thing")
+    async def test_numeric_identifiers_do_not_merge(self, store, activation, search, gid):
+        e1 = _entity("1712061", entity_type="Thing", group_id=gid)
+        e2 = _entity("1712018", entity_type="Thing", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -120,16 +138,16 @@ class TestEntityMergePhase:
         assert reviews[0].decision_reason == "identifier_mismatch"
 
     @pytest.mark.asyncio
-    async def test_labeled_identifier_alias_merges(self, store, activation, search):
-        e1 = _entity("1712061", entity_type="Thing")
-        e2 = _entity("SKU 1712061", entity_type="Thing")
+    async def test_labeled_identifier_alias_merges(self, store, activation, search, gid):
+        e1 = _entity("1712061", entity_type="Thing", group_id=gid)
+        e2 = _entity("SKU 1712061", entity_type="Thing", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -145,16 +163,18 @@ class TestEntityMergePhase:
         assert records[0].decision_confidence == pytest.approx(1.0)
 
     @pytest.mark.asyncio
-    async def test_exact_identifier_aliases_merge_across_types(self, store, activation, search):
-        e1 = _entity("1712061", entity_type="Technology", access_count=10)
-        e2 = _entity("SKU 1712061", entity_type="Identifier", access_count=1)
+    async def test_exact_identifier_aliases_merge_across_types(
+        self, store, activation, search, gid,
+    ):
+        e1 = _entity("1712061", entity_type="Technology", access_count=10, group_id=gid)
+        e2 = _entity("SKU 1712061", entity_type="Identifier", access_count=1, group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.88)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -166,14 +186,14 @@ class TestEntityMergePhase:
         merges = [record for record in records if isinstance(record, MergeRecord)]
         assert result.items_affected == 1
         assert len(merges) == 1
-        survivor = await store.get_entity(e1.id, "test")
+        survivor = await store.get_entity(e1.id, gid)
         assert survivor is not None
         assert survivor.entity_type == "Identifier"
 
     @pytest.mark.asyncio
-    async def test_same_type_enforcement(self, store, activation, search):
-        e1 = _entity("Python", entity_type="Technology")
-        e2 = _entity("python", entity_type="Animal")
+    async def test_same_type_enforcement(self, store, activation, search, gid):
+        e1 = _entity("Python", entity_type="Technology", group_id=gid)
+        e2 = _entity("python", entity_type="Animal", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -183,7 +203,7 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -196,16 +216,16 @@ class TestEntityMergePhase:
         assert result.items_affected == 0
 
     @pytest.mark.asyncio
-    async def test_dry_run_no_modifications(self, store, activation, search):
-        e1 = _entity("John Smith")
-        e2 = _entity("john smith")
+    async def test_dry_run_no_modifications(self, store, activation, search, gid):
+        e1 = _entity("John Smith", group_id=gid)
+        e2 = _entity("john smith", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -216,21 +236,21 @@ class TestEntityMergePhase:
 
         assert result.items_affected == 1  # Reported as would-merge
         # Both entities should still exist
-        assert await store.get_entity(e1.id, "test") is not None
-        assert await store.get_entity(e2.id, "test") is not None
+        assert await store.get_entity(e1.id, gid) is not None
+        assert await store.get_entity(e2.id, gid) is not None
 
     @pytest.mark.asyncio
-    async def test_access_count_survivor(self, store, activation, search):
+    async def test_access_count_survivor(self, store, activation, search, gid):
         """Survivor should be the entity with highest access_count."""
-        e1 = _entity("John Smith", access_count=5)
-        e2 = _entity("john smith", access_count=10)
+        e1 = _entity("John Smith", access_count=5, group_id=gid)
+        e2 = _entity("john smith", access_count=10, group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         _, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -244,14 +264,14 @@ class TestEntityMergePhase:
         assert records[0].remove_id == e1.id
 
     @pytest.mark.asyncio
-    async def test_prefix_subblocking_applied(self, store, activation, search):
+    async def test_prefix_subblocking_applied(self, store, activation, search, gid):
         """Oversized type block uses prefix sub-blocking and finds correct duplicates."""
         # Create >500 entities with varied prefixes to trigger sub-blocking
         prefixes = ["AA", "BB", "CC", "DD", "EE"]
         count = 0
         for pfx in prefixes:
             for i in range(102):
-                await store.create_entity(_entity(f"{pfx}_{i:04d}"))
+                await store.create_entity(_entity(f"{pfx}_{i:04d}", group_id=gid))
                 count += 1
 
         cfg = ActivationConfig(
@@ -260,7 +280,7 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -274,13 +294,13 @@ class TestEntityMergePhase:
         assert result.items_processed < full_pairs
 
     @pytest.mark.asyncio
-    async def test_prefix_subblocking_finds_matches(self, store, activation, search):
+    async def test_prefix_subblocking_finds_matches(self, store, activation, search, gid):
         """Entities sharing a name prefix are still compared and merged."""
         # Create >500 entities to trigger sub-blocking, plus a near-duplicate pair
         for i in range(500):
-            await store.create_entity(_entity(f"Unique_{i:04d}"))
-        await store.create_entity(_entity("Alice Smith"))
-        await store.create_entity(_entity("alice smith"))
+            await store.create_entity(_entity(f"Unique_{i:04d}", group_id=gid))
+        await store.create_entity(_entity("Alice Smith", group_id=gid))
+        await store.create_entity(_entity("alice smith", group_id=gid))
 
         cfg = ActivationConfig(
             consolidation_merge_threshold=0.85,
@@ -288,7 +308,7 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -304,13 +324,13 @@ class TestEntityMergePhase:
         assert any("alice smith" in n for pair in names for n in pair)
 
     @pytest.mark.asyncio
-    async def test_cross_prefix_not_compared(self, store, activation, search):
+    async def test_cross_prefix_not_compared(self, store, activation, search, gid):
         """Entities with different prefixes in oversized block are never compared."""
         # Build a block of 510 entities: 255 starting with "aa", 255 with "zz"
         for i in range(255):
-            await store.create_entity(_entity(f"AA_{i:04d}"))
+            await store.create_entity(_entity(f"AA_{i:04d}", group_id=gid))
         for i in range(255):
-            await store.create_entity(_entity(f"ZZ_{i:04d}"))
+            await store.create_entity(_entity(f"ZZ_{i:04d}", group_id=gid))
 
         cfg = ActivationConfig(
             consolidation_merge_threshold=0.85,
@@ -318,7 +338,7 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, _ = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -333,12 +353,12 @@ class TestEntityMergePhase:
         assert result.items_processed < full_pairs
 
     @pytest.mark.asyncio
-    async def test_max_merges_limit(self, store, activation, search):
+    async def test_max_merges_limit(self, store, activation, search, gid):
         """Should respect consolidation_merge_max_per_cycle."""
         # Create 5 pairs of duplicates
         for i in range(5):
-            await store.create_entity(_entity(f"Entity {i}"))
-            await store.create_entity(_entity(f"entity {i}"))
+            await store.create_entity(_entity(f"Entity {i}", group_id=gid))
+            await store.create_entity(_entity(f"entity {i}", group_id=gid))
 
         cfg = ActivationConfig(
             consolidation_merge_threshold=0.85,
@@ -346,7 +366,7 @@ class TestEntityMergePhase:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -381,11 +401,11 @@ class TestEntityMergePhase:
         assert result.items_affected == 0
 
     @pytest.mark.asyncio
-    async def test_empty_graph(self, store, activation, search):
+    async def test_empty_graph(self, store, activation, search, gid):
         cfg = ActivationConfig()
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -398,11 +418,11 @@ class TestEntityMergePhase:
         assert result.items_affected == 0
 
     @pytest.mark.asyncio
-    async def test_merge_sums_consolidated_strength(self, store, activation, search):
+    async def test_merge_sums_consolidated_strength(self, store, activation, search, gid):
         """Survivor should accumulate loser's consolidated_strength."""
         now = time.time()
-        e1 = _entity("John Smith", access_count=5)
-        e2 = _entity("john smith", access_count=10)
+        e1 = _entity("John Smith", access_count=5, group_id=gid)
+        e2 = _entity("john smith", access_count=10, group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -425,7 +445,7 @@ class TestEntityMergePhase:
         cfg = ActivationConfig(consolidation_merge_threshold=0.85)
         phase = EntityMergePhase()
         _, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,
@@ -445,10 +465,10 @@ class TestMergeANNEmbeddings:
     """Tests for embedding-based ANN candidate pre-filtering."""
 
     @pytest.mark.asyncio
-    async def test_ann_finds_duplicates_via_embeddings(self, store, activation, search):
+    async def test_ann_finds_duplicates_via_embeddings(self, store, activation, search, gid):
         """When embeddings are available, ANN path should find duplicates."""
-        e1 = _entity("John Smith")
-        e2 = _entity("john smith")
+        e1 = _entity("John Smith", group_id=gid)
+        e2 = _entity("john smith", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -478,7 +498,7 @@ class TestMergeANNEmbeddings:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=mock_search,
@@ -491,10 +511,10 @@ class TestMergeANNEmbeddings:
         assert len(records) == 1
 
     @pytest.mark.asyncio
-    async def test_ann_skips_dissimilar_entities(self, store, activation, search):
+    async def test_ann_skips_dissimilar_entities(self, store, activation, search, gid):
         """ANN should not return pairs with low embedding similarity."""
-        e1 = _entity("Alice Johnson")
-        e2 = _entity("Bob Williams")
+        e1 = _entity("Alice Johnson", group_id=gid)
+        e2 = _entity("Bob Williams", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -522,7 +542,7 @@ class TestMergeANNEmbeddings:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=mock_search,
@@ -536,10 +556,10 @@ class TestMergeANNEmbeddings:
         assert result.items_processed == 0
 
     @pytest.mark.asyncio
-    async def test_ann_respects_same_type_requirement(self, store, activation, search):
+    async def test_ann_respects_same_type_requirement(self, store, activation, search, gid):
         """ANN candidates must not merge across types when same-type is required."""
-        e1 = _entity("React", entity_type="Technology")
-        e2 = _entity("React", entity_type="Project")
+        e1 = _entity("React", entity_type="Technology", group_id=gid)
+        e2 = _entity("React", entity_type="Project", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -565,7 +585,7 @@ class TestMergeANNEmbeddings:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=mock_search,
@@ -578,11 +598,11 @@ class TestMergeANNEmbeddings:
         assert records == []
 
     @pytest.mark.asyncio
-    async def test_ann_falls_back_on_low_coverage(self, store, activation, search):
+    async def test_ann_falls_back_on_low_coverage(self, store, activation, search, gid):
         """Should fall back to O(N²) when embedding coverage is too low."""
-        e1 = _entity("John Smith")
-        e2 = _entity("john smith")
-        e3 = _entity("Alice Jones")
+        e1 = _entity("John Smith", group_id=gid)
+        e2 = _entity("john smith", group_id=gid)
+        e3 = _entity("Alice Jones", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
         await store.create_entity(e3)
@@ -606,7 +626,7 @@ class TestMergeANNEmbeddings:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=mock_search,
@@ -619,10 +639,10 @@ class TestMergeANNEmbeddings:
         assert result.items_affected == 1
 
     @pytest.mark.asyncio
-    async def test_ann_disabled_uses_fallback(self, store, activation, search):
+    async def test_ann_disabled_uses_fallback(self, store, activation, search, gid):
         """When use_embeddings=False, should use O(N²) path."""
-        e1 = _entity("John Smith")
-        e2 = _entity("john smith")
+        e1 = _entity("John Smith", group_id=gid)
+        e2 = _entity("john smith", group_id=gid)
         await store.create_entity(e1)
         await store.create_entity(e2)
 
@@ -632,7 +652,7 @@ class TestMergeANNEmbeddings:
         )
         phase = EntityMergePhase()
         result, records = await phase.execute(
-            group_id="test",
+            group_id=gid,
             graph_store=store,
             activation_store=activation,
             search_index=search,

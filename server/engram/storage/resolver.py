@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class EngineMode(str, Enum):
     LITE = "lite"
     FULL = "full"
+    HELIX = "helix"
     AUTO = "auto"
 
 
@@ -22,9 +23,9 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
     """Determine runtime mode from config or service availability.
 
     Priority:
-    1. Explicit --mode lite or --mode full
+    1. Explicit --mode lite, full, or helix
     2. ENGRAM_MODE env var
-    3. Auto-detect: probe Redis and FalkorDB connectivity
+    3. Auto-detect: probe Helix → FalkorDB+Redis → lite
     """
     mode = requested_mode.lower()
     if mode == "lite":
@@ -40,12 +41,39 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
                 "Or use ENGRAM_MODE=auto to fall back to lite mode gracefully."
             )
         return EngineMode.FULL
+    if mode == "helix":
+        # Check transport from env var OR dotenv (pydantic-settings reads .env but
+        # doesn't set os.environ, so check both)
+        transport = os.environ.get("ENGRAM_HELIX__TRANSPORT", "").lower()
+        if not transport:
+            try:
+                from engram.config import EngramConfig
+                transport = EngramConfig().helix.transport.lower()
+            except Exception:
+                transport = "http"
+        if transport == "native":
+            logger.info("Helix mode with native (PyO3) transport — no network check needed")
+            return EngineMode.HELIX
+        logger.info("Helix mode selected explicitly — verifying HelixDB...")
+        if not await _check_helix():
+            raise RuntimeError(
+                "Helix mode requested but HelixDB is not reachable. "
+                "Ensure HelixDB is running on the configured host/port "
+                "(default: localhost:6969). "
+                "Or use ENGRAM_MODE=auto to fall back to lite mode gracefully."
+            )
+        return EngineMode.HELIX
 
     env_mode = os.environ.get("ENGRAM_MODE", "").lower()
-    if env_mode in ("lite", "full"):
+    if env_mode in ("lite", "full", "helix"):
         return await resolve_mode(env_mode)
 
     logger.info("Auto-detecting mode...")
+    # Check Helix first (single service replaces FalkorDB + Redis)
+    if await _check_helix():
+        logger.info("HelixDB detected — using helix mode")
+        return EngineMode.HELIX
+
     falkordb_ok = await _check_falkordb()
     redis_ok = await _check_redis()
 
@@ -63,6 +91,19 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
     else:
         logger.info("No external services detected — using lite mode")
         return EngineMode.LITE
+
+
+async def _check_helix() -> bool:
+    """Probe HelixDB connectivity with a 2-second timeout."""
+    try:
+        import socket
+
+        host = os.environ.get("ENGRAM_HELIX__HOST", "localhost")
+        port = int(os.environ.get("ENGRAM_HELIX__PORT", "6969"))
+        socket.create_connection((host, port), timeout=2)
+        return True
+    except Exception:
+        return False
 
 
 async def _check_redis() -> bool:

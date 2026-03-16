@@ -27,6 +27,64 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _extract_chunk_score(chunk: dict) -> float:
+    """Extract a score from a chunk result dict.
+
+    Chunk results may carry a distance (lower = closer) or a score (higher = better).
+    Convert distance to similarity when needed.
+    """
+    if "distance" in chunk:
+        dist = float(chunk["distance"])
+        return max(0.0, 1.0 - dist / 2.0)
+    if "score" in chunk:
+        return float(chunk["score"])
+    return 0.5
+
+
+def _detect_temporal_cues(query: str) -> dict:
+    """Detect temporal signals in query text."""
+    q = query.lower()
+    cues = {
+        "is_temporal": False,
+        "wants_earliest": False,  # "first", "earliest", "initially"
+        "wants_latest": False,  # "last", "most recent", "current", "now", "still"
+        "wants_count": False,  # "how many days", "how long"
+        "is_state_query": False,  # "how many", "what is my current"
+    }
+
+    earliest_words = {"first", "earliest", "initially", "original", "started"}
+    latest_words = {
+        "last",
+        "latest",
+        "most recent",
+        "current",
+        "now",
+        "still",
+        "currently",
+        "today",
+    }
+    count_words = {"how many days", "how long", "how many weeks", "how many months"}
+    state_words = {"how many", "what is my", "do i still", "am i still", "what's my current"}
+
+    for w in earliest_words:
+        if w in q:
+            cues["is_temporal"] = True
+            cues["wants_earliest"] = True
+    for w in latest_words:
+        if w in q:
+            cues["is_temporal"] = True
+            cues["wants_latest"] = True
+    for w in count_words:
+        if w in q:
+            cues["is_temporal"] = True
+            cues["wants_count"] = True
+    for w in state_words:
+        if w in q:
+            cues["is_state_query"] = True
+
+    return cues
+
+
 async def _inject_entity_matches(
     query: str,
     group_id: str,
@@ -185,6 +243,69 @@ async def retrieve(
     except Exception:
         pass
 
+    # Step 0.1a: Graph-anchored query expansion (LLM-free).
+    # Expands the query using real entities, relationships, and summaries from
+    # the knowledge graph.  Zero cost, ~3ms.  Used as vector search query when
+    # HyDE is disabled (production default).
+    graph_expanded_query = query  # default: unchanged
+    if cfg.graph_query_expansion_enabled:
+        try:
+            from engram.retrieval.graph_expansion import expand_query_from_graph
+
+            graph_expanded_query = await expand_query_from_graph(
+                query, graph_store, group_id
+            )
+        except Exception:
+            pass  # Fall back to original query
+
+    # Step 0.1b: Template reformulation — convert question to statement form
+    # for better embedding match.  Zero cost, <1ms.  If it produces a result,
+    # it is used as an additional search query merged via RRF later.
+    reformulated_query: str | None = None
+    if cfg.template_reformulation_enabled:
+        from engram.retrieval.graph_expansion import reformulate_query
+
+        reformulated_query = reformulate_query(query)
+
+    # Step 0.1c: HyDE — generate hypothetical answer for better vector matching.
+    # Uses LLM to produce a passage that looks like the stored content,
+    # bridging the question-answer embedding asymmetry.  The expanded text
+    # is used for the search call (both BM25 and vector benefit from
+    # answer-like phrasing); the original *query* is preserved for entity
+    # extraction, episode/cue search, spreading activation seeds, etc.
+    # When HyDE is enabled (benchmark mode), it takes priority over graph
+    # expansion.  When HyDE is disabled (production), graph expansion
+    # provides the query improvement.
+    hyde_query = query  # default: unchanged
+    if cfg.hyde_enabled:
+        try:
+            from engram.retrieval.hyde import generate_hypothetical_document
+
+            hypothesis = await generate_hypothetical_document(
+                query,
+                model=cfg.hyde_model,
+            )
+            if hypothesis:
+                hyde_query = hypothesis
+                logger.debug("HyDE expanded query: %s", hypothesis[:100])
+        except Exception:
+            pass  # Fall back to original query
+    else:
+        # Production path: graph expansion replaces HyDE
+        hyde_query = graph_expanded_query
+
+    # Step 0.2: Query decomposition for complex temporal/multi-hop queries
+    # (deterministic — no LLM call, pure regex/template matching)
+    sub_queries: list[str] = [query]
+    if cfg.query_decomposition_enabled:
+        from engram.retrieval.decomposer import decompose_query, needs_decomposition
+
+        if needs_decomposition(query):
+            try:
+                sub_queries = await decompose_query(query)
+            except Exception:
+                pass  # Fall back to original query
+
     # Step 1: Generate candidates (multi-pool or single-pool)
     if cfg.multi_pool_enabled:
         from engram.retrieval.candidate_pool import generate_candidates
@@ -193,7 +314,7 @@ async def retrieve(
         pre_query_type = await classify_query(query)
 
         candidates = await generate_candidates(
-            query=query,
+            query=hyde_query,
             group_id=group_id,
             search_index=search_index,
             activation_store=activation_store,
@@ -211,7 +332,9 @@ async def retrieve(
     else:
         # Original single-pool path — scale retrieval_top_k
         top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
-        search_results = await search_index.search(query=query, group_id=group_id, limit=top_k)
+        search_results = await search_index.search(
+            query=hyde_query, group_id=group_id, limit=top_k,
+        )
         candidates = search_results or []
 
         # Step 1.5: Classify query and override weights
@@ -243,6 +366,55 @@ async def retrieve(
                 if item_id not in existing_ids:
                     candidates.append((item_id, 0.1 * recency_score))
                     existing_ids.add(item_id)
+
+    # Step 0.25: Merge decomposed sub-query results into candidate pool
+    if len(sub_queries) > 1:
+        all_sub_candidates: list[tuple[str, float]] = []
+        for sq in sub_queries:
+            try:
+                sq_results = await search_index.search(
+                    query=sq,
+                    group_id=group_id,
+                    limit=cfg.retrieval_top_k,
+                )
+                if sq_results:
+                    all_sub_candidates.extend(sq_results)
+            except Exception:
+                continue
+        # Deduplicate, keep highest score per entity
+        seen_ids: dict[str, tuple[str, float]] = {}
+        for eid, score in all_sub_candidates:
+            if eid not in seen_ids or score > seen_ids[eid][1]:
+                seen_ids[eid] = (eid, score)
+        # Merge into main candidate pool (keep higher score if duplicate)
+        existing_scores = {eid: s for eid, s in candidates}
+        for eid, score in seen_ids.values():
+            if eid not in existing_scores or score > existing_scores[eid]:
+                existing_scores[eid] = score
+        candidates = list(existing_scores.items())
+
+    # Step 0.3: Template reformulation — run reformulated query as a second
+    # search and merge results via max-score (RRF-style) into candidates.
+    if reformulated_query and reformulated_query != query:
+        try:
+            reform_results = await search_index.search(
+                query=reformulated_query,
+                group_id=group_id,
+                limit=cfg.retrieval_top_k,
+            )
+            if reform_results:
+                existing_scores = {eid: s for eid, s in candidates}
+                for eid, score in reform_results:
+                    if eid not in existing_scores or score > existing_scores[eid]:
+                        existing_scores[eid] = score
+                candidates = list(existing_scores.items())
+                logger.debug(
+                    "Reformulation merged %d results for: %s",
+                    len(reform_results),
+                    reformulated_query[:80],
+                )
+        except Exception:
+            pass  # Non-fatal
 
     # Step 0.5: Planner-driven multi-intent recall (Phase 2)
     if cfg.recall_planner_enabled:
@@ -299,6 +471,10 @@ async def retrieve(
             candidates = list(existing_scores.items())
 
     # Step 1.1: Episode search (runs in both modes)
+    # passage_first strategy: 2x episode search budget, full scores (no discount)
+    _passage_first = cfg.retrieval_strategy == "passage_first"
+    _ep_budget_mult = 2 if _passage_first else 1
+    _ep_score_weight = 1.0 if _passage_first else cfg.episode_retrieval_weight
     episode_candidates: list[ScoredResult] = []
     if cfg.episode_retrieval_enabled:
         search_episodes = _optional_recall_capability(
@@ -312,10 +488,10 @@ async def retrieve(
                 ep_results = await search_episodes(
                     query=query,
                     group_id=group_id,
-                    limit=cfg.episode_retrieval_max * 3,
+                    limit=cfg.episode_retrieval_max * 3 * _ep_budget_mult,
                 )
                 for ep_id, sem_sim in ep_results:
-                    ep_score = original_weight_semantic * sem_sim * cfg.episode_retrieval_weight
+                    ep_score = original_weight_semantic * sem_sim * _ep_score_weight
                     episode_candidates.append(
                         ScoredResult(
                             node_id=ep_id,
@@ -363,6 +539,94 @@ async def retrieve(
                     )
             except Exception as e:
                 logger.warning("Cue search failed (non-fatal): %s", e)
+
+    # Step 1.3: Chunk search — sub-episode precision
+    chunk_hits: dict[str, dict] = {}
+    if cfg.chunk_search_enabled and hasattr(search_index, "search_episode_chunks"):
+        try:
+            chunk_results = await search_index.search_episode_chunks(
+                query=query,
+                group_id=group_id,
+                limit=cfg.episode_retrieval_max * 3 * _ep_budget_mult,
+            )
+            # Track chunk hits for downstream context enrichment
+            seen_episode_ids_in_chunks: set[str] = set()
+            for chunk in chunk_results:
+                episode_id = chunk.get("episode_id", "")
+                if not episode_id:
+                    continue
+                chunk_score = chunk.get("score", 0.0)
+                if not chunk_score:
+                    chunk_score = _extract_chunk_score(chunk)
+                # Keep the best chunk per episode
+                if episode_id not in chunk_hits or chunk_score > chunk_hits[episode_id].get(
+                    "score", 0.0
+                ):
+                    chunk_hits[episode_id] = chunk
+                    if "score" not in chunk or not chunk.get("score"):
+                        chunk_hits[episode_id]["score"] = chunk_score
+                # Add as episode candidate if not already found by episode search
+                if episode_id not in seen_episode_ids_in_chunks:
+                    seen_episode_ids_in_chunks.add(episode_id)
+                    # Check if this episode is already in episode_candidates
+                    existing_ep_ids = {ec.node_id for ec in episode_candidates}
+                    chunk_text = chunk.get("chunk_text", "")
+                    if episode_id not in existing_ep_ids:
+                        ep_score = (
+                            original_weight_semantic
+                            * chunk_score
+                            * _ep_score_weight
+                        )
+                        episode_candidates.append(
+                            ScoredResult(
+                                node_id=episode_id,
+                                score=ep_score,
+                                semantic_similarity=chunk_score,
+                                activation=0.0,
+                                spreading=0.0,
+                                edge_proximity=0.0,
+                                exploration_bonus=0.0,
+                                result_type="episode",
+                                source="chunk_search",
+                                chunk_context=chunk_text or None,
+                            )
+                        )
+                    else:
+                        # Episode already exists — keep higher score
+                        for ec in episode_candidates:
+                            if ec.node_id == episode_id:
+                                new_score = (
+                                    original_weight_semantic
+                                    * chunk_score
+                                    * _ep_score_weight
+                                )
+                                if new_score > ec.score:
+                                    ec.score = new_score
+                                    ec.semantic_similarity = chunk_score
+                                    ec.source = "chunk_search"
+                                    ec.chunk_context = chunk_text or None
+                                break
+            # Attach chunk context to any episode candidates that matched chunks
+            # (including those originally found by episode vector search)
+            for ec in episode_candidates:
+                if ec.chunk_context is None and ec.node_id in chunk_hits:
+                    ct = chunk_hits[ec.node_id].get("chunk_text", "")
+                    if ct:
+                        ec.chunk_context = ct
+
+            # Step 1.35: Session-level scoring — boost episodes with multiple
+            # matching chunks (more chunks = more topically relevant session)
+            episode_chunk_counts: dict[str, int] = {}
+            for chunk in chunk_results:
+                ep_id = chunk.get("episode_id", "")
+                if ep_id:
+                    episode_chunk_counts[ep_id] = episode_chunk_counts.get(ep_id, 0) + 1
+            for ec in episode_candidates:
+                chunk_count = episode_chunk_counts.get(ec.node_id, 0)
+                if chunk_count > 1:
+                    ec.score *= 1 + 0.2 * (chunk_count - 1)
+        except Exception as e:
+            logger.warning("Chunk search failed (non-fatal): %s", e)
 
     # Step 1.8: Entity-first fallback when search finds few candidates
     if not candidates:
@@ -693,6 +957,95 @@ async def retrieve(
             sr.planner_intents = planner_trace.intent_types.get(sr.node_id, [])
             sr.recall_trace = planner_trace.support_details.get(sr.node_id, [])
 
+    # Step 5.05: Temporal / recency scoring for episode results
+    if cfg.temporal_retrieval_enabled:
+        temporal_cues = _detect_temporal_cues(query)
+
+        if temporal_cues["is_temporal"] or temporal_cues["is_state_query"]:
+            halflife = cfg.recency_halflife_days
+            for sr in scored:
+                if sr.result_type not in {"episode", "cue_episode"}:
+                    continue
+                try:
+                    ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                except Exception:
+                    continue
+                if not ep or not ep.conversation_date:
+                    continue
+                ep_ts = ep.conversation_date.timestamp()
+                age_days = (now - ep_ts) / 86400
+
+                if temporal_cues["wants_latest"] or temporal_cues["is_state_query"]:
+                    # Boost recent episodes exponentially
+                    recency_boost = math.exp(-age_days / halflife)
+                    sr.score *= 1 + recency_boost
+                elif temporal_cues["wants_earliest"]:
+                    # Boost oldest episodes
+                    oldness_boost = 1 - math.exp(-age_days / halflife)
+                    sr.score *= 1 + oldness_boost
+
+            # Also apply recency adjustment to episode_candidates (used in
+            # _merge_special_results later) so the final mix reflects temporal
+            # ordering.
+            for sr in episode_candidates:
+                try:
+                    ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                except Exception:
+                    continue
+                if not ep or not ep.conversation_date:
+                    continue
+                ep_ts = ep.conversation_date.timestamp()
+                age_days = (now - ep_ts) / 86400
+
+                if temporal_cues["wants_latest"] or temporal_cues["is_state_query"]:
+                    recency_boost = math.exp(-age_days / halflife)
+                    sr.score *= 1 + recency_boost
+                elif temporal_cues["wants_earliest"]:
+                    oldness_boost = 1 - math.exp(-age_days / halflife)
+                    sr.score *= 1 + oldness_boost
+
+            # Re-sort after temporal adjustment
+            scored.sort(key=lambda sr: sr.score, reverse=True)
+
+            # Step 5.06: Temporal date filtering — ensure temporally
+            # relevant episodes survive into final results even if their
+            # semantic scores are low.
+            if temporal_cues["wants_earliest"] or temporal_cues["wants_latest"]:
+                # Collect episode candidates that have dates
+                dated_episodes: list[tuple[float, ScoredResult]] = []
+                for sr in episode_candidates:
+                    try:
+                        ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                    except Exception:
+                        continue
+                    if ep and ep.conversation_date:
+                        dated_episodes.append(
+                            (ep.conversation_date.timestamp(), sr),
+                        )
+
+                if dated_episodes:
+                    # Sort by date: ascending for earliest, descending for latest
+                    dated_episodes.sort(
+                        key=lambda x: x[0],
+                        reverse=temporal_cues["wants_latest"],
+                    )
+                    # Guarantee at least top 3 date-sorted episodes survive
+                    existing_ep_ids_in_scored = {
+                        sr.node_id
+                        for sr in scored
+                        if sr.result_type in {"episode", "cue_episode"}
+                    }
+                    for ts, sr in dated_episodes[:3]:
+                        if sr.node_id not in existing_ep_ids_in_scored:
+                            scored.append(sr)
+                            existing_ep_ids_in_scored.add(sr.node_id)
+                    # Also ensure these survive in the episode_candidates
+                    # list used by _merge_special_results.
+                    existing_ec_ids = {ec.node_id for ec in episode_candidates}
+                    for ts, sr in dated_episodes[:3]:
+                        if sr.node_id not in existing_ec_ids:
+                            episode_candidates.append(sr)
+
     # Step 5.5: Cross-encoder re-ranking (if enabled)
     if cfg.reranker_enabled and reranker is not None:
         try:
@@ -804,13 +1157,40 @@ async def retrieve(
         special_budget += cfg.cue_recall_max
 
     if special_budget > 0:
-        # Preserve room for special results while keeping at least one entity slot.
-        entity_limit = max(1, top_n - special_budget)
-        entity_results = scored[:entity_limit]
-        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
-        results = entity_results + special_results
-        results.sort(key=lambda r: r.score, reverse=True)
-        results = results[:top_n]
+        if _passage_first:
+            # Passage-first strategy: allocate MORE slots to episodes, fewer to
+            # entities.  Entity budget is capped at 1/3 of top_n (min 3).
+            # Config override: passage_first_entity_budget >= 0 forces exact limit
+            # (0 = all slots to episodes, useful for benchmarks).
+            if cfg.passage_first_entity_budget >= 0:
+                entity_budget = cfg.passage_first_entity_budget
+            else:
+                entity_budget = min(3, top_n // 3)
+            entity_limit = max(0, entity_budget)
+            entity_results = scored[:entity_limit]
+            special_results = _merge_special_results(
+                episode_candidates, cue_candidates, cfg,
+            )
+            # Give episode/chunk candidates 2x weight in the merge sort
+            for sr in special_results:
+                sr.score *= 2.0
+            results = entity_results + special_results
+            results.sort(key=lambda r: r.score, reverse=True)
+            results = results[:top_n]
+            # Restore original scores after selection (undo the 2x sort boost)
+            for sr in results:
+                if sr.result_type in {"episode", "cue_episode"}:
+                    sr.score /= 2.0
+        else:
+            # Default: preserve room for special results, keep at least one entity slot.
+            entity_limit = max(1, top_n - special_budget)
+            entity_results = scored[:entity_limit]
+            special_results = _merge_special_results(
+                episode_candidates, cue_candidates, cfg,
+            )
+            results = entity_results + special_results
+            results.sort(key=lambda r: r.score, reverse=True)
+            results = results[:top_n]
     else:
         results = scored[:top_n]
 

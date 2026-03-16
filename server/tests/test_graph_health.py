@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from uuid import uuid4
 
 import pytest
 
@@ -11,12 +12,19 @@ from engram.consolidation.health import GraphHealthMetrics, compute_graph_health
 
 @pytest.fixture
 async def graph_store():
-    from engram.storage.sqlite.graph import SQLiteGraphStore
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
 
-    store = SQLiteGraphStore(":memory:")
+
+    store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
     yield store
     await store.close()
+
+
+@pytest.fixture
+def gid():
+    return f"test_{uuid4().hex[:8]}"
 
 
 class TestGraphHealthMetrics:
@@ -30,41 +38,41 @@ class TestGraphHealthMetrics:
 
 class TestComputeGraphHealth:
     @pytest.mark.asyncio
-    async def test_empty_graph(self, graph_store):
-        health = await compute_graph_health(graph_store, "default")
+    async def test_empty_graph(self, graph_store, gid):
+        health = await compute_graph_health(graph_store, gid)
         assert health.entity_count == 0
         assert health.relationship_count == 0
         assert health.deferred_evidence_count == 0
 
     @pytest.mark.asyncio
-    async def test_with_entities(self, graph_store):
+    async def test_with_entities(self, graph_store, gid):
         from engram.models.entity import Entity
         from engram.utils.dates import utc_now
 
         now = utc_now()
         for i in range(3):
             e = Entity(
-                id=f"e{i}",
+                id=f"e{i}_{gid}",
                 name=f"Entity{i}",
                 entity_type="Concept",
-                group_id="default",
+                group_id=gid,
                 created_at=now,
                 updated_at=now,
             )
             await graph_store.create_entity(e)
-        health = await compute_graph_health(graph_store, "default")
+        health = await compute_graph_health(graph_store, gid)
         assert health.entity_count == 3
 
     @pytest.mark.asyncio
-    async def test_with_evidence(self, graph_store):
+    async def test_with_evidence(self, graph_store, gid):
         from engram.models.episode import Episode
         from engram.utils.dates import utc_now
 
         ep = Episode(
-            id="ep_health",
+            id=f"ep_health_{gid}",
             content="Test.",
             source="test",
-            group_id="default",
+            group_id=gid,
             created_at=utc_now(),
         )
         await graph_store.create_episode(ep)
@@ -82,21 +90,21 @@ class TestComputeGraphHealth:
                 "created_at": "2026-03-09T00:00:00",
             },
         ]
-        await graph_store.store_evidence(evidence, group_id="default")
-        health = await compute_graph_health(graph_store, "default")
+        await graph_store.store_evidence(evidence, group_id=gid)
+        health = await compute_graph_health(graph_store, gid)
         assert health.deferred_evidence_count == 1
         assert health.evidence_commit_rate == 0.0
 
     @pytest.mark.asyncio
-    async def test_commit_rate(self, graph_store):
+    async def test_commit_rate(self, graph_store, gid):
         from engram.models.episode import Episode
         from engram.utils.dates import utc_now
 
         ep = Episode(
-            id="ep_rate",
+            id=f"ep_rate_{gid}",
             content="Test.",
             source="test",
-            group_id="default",
+            group_id=gid,
             created_at=utc_now(),
         )
         await graph_store.create_episode(ep)
@@ -105,7 +113,7 @@ class TestComputeGraphHealth:
         for i in range(4):
             evidence.append(
                 {
-                    "evidence_id": f"evi_rate_{i}",
+                    "evidence_id": f"evi_rate_{gid}_{i}",
                     "episode_id": "ep_rate",
                     "fact_class": "entity",
                     "confidence": 0.85,
@@ -116,33 +124,33 @@ class TestComputeGraphHealth:
                     "created_at": "2026-03-09T00:00:00",
                 },
             )
-        await graph_store.store_evidence(evidence, group_id="default")
+        await graph_store.store_evidence(evidence, group_id=gid)
         # Commit 2 of 4
         await graph_store.update_evidence_status(
-            "evi_rate_0",
+            f"evi_rate_{gid}_0",
             "committed",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.update_evidence_status(
-            "evi_rate_1",
+            f"evi_rate_{gid}_1",
             "committed",
-            group_id="default",
+            group_id=gid,
         )
 
-        health = await compute_graph_health(graph_store, "default")
+        health = await compute_graph_health(graph_store, gid)
         assert health.evidence_commit_rate == 0.5
         assert health.deferred_evidence_count == 2
 
     @pytest.mark.asyncio
-    async def test_approved_evidence_counts_as_unresolved(self, graph_store):
+    async def test_approved_evidence_counts_as_unresolved(self, graph_store, gid):
         from engram.models.episode import Episode
         from engram.utils.dates import utc_now
 
         ep = Episode(
-            id="ep_approved",
+            id=f"ep_approved_{gid}",
             content="Test.",
             source="test",
-            group_id="default",
+            group_id=gid,
             created_at=utc_now(),
         )
         await graph_store.create_episode(ep)
@@ -162,9 +170,9 @@ class TestComputeGraphHealth:
                     "created_at": "2026-03-09T00:00:00",
                 },
             ],
-            group_id="default",
+            group_id=gid,
             default_status="approved",
         )
 
-        health = await compute_graph_health(graph_store, "default")
+        health = await compute_graph_health(graph_store, gid)
         assert health.deferred_evidence_count == 1

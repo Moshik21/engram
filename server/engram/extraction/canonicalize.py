@@ -83,6 +83,15 @@ CANONICAL_MAP: dict[str, str] = {
     "DEPENDS_ON": "REQUIRES",
     "NEEDS": "REQUIRES",
     "BLOCKED_BY": "REQUIRES",
+    # Conditional / Causal links
+    "ALLOWS": "ENABLES",
+    "FACILITATES": "ENABLES",
+    "MAKES_POSSIBLE": "ENABLES",
+    "SUPPORTS": "ENABLES",
+    "BLOCKS": "PREVENTS",
+    "INHIBITS": "PREVENTS",
+    "STOPS": "PREVENTS",
+    "RESTRICTS": "PREVENTS",
     # Hierarchy / Containment
     "CONTAINS": "HAS_PART",
     "INCLUDES": "HAS_PART",

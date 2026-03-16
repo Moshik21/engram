@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from uuid import uuid4
 
 import pytest
 
@@ -90,22 +91,24 @@ class TestCommitDecision:
 
 @pytest.fixture
 async def graph_store():
-    """Create and initialize an in-memory SQLiteGraphStore."""
-    from engram.storage.sqlite.graph import SQLiteGraphStore
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
 
-    store = SQLiteGraphStore(":memory:")
+    """Create and initialize an in-memory SQLiteGraphStore."""
+
+    store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
     yield store
     await store.close()
 
 
 @pytest.fixture
-def sample_evidence():
+def sample_evidence(gid):
     """Sample evidence dicts for storage."""
     return [
         {
             "evidence_id": f"evi_{uuid.uuid4().hex[:12]}",
-            "episode_id": "ep_test_1",
+            "episode_id": f"ep_test_1_{gid}",
             "fact_class": "entity",
             "confidence": 0.85,
             "source_type": "narrow_extractor",
@@ -117,7 +120,7 @@ def sample_evidence():
         },
         {
             "evidence_id": f"evi_{uuid.uuid4().hex[:12]}",
-            "episode_id": "ep_test_1",
+            "episode_id": f"ep_test_1_{gid}",
             "fact_class": "relationship",
             "confidence": 0.72,
             "source_type": "narrow_extractor",
@@ -134,50 +137,59 @@ def sample_evidence():
 
 
 @pytest.fixture
-async def store_with_episode(graph_store):
+def gid():
+    return f"test_{uuid4().hex[:8]}"
+
+
+@pytest.fixture
+async def store_with_episode(graph_store, gid):
     """Graph store with a test episode already inserted."""
     from engram.models.episode import Episode
     from engram.utils.dates import utc_now
 
     ep = Episode(
-        id="ep_test_1",
+        id=f"ep_test_1_{gid}",
         content="My name is Alex. I work at Anthropic.",
         source="test",
-        group_id="default",
+        group_id=gid,
         created_at=utc_now(),
     )
     await graph_store.create_episode(ep)
-    return graph_store
+    return graph_store, gid
 
 
 class TestStoreEvidence:
     @pytest.mark.asyncio
     async def test_store_empty_list(self, store_with_episode):
-        await store_with_episode.store_evidence([], group_id="default")
+        store, gid = store_with_episode
+        await store.store_evidence([], group_id=gid)
 
     @pytest.mark.asyncio
-    async def test_store_and_retrieve(self, store_with_episode, sample_evidence):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
-        results = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+    async def test_store_and_retrieve(self, store_with_episode, sample_evidence, gid):
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
+        results = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         assert len(results) == 2
         # ordered by confidence DESC
         assert results[0]["confidence"] >= results[1]["confidence"]
 
     @pytest.mark.asyncio
-    async def test_pending_evidence(self, store_with_episode, sample_evidence):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+    async def test_pending_evidence(self, store_with_episode, sample_evidence, gid):
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
+        pending = await store.get_pending_evidence(group_id=gid)
         assert len(pending) == 2
         assert all(p["status"] == "pending" for p in pending)
 
     @pytest.mark.asyncio
-    async def test_pending_evidence_limit(self, store_with_episode, sample_evidence):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
-        pending = await store_with_episode.get_pending_evidence(
-            group_id="default",
+    async def test_pending_evidence_limit(self, store_with_episode, sample_evidence, gid):
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
+        pending = await store.get_pending_evidence(
+            group_id=gid,
             limit=1,
         )
         assert len(pending) == 1
@@ -187,14 +199,16 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
+        store, gid = store_with_episode
         deferred = [dict(sample_evidence[0], status="deferred", deferred_cycles=2)]
-        await store_with_episode.store_evidence(
+        await store.store_evidence(
             deferred,
-            group_id="default",
+            group_id=gid,
             default_status="deferred",
         )
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+        pending = await store.get_pending_evidence(group_id=gid)
         assert len(pending) == 1
         assert pending[0]["status"] == "deferred"
         assert pending[0]["deferred_cycles"] == 2
@@ -204,7 +218,9 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
+        store, gid = store_with_episode
         approved = [
             dict(
                 sample_evidence[0],
@@ -212,12 +228,12 @@ class TestStoreEvidence:
                 commit_reason="promoted_by_adjudication",
             ),
         ]
-        await store_with_episode.store_evidence(
+        await store.store_evidence(
             approved,
-            group_id="default",
+            group_id=gid,
             default_status="approved",
         )
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+        pending = await store.get_pending_evidence(group_id=gid)
         assert len(pending) == 1
         assert pending[0]["status"] == "approved"
         assert pending[0]["commit_reason"] == "promoted_by_adjudication"
@@ -227,7 +243,9 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
+        store, gid = store_with_episode
         superseded = [
             dict(
                 sample_evidence[0],
@@ -235,12 +253,12 @@ class TestStoreEvidence:
                 commit_reason="superseded_by_adjudication:adj_123",
             ),
         ]
-        await store_with_episode.store_evidence(
+        await store.store_evidence(
             superseded,
-            group_id="default",
+            group_id=gid,
             default_status="superseded",
         )
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+        pending = await store.get_pending_evidence(group_id=gid)
         assert pending == []
 
     @pytest.mark.asyncio
@@ -248,7 +266,9 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
+        store, gid = store_with_episode
         committed = [
             dict(
                 sample_evidence[0],
@@ -256,18 +276,18 @@ class TestStoreEvidence:
                 commit_reason="committed_on_hot_path",
             ),
         ]
-        await store_with_episode.store_evidence(
+        await store.store_evidence(
             committed,
-            group_id="default",
+            group_id=gid,
             default_status="committed",
         )
-        episode_rows = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+        episode_rows = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         assert episode_rows[0]["status"] == "committed"
         assert episode_rows[0]["resolved_at"] is not None
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+        pending = await store.get_pending_evidence(group_id=gid)
         assert pending == []
 
     @pytest.mark.asyncio
@@ -275,18 +295,20 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
         evi_id = sample_evidence[0]["evidence_id"]
-        await store_with_episode.update_evidence_status(
+        await store.update_evidence_status(
             evi_id,
             "committed",
             updates={"commit_reason": "high_confidence", "committed_id": "ent_123"},
-            group_id="default",
+            group_id=gid,
         )
-        results = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+        results = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         committed = [r for r in results if r["evidence_id"] == evi_id][0]
         assert committed["status"] == "committed"
@@ -299,18 +321,20 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
         evi_id = sample_evidence[0]["evidence_id"]
-        await store_with_episode.update_evidence_status(
+        await store.update_evidence_status(
             evi_id,
             "deferred",
             updates={"deferred_cycles": 1},
-            group_id="default",
+            group_id=gid,
         )
-        results = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+        results = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         deferred = [r for r in results if r["evidence_id"] == evi_id][0]
         assert deferred["status"] == "deferred"
@@ -323,15 +347,17 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
         evi_id = sample_evidence[0]["evidence_id"]
-        await store_with_episode.update_evidence_status(
+        await store.update_evidence_status(
             evi_id,
             "committed",
-            group_id="default",
+            group_id=gid,
         )
-        pending = await store_with_episode.get_pending_evidence(group_id="default")
+        pending = await store.get_pending_evidence(group_id=gid)
         assert len(pending) == 1
         assert pending[0]["evidence_id"] != evi_id
 
@@ -340,22 +366,25 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
         # INSERT OR IGNORE
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
-        results = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+        await store.store_evidence(sample_evidence, group_id=gid)
+        results = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         assert len(results) == 2
 
     @pytest.mark.asyncio
-    async def test_payload_roundtrip(self, store_with_episode, sample_evidence):
-        await store_with_episode.store_evidence(sample_evidence, group_id="default")
-        results = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+    async def test_payload_roundtrip(self, store_with_episode, sample_evidence, gid):
+        store, gid = store_with_episode
+        await store.store_evidence(sample_evidence, group_id=gid)
+        results = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         entity_ev = [r for r in results if r["fact_class"] == "entity"][0]
         assert entity_ev["payload"]["name"] == "Alex"
@@ -366,7 +395,9 @@ class TestStoreEvidence:
         self,
         store_with_episode,
         sample_evidence,
+        gid,
     ):
+        store, gid = store_with_episode
         rows = [
             dict(
                 sample_evidence[0],
@@ -377,10 +408,10 @@ class TestStoreEvidence:
                 commit_reason="needs_adjudication",
             ),
         ]
-        await store_with_episode.store_evidence(rows, group_id="default")
-        stored = await store_with_episode.get_episode_evidence(
-            "ep_test_1",
-            group_id="default",
+        await store.store_evidence(rows, group_id=gid)
+        stored = await store.get_episode_evidence(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
         assert stored[0]["ambiguity_tags"] == ["negation_scope"]
         assert stored[0]["ambiguity_score"] == 0.66
@@ -389,12 +420,14 @@ class TestStoreEvidence:
 
 class TestAdjudicationRequests:
     @pytest.mark.asyncio
-    async def test_store_and_fetch_requests(self, store_with_episode):
-        await store_with_episode.store_adjudication_requests(
+    async def test_store_and_fetch_requests(self, store_with_episode, gid):
+        store, gid = store_with_episode
+        adj_id = f"adj_{uuid4().hex[:8]}"
+        await store.store_adjudication_requests(
             [
                 {
-                    "request_id": "adj_123",
-                    "episode_id": "ep_test_1",
+                    "request_id": adj_id,
+                    "episode_id": f"ep_test_1_{gid}",
                     "ambiguity_tags": ["negation_scope"],
                     "evidence_ids": ["evi_1"],
                     "selected_text": "I work at Google, but maybe not anymore.",
@@ -402,34 +435,36 @@ class TestAdjudicationRequests:
                     "created_at": "2026-03-09T00:00:00",
                 },
             ],
-            group_id="default",
+            group_id=gid,
         )
 
-        episode_requests = await store_with_episode.get_episode_adjudications(
-            "ep_test_1",
-            group_id="default",
+        episode_requests = await store.get_episode_adjudications(
+            f"ep_test_1_{gid}",
+            group_id=gid,
         )
-        request = await store_with_episode.get_adjudication_request(
-            "adj_123",
-            group_id="default",
+        request = await store.get_adjudication_request(
+            adj_id,
+            group_id=gid,
         )
-        pending = await store_with_episode.get_pending_adjudication_requests(
-            group_id="default",
+        pending = await store.get_pending_adjudication_requests(
+            group_id=gid,
         )
 
         assert len(episode_requests) == 1
         assert request is not None
-        assert request["request_id"] == "adj_123"
+        assert request["request_id"] == adj_id
         assert request["ambiguity_tags"] == ["negation_scope"]
-        assert pending[0]["request_id"] == "adj_123"
+        assert pending[0]["request_id"] == adj_id
 
     @pytest.mark.asyncio
-    async def test_update_request_terminal_state(self, store_with_episode):
-        await store_with_episode.store_adjudication_requests(
+    async def test_update_request_terminal_state(self, store_with_episode, gid):
+        store, gid = store_with_episode
+        adj_id = f"adj_{uuid4().hex[:8]}"
+        await store.store_adjudication_requests(
             [
                 {
-                    "request_id": "adj_456",
-                    "episode_id": "ep_test_1",
+                    "request_id": adj_id,
+                    "episode_id": f"ep_test_1_{gid}",
                     "ambiguity_tags": ["coreference"],
                     "evidence_ids": ["evi_2"],
                     "selected_text": "She reminded me about the dentist.",
@@ -437,21 +472,21 @@ class TestAdjudicationRequests:
                     "created_at": "2026-03-09T00:00:00",
                 },
             ],
-            group_id="default",
+            group_id=gid,
         )
 
-        await store_with_episode.update_adjudication_request(
-            "adj_456",
+        await store.update_adjudication_request(
+            adj_id,
             {
                 "status": "materialized",
                 "resolution_source": "client_adjudication",
                 "resolution_payload": {"relationships": []},
             },
-            group_id="default",
+            group_id=gid,
         )
-        updated = await store_with_episode.get_adjudication_request(
-            "adj_456",
-            group_id="default",
+        updated = await store.get_adjudication_request(
+            adj_id,
+            group_id=gid,
         )
 
         assert updated is not None
@@ -462,35 +497,37 @@ class TestAdjudicationRequests:
 
 class TestGetEntityCount:
     @pytest.mark.asyncio
-    async def test_empty_group(self, graph_store):
-        count = await graph_store.get_entity_count(group_id="default")
+    async def test_empty_group(self, graph_store, gid):
+        count = await graph_store.get_entity_count(group_id=gid)
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_count_excludes_deleted(self, graph_store):
+    async def test_count_excludes_deleted(self, graph_store, gid):
         from engram.models.entity import Entity
         from engram.utils.dates import utc_now
 
         now = utc_now()
+        e1_id = f"e1_{gid}"
+        e2_id = f"e2_{gid}"
         e1 = Entity(
-            id="e1",
+            id=e1_id,
             name="Alice",
             entity_type="Person",
-            group_id="default",
+            group_id=gid,
             created_at=now,
             updated_at=now,
         )
         e2 = Entity(
-            id="e2",
+            id=e2_id,
             name="Bob",
             entity_type="Person",
-            group_id="default",
+            group_id=gid,
             created_at=now,
             updated_at=now,
         )
         await graph_store.create_entity(e1)
         await graph_store.create_entity(e2)
         # Soft-delete e2
-        await graph_store.delete_entity("e2", soft=True, group_id="default")
-        count = await graph_store.get_entity_count(group_id="default")
+        await graph_store.delete_entity(e2_id, soft=True, group_id=gid)
+        count = await graph_store.get_entity_count(group_id=gid)
         assert count == 1

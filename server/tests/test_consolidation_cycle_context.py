@@ -2,23 +2,29 @@
 
 from __future__ import annotations
 
+import socket
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 
-from engram.config import ActivationConfig
+from engram.config import ActivationConfig, HelixDBConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.phases.compact import AccessHistoryCompactionPhase
 from engram.consolidation.phases.infer import EdgeInferencePhase
 from engram.consolidation.phases.merge import EntityMergePhase
 from engram.consolidation.phases.prune import PrunePhase
-from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
 from engram.models.consolidation import CycleContext
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
 
 
 class TestCycleContextDefaults:
@@ -180,28 +186,51 @@ class TestPrunePopulatesContext:
         assert "ent_dead" not in ctx.affected_entity_ids
 
 
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
+@pytest.mark.requires_helix
 class TestEnginePhaseOrder:
     @pytest_asyncio.fixture
-    async def store(self, tmp_path):
-        s = SQLiteGraphStore(str(tmp_path / "test.db"))
+    async def store(self):
+        from engram.storage.helix.graph import HelixGraphStore
+
+        cfg = HelixDBConfig(host="localhost", port=6969)
+        s = HelixGraphStore(cfg)
         await s.initialize()
         yield s
         await s.close()
 
     @pytest_asyncio.fixture
-    async def search(self, store):
-        idx = FTS5SearchIndex(store._db_path)
-        await idx.initialize(db=store._db)
-        return idx
+    async def search(self):
+        from engram.config import EmbeddingConfig
+        from engram.embeddings.provider import NoopProvider
+        from engram.storage.helix.search import HelixSearchIndex
+
+        cfg = HelixDBConfig(host="localhost", port=6969)
+        provider = NoopProvider()
+        embed_config = EmbeddingConfig()
+        idx = HelixSearchIndex(
+            helix_config=cfg,
+            provider=provider,
+            embed_config=embed_config,
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
+        await idx.initialize()
+        yield idx
+        await idx.close()
 
     @pytest_asyncio.fixture
     async def activation(self):
         return MemoryActivationStore(cfg=ActivationConfig())
 
     @pytest_asyncio.fixture
-    async def consol_store(self, store):
-        s = SQLiteConsolidationStore(store._db_path)
-        await s.initialize(db=store._db)
+    async def consol_store(self):
+        from engram.storage.helix.consolidation import HelixConsolidationStore
+
+        cfg = HelixDBConfig(host="localhost", port=6969)
+        s = HelixConsolidationStore(cfg)
+        await s.initialize()
         return s
 
     @pytest_asyncio.fixture

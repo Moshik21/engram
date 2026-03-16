@@ -16,7 +16,11 @@ CREATE TABLE IF NOT EXISTS entities (
     last_accessed   TEXT,
     lexical_regime  TEXT,
     canonical_identifier TEXT,
-    identifier_label INTEGER NOT NULL DEFAULT 0
+    identifier_label INTEGER NOT NULL DEFAULT 0,
+    source_episode_ids TEXT DEFAULT '[]',
+    evidence_count INTEGER DEFAULT 0,
+    evidence_span_start TEXT,
+    evidence_span_end TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name);
@@ -58,7 +62,8 @@ CREATE TABLE IF NOT EXISTS episodes (
     entity_coverage REAL DEFAULT 0.0,
     projection_state TEXT DEFAULT 'queued',
     last_projection_reason TEXT,
-    last_projected_at TEXT
+    last_projected_at TEXT,
+    attachments_json TEXT DEFAULT '[]'
 );
 
 CREATE INDEX IF NOT EXISTS idx_episodes_group ON episodes(group_id);

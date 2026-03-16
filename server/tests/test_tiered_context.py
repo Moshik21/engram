@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import time
 from pathlib import Path
 
@@ -13,9 +14,22 @@ from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
 from tests.conftest import MockExtractor
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
+
 
 GROUP = "test_group"
 
@@ -45,13 +59,26 @@ def _rel(rid, src, tgt, pred, vf):
 
 @pytest_asyncio.fixture
 async def tiered_manager(tmp_path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """GraphManager with identity core + regular entities for tiered context testing."""
-    db_path = str(tmp_path / "tiered_test.db")
-    gs = SQLiteGraphStore(db_path)
+    gs = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await gs.initialize()
     acts = MemoryActivationStore(cfg=ActivationConfig())
-    si = FTS5SearchIndex(db_path)
-    await si.initialize(db=gs._db)
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    si = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=0,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    await si.initialize()
 
     entities = [
         _entity("ent_alex", "Alex", "Person", "Software engineer"),
@@ -140,6 +167,7 @@ class TestTieredSections:
 class TestBriefingFormat:
     @pytest.mark.asyncio
     async def test_briefing_format(self, tiered_manager):
+
         """Briefing format uses template-based rendering (no LLM call)."""
         result = await tiered_manager.get_context(
             group_id=GROUP,
@@ -151,6 +179,7 @@ class TestBriefingFormat:
 
     @pytest.mark.asyncio
     async def test_briefing_cache_hit(self, tiered_manager):
+
         """Second briefing call uses cache."""
         r1 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
         r2 = await tiered_manager.get_context(group_id=GROUP, format="briefing")
@@ -161,6 +190,7 @@ class TestBriefingFormat:
 
     @pytest.mark.asyncio
     async def test_briefing_cache_invalidation(self, tiered_manager):
+
         """invalidate_briefing_cache() clears cache entries."""
         tiered_manager._briefing_cache[("test_group", None)] = (time.time(), "old")
         tiered_manager.invalidate_briefing_cache("test_group")
@@ -168,6 +198,7 @@ class TestBriefingFormat:
 
     @pytest.mark.asyncio
     async def test_briefing_fallback_on_empty(self, tiered_manager):
+
         """Template briefing with no tier data falls back to structured context."""
         result = await tiered_manager.get_context(
             group_id=GROUP,
@@ -179,6 +210,7 @@ class TestBriefingFormat:
 
     @pytest.mark.asyncio
     async def test_briefing_disabled_config(self, tiered_manager):
+
         """briefing_enabled=False returns structured even when format='briefing'."""
         tiered_manager._cfg.briefing_enabled = False
         result = await tiered_manager.get_context(
@@ -189,13 +221,26 @@ class TestBriefingFormat:
 
     @pytest.mark.asyncio
     async def test_get_context_empty_graph(self, tmp_path):
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.graph import HelixGraphStore
+
         """Empty graph returns valid context with zero counts."""
-        db_path = str(tmp_path / "empty.db")
-        gs = SQLiteGraphStore(db_path)
+        gs = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await gs.initialize()
         acts = MemoryActivationStore(cfg=ActivationConfig())
-        si = FTS5SearchIndex(db_path)
-        await si.initialize(db=gs._db)
+        from engram.config import EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
+        from engram.storage.helix.search import HelixSearchIndex
+
+        si = HelixSearchIndex(
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
+        await si.initialize()
         mgr = GraphManager(gs, acts, si, MockExtractor())
 
         result = await mgr.get_context(group_id="empty")

@@ -852,6 +852,39 @@ class EntityMergePhase(ConsolidationPhase):
                         surv_state.consolidated_strength += loser_state.consolidated_strength
                         await activation_store.set_activation(survivor.id, surv_state)
 
+                    # Merge provenance (source episode tracking)
+                    surv_sources = set(survivor.source_episode_ids or [])
+                    loser_sources = set(loser.source_episode_ids or [])
+                    merged_sources = sorted(surv_sources | loser_sources)
+                    provenance_updates: dict[str, object] = {
+                        "source_episode_ids": json.dumps(merged_sources),
+                        "evidence_count": len(merged_sources),
+                    }
+                    # Min/max evidence span
+                    spans = [
+                        dt
+                        for dt in [
+                            survivor.evidence_span_start,
+                            loser.evidence_span_start,
+                        ]
+                        if dt is not None
+                    ]
+                    if spans:
+                        provenance_updates["evidence_span_start"] = min(spans).isoformat()
+                    spans_end = [
+                        dt
+                        for dt in [
+                            survivor.evidence_span_end,
+                            loser.evidence_span_end,
+                        ]
+                        if dt is not None
+                    ]
+                    if spans_end:
+                        provenance_updates["evidence_span_end"] = max(spans_end).isoformat()
+                    await graph_store.update_entity(
+                        survivor.id, provenance_updates, group_id
+                    )
+
                     # Clean up loser from activation + search
                     await activation_store.clear_activation(loser.id)
                     await search_index.remove(loser.id)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from unittest.mock import AsyncMock
 
 import pytest
@@ -67,149 +65,65 @@ class TestEpisodeRetrievalConfig:
         assert cfg.episode_retrieval_max == 5
 
 
-# ── FTS5 search_episodes tests ──────────────────────────────────────
+# ── HelixSearchIndex search_episodes tests ──────────────────────────
 
 
-class TestFTS5SearchEpisodes:
+class TestHelixSearchEpisodes:
     @pytest.mark.asyncio
     async def test_search_episodes_returns_results(self):
-        """FTS5SearchIndex.search_episodes returns results from episodes_fts."""
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
+        """HelixSearchIndex.search_episodes returns episode results."""
+        from engram.config import EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test.db")
-            graph = SQLiteGraphStore(db_path)
-            await graph.initialize()
+        graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
+        await graph.initialize()
+        search = HelixSearchIndex(
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
+        await search.initialize()
 
-            fts = FTS5SearchIndex(db_path)
-            await fts.initialize(db=graph.db)
-
-            # Create an episode
-            ep = Episode(
-                id="ep_test1",
-                content="Alice works at TechCorp on machine learning projects",
-                source="test",
-                status=EpisodeStatus.COMPLETED,
-                group_id="default",
-                created_at=utc_now(),
-            )
-            await graph.create_episode(ep)
-
-            results = await fts.search_episodes("machine learning", group_id="default")
-            assert len(results) >= 1
-            assert results[0][0] == "ep_test1"
-            assert 0.0 <= results[0][1] <= 1.0
-
-            await graph.close()
-
-    @pytest.mark.asyncio
-    async def test_search_episodes_excludes_merged_results(self):
-        """FTS5SearchIndex.search_episodes suppresses merged-away episodes."""
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test.db")
-            graph = SQLiteGraphStore(db_path)
-            await graph.initialize()
-
-            fts = FTS5SearchIndex(db_path)
-            await fts.initialize(db=graph.db)
-
-            await graph.create_episode(
-                Episode(
-                    id="ep_active",
-                    content="Spreading activation in cognitive science",
-                    source="test",
-                    status=EpisodeStatus.COMPLETED,
-                    projection_state=EpisodeProjectionState.CUE_ONLY,
-                    group_id="default",
-                    created_at=utc_now(),
-                )
-            )
-            await graph.create_episode(
-                Episode(
-                    id="ep_merged",
-                    content="Spreading activation in cognitive science",
-                    source="test",
-                    status=EpisodeStatus.COMPLETED,
-                    projection_state=EpisodeProjectionState.MERGED,
-                    group_id="default",
-                    created_at=utc_now(),
-                )
-            )
-
-            results = await fts.search_episodes(
-                "cognitive science",
-                group_id="default",
-            )
-
-            assert [episode_id for episode_id, _ in results] == ["ep_active"]
-
-            await graph.close()
+        ep = Episode(
+            id="ep_test1",
+            content="Alice works at TechCorp on machine learning projects",
+            source="test",
+            status=EpisodeStatus.COMPLETED,
+            group_id="default",
+            created_at=utc_now(),
+        )
+        await graph.create_episode(ep)
+        results = await search.search_episodes("machine learning", group_id="default")
+        assert len(results) >= 1
+        assert results[0][0] == "ep_test1"
+        assert 0.0 <= results[0][1] <= 1.0
+        await graph.close()
+        await search.close()
 
     @pytest.mark.asyncio
     async def test_search_episodes_empty_query(self):
-        """FTS5SearchIndex.search_episodes handles empty query."""
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test.db")
-            from engram.storage.sqlite.graph import SQLiteGraphStore
-
-            graph = SQLiteGraphStore(db_path)
-            await graph.initialize()
-
-            fts = FTS5SearchIndex(db_path)
-            await fts.initialize(db=graph.db)
-
-            results = await fts.search_episodes("", group_id="default")
-            assert results == []
-
-            await graph.close()
-
-
-# ── HybridSearchIndex search_episodes tests ─────────────────────────
-
-
-class TestHybridSearchEpisodes:
-    @pytest.mark.asyncio
-    async def test_search_episodes_fts_fallback(self):
-        """HybridSearchIndex.search_episodes falls back to FTS5 when no embeddings."""
+        """HelixSearchIndex.search_episodes handles empty query."""
+        from engram.config import EmbeddingConfig, HelixDBConfig
         from engram.embeddings.provider import NoopProvider
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.hybrid_search import HybridSearchIndex
-        from engram.storage.sqlite.search import FTS5SearchIndex
-        from engram.storage.sqlite.vectors import SQLiteVectorStore
+        from engram.storage.helix.search import HelixSearchIndex
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test.db")
-            graph = SQLiteGraphStore(db_path)
-            await graph.initialize()
-
-            fts = FTS5SearchIndex(db_path)
-            vectors = SQLiteVectorStore(db_path)
-            provider = NoopProvider()
-            hybrid = HybridSearchIndex(fts, vectors, provider)
-            await hybrid.initialize(db=graph.db)
-
-            # Create episodes
-            ep = Episode(
-                id="ep_hybrid1",
-                content="Bob researches quantum computing algorithms",
-                source="test",
-                status=EpisodeStatus.COMPLETED,
-                group_id="default",
-                created_at=utc_now(),
-            )
-            await graph.create_episode(ep)
-
-            results = await hybrid.search_episodes("quantum computing", group_id="default")
-            assert len(results) >= 1
-            assert results[0][0] == "ep_hybrid1"
-
-            await graph.close()
+        search = HelixSearchIndex(
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
+        await search.initialize()
+        results = await search.search_episodes("", group_id="default")
+        assert results == []
+        await search.close()
 
 
 # ── Pipeline episode tests ──────────────────────────────────────────

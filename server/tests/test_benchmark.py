@@ -15,8 +15,6 @@ from engram.config import ActivationConfig
 from engram.extraction.extractor import ExtractionResult
 from engram.graph_manager import GraphManager
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
 
 
 class MockBenchExtractor:
@@ -34,14 +32,27 @@ class MockBenchExtractor:
 
 @pytest_asyncio.fixture
 async def benchmark_env(tmp_path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """Create a fully initialized benchmark environment."""
-    db_path = str(tmp_path / "bench.db")
     cfg = ActivationConfig()
-    graph_store = SQLiteGraphStore(db_path)
+    graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await graph_store.initialize()
     activation_store = MemoryActivationStore(cfg=cfg)
-    search_index = FTS5SearchIndex(db_path)
-    await search_index.initialize(db=graph_store._db)
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    search_index = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=0,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    await search_index.initialize()
 
     yield graph_store, activation_store, search_index, cfg
 

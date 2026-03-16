@@ -1,7 +1,9 @@
 """Tests for retrieval method configs and run_retrieval wrapper."""
 
+import socket
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 
 from engram.benchmark.corpus import CorpusGenerator
@@ -13,8 +15,20 @@ from engram.benchmark.methods import (
 )
 from engram.config import ActivationConfig
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 def test_method_configs_valid():
@@ -35,13 +49,26 @@ _small_corpus = CorpusGenerator(seed=99).generate()
 
 @pytest_asyncio.fixture
 async def benchmark_stores(tmp_path: Path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """Create stores loaded with a small benchmark corpus."""
-    db_path = str(tmp_path / "bench.db")
-    graph_store = SQLiteGraphStore(db_path)
+    graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await graph_store.initialize()
     activation_store = MemoryActivationStore(cfg=ActivationConfig())
-    search_index = FTS5SearchIndex(db_path)
-    await search_index.initialize(db=graph_store._db)
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    search_index = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=0,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    await search_index.initialize()
 
     gen = CorpusGenerator(seed=99)
     await gen.load(_small_corpus, graph_store, activation_store, search_index)

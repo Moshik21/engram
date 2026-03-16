@@ -10,6 +10,7 @@ from engram.embeddings.provider import EmbeddingProvider, truncate_vectors
 from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.episode_cue import EpisodeCue
+from engram.utils.attachments import get_first_image_attachment
 
 logger = logging.getLogger(__name__)
 
@@ -158,19 +159,42 @@ class RedisSearchIndex:
             logger.warning("Failed to index entity %s: %s", entity.id, e)
 
     async def index_episode(self, episode: Episode) -> None:
-        """Embed and index an episode."""
+        """Embed and index an episode.
+
+        When the episode has image attachments and the provider supports
+        multimodal embedding, the first image is embedded together with
+        the text for a richer representation.
+        """
         if not self._embeddings_enabled or not episode.content:
             return
 
         try:
-            embeddings = await self._provider.embed([episode.content])
-            if not embeddings:
-                return
-            if self._storage_dim > 0:
-                embeddings = truncate_vectors(embeddings, self._storage_dim)
+            embedding: list[float] | None = None
+
+            # Try multimodal embedding for episodes with image attachments
+            if episode.attachments and hasattr(self._provider, "embed_multimodal"):
+                image_data = get_first_image_attachment(episode.attachments)
+                if image_data is not None:
+                    image_bytes, image_mime = image_data
+                    embedding = await self._provider.embed_multimodal(
+                        text=episode.content,
+                        image_bytes=image_bytes,
+                        image_mime=image_mime,
+                    )
+                    if embedding and self._storage_dim > 0:
+                        embedding = truncate_vectors([embedding], self._storage_dim)[0]
+
+            # Fall back to text-only embedding
+            if not embedding:
+                embeddings = await self._provider.embed([episode.content])
+                if not embeddings:
+                    return
+                embedding = embeddings[0]
+                if self._storage_dim > 0:
+                    embedding = truncate_vectors([embedding], self._storage_dim)[0]
 
             key = self._hash_key(episode.group_id, "episode", episode.id)
-            vec_bytes = pack_vector(embeddings[0])
+            vec_bytes = pack_vector(embedding)
             created_ts = episode.created_at.timestamp() if episode.created_at else 0.0
 
             await self._redis.hset(

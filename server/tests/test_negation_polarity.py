@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 from datetime import datetime
 
 import pytest
@@ -9,13 +10,29 @@ import pytest_asyncio
 
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
-from engram.storage.sqlite.graph import SQLiteGraphStore
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 @pytest_asyncio.fixture
 async def graph_store(tmp_path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """Create and initialize a SQLite graph store."""
-    store = SQLiteGraphStore(str(tmp_path / "test_polarity.db"))
+    store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
     yield store
     await store.close()
@@ -95,6 +112,8 @@ def test_relationship_polarity_uncertain():
 @pytest.mark.asyncio
 async def test_polarity_column_exists(graph_store):
     """Migration adds polarity column to relationships table."""
+    if not hasattr(graph_store, "db"):
+        pytest.skip("SQLite-only test (PRAGMA)")
     cursor = await graph_store.db.execute("PRAGMA table_info(relationships)")
     columns = {row[1] for row in await cursor.fetchall()}
     assert "polarity" in columns
@@ -163,6 +182,8 @@ async def test_create_uncertain_relationship(graph_store, seed_entities):
 @pytest.mark.asyncio
 async def test_existing_relationships_default_positive(graph_store, seed_entities):
     """Relationships without explicit polarity default to 'positive'."""
+    if not hasattr(graph_store, "db"):
+        pytest.skip("SQLite-only test (direct SQL insert)")
     # Insert directly without polarity column to simulate legacy data
     await graph_store.db.execute(
         """INSERT INTO relationships

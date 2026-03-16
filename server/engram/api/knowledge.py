@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store, get_manager
 from engram.events.bus import get_event_bus
+from engram.models.episode import Attachment
 from engram.models.recall import MemoryNeed, MemoryPacket
 from engram.retrieval.context import ConversationContext, ConversationFingerprinter
 from engram.retrieval.control import RecallNeedThresholds
@@ -142,6 +143,20 @@ class AutoObserveBody(BaseModel):
     role: str = "user"
     session_id: str | None = None
     conversation_date: str | None = None
+
+
+class ObserveImageRequest(BaseModel):
+    image_data: str  # base64 encoded
+    mime_type: str = "image/png"
+    description: str = ""
+    source: str = "api"
+
+
+class ObserveFileRequest(BaseModel):
+    file_data: str  # base64 encoded
+    mime_type: str  # required
+    description: str = ""
+    source: str = "api"
 
 
 class RememberBody(BaseModel):
@@ -378,6 +393,50 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
     )
 
     return JSONResponse(content={"status": "observed", "episodeId": episode_id})
+
+
+@router.post("/observe-image")
+async def observe_image(request: Request, body: ObserveImageRequest) -> JSONResponse:
+    """Store an image observation without extraction (fast path)."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+
+    attachment = Attachment(
+        mime_type=body.mime_type,
+        data_url=body.image_data,
+        description=body.description,
+    )
+    episode_id = await manager.store_episode(
+        content=body.description or f"[image: {body.mime_type}]",
+        group_id=group_id,
+        source=body.source,
+        attachments=[attachment],
+    )
+
+    return JSONResponse(content={"episode_id": episode_id, "status": "stored"})
+
+
+@router.post("/observe-file")
+async def observe_file(request: Request, body: ObserveFileRequest) -> JSONResponse:
+    """Store a file observation without extraction (fast path)."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+
+    attachment = Attachment(
+        mime_type=body.mime_type,
+        data_url=body.file_data,
+        description=body.description,
+    )
+    episode_id = await manager.store_episode(
+        content=body.description or f"[file: {body.mime_type}]",
+        group_id=group_id,
+        source=body.source,
+        attachments=[attachment],
+    )
+
+    return JSONResponse(content={"episode_id": episode_id, "status": "stored"})
 
 
 @router.post("/replay-queue")

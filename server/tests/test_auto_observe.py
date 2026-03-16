@@ -7,6 +7,7 @@ import inspect
 import json
 import time
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -18,12 +19,15 @@ from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
 from engram.models.episode import EpisodeProjectionState
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
 from engram.worker import EpisodeWorker, _PendingEpisode
 from tests.conftest import MockExtractor
 
-GROUP = "test_group"
+# GROUP is now generated per-test via gid fixture
+
+@pytest.fixture
+def gid():
+    return f"test_{uuid4().hex[:8]}"
+
 
 _HOOK_NAMES = (
     "capture-prompt.sh",
@@ -148,13 +152,26 @@ async def test_auto_observe_short_content_skipped(api_client):
 
 @pytest_asyncio.fixture
 async def worker_setup(tmp_path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """Set up worker with graph store for testing."""
-    db_path = str(tmp_path / "worker_test.db")
-    graph_store = SQLiteGraphStore(db_path)
+    graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await graph_store.initialize()
     activation_store = MemoryActivationStore(cfg=ActivationConfig())
-    search_index = FTS5SearchIndex(db_path)
-    await search_index.initialize(db=graph_store._db)
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    search_index = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=0,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    await search_index.initialize()
 
     cfg = ActivationConfig()
     cfg.triage_enabled = True
@@ -177,7 +194,7 @@ async def worker_setup(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_worker_full_content_fetch(worker_setup):
+async def test_worker_full_content_fetch(worker_setup, gid):
     """Worker fetches full episode content for auto: sources."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup
 
@@ -187,7 +204,7 @@ async def test_worker_full_content_fetch(worker_setup):
     )
     episode_id = await mgr.store_episode(
         content=full_content,
-        group_id=GROUP,
+        group_id=gid,
         source="auto:prompt",
         session_id="sess-456",
     )
@@ -207,7 +224,7 @@ async def test_worker_full_content_fetch(worker_setup):
     worker._queue = asyncio.Queue()
     await worker._queue.put(event)
 
-    task = asyncio.create_task(worker._consume(GROUP))
+    task = asyncio.create_task(worker._consume(gid))
     await asyncio.sleep(0.1)
     task.cancel()
     try:
@@ -220,19 +237,19 @@ async def test_worker_full_content_fetch(worker_setup):
 
 
 @pytest.mark.asyncio
-async def test_turn_batching(worker_setup):
+async def test_turn_batching(worker_setup, gid):
     """Adjacent auto turns within window are merged into one episode."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup
 
     ep1 = await mgr.store_episode(
         content="[user|Engram] What is spreading activation?",
-        group_id=GROUP,
+        group_id=gid,
         source="auto:prompt",
     )
     ep2_content = "[assistant|Engram] Spreading activation is a method used in cognitive science"
     ep2 = await mgr.store_episode(
         content=ep2_content,
-        group_id=GROUP,
+        group_id=gid,
         source="auto:response",
     )
 
@@ -245,19 +262,19 @@ async def test_turn_batching(worker_setup):
         _PendingEpisode(ep2, ep2_content, "auto:response"),
     ]
 
-    await worker._flush_batch(GROUP)
+    await worker._flush_batch(gid)
 
-    primary = await graph_store.get_episode_by_id(ep1, GROUP)
+    primary = await graph_store.get_episode_by_id(ep1, gid)
     assert primary is not None
     assert "What is spreading activation?" in primary.content
     assert "Spreading activation is a method" in primary.content
 
-    secondary = await graph_store.get_episode_by_id(ep2, GROUP)
+    secondary = await graph_store.get_episode_by_id(ep2, gid)
     assert secondary is not None
 
 
 @pytest.mark.asyncio
-async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_setup):
+async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_setup, gid):
     """Batch merge rebuilds the surviving cue and suppresses merged-away cue recall."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup
     cfg.cue_layer_enabled = True
@@ -269,17 +286,17 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
     ep1_content = "[user|Engram] What is spreading activation?"
     ep1 = await mgr.store_episode(
         content=ep1_content,
-        group_id=GROUP,
+        group_id=gid,
         source="auto:prompt",
     )
     ep2_content = "[assistant|Engram] Spreading activation is a method used in cognitive science"
     ep2 = await mgr.store_episode(
         content=ep2_content,
-        group_id=GROUP,
+        group_id=gid,
         source="auto:response",
     )
 
-    primary_cue_before = await graph_store.get_episode_cue(ep1, GROUP)
+    primary_cue_before = await graph_store.get_episode_cue(ep1, gid)
     assert primary_cue_before is not None
     assert "cognitive science" not in primary_cue_before.cue_text
 
@@ -288,12 +305,12 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
         _PendingEpisode(ep2, ep2_content, "auto:response"),
     ]
 
-    await worker._flush_batch(GROUP)
+    await worker._flush_batch(gid)
 
-    primary = await graph_store.get_episode_by_id(ep1, GROUP)
-    primary_cue = await graph_store.get_episode_cue(ep1, GROUP)
-    secondary = await graph_store.get_episode_by_id(ep2, GROUP)
-    secondary_cue = await graph_store.get_episode_cue(ep2, GROUP)
+    primary = await graph_store.get_episode_by_id(ep1, gid)
+    primary_cue = await graph_store.get_episode_cue(ep1, gid)
+    secondary = await graph_store.get_episode_by_id(ep2, gid)
+    secondary_cue = await graph_store.get_episode_cue(ep2, gid)
 
     assert primary is not None
     assert primary_cue is not None
@@ -306,19 +323,19 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
     assert secondary.last_projection_reason == f"merged_into:{ep1}"
     assert secondary_cue is None
 
-    results = await mgr._search.search_episode_cues("cognitive science", group_id=GROUP)
+    results = await mgr._search.search_episode_cues("cognitive science", group_id=gid)
     assert [episode_id for episode_id, _ in results] == [ep1]
 
-    raw_results = await mgr._search.search_episodes("cognitive science", group_id=GROUP)
+    raw_results = await mgr._search.search_episodes("cognitive science", group_id=gid)
     assert ep2 not in {episode_id for episode_id, _ in raw_results}
 
-    recall_results = await mgr.recall("cognitive science", group_id=GROUP, limit=5)
+    recall_results = await mgr.recall("cognitive science", group_id=gid, limit=5)
     recalled_episode_ids = {
         result["episode"]["id"] for result in recall_results if "episode" in result
     }
     assert ep1 in recalled_episode_ids
     assert ep2 not in recalled_episode_ids
-    worker._process.assert_awaited_once_with(ep1, GROUP)
+    worker._process.assert_awaited_once_with(ep1, gid)
 
 
 # ── Setup/Hooks Tests ───────────────────────────────────────────────

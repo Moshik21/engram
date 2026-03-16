@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+
 def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
     p = Path(path)
     if not p.exists():
@@ -52,7 +53,7 @@ def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
         print(f"\n  Category accuracy (official): {100*cat_acc:.1f}%")
 
     # Recent results
-    print(f"\n  Last 5 results:")
+    print("\n  Last 5 results:")
     for i in instances[-5:]:
         mark = "✓" if i["correct"] else "✗"
         print(f"    {mark} {i['question_id'][:12]:<14} {i['question_type']}")

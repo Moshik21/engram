@@ -1,0 +1,15 @@
+{
+    "vector_config": {
+        "m": 16,
+        "ef_construction": 200,
+        "ef_search": 512,
+        "db_max_size": 50
+    },
+    "graph_config": {
+        "secondary_indices": []
+    },
+    "db_max_size_gb": 50,
+    "mcp": false,
+    "bm25": true,
+    "embedding_model": "gemini:gemini-embedding-2-preview:RETRIEVAL_DOCUMENT"
+}

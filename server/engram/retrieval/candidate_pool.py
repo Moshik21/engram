@@ -1,10 +1,11 @@
-"""Multi-pool candidate generation: search + activation + graph + working memory."""
+"""Multi-pool candidate generation: search + activation + graph + working memory + entity query."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import math
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -206,6 +207,167 @@ async def _working_memory_pool(
         return []
 
 
+# ---------------------------------------------------------------------------
+# Entity name patterns for query extraction
+# ---------------------------------------------------------------------------
+
+# Consecutive capitalized words (e.g., "Kansas City Masterpiece", "Dell XPS 13")
+_TITLE_CASE_PHRASE = re.compile(
+    r"\b[A-Z][a-z]+(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,}|\d+)){1,4}\b"
+)
+# Single capitalized word that isn't sentence-initial (e.g., "Instagram")
+_SINGLE_CAP_WORD = re.compile(r"(?<!\.\s)(?<!^)\b[A-Z][a-z]{2,}\b")
+# Quoted strings
+_QUOTED_STRING = re.compile(r'"([^"]{2,})"')
+# Words after "my" or "the" (possessive/definite references)
+_POSSESSIVE_NOUN = re.compile(
+    r"\b(?:my|the)\s+([a-zA-Z][a-zA-Z0-9 ]{1,30}?)"
+    r"(?:\s+(?:is|was|are|were|do|does|did|has|have|had|that|which|who)\b"
+    r"|[?.!,;]|$)",
+    re.IGNORECASE,
+)
+# Common stop words to filter out
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "my", "your", "his", "her", "its", "our", "their",
+    "is", "was", "are", "were", "be", "been", "being",
+    "do", "does", "did", "have", "has", "had",
+    "will", "would", "shall", "should", "can", "could", "may", "might",
+    "what", "which", "who", "whom", "whose", "where", "when", "why", "how",
+    "that", "this", "these", "those", "it", "they", "them", "we", "you",
+    "i", "me", "he", "she", "and", "or", "but", "not", "no", "if",
+    "about", "with", "from", "for", "on", "in", "at", "to", "of", "by",
+    "all", "some", "any", "most", "many", "much", "few", "more", "less",
+    "very", "just", "also", "too", "so", "than", "then", "now",
+    "like", "know", "think", "want", "need", "use", "tell", "say",
+    "favorite", "favourite", "prefer", "preferred", "best", "worst",
+})
+
+
+def _extract_entity_names_from_query(query: str) -> list[str]:
+    """Extract potential entity names from a query using simple heuristics.
+
+    Returns deduplicated candidate names ordered by extraction confidence:
+    1. Quoted strings (highest confidence)
+    2. Title-case phrases (multi-word capitalized sequences)
+    3. Single capitalized words (not sentence-initial)
+    4. Noun phrases after "my"/"the" (possessive/definite references)
+    """
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def _add(name: str) -> None:
+        cleaned = name.strip().strip("?!.,;:'\"")
+        key = cleaned.lower()
+        if len(key) < 2 or key in seen or key in _STOP_WORDS:
+            return
+        # Skip if every word is a stop word
+        words = key.split()
+        if all(w in _STOP_WORDS for w in words):
+            return
+        seen.add(key)
+        candidates.append(cleaned)
+
+    # 1. Quoted strings (highest confidence)
+    for match in _QUOTED_STRING.finditer(query):
+        _add(match.group(1))
+
+    # 2. Title-case phrases (multi-word capitalized sequences)
+    for match in _TITLE_CASE_PHRASE.finditer(query):
+        _add(match.group(0))
+
+    # 3. Single capitalized words (not sentence-initial)
+    for match in _SINGLE_CAP_WORD.finditer(query):
+        _add(match.group(0))
+
+    # 4. Noun phrases after "my"/"the"
+    for match in _POSSESSIVE_NOUN.finditer(query):
+        phrase = match.group(1).strip()
+        # Take only meaningful words, drop trailing stop words
+        words = phrase.split()
+        while words and words[-1].lower() in _STOP_WORDS:
+            words.pop()
+        if words:
+            _add(" ".join(words))
+
+    return candidates
+
+
+def _name_match_score(query_name: str, entity_name: str) -> float:
+    """Score how well a query-extracted name matches an entity name.
+
+    Returns a score in [0.0, 1.0] reflecting match quality.
+    """
+    q = query_name.lower().strip()
+    e = entity_name.lower().strip()
+    if not q or not e:
+        return 0.0
+    # Exact match
+    if q == e:
+        return 1.0
+    # One contains the other
+    if q in e or e in q:
+        shorter = min(len(q), len(e))
+        longer = max(len(q), len(e))
+        return 0.6 + 0.3 * (shorter / longer)
+    # Token overlap
+    q_tokens = set(q.split())
+    e_tokens = set(e.split())
+    if q_tokens and e_tokens:
+        overlap = len(q_tokens & e_tokens)
+        if overlap > 0:
+            precision = overlap / len(q_tokens)
+            recall = overlap / len(e_tokens)
+            return 0.4 + 0.3 * (2 * precision * recall / (precision + recall))
+    return 0.0
+
+
+async def _entity_query_pool(
+    query: str,
+    group_id: str,
+    graph_store: GraphStore,
+    limit: int = 20,
+) -> list[tuple[str, float]]:
+    """Pool 5: entities matched by extracting names from the query text.
+
+    Extracts potential entity names using heuristics (title-case phrases,
+    quoted strings, possessive nouns), looks them up via
+    ``find_entity_candidates()``, and returns matched entity IDs with
+    scores reflecting name match quality.
+    """
+    try:
+        candidate_names = _extract_entity_names_from_query(query)
+        if not candidate_names:
+            return []
+
+        # Collect matched entities with best score per entity
+        entity_scores: dict[str, float] = {}
+
+        for name in candidate_names:
+            try:
+                entities = await graph_store.find_entity_candidates(
+                    name, group_id, limit=5,
+                )
+            except Exception:
+                continue
+
+            for entity in entities or []:
+                score = _name_match_score(name, entity.name)
+                if score > 0.0:
+                    # Keep the best score if entity found via multiple query names
+                    if entity.id not in entity_scores or score > entity_scores[entity.id]:
+                        entity_scores[entity.id] = score
+
+        if not entity_scores:
+            return []
+
+        # Sort by score descending, take top limit
+        ranked = sorted(entity_scores.items(), key=lambda x: x[1], reverse=True)
+        return ranked[:limit]
+    except Exception as e:
+        logger.warning("Entity query pool failed (non-fatal): %s", e)
+        return []
+
+
 def _merge_pools_rrf(
     pools: list[list[tuple[str, float]]],
     rrf_k: int,
@@ -249,11 +411,28 @@ async def generate_candidates(
     # Compute dynamic pool limits based on corpus size and query type
     limits = compute_dynamic_limits(total_entities, cfg, query_type)
 
-    # Step 1: Run search + activation pools concurrently
-    search_results, activation_results = await asyncio.gather(
+    # Step 1: Run search + activation + entity query pools concurrently
+    gather_tasks: list = [
         _search_pool(query, group_id, search_index, limits["pool_search_limit"]),
         _activation_pool(group_id, activation_store, limits["pool_activation_limit"], now),
+    ]
+    run_entity_query = cfg.entity_query_retrieval_enabled and hasattr(
+        graph_store, "find_entity_candidates"
     )
+    if run_entity_query:
+        gather_tasks.append(
+            _entity_query_pool(
+                query,
+                group_id,
+                graph_store,
+                limit=limits.get("pool_entity_query_limit", cfg.pool_entity_query_limit),
+            )
+        )
+
+    gathered = await asyncio.gather(*gather_tasks)
+    search_results: list[tuple[str, float]] = gathered[0]
+    activation_results: list[tuple[str, float]] = gathered[1]
+    entity_query_results: list[tuple[str, float]] = gathered[2] if run_entity_query else []
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
     seed_ids = [eid for eid, score in search_results if score >= cfg.seed_threshold][
@@ -280,7 +459,17 @@ async def generate_candidates(
         )
 
     # Step 4: Merge non-empty pools via RRF
-    pools = [p for p in [search_results, activation_results, graph_results, wm_results] if p]
+    pools = [
+        p
+        for p in [
+            search_results,
+            activation_results,
+            graph_results,
+            wm_results,
+            entity_query_results,
+        ]
+        if p
+    ]
     if not pools:
         return []
 

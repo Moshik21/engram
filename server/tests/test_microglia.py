@@ -681,68 +681,58 @@ class TestLtdSweep:
 class TestOrphanEdgeFix:
     @pytest.mark.asyncio
     async def test_get_active_neighbors_excludes_deleted_entities(self):
-        """Verify SQLite get_active_neighbors_with_weights filters deleted_at IS NULL.
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.graph import HelixGraphStore
 
-        This is a unit-level check on the SQL query. We test with a real
-        SQLiteGraphStore to confirm the filter works end-to-end.
-        """
-        import tempfile
+        """Verify get_active_neighbors_with_weights filters out soft-deleted entities."""
+        store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
+        await store.initialize()
 
-        from engram.storage.sqlite.graph import SQLiteGraphStore
+        # Create two entities and a relationship
+        e1 = Entity(
+            id="e1",
+            name="Alice",
+            entity_type="Person",
+            group_id="default",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        e2 = Entity(
+            id="e2",
+            name="Bob",
+            entity_type="Person",
+            group_id="default",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        await store.create_entity(e1)
+        await store.create_entity(e2)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = f"{tmp}/test.db"
-            store = SQLiteGraphStore(db_path)
-            await store.initialize()
+        rel = Relationship(
+            id="r1",
+            source_id="e1",
+            target_id="e2",
+            predicate="KNOWS",
+            weight=1.0,
+            group_id="default",
+        )
+        await store.create_relationship(rel)
 
-            # Create two entities and a relationship
-            e1 = Entity(
-                id="e1",
-                name="Alice",
-                entity_type="Person",
-                group_id="default",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-            e2 = Entity(
-                id="e2",
-                name="Bob",
-                entity_type="Person",
-                group_id="default",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
-            )
-            await store.create_entity(e1)
-            await store.create_entity(e2)
+        # Before deletion: neighbor visible
+        neighbors = await store.get_active_neighbors_with_weights(
+            "e1",
+            group_id="default",
+        )
+        assert any(nid == "e2" for nid, *_ in neighbors)
 
-            rel = Relationship(
-                id="r1",
-                source_id="e1",
-                target_id="e2",
-                predicate="KNOWS",
-                weight=1.0,
-                group_id="default",
-            )
-            await store.create_relationship(rel)
+        # Soft-delete e2
+        await store.delete_entity("e2", soft=True, group_id="default")
 
-            # Before deletion: neighbor visible
-            neighbors = await store.get_active_neighbors_with_weights(
-                "e1",
-                group_id="default",
-            )
-            assert any(nid == "e2" for nid, *_ in neighbors)
+        # After deletion: neighbor excluded
+        neighbors = await store.get_active_neighbors_with_weights(
+            "e1",
+            group_id="default",
+        )
+        assert not any(nid == "e2" for nid, *_ in neighbors)
 
-            # Soft-delete e2
-            await store.db.execute(
-                "UPDATE entities SET deleted_at = datetime('now') WHERE id = 'e2'"
-            )
-            await store.db.commit()
-
-            # After deletion: neighbor excluded
-            neighbors = await store.get_active_neighbors_with_weights(
-                "e1",
-                group_id="default",
-            )
-            assert not any(nid == "e2" for nid, *_ in neighbors)
-
-            await store.close()
+        await store.close()

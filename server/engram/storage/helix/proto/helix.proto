@@ -1,0 +1,50 @@
+syntax = "proto3";
+package helix.v1;
+
+// HelixDB gRPC service — runs alongside the HTTP gateway on port 6970.
+// Shares the same WorkerPool for query execution.
+service HelixDB {
+  // Single query — equivalent to POST /{endpoint}
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // Batch — equivalent to POST /batch, executes queries concurrently
+  rpc Batch(BatchRequest) returns (BatchResponse);
+
+  // Bidirectional stream — for bulk reads (consolidation, corpus loading)
+  rpc StreamQuery(stream QueryRequest) returns (stream QueryResponse);
+}
+
+message QueryRequest {
+  // Endpoint name (e.g., "find_entities_by_group", "create_entity")
+  string name = 1;
+  // JSON-encoded payload bytes
+  bytes body = 2;
+  // Optional API key for authenticated deployments
+  string api_key = 3;
+  // Request type
+  RequestType req_type = 4;
+}
+
+enum RequestType {
+  QUERY = 0;
+  MCP = 1;
+}
+
+message QueryResponse {
+  // HTTP-equivalent status code (200, 404, 500, etc.)
+  int32 status = 1;
+  // JSON-encoded response bytes (present on success)
+  bytes body = 2;
+  // Error message (non-empty on failure)
+  string error = 3;
+  // Error code ("GRAPH_ERROR", "NOT_FOUND", "VECTOR_ERROR", etc.)
+  string error_code = 4;
+}
+
+message BatchRequest {
+  repeated QueryRequest queries = 1;
+}
+
+message BatchResponse {
+  repeated QueryResponse results = 1;
+}

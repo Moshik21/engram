@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
+import socket
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import pytest
 
 from engram.models.prospective import Intention, IntentionMatch
 from engram.retrieval.prospective import _cosine_similarity, _is_active, check_triggers
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
+
 
 # ─── Model tests ──────────────────────────────────────────────────────
 
@@ -320,300 +337,308 @@ class TestTriggerMatching:
 class TestSQLiteIntentionStorage:
     @pytest.fixture
     async def graph_store(self, tmp_path):
-        from engram.storage.sqlite.graph import SQLiteGraphStore
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.graph import HelixGraphStore
 
-        store = SQLiteGraphStore(str(tmp_path / "test.db"))
+        store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await store.initialize()
         yield store
         await store.close()
 
-    async def test_create_and_get_intention(self, graph_store):
+    @pytest.fixture
+    def gid(self):
+        return f"test_{uuid4().hex[:8]}"
+
+    async def test_create_and_get_intention(self, graph_store, gid):
         intention = Intention(
-            id="int_test1",
+            id=f"int_{gid}_1",
             trigger_text="Python upgrades",
             action_text="Migration plan exists",
-            group_id="default",
+            group_id=gid,
         )
         result_id = await graph_store.create_intention(intention)
-        assert result_id == "int_test1"
+        assert result_id == f"int_{gid}_1"
 
-        fetched = await graph_store.get_intention("int_test1", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_1", gid)
         assert fetched is not None
         assert fetched.trigger_text == "Python upgrades"
         assert fetched.action_text == "Migration plan exists"
         assert fetched.enabled is True
         assert fetched.fire_count == 0
 
-    async def test_list_intentions_enabled_only(self, graph_store):
+    async def test_list_intentions_enabled_only(self, graph_store, gid):
         i1 = Intention(
-            id="int_a",
+            id=f"int_{gid}_a",
             trigger_text="a",
             action_text="a",
-            group_id="default",
+            group_id=gid,
             enabled=True,
         )
         i2 = Intention(
-            id="int_b",
+            id=f"int_{gid}_b",
             trigger_text="b",
             action_text="b",
-            group_id="default",
+            group_id=gid,
             enabled=False,
         )
         await graph_store.create_intention(i1)
         await graph_store.create_intention(i2)
 
-        enabled = await graph_store.list_intentions("default", enabled_only=True)
+        enabled = await graph_store.list_intentions(gid, enabled_only=True)
         assert len(enabled) == 1
-        assert enabled[0].id == "int_a"
+        assert enabled[0].id == f"int_{gid}_a"
 
-        all_items = await graph_store.list_intentions("default", enabled_only=False)
+        all_items = await graph_store.list_intentions(gid, enabled_only=False)
         assert len(all_items) == 2
 
-    async def test_increment_fire_count(self, graph_store):
+    async def test_increment_fire_count(self, graph_store, gid):
         intention = Intention(
-            id="int_fire",
+            id=f"int_{gid}_fire",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.increment_intention_fire_count("int_fire", "default")
-        await graph_store.increment_intention_fire_count("int_fire", "default")
+        await graph_store.increment_intention_fire_count(f"int_{gid}_fire", gid)
+        await graph_store.increment_intention_fire_count(f"int_{gid}_fire", gid)
 
-        fetched = await graph_store.get_intention("int_fire", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_fire", gid)
         assert fetched.fire_count == 2
 
-    async def test_delete_intention_soft(self, graph_store):
+    async def test_delete_intention_soft(self, graph_store, gid):
         intention = Intention(
-            id="int_del",
+            id=f"int_{gid}_del",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.delete_intention("int_del", "default", soft=True)
+        await graph_store.delete_intention(f"int_{gid}_del", gid, soft=True)
 
-        fetched = await graph_store.get_intention("int_del", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_del", gid)
         assert fetched is not None
         assert fetched.enabled is False
 
-    async def test_delete_intention_hard(self, graph_store):
+    async def test_delete_intention_hard(self, graph_store, gid):
         intention = Intention(
-            id="int_del2",
+            id=f"int_{gid}_del2",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.delete_intention("int_del2", "default", soft=False)
+        await graph_store.delete_intention(f"int_{gid}_del2", gid, soft=False)
 
-        fetched = await graph_store.get_intention("int_del2", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_del2", gid)
         assert fetched is None
 
-    async def test_list_intentions_filters_expired(self, graph_store):
+    async def test_list_intentions_filters_expired(self, graph_store, gid):
         expired = Intention(
-            id="int_exp",
+            id=f"int_{gid}_exp",
             trigger_text="old",
             action_text="old",
-            group_id="default",
+            group_id=gid,
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         active = Intention(
-            id="int_act",
+            id=f"int_{gid}_act",
             trigger_text="new",
             action_text="new",
-            group_id="default",
+            group_id=gid,
             expires_at=datetime.utcnow() + timedelta(days=30),
         )
         await graph_store.create_intention(expired)
         await graph_store.create_intention(active)
 
-        enabled = await graph_store.list_intentions("default", enabled_only=True)
+        enabled = await graph_store.list_intentions(gid, enabled_only=True)
         ids = [i.id for i in enabled]
-        assert "int_exp" not in ids
-        assert "int_act" in ids
+        assert f"int_{gid}_exp" not in ids
+        assert f"int_{gid}_act" in ids
 
-    async def test_update_intention(self, graph_store):
+    async def test_update_intention(self, graph_store, gid):
         intention = Intention(
-            id="int_upd",
+            id=f"int_{gid}_upd",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
             threshold=0.7,
         )
         await graph_store.create_intention(intention)
         await graph_store.update_intention(
-            "int_upd",
+            f"int_{gid}_upd",
             {"threshold": 0.9, "enabled": False},
-            "default",
+            gid,
         )
-        fetched = await graph_store.get_intention("int_upd", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_upd", gid)
         assert fetched.threshold == 0.9
         assert fetched.enabled is False
 
-    async def test_get_intention_wrong_group(self, graph_store):
+    async def test_get_intention_wrong_group(self, graph_store, gid):
         intention = Intention(
-            id="int_grp",
+            id=f"int_{gid}_grp",
             trigger_text="t",
             action_text="a",
-            group_id="group_a",
+            group_id=f"{gid}_a",
         )
         await graph_store.create_intention(intention)
-        fetched = await graph_store.get_intention("int_grp", "group_b")
+        fetched = await graph_store.get_intention(f"int_{gid}_grp", f"{gid}_b")
         assert fetched is None
 
 
-# ─── FalkorDB storage tests ──────────────────────────────────────────────
+# ─── HelixDB storage tests ──────────────────────────────────────────────
 
 
-@pytest.mark.requires_docker
+@pytest.mark.requires_helix
 @pytest.mark.asyncio
-class TestFalkorDBIntentionStorage:
+class TestHelixIntentionStorage:
     @pytest.fixture
     async def graph_store(self):
-        from engram.config import FalkorDBConfig
-        from engram.storage.falkordb.graph import FalkorDBGraphStore
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.graph import HelixGraphStore
 
-        config = FalkorDBConfig()
-        store = FalkorDBGraphStore(config)
+        config = HelixDBConfig(host="localhost", port=6969)
+        store = HelixGraphStore(config)
         await store.initialize()
         yield store
-        # Cleanup: remove all Intention nodes
-        await store._query("MATCH (n:Intention) DELETE n")
+        await store.close()
 
-    async def test_create_and_get_intention(self, graph_store):
+    @pytest.fixture
+    def gid(self):
+        return f"test_{uuid4().hex[:8]}"
+
+    async def test_create_and_get_intention(self, graph_store, gid):
         intention = Intention(
-            id="int_fk1",
+            id=f"int_{gid}_1",
             trigger_text="Python upgrades",
             action_text="Migration plan exists",
-            group_id="default",
+            group_id=gid,
         )
         result_id = await graph_store.create_intention(intention)
-        assert result_id == "int_fk1"
+        assert result_id == f"int_{gid}_1"
 
-        fetched = await graph_store.get_intention("int_fk1", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_1", gid)
         assert fetched is not None
         assert fetched.trigger_text == "Python upgrades"
         assert fetched.action_text == "Migration plan exists"
         assert fetched.enabled is True
         assert fetched.fire_count == 0
 
-    async def test_list_intentions_enabled_only(self, graph_store):
+    async def test_list_intentions_enabled_only(self, graph_store, gid):
         i1 = Intention(
-            id="int_fka",
+            id=f"int_{gid}_a",
             trigger_text="a",
             action_text="a",
-            group_id="default",
+            group_id=gid,
             enabled=True,
         )
         i2 = Intention(
-            id="int_fkb",
+            id=f"int_{gid}_b",
             trigger_text="b",
             action_text="b",
-            group_id="default",
+            group_id=gid,
             enabled=False,
         )
         await graph_store.create_intention(i1)
         await graph_store.create_intention(i2)
 
-        enabled = await graph_store.list_intentions("default", enabled_only=True)
+        enabled = await graph_store.list_intentions(gid, enabled_only=True)
         assert len(enabled) == 1
-        assert enabled[0].id == "int_fka"
+        assert enabled[0].id == f"int_{gid}_a"
 
-        all_items = await graph_store.list_intentions("default", enabled_only=False)
+        all_items = await graph_store.list_intentions(gid, enabled_only=False)
         assert len(all_items) == 2
 
-    async def test_increment_fire_count(self, graph_store):
+    async def test_increment_fire_count(self, graph_store, gid):
         intention = Intention(
-            id="int_fkfire",
+            id=f"int_{gid}_fire",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.increment_intention_fire_count("int_fkfire", "default")
-        await graph_store.increment_intention_fire_count("int_fkfire", "default")
+        await graph_store.increment_intention_fire_count(f"int_{gid}_fire", gid)
+        await graph_store.increment_intention_fire_count(f"int_{gid}_fire", gid)
 
-        fetched = await graph_store.get_intention("int_fkfire", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_fire", gid)
         assert fetched.fire_count == 2
 
-    async def test_delete_intention_soft(self, graph_store):
+    async def test_delete_intention_soft(self, graph_store, gid):
         intention = Intention(
-            id="int_fkdel",
+            id=f"int_{gid}_del",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.delete_intention("int_fkdel", "default", soft=True)
+        await graph_store.delete_intention(f"int_{gid}_del", gid, soft=True)
 
-        fetched = await graph_store.get_intention("int_fkdel", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_del", gid)
         assert fetched is not None
         assert fetched.enabled is False
 
-    async def test_delete_intention_hard(self, graph_store):
+    async def test_delete_intention_hard(self, graph_store, gid):
         intention = Intention(
-            id="int_fkdel2",
+            id=f"int_{gid}_del2",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
         )
         await graph_store.create_intention(intention)
-        await graph_store.delete_intention("int_fkdel2", "default", soft=False)
+        await graph_store.delete_intention(f"int_{gid}_del2", gid, soft=False)
 
-        fetched = await graph_store.get_intention("int_fkdel2", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_del2", gid)
         assert fetched is None
 
-    async def test_list_intentions_filters_expired(self, graph_store):
+    async def test_list_intentions_filters_expired(self, graph_store, gid):
         expired = Intention(
-            id="int_fkexp",
+            id=f"int_{gid}_exp",
             trigger_text="old",
             action_text="old",
-            group_id="default",
+            group_id=gid,
             expires_at=datetime.utcnow() - timedelta(hours=1),
         )
         active = Intention(
-            id="int_fkact",
+            id=f"int_{gid}_act",
             trigger_text="new",
             action_text="new",
-            group_id="default",
+            group_id=gid,
             expires_at=datetime.utcnow() + timedelta(days=30),
         )
         await graph_store.create_intention(expired)
         await graph_store.create_intention(active)
 
-        enabled = await graph_store.list_intentions("default", enabled_only=True)
+        enabled = await graph_store.list_intentions(gid, enabled_only=True)
         ids = [i.id for i in enabled]
-        assert "int_fkexp" not in ids
-        assert "int_fkact" in ids
+        assert f"int_{gid}_exp" not in ids
+        assert f"int_{gid}_act" in ids
 
-    async def test_update_intention(self, graph_store):
+    async def test_update_intention(self, graph_store, gid):
         intention = Intention(
-            id="int_fkupd",
+            id=f"int_{gid}_upd",
             trigger_text="t",
             action_text="a",
-            group_id="default",
+            group_id=gid,
             threshold=0.7,
         )
         await graph_store.create_intention(intention)
         await graph_store.update_intention(
-            "int_fkupd",
+            f"int_{gid}_upd",
             {"threshold": 0.9, "enabled": False},
-            "default",
+            gid,
         )
-        fetched = await graph_store.get_intention("int_fkupd", "default")
+        fetched = await graph_store.get_intention(f"int_{gid}_upd", gid)
         assert fetched.threshold == 0.9
         assert fetched.enabled is False
 
-    async def test_get_intention_wrong_group(self, graph_store):
+    async def test_get_intention_wrong_group(self, graph_store, gid):
         intention = Intention(
-            id="int_fkgrp",
+            id=f"int_{gid}_grp",
             trigger_text="t",
             action_text="a",
-            group_id="group_a",
+            group_id=f"{gid}_a",
         )
         await graph_store.create_intention(intention)
-        fetched = await graph_store.get_intention("int_fkgrp", "group_b")
+        fetched = await graph_store.get_intention(f"int_{gid}_grp", f"{gid}_b")
         assert fetched is None
 
 
@@ -780,51 +805,64 @@ class TestRecallProfile:
 @pytest.mark.asyncio
 class TestGraphManagerIntegration:
     async def test_create_intention_generates_id(self, tmp_path):
-        from engram.config import ActivationConfig
+        from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
         from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        db_path = str(tmp_path / "gm_test.db")
-        graph = SQLiteGraphStore(db_path)
+        graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
-        search = FTS5SearchIndex(db_path)
-        await search.initialize(db=graph._db)
+        search = HelixSearchIndex(
+     helix_config=HelixDBConfig(host="localhost", port=6969),
+     provider=NoopProvider(),
+     embed_config=EmbeddingConfig(),
+     storage_dim=0,
+     embed_provider="noop",
+     embed_model="noop",
+ )
+        await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
+        gid = f"test_{uuid4().hex[:8]}"
         intention_id = await gm.create_intention(
             trigger_text="Python upgrades",
             action_text="User has a migration plan",
-            group_id="default",
+            group_id=gid,
         )
         assert intention_id.startswith("int_")
         assert len(intention_id) > 4
 
-        intentions = await gm.list_intentions("default")
+        intentions = await gm.list_intentions(gid)
         assert len(intentions) == 1
         assert intentions[0].trigger_text == "Python upgrades"
 
         await graph.close()
 
     async def test_create_intention_entity_mention(self, tmp_path):
-        from engram.config import ActivationConfig
+        from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
         from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        db_path = str(tmp_path / "gm_test2.db")
-        graph = SQLiteGraphStore(db_path)
+        graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
-        search = FTS5SearchIndex(db_path)
-        await search.initialize(db=graph._db)
+        search = HelixSearchIndex(
+     helix_config=HelixDBConfig(host="localhost", port=6969),
+     provider=NoopProvider(),
+     embed_config=EmbeddingConfig(),
+     storage_dim=0,
+     embed_provider="noop",
+     embed_model="noop",
+ )
+        await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()
 
@@ -850,30 +888,38 @@ class TestGraphManagerIntegration:
         await graph.close()
 
     async def test_delete_intention(self, tmp_path):
-        from engram.config import ActivationConfig
+        from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
         from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        db_path = str(tmp_path / "gm_test3.db")
-        graph = SQLiteGraphStore(db_path)
+        graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
-        search = FTS5SearchIndex(db_path)
-        await search.initialize(db=graph._db)
+        search = HelixSearchIndex(
+     helix_config=HelixDBConfig(host="localhost", port=6969),
+     provider=NoopProvider(),
+     embed_config=EmbeddingConfig(),
+     storage_dim=0,
+     embed_provider="noop",
+     embed_model="noop",
+ )
+        await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
+        gid = f"test_{uuid4().hex[:8]}"
         intent_id = await gm.create_intention(
             trigger_text="test",
             action_text="action",
+            group_id=gid,
         )
-        await gm.delete_intention(intent_id)
+        await gm.delete_intention(intent_id, group_id=gid)
 
-        intentions = await gm.list_intentions("default", enabled_only=True)
+        intentions = await gm.list_intentions(gid, enabled_only=True)
         assert len(intentions) == 0
 
         await graph.close()

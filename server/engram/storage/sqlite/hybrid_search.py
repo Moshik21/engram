@@ -12,6 +12,7 @@ from engram.models.episode import Episode
 from engram.models.episode_cue import EpisodeCue
 from engram.storage.sqlite.search import FTS5SearchIndex
 from engram.storage.sqlite.vectors import SQLiteVectorStore, cosine_similarity, unpack_vector
+from engram.utils.attachments import get_first_image_attachment
 
 logger = logging.getLogger(__name__)
 
@@ -77,22 +78,47 @@ class HybridSearchIndex:
                 logger.warning("Failed to embed entity %s: %s", entity.id, e)
 
     async def index_episode(self, episode: Episode) -> None:
-        """Index an episode for vector search."""
+        """Index an episode for vector search.
+
+        When the episode has image attachments and the provider supports
+        multimodal embedding, the first image is embedded together with
+        the text for a richer representation.
+        """
         if self._embeddings_enabled and episode.content:
             try:
-                embeddings = await self._provider.embed([episode.content])
-                if embeddings:
+                embedding: list[float] | None = None
+
+                # Try multimodal embedding for episodes with image attachments
+                if episode.attachments and hasattr(self._provider, "embed_multimodal"):
+                    image_data = get_first_image_attachment(episode.attachments)
+                    if image_data is not None:
+                        image_bytes, image_mime = image_data
+                        embedding = await self._provider.embed_multimodal(
+                            text=episode.content,
+                            image_bytes=image_bytes,
+                            image_mime=image_mime,
+                        )
+                        if embedding and self._storage_dim > 0:
+                            embedding = truncate_vectors([embedding], self._storage_dim)[0]
+
+                # Fall back to text-only embedding
+                if not embedding:
+                    embeddings = await self._provider.embed([episode.content])
+                    if not embeddings:
+                        return
+                    embedding = embeddings[0]
                     if self._storage_dim > 0:
-                        embeddings = truncate_vectors(embeddings, self._storage_dim)
-                    await self._vectors.upsert(
-                        episode.id,
-                        "episode",
-                        episode.group_id,
-                        episode.content,
-                        embeddings[0],
-                        embed_provider=self._embed_provider,
-                        embed_model=self._embed_model,
-                    )
+                        embedding = truncate_vectors([embedding], self._storage_dim)[0]
+
+                await self._vectors.upsert(
+                    episode.id,
+                    "episode",
+                    episode.group_id,
+                    episode.content,
+                    embedding,
+                    embed_provider=self._embed_provider,
+                    embed_model=self._embed_model,
+                )
             except Exception as e:
                 logger.warning("Failed to embed episode %s: %s", episode.id, e)
 

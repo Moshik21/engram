@@ -47,6 +47,11 @@ class IntentionMeta(BaseModel):
     context: str | None = None  # Rich background for agent at fire time
     see_also: list[str] | None = None  # Breadcrumb topic hints ("cliffhangers")
 
+    # Pinned context fields (used when trigger_type="refresh_context")
+    pinned_result: str | None = None  # cached context result
+    last_refreshed: str | None = None  # ISO 8601 timestamp of last refresh
+    refresh_trigger: str = "manual"  # "manual" | "after_consolidation"
+
 
 @dataclass
 class IntentionMatch:

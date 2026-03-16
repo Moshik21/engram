@@ -2,20 +2,37 @@
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
-from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.utils.text_guards import is_meta_summary
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
+
 
 GROUP = "default"
 
 
 @pytest.fixture
 async def store(tmp_path):
-    db_path = str(tmp_path / "test.db")
-    s = SQLiteGraphStore(db_path)
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+    s = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await s.initialize()
     yield s
     await s.close()

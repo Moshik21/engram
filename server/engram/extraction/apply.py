@@ -414,6 +414,20 @@ class ApplyEngine:
                     and should_promote_entity_type_to_identifier(existing_entity.entity_type)
                 ):
                     updates["entity_type"] = IDENTIFIER_ENTITY_TYPE
+                # Track provenance — record this episode as evidence
+                existing_sources = existing_entity.source_episode_ids or []
+                if episode.id not in existing_sources:
+                    updated_sources = existing_sources + [episode.id]
+                    updates["source_episode_ids"] = json.dumps(updated_sources)
+                    updates["evidence_count"] = len(updated_sources)
+                    ep_ts = episode.created_at
+                    span_start = existing_entity.evidence_span_start
+                    if span_start is None or ep_ts < span_start:
+                        updates["evidence_span_start"] = ep_ts.isoformat()
+                    span_end = existing_entity.evidence_span_end
+                    if span_end is None or ep_ts > span_end:
+                        updates["evidence_span_end"] = ep_ts.isoformat()
+
                 if updates:
                     await self._graph.update_entity(entity_id, updates, group_id=group_id)
 
@@ -475,6 +489,10 @@ class ApplyEngine:
                     group_id=group_id,
                     pii_detected=pii_detected,
                     pii_categories=pii_categories,
+                    source_episode_ids=[episode.id],
+                    evidence_count=1,
+                    evidence_span_start=episode.created_at,
+                    evidence_span_end=episode.created_at,
                 )
                 await self._graph.create_entity(entity)
                 session_entities[entity_id] = entity

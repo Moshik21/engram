@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -48,6 +49,7 @@ from engram.models.consolidation import (
     TriageRecord,
 )
 from engram.storage.protocols import ConsolidationStore
+from engram.utils.dates import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,7 @@ class ConsolidationEngine:
         self._cfg = cfg
         self._store = consolidation_store
         self._event_bus = event_bus
+        self._graph_manager = graph_manager
         self._running = False
         self._cancelled = False
 
@@ -294,6 +297,17 @@ class ConsolidationEngine:
                         cycle.id,
                     )
 
+            # Refresh pinned contexts after successful consolidation
+            if cycle.status == "completed":
+                try:
+                    await self._refresh_pinned_contexts(group_id)
+                except Exception:
+                    logger.warning(
+                        "Pinned context refresh failed after cycle %s",
+                        cycle.id,
+                        exc_info=True,
+                    )
+
             self._publish(
                 group_id,
                 "consolidation.completed",
@@ -430,6 +444,62 @@ class ConsolidationEngine:
                     "calibration_snapshots": len(snapshots),
                 },
             )
+
+    async def _refresh_pinned_contexts(self, group_id: str) -> None:
+        """Refresh pinned context intentions after consolidation.
+
+        Finds intentions with trigger_type="refresh_context" and
+        refresh_trigger="after_consolidation", re-runs get_context
+        with their topic, and stores the result.
+        """
+        if self._graph_manager is None:
+            return
+
+        gm = self._graph_manager
+        if not hasattr(gm, "list_intentions") or not hasattr(gm, "get_context"):
+            return
+
+        intentions = await gm.list_intentions(group_id=group_id, enabled_only=True)
+        refreshed = 0
+        for entity in intentions:
+            attrs = entity.attributes or {} if hasattr(entity, "attributes") else {}
+            if attrs.get("trigger_type") != "refresh_context":
+                continue
+            if attrs.get("refresh_trigger") != "after_consolidation":
+                continue
+
+            topic = attrs.get("trigger_text", "")
+            if not topic:
+                continue
+
+            try:
+                context_result = await gm.get_context(
+                    group_id=group_id,
+                    topic_hint=topic,
+                    format="structured",
+                )
+                pinned_result = (
+                    json.dumps(context_result)
+                    if isinstance(context_result, dict)
+                    else str(context_result)
+                )
+                await gm.update_intention_meta(
+                    intention_id=entity.id,
+                    group_id=group_id,
+                    updates={
+                        "pinned_result": pinned_result,
+                        "last_refreshed": utc_now_iso(),
+                    },
+                )
+                refreshed += 1
+            except Exception:
+                logger.debug(
+                    "Failed to refresh pinned context %s",
+                    entity.id,
+                )
+
+        if refreshed:
+            logger.info("Refreshed %d pinned context(s) for group %s", refreshed, group_id)
 
     def _publish(self, group_id: str, event_type: str, payload: dict) -> None:
         """Publish an event if event bus is available."""

@@ -11,8 +11,7 @@ from engram.embeddings.graph.storage import GraphEmbeddingStore
 @pytest.fixture
 async def db(tmp_path):
     """Create an in-memory SQLite database."""
-    db_path = str(tmp_path / "test.db")
-    async with aiosqlite.connect(db_path) as conn:
+    async with aiosqlite.connect(str(tmp_path / "test.db")) as conn:
         conn.row_factory = aiosqlite.Row
         store = GraphEmbeddingStore()
         await store.initialize(conn)

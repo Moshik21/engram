@@ -23,6 +23,7 @@ EXCLUSIVE_PREDICATES: set[str] = {
 CONTRADICTORY_PAIRS: set[frozenset[str]] = {
     frozenset({"LIKES", "DISLIKES"}),
     frozenset({"AIMS_FOR", "AVOIDS"}),
+    frozenset({"ENABLES", "PREVENTS"}),
 }
 
 # Build a lookup dict for fast contradiction checks.

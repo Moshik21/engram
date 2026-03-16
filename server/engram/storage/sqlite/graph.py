@@ -12,7 +12,7 @@ import aiosqlite
 
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
+from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
@@ -181,6 +181,7 @@ class SQLiteGraphStore:
             "ALTER TABLE episode_evidence ADD COLUMN ambiguity_score REAL NOT NULL DEFAULT 0.0",
             "ALTER TABLE episode_evidence ADD COLUMN adjudication_request_id TEXT",
             "ALTER TABLE episodes ADD COLUMN conversation_date TEXT",
+            "ALTER TABLE episodes ADD COLUMN attachments_json TEXT DEFAULT '[]'",
         ]
         for sql in migrations:
             try:
@@ -254,8 +255,10 @@ class SQLiteGraphStore:
                (id, name, entity_type, summary, attributes, group_id,
                 created_at, updated_at,
                 access_count, last_accessed, pii_detected, pii_categories,
-                lexical_regime, canonical_identifier, identifier_label)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                lexical_regime, canonical_identifier, identifier_label,
+                source_episode_ids, evidence_count,
+                evidence_span_start, evidence_span_end)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.id,
                 entity.name,
@@ -272,6 +275,10 @@ class SQLiteGraphStore:
                 entity.lexical_regime,
                 entity.canonical_identifier,
                 1 if entity.identifier_label else 0,
+                json.dumps(entity.source_episode_ids),
+                entity.evidence_count,
+                entity.evidence_span_start.isoformat() if entity.evidence_span_start else None,
+                entity.evidence_span_end.isoformat() if entity.evidence_span_end else None,
             ),
         )
         await self.db.commit()
@@ -874,8 +881,8 @@ class SQLiteGraphStore:
                 updated_at, error, retry_count, processing_duration_ms,
                 encoding_context, memory_tier, consolidation_cycles,
                 entity_coverage, projection_state, last_projection_reason,
-                last_projected_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                last_projected_at, attachments_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 episode.id,
                 content,
@@ -900,6 +907,11 @@ class SQLiteGraphStore:
                 ),
                 episode.last_projection_reason,
                 episode.last_projected_at.isoformat() if episode.last_projected_at else None,
+                (
+                    json.dumps([a.model_dump() for a in episode.attachments])
+                    if episode.attachments
+                    else "[]"
+                ),
             ),
         )
         await self.db.commit()
@@ -2017,6 +2029,14 @@ class SQLiteGraphStore:
         if "identifier_label" in row.keys():
             identifier_label = bool(row["identifier_label"])
 
+        source_episode_ids: list[str] = []
+        if "source_episode_ids" in row.keys() and row["source_episode_ids"]:
+            try:
+                source_episode_ids = json.loads(row["source_episode_ids"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+        evidence_count = row["evidence_count"] if "evidence_count" in row.keys() else 0
+
         return Entity(
             id=row["id"],
             name=row["name"],
@@ -2038,6 +2058,18 @@ class SQLiteGraphStore:
             lexical_regime=lexical_regime,
             canonical_identifier=canonical_identifier,
             identifier_label=identifier_label,
+            source_episode_ids=source_episode_ids,
+            evidence_count=evidence_count or 0,
+            evidence_span_start=(
+                _parse_dt(row["evidence_span_start"])
+                if "evidence_span_start" in row.keys()
+                else None
+            ),
+            evidence_span_end=(
+                _parse_dt(row["evidence_span_end"])
+                if "evidence_span_end" in row.keys()
+                else None
+            ),
         )
 
     @staticmethod
@@ -2617,6 +2649,14 @@ class SQLiteGraphStore:
             last_projected_at=(
                 _parse_dt(row["last_projected_at"]) if "last_projected_at" in keys else None
             ),
+            attachments=[
+                Attachment(**a)
+                for a in json.loads(
+                    row["attachments_json"]
+                    if "attachments_json" in keys and row["attachments_json"]
+                    else "[]"
+                )
+            ],
         )
 
     def _row_to_episode_cue(self, row) -> EpisodeCue:

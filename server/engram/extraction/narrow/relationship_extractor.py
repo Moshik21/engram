@@ -163,6 +163,83 @@ _FIRST_PERSON_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "MANAGES",
         "first_person_mgmt",
     ),
+    # Casual/strong preferences
+    (
+        re.compile(
+            r"\bi(?:'m| am)\s+(?:obsessed with|addicted to|really into|a fan of)"
+            r"\s+([A-Za-z][A-Za-z ]+?)(?:\.|,|!|$)",
+            re.I,
+        ),
+        "LIKES",
+        "first_person_strong_pref",
+    ),
+    (
+        re.compile(
+            r"\bmy\s+(?:favorite|preferred|go-to)\s+(\w+)\s+is\s+"
+            r"([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "PREFERS",
+        "first_person_favorite",
+    ),
+    (
+        re.compile(
+            r"\bi\s+(?:always|usually|often)\s+(?:use|get|grab|buy|order)"
+            r"\s+([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "USES",
+        "first_person_habitual",
+    ),
+    # Goal/aspiration patterns
+    (
+        re.compile(
+            r"\bi\s+(?:want to|plan to|hope to|need to|am trying to)"
+            r"\s+([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "AIMS_FOR",
+        "first_person_goal",
+    ),
+    # Activity/hobby patterns
+    (
+        re.compile(
+            r"\bi\s+(?:started|began|took up|picked up)\s+"
+            r"([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "STARTED",
+        "first_person_activity",
+    ),
+    (
+        re.compile(
+            r"\bi\s+(?:recently|just)\s+(?:bought|got|purchased|ordered|received)"
+            r"\s+(?:a\s+|an\s+|the\s+)?([A-Za-z][A-Za-z0-9 ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "ACQUIRED",
+        "first_person_purchase",
+    ),
+    # Health/condition patterns
+    (
+        re.compile(
+            r"\bi(?:'ve| have)\s+(?:been diagnosed with|been dealing with|have)"
+            r"\s+([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "HAS_CONDITION",
+        "first_person_health",
+    ),
+    # Attending events
+    (
+        re.compile(
+            r"\bi\s+(?:attended|went to|signed up for|enrolled in|joined)"
+            r"\s+(?:a\s+|an\s+|the\s+)?([A-Za-z][A-Za-z ]+?)(?:\.|,|$)",
+            re.I,
+        ),
+        "ATTENDED",
+        "first_person_event",
+    ),
 ]
 
 # Family relationship patterns

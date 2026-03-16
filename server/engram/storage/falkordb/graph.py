@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 from engram.config import FalkorDBConfig
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
 from engram.models.entity import Entity
-from engram.models.episode import Episode
+from engram.models.episode import Attachment, Episode
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
@@ -803,7 +803,8 @@ class FalkorDBGraphStore:
                 projection_state: $projection_state,
                 last_projection_reason: $last_projection_reason,
                 last_projected_at: $last_projected_at,
-                conversation_date: $conversation_date
+                conversation_date: $conversation_date,
+                attachments_json: $attachments_json
             })""",
             {
                 "id": episode.id,
@@ -832,6 +833,11 @@ class FalkorDBGraphStore:
                 ),
                 "conversation_date": (
                     episode.conversation_date.isoformat() if episode.conversation_date else None
+                ),
+                "attachments_json": (
+                    json.dumps([a.model_dump() for a in episode.attachments])
+                    if episode.attachments
+                    else "[]"
                 ),
             },
         )
@@ -1991,6 +1997,10 @@ class FalkorDBGraphStore:
             projection_state=props.get("projection_state", "queued"),
             last_projection_reason=props.get("last_projection_reason"),
             last_projected_at=_parse_dt(props.get("last_projected_at")),
+            attachments=[
+                Attachment(**a)
+                for a in json.loads(props.get("attachments_json", "[]") or "[]")
+            ],
         )
 
     def _node_to_episode_cue(

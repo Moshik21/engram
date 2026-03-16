@@ -1,0 +1,485 @@
+diff --git a/helix-db/Cargo.toml b/helix-db/Cargo.toml
+index c0c42e9..6738027 100644
+--- a/helix-db/Cargo.toml
++++ b/helix-db/Cargo.toml
+@@ -48,7 +48,7 @@ reqwest = { version = "0.12.15", features = [
+ ], optional = true }
+ url = { version = "2.5", optional = true }
+ tokio-util = { version = "0.7.15", features = ["compat"] }
+-axum = "0.8.4"
++axum = { version = "0.8.4", features = ["http2"] }
+ tracing = "0.1.41"
+ core_affinity = "0.8.3"
+ async-trait = "0.1.88"
+@@ -60,6 +60,12 @@ polars = { version = "0.46.0", features = [
+ ], optional = true }
+ sha2 = "0.10"
+ subtle = "2.5"
++tonic = { version = "0.13", optional = true }
++prost = { version = "0.13", optional = true }
++tokio-stream = { version = "0.1", optional = true }
++
++[build-dependencies]
++tonic-build = { version = "0.13", optional = true }
+ 
+ [dev-dependencies]
+ rand = "0.9.0"
+@@ -80,7 +86,8 @@ cosine = []
+ api-key = []
+ build = ["compiler"]
+ vectors = ["cosine", "url"]
+-server = ["build", "compiler", "vectors", "reqwest"]
++grpc = ["tonic", "prost", "tonic-build", "tokio-stream"]
++server = ["build", "compiler", "vectors", "reqwest", "grpc"]
+ full = ["build", "compiler", "vectors"]
+ bench = ["polars"]
+ dev = ["debug-output", "server", "bench"]
+diff --git a/helix-db/build.rs b/helix-db/build.rs
+new file mode 100644
+index 0000000..b2b79a1
+--- /dev/null
++++ b/helix-db/build.rs
+@@ -0,0 +1,12 @@
++fn main() {
++    #[cfg(feature = "grpc")]
++    {
++        let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
++        tonic_build::configure()
++            .build_server(true)
++            .build_client(false)
++            .file_descriptor_set_path(out_dir.join("helix_descriptor.bin"))
++            .compile_protos(&["proto/helix.proto"], &["proto"])
++            .expect("Failed to compile protobuf");
++    }
++}
+diff --git a/helix-db/proto/helix.proto b/helix-db/proto/helix.proto
+new file mode 100644
+index 0000000..85dda85
+--- /dev/null
++++ b/helix-db/proto/helix.proto
+@@ -0,0 +1,35 @@
++syntax = "proto3";
++package helix.v1;
++
++service HelixDB {
++  rpc Query(QueryRequest) returns (QueryResponse);
++  rpc Batch(BatchRequest) returns (BatchResponse);
++  rpc StreamQuery(stream QueryRequest) returns (stream QueryResponse);
++}
++
++message QueryRequest {
++  string name = 1;
++  bytes body = 2;
++  string api_key = 3;
++  RequestType req_type = 4;
++}
++
++enum RequestType {
++  QUERY = 0;
++  MCP = 1;
++}
++
++message QueryResponse {
++  int32 status = 1;
++  bytes body = 2;
++  string error = 3;
++  string error_code = 4;
++}
++
++message BatchRequest {
++  repeated QueryRequest queries = 1;
++}
++
++message BatchResponse {
++  repeated QueryResponse results = 1;
++}
+diff --git a/helix-db/src/helix_gateway/gateway.rs b/helix-db/src/helix_gateway/gateway.rs
+index 052c0c6..b3bee0f 100644
+--- a/helix-db/src/helix_gateway/gateway.rs
++++ b/helix-db/src/helix_gateway/gateway.rs
+@@ -8,8 +8,13 @@ use axum::extract::State;
+ use axum::response::IntoResponse;
+ use axum::routing::{get, post};
+ use core_affinity::CoreId;
++use reqwest::header::CONTENT_TYPE;
++use sonic_rs::{JsonContainerTrait, JsonValueTrait};
+ use tracing::{info, trace, warn};
+ 
++use crate::protocol::Format;
++use crate::protocol::request::RequestType;
++
+ use super::router::router::{HandlerFn, HelixRouter};
+ #[cfg(feature = "dev-instance")]
+ use crate::helix_gateway::builtin::all_nodes_and_edges::nodes_edges_handler;
+@@ -118,6 +123,7 @@ impl HelixGateway {
+         let mut axum_app = axum::Router::new();
+ 
+         axum_app = axum_app
++            .route("/batch", post(batch_handler))
+             .route("/{*path}", post(post_handler))
+             .route("/introspect", get(introspect_schema_handler));
+ 
+@@ -130,18 +136,39 @@ impl HelixGateway {
+                 .route("/node-details", get(node_details_handler));
+         }
+ 
+-        let axum_app = axum_app.with_state(Arc::new(AppState {
++        let app_state = Arc::new(AppState {
+             worker_pool,
+             schema_json: self
+                 .opts
+                 .and_then(|o| o.config.schema.map(Bytes::from)),
+             cluster_id: self.cluster_id,
+-        }));
++        });
++        let axum_app = axum_app.with_state(Arc::clone(&app_state));
++        let http_address = self.address.clone();
+ 
+         rt.block_on(async move {
+             // Initialize metrics system
+             helix_metrics::init_metrics_system();
+ 
++            #[cfg(feature = "grpc")]
++            {
++                use crate::helix_gateway::grpc::proto::helix_db_server::HelixDbServer;
++                use crate::helix_gateway::grpc::service::HelixGrpcService;
++                let grpc_addr = derive_grpc_address(&http_address);
++                let grpc_state = Arc::clone(&app_state);
++                tokio::spawn(async move {
++                    let svc = HelixGrpcService::new(grpc_state);
++                    info!("gRPC server listening on {}", grpc_addr);
++                    if let Err(e) = tonic::transport::Server::builder()
++                        .add_service(HelixDbServer::new(svc))
++                        .serve(grpc_addr.parse().expect("valid gRPC address"))
++                        .await
++                    {
++                        warn!("gRPC server exited: {}", e);
++                    }
++                });
++            }
++
+             let listener = tokio::net::TcpListener::bind(self.address)
+                 .await
+                 .expect("Failed to bind listener");
+@@ -267,12 +294,140 @@ async fn post_handler(
+     }
+ }
+ 
++async fn batch_handler(
++    State(state): State<Arc<AppState>>,
++    body: Bytes,
++) -> axum::http::Response<Body> {
++    let start_time = Instant::now();
++    let batch_req: sonic_rs::Value = match sonic_rs::from_slice(&body) {
++        Ok(v) => v,
++        Err(_) => {
++            let err = br#"{"error":"Invalid JSON in batch request","code":"BAD_REQUEST"}"#;
++            return axum::response::Response::builder()
++                .status(400)
++                .header(CONTENT_TYPE, "application/json")
++                .body(Body::from(err.to_vec()))
++                .expect("static response should always build");
++        }
++    };
++    let queries = match batch_req.get("queries").and_then(|v| v.as_array()) {
++        Some(arr) => arr,
++        None => {
++            let err = br#"{"error":"Missing or invalid 'queries' array","code":"BAD_REQUEST"}"#;
++            return axum::response::Response::builder()
++                .status(400)
++                .header(CONTENT_TYPE, "application/json")
++                .body(Body::from(err.to_vec()))
++                .expect("static response should always build");
++        }
++    };
++    if queries.len() > 50 {
++        let err = br#"{"error":"Batch size exceeds maximum of 50 queries","code":"BAD_REQUEST"}"#;
++        return axum::response::Response::builder()
++            .status(400)
++            .header(CONTENT_TYPE, "application/json")
++            .body(Body::from(err.to_vec()))
++            .expect("static response should always build");
++    }
++    let mut futures = Vec::with_capacity(queries.len());
++    for query in queries {
++        let name = match query.get("name").and_then(|v| v.as_str()) {
++            Some(n) => n.to_string(),
++            None => {
++                futures.push(tokio::spawn(async {
++                    Err::<protocol::response::Response, String>(
++                        "Missing 'name' field in query".to_string(),
++                    )
++                }));
++                continue;
++            }
++        };
++        let body_bytes = match query.get("body") {
++            Some(b) => Bytes::from(sonic_rs::to_vec(b).unwrap_or_default()),
++            None => Bytes::new(),
++        };
++        let req = protocol::Request {
++            name,
++            req_type: RequestType::Query,
++            api_key: None,
++            body: body_bytes,
++            in_fmt: Format::Json,
++            out_fmt: Format::Json,
++        };
++        let state_ref = Arc::clone(&state);
++        futures.push(tokio::spawn(async move {
++            match state_ref.worker_pool.process(req).await {
++                Ok(resp) => Ok(resp),
++                Err(e) => Err(e.to_string()),
++            }
++        }));
++    }
++    let mut results = Vec::with_capacity(futures.len());
++    for fut in futures {
++        let join_result = fut.await;
++        match join_result {
++            Ok(Ok(resp)) => {
++                let body_val: sonic_rs::Value =
++                    sonic_rs::from_slice(&resp.body).unwrap_or_default();
++                results.push(BatchResult { status: 200, body: Some(body_val), error: None });
++            }
++            Ok(Err(err_str)) => {
++                results.push(BatchResult { status: 500, body: None, error: Some(err_str) });
++            }
++            Err(join_err) => {
++                results.push(BatchResult { status: 500, body: None, error: Some(join_err.to_string()) });
++            }
++        }
++    }
++    let response_body = BatchResponse { results };
++    let response_bytes = sonic_rs::to_vec(&response_body).unwrap_or_default();
++    if *helix_metrics::METRICS_ENABLED {
++        helix_metrics::log_event(
++            helix_metrics::events::EventType::QuerySuccess,
++            helix_metrics::events::QuerySuccessEvent {
++                cluster_id: state.cluster_id.clone(),
++                query_name: "batch".to_string(),
++                time_taken_usec: start_time.elapsed().as_micros() as u32,
++            },
++        );
++    }
++    axum::response::Response::builder()
++        .status(200)
++        .header(CONTENT_TYPE, "application/json")
++        .body(Body::from(response_bytes))
++        .expect("Should be able to construct batch response")
++}
++
+ pub struct AppState {
+     pub worker_pool: WorkerPool,
+     pub schema_json: Option<Bytes>,
+     pub cluster_id: Option<String>,
+ }
+ 
++#[derive(serde::Serialize)]
++struct BatchResponse {
++    results: Vec<BatchResult>,
++}
++
++#[derive(serde::Serialize)]
++struct BatchResult {
++    status: u16,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    body: Option<sonic_rs::Value>,
++    #[serde(skip_serializing_if = "Option::is_none")]
++    error: Option<String>,
++}
++
++#[cfg(feature = "grpc")]
++fn derive_grpc_address(http_addr: &str) -> String {
++    if let Some((host, port_str)) = http_addr.rsplit_once(':') {
++        if let Ok(port) = port_str.parse::<u16>() {
++            return format!("{}:{}", host, port + 1);
++        }
++    }
++    format!("{}:6970", http_addr)
++}
++
+ pub struct CoreSetter {
+     pub(crate) cores: Vec<CoreId>,
+     pub(crate) threads_per_core: usize,
+diff --git a/helix-db/src/helix_gateway/grpc/mod.rs b/helix-db/src/helix_gateway/grpc/mod.rs
+new file mode 100644
+index 0000000..dff0b95
+--- /dev/null
++++ b/helix-db/src/helix_gateway/grpc/mod.rs
+@@ -0,0 +1,5 @@
++pub mod service;
++
++pub mod proto {
++    tonic::include_proto!("helix.v1");
++}
+diff --git a/helix-db/src/helix_gateway/grpc/service.rs b/helix-db/src/helix_gateway/grpc/service.rs
+new file mode 100644
+index 0000000..30a2120
+--- /dev/null
++++ b/helix-db/src/helix_gateway/grpc/service.rs
+@@ -0,0 +1,138 @@
++use std::sync::Arc;
++use axum::body::Bytes;
++use tokio::sync::mpsc;
++use tokio_stream::wrappers::ReceiverStream;
++use tonic::{Request, Response, Status, Streaming};
++use tracing::warn;
++use crate::helix_gateway::gateway::AppState;
++use crate::protocol;
++use crate::protocol::request::RequestType;
++use crate::protocol::Format;
++use super::proto::{
++    helix_db_server::HelixDb, BatchRequest, BatchResponse, QueryRequest, QueryResponse,
++};
++
++pub struct HelixGrpcService {
++    state: Arc<AppState>,
++}
++
++impl HelixGrpcService {
++    pub fn new(state: Arc<AppState>) -> Self {
++        Self { state }
++    }
++    fn to_protocol_request(req: &QueryRequest) -> protocol::Request {
++        protocol::Request {
++            name: req.name.clone(),
++            req_type: match req.req_type { 1 => RequestType::MCP, _ => RequestType::Query },
++            api_key: if req.api_key.is_empty() { None } else { Some(req.api_key.clone()) },
++            body: Bytes::from(req.body.clone()),
++            in_fmt: Format::Json,
++            out_fmt: Format::Json,
++        }
++    }
++    async fn execute_one(&self, req: &QueryRequest) -> QueryResponse {
++        let protocol_req = Self::to_protocol_request(req);
++        match self.state.worker_pool.process(protocol_req).await {
++            Ok(resp) => QueryResponse {
++                status: 200, body: resp.body, error: String::new(), error_code: String::new(),
++            },
++            Err(e) => {
++                let status = error_status_code(&e);
++                QueryResponse {
++                    status: status as i32, body: Vec::new(),
++                    error: e.to_string(), error_code: e.code().to_string(),
++                }
++            }
++        }
++    }
++}
++
++#[tonic::async_trait]
++impl HelixDb for HelixGrpcService {
++    async fn query(&self, request: Request<QueryRequest>) -> Result<Response<QueryResponse>, Status> {
++        let resp = self.execute_one(request.get_ref()).await;
++        Ok(Response::new(resp))
++    }
++    async fn batch(&self, request: Request<BatchRequest>) -> Result<Response<BatchResponse>, Status> {
++        let batch = request.into_inner();
++        if batch.queries.len() > 50 {
++            return Err(Status::invalid_argument("Batch size exceeds maximum of 50 queries"));
++        }
++        let mut handles = Vec::with_capacity(batch.queries.len());
++        for query in &batch.queries {
++            let state = Arc::clone(&self.state);
++            let protocol_req = Self::to_protocol_request(query);
++            handles.push(tokio::spawn(async move {
++                match state.worker_pool.process(protocol_req).await {
++                    Ok(resp) => QueryResponse {
++                        status: 200, body: resp.body, error: String::new(), error_code: String::new(),
++                    },
++                    Err(e) => {
++                        let status = error_status_code(&e);
++                        QueryResponse {
++                            status: status as i32, body: Vec::new(),
++                            error: e.to_string(), error_code: e.code().to_string(),
++                        }
++                    }
++                }
++            }));
++        }
++        let mut results = Vec::with_capacity(handles.len());
++        for handle in handles {
++            match handle.await {
++                Ok(resp) => results.push(resp),
++                Err(join_err) => results.push(QueryResponse {
++                    status: 500, body: Vec::new(),
++                    error: join_err.to_string(), error_code: "INTERNAL_ERROR".to_string(),
++                }),
++            }
++        }
++        Ok(Response::new(BatchResponse { results }))
++    }
++    type StreamQueryStream = ReceiverStream<Result<QueryResponse, Status>>;
++    async fn stream_query(&self, request: Request<Streaming<QueryRequest>>) -> Result<Response<Self::StreamQueryStream>, Status> {
++        let mut inbound = request.into_inner();
++        let state = Arc::clone(&self.state);
++        let (tx, rx) = mpsc::channel(64);
++        tokio::spawn(async move {
++            while let Ok(Some(query_req)) = inbound.message().await {
++                let state = Arc::clone(&state);
++                let tx = tx.clone();
++                tokio::spawn(async move {
++                    let protocol_req = HelixGrpcService::to_protocol_request(&query_req);
++                    let resp = match state.worker_pool.process(protocol_req).await {
++                        Ok(resp) => QueryResponse {
++                            status: 200, body: resp.body, error: String::new(), error_code: String::new(),
++                        },
++                        Err(e) => {
++                            let status = error_status_code(&e);
++                            QueryResponse {
++                                status: status as i32, body: Vec::new(),
++                                error: e.to_string(), error_code: e.code().to_string(),
++                            }
++                        }
++                    };
++                    if tx.send(Ok(resp)).await.is_err() {
++                        warn!("gRPC stream client disconnected");
++                    }
++                });
++            }
++        });
++        Ok(Response::new(ReceiverStream::new(rx)))
++    }
++}
++
++fn error_status_code(e: &protocol::HelixError) -> u16 {
++    use crate::helix_engine::types::{GraphError, VectorError};
++    match e {
++        protocol::HelixError::NotFound { .. }
++        | protocol::HelixError::Graph(
++            GraphError::ConfigFileNotFound | GraphError::NodeNotFound
++            | GraphError::EdgeNotFound | GraphError::LabelNotFound
++            | GraphError::ShortestPathNotFound,
++        )
++        | protocol::HelixError::Vector(VectorError::VectorNotFound(_)) => 404,
++        protocol::HelixError::InvalidApiKey => 403,
++        _ => 500,
++    }
++}
+diff --git a/helix-db/src/helix_gateway/mod.rs b/helix-db/src/helix_gateway/mod.rs
+index 5701c89..2d5a69e 100644
+--- a/helix-db/src/helix_gateway/mod.rs
++++ b/helix-db/src/helix_gateway/mod.rs
+@@ -2,6 +2,8 @@
+ pub mod builtin;
+ pub mod embedding_providers;
+ pub mod gateway;
++#[cfg(feature = "grpc")]
++pub mod grpc;
+ pub mod introspect_schema;
+ #[cfg(feature = "api-key")]
+ pub mod key_verification;
+diff --git a/helix-db/src/protocol/error.rs b/helix-db/src/protocol/error.rs
+index c737d86..9079a52 100644
+--- a/helix-db/src/protocol/error.rs
++++ b/helix-db/src/protocol/error.rs
+@@ -36,7 +36,7 @@ impl Serialize for HelixError {
+ }
+ 
+ impl HelixError {
+-    fn code(&self) -> &'static str {
++    pub fn code(&self) -> &'static str {
+         match self {
+             HelixError::Graph(_) => "GRAPH_ERROR",
+             HelixError::Vector(_) => "VECTOR_ERROR",

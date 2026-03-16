@@ -31,7 +31,7 @@ dependencies = [
     "anthropic>=0.40.0",
     "cryptography>=43.0.0",
     "rapidfuzz>=3.0.0",
-    "httpx>=0.27.0",
+    "httpx[http2]>=0.27.0",
     "numpy>=1.24.0",
     "fastembed>=0.5.0",
 ]
@@ -39,6 +39,9 @@ dependencies = [
 [project.optional-dependencies]
 local = ["fastembed>=0.5.0"]  # kept for backwards compat
 gnn = ["torch>=2.0.0"]
+helix = ["helix-py>=0.2.30"]
+grpc = ["grpcio>=1.60.0", "grpcio-tools>=1.60.0"]
+gemini = ["google-genai>=1.0.0"]
 full = [
     "redis[hiredis]>=5.0.0",
     "falkordb>=1.0.0",
@@ -47,17 +50,19 @@ full = [
     "python-jose[cryptography]>=3.3.0",
     "prometheus-client>=0.21.0",
     "torch>=2.0.0",
+    "grpcio>=1.60.0",
 ]
 
 [dependency-groups]
 dev = [
-    "engram[full,local]",
+    "engram[full,local,helix,grpc,gemini]",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "httpx>=0.28.0",
     "pytest-cov>=6.0",
+    "grpcio-tools>=1.60.0",
 ]
 
 [project.urls]
@@ -81,6 +86,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*.py" = ["E402"]
+"engram/storage/helix/proto/*_pb2*.py" = ["E501", "F401", "I001", "N802", "UP004", "UP009"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -94,6 +100,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "requires_docker: marks tests requiring Docker services",
+    "requires_helix: marks tests requiring a running HelixDB instance",
     "requires_api_key: marks tests requiring external API keys",
     "requires_local_embeddings: marks tests requiring fastembed",
 ]

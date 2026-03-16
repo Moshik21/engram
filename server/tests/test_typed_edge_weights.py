@@ -155,13 +155,13 @@ async def test_zero_weight_blocks_propagation():
 
 @pytest.mark.asyncio
 async def test_sqlite_integration_returns_3tuple(tmp_path):
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
     """SQLiteGraphStore.get_active_neighbors_with_weights returns 3-tuple."""
     from engram.models.entity import Entity
     from engram.models.relationship import Relationship
-    from engram.storage.sqlite.graph import SQLiteGraphStore
-
-    db_path = str(tmp_path / "test.db")
-    store = SQLiteGraphStore(db_path)
+    store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
 
     # Create two entities and a relationship

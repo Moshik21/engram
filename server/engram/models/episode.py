@@ -40,6 +40,14 @@ class EpisodeProjectionState(str, Enum):
     DEAD_LETTER = "dead_letter"
 
 
+class Attachment(BaseModel):
+    """A multimodal attachment on an episode (image, audio, video, PDF)."""
+
+    mime_type: str  # "image/png", "audio/mp3", "video/mp4", "application/pdf"
+    data_url: str  # base64 data URI or file path
+    description: str = ""  # optional text description of the content
+
+
 class Episode(BaseModel):
     """A raw memory episode — the input text from a conversation or event."""
 
@@ -62,3 +70,4 @@ class Episode(BaseModel):
     projection_state: EpisodeProjectionState = EpisodeProjectionState.QUEUED
     last_projection_reason: str | None = None
     last_projected_at: datetime | None = None
+    attachments: list[Attachment] = Field(default_factory=list)

@@ -50,6 +50,10 @@ ENTITY_UPDATABLE_FIELDS = frozenset(
         "lexical_regime",
         "canonical_identifier",
         "identifier_label",
+        "source_episode_ids",
+        "evidence_count",
+        "evidence_span_start",
+        "evidence_span_end",
     }
 )
 
@@ -71,6 +75,7 @@ EPISODE_UPDATABLE_FIELDS = frozenset(
         "last_projection_reason",
         "last_projected_at",
         "conversation_date",
+        "attachments_json",
     }
 )
 

@@ -25,28 +25,63 @@ def _create_embedding_provider(config: EngramConfig):
 
     provider_type = config.embedding.provider.lower()
 
-    # Normalize legacy "voyage" default to "auto" behavior
+    # --- Gemini (explicit or auto-detected) ---
+    if provider_type in ("gemini", "auto"):
+        # GEMINI_API_KEY may be in .env but not os.environ (pydantic reads it
+        # into config but doesn't export). Load dotenv to ensure visibility.
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        if gemini_key or provider_type == "gemini":
+            try:
+                from engram.embeddings.provider import GeminiProvider
+
+                model = config.embedding.gemini_model
+                dims = config.embedding.dimensions if config.embedding.dimensions > 0 else 3072
+                provider = GeminiProvider(
+                    api_key=gemini_key,
+                    model=model,
+                    dimensions=dims,
+                    batch_size=config.embedding.batch_size,
+                )
+                config.embedding.dimensions = dims
+                logger.info("Embedding provider: GeminiProvider (%s, %dd)", model, dims)
+                return provider
+            except ImportError:
+                if provider_type == "gemini":
+                    logger.warning(
+                        "google-genai not installed — pip install google-genai"
+                    )
+                # Fall through to next provider
+            except Exception as e:
+                logger.warning("GeminiProvider init failed: %s", e)
+
+    # --- Voyage (explicit or auto-fallback) ---
     if provider_type in ("voyage", "auto"):
         api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
         if api_key:
-            logger.info("Embedding provider: VoyageProvider (%s)", config.embedding.model)
+            dims = config.embedding.dimensions if config.embedding.dimensions > 0 else 1024
+            config.embedding.dimensions = dims
+            logger.info(
+                "Embedding provider: VoyageProvider (%s, %dd)", config.embedding.model, dims
+            )
             return VoyageProvider(
                 api_key=api_key,
                 model=config.embedding.model,
-                dimensions=config.embedding.dimensions,
+                dimensions=dims,
                 batch_size=config.embedding.batch_size,
             )
         if provider_type == "voyage":
-            # Explicit "voyage" without key — warn and fall back
             logger.warning("No VOYAGE_API_KEY — falling back to local embeddings")
         provider_type = "local"
 
-    if provider_type == "local":
+    # --- Local (FastEmbed) ---
+    if provider_type in ("local", "auto"):
         try:
             from engram.embeddings.provider import FastEmbedProvider
 
             provider = FastEmbedProvider(model=config.embedding.local_model)
-            # Override dimensions so downstream (e.g. Redis HNSW) uses correct value
             config.embedding.dimensions = provider.dimension()
             logger.info(
                 "Embedding provider: FastEmbedProvider (%s, %dd)",
@@ -128,6 +163,60 @@ def create_stores(
             MemoryActivationStore(cfg=config.activation),
             search_index,
         )
+    elif mode == EngineMode.HELIX:
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
+        from engram.storage.memory.activation import MemoryActivationStore
+
+        encryptor = None
+        if config.encryption.enabled and config.encryption.master_key:
+            from engram.security.encryption import FieldEncryptor
+
+            encryptor = FieldEncryptor(config.encryption.master_key)
+
+        provider = _create_embedding_provider(config)
+
+        storage_dim = config.embedding.storage_dimensions
+        if storage_dim > 0 and storage_dim >= provider.dimension():
+            storage_dim = 0
+        if storage_dim > 0 and config.embedding.provider == "voyage":
+            logger.warning(
+                "Matryoshka truncation (storage_dimensions=%d) is not supported "
+                "by Voyage models. Use provider=local for Matryoshka support.",
+                storage_dim,
+            )
+
+        provider_type = config.embedding.provider.lower()
+        embed_meta_provider = provider_type
+        embed_meta_model = (
+            config.embedding.model
+            if provider_type == "voyage"
+            else config.embedding.local_model
+            if provider_type == "local"
+            else "noop"
+        )
+
+        # Create shared async client for all Helix stores
+        from engram.storage.helix.client import HelixClient
+
+        helix_client = HelixClient(config.helix)
+
+        return (
+            HelixGraphStore(config.helix, encryptor=encryptor, client=helix_client),
+            MemoryActivationStore(cfg=config.activation),
+            HelixSearchIndex(
+                config.helix,
+                provider=provider,
+                embed_config=config.embedding,
+                storage_dim=storage_dim,
+                embed_provider=embed_meta_provider,
+                embed_model=embed_meta_model,
+                client=helix_client,
+                topic_segmentation=config.activation.chunk_topic_segmentation,
+                topic_threshold=config.activation.chunk_topic_threshold,
+            ),
+        )
+
     else:  # EngineMode.FULL
         import redis.asyncio as aioredis
 

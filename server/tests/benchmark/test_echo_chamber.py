@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from engram.benchmark.metrics import gini_coefficient
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 class TestGiniCoefficient:
@@ -36,19 +52,27 @@ class TestGiniCoefficient:
 class TestEchoChamberSmoke:
     @pytest.mark.asyncio
     async def test_smoke_20_queries(self, tmp_path):
+        from engram.config import EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
+
         """Run a small echo chamber and verify it produces valid results."""
         from engram.benchmark.corpus import generate_corpus
         from engram.benchmark.echo_chamber import run_echo_chamber
         from engram.config import ActivationConfig
         from engram.storage.memory.activation import MemoryActivationStore
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        db_path = str(tmp_path / "echo.db")
-        graph_store = SQLiteGraphStore(db_path)
+        graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph_store.initialize()
-        search_index = FTS5SearchIndex(db_path)
-        await search_index.initialize(db=graph_store._db)
+        search_index = HelixSearchIndex(
+     helix_config=HelixDBConfig(host="localhost", port=6969),
+     provider=NoopProvider(),
+     embed_config=EmbeddingConfig(),
+     storage_dim=0,
+     embed_provider="noop",
+     embed_model="noop",
+ )
+        await search_index.initialize()
         cfg = ActivationConfig()
         activation_store = MemoryActivationStore(cfg)
 
@@ -93,19 +117,27 @@ class TestEchoChamberSmoke:
 
     @pytest.mark.asyncio
     async def test_usage_policy_tracks_surfaced_vs_used(self, tmp_path):
+        from engram.config import EmbeddingConfig, HelixDBConfig
+        from engram.embeddings.provider import NoopProvider
+        from engram.storage.helix.graph import HelixGraphStore
+        from engram.storage.helix.search import HelixSearchIndex
+
         """Custom usage policies should reduce reinforcement below surfaced volume."""
         from engram.benchmark.corpus import generate_corpus
         from engram.benchmark.echo_chamber import run_echo_chamber
         from engram.config import ActivationConfig
         from engram.storage.memory.activation import MemoryActivationStore
-        from engram.storage.sqlite.graph import SQLiteGraphStore
-        from engram.storage.sqlite.search import FTS5SearchIndex
-
-        db_path = str(tmp_path / "echo_usage.db")
-        graph_store = SQLiteGraphStore(db_path)
+        graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph_store.initialize()
-        search_index = FTS5SearchIndex(db_path)
-        await search_index.initialize(db=graph_store._db)
+        search_index = HelixSearchIndex(
+     helix_config=HelixDBConfig(host="localhost", port=6969),
+     provider=NoopProvider(),
+     embed_config=EmbeddingConfig(),
+     storage_dim=0,
+     embed_provider="noop",
+     embed_model="noop",
+ )
+        await search_index.initialize()
         cfg = ActivationConfig()
         activation_store = MemoryActivationStore(cfg)
 

@@ -32,6 +32,12 @@ class Entity(BaseModel):
     canonical_identifier: str | None = None
     identifier_label: bool = False
 
+    # Summary provenance — tracks which episodes shaped this entity's summary
+    source_episode_ids: list[str] = Field(default_factory=list)
+    evidence_count: int = 0
+    evidence_span_start: datetime | None = None
+    evidence_span_end: datetime | None = None
+
     @model_validator(mode="after")
     def _derive_identifier_facets(self) -> Entity:
         facets = entity_identifier_facets(self.name)

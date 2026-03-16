@@ -7,7 +7,6 @@ import pytest
 from engram.extraction.conflicts import get_contradictory_predicates, is_exclusive_predicate
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
-from engram.storage.sqlite.graph import SQLiteGraphStore
 
 
 class TestExclusivePredicates:
@@ -42,7 +41,7 @@ class TestExclusivePredicates:
 
 @pytest.mark.asyncio
 class TestConflictDetection:
-    async def test_find_conflicting_relationships(self, graph_store: SQLiteGraphStore):
+    async def test_find_conflicting_relationships(self, graph_store):
         """find_conflicting_relationships returns active rels with same source+predicate."""
         await graph_store.create_entity(
             Entity(id="ent_person", name="Alice", entity_type="Person", group_id="default")
@@ -71,7 +70,7 @@ class TestConflictDetection:
         assert len(conflicts) == 1
         assert conflicts[0].target_id == "ent_city1"
 
-    async def test_find_conflicting_ignores_invalidated(self, graph_store: SQLiteGraphStore):
+    async def test_find_conflicting_ignores_invalidated(self, graph_store):
         """Already-invalidated relationships should not be returned as conflicts."""
         await graph_store.create_entity(
             Entity(id="ent_p", name="Bob", entity_type="Person", group_id="default")
@@ -97,11 +96,11 @@ class TestConflictDetection:
         conflicts = await graph_store.find_conflicting_relationships("ent_p", "LIVES_IN", "default")
         assert len(conflicts) == 0
 
-    async def test_non_exclusive_no_invalidation(self, graph_store: SQLiteGraphStore):
+    async def test_non_exclusive_no_invalidation(self, graph_store):
         """Non-exclusive predicates should not trigger conflict detection."""
         assert not is_exclusive_predicate("USES")
 
-    async def test_same_target_no_conflict(self, graph_store: SQLiteGraphStore):
+    async def test_same_target_no_conflict(self, graph_store):
         """Same source+predicate+target is not a real conflict."""
         await graph_store.create_entity(
             Entity(id="ent_s", name="S", entity_type="Person", group_id="default")
@@ -124,7 +123,7 @@ class TestConflictDetection:
         # The existing rel is returned; the graph_manager would skip same-target
         assert len(conflicts) == 1
 
-    async def test_get_relationships_at_active(self, graph_store: SQLiteGraphStore):
+    async def test_get_relationships_at_active(self, graph_store):
         """get_relationships_at returns rels active at a specific time."""
         await graph_store.create_entity(
             Entity(id="ent_at1", name="P1", entity_type="Person", group_id="default")
@@ -153,7 +152,7 @@ class TestConflictDetection:
         rels = await graph_store.get_relationships_at("ent_at1", datetime(2026, 1, 1))
         assert len(rels) == 0
 
-    async def test_get_relationships_at_no_valid_from(self, graph_store: SQLiteGraphStore):
+    async def test_get_relationships_at_no_valid_from(self, graph_store):
         """Rel with no valid_from is always active from the beginning."""
         await graph_store.create_entity(
             Entity(id="ent_nf1", name="X", entity_type="Test", group_id="default")

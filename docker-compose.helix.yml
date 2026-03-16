@@ -1,0 +1,100 @@
+# Engram with HelixDB storage backend.
+# Usage: docker compose -f docker-compose.helix.yml up -d --build
+#
+# HelixDB replaces FalkorDB + Redis with a single graph+vector database.
+# Schema is compiled from the mounted schema.hx file at startup.
+name: engram-helix
+
+services:
+  helixdb:
+    image: helixdb/helixdb:latest
+    container_name: engram-helixdb
+    restart: unless-stopped
+    ports:
+      - "${ENGRAM_HELIX_PORT:-6969}:6969"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - engram_helix_data:/data
+      - ./server/engram/storage/helix/schema.hx:/etc/helixdb/schema.hx:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:6969/ || curl -sf http://localhost:6969/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - engram-net
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: engram-server
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    depends_on:
+      helixdb:
+        condition: service_healthy
+    environment:
+      - ENGRAM_MODE=helix
+      - ENGRAM_HELIX__HOST=helixdb
+      - ENGRAM_HELIX__PORT=6969
+      - ENGRAM_HELIX__CONFIG_PATH=/etc/helixdb
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY:-}
+      - ENGRAM_AUTH__ENABLED=${ENGRAM_AUTH_ENABLED:-false}
+      - ENGRAM_AUTH__BEARER_TOKEN=${ENGRAM_AUTH_BEARER_TOKEN:-}
+      - ENGRAM_ENCRYPTION__ENABLED=${ENGRAM_ENCRYPTION_ENABLED:-false}
+      - ENGRAM_ENCRYPTION__MASTER_KEY=${ENGRAM_ENCRYPTION_MASTER_KEY:-}
+      - ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
+      - ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
+      - ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
+    volumes:
+      - engram_server_data:/home/engram/.engram
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - engram-net
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: engram-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    depends_on:
+      server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - engram-net
+
+networks:
+  engram-net:
+    driver: bridge
+
+volumes:
+  engram_helix_data:
+  engram_server_data:

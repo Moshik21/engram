@@ -2,41 +2,60 @@
 
 from __future__ import annotations
 
+import socket
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import pytest
 
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
-from engram.storage.sqlite.graph import SQLiteGraphStore
+
+
+def _helix_available() -> bool:
+    try:
+        socket.create_connection(("localhost", 6969), timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 @pytest.fixture
 async def graph():
-    store = SQLiteGraphStore(":memory:")
+    from engram.config import HelixDBConfig
+    from engram.storage.helix.graph import HelixGraphStore
+
+    store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
     yield store
     await store.close()
 
 
-async def _create_entity(graph: SQLiteGraphStore, eid: str, name: str, etype: str = "Concept"):
+async def _create_entity(graph, eid: str, name: str, etype: str = "Concept", group_id: str = "default"):
     entity = Entity(
         id=eid,
         name=name,
         entity_type=etype,
         summary=f"Summary for {name}",
-        group_id="default",
+        group_id=group_id,
     )
     await graph.create_entity(entity)
     return entity
 
 
 async def _create_ttl_edge(
-    graph: SQLiteGraphStore,
+    graph,
     src: str,
     tgt: str,
     days_from_now: int,
     rel_id: str = "rel_ttl1",
+    group_id: str = "default",
 ):
     valid_to = datetime.utcnow() + timedelta(days=days_from_now)
     rel = Relationship(
@@ -46,7 +65,7 @@ async def _create_ttl_edge(
         predicate="DREAM_ASSOCIATED",
         weight=0.1,
         valid_to=valid_to,
-        group_id="default",
+        group_id=group_id,
         confidence=0.5,
     )
     await graph.create_relationship(rel)
@@ -97,7 +116,9 @@ async def test_entity_with_ttl_edge_not_dead(graph):
     await _create_entity(graph, "e2", "Beta")
     await _create_ttl_edge(graph, "e1", "e2", days_from_now=30)
 
-    # Set entity to look old enough
+    # Set entity to look old enough — requires direct DB access (SQLite only)
+    if not hasattr(graph, "db"):
+        pytest.skip("SQLite-only test (direct SQL update)")
     old_date = (datetime.utcnow() - timedelta(days=60)).isoformat()
     await graph.db.execute("UPDATE entities SET created_at = ? WHERE id = ?", (old_date, "e1"))
     await graph.db.commit()
@@ -191,29 +212,33 @@ async def test_path_exists_within_hops(graph):
 @pytest.mark.asyncio
 async def test_get_expired_relationships(graph):
     """get_expired_relationships returns only expired edges."""
-    await _create_entity(graph, "e1", "Alpha")
-    await _create_entity(graph, "e2", "Beta")
+    gid = f"test_{uuid4().hex[:8]}"
+    await _create_entity(graph, f"e1_{gid}", "Alpha", group_id=gid)
+    await _create_entity(graph, f"e2_{gid}", "Beta", group_id=gid)
 
     # Active TTL edge (future)
-    await _create_ttl_edge(graph, "e1", "e2", days_from_now=30, rel_id="rel_future")
+    await _create_ttl_edge(
+        graph, f"e1_{gid}", f"e2_{gid}", days_from_now=30,
+        rel_id=f"rel_future_{gid}", group_id=gid,
+    )
 
     # Expired edge
     past = datetime.utcnow() - timedelta(days=1)
     expired_rel = Relationship(
-        id="rel_past",
-        source_id="e1",
-        target_id="e2",
+        id=f"rel_past_{gid}",
+        source_id=f"e1_{gid}",
+        target_id=f"e2_{gid}",
         predicate="DREAM_ASSOCIATED",
         weight=0.1,
         valid_to=past,
-        group_id="default",
+        group_id=gid,
     )
     await graph.create_relationship(expired_rel)
 
-    expired = await graph.get_expired_relationships("default")
+    expired = await graph.get_expired_relationships(gid)
     assert len(expired) == 1
-    assert expired[0].id == "rel_past"
+    assert expired[0].id == f"rel_past_{gid}"
 
     # Filter by predicate
-    expired_filtered = await graph.get_expired_relationships("default", predicate="NONEXISTENT")
+    expired_filtered = await graph.get_expired_relationships(gid, predicate="NONEXISTENT")
     assert len(expired_filtered) == 0
