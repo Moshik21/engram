@@ -555,3 +555,338 @@ class TestEpisodeReplayPhase:
         assert len(ctx.affected_entity_ids) == 2
         # All replay new IDs should also be in affected
         assert ctx.replay_new_entity_ids.issubset(ctx.affected_entity_ids)
+
+
+class TestReplayDeferredExtraction:
+    """Tests for LLM-free replay: projection_state filtering + vocab linking."""
+
+    @pytest.mark.asyncio
+    async def test_skips_already_projected_episodes(self):
+        """PROJECTED episodes are filtered out — re-extraction is deterministic waste."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "projected"
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        phase = EpisodeReplayPhase(extractor=_make_extractor())
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+        assert result.items_processed == 0
+
+    @pytest.mark.asyncio
+    async def test_targets_cue_only_episodes(self):
+        """CUE_ONLY episodes (triage-skipped) are selected for extraction."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        extractor = _make_extractor(
+            entities=[{"name": "Alice", "entity_type": "person"}],
+        )
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+        assert result.items_processed == 1
+        assert records[0].new_entities_found == 1
+
+    @pytest.mark.asyncio
+    async def test_updates_projection_state_after_extraction(self):
+        """After successful extraction, episode is marked PROJECTED."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        extractor = _make_extractor(
+            entities=[{"name": "NewPerson", "entity_type": "person"}],
+        )
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.create_entity = AsyncMock()
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        ctx = CycleContext()
+        ctx.trigger = "manual"
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
+        )
+
+        graph_store.update_episode.assert_called_once()
+        call_args = graph_store.update_episode.call_args
+        assert call_args[0][0] == ep.id
+        updates = call_args[0][1]
+        assert updates["projection_state"] == "projected"
+        assert updates["last_projection_reason"] == "replay_deferred_extraction"
+
+    @pytest.mark.asyncio
+    async def test_no_projection_update_on_dry_run(self):
+        """Dry run skips projection_state update."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        extractor = _make_extractor(
+            entities=[{"name": "NewPerson", "entity_type": "person"}],
+        )
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=True,
+        )
+
+        graph_store.update_episode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_projection_update_on_empty_extraction(self):
+        """No entities found → no projection_state update."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        graph_store.update_episode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vocab_linking_creates_links(self):
+        """Entity name found in episode content → link created."""
+        cfg = _make_cfg()
+        ep = _make_episode(content="Alice went to the store with Bob.")
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        alice = _make_entity("ent_alice", "Alice", "person")
+        bob = _make_entity("ent_bob", "Bob", "person")
+
+        # Extractor returns nothing (no new entities from extraction)
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[alice, bob])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        # Should have vocab linking records
+        vocab_records = [r for r in records if r.entities_updated > 0]
+        assert len(vocab_records) == 1
+        assert vocab_records[0].entities_updated == 2  # Alice + Bob
+
+    @pytest.mark.asyncio
+    async def test_vocab_linking_skips_already_linked(self):
+        """No duplicate links — already-linked entities are skipped."""
+        cfg = _make_cfg()
+        ep = _make_episode(content="Alice went to the store.")
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        alice = _make_entity("ent_alice", "Alice", "person")
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[alice])
+        # Alice is already linked
+        graph_store.get_episode_entities = AsyncMock(return_value=["ent_alice"])
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        # No vocab linking records (Alice was already linked)
+        vocab_records = [r for r in records if r.entities_updated > 0]
+        assert len(vocab_records) == 0
+
+    @pytest.mark.asyncio
+    async def test_vocab_linking_case_insensitive(self):
+        """'Alice' matches 'alice' in content."""
+        cfg = _make_cfg()
+        ep = _make_episode(content="I talked to alice yesterday.")
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        alice = _make_entity("ent_alice", "Alice", "person")
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[alice])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        vocab_records = [r for r in records if r.entities_updated > 0]
+        assert len(vocab_records) == 1
+        graph_store.link_episode_entity.assert_called_once_with(ep.id, "ent_alice")
+
+    @pytest.mark.asyncio
+    async def test_vocab_linking_disabled_by_config(self):
+        """Respects consolidation_replay_vocab_linking_enabled=False."""
+        cfg = _make_cfg(consolidation_replay_vocab_linking_enabled=False)
+        ep = _make_episode(content="Alice went to the store.")
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        alice = _make_entity("ent_alice", "Alice", "person")
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[alice])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        # Only the extraction record, no vocab linking
+        vocab_records = [r for r in records if r.entities_updated > 0]
+        assert len(vocab_records) == 0
+
+    @pytest.mark.asyncio
+    async def test_vocab_linking_longer_names_first(self):
+        """'React.js' matches before 'React' — longer names take priority."""
+        cfg = _make_cfg()
+        ep = _make_episode(content="We use React.js for the frontend.")
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        react = _make_entity("ent_react", "React", "technology")
+        reactjs = _make_entity("ent_reactjs", "React.js", "technology")
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[react, reactjs])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.link_episode_entity = AsyncMock()
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        vocab_records = [r for r in records if r.entities_updated > 0]
+        assert len(vocab_records) == 1
+        # Both should be linked (React.js matches first, React also matches)
+        assert vocab_records[0].entities_updated == 2
+        # Verify React.js was linked first (called first)
+        calls = graph_store.link_episode_entity.call_args_list
+        assert calls[0][0] == (ep.id, "ent_reactjs")

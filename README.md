@@ -386,7 +386,7 @@ Engram is designed to minimize LLM dependency. The only operation that *requires
 | **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation remains available as an explicit opt-in fallback. |
 | **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
 | **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
-| **Replay** (re-extraction) | Yes | Re-runs Haiku extraction on recent episodes to recover missed entities. |
+| **Replay** (deferred extraction) | No | Runs deferred extraction on triage-skipped episodes, then links known entity names found in episode text. Skips already-extracted episodes. Zero LLM calls. |
 | **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (recall, search_entities, search_facts). Rate-limited. |
 | **Briefing synthesis** | Yes | Haiku summarizes memory context into 2-3 sentences. Cached with prompt caching. |
 | **Dream** (offline consolidation) | No | Spreading activation + embedding similarity. Pure math. |
@@ -579,7 +579,7 @@ Twelve phases execute sequentially:
 | **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. Optional LLM escalation remains available only as an explicit fallback. |
 | **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN + structural candidate discovery). Multi-signal scorer with 7 signals (name analysis + embeddings + neighbor Jaccard + summary Dice + referential exclusivity) — handles acronyms, numeronyms, tech suffixes, canonical aliases, and structural equivalents (entities sharing neighbors but with zero name overlap). Summary dedup via token-set Jaccard prevents bloat during merge. |
 | **Infer** | Create edges for co-occurring entities (PMI scoring). Multi-signal auto-validation (embedding coherence + type compatibility + ubiquity penalty + structural plausibility) replaces LLM judge — self-correcting via Dream LTD decay |
-| **Replay** | Re-extract recent episodes with Claude Haiku to recover missed entities (selective — only runs when upstream phases changed the graph) |
+| **Replay** | Run deferred extraction on triage-skipped episodes (CUE_ONLY/QUEUED), then link known entity names found in episode text via exact substring matching. Skips already-extracted (PROJECTED) episodes — deterministic re-extraction is waste. Zero LLM calls. Selective: only runs when upstream phases changed the graph during tiered scheduling. |
 | **Prune** | Soft-delete dead entities (no relationships, low access, old enough). Activation safety net prevents pruning warm entities. |
 | **Compact** | Logarithmic bucketing of access history + consolidated strength preservation |
 | **Mature** | Promote entities through three memory tiers (episodic → transitional → semantic) based on source diversity, temporal span, relationship richness, and access regularity. Each tier has differential ACT-R decay (0.5 exponent for episodic, 0.3 for semantic) and different pruning resistance (14 days episodic, 180 days semantic). Identity-core entities auto-promote. **Reconsolidation**: recently recalled entities enter a 5-minute labile window where new information can update their summary (max 3 modifications; window does not extend on re-recall). Reconsolidation count feeds maturation bonus. |
@@ -621,7 +621,7 @@ The consolidation rework ([`docs/design/consolidation-rework.md`](docs/design/co
 - **Incremental graph embedding** is implemented for Node2Vec only; TransE and GNN currently retrain the full graph when they run
 - **FalkorDB parity** — late-phase methods (mature, semanticize) have incomplete FalkorDB implementations; episode tier fields may not fully round-trip in full mode
 - **Merge negative cache** (`keep_separate`) is in-memory without TTL — stale decisions can persist until restart
-- **Replay semantic divergence** — replay applies shared relationship logic now, but edge cases may still differ from the ingestion path
+- **Replay vocab linking** — uses exact substring matching only; fuzzy/partial entity name matches are not detected
 - **Schema formation** does not yet prefer mature entities over episodic ones when selecting candidate motifs
 
 ### Multi-Signal Scoring Architecture

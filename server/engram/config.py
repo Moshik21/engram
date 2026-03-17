@@ -709,6 +709,10 @@ class ActivationConfig(BaseModel):
     consolidation_replay_max_per_cycle: int = Field(default=50, ge=1, le=500)
     consolidation_replay_window_hours: float = Field(default=24.0, ge=1.0, le=720.0)
     consolidation_replay_min_age_hours: float = Field(default=1.0, ge=0.0, le=48.0)
+    consolidation_replay_vocab_linking_enabled: bool = Field(
+        default=True,
+        description="Scan episodes for exact entity name matches after deferred extraction",
+    )
 
     # --- Reindex after consolidation ---
     consolidation_reindex_max_per_cycle: int = Field(default=200, ge=1, le=5000)

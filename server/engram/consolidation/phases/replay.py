@@ -1,4 +1,4 @@
-"""Episode replay phase: re-extract entities from recent episodes."""
+"""Extract entities from unextracted episodes and link known entities by name."""
 
 from __future__ import annotations
 
@@ -20,13 +20,14 @@ from engram.models.consolidation import (
     ReplayRecord,
 )
 from engram.models.entity import Entity
+from engram.models.episode import EpisodeProjectionState
 from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
 
 class EpisodeReplayPhase(ConsolidationPhase):
-    """Re-extract entities from recent COMPLETED episodes to find missed info."""
+    """Extract entities from unextracted episodes and link known entities by name."""
 
     def __init__(
         self,
@@ -49,6 +50,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
             "find_entities",
             "create_entity",
             "update_entity",
+            "update_episode",
             "link_episode_entity",
             "create_relationship",
             "get_relationships",
@@ -192,6 +194,19 @@ class EpisodeReplayPhase(ConsolidationPhase):
                         skipped_reason="extraction_failed",
                     )
                 )
+
+        # Phase B: Graph-vocabulary linking — scan episodes for exact entity name matches
+        if cfg.consolidation_replay_vocab_linking_enabled:
+            vocab_records = await self._graph_vocabulary_link(
+                episodes=eligible,
+                group_id=group_id,
+                graph_store=graph_store,
+                existing_entities=existing_entities,
+                cycle_id=cycle_id,
+                dry_run=dry_run,
+                context=context,
+            )
+            records.extend(vocab_records)
 
         return PhaseResult(
             phase=self.name,
@@ -340,6 +355,17 @@ class EpisodeReplayPhase(ConsolidationPhase):
             context=context,
         )
 
+        # Mark episode as projected after successful extraction
+        if not dry_run and (new_entities > 0 or new_rels > 0 or entities_updated > 0):
+            await graph_store.update_episode(
+                episode.id,
+                {
+                    "projection_state": EpisodeProjectionState.PROJECTED.value,
+                    "last_projection_reason": "replay_deferred_extraction",
+                },
+                group_id=group_id,
+            )
+
         return ReplayRecord(
             cycle_id=cycle_id,
             group_id=group_id,
@@ -389,6 +415,13 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     break
                 if status != "completed":
                     continue
+                # Skip already-extracted episodes — narrow re-extraction is
+                # deterministic waste.  Target CUE_ONLY / QUEUED episodes only.
+                proj_state = getattr(ep, "projection_state", None)
+                if proj_state is not None:
+                    pval = proj_state.value if hasattr(proj_state, "value") else str(proj_state)
+                    if pval == "projected":
+                        continue
                 if created_at > age_cutoff:
                     continue
 
@@ -476,6 +509,67 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 new_count += 1
 
         return new_count
+
+
+    async def _graph_vocabulary_link(
+        self,
+        episodes: list[Any],
+        group_id: str,
+        graph_store: Any,
+        existing_entities: list[Entity],
+        cycle_id: str,
+        dry_run: bool,
+        context: CycleContext | None,
+    ) -> list[ReplayRecord]:
+        """Scan episodes for exact substring matches of known entity names."""
+        if not existing_entities or not episodes:
+            return []
+
+        # Build lookup sorted by name length descending (longer names match first)
+        name_to_id: list[tuple[str, str]] = sorted(
+            [(ent.name.lower(), ent.id) for ent in existing_entities if ent.name],
+            key=lambda t: len(t[0]),
+            reverse=True,
+        )
+
+        records: list[ReplayRecord] = []
+        for ep in episodes:
+            content = getattr(ep, "content", None)
+            if not content:
+                continue
+            content_lower = content.lower()
+
+            try:
+                already_linked = set(await graph_store.get_episode_entities(ep.id))
+            except Exception:
+                already_linked = set()
+
+            linked_count = 0
+            for name_lower, entity_id in name_to_id:
+                if entity_id in already_linked:
+                    continue
+                if name_lower in content_lower:
+                    if not dry_run:
+                        await graph_store.link_episode_entity(ep.id, entity_id)
+                    already_linked.add(entity_id)
+                    linked_count += 1
+                    if context is not None:
+                        context.affected_entity_ids.add(entity_id)
+
+            if linked_count > 0:
+                records.append(
+                    ReplayRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        episode_id=ep.id,
+                        new_entities_found=0,
+                        new_relationships_found=0,
+                        entities_updated=linked_count,
+                        skipped_reason=None,
+                    )
+                )
+
+        return records
 
 
 def _elapsed_ms(t0: float) -> float:
