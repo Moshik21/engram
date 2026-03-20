@@ -69,7 +69,13 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
         return await resolve_mode(env_mode)
 
     logger.info("Auto-detecting mode...")
-    # Check Helix first (single service replaces FalkorDB + Redis)
+    # Check native in-process transport first (zero dependencies, best perf)
+    if _check_native():
+        logger.info("helix_native available — using helix mode with native transport")
+        os.environ.setdefault("ENGRAM_HELIX__TRANSPORT", "native")
+        return EngineMode.HELIX
+
+    # Check Helix HTTP/gRPC (single service replaces FalkorDB + Redis)
     if await _check_helix():
         logger.info("HelixDB detected — using helix mode")
         return EngineMode.HELIX
@@ -91,6 +97,16 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
     else:
         logger.info("No external services detected — using lite mode")
         return EngineMode.LITE
+
+
+def _check_native() -> bool:
+    """Check if helix_native PyO3 extension is importable."""
+    try:
+        import helix_native  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 async def _check_helix() -> bool:

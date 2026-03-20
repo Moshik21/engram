@@ -177,6 +177,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                                 pass
                             activation_task = None
 
+                    elif command == "dismiss_notification":
+                        nid = data.get("id")
+                        if nid:
+                            ns = _app_state.get("notification_store")
+                            if ns:
+                                ns.dismiss(nid)
+
         except (WebSocketDisconnect, Exception):
             pass
 

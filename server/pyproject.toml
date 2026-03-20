@@ -38,6 +38,7 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["fastembed>=0.5.0"]  # kept for backwards compat
+native = []  # helix-native wheel — install separately until published to PyPI
 gnn = ["torch>=2.0.0"]
 helix = ["helix-py>=0.2.30"]
 grpc = ["grpcio>=1.60.0", "grpcio-tools>=1.60.0"]

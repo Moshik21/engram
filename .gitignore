@@ -78,6 +78,9 @@ docs/helixql-graphstore-mapping.md
 # Internal design specs
 refined/
 
+# Internal tracking
+EXTRACTION_QUALITY.md
+
 # AI tool configs
 AGENTS.md
 CLAUDE.md

@@ -10,7 +10,6 @@ import asyncio
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,8 @@ class NativeTransport:
         if not HAS_NATIVE:
             raise ImportError(
                 "helix_native is required for native transport. "
-                "Build with: make build-native"
+                "Install with: pip install engram[native]  "
+                "Or build from source: make build-native"
             )
         self._config = config
         self._engine: Any = None
@@ -48,20 +48,33 @@ class NativeTransport:
     }
 
     async def initialize(self) -> None:
-        """Create the in-process HelixGraphEngine."""
+        """Create the in-process HelixGraphEngine.
+
+        Redirects stdout to stderr during init because the Rust engine
+        prints status messages that would corrupt MCP stdio transport.
+        """
         loop = asyncio.get_event_loop()
         data_dir = getattr(self._config, "data_dir", None) or None
         num_workers = getattr(self._config, "max_workers", 4)
 
-        self._engine = await loop.run_in_executor(
-            None,
-            partial(
-                helix_native.HelixEngine,
-                data_dir=data_dir if data_dir else None,
-                num_workers=num_workers,
-                bm25_field_filters=self.BM25_FIELD_FILTERS,
-            ),
-        )
+        def _create_engine():
+            import os
+            import sys
+
+            # Redirect stdout → stderr so Rust prints don't corrupt MCP stdio
+            original_stdout_fd = os.dup(1)
+            os.dup2(sys.stderr.fileno(), 1)
+            try:
+                return helix_native.HelixEngine(
+                    data_dir=data_dir if data_dir else None,
+                    num_workers=num_workers,
+                    bm25_field_filters=self.BM25_FIELD_FILTERS,
+                )
+            finally:
+                os.dup2(original_stdout_fd, 1)
+                os.close(original_stdout_fd)
+
+        self._engine = await loop.run_in_executor(None, _create_engine)
         self._executor = ThreadPoolExecutor(
             max_workers=num_workers,
             thread_name_prefix="helix-native",

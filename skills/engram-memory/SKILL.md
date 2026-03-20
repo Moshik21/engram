@@ -1,89 +1,101 @@
 ---
-name: engram-memory
-description: Persistent long-term memory powered by knowledge graphs, ACT-R activation, and 12-phase consolidation. Remember conversations across sessions, recall relevant context automatically, and build a private brain that improves over time.
-version: 1.0.0
+name: engram-brain
+description: Persistent long-term memory powered by knowledge graphs, ACT-R activation, and 15-phase consolidation. Remember conversations across sessions, recall relevant context automatically, and build a private brain that improves over time. Zero LLM cost by default.
+version: 0.3.2
+user-invocable: true
 metadata:
   openclaw:
     requires:
       env: []
+      anyBins:
+        - docker
+        - uv
     optionalEnv:
       - ANTHROPIC_API_KEY
+      - ENGRAM_GROUP_ID
     emoji: "\U0001F9E0"
     homepage: https://github.com/Moshik21/engram
+    install:
+      uv: engram
+    tags:
+      - memory
+      - knowledge-graph
+      - mcp
+      - recall
+      - long-term-memory
+      - cognitive-architecture
 ---
 
 # Engram Memory
 
 You have access to Engram, a persistent memory system that builds a temporal knowledge graph from conversations. It uses ACT-R cognitive architecture for activation-aware retrieval and runs offline consolidation inspired by biological memory.
 
-Works with both lite and full Engram installs.
+Works with both lite (SQLite) and full (HelixDB Docker) Engram installs. Zero LLM cost by default — all consolidation scoring, replay, and retrieval are deterministic. Optional Anthropic API key enables richer entity extraction.
 
 ## Setup
 
-The Engram server must be running locally.
+The Engram server must be running locally. No API keys are required for basic operation.
 
-### Lite install (recommended — no Docker)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-```
-
-Select **Lite** when prompted, then answer **yes** to "Install OpenClaw skill?".
+### Package install (recommended)
 
 ```bash
+uv tool install engram
+engramctl setup
 engramctl start
+engramctl install-openclaw
 ```
 
-### Full install (Docker)
+### Docker install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
+docker pull ghcr.io/moshik21/engram:latest
+docker run -d -p 8100:8100 --name engram ghcr.io/moshik21/engram:latest
 ```
 
-### Already have Engram running?
-
-Add the OpenClaw skill with:
+Then add the OpenClaw skill:
 
 ```bash
 engramctl install-openclaw
 ```
 
-### Advanced fallback (manual source)
+### Source install
+
+Clone the repo, review the code, then build locally:
 
 ```bash
 git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
 uv run engram setup
+uv run engram serve
 ```
 
-### Standalone MCP Server (Source)
+### Installer script (alternative)
 
-For developers who want to run the MCP server from source without the installer:
+An interactive installer is available. Review it before running:
 
 ```bash
-git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram/server
-uv sync
-export ANTHROPIC_API_KEY=sk-ant-...
-uv run engram mcp
+# Review first:
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh -o install.sh
+less install.sh
+# Then run:
+bash install.sh
 ```
 
-**Transport modes:**
-- `uv run engram mcp` — stdio (default, for Claude Desktop / Claude Code)
-- `uv run engram mcp --transport streamable-http --port 8200` — HTTP (for remote clients)
+### MCP Server
 
-**Claude Desktop configuration** (`~/.claude/claude_desktop_config.json`):
-```json
-{
-  "mcpServers": {
-    "engram": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/engram/server", "engram", "mcp"]
-    }
-  }
-}
+For Claude Desktop / Claude Code integration:
+
+```bash
+uv run engram mcp                                          # stdio (default)
+uv run engram mcp --transport streamable-http --port 8200  # HTTP
 ```
+
+### Environment variables
+
+All optional:
+- `ANTHROPIC_API_KEY` — enables richer entity extraction via Claude Haiku. Without it, Engram uses a deterministic narrow extractor (zero cost).
+- `ENGRAM_GROUP_ID` — namespace for multi-brain setups. Defaults to `"default"`. Most users never need to set this.
 
 The REST API is available at `http://127.0.0.1:8100`. Check status with
 `engramctl status`.
@@ -202,7 +214,7 @@ stay hidden unless you explicitly opt into debug mode with
 
 - **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
 - **Knowledge graph**: Entities and relationships are extracted and connected
-- **12-phase consolidation**: Offline cycles merge duplicates, infer missing links, prune noise, and discover patterns
+- **15-phase consolidation**: Offline cycles merge duplicates, infer missing links, adjudicate evidence, prune noise, mature entities, form schemas, and discover cross-domain patterns
 - **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
@@ -226,8 +238,8 @@ When an intention fires during recall, act on it naturally without announcing it
 
 ## Consolidation
 
-Engram runs 12 offline consolidation phases that improve memory quality over time:
-triage, merge, infer, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, dream.
+Engram runs 15 offline consolidation phases that improve memory quality over time:
+triage, merge, infer, evidence_adjudicate, edge_adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream.
 
 To trigger a consolidation cycle manually:
 ```
@@ -241,3 +253,29 @@ To check consolidation status:
 ```
 GET http://localhost:8100/api/consolidation/status
 ```
+
+## Proactive Notifications
+
+Engram can push memory discoveries without being asked. Consolidation events (dream associations, entity merges, schema patterns, maturation milestones) and approaching intention deadlines produce notifications automatically.
+
+Enabled by `conservative` and `standard` profiles.
+
+To poll pending notifications:
+```
+GET http://localhost:8100/api/knowledge/notifications?limit=20
+```
+
+To poll notifications since a timestamp:
+```
+GET http://localhost:8100/api/knowledge/notifications?since=1741200000.0
+```
+
+To dismiss notifications after acting on them:
+```
+POST http://localhost:8100/api/knowledge/notifications/dismiss
+Content-Type: application/json
+
+{"ids": ["ntf_abc123", "ntf_def456"]}
+```
+
+Poll notifications every 30-60 seconds. Surface high-priority notifications immediately. Dismiss after acting on them. Notifications also piggyback on MCP `observe` and `remember` responses as `memory_notifications`.

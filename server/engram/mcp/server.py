@@ -260,33 +260,43 @@ async def _auto_recall_lite(
     manager: GraphManager,
     cfg: ActivationConfig,
 ) -> dict | None:
-    """Lightweight entity-probe recall piggybacked on observe/remember.
+    """Dispatch auto-recall to lite or medium based on config.
 
-    Uses recall_lite() instead of full recall pipeline. ~3-5ms.
-    Always runs — no gating, no cooldown, no need analysis.
+    - lite: FTS5-only entity probe (~3-5ms)
+    - medium: FTS5 + embedding rerank (~8-15ms, better disambiguation)
     """
     if len(content) < 20:
         return None
 
     session = _get_session()
+    level = getattr(cfg, "auto_recall_level", "lite")
 
     try:
-        results = await manager.recall_lite(
-            text=content,
-            group_id=_group_id,
-            session_cache=session.recall_cache,
-            token_budget=cfg.auto_recall_token_budget,
-            cache_ttl=cfg.auto_recall_cache_ttl_seconds,
-        )
+        if level == "medium" and hasattr(manager, "recall_medium"):
+            results = await manager.recall_medium(
+                text=content,
+                group_id=_group_id,
+                session_cache=session.recall_cache,
+                token_budget=cfg.auto_recall_token_budget,
+                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+            )
+        else:
+            results = await manager.recall_lite(
+                text=content,
+                group_id=_group_id,
+                session_cache=session.recall_cache,
+                token_budget=cfg.auto_recall_token_budget,
+                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+            )
     except Exception:
-        logger.debug("recall_lite failed", exc_info=True)
+        logger.debug("auto_recall failed", exc_info=True)
         return None
 
     if not results:
         return None
 
     return {
-        "source": "recall_lite",
+        "source": f"recall_{level}",
         "entities": results,
     }
 
@@ -499,6 +509,129 @@ async def _get_episode_adjudications(manager, episode_id: str, group_id: str) ->
     return result if isinstance(result, list) else []
 
 
+# ─── Recall Middleware ───────────────────────────────────────────────
+
+_RECALL_TOOLS = frozenset({
+    "observe", "remember", "recall", "search_entities",
+    "search_facts", "get_context", "route_question", "search_artifacts",
+})
+_WRITE_TOOLS = frozenset({"observe", "remember"})
+
+
+def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
+    """Unified gate: should this tool get recall context?"""
+    if not cfg or tool_name not in _RECALL_TOOLS:
+        return False
+    if tool_name == "observe":
+        return bool(cfg.auto_recall_on_observe)
+    if tool_name == "remember":
+        return bool(cfg.auto_recall_on_remember)
+    return bool(cfg.auto_recall_on_tool_call)
+
+
+def _serialize_intentions(manager: GraphManager) -> list[dict] | None:
+    """Serialize and drain triggered intentions from manager."""
+    if not manager._triggered_intentions:
+        return None
+    result = [
+        {
+            "trigger": m.trigger_text,
+            "action": m.action_text,
+            "similarity": round(m.similarity, 4),
+            "matched_via": m.matched_via,
+            **({"context": m.context} if m.context else {}),
+            **({"see_also": m.see_also} if m.see_also else {}),
+        }
+        for m in manager._triggered_intentions
+    ]
+    manager._triggered_intentions = []
+    return result
+
+
+def _serialize_notifications(
+    cfg: ActivationConfig, group_id: str
+) -> list[dict] | None:
+    """Serialize proactive memory notifications."""
+    if not cfg.notification_surfacing_enabled:
+        return None
+    from engram.main import _app_state as _ns_state
+
+    ns = _ns_state.get("notification_store")
+    if not ns:
+        return None
+    notifications = ns.get_for_mcp(
+        group_id,
+        limit=cfg.notification_mcp_max_per_response,
+        max_surfaces=cfg.notification_mcp_max_surfaces,
+    )
+    if not notifications:
+        return None
+    return [
+        {
+            "type": n.notification_type,
+            "title": n.title,
+            "body": n.body,
+            "priority": n.priority,
+        }
+        for n in notifications
+    ]
+
+
+async def _recall_middleware(
+    content: str,
+    response: dict,
+    *,
+    tool_name: str,
+    auto_observe: bool = False,
+) -> None:
+    """Unified recall middleware — replaces per-tool piggyback blocks.
+
+    Attaches recalled_context, session_context, triggered_intentions,
+    and memory_notifications to any tool response.
+    """
+    cfg = _activation_cfg
+    if not _should_recall(tool_name, cfg):
+        # Even when recall is disabled, surface notifications for get_context
+        if tool_name == "get_context" and cfg and cfg.notification_surfacing_enabled:
+            notifs = _serialize_notifications(cfg, _group_id)
+            if notifs:
+                response["memory_notifications"] = notifs
+        return
+    assert cfg is not None
+    manager = _get_manager()
+
+    # Auto-observe long content (e.g. route_question questions)
+    if auto_observe and len(content) >= 50:
+        try:
+            await manager.store_episode(content, _group_id, source="tool_piggyback")
+        except Exception:
+            logger.debug("middleware auto-observe failed", exc_info=True)
+
+    # Update conversation fingerprint (read tools only; write tools do it inline)
+    if tool_name not in _WRITE_TOOLS:
+        await _ingest_live_turn(manager, content, source="tool_piggyback")
+
+    # Session prime (first call only)
+    prime = await _session_prime(content, manager, cfg)
+    if prime:
+        response["session_context"] = prime
+
+    # Recall
+    recalled = await _auto_recall_lite(content, manager, cfg)
+    if recalled:
+        response["recalled_context"] = recalled
+
+    # Triggered intentions
+    intentions = _serialize_intentions(manager)
+    if intentions:
+        response["triggered_intentions"] = intentions
+
+    # Memory notifications
+    notifs = _serialize_notifications(cfg, _group_id)
+    if notifs:
+        response["memory_notifications"] = notifs
+
+
 # ─── Tools ──────────────────────────────────────────────────────────
 
 
@@ -578,27 +711,7 @@ async def remember(
             )
             if adjudications:
                 response["adjudication_requests"] = adjudications
-    if cfg and cfg.auto_recall_on_remember:
-        prime = await _session_prime(content, manager, cfg)
-        if prime:
-            response["session_context"] = prime
-        recalled = await _auto_recall_lite(content, manager, cfg)
-        if recalled:
-            response["recalled_context"] = recalled
-    # Surface triggered intentions (Wave 4)
-    if manager._triggered_intentions:
-        response["triggered_intentions"] = [
-            {
-                "trigger": m.trigger_text,
-                "action": m.action_text,
-                "similarity": round(m.similarity, 4),
-                "matched_via": m.matched_via,
-                **({"context": m.context} if m.context else {}),
-                **({"see_also": m.see_also} if m.see_also else {}),
-            }
-            for m in manager._triggered_intentions
-        ]
-        manager._triggered_intentions = []
+    await _recall_middleware(content, response, tool_name="remember")
     return json.dumps(response)
 
 
@@ -660,7 +773,6 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
     """
     manager = _get_manager()
     session = _get_session()
-    cfg = _activation_cfg
     conv_dt = None
     if conversation_date:
         try:
@@ -683,27 +795,7 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
         "episode_id": episode_id,
         "message": "Stored for background processing.",
     }
-    if cfg and cfg.auto_recall_on_observe:
-        prime = await _session_prime(content, manager, cfg)
-        if prime:
-            response["session_context"] = prime
-        recalled = await _auto_recall_lite(content, manager, cfg)
-        if recalled:
-            response["recalled_context"] = recalled
-    # Surface triggered intentions (Wave 4)
-    if manager._triggered_intentions:
-        response["triggered_intentions"] = [
-            {
-                "trigger": m.trigger_text,
-                "action": m.action_text,
-                "similarity": round(m.similarity, 4),
-                "matched_via": m.matched_via,
-                **({"context": m.context} if m.context else {}),
-                **({"see_also": m.see_also} if m.see_also else {}),
-            }
-            for m in manager._triggered_intentions
-        ]
-        manager._triggered_intentions = []
+    await _recall_middleware(content, response, tool_name="observe")
     return json.dumps(response)
 
 
@@ -957,6 +1049,7 @@ async def recall(query: str, limit: int = 5) -> str:
                 for s in surprises[:3]
             ]
 
+    await _recall_middleware(query, response_dict, tool_name="recall")
     return json.dumps(response_dict)
 
 
@@ -987,7 +1080,9 @@ async def search_entities(
     entities = await manager.search_entities(
         group_id=_group_id, name=name, entity_type=entity_type, limit=limit
     )
-    return json.dumps({"entities": entities, "total": len(entities)})
+    result = {"entities": entities, "total": len(entities)}
+    await _recall_middleware(name or entity_type or "", result, tool_name="search_entities")
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -1022,7 +1117,9 @@ async def search_facts(
         include_epistemic=include_epistemic,
         limit=limit,
     )
-    return json.dumps({"facts": facts, "total": len(facts)})
+    result = {"facts": facts, "total": len(facts)}
+    await _recall_middleware(query, result, tool_name="search_facts")
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -1091,6 +1188,8 @@ async def get_context(
         project_path=project_path,
         format=format,
     )
+    # Middleware handles recall + notifications; fallback for get_context built in
+    await _recall_middleware(topic_hint or project_path or "", result, tool_name="get_context")
     return json.dumps(result)
 
 
@@ -1148,6 +1247,7 @@ async def route_question(
         session_entity_names=session_entity_names,
         surface="mcp",
     )
+    await _recall_middleware(question, result, tool_name="route_question", auto_observe=True)
     return json.dumps(result)
 
 
@@ -1165,14 +1265,14 @@ async def search_artifacts(
         group_id=_group_id,
         limit=limit,
     )
-    return json.dumps(
-        {
-            "query": query,
-            "project_path": project_path,
-            "items": [hit.to_dict() for hit in hits],
-            "total": len(hits),
-        }
-    )
+    result = {
+        "query": query,
+        "project_path": project_path,
+        "items": [hit.to_dict() for hit in hits],
+        "total": len(hits),
+    }
+    await _recall_middleware(query, result, tool_name="search_artifacts")
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -1691,4 +1791,11 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    import argparse as _ap
+
+    _parser = _ap.ArgumentParser()
+    _parser.add_argument("--transport", default=None)
+    _parser.add_argument("--host", default=None)
+    _parser.add_argument("--port", type=int, default=None)
+    _args = _parser.parse_args()
+    main(transport=_args.transport, host=_args.host, port=_args.port)

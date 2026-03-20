@@ -198,6 +198,25 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         pressure_accumulator = PressureAccumulator()
         pressure_accumulator.start(config.default_group_id, event_bus)
 
+    # Proactive notification surfacing
+    from engram.notifications.collector import NotificationCollector
+    from engram.notifications.store import NotificationStore
+    from engram.notifications.temporal import TemporalIntentionScanner
+
+    notification_store = NotificationStore(
+        max_per_group=config.activation.notification_max_per_group,
+    )
+    notification_collector = None
+    if config.activation.notification_surfacing_enabled:
+        notification_collector = NotificationCollector(
+            notification_store, config.activation, consolidation_store
+        )
+        event_bus.add_on_publish_hook(notification_collector.on_event)
+
+    temporal_scanner = None
+    if config.activation.notification_temporal_enabled:
+        temporal_scanner = TemporalIntentionScanner(notification_store, config.activation)
+
     # Consolidation scheduler
     from engram.consolidation.scheduler import ConsolidationScheduler
 
@@ -206,6 +225,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         config.activation,
         default_group_id=config.default_group_id,
         pressure=pressure_accumulator,
+        temporal_scanner=temporal_scanner,
     )
     if config.activation.consolidation_enabled:
         consolidation_scheduler.start()
@@ -305,6 +325,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "rate_limiter": rate_limiter,
             "usage_meter": usage_meter,
             "redis_metering": redis_for_metering,
+            "notification_store": notification_store,
+            "notification_collector": notification_collector,
+            "temporal_scanner": temporal_scanner,
         }
     )
 

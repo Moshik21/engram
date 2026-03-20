@@ -54,11 +54,13 @@ class ConsolidationScheduler:
         cfg: ActivationConfig,
         default_group_id: str = "default",
         pressure: PressureAccumulator | None = None,
+        temporal_scanner: object | None = None,
     ) -> None:
         self._engine = engine
         self._cfg = cfg
         self._group_id = default_group_id
         self._pressure = pressure
+        self._temporal_scanner = temporal_scanner
         self._task: asyncio.Task | None = None
         self._last_cycle_time: float = time.time()
         # Per-tier last run timestamps
@@ -105,6 +107,17 @@ class ConsolidationScheduler:
                 await asyncio.sleep(_PRESSURE_POLL_INTERVAL)
             else:
                 await asyncio.sleep(self._cfg.consolidation_interval_seconds)
+
+            # Run temporal intention scan on every poll (piggyback on hot tier)
+            if self._temporal_scanner is not None:
+                try:
+                    from engram.main import _app_state
+
+                    gs = _app_state.get("graph_store")
+                    if gs:
+                        await self._temporal_scanner.scan(self._group_id, gs)
+                except Exception:
+                    logger.debug("Temporal intention scan failed", exc_info=True)
 
             if not self._cfg.consolidation_enabled:
                 continue

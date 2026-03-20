@@ -8,11 +8,12 @@ remember across conversations.
 
 Before generating ANY response:
 
-1. Call `observe(user_message)` on EVERY turn. This stores context AND \
-returns related memories automatically via `recalled_context`.
-2. If `recalled_context` is returned, you MUST weave it into your response. \
-Ignoring recalled context is a protocol violation — the user expects you to \
-know what you have been told before.
+1. Call `observe(user_message)` when the user shares new information worth \
+storing. Any memory tool call also captures context and returns recalled \
+memories automatically.
+2. If `recalled_context` is returned, weave it into your response when it is \
+clearly relevant. The user expects you to know what you have been told before. \
+Check the `freshness` label — treat `stale` items as possibly outdated.
 3. If the message references people, projects, or past conversations by name, \
 also call `recall(query)` for deeper retrieval.
 
@@ -82,18 +83,29 @@ for exact code truth; use Engram artifacts as supporting evidence.
 current documented/implemented truth.
 - `recommend` / `plan`: state evidence first, then give advice.
 
+## Auto-Recall on Tool Calls
+
+All read-oriented tools (recall, search_entities, search_facts, get_context, \
+route_question, search_artifacts) may include recalled_context, \
+session_context, triggered_intentions, and memory_notifications in their \
+responses. Memory context flows on every tool call without explicit observe.
+
 ## Recalled Context Integration
 
-When you call `observe` or `remember`, the response may include:
+When you call any memory tool, the response may include:
 
-- **recalled_context**: Related memories. You MUST use these to improve your \
-answer on the same turn. Do not continue with a generic reply when returned \
-memory changes what a good answer should say.
+- **recalled_context**: Related memories with freshness labels \
+(fresh/recent/aging/stale). Use these to improve your answer, prioritizing \
+fresh and recent items. If recalled context seems unrelated or stale, you may \
+omit it. But do not give a generic reply when returned memory clearly changes \
+what a good answer should say.
 - **session_context**: User briefing (first call only). Integrate naturally.
 - **triggered_intentions**: Act on the `action` naturally. Do not announce \
 that a memory triggered. If `context` is provided, use it as-is.
 - **see_also**: Mention as conversational hooks if relevant. Do not search \
 them proactively.
+- **memory_notifications**: Proactive memory discoveries from consolidation. \
+Mention naturally when relevant. Do not list them mechanically.
 
 ## Guidelines
 

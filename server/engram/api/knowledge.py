@@ -40,6 +40,52 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 
+# ─── Notifications ──────────────────────────────────────────────
+
+
+class DismissBody(BaseModel):
+    ids: list[str]
+
+
+@router.get("/notifications")
+async def get_notifications(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    since: float = Query(0.0, ge=0.0),
+) -> JSONResponse:
+    """Return pending or recent notifications."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    from engram.main import _app_state
+
+    ns = _app_state.get("notification_store")
+    if ns is None:
+        return JSONResponse(content={"notifications": []})
+
+    from engram.notifications.models import notification_to_dict
+
+    if since > 0:
+        items = ns.get_since(group_id, since)
+    else:
+        items = ns.get_pending(group_id, limit=limit)
+    return JSONResponse(
+        content={"notifications": [notification_to_dict(n) for n in items]}
+    )
+
+
+@router.post("/notifications/dismiss")
+async def dismiss_notifications(request: Request, body: DismissBody) -> JSONResponse:
+    """Dismiss one or more notifications by ID."""
+    from engram.main import _app_state
+
+    ns = _app_state.get("notification_store")
+    if ns is None:
+        return JSONResponse(content={"dismissed": 0})
+
+    count = ns.dismiss_batch(body.ids)
+    return JSONResponse(content={"dismissed": count})
+
+
 # ─── Dedup cache for auto-observe ────────────────────────────────
 
 _DEDUP_CACHE: dict[str, float] = {}  # content_hash → timestamp

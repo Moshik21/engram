@@ -8,9 +8,9 @@ def test_system_prompt_requires_lookup_before_answer():
     assert "observe(user_message)" in ENGRAM_SYSTEM_PROMPT
 
 
-def test_system_prompt_mandatory_observe_every_turn():
-    assert "on EVERY turn" in ENGRAM_SYSTEM_PROMPT
-    assert "protocol violation" in ENGRAM_SYSTEM_PROMPT
+def test_system_prompt_observe_guidance():
+    assert "new information worth" in ENGRAM_SYSTEM_PROMPT
+    assert "returns recalled" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_failure_mode_example():
@@ -40,9 +40,9 @@ def test_system_prompt_covers_answer_contract_guidance():
         assert phrase in ENGRAM_SYSTEM_PROMPT
 
 
-def test_system_prompt_recalled_context_mandatory():
-    assert "MUST" in ENGRAM_SYSTEM_PROMPT
+def test_system_prompt_recalled_context_guidance():
     assert "recalled_context" in ENGRAM_SYSTEM_PROMPT
+    assert "freshness" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_context_loader_prompt_remains_explicit():

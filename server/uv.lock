@@ -835,7 +835,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
     { name = "voyageai", marker = "extra == 'full'", specifier = ">=0.3.0" },
 ]
-provides-extras = ["local", "gnn", "helix", "grpc", "gemini", "full"]
+provides-extras = ["local", "native", "gnn", "helix", "grpc", "gemini", "full"]
 
 [package.metadata.requires-dev]
 dev = [
