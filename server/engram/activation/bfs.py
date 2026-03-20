@@ -92,6 +92,10 @@ class BFSStrategy:
                     predicate = None
                     predicate_weight = cfg.predicate_weight_default
 
+                # Skip low-quality edges (garbage entity connections)
+                if edge_weight < cfg.traversal_min_edge_weight:
+                    continue
+
                 # Track discovered entity types
                 if neighbor_entity_type:
                     node_types[neighbor_id] = neighbor_entity_type

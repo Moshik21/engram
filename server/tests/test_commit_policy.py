@@ -4,7 +4,11 @@ from engram.extraction.commit_policy import AdaptiveCommitPolicy, CommitThreshol
 from engram.extraction.evidence import EvidenceBundle, EvidenceCandidate
 
 
-def _make_candidate(fact_class: str, confidence: float) -> EvidenceCandidate:
+def _make_candidate(
+    fact_class: str,
+    confidence: float,
+    signals: list[str] | None = None,
+) -> EvidenceCandidate:
     return EvidenceCandidate(
         episode_id="ep1",
         group_id="default",
@@ -12,6 +16,7 @@ def _make_candidate(fact_class: str, confidence: float) -> EvidenceCandidate:
         confidence=confidence,
         source_type="narrow_extractor",
         extractor_name="test",
+        corroborating_signals=signals,
     )
 
 
@@ -55,12 +60,21 @@ class TestAdaptiveCommitPolicy:
         decisions = policy.evaluate(bundle, entity_count=100)
         assert decisions[0].action == "reject"
 
-    def test_cold_start_lowers_threshold(self):
+    def test_cold_start_lowers_threshold_for_identity(self):
         policy = AdaptiveCommitPolicy()
-        # entity threshold = 0.70, cold start lowers by 0.15 -> 0.55
-        bundle = _make_bundle([_make_candidate("entity", 0.58)])
+        # Cold start relaxation only applies to high-confidence signals
+        candidate = _make_candidate("entity", 0.58, signals=["identity_pattern"])
+        bundle = _make_bundle([candidate])
         decisions = policy.evaluate(bundle, entity_count=10)
         assert decisions[0].action == "commit"
+
+    def test_cold_start_no_relaxation_for_proper_name(self):
+        policy = AdaptiveCommitPolicy()
+        # Bare proper_name candidates get NO cold-start relaxation
+        candidate = _make_candidate("entity", 0.58, signals=["proper_name"])
+        bundle = _make_bundle([candidate])
+        decisions = policy.evaluate(bundle, entity_count=10)
+        assert decisions[0].action == "defer"  # 0.58 < 0.70 (no relaxation)
 
     def test_dense_graph_raises_threshold(self):
         policy = AdaptiveCommitPolicy()

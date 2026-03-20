@@ -73,10 +73,14 @@ def _quote_matches(text: str) -> list[str]:
 
 
 def _entity_mentions(text: str) -> list[dict]:
+    # Sanitize: strip protocol markers, tags, code blocks, URLs
+    from engram.extraction.narrow.entity_extractor import _NOISE_STRIP
+
+    cleaned = _NOISE_STRIP.sub(" ", text)
     mentions: list[dict] = []
-    for match in _unique(_PROPER_NAMES.findall(text), limit=8):
+    for match in _unique(_PROPER_NAMES.findall(cleaned), limit=8):
         mentions.append({"text": match, "type_hint": "proper_name"})
-    for match in _unique(_TECHNICAL_TOKENS.findall(text), limit=8):
+    for match in _unique(_TECHNICAL_TOKENS.findall(cleaned), limit=8):
         mentions.append({"text": match, "type_hint": "technical"})
     return mentions[:12]
 

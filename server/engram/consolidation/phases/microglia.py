@@ -11,7 +11,7 @@ from engram.activation.engine import compute_activation
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.models.consolidation import CycleContext, MicrogliaRecord, PhaseResult
-from engram.utils.text_guards import is_meta_summary
+from engram.utils.text_guards import is_meta_summary, is_noisy_text
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +292,7 @@ class MicrogliaPhase(ConsolidationPhase):
         meta_count = 0
         clean_segments: list[str] = []
         for seg in segments:
-            if is_meta_summary(seg):
+            if is_meta_summary(seg) or is_noisy_text(seg):
                 meta_count += 1
             else:
                 clean_segments.append(seg)

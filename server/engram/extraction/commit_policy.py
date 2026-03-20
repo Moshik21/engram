@@ -6,6 +6,19 @@ from dataclasses import dataclass
 
 from engram.extraction.evidence import CommitDecision, EvidenceBundle, EvidenceCandidate
 
+# Signals that warrant cold-start threshold relaxation
+_HIGH_CONFIDENCE_SIGNALS = frozenset(
+    {
+        "identity_pattern",
+        "name_declaration",
+        "self_introduction",
+        "family_declaration",
+        "workplace_declaration",
+        "residence_declaration",
+        "technical_token",
+    }
+)
+
 
 @dataclass
 class CommitThresholds:
@@ -24,7 +37,7 @@ class AdaptiveCommitPolicy:
     """Decides which evidence to commit, defer, or reject.
 
     Adapts thresholds based on graph density:
-    - Cold start (<50 entities): lower thresholds by 0.15
+    - Cold start (<50 entities): lower thresholds by 0.15, but only for high-confidence signals
     - Dense graph (>500 entities): raise thresholds by 0.05
     """
 
@@ -47,18 +60,31 @@ class AdaptiveCommitPolicy:
         """Evaluate each candidate in the bundle and return commit decisions."""
         decisions: list[CommitDecision] = []
         for candidate in bundle.candidates:
-            threshold = self._effective_threshold(candidate.fact_class, entity_count)
+            threshold = self._effective_threshold(
+                candidate.fact_class,
+                entity_count,
+                signals=candidate.corroborating_signals,
+            )
             decision = self._decide(candidate, threshold)
             decisions.append(decision)
         return decisions
 
-    def _effective_threshold(self, fact_class: str, entity_count: int) -> float:
-        """Compute adaptive threshold based on graph density."""
+    def _effective_threshold(
+        self,
+        fact_class: str,
+        entity_count: int,
+        signals: list[str] | None = None,
+    ) -> float:
+        """Compute adaptive threshold based on graph density and signal quality."""
         base = self._base.for_class(fact_class)
         if not self._adaptive:
             return base
         if entity_count < 50:
-            return max(0.0, base - 0.15)
+            # Only relax for high-confidence signals (identity, tech tokens)
+            # Bare proper_name candidates get no cold-start relaxation
+            if signals and any(s in _HIGH_CONFIDENCE_SIGNALS for s in signals):
+                return max(0.0, base - 0.15)
+            return base
         if entity_count > 500:
             return min(1.0, base + 0.05)
         return base

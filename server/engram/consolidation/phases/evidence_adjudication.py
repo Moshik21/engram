@@ -97,7 +97,7 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                 ),
             )
 
-            for evidence_group in groups.values():
+            for evidence_key, evidence_group in groups.items():
                 if len(evidence_group) <= 1:
                     continue
                 corroboration_boost = min(0.15, 0.05 * (len(evidence_group) - 1))
@@ -136,8 +136,36 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                 threshold = policy._effective_threshold(
                     ev["fact_class"],
                     entity_count,
+                    signals=ev.get("corroborating_signals"),
                 )
                 meets_threshold = ev["confidence"] >= threshold
+
+                # Bare proper_name entities require cross-episode corroboration
+                ev_signals = ev.get("corroborating_signals") or []
+                if (
+                    not forced
+                    and ev.get("fact_class") == "entity"
+                    and "proper_name" in ev_signals
+                    and "identity_pattern" not in ev_signals
+                ):
+                    ev_key = self._evidence_key(ev)
+                    group_count = len(groups.get(ev_key, []))
+                    if group_count < 2:
+                        if not dry_run:
+                            await self._defer_evidence(
+                                graph_store, ev, group_id=group_id
+                            )
+                            records.append(
+                                EvidenceAdjudicationRecord(
+                                    cycle_id=cycle_id,
+                                    group_id=group_id,
+                                    evidence_id=ev["evidence_id"],
+                                    action="deferred",
+                                    new_confidence=ev["confidence"],
+                                    reason="proper_name_needs_corroboration",
+                                ),
+                            )
+                        continue
 
                 if forced or meets_threshold:
                     reason = (

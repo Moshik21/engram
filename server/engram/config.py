@@ -123,6 +123,7 @@ class ActivationConfig(BaseModel):
     spread_max_hops: int = Field(default=2, ge=1, le=5)
     spread_decay_per_hop: float = Field(default=0.5, ge=0.1, le=1.0)
     spread_firing_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
+    traversal_min_edge_weight: float = Field(default=0.05, ge=0.0, le=1.0)
     spread_energy_budget: float = Field(default=50.0, gt=0.0)
     weight_semantic: float = Field(default=0.40, ge=0.0, le=1.0)
     weight_activation: float = Field(default=0.25, ge=0.0, le=1.0)
@@ -714,6 +715,19 @@ class ActivationConfig(BaseModel):
         description="Scan episodes for exact entity name matches after deferred extraction",
     )
 
+    # --- Proactive notifications ---
+    notification_surfacing_enabled: bool = Field(default=False)
+    notification_max_per_group: int = Field(default=200, ge=10, le=1000)
+    notification_mcp_max_per_response: int = Field(default=3, ge=0, le=10)
+    notification_mcp_max_surfaces: int = Field(default=2, ge=1, le=5)
+    notification_temporal_enabled: bool = Field(default=False)
+    notification_temporal_horizon_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
+    notification_activation_spike_threshold: float = Field(default=0.3, ge=0.1, le=1.0)
+    notification_dream_enabled: bool = Field(default=True)
+    notification_merge_enabled: bool = Field(default=True)
+    notification_schema_enabled: bool = Field(default=True)
+    notification_maturation_enabled: bool = Field(default=True)
+
     # --- Reindex after consolidation ---
     consolidation_reindex_max_per_cycle: int = Field(default=200, ge=1, le=5000)
 
@@ -1206,6 +1220,10 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Run auto-recall on remember",
     )
+    auto_recall_on_tool_call: bool = Field(
+        default=False,
+        description="Piggyback auto-recall on read-oriented tool calls",
+    )
     auto_recall_session_prime: bool = Field(
         default=True,
         description="Auto-prime context on first call",
@@ -1228,6 +1246,10 @@ class ActivationConfig(BaseModel):
         ge=30.0,
         le=1800.0,
         description="TTL for session entity cache in recall_lite",
+    )
+    auto_recall_level: str = Field(
+        default="lite",
+        description="Recall level: 'lite' (FTS5) or 'medium' (FTS5+embedding)",
     )
     recall_need_analyzer_enabled: bool = Field(
         default=False,
@@ -1860,6 +1882,8 @@ class ActivationConfig(BaseModel):
             _set("state_dependent_retrieval_enabled", True)
             _set("memory_maturation_enabled", True)
             _set("episode_transition_enabled", True)
+            _set("notification_surfacing_enabled", True)
+            _set("notification_temporal_enabled", True)
         elif profile == "standard":
             _set("consolidation_enabled", True)
             _set("consolidation_dry_run", False)
@@ -1897,6 +1921,8 @@ class ActivationConfig(BaseModel):
             _set("cross_domain_penalty_enabled", True)
             _set("consolidation_dream_ltd_sweep_enabled", True)
             _set("microglia_enabled", True)
+            _set("notification_surfacing_enabled", True)
+            _set("notification_temporal_enabled", True)
 
         # --- Recall profile presets (cumulative) ---
         rp = recall_profile
@@ -1910,9 +1936,11 @@ class ActivationConfig(BaseModel):
             _set("recall_need_structural_enabled", True)
             _set("recall_telemetry_enabled", True)
             _set("recall_usage_feedback_enabled", True)
+            _set("auto_recall_on_tool_call", True)
 
         if rp in ("wave2", "wave3", "wave4", "all"):
             # Wave 2: Conversation Awareness
+            _set("auto_recall_level", "medium")
             _set("recall_need_graph_probe_enabled", True)
             _set("conv_context_enabled", True)
             _set("conv_fingerprint_enabled", True)
@@ -1961,6 +1989,7 @@ class ActivationConfig(BaseModel):
             _set("epistemic_reconcile_enabled", True)
             _set("answer_contract_enabled", True)
             _set("claim_state_modeling_enabled", True)
+            _set("auto_recall_on_tool_call", True)
             _set("memory_maturation_enabled", True)
             _set("episode_transition_enabled", True)
 

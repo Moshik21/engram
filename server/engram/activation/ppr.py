@@ -170,6 +170,10 @@ class PPRStrategy:
 
             neighbors: list[tuple[str, float, str, str]] = []
             for info in neighbors_raw:
+                ew = info[1] if len(info) >= 2 else 0.0
+                # Skip low-quality edges (garbage entity connections)
+                if ew < cfg.traversal_min_edge_weight:
+                    continue
                 if len(info) >= 4:
                     neighbors.append((info[0], info[1], info[2], info[3]))
                     if node_types is not None and info[3]:

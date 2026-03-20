@@ -59,7 +59,7 @@ Engram stores conversations as episodes, turns important people, facts, and rela
 | **Consolidation** | Background process that merges duplicates, discovers patterns, and prunes stale content (inspired by memory consolidation during sleep) |
 | **Activation** | Real-time relevance score for a memory, computed from access history — not stored, always recomputed |
 | **Episode** | A raw text input (conversation snippet) stored in the system |
-| **Entity** | A person, place, concept, or thing extracted from episodes and stored in the knowledge graph |
+| **Entity** | A person, organization, technology, product, concept, or other typed node extracted from episodes and stored in the knowledge graph |
 | **Cue Layer** | Lightweight, deterministic memory trace stored alongside full extraction — enables latent recall without LLM |
 | **CQRS Split** | Ingestion pattern: `observe` (fast, no LLM) vs `remember` (full extraction with LLM) |
 | **Memory Tier** | Entities graduate from episodic → transitional → semantic as they mature (like biological memory) |
@@ -305,7 +305,7 @@ Engram uses external APIs for two things: extracting structure from text and (op
 
 #### Extraction Provider (auto-detected)
 
-Engram auto-detects the best available extraction provider in priority order: **Anthropic** (Claude Haiku) -> **Ollama** (local LLM) -> **Narrow** (deterministic, zero LLM). The narrow pipeline uses staged regex-based extractors (`IdentityFactExtractor`, `AffiliationExtractor`, etc.) that require no API key and no LLM at all. Set explicitly via `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=auto|anthropic|ollama|narrow`.
+Engram auto-detects the best available extraction provider in priority order: **Anthropic** (Claude Haiku) -> **Ollama** (local LLM) -> **Narrow** (deterministic, zero LLM). The narrow pipeline uses staged regex-based extractors (`IdentityEntityExtractor`, `RelationshipPatternExtractor`, `AttributeEvidenceExtractor`, `TemporalEvidenceExtractor`) that require no API key and no LLM at all. Set explicitly via `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=auto|anthropic|ollama|narrow`.
 
 ```bash
 # Option A: Anthropic (best quality)
@@ -320,7 +320,7 @@ export ANTHROPIC_API_KEY=sk-ant-...   # Get a key at console.anthropic.com
 
 **With Anthropic**: When you `remember` something (or when the background worker promotes an `observe`d episode), Engram sends the text to Claude Haiku (`claude-haiku-4-5-20251001`) to extract entities, relationships, temporal markers, structured attributes, and polarity. The extraction prompt recognizes 17 entity types (including health, emotional, and personal domains), ~73 predicate synonyms that canonicalize to ~25 semantic groups, and handles negation/uncertainty ("stopped using X" invalidates existing edges). This produces the highest-quality knowledge graph.
 
-**Without Anthropic**: The narrow deterministic pipeline handles extraction using pattern matching and heuristics. Quality is lower than LLM extraction but sufficient for basic operation with zero API cost.
+**Without Anthropic**: The narrow deterministic pipeline handles extraction using pattern matching and heuristics. It includes multi-layer quality guards: input sanitization (strips protocol markers, XML, code blocks, URLs), sentence-position demotion for single-word candidates, expanded stopword filtering (~85 words), entity name validation (rejects fragments, short names, all-lowercase), and a signal-aware adaptive commit policy that requires cross-episode corroboration for uncertain candidates. Quality is lower than LLM extraction but sufficient for basic operation with zero API cost.
 
 **Cost**: Claude Haiku is Anthropic's fastest, cheapest model. A typical extraction uses ~500-1,500 input tokens and ~200-800 output tokens. At Haiku's pricing (~$0.80/1M input, ~$4/1M output), that's roughly **$0.001-0.005 per memory extracted**. Engram is designed to minimize LLM usage:
 
@@ -450,24 +450,28 @@ The middle layer is the key architectural addition — it makes `observe()` mate
 
 When `remember()` is called, extraction no longer treats LLM output as immediate graph truth. Instead, it produces **evidence candidates** that pass through a commit policy:
 
-| Confidence | Action | Example |
-|-----------|--------|---------|
-| **>= 0.85** | Commit immediately | "Alice works at Acme Corp" → durable graph fact |
-| **0.50 – 0.84** | Defer as unresolved evidence | "She reminded me about the dentist" → stored, not committed |
-| **< 0.50** | Reject | Ambiguous pronouns, hedged future states |
+| Confidence | Signal | Action | Example |
+|-----------|--------|--------|---------|
+| **>= 0.90** | Identity pattern | Commit immediately | "My name is Alice" → Person entity |
+| **0.70** | Technical token | Commit immediately | `React`, `TypeScript` → Technology entity |
+| **0.55** | Proper name | Defer | "Alice" (bare capitalized word) → needs corroboration |
+| **< 0.40** | Any | Reject | Ambiguous pronouns, hedged future states |
+
+The commit policy adapts to graph density: at cold start (<50 entities), thresholds are relaxed by 0.15 **but only for high-confidence signals** (identity patterns, tech tokens). Bare proper names get no cold-start relaxation — preventing bootstrap pollution where documentation examples flood the graph.
 
 Deferred evidence is not lost — it remains attached to the episode and can be promoted later by:
 - Explicit user restatement
-- Corroborating episodes
+- Cross-episode corroboration (bare proper names require count ≥ 2)
 - Consolidation replay
 - Optional offline LLM adjudication (batch, never on the hot path)
 
 **Staged narrow extractors** handle specific domains with high precision instead of one monolithic LLM call:
-- `IdentityFactExtractor` — "my name is X", "I work at Y"
-- `AffiliationExtractor` — "X works at Y", "X is part of Y"
-- `PreferenceGoalHabitExtractor` — "I like X", "my goal is Y"
-- `CorrectionExtractor` — "actually...", "no longer...", "moved to..."
-- `TemporalSignalExtractor` — explicit dates, "since X", "last month"
+- `IdentityEntityExtractor` — "my name is X", "I work at Y", "my wife Sarah" (identity captures at 0.90 confidence), proper names (0.55), tech tokens (0.70)
+- `RelationshipPatternExtractor` — "X works at Y", "X likes Y", "X moved to Y"
+- `AttributeEvidenceExtractor` — structured key-value attributes from text
+- `TemporalEvidenceExtractor` — explicit dates, "since X", "last month"
+
+All narrow extractors receive **sanitized input** — protocol markers, XML/HTML tags, code blocks, and URLs are stripped before extraction. Entity type inference uses ~100+ tech keywords, company/product suffix detection, and location suffixes before falling back to "Concept" (never "Person" by default — only identity captures produce Person entities).
 
 **Client proposals**: Capable callers (e.g., Claude Code) can pass `proposed_entities` and `proposed_relationships` alongside `remember()`. These are validated and scored — never blindly trusted — but can bypass redundant extraction when precise enough.
 
@@ -477,7 +481,7 @@ The north star: **LLM-not-required memory quality**. The system commits only hig
 
 Engram's extraction pipeline acts as a semantic compiler — turning unstructured conversation into a structured, queryable knowledge graph. Five subsystems work together:
 
-**Expanded Entity Taxonomy (17 types):** Beyond the standard `Person`, `Organization`, `Technology` types, Engram recognizes `HealthCondition`, `BodyPart`, `Emotion`, `Goal`, `Preference`, and `Habit`. This prevents personal and health content from being misclassified as generic `Other` entities (which contributed to a 30-40% triage scoring bias against personal content).
+**Expanded Entity Taxonomy (18 types):** Beyond the standard `Person`, `Organization`, `Technology` types, Engram recognizes `Product`, `HealthCondition`, `BodyPart`, `Emotion`, `Goal`, `Preference`, and `Habit`. The narrow pipeline infers types from ~100+ tech keywords, company suffixes (Inc, Labs, AI), product suffixes (App, Pro, Cloud), and location suffixes — defaulting to `Concept` rather than `Person` for unrecognized proper names. Only explicit identity patterns ("my name is X") produce `Person` entities.
 
 **Rich Predicate Vocabulary (~73 synonyms, ~25 canonical forms):** Predicates like `ENJOYS`, `LOVES`, `APPRECIATES` all canonicalize to `LIKES`. Groups cover health (`RECOVERING_FROM`, `HAS_CONDITION`, `TREATS`), sentiment (`LIKES`, `DISLIKES`, `PREFERS`), goals (`AIMS_FOR`), causation (`LED_TO`, `CAUSED_BY`, `REQUIRES`), hierarchy (`HAS_PART`, `PARENT_OF`, `CHILD_OF`), and learning (`STUDYING`). Contradictory pairs (`LIKES`/`DISLIKES`, `AIMS_FOR`/`AVOIDS`) are detected and invalidated automatically during graph writes.
 
@@ -489,14 +493,16 @@ Engram's extraction pipeline acts as a semantic compiler — turning unstructure
 
 ### Meta-Commentary Filtering
 
-Engram includes a 5-layer defense against meta-contamination — when debugging discussions or system telemetry get extracted as real-world facts (e.g., "Kallon has activation score 0.91" polluting Kallon's entity summary).
+Engram includes a 7-layer defense against meta-contamination — when debugging discussions or system telemetry get extracted as real-world facts (e.g., "Kallon has activation score 0.91" polluting Kallon's entity summary).
 
 | Layer | Where | What It Does |
 |-------|-------|-------------|
+| **Input sanitization** | `IdentityEntityExtractor.extract()`, `_entity_mentions()` | Strips protocol markers (`[user\|web]`), XML/HTML tags, code blocks, inline code, and URLs before any regex matching. |
 | **Discourse classifier** | Worker, Triage, `project_episode()` | Regex-based gate classifies content as `world`, `hybrid`, or `system`. Pure system-discourse episodes are skipped before extraction. |
 | **Extraction prompt** | LLM extraction | Instructions tell Claude to ignore system metrics and return empty results for meta-commentary. |
 | **Epistemic mode tagging** | LLM extraction + entity loop | Entities tagged `"meta"` by the LLM are skipped during graph writes. |
 | **Summary merge guard** | `_merge_entity_attributes()` | Meta-contaminated summaries are rejected universally for all entity types, preventing system telemetry from polluting any entity's summary. |
+| **Noisy text detection** | `_get_source_span()`, Microglia `_score_c3_summary` | Rejects source spans and summary segments where >50% of characters are non-alphanumeric (protocol noise, code fragments). Microglia cleans existing contaminated summaries during consolidation. |
 | **MCP prompt warning** | System prompt | Instructs AI agents not to store debugging output, activation scores, or system telemetry as memories. |
 
 This prevents every debugging session from degrading the knowledge graph. The `observe` path is especially protected since meta-commentary tends to be keyword-dense and would otherwise score high on triage heuristics.
@@ -759,7 +765,7 @@ Engram's retrieval intelligence is organized into four cumulative waves, control
 | Profile | What It Enables |
 |---------|----------------|
 | `off` | Basic explicit `recall()` only — no automatic or proactive retrieval. Explicit recall still returns packets plus raw results. |
-| `wave1` | **AutoRecall + Natural Need Analysis** — Piggybacks on `observe`/`remember`, runs the need analyzer before firing, enables pragmatic + structural signals, primes session context on first call, and records surfaced-vs-used recall semantics. |
+| `wave1` | **AutoRecall + Natural Need Analysis** — Piggybacks on `observe`/`remember` and all read-oriented tools (`recall`, `search_entities`, `search_facts`, `get_context`, `route_question`, `search_artifacts`), runs the need analyzer before firing, enables pragmatic + structural signals, primes session context on first call, and records surfaced-vs-used recall semantics. |
 | `wave2` | + **Graph Grounding + Recall Planning** — Adds graph resonance for borderline turns, planner-driven multi-intent recall, session entity seeds for spreading activation, rolling topic fingerprinting, and near-miss detection. |
 | `wave3` | + **Shift / Impoverishment + Proactive Intelligence** — Shift detection and impoverishment modeling enter live gating, while proactive features add topic-shift bursts, surprise connection detection, retrieval priming, and graph-connected MMR re-ranking. |
 | `wave4` | + **Prospective Memory** — Graph-embedded intentions that fire via spreading activation when related entities light up. Create with `intend()`, monitor warmth in `get_context()`. |
@@ -803,7 +809,7 @@ When a question could depend on stored memory, project artifacts, or current run
 - **Decision graph edges**: `DECIDED_IN`, `DOCUMENTED_IN`, `IMPLEMENTED_BY` track how decisions externalize from conversation to code.
 - **Required next sources**: The router tells agents which sources to consult (`memory`, `artifacts`, `runtime`) before forming a final answer.
 
-Artifact bootstrap (`bootstrap_project`) indexes key project files (README, config, design docs) as `Artifact` entities so they're available for routed answers.
+Artifact bootstrap (`bootstrap_project`) indexes key project files (README, config, design docs) as `Artifact` entities so they're available for routed answers. Bootstrap episodes are marked `CUE_ONLY` — they contribute to FTS/embedding search but are excluded from entity extraction, preventing documentation examples from creating fake entities in the knowledge graph.
 
 ### Recall Control Loop
 
@@ -957,7 +963,7 @@ Engram ships with built-in MCP instructions that teach compatible AI agents (Cla
 - **Session start**: The agent calls `get_context()` before its first response to load relevant memories
 - **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
 - **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (evidence-first extraction by default)
-- **Auto-recall**: With `wave1+`, piggyback recall first runs a memory-need analyzer, then surfaces compact packets only when prior context is likely useful
+- **Auto-recall**: With `wave1+`, piggyback recall runs on `observe`/`remember` and all read-oriented tools — memory context flows even when the LLM only calls `recall()` or `search_entities()`. The need analyzer gates firing, surfacing compact packets only when prior context is likely useful
 - **Corrections**: When you correct a previously stored fact, the agent calls `forget()` on the old information then `remember()` with the correction
 
 The system prompt biases toward `observe` by default — "if uncertain whether something is worth remembering, use observe." This reduces extraction cost while the background worker and triage phase ensure high-value content still gets fully extracted.

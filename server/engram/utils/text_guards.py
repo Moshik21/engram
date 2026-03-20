@@ -20,3 +20,11 @@ _META_SUMMARY_PATTERN = re.compile(
 def is_meta_summary(text: str) -> bool:
     """Check if a summary fragment contains system-internal patterns."""
     return bool(_META_SUMMARY_PATTERN.search(text))
+
+
+def is_noisy_text(text: str, threshold: float = 0.50) -> bool:
+    """Check if text is >threshold non-alphanumeric (protocol noise, code fragments, etc.)."""
+    if not text:
+        return True
+    alnum = sum(1 for c in text if c.isalnum() or c == " ")
+    return alnum / len(text) < threshold

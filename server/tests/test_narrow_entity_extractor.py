@@ -38,7 +38,10 @@ class TestIdentityEntityExtractor:
         assert entity.payload["entity_type"] == "Location"
 
     def test_proper_name_detection(self, extractor):
-        results = extractor.extract("Alice went to the store with Bob.", "ep1", "default")
+        # Both names appear mid-sentence (not sentence-initial)
+        results = extractor.extract(
+            "I saw Alice at the store with Bob.", "ep1", "default"
+        )
         names = [c.payload["name"] for c in results]
         assert "Alice" in names
         assert "Bob" in names
@@ -82,3 +85,47 @@ class TestIdentityEntityExtractor:
         results = extractor.extract("My wife Sarah loves cooking.", "ep1", "default")
         names = [c.payload["name"] for c in results]
         assert "Sarah" in names
+
+    def test_expanded_tech_keywords(self, extractor):
+        """Tech keywords from expanded list get Technology type."""
+        results = extractor.extract(
+            "We migrated from Webpack to Vite and deployed on Vercel.",
+            "ep1",
+            "default",
+        )
+        names = [c.payload["name"] for c in results]
+        types = {c.payload["name"]: c.payload["entity_type"] for c in results}
+        # Webpack/Vite/Vercel should all be Technology (not Concept)
+        assert "Webpack" in names
+        assert types["Webpack"] == "Technology"
+
+    def test_company_suffix_detection(self, extractor):
+        """Names ending in company suffixes get Organization type."""
+        results = extractor.extract(
+            "She joined Acme Labs last month.", "ep1", "default"
+        )
+        names = [c.payload["name"] for c in results]
+        assert "Acme Labs" in names
+        entity = [c for c in results if c.payload["name"] == "Acme Labs"][0]
+        assert entity.payload["entity_type"] == "Organization"
+
+    def test_product_suffix_detection(self, extractor):
+        """Names ending in product suffixes get Product type."""
+        results = extractor.extract(
+            "I use Notion App for project management.", "ep1", "default"
+        )
+        names = [c.payload["name"] for c in results]
+        assert "Notion App" in names
+        entity = [c for c in results if c.payload["name"] == "Notion App"][0]
+        assert entity.payload["entity_type"] == "Product"
+
+    def test_noisy_span_rejected(self, extractor):
+        """Source spans with >50% non-alphanumeric content return None."""
+        results = extractor.extract(
+            ">>> !@#$%^& <<< Alice ::: {{{}}}.", "ep1", "default"
+        )
+        # Alice may or may not be extracted, but any source_span should be clean
+        for c in results:
+            if c.source_span is not None:
+                alnum = sum(1 for ch in c.source_span if ch.isalnum() or ch == " ")
+                assert alnum / len(c.source_span) >= 0.50

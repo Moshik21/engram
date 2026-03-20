@@ -8,6 +8,16 @@ from engram.config import ActivationConfig
 from engram.extraction.evidence import EvidenceCandidate
 from engram.models.episode_cue import EpisodeCue
 
+# Strip protocol markers, XML/HTML tags, code blocks, inline code, and URLs before extraction
+_NOISE_STRIP = re.compile(
+    r"\[(?:user|assistant|system)[^\]]*\]|"  # protocol markers
+    r"<[^>]{1,80}>|"  # XML/HTML tags
+    r"```[\s\S]*?```|"  # fenced code blocks
+    r"`[^`]+`|"  # inline code
+    r"https?://\S+",  # URLs
+    re.MULTILINE,
+)
+
 # Reuse patterns from cues.py
 _PROPER_NAMES = re.compile(r"\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)*\b")
 _TECHNICAL_TOKENS = re.compile(
@@ -97,29 +107,52 @@ _IDENTITY_CAPTURES: list[tuple[re.Pattern[str], str, str]] = [
 # Type inference heuristics
 _TECH_KEYWORDS = frozenset(
     {
-        "api",
-        "sdk",
-        "cli",
-        "mcp",
-        "llm",
-        "sql",
-        "fts5",
-        "redis",
-        "sqlite",
-        "falkordb",
-        "fastapi",
-        "react",
-        "next.js",
-        "typescript",
-        "python",
-        "javascript",
-        "node",
-        "docker",
-        "kubernetes",
-        "aws",
-        "gcp",
-        "azure",
+        # Original
+        "api", "sdk", "cli", "mcp", "llm", "sql", "fts5",
+        "redis", "sqlite", "falkordb", "fastapi", "react",
+        "next.js", "typescript", "python", "javascript", "node",
+        "docker", "kubernetes", "aws", "gcp", "azure",
+        # Languages / runtimes
+        "rust", "golang", "go", "java", "swift", "kotlin",
+        "ruby", "php", "dart", "elixir", "haskell", "scala",
+        "deno", "bun",
+        # Frontend frameworks
+        "vue", "angular", "svelte", "tailwind", "remix", "astro",
+        # Build tools / package managers
+        "webpack", "vite", "esbuild", "rollup", "turbopack",
+        "npm", "pnpm", "yarn", "pip", "cargo", "maven", "gradle",
+        # Cloud / infra
+        "vercel", "heroku", "netlify", "cloudflare", "digitalocean",
+        "terraform", "ansible", "pulumi", "nginx", "caddy",
+        # Databases / search
+        "postgres", "postgresql", "mongodb", "mysql", "mariadb",
+        "elasticsearch", "opensearch", "kafka", "rabbitmq",
+        "dynamodb", "cassandra", "neo4j", "dgraph",
+        # AI / ML
+        "pytorch", "tensorflow", "numpy", "pandas", "scikit-learn",
+        "langchain", "openai", "anthropic", "gemini", "ollama",
+        "huggingface", "transformers",
+        # Vector DBs / tools
+        "chromadb", "pinecone", "weaviate", "qdrant", "milvus",
+        # ORMs / data
+        "prisma", "drizzle", "sqlalchemy", "sequelize", "typeorm",
+        "graphql", "grpc", "protobuf",
+        # DevOps / CI
+        "github", "gitlab", "bitbucket", "jenkins", "circleci",
+        # Other common tech
+        "supabase", "firebase", "stripe", "twilio", "auth0",
+        "storybook", "cypress", "playwright", "jest", "vitest",
+        "recharts", "threejs", "three.js", "zustand", "redux",
+        "electron", "tauri", "flutter",
     }
+)
+
+_COMPANY_SUFFIXES = frozenset(
+    {"inc", "llc", "corp", "ltd", "co", "gmbh", "labs", "ai", "io"}
+)
+
+_PRODUCT_SUFFIXES = frozenset(
+    {"app", "pro", "studio", "cloud", "hub", "kit", "os"}
 )
 
 _LOCATION_SUFFIXES = frozenset(
@@ -142,6 +175,7 @@ _LOCATION_SUFFIXES = frozenset(
 # Common non-entity proper nouns to skip
 _STOPWORDS = frozenset(
     {
+        # Determiners / demonstratives
         "The",
         "This",
         "That",
@@ -149,6 +183,7 @@ _STOPWORDS = frozenset(
         "Those",
         "Here",
         "There",
+        # Question words
         "What",
         "Which",
         "Where",
@@ -156,12 +191,14 @@ _STOPWORDS = frozenset(
         "Who",
         "How",
         "Why",
+        # Conjunctions / adverbs
         "But",
         "And",
         "However",
         "Also",
         "Just",
         "Very",
+        # Days / months
         "Monday",
         "Tuesday",
         "Wednesday",
@@ -181,6 +218,71 @@ _STOPWORDS = frozenset(
         "October",
         "November",
         "December",
+        # Sentence connectives / discourse markers
+        "First",
+        "Second",
+        "Third",
+        "Finally",
+        "Next",
+        "Then",
+        "Now",
+        "Note",
+        "Please",
+        "Sure",
+        "Okay",
+        "Right",
+        "Well",
+        # Determiners / quantifiers
+        "Some",
+        "Any",
+        "All",
+        "Each",
+        "Every",
+        "Both",
+        "Many",
+        "Most",
+        "Few",
+        "More",
+        "Less",
+        "Other",
+        "Another",
+        "Such",
+        # Protocol / code fragments
+        "True",
+        "False",
+        "None",
+        "Null",
+        "Error",
+        "Result",
+        "Input",
+        "Output",
+        "Value",
+        "Type",
+        "Name",
+        "Text",
+        "Status",
+        "Check",
+        "Return",
+        # Common AI assistant sentence openers / verbs
+        "Let",
+        "Lets",
+        "Make",
+        "Use",
+        "Get",
+        "Set",
+        "Run",
+        "Try",
+        "Add",
+        "Keep",
+        "Look",
+        "Feel",
+        "Think",
+        "Know",
+        "See",
+        "Call",
+        "Send",
+        "Either",
+        "Subtle",
     }
 )
 
@@ -203,9 +305,13 @@ def _infer_entity_type(name: str, signal: str | None = None) -> str:
     tokens = lower.split()
     if tokens and tokens[-1] in _LOCATION_SUFFIXES:
         return "Location"
-    # Default to Person for proper names, Concept for others
+    if tokens and tokens[-1] in _COMPANY_SUFFIXES:
+        return "Organization"
+    if tokens and tokens[-1] in _PRODUCT_SUFFIXES:
+        return "Product"
+    # Default to Concept for bare proper names — identity captures handle real Person entities
     if name[0].isupper() and name.isalpha():
-        return "Person"
+        return "Concept"
     return "Concept"
 
 
@@ -214,8 +320,28 @@ def _get_source_span(text: str, name: str) -> str | None:
     sentences = re.split(r"(?<=[.!?])\s+", text)
     for sent in sentences:
         if name in sent:
-            return sent[:200]
+            span = sent[:200]
+            if _is_noisy_span(span):
+                return None
+            return span
     return None
+
+
+def _is_noisy_span(span: str) -> bool:
+    """Reject source_span that is >50% non-alphanumeric (excluding spaces)."""
+    if not span:
+        return True
+    alnum = sum(1 for c in span if c.isalnum() or c == " ")
+    return alnum / len(span) < 0.50
+
+
+def _is_sentence_initial(m: re.Match, text: str) -> bool:  # type: ignore[type-arg]
+    """Check if a regex match occurs at sentence-initial position."""
+    start = m.start()
+    if start == 0:
+        return True
+    preceding = text[:start].rstrip()
+    return len(preceding) > 0 and preceding[-1] in ".!?\n"
 
 
 class IdentityEntityExtractor:
@@ -231,6 +357,9 @@ class IdentityEntityExtractor:
         cue: EpisodeCue | None = None,
         cfg: ActivationConfig | None = None,
     ) -> list[EvidenceCandidate]:
+        # Sanitize input: strip protocol markers, tags, code blocks, URLs
+        text = _NOISE_STRIP.sub(" ", text)
+
         candidates: list[EvidenceCandidate] = []
         seen_names: set[str] = set()
 
@@ -266,6 +395,13 @@ class IdentityEntityExtractor:
             name = match.group()
             if not name or name in _STOPWORDS or name.lower() in seen_names:
                 continue
+            # Skip single-word sentence-initial candidates unless they also appear mid-sentence
+            if " " not in name and _is_sentence_initial(match, text):
+                mid_pattern = re.compile(
+                    r"(?<![.!?\n]\s)" + re.escape(name) + r"\b"
+                )
+                if not mid_pattern.search(text[match.end():]):
+                    continue
             seen_names.add(name.lower())
             entity_type = _infer_entity_type(name)
             candidates.append(
@@ -273,7 +409,7 @@ class IdentityEntityExtractor:
                     episode_id=episode_id,
                     group_id=group_id,
                     fact_class="entity",
-                    confidence=0.65,
+                    confidence=0.55,
                     source_type="narrow_extractor",
                     extractor_name=self.name,
                     payload={

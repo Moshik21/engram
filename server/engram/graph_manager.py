@@ -90,6 +90,20 @@ _EPISTEMIC_FACT_PREDICATES = {
 }
 
 
+def _freshness_label(updated_at: datetime | None) -> str:
+    """Compute freshness label from entity updated_at timestamp."""
+    if not updated_at:
+        return "unknown"
+    age = (datetime.utcnow() - updated_at).days
+    if age <= 7:
+        return "fresh"
+    if age <= 30:
+        return "recent"
+    if age <= 90:
+        return "aging"
+    return "stale"
+
+
 class ProjectionError(RuntimeError):
     """Typed projection failure that distinguishes retryable failures."""
 
@@ -2233,6 +2247,16 @@ class GraphManager:
                     source="auto:bootstrap",
                     session_id=session_id,
                 )
+                # Mark bootstrap episodes as CUE_ONLY to prevent entity extraction
+                # from documentation — these are project artifacts, not user knowledge
+                await self._graph.update_episode(
+                    episode_id,
+                    {
+                        "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+                        "status": EpisodeStatus.COMPLETED.value,
+                    },
+                    group_id=group_id,
+                )
                 await self._graph.update_entity(
                     artifact_entity.id,
                     {
@@ -3784,6 +3808,7 @@ class GraphManager:
             else:
                 confidence = "recent"
 
+            freshness = _freshness_label(getattr(entity, "updated_at", None))
             result_dict = {
                 "name": entity.name,
                 "type": entity.entity_type,
@@ -3791,6 +3816,7 @@ class GraphManager:
                 "confidence": confidence,
                 "identity_core": bool(getattr(entity, "identity_core", False)),
                 "top_facts": top_facts,
+                "freshness": freshness,
             }
 
             # Update session cache
@@ -3813,6 +3839,171 @@ class GraphManager:
             remaining_budget -= tokens_per_entity
 
         # If over budget, truncate summaries on non-identity entries
+        if remaining_budget < 0:
+            for entry in results:
+                if not entry.get("identity_core"):
+                    entry["summary"] = (entry.get("summary") or "")[:60]
+
+        return results
+
+    async def recall_medium(
+        self,
+        text: str,
+        group_id: str,
+        session_cache: dict[str, tuple[float, dict]] | None = None,
+        token_budget: int = 300,
+        cache_ttl: float = 300.0,
+        fts_weight: float = 0.3,
+        vec_weight: float = 0.7,
+    ) -> list[dict]:
+        """FTS5 + embedding rerank recall. ~8-15ms. Disambiguates entities.
+
+        Like recall_lite but reranks FTS5 candidates by embedding similarity,
+        eliminating name-collision noise (e.g. "Alice" the coworker vs unrelated).
+        Falls back to FTS5-only ranking when embeddings are unavailable.
+
+        Args:
+            text: User message to probe for entity mentions
+            group_id: Memory partition
+            session_cache: Optional shared cache (same as recall_lite)
+            token_budget: Approximate token limit (~4 chars/token)
+            cache_ttl: Cache entry TTL in seconds
+            fts_weight: Weight for FTS5 rank position (0-1)
+            vec_weight: Weight for embedding similarity (0-1)
+
+        Returns:
+            List of compact entity dicts (same format as recall_lite + freshness)
+        """
+        if not text or not text.strip() or self._graph is None:
+            return []
+
+        # ── Step 1: Extract entity mentions (shared with recall_lite) ──
+        mentions: list[str] = []
+        mentions.extend(self._RE_PROPER_NOUNS.findall(text))
+        mentions.extend(self._RE_QUOTED.findall(text))
+        mentions.extend(self._RE_AT_MENTION.findall(text))
+        mentions.extend(self._RE_HASHTAG.findall(text))
+        mentions.extend(self._RE_ALL_CAPS.findall(text))
+
+        seen_lower: set[str] = set()
+        unique_mentions: list[str] = []
+        for m in mentions:
+            key = m.strip().lower()
+            if key and key not in seen_lower and len(key) >= 2:
+                seen_lower.add(key)
+                unique_mentions.append(m.strip())
+
+        if not unique_mentions:
+            return []
+
+        now = time.time()
+        if session_cache is None:
+            session_cache = {}
+
+        # ── Step 2: FTS5 candidate generation ──────────────────────────
+        all_candidates: list[tuple[str, object, int]] = []  # (mention, entity, fts_rank)
+        seen_entity_ids: set[str] = set()
+
+        for mention in unique_mentions:
+            candidates = await self._graph.find_entity_candidates(
+                mention, group_id, limit=3
+            )
+            for rank, entity in enumerate(candidates):
+                if entity.id not in seen_entity_ids:
+                    seen_entity_ids.add(entity.id)
+                    all_candidates.append((mention, entity, rank))
+
+        if not all_candidates:
+            return []
+
+        # ── Step 3: Embedding rerank ───────────────────────────────────
+        entity_ids = [eid for eid in seen_entity_ids]
+        sim_scores: dict[str, float] = {}
+        if self._search is not None:
+            try:
+                sim_scores = await self._search.compute_similarity(
+                    text, entity_ids, group_id
+                )
+            except Exception:
+                logger.debug("recall_medium embedding rerank failed", exc_info=True)
+
+        # Score: combine FTS rank position with embedding similarity
+        scored: list[tuple[float, str, object]] = []
+        for _mention, entity, fts_rank in all_candidates:
+            fts_score = 1.0 / (1 + fts_rank)  # rank 0 → 1.0, rank 1 → 0.5, etc.
+            emb_score = sim_scores.get(entity.id, 0.0)
+            final = fts_weight * fts_score + vec_weight * emb_score
+            scored.append((final, entity.id, entity))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # ── Step 4: Build result dicts (same format as recall_lite) ────
+        tokens_per_entity = 40
+        identity_core_results: list[dict] = []
+        normal_results: list[dict] = []
+
+        for _score, entity_id, entity in scored:
+            # Check session cache
+            if entity_id in session_cache:
+                ts, cached_result = session_cache[entity_id]
+                if now - ts < cache_ttl:
+                    if cached_result.get("identity_core"):
+                        identity_core_results.append(cached_result)
+                    else:
+                        normal_results.append(cached_result)
+                    continue
+
+            rels = await self._graph.get_relationships(
+                entity_id, group_id=group_id
+            )
+            top_facts: list[str] = []
+            for rel in rels[:3]:
+                other_id = (
+                    rel.target_id if rel.source_id == entity_id else rel.source_id
+                )
+                other_name = await self.resolve_entity_name(other_id, group_id)
+                if rel.source_id == entity_id:
+                    top_facts.append(f"{rel.predicate} {other_name}")
+                else:
+                    top_facts.append(f"{other_name} {rel.predicate}")
+
+            attrs = entity.attributes if isinstance(entity.attributes, dict) else {}
+            mat_tier = attrs.get("mat_tier", "episodic")
+            if mat_tier == "semantic":
+                confidence = "known"
+            elif mat_tier == "transitional":
+                confidence = "likely"
+            else:
+                confidence = "recent"
+
+            freshness = _freshness_label(getattr(entity, "updated_at", None))
+            result_dict = {
+                "name": entity.name,
+                "type": entity.entity_type,
+                "summary": (entity.summary or "")[:120],
+                "confidence": confidence,
+                "identity_core": bool(getattr(entity, "identity_core", False)),
+                "top_facts": top_facts,
+                "freshness": freshness,
+            }
+
+            session_cache[entity_id] = (now, result_dict)
+
+            if result_dict["identity_core"]:
+                identity_core_results.append(result_dict)
+            else:
+                normal_results.append(result_dict)
+
+        # ── Step 5: Pack into token budget ─────────────────────────────
+        results: list[dict] = list(identity_core_results)
+        remaining_budget = token_budget
+
+        for entry in normal_results:
+            if remaining_budget < tokens_per_entity:
+                break
+            results.append(entry)
+            remaining_budget -= tokens_per_entity
+
         if remaining_budget < 0:
             for entry in results:
                 if not entry.get("identity_core"):

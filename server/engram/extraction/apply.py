@@ -22,7 +22,7 @@ from engram.extraction.conflicts import (
     is_exclusive_predicate,
 )
 from engram.extraction.models import ApplyOutcome, ClaimCandidate, EntityCandidate
-from engram.extraction.resolver import resolve_entity_fast
+from engram.extraction.resolver import resolve_entity_fast, validate_entity_name
 from engram.extraction.temporal import resolve_temporal_hint
 from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
@@ -375,6 +375,9 @@ class ApplyEngine:
 
         for candidate in candidates:
             name = candidate.name
+            if not validate_entity_name(name):
+                logger.debug("Skipping invalid entity name %r", name)
+                continue
             entity_type, _identifier_form = normalize_extracted_entity_type(
                 name,
                 candidate.entity_type,

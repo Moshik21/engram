@@ -13,6 +13,25 @@ from engram.models.entity import Entity
 FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (rapidfuzz uses integers)
 
 
+def validate_entity_name(name: str) -> bool:
+    """Validate that a name is plausible as an entity name.
+
+    Rejects:
+    - Names shorter than 2 characters
+    - Names longer than 5 words (likely sentence fragments)
+    - All-lowercase names (unless they contain dots/slashes indicating tech tokens)
+    """
+    stripped = name.strip()
+    if len(stripped) < 2:
+        return False
+    if len(stripped.split()) > 5:
+        return False
+    # All-lowercase names are not proper nouns — except tech tokens with dots/slashes
+    if stripped == stripped.lower() and "." not in stripped and "/" not in stripped:
+        return False
+    return True
+
+
 def normalize_name(name: str) -> str:
     """Normalize entity name for dedup comparison."""
     return name.strip().lower().replace("_", " ").replace("-", " ")

@@ -9,6 +9,7 @@ from engram.extraction.resolver import (
     normalize_name,
     resolve_entity,
     resolve_entity_fast,
+    validate_entity_name,
 )
 from engram.models.entity import Entity
 
@@ -157,3 +158,34 @@ class TestResolveEntity:
         result = await resolve_entity_fast("Part #1712061", "Thing", get_candidates, "test")
         assert result is not None
         assert result.id == "ent_1"
+
+
+class TestValidateEntityName:
+    def test_rejects_short_names(self):
+        assert validate_entity_name("A") is False
+        assert validate_entity_name("") is False
+
+    def test_accepts_two_char_names(self):
+        assert validate_entity_name("Al") is True
+
+    def test_rejects_long_names(self):
+        assert validate_entity_name("This is a really long sentence fragment name") is False
+
+    def test_accepts_normal_length(self):
+        assert validate_entity_name("San Francisco Bay Area") is True  # 4 words
+
+    def test_rejects_all_lowercase(self):
+        assert validate_entity_name("something") is False
+        assert validate_entity_name("just a word") is False
+
+    def test_allows_tech_lowercase_with_dot(self):
+        assert validate_entity_name("next.js") is True
+        assert validate_entity_name("vue.config.js") is True
+
+    def test_allows_tech_lowercase_with_slash(self):
+        assert validate_entity_name("src/utils") is True
+
+    def test_allows_proper_names(self):
+        assert validate_entity_name("Alice") is True
+        assert validate_entity_name("San Francisco") is True
+        assert validate_entity_name("Anthropic") is True

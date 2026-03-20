@@ -525,9 +525,18 @@ class EpisodeReplayPhase(ConsolidationPhase):
         if not existing_entities or not episodes:
             return []
 
+        from engram.extraction.narrow.entity_extractor import _STOPWORDS
+
+        _stopwords_lower = frozenset(w.lower() for w in _STOPWORDS)
+
         # Build lookup sorted by name length descending (longer names match first)
+        # Skip short names and stopwords to avoid false links from garbage entities
         name_to_id: list[tuple[str, str]] = sorted(
-            [(ent.name.lower(), ent.id) for ent in existing_entities if ent.name],
+            [
+                (ent.name.lower(), ent.id)
+                for ent in existing_entities
+                if ent.name and len(ent.name) >= 3 and ent.name.lower() not in _stopwords_lower
+            ],
             key=lambda t: len(t[0]),
             reverse=True,
         )
