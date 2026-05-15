@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,7 +15,7 @@ from engram.extraction.extractor import (
 )
 from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
-from engram.models.episode import Episode, EpisodeStatus
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 
 
 def _make_manager(
@@ -103,12 +104,53 @@ class TestStoreEpisode:
 
 @pytest.mark.asyncio
 class TestProjectEpisode:
+    async def test_delegates_to_projection_service(self):
+        manager = _make_manager()
+        proposed_entities = [{"name": "Python", "entity_type": "Technology"}]
+        proposed_relationships = [{"source": "Python", "predicate": "USED_FOR", "target": "AI"}]
+        manager._projection_service.project_episode = AsyncMock()
+
+        await manager.project_episode(
+            "ep_test",
+            "custom",
+            proposed_entities=proposed_entities,
+            proposed_relationships=proposed_relationships,
+            model_tier="fast",
+        )
+
+        manager._projection_service.project_episode.assert_awaited_once_with(
+            "ep_test",
+            group_id="custom",
+            proposed_entities=proposed_entities,
+            proposed_relationships=proposed_relationships,
+            model_tier="fast",
+        )
+
     async def test_creates_entities(self):
         manager = _make_manager()
         ep_id = await manager.store_episode("Test content", "default", "test")
-        await manager.project_episode(ep_id, "default")
+        result = await manager.project_episode(ep_id, "default")
         manager._extractor.extract.assert_called_once()
         manager._graph.create_entity.assert_called()
+        assert result.outcome == "projected"
+        assert result.episode_status == EpisodeStatus.COMPLETED
+        assert result.projection_state == EpisodeProjectionState.PROJECTED
+        assert result.entity_count == 1
+        assert result.relationship_count == 0
+
+    async def test_duplicate_projection_returns_skipped_result(self):
+        content = "Test content about Python"
+        manager = _make_manager(content=content)
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        manager._content_hashes.add(content_hash)
+
+        result = await manager.project_episode("ep_test", "default")
+
+        assert result.outcome == "skipped"
+        assert result.reason == "duplicate_content"
+        assert result.episode_status == EpisodeStatus.COMPLETED
+        assert result.projection_state == EpisodeProjectionState.CUE_ONLY
+        manager._extractor.extract.assert_not_called()
 
     async def test_sets_completed_status(self):
         manager = _make_manager()

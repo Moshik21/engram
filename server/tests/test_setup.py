@@ -159,6 +159,30 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
     assert config["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] == "rework"
 
 
+def test_collect_config_helix_uses_native_transport(monkeypatch):
+    """Wizard helix mode should select the no-Docker native transport."""
+    secret_responses = iter(["sk-test", ""])
+    input_responses = iter(
+        [
+            "helix",  # mode
+            "",  # consolidation profile -> default standard
+            "",  # recall profile -> default all
+            "",  # integration profile -> default rework
+            "n",  # auth
+            "n",  # encryption
+        ]
+    )
+    monkeypatch.setattr("engram.setup.getpass.getpass", lambda _: next(secret_responses))
+    monkeypatch.setattr("builtins.input", lambda _: next(input_responses))
+
+    config = _collect_config()
+
+    assert config["ENGRAM_MODE"] == "helix"
+    assert config["ENGRAM_HELIX__TRANSPORT"] == "native"
+    assert config["ENGRAM_FALKORDB__PASSWORD"] is None
+    assert config["ENGRAM_REDIS__URL"] is None
+
+
 # --- Config editor tests ---
 
 
@@ -209,7 +233,7 @@ def test_render_menu_shows_all_settings(capsys, tmp_path):
     assert "1." in out
     assert "Anthropic API key" in out
     # Should return all keys
-    assert len(keys) == 12
+    assert len(keys) == 13
     assert "ANTHROPIC_API_KEY" in keys
     assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in keys
     assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE" in keys

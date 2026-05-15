@@ -10,6 +10,8 @@ from engram.consolidation.pressure import PressureAccumulator
 from engram.consolidation.scheduler import ConsolidationScheduler
 from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
+from engram.notifications.surface import NotificationSurfaceService
+from engram.security.rate_limit import RateLimiter
 
 
 def get_manager() -> GraphManager:
@@ -69,6 +71,16 @@ def get_consolidation_scheduler() -> ConsolidationScheduler | None:
     return _app_state.get("consolidation_scheduler")
 
 
+def get_evaluation_store():
+    """Retrieve the local evaluation sample store from app state."""
+    from engram.main import _app_state
+
+    store = _app_state.get("evaluation_store")
+    if not store:
+        raise RuntimeError("EvaluationStore not initialized")
+    return store
+
+
 def get_pressure_accumulator() -> PressureAccumulator | None:
     """Retrieve the PressureAccumulator from app state (may be None)."""
     from engram.main import _app_state
@@ -94,3 +106,25 @@ def get_config() -> EngramConfig:
     if not config:
         raise RuntimeError("EngramConfig not initialized")
     return cast(EngramConfig, config)
+
+
+def get_mode() -> str:
+    """Retrieve the current runtime mode from app state."""
+    from engram.main import _app_state
+
+    return str(_app_state.get("mode", "unknown"))
+
+
+def get_notification_surface_service() -> NotificationSurfaceService | None:
+    """Retrieve the optional notification surface service."""
+    from engram.notifications.surface import get_notification_surface_service_from_state
+
+    return get_notification_surface_service_from_state()
+
+
+def get_rate_limiter() -> RateLimiter | None:
+    """Retrieve the optional API rate limiter."""
+    from engram.main import _app_state
+
+    rate_limiter = _app_state.get("rate_limiter")
+    return cast(RateLimiter | None, rate_limiter)

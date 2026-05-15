@@ -1,17 +1,175 @@
 """Tests for the ConsolidationEngine."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 import pytest_asyncio
 
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
+from engram.consolidation.finalization import ConsolidationFinalizationResult
+from engram.consolidation.lifecycle import (
+    ConsolidationCycleLifecycleResult,
+    ConsolidationPhaseLifecycleResult,
+    build_cycle_plan,
+)
+from engram.consolidation.phase_catalog import build_consolidation_phases
+from engram.consolidation.phase_registry import (
+    CONSOLIDATION_PHASE_ORDER,
+    CONSOLIDATION_PHASE_TIERS,
+    validate_consolidation_phase_order,
+)
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.events.bus import EventBus
-from engram.models.consolidation import DecisionOutcomeLabel, DecisionTrace, PhaseResult
+from engram.models.consolidation import (
+    CalibrationSnapshot,
+    ConsolidationCycle,
+    DecisionOutcomeLabel,
+    DecisionTrace,
+    PhaseResult,
+)
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
+
+EXPECTED_PHASES = list(CONSOLIDATION_PHASE_ORDER)
+
+
+def test_phase_registry_covers_scheduler_tiers():
+    assert set(CONSOLIDATION_PHASE_TIERS) == set(CONSOLIDATION_PHASE_ORDER)
+
+
+def test_phase_registry_validation_rejects_order_drift():
+    assert validate_consolidation_phase_order(CONSOLIDATION_PHASE_ORDER) == tuple(
+        CONSOLIDATION_PHASE_ORDER
+    )
+    with pytest.raises(RuntimeError, match="Consolidation phase order drift"):
+        validate_consolidation_phase_order(("merge", "triage"))
+
+
+def test_phase_catalog_matches_registry_order():
+    phases = build_consolidation_phases()
+
+    assert [phase.name for phase in phases] == EXPECTED_PHASES
+
+
+def test_build_cycle_plan_preserves_order_and_selection():
+    cycle = ConsolidationCycle(
+        group_id="test",
+        trigger="pressure",
+        dry_run=False,
+        status="running",
+    )
+    phases = [type("Phase", (), {"name": name})() for name in EXPECTED_PHASES[:4]]
+
+    plan = build_cycle_plan(
+        cycle=cycle,
+        phases=phases,
+        phase_names={"merge", "infer"},
+    )
+
+    assert [phase.name for phase in plan.phases] == EXPECTED_PHASES[:4]
+    assert [phase.name for phase in plan.selected_phases] == ["merge", "infer"]
+    assert plan.selected_phase_names == {"merge", "infer"}
+    assert plan.requested_phase_names == frozenset({"merge", "infer"})
+    assert plan.unknown_phase_names == frozenset()
+    assert plan.started_payload() == {
+        "cycle_id": cycle.id,
+        "dry_run": False,
+        "trigger": "pressure",
+        "lifecycleStage": "consolidate",
+        "phaseCount": 2,
+        "phases": ["merge", "infer"],
+    }
+
+
+def test_build_cycle_plan_rejects_unknown_requested_phases():
+    cycle = ConsolidationCycle(group_id="test", status="running")
+    phases = [type("Phase", (), {"name": name})() for name in EXPECTED_PHASES[:2]]
+
+    plan = build_cycle_plan(
+        cycle=cycle,
+        phases=phases,
+        phase_names={"triage", "missing_phase"},
+    )
+
+    assert plan.selected_phase_names == {"triage"}
+    assert plan.unknown_phase_names == frozenset({"missing_phase"})
+    with pytest.raises(ValueError, match="Unknown consolidation phase\\(s\\): missing_phase"):
+        plan.validate_requested_phase_names()
+
+
+def test_consolidation_lifecycle_result_payloads_preserve_legacy_keys():
+    phase_result = PhaseResult(
+        phase="merge",
+        status="success",
+        items_processed=10,
+        items_affected=2,
+        duration_ms=12.5,
+    )
+
+    phase_payload = ConsolidationPhaseLifecycleResult.from_phase_result(
+        "cyc_test",
+        phase_result,
+        ordinal=1,
+    ).event_payload()
+
+    assert phase_payload == {
+        "cycle_id": "cyc_test",
+        "phase": "merge",
+        "status": "success",
+        "items_processed": 10,
+        "items_affected": 2,
+        "duration_ms": 12.5,
+        "lifecycleStage": "consolidate",
+        "phaseOrdinal": 1,
+    }
+
+    cycle = ConsolidationCycle(
+        group_id="test",
+        trigger="manual",
+        dry_run=True,
+        status="completed",
+        phase_results=[phase_result],
+        id="cyc_test",
+    )
+    cycle.total_duration_ms = 20.0
+
+    assert ConsolidationCycleLifecycleResult.from_cycle(cycle).event_payload() == {
+        "cycle_id": "cyc_test",
+        "status": "completed",
+        "duration_ms": 20.0,
+        "phases": 1,
+        "trigger": "manual",
+        "dry_run": True,
+        "lifecycleStage": "consolidate",
+    }
+    assert ConsolidationCycleLifecycleResult.from_cycle(
+        cycle,
+        finalization={"refreshedPinnedContexts": 2},
+    ).event_payload()["finalization"] == {"refreshedPinnedContexts": 2}
+
+    warning_cycle = ConsolidationCycle(
+        group_id="test",
+        trigger="manual",
+        dry_run=True,
+        status="completed",
+        phase_results=[
+            PhaseResult(
+                phase="graph_embed",
+                status="error",
+                error="optional vector index unavailable",
+            )
+        ],
+        id="cyc_warning",
+    )
+    assert (
+        ConsolidationCycleLifecycleResult.from_cycle(warning_cycle).event_payload()[
+            "phase_issue"
+        ]
+        == "graph_embed: optional vector index unavailable"
+    )
 
 
 @pytest_asyncio.fixture
@@ -62,26 +220,94 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 15
+        assert len(cycle.phase_results) == len(EXPECTED_PHASES)
         assert cycle.total_duration_ms > 0
         phase_names = [pr.phase for pr in cycle.phase_results]
-        assert phase_names == [
-            "triage",
-            "merge",
-            "infer",
-            "evidence_adjudication",
-            "edge_adjudication",
-            "replay",
-            "prune",
-            "compact",
-            "mature",
-            "semanticize",
-            "schema",
-            "reindex",
-            "graph_embed",
-            "microglia",
-            "dream",
-        ]
+        assert phase_names == EXPECTED_PHASES
+
+    @pytest.mark.asyncio
+    async def test_recent_evaluation_context_reads_store_snapshots(self, engine, consol_store):
+        cycle = ConsolidationCycle(
+            id="cyc_eval",
+            group_id="test",
+            status="completed",
+        )
+        await consol_store.save_cycle(cycle)
+        snapshot = CalibrationSnapshot(
+            cycle_id=cycle.id,
+            group_id="test",
+            phase="calibrate",
+            window_cycles=1,
+            total_traces=4,
+            labeled_examples=3,
+            oracle_examples=1,
+            abstain_count=0,
+            accuracy=0.75,
+            mean_confidence=0.7,
+            expected_calibration_error=0.05,
+        )
+        await consol_store.save_calibration_snapshot(snapshot)
+
+        recent_cycles, calibration_snapshots = await engine.get_recent_evaluation_context(
+            "test",
+            cycle_limit=5,
+        )
+
+        assert [recent.id for recent in recent_cycles] == [cycle.id]
+        assert [record.id for record in calibration_snapshots] == [snapshot.id]
+
+    @pytest.mark.asyncio
+    async def test_successful_cycle_runs_finalization(self, engine):
+        engine._finalization.refresh_after_cycle = AsyncMock(
+            return_value=ConsolidationFinalizationResult(refreshed_pinned_contexts=0)
+        )
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True, phase_names=set())
+
+        assert cycle.status == "completed"
+        engine._finalization.refresh_after_cycle.assert_awaited_once_with("test")
+
+    @pytest.mark.asyncio
+    async def test_run_cycle_rejects_unknown_phase_names(self, engine):
+        with pytest.raises(ValueError, match="Unknown consolidation phase\\(s\\): missing_phase"):
+            await engine.run_cycle(
+                group_id="test",
+                dry_run=True,
+                phase_names={"triage", "missing_phase"},
+            )
+
+        assert engine.is_running is False
+
+    @pytest.mark.asyncio
+    async def test_completed_event_includes_finalization_metrics(
+        self,
+        store,
+        activation,
+        search,
+        consol_store,
+    ):
+        bus = EventBus()
+        queue = bus.subscribe("test")
+        engine = ConsolidationEngine(
+            store,
+            activation,
+            search,
+            cfg=ActivationConfig(),
+            consolidation_store=consol_store,
+            event_bus=bus,
+        )
+        engine._finalization.refresh_after_cycle = AsyncMock(
+            return_value=ConsolidationFinalizationResult(refreshed_pinned_contexts=2)
+        )
+
+        cycle = await engine.run_cycle(group_id="test", dry_run=True, phase_names=set())
+
+        assert cycle.status == "completed"
+        events = []
+        while not queue.empty():
+            events.append(queue.get_nowait())
+        completed = next(event for event in events if event["type"] == "consolidation.completed")
+        assert completed["payload"]["finalization"] == {"refreshedPinnedContexts": 2}
 
     @pytest.mark.asyncio
     async def test_empty_graph_completes(self, engine):
@@ -97,23 +323,7 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         names = [pr.phase for pr in cycle.phase_results]
-        assert names == [
-            "triage",
-            "merge",
-            "infer",
-            "evidence_adjudication",
-            "edge_adjudication",
-            "replay",
-            "prune",
-            "compact",
-            "mature",
-            "semanticize",
-            "schema",
-            "reindex",
-            "graph_embed",
-            "microglia",
-            "dream",
-        ]
+        assert names == EXPECTED_PHASES
 
     @pytest.mark.asyncio
     async def test_prevents_concurrent_cycles(self, engine):
@@ -164,7 +374,7 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test")
 
         assert cycle.status == "completed"
-        assert len(cycle.phase_results) == 15
+        assert len(cycle.phase_results) == len(EXPECTED_PHASES)
         assert cycle.phase_results[0].status == "error"
         assert "Simulated merge failure" in cycle.phase_results[0].error
         # Other phases should succeed or be skipped (dream is disabled by default)
@@ -203,7 +413,7 @@ class TestConsolidationEngine:
         fetched = await consol_store.get_cycle(cycle.id, "test")
         assert fetched is not None
         assert fetched.status == "completed"
-        assert len(fetched.phase_results) == 15
+        assert len(fetched.phase_results) == len(EXPECTED_PHASES)
 
     @pytest.mark.asyncio
     async def test_is_running_property(self, engine):

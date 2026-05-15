@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 import aiosqlite
 
 from engram.storage.sqlite.vectors import pack_vector, unpack_vector
+from engram.utils.dates import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class GraphEmbeddingStore:
         if not embeddings:
             return 0
 
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         rows = []
         for entity_id, vec in embeddings.items():
             blob = pack_vector(vec)
@@ -95,18 +95,22 @@ class GraphEmbeddingStore:
         db: aiosqlite.Connection,
         entity_ids: list[str],
         method: str,
-        group_id: str,
+        group_id: str | None,
     ) -> dict[str, list[float]]:
         """Retrieve graph embeddings for specific entity IDs."""
         if not entity_ids:
             return {}
 
         placeholders = ",".join("?" for _ in entity_ids)
-        cursor = await db.execute(
+        sql = (
             f"SELECT id, embedding, dimensions FROM graph_embeddings "
-            f"WHERE id IN ({placeholders}) AND method = ? AND group_id = ?",
-            [*entity_ids, method, group_id],
+            f"WHERE id IN ({placeholders}) AND method = ?"
         )
+        params: list[str] = [*entity_ids, method]
+        if group_id is not None:
+            sql += " AND group_id = ?"
+            params.append(group_id)
+        cursor = await db.execute(sql, params)
         rows = await cursor.fetchall()
 
         result = {}

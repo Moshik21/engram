@@ -46,6 +46,7 @@ class ProjectionPlanner:
                 selected_text="",
                 selected_chars=0,
                 total_chars=0,
+                group_id=episode.group_id,
             )
 
         if (
@@ -54,7 +55,12 @@ class ProjectionPlanner:
             or not self._cfg.targeted_projection_enabled
             or total_chars <= self._max_input_chars
         ):
-            return self._full_episode_plan(episode.id, content, total_chars)
+            return self._full_episode_plan(
+                episode.id,
+                episode.group_id,
+                content,
+                total_chars,
+            )
 
         candidate_spans = self._segment_content(content)
         if not candidate_spans:
@@ -73,6 +79,7 @@ class ProjectionPlanner:
                 selected_text=span.text,
                 selected_chars=len(span.text),
                 total_chars=total_chars,
+                group_id=episode.group_id,
                 was_truncated=total_chars > len(span.text),
                 warnings=["planner_fallback"],
             )
@@ -97,6 +104,7 @@ class ProjectionPlanner:
             selected_text=selected_text,
             selected_chars=selected_chars,
             total_chars=total_chars,
+            group_id=episode.group_id,
             was_truncated=selected_chars < total_chars,
             warnings=warnings,
         )
@@ -104,6 +112,7 @@ class ProjectionPlanner:
     def _full_episode_plan(
         self,
         episode_id: str,
+        group_id: str,
         content: str,
         total_chars: int,
     ) -> ProjectionPlan:
@@ -122,6 +131,7 @@ class ProjectionPlanner:
             selected_text=span.text,
             selected_chars=len(span.text),
             total_chars=total_chars,
+            group_id=group_id,
             was_truncated=total_chars > len(span.text),
             warnings=["input_truncated"] if total_chars > len(span.text) else [],
         )

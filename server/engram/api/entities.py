@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import time
-
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from engram.activation.engine import compute_activation
 from engram.api.deps import get_manager
 from engram.security.middleware import get_tenant
 
@@ -69,89 +66,10 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    now = time.time()
-
-    entity = await manager._graph.get_entity(entity_id, group_id)
-    if not entity:
+    detail = await manager.get_entity_detail(entity_id, group_id)
+    if detail is None:
         return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
-
-    # Get activation
-    state = await manager._activation.get_activation(entity_id)
-    activation_current = 0.0
-    access_count = 0
-    last_accessed = None
-    if state and state.access_history:
-        activation_current = compute_activation(state.access_history, now, manager._cfg)
-        access_count = state.access_count
-        if state.last_accessed:
-            from datetime import datetime, timezone
-
-            last_accessed = datetime.fromtimestamp(state.last_accessed, tz=timezone.utc).isoformat()
-    else:
-        # Fallback to entity-level fields
-        activation_current = getattr(entity, "activation_current", 0.0) or 0.0
-        access_count = getattr(entity, "access_count", 0) or 0
-        la = getattr(entity, "last_accessed", None)
-        if la:
-            last_accessed = la.isoformat() if hasattr(la, "isoformat") else str(la)
-
-    # Get relationships as facts
-    rels = await manager._graph.get_relationships(entity_id, active_only=True, group_id=group_id)
-
-    # Batch-fetch all related entities in one query (fixes N+1)
-    other_ids = list({r.target_id if r.source_id == entity_id else r.source_id for r in rels})
-    others_map = await manager._graph.batch_get_entities(other_ids, group_id) if other_ids else {}
-
-    facts = []
-    for r in rels:
-        if r.source_id == entity_id:
-            direction = "outgoing"
-            other_id = r.target_id
-        else:
-            direction = "incoming"
-            other_id = r.source_id
-
-        other_entity = others_map.get(other_id)
-        other_info = (
-            {
-                "id": other_entity.id,
-                "name": other_entity.name,
-                "entityType": other_entity.entity_type,
-            }
-            if other_entity
-            else {"id": other_id, "name": other_id, "entityType": "Unknown"}
-        )
-
-        facts.append(
-            {
-                "id": r.id,
-                "predicate": r.predicate,
-                "direction": direction,
-                "other": other_info,
-                "weight": r.weight,
-                "validFrom": r.valid_from.isoformat() if r.valid_from else None,
-                "validTo": r.valid_to.isoformat() if r.valid_to else None,
-                "createdAt": r.created_at.isoformat() if r.created_at else None,
-            }
-        )
-
-    return JSONResponse(
-        content={
-            "id": entity.id,
-            "name": entity.name,
-            "entityType": entity.entity_type,
-            "summary": entity.summary,
-            "lexicalRegime": entity.lexical_regime,
-            "canonicalIdentifier": entity.canonical_identifier,
-            "identifierLabel": entity.identifier_label,
-            "activationCurrent": round(activation_current, 4),
-            "accessCount": access_count,
-            "lastAccessed": last_accessed,
-            "createdAt": entity.created_at.isoformat() if entity.created_at else None,
-            "updatedAt": entity.updated_at.isoformat() if entity.updated_at else None,
-            "facts": facts,
-        }
-    )
+    return JSONResponse(content=detail)
 
 
 @router.get("/{entity_id}/neighbors")
@@ -182,36 +100,16 @@ async def patch_entity(request: Request, entity_id: str, body: EntityPatchBody) 
     group_id = tenant.group_id
     manager = get_manager()
 
-    entity = await manager._graph.get_entity(entity_id, group_id)
-    if not entity:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
-
     updates = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.summary is not None:
         updates["summary"] = body.summary
 
-    if updates:
-        await manager._graph.update_entity(entity_id, updates, group_id=group_id)
-
-    # Fetch updated entity
-    updated = await manager._graph.get_entity(entity_id, group_id)
+    updated = await manager.update_entity_profile(entity_id, updates, group_id=group_id)
     if updated is None:
         return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
-    return JSONResponse(
-        content={
-            "id": updated.id,
-            "name": updated.name,
-            "entityType": updated.entity_type,
-            "summary": updated.summary,
-            "lexicalRegime": updated.lexical_regime,
-            "canonicalIdentifier": updated.canonical_identifier,
-            "identifierLabel": updated.identifier_label,
-            "createdAt": updated.created_at.isoformat() if updated.created_at else None,
-            "updatedAt": updated.updated_at.isoformat() if updated.updated_at else None,
-        }
-    )
+    return JSONResponse(content=updated)
 
 
 @router.delete("/{entity_id}")
@@ -221,11 +119,7 @@ async def delete_entity(request: Request, entity_id: str) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    entity = await manager._graph.get_entity(entity_id, group_id)
-    if not entity:
+    result = await manager.delete_entity_by_id(entity_id, group_id=group_id)
+    if result is None:
         return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
-
-    await manager._graph.delete_entity(entity_id, soft=True, group_id=group_id)
-    await manager._activation.clear_activation(entity_id)
-
-    return JSONResponse(content={"status": "deleted", "id": entity_id, "name": entity.name})
+    return JSONResponse(content=result)

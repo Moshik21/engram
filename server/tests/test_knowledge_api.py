@@ -15,6 +15,7 @@ import pytest_asyncio
 from engram.api.knowledge import (
     AdjudicateBody,
     ChatMessage,
+    DismissBody,
     RememberBody,
     _analyze_chat_memory_need,
     _apply_chat_recall_feedback,
@@ -22,9 +23,14 @@ from engram.api.knowledge import (
     _execute_tool,
     _hydrate_chat_context,
     _record_chat_assistant_turn,
+    dismiss_notifications,
+    replay_queue,
 )
 from engram.api.knowledge import (
     adjudicate as adjudicate_handler,
+)
+from engram.api.knowledge import (
+    recall as recall_handler,
 )
 from engram.api.knowledge import (
     remember as remember_handler,
@@ -42,7 +48,29 @@ from engram.models.epistemic import (
 )
 from engram.models.relationship import Relationship
 from engram.models.tenant import TenantContext
-from engram.retrieval.context import ConversationContext
+from engram.notifications.models import MemoryNotification
+from engram.notifications.store import NotificationStore
+from engram.public_surface_policy import PublicSurfacePolicyService
+from engram.retrieval.context import ConversationContext, ConversationRuntimeService
+
+
+def _attach_public_surface_policy(manager, cfg: ActivationConfig) -> ActivationConfig:
+    service = PublicSurfacePolicyService(cfg)
+    manager.get_memory_need_config.side_effect = service.activation_config
+    manager.recall_need_graph_probe_enabled.side_effect = service.recall_need_graph_probe_enabled
+    manager.edge_adjudication_client_enabled.side_effect = (
+        service.edge_adjudication_client_enabled
+    )
+    manager.get_explicit_recall_packet_policy.side_effect = (
+        service.explicit_recall_packet_policy
+    )
+    manager.get_chat_tool_recall_policy.side_effect = service.chat_tool_recall_policy
+    manager.recall_usage_feedback_enabled.side_effect = service.recall_usage_feedback_enabled
+    manager.recall_need_post_response_safety_net_enabled.side_effect = (
+        service.recall_need_post_response_safety_net_enabled
+    )
+    manager.get_chat_runtime_policy.side_effect = service.chat_runtime_policy
+    return cfg
 
 
 @pytest_asyncio.fixture
@@ -141,6 +169,53 @@ async def empty_knowledge_client(tmp_path):
 # ─── Observe ─────────────────────────────────────────────────────
 
 
+class TestNotifications:
+    @pytest.mark.asyncio
+    async def test_dismiss_notifications_uses_current_tenant_group(self):
+        store = NotificationStore()
+        active = MemoryNotification(
+            group_id="tenant_brain",
+            notification_type="schema_discovery",
+            priority="normal",
+            title="Active brain notification",
+            body="Dismiss this one.",
+            entity_ids=[],
+            metadata={},
+            created_at=time.time(),
+        )
+        other = MemoryNotification(
+            group_id="other_brain",
+            notification_type="schema_discovery",
+            priority="normal",
+            title="Other brain notification",
+            body="Leave this one alone.",
+            entity_ids=[],
+            metadata={},
+            created_at=time.time(),
+        )
+        store.add(active)
+        store.add(other)
+        _app_state["notification_store"] = store
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(group_id="tenant_brain", auth_method="test"),
+            ),
+        )
+
+        try:
+            response = await dismiss_notifications(
+                request,
+                DismissBody(ids=[active.id, other.id]),
+            )
+        finally:
+            _app_state.pop("notification_store", None)
+
+        assert response.status_code == 200
+        assert json.loads(response.body) == {"dismissed": 1}
+        assert active.dismissed_at is not None
+        assert other.dismissed_at is None
+
+
 class TestObserve:
     @pytest.mark.asyncio
     async def test_observe_stores_episode(self, knowledge_client):
@@ -153,6 +228,9 @@ class TestObserve:
         data = resp.json()
         assert data["status"] == "observed"
         assert data["episodeId"].startswith("ep_")
+        assert data["operation"] == "observe"
+        assert data["lifecycle"]["stage"] == "cue"
+        assert data["lifecycle"]["projectionStatus"] == "queued"
 
     @pytest.mark.asyncio
     async def test_observe_custom_source(self, knowledge_client):
@@ -163,6 +241,42 @@ class TestObserve:
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "observed"
+
+
+class TestReplayQueue:
+    @pytest.mark.asyncio
+    async def test_replay_queue_uses_current_tenant_group(self, monkeypatch):
+        manager = MagicMock()
+        manager.store_episode = AsyncMock(return_value="ep_queued")
+        monkeypatch.setattr("engram.api.knowledge.get_manager", lambda: manager)
+        monkeypatch.setattr(
+            "engram.api.knowledge.drain_queue",
+            lambda: [
+                {
+                    "content": "offline content long enough to replay",
+                    "group_id": "other_brain",
+                    "source": "offline:test",
+                    "session_id": "session_1",
+                }
+            ],
+        )
+        monkeypatch.setattr("engram.api.knowledge._dedup_check", lambda _content: False)
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(group_id="tenant_brain", auth_method="test"),
+            ),
+        )
+
+        response = await replay_queue(request)
+
+        assert response.status_code == 200
+        assert json.loads(response.body)["replayed"] == 1
+        manager.store_episode.assert_awaited_once_with(
+            content="offline content long enough to replay",
+            group_id="tenant_brain",
+            source="offline:test",
+            session_id="session_1",
+        )
 
 
 # ─── Remember ────────────────────────────────────────────────────
@@ -180,6 +294,9 @@ class TestRemember:
         data = resp.json()
         assert data["status"] == "remembered"
         assert data["episodeId"].startswith("ep_")
+        assert data["operation"] == "remember"
+        assert data["lifecycle"]["stage"] == "project"
+        assert data["lifecycle"]["projectionStatus"] == "attempted"
 
     @pytest.mark.asyncio
     async def test_remember_forwards_client_proposals(self, monkeypatch):
@@ -241,7 +358,10 @@ class TestRemember:
                 },
             ],
         )
-        manager._cfg = ActivationConfig(edge_adjudication_client_enabled=True)
+        _attach_public_surface_policy(
+            manager,
+            ActivationConfig(edge_adjudication_client_enabled=True),
+        )
         monkeypatch.setattr("engram.api.knowledge.get_manager", lambda: manager)
 
         request = SimpleNamespace(
@@ -491,9 +611,38 @@ class TestRecall:
         assert isinstance(data["packets"], list)
 
     @pytest.mark.asyncio
+    async def test_recall_packet_analysis_uses_tenant_group(self):
+        manager = MagicMock()
+        _attach_public_surface_policy(manager, ActivationConfig(recall_packets_enabled=True))
+        manager.recall = AsyncMock(return_value=[])
+        manager.get_recall_need_thresholds = MagicMock(return_value=None)
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                tenant=TenantContext(
+                    group_id="api_packet_brain",
+                    user_id=None,
+                    role="owner",
+                    auth_method="none",
+                )
+            )
+        )
+        analyze = AsyncMock(return_value=SimpleNamespace())
+
+        with (
+            patch("engram.api.knowledge.get_manager", return_value=manager),
+            patch("engram.api.knowledge.analyze_memory_need", analyze),
+            patch("engram.api.knowledge.assemble_memory_packets", AsyncMock(return_value=[])),
+        ):
+            resp = await recall_handler(request, q="Alice", limit=3)
+
+        assert resp.status_code == 200
+        analyze.assert_awaited_once()
+        assert analyze.await_args.kwargs["group_id"] == "api_packet_brain"
+
+    @pytest.mark.asyncio
     async def test_recall_formats_cue_episode_results(self, knowledge_client):
         manager = MagicMock()
-        manager._cfg = type("Cfg", (), {"recall_packets_enabled": False})()
+        _attach_public_surface_policy(manager, ActivationConfig(recall_packets_enabled=False))
         manager.recall = AsyncMock(
             return_value=[
                 {
@@ -541,7 +690,7 @@ class TestChatRecallHelpers:
     @pytest.mark.asyncio
     async def test_execute_tool_recall_formats_cue_episode(self):
         manager = MagicMock()
-        manager._cfg = type("Cfg", (), {"recall_packets_enabled": False})()
+        _attach_public_surface_policy(manager, ActivationConfig(recall_packets_enabled=False))
         manager.recall = AsyncMock(
             return_value=[
                 {
@@ -562,6 +711,30 @@ class TestChatRecallHelpers:
         payload = json.loads(raw)
         assert payload["results"][0]["type"] == "cue_episode"
         assert payload["results"][0]["cueText"] == "Recall redesign note"
+
+    @pytest.mark.asyncio
+    async def test_execute_tool_recall_packet_analysis_uses_tool_group(self):
+        manager = MagicMock()
+        _attach_public_surface_policy(manager, ActivationConfig(recall_packets_enabled=True))
+        manager.recall = AsyncMock(return_value=[])
+        manager.get_recall_need_thresholds = MagicMock(return_value=None)
+        analyze = AsyncMock(return_value=SimpleNamespace())
+
+        with (
+            patch("engram.api.knowledge.analyze_memory_need", analyze),
+            patch("engram.api.knowledge.assemble_memory_packets", AsyncMock(return_value=[])),
+        ):
+            raw = await _execute_tool(
+                manager,
+                "chat_tool_brain",
+                "recall",
+                {"query": "Engram packet routing", "limit": 3},
+            )
+
+        payload = json.loads(raw)
+        assert payload["total"] == 0
+        analyze.assert_awaited_once()
+        assert analyze.await_args.kwargs["group_id"] == "chat_tool_brain"
 
 
 # ─── Facts ───────────────────────────────────────────────────────
@@ -586,7 +759,7 @@ class TestFacts:
 class TestChatMemoryNeedHelpers:
     async def test_analyze_chat_memory_need_uses_history(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig()
+        _attach_public_surface_policy(manager, ActivationConfig())
         manager._conv_context = None
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
@@ -598,6 +771,7 @@ class TestChatMemoryNeedHelpers:
                 type("Msg", (), {"role": "user", "content": "We were debating Redis yesterday."})(),
             ],
             session_entity_names=["Redis"],
+            group_id="tenant_brain",
         )
         assert need.need_type == "open_loop"
         assert need.should_recall is True
@@ -605,18 +779,23 @@ class TestChatMemoryNeedHelpers:
 
     async def test_build_chat_memory_guidance_for_none(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig()
+        _attach_public_surface_policy(manager, ActivationConfig())
         manager._conv_context = None
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
         guidance = _build_chat_memory_guidance(
-            await _analyze_chat_memory_need("thanks", manager, history=None),
+            await _analyze_chat_memory_need(
+                "thanks",
+                manager,
+                history=None,
+                group_id="tenant_brain",
+            ),
         )
         assert "does not look required" in guidance
 
     async def test_build_chat_memory_guidance_for_recall(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig()
+        _attach_public_surface_policy(manager, ActivationConfig())
         manager._conv_context = None
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
@@ -626,6 +805,7 @@ class TestChatMemoryNeedHelpers:
                 manager,
                 history=None,
                 session_entity_names=["Auth Migration"],
+                group_id="tenant_brain",
             ),
         )
         assert "Memory is likely relevant" in guidance
@@ -635,15 +815,23 @@ class TestChatMemoryNeedHelpers:
 class TestChatContextHelpers:
     async def test_hydrate_chat_context_records_live_history_and_message(self):
         manager = MagicMock()
-        manager._conv_context = ConversationContext()
+        conv_context = ConversationContext()
 
         async def embed(text):
             return [1.0, 0.0]
 
         provider = MagicMock()
         provider.embed_query = embed
-        manager._search = MagicMock()
-        manager._search._provider = provider
+        search_index = MagicMock()
+        search_index._provider = provider
+        runtime = ConversationRuntimeService(
+            cfg=ActivationConfig(),
+            conv_context=conv_context,
+            search_index=search_index,
+        )
+        manager.get_conversation_context.side_effect = runtime.get_context
+        manager.get_conversation_turn_count.side_effect = runtime.get_turn_count
+        manager.ingest_conversation_turn.side_effect = runtime.ingest_turn
 
         history = [
             ChatMessage(role="user", content="We were discussing Redis."),
@@ -652,13 +840,13 @@ class TestChatContextHelpers:
 
         await _hydrate_chat_context(manager, history, "Did we decide on Redis?")
 
-        assert manager._conv_context._turn_count == 3
-        assert manager._conv_context.get_recent_turns(5) == [
+        assert conv_context._turn_count == 3
+        assert conv_context.get_recent_turns(5) == [
             "We were discussing Redis.",
             "I mentioned the cache tradeoffs.",
             "Did we decide on Redis?",
         ]
-        entries = manager._conv_context.get_recent_turn_entries(5, live_only=False)
+        entries = conv_context.get_recent_turn_entries(5, live_only=False)
         assert [entry.source for entry in entries] == [
             "chat_user",
             "chat_assistant",
@@ -667,21 +855,28 @@ class TestChatContextHelpers:
 
     async def test_record_chat_assistant_turn_updates_context(self):
         manager = MagicMock()
-        manager._conv_context = ConversationContext()
+        conv_context = ConversationContext()
 
         async def embed(text):
             return [1.0, 0.0]
 
         provider = MagicMock()
         provider.embed_query = embed
-        manager._search = MagicMock()
-        manager._search._provider = provider
+        search_index = MagicMock()
+        search_index._provider = provider
+        runtime = ConversationRuntimeService(
+            cfg=ActivationConfig(),
+            conv_context=conv_context,
+            search_index=search_index,
+        )
+        manager.get_conversation_context.side_effect = runtime.get_context
+        manager.ingest_conversation_turn.side_effect = runtime.ingest_turn
 
         await _record_chat_assistant_turn(manager, "Here is the follow-up.")
 
-        assert manager._conv_context._turn_count == 1
-        assert manager._conv_context.get_recent_turns() == ["Here is the follow-up."]
-        entries = manager._conv_context.get_recent_turn_entries(5, live_only=False)
+        assert conv_context._turn_count == 1
+        assert conv_context.get_recent_turns() == ["Here is the follow-up."]
+        entries = conv_context.get_recent_turn_entries(5, live_only=False)
         assert entries[0].source == "chat_assistant"
 
     @pytest.mark.asyncio
@@ -697,9 +892,12 @@ class TestChatContextHelpers:
 class TestChatRecallFeedbackHelpers:
     async def test_execute_tool_uses_selected_semantics_when_usage_feedback_enabled(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig(
-            recall_usage_feedback_enabled=True,
-            recall_packets_enabled=False,
+        _attach_public_surface_policy(
+            manager,
+            ActivationConfig(
+                recall_usage_feedback_enabled=True,
+                recall_packets_enabled=False,
+            ),
         )
         manager.recall = AsyncMock(
             return_value=[
@@ -734,7 +932,10 @@ class TestChatRecallFeedbackHelpers:
 
     async def test_apply_chat_recall_feedback_marks_used_and_dismissed(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig(recall_usage_feedback_enabled=True)
+        _attach_public_surface_policy(
+            manager,
+            ActivationConfig(recall_usage_feedback_enabled=True),
+        )
         manager.apply_memory_interaction = AsyncMock()
         recall_results = [
             {
@@ -778,7 +979,10 @@ class TestChatRecallFeedbackHelpers:
 
     async def test_apply_chat_recall_feedback_marks_used_and_dismissed_cues(self):
         manager = MagicMock()
-        manager._cfg = ActivationConfig(recall_usage_feedback_enabled=True)
+        _attach_public_surface_policy(
+            manager,
+            ActivationConfig(recall_usage_feedback_enabled=True),
+        )
         manager.apply_memory_interaction = AsyncMock()
         recall_results = [
             {
@@ -1080,11 +1284,9 @@ class TestChat:
     @pytest.mark.asyncio
     async def test_chat_retries_generic_response_once(self, knowledge_client):
         manager = _app_state["graph_manager"]
-        manager._cfg = ActivationConfig(
-            recall_need_analyzer_enabled=True,
-            recall_need_structural_enabled=True,
-            recall_need_post_response_safety_net_enabled=True,
-        )
+        manager._cfg.recall_need_analyzer_enabled = True
+        manager._cfg.recall_need_structural_enabled = True
+        manager._cfg.recall_need_post_response_safety_net_enabled = True
 
         generic_response = _make_create_response("That makes sense. Let me know if you want help.")
         grounded_response = _make_create_response("Alice is still the engineer working on Engram.")

@@ -13,6 +13,12 @@ from engram.models.activation import ActivationState
 from engram.models.consolidation import IdentifierReviewRecord, MergeRecord
 from engram.models.entity import Entity
 from engram.storage.memory.activation import MemoryActivationStore
+from tests.conftest import _helix_available
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 @pytest_asyncio.fixture

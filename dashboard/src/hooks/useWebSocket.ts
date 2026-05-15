@@ -131,12 +131,16 @@ function routeEvent(data: WsEvent) {
       if (data.episode) {
         s.prependEpisode(data.episode);
       }
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "episode.completed":
     case "episode.failed":
       if (data.episodeId && data.status) {
         s.updateEpisodeStatus(data.episodeId, data.status, data.error);
       }
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "graph.nodes_added":
       if (s.brainMapScope === "atlas" && s.atlasSnapshotId === null) {
@@ -156,6 +160,8 @@ function routeEvent(data: WsEvent) {
         // Fallback for old payloads without full node/edge data
         void s.loadInitialGraph();
       }
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "graph.delta":
       if (s.brainMapScope === "atlas" && s.atlasSnapshotId === null) {
@@ -171,6 +177,8 @@ function routeEvent(data: WsEvent) {
       } else {
         void s.loadInitialGraph();
       }
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "activation.access":
       if (data.entityId) {
@@ -208,11 +216,15 @@ function routeEvent(data: WsEvent) {
           })),
         );
       }
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "consolidation.started":
     case "consolidation.completed":
       s.loadStatus();
       s.loadCycles();
+      void s.loadLifecycleSummary();
+      void s.loadEvaluationReport();
       break;
     case "intention.created":
     case "intention.dismissed":
@@ -226,8 +238,41 @@ function routeEvent(data: WsEvent) {
     default:
       if (data.type?.startsWith("consolidation.phase.")) {
         s.loadStatus();
+        void s.loadLifecycleSummary();
+        void s.loadEvaluationReport();
       }
       break;
+  }
+
+  // Quest mode event dispatch
+  const questMode = useEngramStore.getState().dashboardMode;
+  if (questMode === "quest") {
+    const EVENT_FLAVOR: Record<string, { text: string; xp: number }> = {
+      "episode.completed": { text: "A new tale inscribed!", xp: 1 },
+      "consolidation.completed": { text: "Quest completed! The mind grows stronger.", xp: 15 },
+      "consolidation.phase.merge.completed": { text: "Entities forged together!", xp: 5 },
+      "consolidation.phase.dream.completed": { text: "Dream vision: new connections!", xp: 3 },
+    };
+    const eventPayload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as Record<string, unknown>)
+        : (data as unknown as Record<string, unknown>);
+    const phaseIssue = eventPayload.phase_issue;
+    const flavor =
+      data.type === "consolidation.completed" &&
+      typeof phaseIssue === "string" &&
+      phaseIssue.trim()
+        ? { text: `Quest completed with warning: ${phaseIssue}`, xp: 5 }
+        : EVENT_FLAVOR[data.type];
+    if (flavor) {
+      s.addQuestEvent(flavor.text, flavor.xp);
+    }
+  }
+
+  // Track feedback events for MP stat (regardless of quest mode)
+  if (data.type === "feedback.recorded") {
+    const rating = ((data as unknown as Record<string, unknown>).rating as number | undefined) ?? 3;
+    s.recordFeedback(rating >= 4);
   }
 }
 
@@ -293,6 +338,8 @@ export function useWebSocket() {
               const s = useEngramStore.getState();
               s.loadInitialGraph();
               s.loadEpisodes();
+              s.loadLifecycleSummary();
+              s.loadEvaluationReport();
             } else if (data.events) {
               // Replay missed events
               for (const e of data.events) {

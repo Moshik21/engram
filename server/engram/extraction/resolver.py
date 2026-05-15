@@ -7,7 +7,7 @@ from typing import cast
 
 from rapidfuzz import fuzz
 
-from engram.entity_dedup_policy import policy_aware_similarity
+from engram.entity_dedup_policy import NameRegime, analyze_name, policy_aware_similarity
 from engram.models.entity import Entity
 
 FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (rapidfuzz uses integers)
@@ -28,7 +28,9 @@ def validate_entity_name(name: str) -> bool:
         return False
     # All-lowercase names are not proper nouns — except tech tokens with dots/slashes
     if stripped == stripped.lower() and "." not in stripped and "/" not in stripped:
-        return False
+        form = analyze_name(stripped)
+        if form.regime != NameRegime.IDENTIFIER:
+            return False
     return True
 
 

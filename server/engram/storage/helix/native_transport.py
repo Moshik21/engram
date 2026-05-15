@@ -7,9 +7,13 @@ HNSW vectors, and BM25 all embedded. Matches SQLite's ~97ms latency.
 from __future__ import annotations
 
 import asyncio
+import atexit
+import gc
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Lock
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -19,6 +23,10 @@ try:
     HAS_NATIVE = True
 except ImportError:
     HAS_NATIVE = False
+
+_ENGINE_CACHE: dict[str, Any] = {}
+_ENGINE_CACHE_LOCK = Lock()
+_ATEXIT_REGISTERED = False
 
 
 class NativeTransport:
@@ -53,9 +61,28 @@ class NativeTransport:
         Redirects stdout to stderr during init because the Rust engine
         prints status messages that would corrupt MCP stdio transport.
         """
+        global _ATEXIT_REGISTERED
         loop = asyncio.get_event_loop()
         data_dir = getattr(self._config, "data_dir", None) or None
+        cache_key = _native_cache_key(data_dir)
         num_workers = getattr(self._config, "max_workers", 4)
+
+        with _ENGINE_CACHE_LOCK:
+            cached_engine = _ENGINE_CACHE.get(cache_key)
+            if not _ATEXIT_REGISTERED:
+                atexit.register(_close_cached_engines)
+                _ATEXIT_REGISTERED = True
+        if cached_engine is not None:
+            self._engine = cached_engine
+            self._executor = ThreadPoolExecutor(
+                max_workers=num_workers,
+                thread_name_prefix="helix-native",
+            )
+            logger.info(
+                "NativeTransport reused cached engine (workers=%d)",
+                num_workers,
+            )
+            return
 
         def _create_engine():
             import os
@@ -74,7 +101,9 @@ class NativeTransport:
                 os.dup2(original_stdout_fd, 1)
                 os.close(original_stdout_fd)
 
-        self._engine = await loop.run_in_executor(None, _create_engine)
+        engine = await loop.run_in_executor(None, _create_engine)
+        with _ENGINE_CACHE_LOCK:
+            self._engine = _ENGINE_CACHE.setdefault(cache_key, engine)
         self._executor = ThreadPoolExecutor(
             max_workers=num_workers,
             thread_name_prefix="helix-native",
@@ -86,13 +115,18 @@ class NativeTransport:
         )
 
     async def close(self) -> None:
-        """Shutdown the engine and thread pool."""
-        if self._engine:
-            self._engine.close()
-            self._engine = None
-        if self._executor:
-            self._executor.shutdown(wait=False)
-            self._executor = None
+        """Release this transport's query pool.
+
+        The PyO3 engine keeps the LMDB environment process-owned. Closing it and
+        then opening the same data dir again in one Python process currently
+        returns ``Env already open``, so engines are cached until process exit.
+        """
+        executor = self._executor
+        self._engine = None
+        self._executor = None
+        if executor:
+            executor.shutdown(wait=True, cancel_futures=True)
+        gc.collect()
 
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a single query via in-process engine."""
@@ -124,7 +158,11 @@ class NativeTransport:
 
         except Exception as exc:
             exc_str = str(exc)
-            if "NoValue" in exc_str or "NotFound" in exc_str:
+            if (
+                "NoValue" in exc_str
+                or "NotFound" in exc_str
+                or "no entry point found for hnsw index" in exc_str.lower()
+            ):
                 return []
             logger.error("Native query %s failed: %s", endpoint, exc)
             return []
@@ -220,3 +258,20 @@ class NativeTransport:
     @property
     def is_connected(self) -> bool:
         return self._engine is not None
+
+
+def _native_cache_key(data_dir: str | None) -> str:
+    if not data_dir:
+        return "__helix_native_default__"
+    return str(Path(data_dir).expanduser().resolve())
+
+
+def _close_cached_engines() -> None:
+    with _ENGINE_CACHE_LOCK:
+        engines = list(_ENGINE_CACHE.values())
+        _ENGINE_CACHE.clear()
+    for engine in engines:
+        try:
+            engine.close()
+        except Exception:
+            logger.debug("Failed to close cached native Helix engine", exc_info=True)

@@ -14,6 +14,8 @@ from typing import Any, cast
 
 from engram.models.episode import Episode, EpisodeStatus
 
+LOCOMO_BENCHMARK_GROUP_ID = "locomo_benchmark"
+
 
 @dataclass
 class LoCoMoProbe:
@@ -114,7 +116,7 @@ def load_locomo_dataset(
 
 def conversation_to_episodes(
     conversation: LoCoMoConversation,
-    group_id: str = "default",
+    group_id: str = LOCOMO_BENCHMARK_GROUP_ID,
 ) -> list[Episode]:
     """Convert a LoCoMo conversation into Engram episodes (one per turn)."""
     episodes = []

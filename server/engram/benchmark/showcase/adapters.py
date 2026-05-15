@@ -1754,12 +1754,15 @@ class EngramAdapter(BaselineAdapter):
         is_ablation: bool = False,
         vector_provider: str = "none",
         budget_profile: BudgetProfile | None = None,
+        group_id: str | None = None,
     ) -> None:
         super().__init__(name, family, is_ablation=is_ablation)
         self._cfg = cfg
         self._extractions = extractions
         self._vector_provider = vector_provider
         self._budget_profile = budget_profile or BudgetProfile()
+        safe_name = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in name)
+        self._group_id = group_id or f"showcase_{safe_name}"
         self._temp_dir: Path | None = None
         self._graph_store: SQLiteGraphStore | None = None
         self._search_index: SearchIndex | None = None
@@ -1864,6 +1867,7 @@ class EngramAdapter(BaselineAdapter):
             self.stats.bump("store_episode")
             episode_id = await manager.store_episode(
                 turn.content,
+                group_id=self._group_id,
                 source=turn.source,
                 session_id=turn.session_id,
             )
@@ -1878,6 +1882,7 @@ class EngramAdapter(BaselineAdapter):
             self.stats.bump("ingest_episode")
             episode_id = await manager.ingest_episode(
                 turn.content,
+                group_id=self._group_id,
                 source=turn.source,
                 session_id=turn.session_id,
             )
@@ -1890,7 +1895,7 @@ class EngramAdapter(BaselineAdapter):
                 raise ValueError(f"Unknown episode ref for project: {turn.ref}")
             self.stats.projected_turns += 1
             self.stats.bump("project_episode")
-            await manager.project_episode(project_episode_id)
+            await manager.project_episode(project_episode_id, group_id=self._group_id)
             self._refs[turn.id] = project_episode_id
             return
 
@@ -1903,6 +1908,7 @@ class EngramAdapter(BaselineAdapter):
                 entity_names=turn.entity_names,
                 threshold=turn.threshold,
                 priority=turn.priority,
+                group_id=self._group_id,
                 context=turn.context,
                 see_also=turn.see_also,
             )
@@ -1914,7 +1920,11 @@ class EngramAdapter(BaselineAdapter):
             if dismiss_intention_id is None:
                 raise ValueError(f"Unknown intention ref for dismiss: {turn.ref}")
             self.stats.bump("dismiss_intention")
-            await manager.dismiss_intention(dismiss_intention_id, hard=turn.hard_delete)
+            await manager.dismiss_intention(
+                dismiss_intention_id,
+                group_id=self._group_id,
+                hard=turn.hard_delete,
+            )
             self._refs[turn.id] = dismiss_intention_id
             return
 
@@ -1924,6 +1934,7 @@ class EngramAdapter(BaselineAdapter):
         if probe.operation == "get_context":
             self.stats.bump("get_context")
             context = await self.manager.get_context(
+                group_id=self._group_id,
                 max_tokens=probe.max_tokens,
                 topic_hint=probe.topic_hint or probe.query,
             )
@@ -1939,6 +1950,7 @@ class EngramAdapter(BaselineAdapter):
         self.stats.bump("recall")
         results = await self.manager.recall(
             query=probe.query or "",
+            group_id=self._group_id,
             limit=max(probe.limit, 5),
             interaction_type="used",
             interaction_source="showcase_recall",
@@ -1994,8 +2006,8 @@ class EngramAdapter(BaselineAdapter):
         if summary:
             lines.append(summary)
         for rel in result.get("relationships", []):
-            source_name = await self.manager.resolve_entity_name(rel["source_id"], "default")
-            target_name = await self.manager.resolve_entity_name(rel["target_id"], "default")
+            source_name = await self.manager.resolve_entity_name(rel["source_id"], self._group_id)
+            target_name = await self.manager.resolve_entity_name(rel["target_id"], self._group_id)
             lines.append(
                 _format_showcase_relationship(
                     source_name,

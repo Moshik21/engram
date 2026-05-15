@@ -15,24 +15,42 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
 
 from engram.config import ActivationConfig, EngramConfig
+from engram.evaluation.brain_loop_report import (
+    build_brain_loop_report,
+    has_recall_runtime_metrics,
+    merge_recall_runtime_metrics,
+)
+from engram.evaluation.presenter import (
+    present_recall_sample_write,
+    present_session_sample_write,
+)
+from engram.evaluation.store import (
+    SQLiteEvaluationStore,
+    StoredRecallEvalSample,
+    StoredRecallRuntimeMetricsSnapshot,
+    StoredSessionContinuitySample,
+)
 from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
+from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.models.episode import Attachment
-from engram.retrieval.context import ConversationFingerprinter
+from engram.notifications.surface import get_notification_surface_service_from_state
 from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.feedback import publish_memory_need_analysis
-from engram.retrieval.graph_probe import GraphProbe
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
+from engram.retrieval.presenter import present_mcp_recall_items
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
+from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +76,10 @@ async def _record_memory_need_analysis(manager: GraphManager, need: object) -> N
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     """Initialize storage on the same event loop as the MCP server."""
     await _init()
-    yield
+    try:
+        yield
+    finally:
+        await _shutdown()
 
 
 mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT, lifespan=_lifespan)
@@ -73,9 +94,9 @@ class SessionState:
 
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     group_id: str = field(default_factory=lambda: os.environ.get("ENGRAM_GROUP_ID", "default"))
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=utc_now)
     episode_count: int = 0
-    last_activity: datetime = field(default_factory=datetime.utcnow)
+    last_activity: datetime = field(default_factory=utc_now)
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
     recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
@@ -121,11 +142,17 @@ _group_id: str = "default"
 _session: SessionState | None = None
 _recall_cooldown: RecallCooldown | None = None
 _activation_cfg: ActivationConfig | None = None
+_evaluation_store: SQLiteEvaluationStore | None = None
+_consolidation_store: Any | None = None
+_episode_worker: Any | None = None
+_redis_publisher: Any | None = None
 
 
 async def _init() -> None:
     """Initialize storage and services."""
-    global _manager, _group_id, _session, _recall_cooldown, _activation_cfg
+    global _manager, _group_id, _session, _recall_cooldown
+    global _activation_cfg, _evaluation_store, _consolidation_store
+    global _episode_worker, _redis_publisher
 
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
@@ -156,13 +183,19 @@ async def _init() -> None:
         max_per_minute=config.activation.auto_recall_max_per_minute,
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
+    _evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await _evaluation_store.initialize(db=graph_store._db)
+    else:
+        await _evaluation_store.initialize()
+    _consolidation_store = await _create_consolidation_store(mode, config, graph_store)
 
     # Background episode worker
     from engram.worker import EpisodeWorker
 
     if config.activation.worker_enabled:
-        _worker = EpisodeWorker(_manager, config.activation)
-        _worker.start(_group_id, event_bus)
+        _episode_worker = EpisodeWorker(_manager, config.activation)
+        _episode_worker.start(_group_id, event_bus)
 
     # In full mode, bridge events to Redis so the REST API/dashboard can see them
     if mode == EngineMode.FULL:
@@ -170,11 +203,90 @@ async def _init() -> None:
 
         publisher = await create_publisher(_group_id, redis_url=config.redis.url)
         if publisher:
+            _redis_publisher = publisher
             event_bus.add_on_publish_hook(publisher)
 
     logger.info(
         "Engram MCP server initialized (%s mode, session=%s)", mode.value, _session.session_id
     )
+
+
+async def _shutdown() -> None:
+    """Close MCP-owned runtime resources."""
+    global _manager, _session, _recall_cooldown, _activation_cfg
+    global _evaluation_store, _consolidation_store, _episode_worker, _redis_publisher
+
+    if _episode_worker is not None:
+        await _episode_worker.stop()
+        _episode_worker = None
+
+    if _redis_publisher is not None:
+        get_event_bus().remove_on_publish_hook(_redis_publisher)
+        await _redis_publisher.close()
+        _redis_publisher = None
+
+    await _maybe_close(_evaluation_store)
+    _evaluation_store = None
+    await _maybe_close(_consolidation_store)
+    _consolidation_store = None
+
+    if _manager is not None:
+        await _maybe_close(getattr(_manager, "_search", None))
+        await _maybe_close(getattr(_manager, "_activation", None))
+        await _maybe_close(getattr(_manager, "_graph", None))
+        _manager = None
+
+    _session = None
+    _recall_cooldown = None
+    _activation_cfg = None
+
+
+async def _maybe_close(resource: Any) -> None:
+    if resource is None:
+        return
+    close = getattr(resource, "close", None)
+    if close is None:
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
+
+
+async def _create_consolidation_store(
+    mode: EngineMode,
+    config: EngramConfig,
+    graph_store: Any,
+) -> Any:
+    """Create the consolidation audit store for MCP-side evaluation reports."""
+    if mode == EngineMode.HELIX:
+        from engram.storage.helix.consolidation import HelixConsolidationStore
+
+        store = HelixConsolidationStore(
+            config.helix,
+            client=getattr(graph_store, "_helix_client", None),
+        )
+        await store.initialize()
+        return store
+
+    if config.postgres.dsn:
+        from engram.storage.postgres.consolidation import PostgresConsolidationStore
+
+        store = PostgresConsolidationStore(
+            config.postgres.dsn,
+            min_pool_size=config.postgres.min_pool_size,
+            max_pool_size=config.postgres.max_pool_size,
+        )
+        await store.initialize()
+        return store
+
+    from engram.consolidation.store import SQLiteConsolidationStore
+
+    store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await store.initialize(db=graph_store._db)
+    else:
+        await store.initialize()
+    return store
 
 
 def _get_manager() -> GraphManager:
@@ -189,14 +301,26 @@ def _get_session() -> SessionState:
     return _session
 
 
+def _get_evaluation_store() -> SQLiteEvaluationStore:
+    if _evaluation_store is None:
+        raise RuntimeError("EvaluationStore not initialized")
+    return _evaluation_store
+
+
 def _get_conv_context(manager: GraphManager):
     """Return the concrete conversation context if one is configured."""
-    conv_context = getattr(manager, "_conv_context", None)
-    if conv_context is None:
+    try:
+        get_context = manager.get_conversation_context
+    except AttributeError:
+        return None
+    if inspect.iscoroutinefunction(get_context):
         return None
     try:
         from engram.retrieval.context import ConversationContext
 
+        conv_context = get_context()
+        if inspect.isawaitable(conv_context):
+            return None
         if isinstance(conv_context, ConversationContext):
             return conv_context
     except Exception:
@@ -206,19 +330,50 @@ def _get_conv_context(manager: GraphManager):
 
 def _get_conv_embed_fn(manager: GraphManager):
     """Return the embedding function used for live conversation turns, if available."""
-    provider = getattr(manager._search, "_provider", None)
-    if provider and hasattr(provider, "embed_query"):
-        return provider.embed_query
-    return None
+    try:
+        get_embed_fn = manager.get_conversation_embed_fn
+    except AttributeError:
+        return None
+    if inspect.iscoroutinefunction(get_embed_fn):
+        return None
+    embed_fn = get_embed_fn()
+    if inspect.isawaitable(embed_fn):
+        return None
+    return embed_fn if callable(embed_fn) else None
 
 
-def _get_graph_probe(manager: GraphManager) -> GraphProbe:
-    probe = getattr(manager, "_recall_need_graph_probe", None)
-    if isinstance(probe, GraphProbe):
-        return probe
-    probe = GraphProbe(manager._graph, manager._activation)
-    manager._recall_need_graph_probe = probe
-    return probe
+def _get_conv_top_entity_names(manager: GraphManager) -> list[str]:
+    try:
+        get_names = manager.get_conversation_top_entity_names
+    except AttributeError:
+        return []
+    if inspect.iscoroutinefunction(get_names):
+        return []
+    names = get_names()
+    if inspect.isawaitable(names):
+        return []
+    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+
+
+def _get_conv_recent_turns(manager: GraphManager, limit: int) -> list[str]:
+    try:
+        get_recent_turns = manager.get_conversation_recent_turns
+    except AttributeError:
+        return []
+    if inspect.iscoroutinefunction(get_recent_turns):
+        return []
+    recent_turns = get_recent_turns(limit)
+    if inspect.isawaitable(recent_turns):
+        return []
+    return (
+        [turn for turn in recent_turns if isinstance(turn, str)]
+        if isinstance(recent_turns, list)
+        else []
+    )
+
+
+def _get_graph_probe(manager: GraphManager):
+    return manager.get_recall_need_graph_probe()
 
 
 async def _ingest_live_turn(
@@ -231,12 +386,9 @@ async def _ingest_live_turn(
     conv_context = _get_conv_context(manager)
     if conv_context is None:
         return
-    await ConversationFingerprinter.ingest_turn(
-        conv_context,
-        text,
-        _get_conv_embed_fn(manager),
-        source=source,
-    )
+    result = manager.ingest_conversation_turn(text, source=source)
+    if inspect.isawaitable(result):
+        await result
 
 
 # ─── AutoRecall Helpers ──────────────────────────────────────────────
@@ -318,14 +470,10 @@ async def _auto_recall_full(
     query = ""
     if cfg.recall_need_analyzer_enabled:
         recent_turns: list[str] = []
-        session_entity_names: list[str] = []
         conv_context = _get_conv_context(manager)
         if conv_context is not None:
-            recent_turns = conv_context.get_recent_turns(cfg.conv_multi_query_turns)
-            session_entity_names = [
-                entry.name
-                for entry in conv_context.get_top_entities(cfg.conv_multi_query_top_entities)
-            ]
+            recent_turns = _get_conv_recent_turns(manager, cfg.conv_multi_query_turns)
+        session_entity_names = _get_conv_top_entity_names(manager)
         need = await analyze_memory_need(
             content,
             recent_turns=recent_turns,
@@ -509,12 +657,38 @@ async def _get_episode_adjudications(manager, episode_id: str, group_id: str) ->
     return result if isinstance(result, list) else []
 
 
+async def _load_consolidation_evaluation_inputs(
+    manager: GraphManager,
+    group_id: str,
+    cycle_limit: int,
+) -> tuple[list[Any], list[Any]]:
+    """Read recent consolidation context from the active MCP runtime store."""
+    store = _consolidation_store
+    if store is None:
+        return [], []
+    recent_cycles = await store.get_recent_cycles(group_id, limit=max(1, cycle_limit))
+    calibration_snapshots: list[Any] = []
+    get_snapshots = getattr(store, "get_calibration_snapshots", None)
+    if get_snapshots is not None:
+        for cycle in recent_cycles:
+            calibration_snapshots.extend(await get_snapshots(cycle.id, group_id))
+    return recent_cycles, calibration_snapshots
+
+
 # ─── Recall Middleware ───────────────────────────────────────────────
 
-_RECALL_TOOLS = frozenset({
-    "observe", "remember", "recall", "search_entities",
-    "search_facts", "get_context", "route_question", "search_artifacts",
-})
+_RECALL_TOOLS = frozenset(
+    {
+        "observe",
+        "remember",
+        "recall",
+        "search_entities",
+        "search_facts",
+        "get_context",
+        "route_question",
+        "search_artifacts",
+    }
+)
 _WRITE_TOOLS = frozenset({"observe", "remember"})
 
 
@@ -529,52 +703,27 @@ def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
     return bool(cfg.auto_recall_on_tool_call)
 
 
-def _serialize_intentions(manager: GraphManager) -> list[dict] | None:
+async def _serialize_intentions(manager: GraphManager) -> list[dict] | None:
     """Serialize and drain triggered intentions from manager."""
-    if not manager._triggered_intentions:
-        return None
-    result = [
-        {
-            "trigger": m.trigger_text,
-            "action": m.action_text,
-            "similarity": round(m.similarity, 4),
-            "matched_via": m.matched_via,
-            **({"context": m.context} if m.context else {}),
-            **({"see_also": m.see_also} if m.see_also else {}),
-        }
-        for m in manager._triggered_intentions
-    ]
-    manager._triggered_intentions = []
-    return result
-
-
-def _serialize_notifications(
-    cfg: ActivationConfig, group_id: str
-) -> list[dict] | None:
-    """Serialize proactive memory notifications."""
-    if not cfg.notification_surfacing_enabled:
-        return None
-    from engram.main import _app_state as _ns_state
-
-    ns = _ns_state.get("notification_store")
-    if not ns:
-        return None
-    notifications = ns.get_for_mcp(
-        group_id,
-        limit=cfg.notification_mcp_max_per_response,
-        max_surfaces=cfg.notification_mcp_max_surfaces,
+    drain_triggered_intention_views = getattr(
+        manager,
+        "drain_triggered_intention_views",
+        None,
     )
-    if not notifications:
+    if not callable(drain_triggered_intention_views):
         return None
-    return [
-        {
-            "type": n.notification_type,
-            "title": n.title,
-            "body": n.body,
-            "priority": n.priority,
-        }
-        for n in notifications
-    ]
+    result = drain_triggered_intention_views()
+    if inspect.isawaitable(result):
+        result = await result
+    return result if isinstance(result, list) and result else None
+
+
+def _serialize_notifications(cfg: ActivationConfig, group_id: str) -> list[dict] | None:
+    """Serialize proactive memory notifications."""
+    service = get_notification_surface_service_from_state()
+    if service is None:
+        return None
+    return service.mcp_notifications(cfg=cfg, group_id=group_id)
 
 
 async def _recall_middleware(
@@ -622,7 +771,7 @@ async def _recall_middleware(
         response["recalled_context"] = recalled
 
     # Triggered intentions
-    intentions = _serialize_intentions(manager)
+    intentions = await _serialize_intentions(manager)
     if intentions:
         response["triggered_intentions"] = intentions
 
@@ -675,11 +824,13 @@ async def remember(
             pass
     attachments: list[Attachment] = []
     if image_data:
-        attachments.append(Attachment(
-            mime_type=image_mime,
-            data_url=image_data,
-            description=content[:200] if content else "",
-        ))
+        attachments.append(
+            Attachment(
+                mime_type=image_mime,
+                data_url=image_data,
+                description=content[:200] if content else "",
+            )
+        )
     episode_id = await manager.ingest_episode(
         content=content,
         group_id=_group_id,
@@ -692,27 +843,58 @@ async def remember(
         attachments=attachments or None,
     )
     session.episode_count += 1
-    session.last_activity = datetime.utcnow()
+    session.last_activity = utc_now()
     # Update conversation context (Wave 2)
     await _ingest_live_turn(manager, content, source="remember")
-    response: dict = {
-        "status": "stored",
-        "episode_id": episode_id,
-        "message": "Memory received. Entities and relationships extracted.",
-    }
+    message = "Memory received. Entities and relationships extracted."
+    adjudications: list[dict] = []
     # Add remember_outcome for v2 pipeline
     if cfg and cfg.evidence_extraction_enabled:
-        response["message"] = "Memory received. Evidence extracted and evaluated."
+        message = "Memory received. Evidence extracted and evaluated."
         if cfg.edge_adjudication_client_enabled:
             adjudications = await _get_episode_adjudications(
                 manager,
                 episode_id,
                 _group_id,
             )
-            if adjudications:
-                response["adjudication_requests"] = adjudications
+    response = present_mcp_memory_write(
+        memory_write_contract(
+            "remember",
+            episode_id,
+            adjudication_requests=adjudications,
+        ),
+        message=message,
+    )
     await _recall_middleware(content, response, tool_name="remember")
     return json.dumps(response)
+
+
+@mcp.tool()
+async def feedback(
+    entity_id: str,
+    rating: int,
+    comment: str | None = None,
+) -> str:
+    """Rate an entity to influence future memory retrieval.
+
+    Args:
+        entity_id: The entity to rate
+        rating: 1-5 scale (1=strongly avoid, 3=neutral, 5=strongly prefer)
+        comment: Optional comment explaining the rating
+
+    Returns:
+        JSON with status, entity_id, domain, edge_type, edge_weight.
+    """
+    manager = _get_manager()
+    if rating < 1 or rating > 5:
+        return json.dumps({"error": "Rating must be between 1 and 5"})
+    result = await manager.record_explicit_feedback(
+        group_id=_group_id,
+        entity_id=entity_id,
+        rating=rating,
+        comment=comment,
+    )
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -787,14 +969,13 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
         conversation_date=conv_dt,
     )
     session.episode_count += 1
-    session.last_activity = datetime.utcnow()
+    session.last_activity = utc_now()
     # Update conversation context (Wave 2)
     await _ingest_live_turn(manager, content, source="observe")
-    response: dict = {
-        "status": "stored",
-        "episode_id": episode_id,
-        "message": "Stored for background processing.",
-    }
+    response = present_mcp_memory_write(
+        memory_write_contract("observe", episode_id),
+        message="Stored for background processing.",
+    )
     await _recall_middleware(content, response, tool_name="observe")
     return json.dumps(response)
 
@@ -833,12 +1014,13 @@ async def observe_image(
         attachments=[attachment],
     )
     session.episode_count += 1
-    session.last_activity = datetime.utcnow()
-    return json.dumps({
-        "status": "stored",
-        "episode_id": episode_id,
-        "message": "Image stored for background processing.",
-    })
+    session.last_activity = utc_now()
+    return json.dumps(
+        present_mcp_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind="image"),
+            message="Image stored for background processing.",
+        ),
+    )
 
 
 @mcp.tool()
@@ -875,12 +1057,13 @@ async def observe_file(
         attachments=[attachment],
     )
     session.episode_count += 1
-    session.last_activity = datetime.utcnow()
-    return json.dumps({
-        "status": "stored",
-        "episode_id": episode_id,
-        "message": "File stored for background processing.",
-    })
+    session.last_activity = utc_now()
+    return json.dumps(
+        present_mcp_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind="file"),
+            message="File stored for background processing.",
+        ),
+    )
 
 
 @mcp.tool()
@@ -909,98 +1092,27 @@ async def recall(query: str, limit: int = 5) -> str:
     session.last_recall_time = time.time()
     session.auto_recall_primed = True
 
-    formatted = []
-    for r in results:
-        if r.get("result_type") == "episode":
-            bd = r.get("score_breakdown", {})
-            formatted.append(
-                {
-                    "result_type": "episode",
-                    "episode_id": r["episode"]["id"],
-                    "content": r["episode"]["content"],
-                    "source": r["episode"].get("source"),
-                    "created_at": r["episode"].get("created_at"),
-                    "score": round(r["score"], 4),
-                    "relevance_confidence": round(
-                        bd.get("relevance_confidence", 0.0), 4
-                    ),
-                    "score_breakdown": {
-                        k: round(v, 4)
-                        for k, v in bd.items()
-                        if isinstance(v, (int, float))
-                    },
-                    "linked_entities": [
-                        e["name"] if isinstance(e, dict) else e
-                        for e in r.get("linked_entities", [])
-                    ],
-                }
-            )
-            continue
-        if r.get("result_type") == "cue_episode":
-            cue = r.get("cue", {})
-            bd = r.get("score_breakdown", {})
-            formatted.append(
-                {
-                    "result_type": "cue_episode",
-                    "cue_text": cue.get("cue_text"),
-                    "supporting_spans": cue.get("supporting_spans", []),
-                    "projection_state": cue.get("projection_state"),
-                    "route_reason": cue.get("route_reason"),
-                    "episode_id": cue.get("episode_id"),
-                    "score": round(r["score"], 4),
-                    "relevance_confidence": round(
-                        bd.get("relevance_confidence", 0.0), 4
-                    ),
-                    "score_breakdown": {
-                        k: round(v, 4) for k, v in bd.items()
-                        if isinstance(v, (int, float))
-                    },
-                }
-            )
-            continue
-        entity = r["entity"]
-        # Resolve relationship target/source IDs to entity names
-        related_facts = []
-        for rel in r.get("relationships", []):
-            source_name = await manager.resolve_entity_name(rel["source_id"], _group_id)
-            target_name = await manager.resolve_entity_name(rel["target_id"], _group_id)
-            related_facts.append(
-                {
-                    "subject": source_name,
-                    "predicate": rel["predicate"],
-                    "object": target_name,
-                    "polarity": rel.get("polarity", "positive"),
-                }
-            )
+    async def _resolve_entity_name(entity_id: str) -> str:
+        return await manager.resolve_entity_name(entity_id, _group_id)
 
-        state = await manager._activation.get_activation(entity["id"])
-        access_count = state.access_count if state else 0
+    async def _get_access_count(entity_id: str) -> int:
+        if not entity_id:
+            return 0
+        value = await manager.get_recall_item_access_count(entity_id)
+        return value if isinstance(value, int) else 0
 
-        bd = r.get("score_breakdown", {})
-        formatted.append(
-            {
-                "result_type": "entity",
-                "entity": entity["name"],
-                "entity_type": entity["type"],
-                "summary": entity.get("summary"),
-                "composite_score": round(r["score"], 4),
-                "relevance_confidence": round(
-                    bd.get("relevance_confidence", 0.0), 4
-                ),
-                "score_breakdown": {
-                    k: round(v, 4) for k, v in bd.items()
-                    if isinstance(v, (int, float))
-                },
-                "related_facts": related_facts,
-                "access_count": access_count,
-            }
-        )
+    formatted = await present_mcp_recall_items(
+        results,
+        resolve_entity_name=_resolve_entity_name,
+        get_access_count=_get_access_count,
+    )
 
     packets = []
     if cfg.recall_packets_enabled:
         packet_need = await analyze_memory_need(
             query,
             mode="explicit_recall",
+            group_id=_group_id,
             cfg=cfg,
             thresholds=await _resolve_recall_need_thresholds(manager),
         )
@@ -1027,27 +1139,17 @@ async def recall(query: str, limit: int = 5) -> str:
     }
 
     # Append near-misses if available (Wave 2)
-    if hasattr(manager, "_last_near_misses") and manager._last_near_misses:
-        response_dict["near_misses"] = manager._last_near_misses
+    near_misses = manager.get_last_near_miss_views()
+    if inspect.isawaitable(near_misses):
+        near_misses = await near_misses
+    if isinstance(near_misses, list) and near_misses:
+        response_dict["near_misses"] = near_misses
 
-    # Surface surprise connections (Wave 3)
-    if hasattr(manager, "_surprise_cache") and manager._surprise_cache is not None:
-        surprise_cache = getattr(manager, "_surprise_cache", None)
-        surprises = (
-            surprise_cache.get(_group_id, time.time())
-            if surprise_cache is not None and hasattr(surprise_cache, "get")
-            else None
-        )
-        if surprises:
-            response_dict["surprise_connections"] = [
-                {
-                    "entity": s.entity_name,
-                    "connected_to": s.connected_to_name,
-                    "relationship": s.predicate,
-                    "surprise_score": round(s.surprise_score, 4),
-                }
-                for s in surprises[:3]
-            ]
+    surprises = manager.get_surprise_connection_views(_group_id, now=time.time(), limit=3)
+    if inspect.isawaitable(surprises):
+        surprises = await surprises
+    if isinstance(surprises, list) and surprises:
+        response_dict["surprise_connections"] = surprises
 
     await _recall_middleware(query, response_dict, tool_name="recall")
     return json.dumps(response_dict)
@@ -1230,15 +1332,7 @@ async def route_question(
 ) -> str:
     """Classify a question as remember, inspect, or reconcile."""
     manager = _get_manager()
-    conv_context = _get_conv_context(manager)
-    session_entity_names: list[str] = []
-    if conv_context is not None:
-        session_entity_names = [
-            entry.name
-            for entry in conv_context.get_top_entities(
-                manager._cfg.conv_multi_query_top_entities,
-            )
-        ]
+    session_entity_names = _get_conv_top_entity_names(manager)
     result = await manager.route_question(
         question,
         group_id=_group_id,
@@ -1313,6 +1407,168 @@ async def get_graph_state(
 
 
 @mcp.tool()
+async def get_lifecycle_summary(episode_limit: int = 5, cycle_limit: int = 10) -> str:
+    """Return the shared Capture -> Cue -> Project -> Recall -> Consolidate summary."""
+    manager = _get_manager()
+    consolidation_engine = None
+    if _consolidation_store is not None:
+        consolidation_engine = SimpleNamespace(
+            _store=_consolidation_store,
+            is_running=False,
+        )
+    summary = await manager.get_lifecycle_summary(
+        group_id=_group_id,
+        consolidation_engine=consolidation_engine,
+        activation_config=_activation_cfg,
+        episode_limit=max(1, episode_limit),
+        cycle_limit=max(1, cycle_limit),
+    )
+    return json.dumps(summary)
+
+
+@mcp.tool()
+async def record_recall_evaluation(
+    recall_triggered: bool,
+    recall_helped: bool,
+    recall_needed: bool | None = None,
+    packets_surfaced: int = 0,
+    packets_used: int = 0,
+    false_recalls: int = 0,
+    source: str = "mcp",
+    query: str | None = None,
+    notes: str | None = None,
+) -> str:
+    """Record a labeled recall-quality sample for the current brain.
+
+    Args:
+        recall_triggered: Whether the agent chose to recall memory
+        recall_helped: Whether the recalled memory helped the task
+        recall_needed: Whether memory should have been recalled for this task
+        packets_surfaced: Number of memory packets/results surfaced
+        packets_used: Number of surfaced packets/results actually used
+        false_recalls: Number of surfaced memories judged misleading or irrelevant
+        source: Label source, defaults to "mcp"
+        query: Optional query or task that triggered recall
+        notes: Optional short operator/agent note
+
+    Returns:
+        JSON acknowledgement with the persisted sample contract.
+    """
+    store = _get_evaluation_store()
+    sample = StoredRecallEvalSample(
+        group_id=_group_id,
+        recall_triggered=recall_triggered,
+        recall_helped=recall_helped,
+        recall_needed=recall_needed,
+        packets_surfaced=max(0, packets_surfaced),
+        packets_used=max(0, packets_used),
+        false_recalls=max(0, false_recalls),
+        source=source,
+        query=query,
+        notes=notes,
+    )
+    await store.save_recall_sample(sample)
+    return json.dumps(present_recall_sample_write(sample, surface="mcp"))
+
+
+@mcp.tool()
+async def record_session_continuity_evaluation(
+    baseline_score: float,
+    memory_score: float,
+    open_loop_expected: bool = False,
+    open_loop_recovered: bool = False,
+    temporal_expected: bool = False,
+    temporal_correct: bool = False,
+    source: str = "mcp",
+    scenario: str | None = None,
+    notes: str | None = None,
+) -> str:
+    """Record a labeled multi-turn/session-continuity sample.
+
+    Args:
+        baseline_score: Score without Engram memory
+        memory_score: Score with Engram memory
+        open_loop_expected: Whether the task required resurfacing unresolved work
+        open_loop_recovered: Whether memory recovered that open loop
+        temporal_expected: Whether the task required newer-vs-older fact handling
+        temporal_correct: Whether memory handled the temporal fact correctly
+        source: Label source, defaults to "mcp"
+        scenario: Optional scenario name
+        notes: Optional short operator/agent note
+
+    Returns:
+        JSON acknowledgement with the persisted sample contract.
+    """
+    store = _get_evaluation_store()
+    sample = StoredSessionContinuitySample(
+        group_id=_group_id,
+        baseline_score=baseline_score,
+        memory_score=memory_score,
+        open_loop_expected=open_loop_expected,
+        open_loop_recovered=open_loop_recovered,
+        temporal_expected=temporal_expected,
+        temporal_correct=temporal_correct,
+        source=source,
+        scenario=scenario,
+        notes=notes,
+    )
+    await store.save_session_sample(sample)
+    return json.dumps(present_session_sample_write(sample, surface="mcp"))
+
+
+@mcp.tool()
+async def get_evaluation_report(
+    cycle_limit: int = 10,
+    sample_limit: int = 500,
+) -> str:
+    """Return the local Capture -> Cue -> Project -> Recall -> Consolidate report.
+
+    Args:
+        cycle_limit: Recent consolidation cycles to include
+        sample_limit: Saved recall/session evaluation samples to include
+
+    Returns:
+        JSON brain-loop evaluation report for the current group.
+    """
+    manager = _get_manager()
+    store = _get_evaluation_store()
+    graph_state = await manager.get_graph_state(
+        group_id=_group_id,
+        top_n=10,
+        include_edges=False,
+    )
+    stats = graph_state.get("stats") or {}
+    recall_metrics = stats.get("recall_metrics") or {}
+    if has_recall_runtime_metrics(recall_metrics):
+        await store.save_recall_metrics_snapshot(
+            StoredRecallRuntimeMetricsSnapshot(
+                group_id=_group_id,
+                metrics=dict(recall_metrics),
+                source="mcp_report",
+            )
+        )
+    else:
+        stats = merge_recall_runtime_metrics(
+            stats,
+            await store.get_latest_recall_metrics_snapshot(_group_id),
+        )
+    recent_cycles, calibration_snapshots = await _load_consolidation_evaluation_inputs(
+        manager,
+        _group_id,
+        cycle_limit=max(1, cycle_limit),
+    )
+    report = build_brain_loop_report(
+        stats,
+        group_id=_group_id,
+        recent_cycles=recent_cycles,
+        calibration_snapshots=calibration_snapshots,
+        recall_samples=await store.get_recall_samples(_group_id, limit=max(1, sample_limit)),
+        session_samples=await store.get_session_samples(_group_id, limit=max(1, sample_limit)),
+    )
+    return json.dumps(report)
+
+
+@mcp.tool()
 async def mark_identity_core(entity_name: str, identity_core: bool = True) -> str:
     """Mark or unmark an entity as part of the user's identity core.
 
@@ -1327,25 +1583,12 @@ async def mark_identity_core(entity_name: str, identity_core: bool = True) -> st
         JSON with status and entity details.
     """
     manager = _get_manager()
-    entities = await manager._graph.find_entities(name=entity_name, group_id=_group_id, limit=1)
-    if not entities:
-        return json.dumps({"status": "error", "message": f"Entity '{entity_name}' not found."})
-    entity = entities[0]
-    await manager._graph.update_entity(
-        entity.id,
-        {"identity_core": 1 if identity_core else 0},
+    result = await manager.mark_identity_core(
+        entity_name,
+        identity_core=identity_core,
         group_id=_group_id,
     )
-    action = "marked as" if identity_core else "removed from"
-    return json.dumps(
-        {
-            "status": "updated",
-            "entity": entity.name,
-            "entity_type": entity.entity_type,
-            "identity_core": identity_core,
-            "message": f"Entity '{entity.name}' {action} identity core.",
-        }
-    )
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -1362,64 +1605,40 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     """
     manager = _get_manager()
 
-    from engram.consolidation.engine import ConsolidationEngine
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    # Create a one-shot engine for MCP context
-    store = None
-    if hasattr(manager._graph, "_db"):
-        store = SQLiteConsolidationStore(":memory:")
-        await store.initialize(db=manager._graph._db)
-
-    engine = ConsolidationEngine(
-        manager._graph,
-        manager._activation,
-        manager._search,
-        cfg=manager._cfg,
-        consolidation_store=store,
-        extractor=manager._extractor,
+    from engram.consolidation.presenter import (
+        serialize_cycle_summary,
     )
 
-    # Get graph stats for context
-    graph_stats = await manager._graph.get_stats(_group_id)
+    store = await _get_mcp_consolidation_trigger_store(manager)
 
-    cycle = await engine.run_cycle(
+    trigger_result = await manager.trigger_consolidation_cycle(
         group_id=_group_id,
         trigger="mcp",
         dry_run=dry_run,
+        consolidation_store=store,
     )
 
-    total_processed = sum(pr.items_processed for pr in cycle.phase_results)
-    total_affected = sum(pr.items_affected for pr in cycle.phase_results)
-    description = (
-        f"{'Dry run' if cycle.dry_run else 'Live'} cycle: "
-        f"{total_processed} items processed, {total_affected} affected "
-        f"across {len(cycle.phase_results)} phases"
-    )
+    result = serialize_cycle_summary(trigger_result.cycle)
+    result["cycle_id"] = result.pop("id")
+    result["graph_stats"] = trigger_result.graph_stats
 
-    return json.dumps(
-        {
-            "cycle_id": cycle.id,
-            "status": cycle.status,
-            "dry_run": cycle.dry_run,
-            "graph_stats": graph_stats,
-            "phases": [
-                {
-                    "phase": pr.phase,
-                    "status": pr.status,
-                    "items_processed": pr.items_processed,
-                    "items_affected": pr.items_affected,
-                }
-                for pr in cycle.phase_results
-            ],
-            "total_duration_ms": cycle.total_duration_ms,
-            "summary": {
-                "total_processed": total_processed,
-                "total_affected": total_affected,
-                "description": description,
-            },
-        }
-    )
+    return json.dumps(result)
+
+
+async def _get_mcp_consolidation_trigger_store(manager: GraphManager) -> Any | None:
+    """Return the active MCP audit store, with a lite shared-DB fallback."""
+    if _consolidation_store is not None:
+        return _consolidation_store
+
+    db = manager.get_consolidation_shared_db()
+    if db is None:
+        return None
+
+    from engram.consolidation.store import SQLiteConsolidationStore
+
+    store = SQLiteConsolidationStore(":memory:")
+    await store.initialize(db=db)
+    return store
 
 
 @mcp.tool()
@@ -1429,14 +1648,19 @@ async def get_consolidation_status() -> str:
     Returns:
         JSON with is_running flag and latest cycle summary if available.
     """
+    from engram.consolidation.presenter import serialize_cycle_summary
+
     # In MCP mode, consolidation runs synchronously so is_running is always false
-    return json.dumps(
-        {
-            "is_running": False,
-            "message": "Use trigger_consolidation to run a cycle. "
-            "In MCP mode, cycles run synchronously.",
-        }
-    )
+    result = {
+        "is_running": False,
+        "message": "Use trigger_consolidation to run a cycle. "
+        "In MCP mode, cycles run synchronously.",
+    }
+    if _consolidation_store is not None:
+        cycles = await _consolidation_store.get_recent_cycles(_group_id, limit=1)
+        if cycles:
+            result["latest_cycle"] = serialize_cycle_summary(cycles[0])
+    return json.dumps(result)
 
 
 # ─── Prospective Memory (Wave 4) ─────────────────────────────────────
@@ -1508,8 +1732,9 @@ async def intend(
                 "status": "created",
                 "intention_id": intention_id,
                 "trigger_type": trigger_type,
+                "refresh_trigger": refresh_trigger,
                 "linked_entities": entity_names or [],
-                "threshold": threshold or manager._cfg.prospective_activation_threshold,
+                "threshold": manager.effective_intention_threshold(threshold),
                 "message": f"Intention set: will fire when '{trigger_text}' activates.",
             }
         )
@@ -1554,86 +1779,11 @@ async def list_intentions(enabled_only: bool = True) -> str:
         JSON with intentions array and total count.
     """
     manager = _get_manager()
-    cfg = manager._cfg
-    intentions = await manager.list_intentions(
+    items = await manager.list_intention_views(
         group_id=_group_id,
         enabled_only=enabled_only,
+        surface="mcp",
     )
-
-    items = []
-    if cfg.prospective_graph_embedded:
-        from engram.activation.engine import compute_activation
-        from engram.models.prospective import IntentionMeta
-
-        now = time.time()
-        for entity in intentions:
-            attrs = entity.attributes or {}
-            try:
-                meta = IntentionMeta(**attrs)
-            except Exception:
-                continue
-
-            # Compute warmth ratio
-            state = await manager._activation.get_activation(entity.id)
-            activation = 0.0
-            if state:
-                activation = compute_activation(state.access_history, now, cfg)
-            warmth_ratio = (
-                activation / meta.activation_threshold if meta.activation_threshold > 0 else 0.0
-            )
-
-            # Classify warmth
-            levels = cfg.prospective_warmth_levels
-            if warmth_ratio >= 1.0:
-                warmth_label = "hot"
-            elif warmth_ratio >= levels[2]:
-                warmth_label = "warm"
-            elif warmth_ratio >= levels[1]:
-                warmth_label = "warming"
-            elif warmth_ratio >= levels[0]:
-                warmth_label = "cool"
-            else:
-                warmth_label = "dormant"
-
-            item = {
-                "id": entity.id,
-                "trigger_text": meta.trigger_text,
-                "action_text": meta.action_text,
-                "trigger_type": meta.trigger_type,
-                "threshold": meta.activation_threshold,
-                "fire_count": meta.fire_count,
-                "max_fires": meta.max_fires,
-                "enabled": meta.enabled,
-                "priority": meta.priority,
-                "expires_at": meta.expires_at,
-                "warmth_ratio": round(warmth_ratio, 4),
-                "warmth_label": warmth_label,
-                "linked_entity_ids": meta.trigger_entity_ids,
-            }
-            # Include pinned context fields when applicable
-            if meta.trigger_type == "refresh_context":
-                item["refresh_trigger"] = meta.refresh_trigger
-                item["last_refreshed"] = meta.last_refreshed
-                if meta.pinned_result:
-                    item["has_pinned_result"] = True
-            items.append(item)
-    else:
-        # v1 fallback
-        for i in intentions:
-            items.append(
-                {
-                    "id": i.id,
-                    "trigger_text": i.trigger_text,
-                    "action_text": i.action_text,
-                    "trigger_type": i.trigger_type,
-                    "entity_name": i.entity_name,
-                    "threshold": i.threshold,
-                    "fire_count": i.fire_count,
-                    "max_fires": i.max_fires,
-                    "enabled": i.enabled,
-                    "expires_at": i.expires_at.isoformat() if i.expires_at else None,
-                }
-            )
 
     return json.dumps({"intentions": items, "total": len(items)})
 
@@ -1653,85 +1803,14 @@ async def graph_stats_resource() -> str:
 async def entity_profile_resource(entity_id: str) -> str:
     """Full profile for a specific entity including activation and relationships."""
     manager = _get_manager()
-    entity = await manager._graph.get_entity(entity_id, _group_id)
-    if not entity:
-        return json.dumps({"error": "Entity not found", "entity_id": entity_id})
-
-    state = await manager._activation.get_activation(entity_id)
-    rels = await manager._graph.get_relationships(entity_id, active_only=True, group_id=_group_id)
-
-    facts = []
-    for r in rels:
-        target_name = await manager.resolve_entity_name(r.target_id, _group_id)
-        source_name = await manager.resolve_entity_name(r.source_id, _group_id)
-        if r.source_id == entity_id:
-            facts.append(
-                {
-                    "predicate": r.predicate,
-                    "object": target_name,
-                    "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                    "valid_to": r.valid_to.isoformat() if r.valid_to else None,
-                }
-            )
-        else:
-            facts.append(
-                {
-                    "predicate": r.predicate,
-                    "subject": source_name,
-                    "valid_from": r.valid_from.isoformat() if r.valid_from else None,
-                    "valid_to": r.valid_to.isoformat() if r.valid_to else None,
-                }
-            )
-
-    from engram.activation.engine import compute_activation
-
-    now = time.time()
-    activation_score = 0.0
-    if state:
-        activation_score = compute_activation(state.access_history, now, manager._cfg)
-
-    return json.dumps(
-        {
-            "id": entity.id,
-            "name": entity.name,
-            "entity_type": entity.entity_type,
-            "summary": entity.summary,
-            "activation": {
-                "current": round(activation_score, 4),
-                "access_count": state.access_count if state else 0,
-                "last_accessed": state.last_accessed if state else None,
-            },
-            "facts": facts,
-            "created_at": entity.created_at.isoformat() if entity.created_at else None,
-            "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
-        }
-    )
+    return json.dumps(await manager.get_entity_profile(entity_id, _group_id))
 
 
 @mcp.resource("engram://entity/{entity_id}/neighbors")
 async def entity_neighbors_resource(entity_id: str) -> str:
     """Entities directly connected to the specified entity with relationship details."""
     manager = _get_manager()
-    neighbors = await manager._graph.get_neighbors(entity_id, hops=1, group_id=_group_id)
-    result = []
-    for entity, rel in neighbors:
-        result.append(
-            {
-                "entity": {
-                    "id": entity.id,
-                    "name": entity.name,
-                    "entity_type": entity.entity_type,
-                    "summary": entity.summary,
-                },
-                "relationship": {
-                    "predicate": rel.predicate,
-                    "source_id": rel.source_id,
-                    "target_id": rel.target_id,
-                    "weight": rel.weight,
-                },
-            }
-        )
-    return json.dumps(result)
+    return json.dumps(await manager.get_entity_neighbors(entity_id, _group_id))
 
 
 # ─── Prompts ────────────────────────────────────────────────────────

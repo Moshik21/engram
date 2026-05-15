@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -17,6 +16,8 @@ from engram.consolidation.phases.microglia import (
 from engram.models.consolidation import CycleContext
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
+from tests.conftest import _helix_available
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,8 +39,8 @@ def _entity(
         group_id="default",
         summary=summary,
         identity_core=identity_core,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=utc_now(),
+        updated_at=utc_now(),
     )
     if mat_tier is not None:
         object.__setattr__(e, "mat_tier", mat_tier)
@@ -680,6 +681,8 @@ class TestLtdSweep:
 
 class TestOrphanEdgeFix:
     @pytest.mark.asyncio
+    @pytest.mark.requires_helix
+    @pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
     async def test_get_active_neighbors_excludes_deleted_entities(self):
         from engram.config import HelixDBConfig
         from engram.storage.helix.graph import HelixGraphStore
@@ -694,16 +697,16 @@ class TestOrphanEdgeFix:
             name="Alice",
             entity_type="Person",
             group_id="default",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
         e2 = Entity(
             id="e2",
             name="Bob",
             entity_type="Person",
             group_id="default",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
         )
         await store.create_entity(e1)
         await store.create_entity(e2)

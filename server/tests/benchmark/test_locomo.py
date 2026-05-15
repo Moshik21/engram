@@ -3,14 +3,50 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+
+import pytest
 
 from engram.benchmark.locomo.adapter import (
+    LOCOMO_BENCHMARK_GROUP_ID,
     conversation_to_episodes,
     load_locomo_dataset,
     probes_to_queries,
 )
 from engram.benchmark.locomo.answer_composer import compose_answer
 from engram.benchmark.locomo.metrics import exact_match, normalize_answer, token_f1
+from engram.config import ActivationConfig
+
+
+@dataclass
+class _FakeRetrievalResult:
+    node_id: str
+
+
+@dataclass
+class _FakeEntity:
+    summary: str
+
+
+class _FakeGraphStore:
+    def __init__(self) -> None:
+        self.episodes = []
+        self.entity_group_ids: list[str] = []
+
+    async def create_episode(self, episode) -> None:
+        self.episodes.append(episode)
+
+    async def get_entity(self, entity_id: str, group_id: str):
+        self.entity_group_ids.append(group_id)
+        return _FakeEntity(summary=f"{entity_id} likes tea")
+
+
+class _FakeSearchIndex:
+    def __init__(self) -> None:
+        self.indexed = []
+
+    async def index_episode(self, episode) -> None:
+        self.indexed.append(episode)
 
 
 class TestNormalizeAnswer:
@@ -74,6 +110,7 @@ class TestConversationToEpisodes:
         assert "Alice: Hello!" in episodes[0].content
         assert "Bob: Hi there!" in episodes[1].content
         assert episodes[0].source == "locomo:conv_1"
+        assert {ep.group_id for ep in episodes} == {LOCOMO_BENCHMARK_GROUP_ID}
 
     def test_content_fallback(self):
         """Falls back to 'content' key if 'text' not present."""
@@ -169,3 +206,44 @@ class TestLoadLocomoDataset:
 
         convs = load_locomo_dataset(path, max_conversations=3)
         assert len(convs) == 3
+
+
+@pytest.mark.asyncio
+async def test_run_locomo_defaults_to_benchmark_group(tmp_path, monkeypatch):
+    from engram.benchmark.locomo import runner as locomo_runner
+
+    data = [
+        {
+            "conversation_id": "conv_1",
+            "conversation": [{"text": "Alice likes tea", "speaker": "Alice"}],
+            "questions": [{"question": "What does Alice like?", "answer": "tea"}],
+        },
+    ]
+    path = tmp_path / "locomo.json"
+    path.write_text(json.dumps(data))
+
+    retrieve_group_ids: list[str] = []
+
+    async def fake_retrieve(**kwargs):
+        retrieve_group_ids.append(kwargs["group_id"])
+        return [_FakeRetrievalResult("ent_alice")]
+
+    monkeypatch.setattr(locomo_runner, "retrieve", fake_retrieve)
+    graph_store = _FakeGraphStore()
+    search_index = _FakeSearchIndex()
+
+    result = await locomo_runner.run_locomo(
+        path,
+        graph_store,
+        activation_store=object(),
+        search_index=search_index,
+        cfg=ActivationConfig(),
+        max_conversations=1,
+        limit=1,
+    )
+
+    assert result.total_conversations == 1
+    assert [ep.group_id for ep in graph_store.episodes] == [LOCOMO_BENCHMARK_GROUP_ID]
+    assert [ep.group_id for ep in search_index.indexed] == [LOCOMO_BENCHMARK_GROUP_ID]
+    assert retrieve_group_ids == [LOCOMO_BENCHMARK_GROUP_ID]
+    assert graph_store.entity_group_ids == [LOCOMO_BENCHMARK_GROUP_ID]

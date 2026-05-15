@@ -7,12 +7,15 @@ import { createSelectionSlice } from "../store/selectionSlice";
 import { createPreferencesSlice } from "../store/preferencesSlice";
 import { createTimeSlice } from "../store/timeSlice";
 import { createEpisodeSlice } from "../store/episodeSlice";
+import { createLifecycleSlice } from "../store/lifecycleSlice";
+import { createEvaluationSlice } from "../store/evaluationSlice";
 import { createStatsSlice } from "../store/statsSlice";
 import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
 import { createConsolidationSlice } from "../store/consolidationSlice";
 import { createKnowledgeSlice } from "../store/knowledgeSlice";
 import { createConversationSlice } from "../store/conversationSlice";
+import { createQuestSlice } from "../store/questSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -20,6 +23,10 @@ vi.mock("../api/client", () => ({
     getNeighbors: vi.fn(),
     searchEntities: vi.fn(),
     getEntity: vi.fn(),
+    getLifecycleSummary: vi.fn(),
+    getEvaluationReport: vi.fn(),
+    recordRecallEvaluation: vi.fn(),
+    recordSessionContinuityEvaluation: vi.fn(),
     getStats: vi.fn(),
     getEpisodes: vi.fn(),
     getGraphAt: vi.fn(),
@@ -56,11 +63,14 @@ function createTestStore() {
       ...createTimeSlice(...a),
       ...createEpisodeSlice(...a),
       ...createStatsSlice(...a),
+      ...createLifecycleSlice(...a),
+      ...createEvaluationSlice(...a),
       ...createWsSlice(...a),
       ...createActivationSlice(...a),
       ...createConsolidationSlice(...a),
       ...createKnowledgeSlice(...a),
       ...createConversationSlice(...(a as Parameters<typeof createConversationSlice>)),
+      ...createQuestSlice(...a),
     })),
   );
 }

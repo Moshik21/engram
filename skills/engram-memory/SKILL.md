@@ -1,6 +1,6 @@
 ---
 name: engram-brain
-description: Persistent long-term memory powered by knowledge graphs, ACT-R activation, and 15-phase consolidation. Remember conversations across sessions, recall relevant context automatically, and build a private brain that improves over time. Zero LLM cost by default.
+description: Persistent long-term memory powered by knowledge graphs, ACT-R activation, and 16-phase consolidation. Remember conversations across sessions, recall relevant context automatically, and build a private brain that improves over time. Zero LLM cost by default.
 version: 0.3.2
 user-invocable: true
 metadata:
@@ -30,7 +30,7 @@ metadata:
 
 You have access to Engram, a persistent memory system that builds a temporal knowledge graph from conversations. It uses ACT-R cognitive architecture for activation-aware retrieval and runs offline consolidation inspired by biological memory.
 
-Works with both lite (SQLite) and full (HelixDB Docker) Engram installs. Zero LLM cost by default — all consolidation scoring, replay, and retrieval are deterministic. Optional Anthropic API key enables richer entity extraction.
+Works with native Helix (PyO3, recommended), lite (SQLite fallback), and Docker-backed Helix installs. Zero LLM cost by default — all consolidation scoring, replay, and retrieval are deterministic. Optional Anthropic API key enables richer entity extraction.
 
 ## Setup
 
@@ -43,6 +43,16 @@ uv tool install engram
 engramctl setup
 engramctl start
 engramctl install-openclaw
+```
+
+### Native Helix install (recommended)
+
+```bash
+git clone https://github.com/Moshik21/engram.git ~/engram
+cd ~/engram
+make build-native
+cd server
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram mcp
 ```
 
 ### Docker install
@@ -181,6 +191,15 @@ GET http://localhost:8100/api/knowledge/artifacts/search?q=<query>&project_path=
 GET http://localhost:8100/api/knowledge/runtime?project_path=<optional path>
 ```
 
+To inspect the current brain-loop state for this user/brain:
+```
+GET http://localhost:8100/api/lifecycle/summary
+```
+
+Use this when deciding whether the brain has recent captures, cue coverage,
+projection failures, active recall context, or consolidation cycles before
+running heavier diagnostics.
+
 To search for specific entities:
 ```
 GET http://localhost:8100/api/entities/search?q=<name>
@@ -214,7 +233,7 @@ stay hidden unless you explicitly opt into debug mode with
 
 - **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
 - **Knowledge graph**: Entities and relationships are extracted and connected
-- **15-phase consolidation**: Offline cycles merge duplicates, infer missing links, adjudicate evidence, prune noise, mature entities, form schemas, and discover cross-domain patterns
+- **16-phase consolidation**: Offline cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, form schemas, reindex, embed the graph, run microglia cleanup, and discover dream associations
 - **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
@@ -226,7 +245,15 @@ To set a reminder that fires when a related topic comes up:
 POST http://localhost:8100/api/knowledge/intentions
 Content-Type: application/json
 
-{"query": "<topic to watch for>", "action": "<what to do when triggered>", "entity_names": ["<related entity>"]}
+{"trigger_text": "<topic to watch for>", "action_text": "<what to do when triggered>", "entity_names": ["<related entity>"]}
+```
+
+To pin a context query that refreshes after consolidation:
+```
+POST http://localhost:8100/api/knowledge/intentions
+Content-Type: application/json
+
+{"trigger_text": "<topic to keep fresh>", "action_text": "<short label>", "trigger_type": "refresh_context", "refresh_trigger": "after_consolidation"}
 ```
 
 To list active intentions:
@@ -234,12 +261,14 @@ To list active intentions:
 GET http://localhost:8100/api/knowledge/intentions
 ```
 
+Refresh-context rows include `refreshTrigger`, `lastRefreshed`, and `hasPinnedResult`.
+
 When an intention fires during recall, act on it naturally without announcing it was triggered.
 
 ## Consolidation
 
-Engram runs 15 offline consolidation phases that improve memory quality over time:
-triage, merge, infer, evidence_adjudicate, edge_adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream.
+Engram runs 16 offline consolidation phases that improve memory quality over time:
+triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream.
 
 To trigger a consolidation cycle manually:
 ```

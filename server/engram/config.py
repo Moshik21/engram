@@ -21,6 +21,7 @@ class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8100
     log_level: str = "info"
+    auto_observe_enabled: bool = True
 
 
 class SQLiteConfig(BaseModel):
@@ -989,6 +990,34 @@ class ActivationConfig(BaseModel):
         description="Entity type to topic domain mapping for cross-domain penalty",
     )
 
+    # --- Preference-directed memory ---
+    preference_directed_enabled: bool = Field(
+        default=False,
+        description="Enable preference-directed memory scoring",
+    )
+    preference_retrieval_weight: float = Field(
+        default=0.08,
+        ge=0.0,
+        le=0.5,
+        description="Weight for preference boost in retrieval scoring",
+    )
+    preference_triage_weight: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=0.5,
+        description="Weight for preference alignment in triage scoring",
+    )
+    preference_decay_rate: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=0.1,
+        description="Per-cycle decay rate for preference scores",
+    )
+    preference_calibrate_enabled: bool = Field(
+        default=False,
+        description="Enable calibrate consolidation phase",
+    )
+
     # --- Inhibitory spreading (Brain Architecture) ---
     inhibitory_spreading_enabled: bool = Field(
         default=False,
@@ -1923,6 +1952,8 @@ class ActivationConfig(BaseModel):
             _set("microglia_enabled", True)
             _set("notification_surfacing_enabled", True)
             _set("notification_temporal_enabled", True)
+            _set("preference_directed_enabled", True)
+            _set("preference_calibrate_enabled", True)
 
         # --- Recall profile presets (cumulative) ---
         rp = recall_profile
@@ -2029,6 +2060,15 @@ class EngramConfig(BaseSettings):
     cors: CORSConfig = Field(default_factory=CORSConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     activation: ActivationConfig = Field(default_factory=ActivationConfig)
+
+    def model_post_init(self, __context: object) -> None:
+        """Keep unauthenticated tenant routing aligned with the default brain."""
+        if (
+            self.default_group_id != "default"
+            and self.auth.default_group_id == "default"
+            and "default_group_id" not in self.auth.model_fields_set
+        ):
+            self.auth.default_group_id = self.default_group_id
 
     def get_sqlite_path(self) -> Path:
         """Return expanded SQLite database path, creating parent dirs."""

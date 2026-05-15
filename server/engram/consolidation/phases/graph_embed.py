@@ -280,12 +280,6 @@ class GraphEmbedPhase(ConsolidationPhase):
             dimensions = len(first_vec)
 
             # Store (unless dry_run)
-            if not dry_run and db is None:
-                logger.warning(
-                    "GraphEmbedPhase: %s trained %d embeddings but db=None — discarding",
-                    method,
-                    len(embeddings),
-                )
             if not dry_run and db is not None:
                 await store.upsert_batch(
                     db,
@@ -293,6 +287,48 @@ class GraphEmbedPhase(ConsolidationPhase):
                     method,
                     group_id,
                     model_version=model_version,
+                )
+
+            # Sync to HelixDB if search_index supports it (Helix backend).
+            # For SQLite backend, db is not None and embeddings are already
+            # stored above; HelixDB needs an explicit push via AddV.
+            if not dry_run and hasattr(search_index, "sync_graph_embeddings"):
+                try:
+                    if method_full_retrain and hasattr(
+                        search_index, "clear_graph_embed_vectors"
+                    ):
+                        cleared = await search_index.clear_graph_embed_vectors(
+                            group_id=group_id, method=method
+                        )
+                        if cleared:
+                            logger.info(
+                                "GraphEmbedPhase: cleared %d stale %s vectors from HelixDB",
+                                cleared,
+                                method,
+                            )
+                    synced = await search_index.sync_graph_embeddings(
+                        embeddings,
+                        method,
+                        group_id,
+                        model_version=model_version,
+                    )
+                    logger.info(
+                        "GraphEmbedPhase: synced %d %s vectors to HelixDB",
+                        synced,
+                        method,
+                    )
+                except Exception as sync_exc:
+                    logger.warning(
+                        "GraphEmbedPhase: HelixDB sync failed for %s: %s",
+                        method,
+                        sync_exc,
+                    )
+            elif not dry_run and db is None:
+                logger.warning(
+                    "GraphEmbedPhase: %s trained %d embeddings but no storage "
+                    "backend available — discarding",
+                    method,
+                    len(embeddings),
                 )
 
             elapsed_ms = (time.perf_counter() - t0) * 1000

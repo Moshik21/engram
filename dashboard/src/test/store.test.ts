@@ -1,18 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createStore } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import type { EngramStore, GraphNode, GraphEdge, SearchResult, Episode } from "../store/types";
+import type {
+  BrainLoopEvaluationReport,
+  EngramStore,
+  GraphEdge,
+  GraphNode,
+  SearchResult,
+  Episode,
+} from "../store/types";
 import { createGraphSlice } from "../store/graphSlice";
 import { createSelectionSlice } from "../store/selectionSlice";
 import { createPreferencesSlice } from "../store/preferencesSlice";
 import { createTimeSlice } from "../store/timeSlice";
 import { createEpisodeSlice } from "../store/episodeSlice";
+import { createLifecycleSlice } from "../store/lifecycleSlice";
+import { createEvaluationSlice } from "../store/evaluationSlice";
 import { createStatsSlice } from "../store/statsSlice";
 import { createWsSlice } from "../store/wsSlice";
 import { createActivationSlice } from "../store/activationSlice";
 import { createConsolidationSlice } from "../store/consolidationSlice";
 import { createKnowledgeSlice } from "../store/knowledgeSlice";
 import { createConversationSlice } from "../store/conversationSlice";
+import { createQuestSlice } from "../store/questSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -23,6 +33,10 @@ vi.mock("../api/client", () => ({
     getNeighbors: vi.fn(),
     searchEntities: vi.fn(),
     getEntity: vi.fn(),
+    getLifecycleSummary: vi.fn(),
+    getEvaluationReport: vi.fn(),
+    recordRecallEvaluation: vi.fn(),
+    recordSessionContinuityEvaluation: vi.fn(),
     getStats: vi.fn(),
     getEpisodes: vi.fn(),
     getGraphAt: vi.fn(),
@@ -59,11 +73,14 @@ function createTestStore() {
       ...createTimeSlice(...a),
       ...createEpisodeSlice(...a),
       ...createStatsSlice(...a),
+      ...createLifecycleSlice(...a),
+      ...createEvaluationSlice(...a),
       ...createWsSlice(...a),
       ...createActivationSlice(...a),
       ...createConsolidationSlice(...a),
       ...createKnowledgeSlice(...a),
       ...createConversationSlice(...(a as Parameters<typeof createConversationSlice>)),
+      ...createQuestSlice(...a),
     })),
   );
 }
@@ -112,6 +129,149 @@ function makeEpisode(overrides: Partial<Episode> = {}): Episode {
     retryCount: 0,
     ...overrides,
   };
+}
+
+function makeEvaluationReport(
+  overrides: Partial<BrainLoopEvaluationReport> = {},
+): BrainLoopEvaluationReport {
+  const base: BrainLoopEvaluationReport = {
+    groupId: "default",
+    generatedAt: "2026-05-11T12:00:00Z",
+    loop: ["capture", "cue", "project", "recall", "consolidate"],
+    totals: { episodes: 4, entities: 6, relationships: 3, activeEntities: 2 },
+    capture: { status: "ready", episodeCount: 4, activeCount: 0 },
+    cue: {
+      status: "ready",
+      cueCount: 4,
+      episodesWithoutCues: 0,
+      coverage: 1,
+      hitCount: 6,
+      hitEpisodeCount: 2,
+      hitEpisodeRate: 0.5,
+      surfacedCount: 5,
+      selectedCount: 3,
+      usedCount: 2,
+      nearMissCount: 1,
+      selectedRate: 0.6,
+      usedRate: 0.4,
+      nearMissRate: 0.2,
+      avgPolicyScore: 0.7,
+      projectionConversionRate: 0.5,
+    },
+    project: {
+      status: "ready",
+      stateCounts: {
+        queued: 0,
+        cued: 0,
+        cueOnly: 0,
+        scheduled: 0,
+        projecting: 0,
+        projected: 2,
+        merged: 0,
+        failed: 0,
+        deadLetter: 0,
+      },
+      trackedCount: 2,
+      projectedCount: 2,
+      activeCount: 0,
+      projectedRate: 1,
+      backlogRate: 0,
+      failedCount: 0,
+      deadLetterCount: 0,
+      attemptedEpisodeCount: 2,
+      totalAttempts: 2,
+      failureRate: 0,
+      avgProcessingDurationMs: 10,
+      avgTimeToProjectionMs: 20,
+      yield: {
+        linkedEntityCount: 6,
+        relationshipCount: 3,
+        avgLinkedEntitiesPerProjectedEpisode: 3,
+        avgRelationshipsPerProjectedEpisode: 1.5,
+      },
+    },
+    recall: {
+      status: "active",
+      totalAnalyses: 2,
+      triggerCount: 1,
+      runtimeFalseRecallRate: 0,
+      runtimeSurfacedToUsedRatio: null,
+      graphLiftRate: 0,
+      probeTriggerRate: 0,
+      latency: {
+        analyzerMs: { avgMs: 0, p95Ms: 0 },
+        probeMs: { avgMs: 0, p95Ms: 0 },
+      },
+      control: {
+        usedCount: 0,
+        dismissedCount: 0,
+        surfacedCount: 0,
+        selectedCount: 0,
+        confirmedCount: 0,
+        correctedCount: 0,
+        graphOverrideCount: 0,
+        adaptiveThresholdsEnabled: false,
+        thresholds: { linguistic: 0, borderline: 0, resonance: 0 },
+      },
+      familyContributions: { linguistic: 1 },
+      evaluation: {
+        status: "measured",
+        sampleCount: 1,
+        needStatus: "measured",
+        needLabeledCount: 1,
+        neededCount: 1,
+        missedCount: 0,
+        memoryNeedPrecision: 1,
+        memoryNeedRecall: 1,
+        missedRecallRate: 0,
+        usefulPacketRate: 0.5,
+        falseRecallRate: 0,
+        surfacedCount: 2,
+        usedCount: 1,
+        surfacedToUsedRatio: 2,
+      },
+      continuity: {
+        status: "needs_samples",
+        sampleCount: 0,
+        sessionContinuityLift: null,
+        openLoopRecoveryRate: null,
+        temporalCorrectness: null,
+      },
+    },
+    consolidate: {
+      status: "ready",
+      cycleCount: 1,
+      latestStatus: "completed",
+      latestCycle: null,
+      phaseStatusCounts: { success: 1 },
+      phaseTotals: { triage: { runs: 1, itemsProcessed: 2, itemsAffected: 1, effectRate: 0.5 } },
+      adjudication: {
+        status: "active",
+        phaseCount: 1,
+        runs: 1,
+        itemsProcessed: 2,
+        itemsAffected: 1,
+        itemsUnaffected: 1,
+        effectRate: 0.5,
+        errorCount: 0,
+        phaseTotals: {
+          edge_adjudication: {
+            runs: 1,
+            itemsProcessed: 2,
+            itemsAffected: 1,
+            effectRate: 0.5,
+          },
+        },
+      },
+      calibration: { status: "needs_snapshots", snapshotCount: 0, phaseTotals: {} },
+      itemsProcessed: 2,
+      itemsAffected: 1,
+      effectRate: 0.5,
+      errorCount: 0,
+    },
+    coverageGaps: ["session continuity needs session_samples input"],
+  };
+  return { ...base, ...overrides };
 }
 
 beforeEach(() => {
@@ -543,6 +703,17 @@ describe("preferencesSlice", () => {
     expect(store.getState().lastAtlasVisitAt).toBe("2026-03-06T00:00:00Z");
     expect(store.getState().lastAtlasSnapshotId).toBe("atlas_123");
   });
+
+  it("clears lifecycle drilldown context on ordinary view navigation", () => {
+    const store = createTestStore();
+
+    store.getState().setLifecycleDrilldownStage("cue");
+    expect(store.getState().lifecycleDrilldownStage).toBe("cue");
+
+    store.getState().setCurrentView("stats");
+    expect(store.getState().currentView).toBe("stats");
+    expect(store.getState().lifecycleDrilldownStage).toBeNull();
+  });
 });
 
 describe("timeSlice", () => {
@@ -696,6 +867,415 @@ describe("statsSlice", () => {
     expect(store.getState().stats?.cueMetrics?.cueCoverage).toBe(0.8);
     expect(store.getState().stats?.projectionMetrics?.stateCounts.projected).toBe(5);
     expect(store.getState().isLoadingStats).toBe(false);
+  });
+});
+
+describe("consolidationSlice", () => {
+  it("loadStatus preserves the latest cycle returned by status", async () => {
+    mockedApi.getConsolidationStatus.mockResolvedValueOnce({
+      is_running: false,
+      scheduler_active: true,
+      latest_cycle: {
+        id: "cyc_status_failed",
+        status: "failed",
+        error: "calibration failed",
+        dry_run: true,
+        trigger: "manual",
+        started_at: 1,
+        completed_at: 2,
+        total_duration_ms: 10,
+        phases: [
+          {
+            phase: "calibrate",
+            status: "error",
+            items_processed: 2,
+            items_affected: 0,
+            duration_ms: 10,
+            error: "no teacher labels",
+          },
+        ],
+      },
+    });
+
+    const store = createTestStore();
+    await store.getState().loadStatus();
+
+    expect(store.getState().isRunning).toBe(false);
+    expect(store.getState().schedulerActive).toBe(true);
+    expect(store.getState().cycles[0]).toMatchObject({
+      id: "cyc_status_failed",
+      error: "calibration failed",
+    });
+    expect(store.getState().cycles[0].phases[0].error).toBe("no teacher labels");
+  });
+});
+
+describe("lifecycleSlice", () => {
+  it("loadLifecycleSummary stores brain-loop summary", async () => {
+    mockedApi.getLifecycleSummary.mockResolvedValueOnce({
+      groupId: "default",
+      generatedAt: "2026-05-11T12:00:00Z",
+      loop: ["capture", "cue", "project", "recall", "consolidate"],
+      totals: {
+        episodes: 2,
+        cues: 1,
+        projected: 1,
+        cycles: 0,
+        entities: 3,
+        relationships: 2,
+      },
+      capture: {
+        status: "ready",
+        episodeCount: 2,
+        activeCount: 0,
+        latestEpisode: null,
+      },
+      cue: {
+        status: "attention",
+        cueCount: 1,
+        episodesWithoutCues: 1,
+        coverage: 0.5,
+        hitCount: 0,
+        surfacedCount: 0,
+        selectedCount: 0,
+        usedCount: 0,
+        nearMissCount: 0,
+        avgPolicyScore: 0,
+        projectionConversionRate: 1,
+      },
+      project: {
+        status: "ready",
+        projectedCount: 1,
+        activeCount: 0,
+        failedCount: 0,
+        deadLetterCount: 0,
+        failureRate: 0,
+        stateCounts: {
+          queued: 0,
+          cued: 0,
+          cueOnly: 0,
+          scheduled: 0,
+          projecting: 0,
+          projected: 1,
+          merged: 0,
+          failed: 0,
+          deadLetter: 0,
+        },
+      },
+      recall: {
+        status: "active",
+        activeEntityCount: 1,
+        topScore: 0.8,
+        triggerCount: 0,
+        intentions: {
+          activeCount: 1,
+          refreshContextCount: 1,
+          afterConsolidationCount: 1,
+          pinnedResultCount: 1,
+          needsRefreshCount: 0,
+          latestRefreshedAt: "2026-05-11T11:59:00Z",
+        },
+        topActivated: [
+          {
+            id: "n1",
+            name: "Alice",
+            entityType: "Person",
+            summary: null,
+            activation: 0.8,
+            accessCount: 2,
+          },
+        ],
+      },
+      consolidate: {
+        status: "ready",
+        isRunning: false,
+        schedulerActive: false,
+        cycleCount: 0,
+        pressure: null,
+        latestCycle: null,
+      },
+      recentEpisodes: [],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadLifecycleSummary();
+
+    expect(mockedApi.getLifecycleSummary).toHaveBeenCalled();
+    expect(store.getState().lifecycleSummary?.loop).toEqual([
+      "capture",
+      "cue",
+      "project",
+      "recall",
+      "consolidate",
+    ]);
+    expect(store.getState().lifecycleSummary?.cue.coverage).toBe(0.5);
+    expect(store.getState().lifecycleSummary?.recall.intentions.activeCount).toBe(1);
+    expect(store.getState().isLoadingLifecycleSummary).toBe(false);
+  });
+});
+
+describe("evaluationSlice", () => {
+  it("loadEvaluationReport stores brain-loop evaluation report", async () => {
+    mockedApi.getEvaluationReport.mockResolvedValueOnce({
+      groupId: "default",
+      generatedAt: "2026-05-11T12:00:00Z",
+      loop: ["capture", "cue", "project", "recall", "consolidate"],
+      totals: { episodes: 4, entities: 6, relationships: 3, activeEntities: 2 },
+      capture: { status: "ready", episodeCount: 4, activeCount: 0 },
+      cue: {
+        status: "ready",
+        cueCount: 4,
+        episodesWithoutCues: 0,
+        coverage: 1,
+        hitCount: 6,
+        hitEpisodeCount: 2,
+        hitEpisodeRate: 0.5,
+        surfacedCount: 5,
+        selectedCount: 3,
+        usedCount: 2,
+        nearMissCount: 1,
+        selectedRate: 0.6,
+        usedRate: 0.4,
+        nearMissRate: 0.2,
+        avgPolicyScore: 0.7,
+        projectionConversionRate: 0.5,
+      },
+      project: {
+        status: "ready",
+        stateCounts: {
+          queued: 0,
+          cued: 0,
+          cueOnly: 0,
+          scheduled: 0,
+          projecting: 0,
+          projected: 2,
+          merged: 0,
+          failed: 0,
+          deadLetter: 0,
+        },
+        trackedCount: 2,
+        projectedCount: 2,
+        activeCount: 0,
+        projectedRate: 1,
+        backlogRate: 0,
+        failedCount: 0,
+        deadLetterCount: 0,
+        attemptedEpisodeCount: 2,
+        totalAttempts: 2,
+        failureRate: 0,
+        avgProcessingDurationMs: 10,
+        avgTimeToProjectionMs: 20,
+        yield: {
+          linkedEntityCount: 6,
+          relationshipCount: 3,
+          avgLinkedEntitiesPerProjectedEpisode: 3,
+          avgRelationshipsPerProjectedEpisode: 1.5,
+        },
+      },
+      recall: {
+        status: "active",
+        totalAnalyses: 2,
+        triggerCount: 1,
+        runtimeFalseRecallRate: 0,
+        runtimeSurfacedToUsedRatio: null,
+        graphLiftRate: 0,
+        probeTriggerRate: 0,
+        latency: {
+          analyzerMs: { avgMs: 0, p95Ms: 0 },
+          probeMs: { avgMs: 0, p95Ms: 0 },
+        },
+        control: {
+          usedCount: 0,
+          dismissedCount: 0,
+          surfacedCount: 0,
+          selectedCount: 0,
+          confirmedCount: 0,
+          correctedCount: 0,
+          graphOverrideCount: 0,
+          adaptiveThresholdsEnabled: false,
+          thresholds: { linguistic: 0, borderline: 0, resonance: 0 },
+        },
+        familyContributions: { linguistic: 1 },
+        evaluation: {
+          status: "measured",
+          sampleCount: 1,
+          needStatus: "measured",
+          needLabeledCount: 1,
+          neededCount: 1,
+          missedCount: 0,
+          memoryNeedPrecision: 1,
+          memoryNeedRecall: 1,
+          missedRecallRate: 0,
+          usefulPacketRate: 0.5,
+          falseRecallRate: 0,
+          surfacedCount: 2,
+          usedCount: 1,
+          surfacedToUsedRatio: 2,
+        },
+        continuity: {
+          status: "needs_samples",
+          sampleCount: 0,
+          sessionContinuityLift: null,
+          openLoopRecoveryRate: null,
+          temporalCorrectness: null,
+        },
+      },
+      consolidate: {
+        status: "ready",
+        cycleCount: 1,
+        latestStatus: "completed",
+        latestCycle: null,
+        phaseStatusCounts: { success: 1 },
+        phaseTotals: { triage: { runs: 1, itemsProcessed: 2, itemsAffected: 1, effectRate: 0.5 } },
+        adjudication: {
+          status: "active",
+          phaseCount: 1,
+          runs: 1,
+          itemsProcessed: 2,
+          itemsAffected: 1,
+          itemsUnaffected: 1,
+          effectRate: 0.5,
+          errorCount: 0,
+          phaseTotals: {
+            edge_adjudication: {
+              runs: 1,
+              itemsProcessed: 2,
+              itemsAffected: 1,
+              effectRate: 0.5,
+            },
+          },
+        },
+        calibration: { status: "needs_snapshots", snapshotCount: 0, phaseTotals: {} },
+        itemsProcessed: 2,
+        itemsAffected: 1,
+        effectRate: 0.5,
+        errorCount: 0,
+      },
+      coverageGaps: ["session continuity needs session_samples input"],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadEvaluationReport();
+
+    expect(mockedApi.getEvaluationReport).toHaveBeenCalled();
+    expect(store.getState().evaluationReport?.recall.evaluation.sampleCount).toBe(1);
+    expect(store.getState().evaluationReport?.cue.usedRate).toBe(0.4);
+    expect(store.getState().isLoadingEvaluationReport).toBe(false);
+  });
+
+  it("records recall evaluation labels and refreshes the report", async () => {
+    const refreshed = makeEvaluationReport({
+      recall: {
+        ...makeEvaluationReport().recall,
+        evaluation: {
+          ...makeEvaluationReport().recall.evaluation,
+          sampleCount: 2,
+        },
+      },
+    });
+    mockedApi.recordRecallEvaluation.mockResolvedValueOnce({
+      status: "stored",
+      groupId: "default",
+      sample: {
+        id: "ers_1",
+        recallTriggered: true,
+        recallHelped: true,
+        recallNeeded: true,
+        packetsSurfaced: 3,
+        packetsUsed: 2,
+        falseRecalls: 1,
+        source: "dashboard",
+        query: "open loop",
+        notes: null,
+        timestamp: 1,
+      },
+    });
+    mockedApi.getEvaluationReport.mockResolvedValueOnce(refreshed);
+
+    const store = createTestStore();
+    await store.getState().recordRecallEvaluation({
+      recallTriggered: true,
+      recallHelped: true,
+      recallNeeded: true,
+      packetsSurfaced: 3,
+      packetsUsed: 2,
+      falseRecalls: 1,
+      query: "open loop",
+      notes: null,
+    });
+
+    expect(mockedApi.recordRecallEvaluation).toHaveBeenCalledWith({
+      recallTriggered: true,
+      recallHelped: true,
+      recallNeeded: true,
+      packetsSurfaced: 3,
+      packetsUsed: 2,
+      falseRecalls: 1,
+      source: "dashboard",
+      query: "open loop",
+      notes: null,
+    });
+    expect(mockedApi.getEvaluationReport).toHaveBeenCalled();
+    expect(store.getState().evaluationReport?.recall.evaluation.sampleCount).toBe(2);
+    expect(store.getState().isSavingRecallEvaluation).toBe(false);
+  });
+
+  it("records session continuity labels and refreshes the report", async () => {
+    const refreshed = makeEvaluationReport({
+      recall: {
+        ...makeEvaluationReport().recall,
+        continuity: {
+          ...makeEvaluationReport().recall.continuity,
+          sampleCount: 1,
+          sessionContinuityLift: 0.4,
+        },
+      },
+    });
+    mockedApi.recordSessionContinuityEvaluation.mockResolvedValueOnce({
+      status: "stored",
+      groupId: "default",
+      sample: {
+        id: "esc_1",
+        baselineScore: 0.2,
+        memoryScore: 0.6,
+        openLoopExpected: true,
+        openLoopRecovered: true,
+        temporalExpected: false,
+        temporalCorrect: false,
+        source: "dashboard",
+        scenario: "follow up",
+        notes: null,
+        timestamp: 1,
+      },
+    });
+    mockedApi.getEvaluationReport.mockResolvedValueOnce(refreshed);
+
+    const store = createTestStore();
+    await store.getState().recordSessionContinuityEvaluation({
+      baselineScore: 0.2,
+      memoryScore: 0.6,
+      openLoopExpected: true,
+      openLoopRecovered: true,
+      temporalExpected: false,
+      temporalCorrect: false,
+      scenario: "follow up",
+      notes: null,
+    });
+
+    expect(mockedApi.recordSessionContinuityEvaluation).toHaveBeenCalledWith({
+      baselineScore: 0.2,
+      memoryScore: 0.6,
+      openLoopExpected: true,
+      openLoopRecovered: true,
+      temporalExpected: false,
+      temporalCorrect: false,
+      source: "dashboard",
+      scenario: "follow up",
+      notes: null,
+    });
+    expect(mockedApi.getEvaluationReport).toHaveBeenCalled();
+    expect(store.getState().evaluationReport?.recall.continuity.sampleCount).toBe(1);
+    expect(store.getState().isSavingSessionEvaluation).toBe(false);
   });
 });
 

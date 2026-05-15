@@ -81,7 +81,11 @@ The installer prompts you to choose a mode:
 - **Helix HTTP** — HelixDB via Docker, graph+vector in one
 - **Full** — FalkorDB + Redis via Docker, legacy high throughput
 
-Skip the prompt with `bash -s -- lite` or `bash -s -- full`.
+Skip the prompt with `bash -s -- helix`, `bash -s -- lite`, or `bash -s -- full`.
+The explicit Helix path installs Engram with native extras when available and
+verifies that the `helix_native` PyO3 runtime is importable before accepting the
+configuration. If your package source does not include a native wheel yet, use
+the source install path below and run `make build-native`.
 
 Lifecycle commands (both modes):
 
@@ -94,8 +98,10 @@ engramctl update
 engramctl uninstall
 ```
 
-Upgrade from lite to full when you outgrow SQLite: `engramctl upgrade` (starts
-fresh graph store — SQLite data preserved on disk for reference).
+Use Helix native as the main no-Docker path when you want the full graph/vector
+backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
+available for the legacy Docker full stack and starts a fresh graph store with
+SQLite data preserved on disk for reference.
 
 Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
@@ -105,7 +111,7 @@ Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-do
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
-Or install lite and say **yes** to "Install OpenClaw skill?" during setup.
+Or install native Helix and say **yes** to "Install OpenClaw skill?" during setup.
 
 Details: [`docs/install/openclaw.md`](docs/install/openclaw.md)
 
@@ -133,13 +139,13 @@ uv run engram setup
 cd server
 uv sync
 make build-native         # Build PyO3 extension (one-time)
-make mcp-native           # MCP server (stdio) with native HelixDB
+make mcp-native           # MCP server (streamable HTTP) with native HelixDB
 # or: make up-native       # REST API with native HelixDB
 ```
 
 This starts Engram with HelixDB running **in-process** via a Rust PyO3 binding
 (`helix_native`). Zero network overhead, ~97ms search latency, no Docker
-required. Same 167 compiled queries, same retrieval quality. Best nDCG@10 of all
+required. Same 171 compiled queries, same retrieval quality. Best nDCG@10 of all
 modes (0.448). The setup wizard defaults to `consolidation_profile=standard`,
 `recall_profile=all`, and `integration_profile=rework`.
 
@@ -224,13 +230,15 @@ All data persists across server restarts in all modes:
 
 | Data | Lite Mode | Helix Native (PyO3) | Helix HTTP (Docker) | Full Mode |
 |------|-----------|---------------------|---------------------|-----------|
-| Knowledge graph | SQLite (`~/.engram/engram.db`) | HelixDB (`~/.engram/helix/`) | HelixDB (Docker volume `engram_helix_data`) | FalkorDB (Docker volume `engram_falkordb_data`) |
+| Knowledge graph | SQLite (`~/.engram/engram.db`) | HelixDB native data dir (`ENGRAM_HELIX__DATA_DIR`, or the native engine default) | HelixDB (Docker volume `engram_helix_data`) | FalkorDB (Docker volume `engram_falkordb_data`) |
 | Activation store | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | Redis (Docker volume `engram_redis_data`) |
-| Search index | SQLite FTS5 (same db file) | HelixDB native (same directory) | HelixDB native (same volume) | Redis Search (same Redis volume) |
-| Consolidation history | SQLite (same db file) | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) | SQLite (Docker volume `engram_server_data`) |
-| Episode content | SQLite (same db file) | SQLite (same db file) | SQLite (Docker volume `engram_server_data`) | SQLite (Docker volume `engram_server_data`) |
+| Search index | SQLite FTS5 (same db file) | HelixDB native (same native data dir) | HelixDB native (same volume) | Redis Search (same Redis volume) |
+| Consolidation history | SQLite (same db file) | HelixDB native (same native data dir) | HelixDB (same Docker volume) | SQLite (Docker volume `engram_server_data`) |
+| Episode content | SQLite (same db file) | HelixDB native (same native data dir) | HelixDB (same Docker volume) | FalkorDB graph store |
 
-In native mode, all data lives on the local filesystem with no Docker volumes. In full and helix HTTP modes, consolidation audit records and episode content are stored in a SQLite sidecar database at `/home/engram/.engram/engram.db` inside the server container. This is persisted via the `engram_server_data` Docker volume — cycle history, triage records, and audit trails survive container rebuilds.
+In native mode, the graph, episode, cue, search, and consolidation audit state
+live in the native Helix data directory with no Docker volumes. The local
+SQLite DB may still hold ancillary local-only stores such as evaluation labels.
 
 To **reset all data**:
 
@@ -241,6 +249,9 @@ rm ~/.engram/engram.db
 # Helix mode (Docker) — WARNING: deletes everything
 docker compose -f docker-compose.helix.yml down -v
 
+# Helix native — WARNING: deletes the native Helix data directory you configured
+rm -rf /absolute/path/from/ENGRAM_HELIX__DATA_DIR
+
 # Full mode (Docker) — WARNING: deletes everything
 docker compose down -v
 ```
@@ -249,7 +260,7 @@ docker compose down -v
 
 HelixDB is the recommended backend, unifying graph, vector, and full-text search in one engine. It is available in two transport modes:
 
-- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 167 compiled queries. No Docker required. This is the recommended transport. Build with `make build-native`.
+- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 171 compiled queries. No Docker required. This is the recommended transport. Build with `make build-native`.
 - **HTTP mode**: Standard client-server over localhost. Good for production multi-service deployments. One Docker container replaces two (FalkorDB + Redis).
 
 **Why HelixDB:**
@@ -257,7 +268,7 @@ HelixDB is the recommended backend, unifying graph, vector, and full-text search
 - **Server-side vector search** — HNSW index with post-filtering, no separate vector store needed
 - **Field-level BM25 indexing** — custom enhancement: only fields annotated with the `BM25` schema prefix are full-text indexed (e.g., `Episode.content`, `Entity.name`, `Entity.summary`), preventing metadata fields from diluting search relevance
 - **Unified BM25 + vector** — full-text and semantic search in the same engine with RRF fusion
-- **HelixQL query language** — 167 compiled queries in the schema (`server/engram/storage/helix/schema.hx`, ~1400 lines)
+- **HelixQL query language** — 171 compiled queries in the schema (`server/engram/storage/helix/schema.hx`, ~1400 lines)
 - **Best retrieval quality** — nDCG@10 of 0.448 (native) / 0.412 (HTTP) vs SQLite 0.390 and FalkorDB 0.406 (see [Benchmarks](#benchmarks))
 
 **Getting started:**
@@ -578,13 +589,16 @@ Engram runs offline consolidation cycles inspired by biological memory consolida
 
 **Sleep stage mapping**: Phases map to biological sleep stages — triage parallels pre-sleep encoding, replay mirrors NREM3 slow-wave replay, merge maps to NREM2 spindle-driven binding, and dream corresponds to REM creative association.
 
-Twelve phases execute sequentially:
+Sixteen phases execute sequentially:
 
 | Phase | What It Does |
 |-------|-------------|
 | **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. Optional LLM escalation remains available only as an explicit fallback. |
 | **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN + structural candidate discovery). Multi-signal scorer with 7 signals (name analysis + embeddings + neighbor Jaccard + summary Dice + referential exclusivity) — handles acronyms, numeronyms, tech suffixes, canonical aliases, and structural equivalents (entities sharing neighbors but with zero name overlap). Summary dedup via token-set Jaccard prevents bloat during merge. |
+| **Calibrate** | Convert decision traces and outcome labels into rolling local calibration snapshots so triage, merge, infer, and projection policies can be evaluated against observed yield. |
 | **Infer** | Create edges for co-occurring entities (PMI scoring). Multi-signal auto-validation (embedding coherence + type compatibility + ubiquity penalty + structural plausibility) replaces LLM judge — self-correcting via Dream LTD decay |
+| **Evidence Adjudication** | Revisit deferred or pending evidence candidates and materialize candidates that have become safe to commit. |
+| **Edge Adjudication** | Resolve ambiguous edge requests through the shared projection/adjudication path, preserving uncertain evidence until it can be decided safely. |
 | **Replay** | Run deferred extraction on triage-skipped episodes (CUE_ONLY/QUEUED), then link known entity names found in episode text via exact substring matching. Skips already-extracted (PROJECTED) episodes — deterministic re-extraction is waste. Zero LLM calls. Selective: only runs when upstream phases changed the graph during tiered scheduling. |
 | **Prune** | Soft-delete dead entities (no relationships, low access, old enough). Activation safety net prevents pruning warm entities. |
 | **Compact** | Logarithmic bucketing of access history + consolidated strength preservation |
@@ -593,6 +607,7 @@ Twelve phases execute sequentially:
 | **Schema** | Detect recurring structural motifs, create `Schema` entities for them, and connect matching instances with `INSTANCE_OF` edges. Fingerprints are canonicalized, candidate motifs are biased toward mature/stable support, and promoted schemas record support summaries and reasons. |
 | **Reindex** | Re-embed entities affected by earlier phases |
 | **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Node2Vec supports a true dirty-subgraph incremental path with warm-started vectors. TransE and GNN are staggered, but currently retrain the full graph when they run. |
+| **Microglia** | Run graph hygiene checks and complement tagging so cleanup and low-confidence relation decisions can be carried forward without destructive churn. |
 | **Dream** | Offline spreading activation to strengthen associative pathways + discover cross-domain creative connections. **LTP/LTD**: Boosted edges strengthen (predicate-aware); unboosted edges decay 0.005/cycle (floor 0.1). **Dream associations**: Embedding similarity (70% text + 30% graph) discovers cross-domain entity pairs, creates temporary `DREAM_ASSOCIATED` edges (weight 0.1, 30-day TTL, excluded from Hebbian boosting). Accessed dream edges extend TTL by 30 days. Repeated validation can graduate a dream edge to permanent `RELATED_TO`. |
 
 #### Three-Tier Scheduling
@@ -602,7 +617,7 @@ Phases run at different frequencies based on urgency:
 | Tier | Phases | Default Interval |
 |------|--------|-----------------|
 | **Hot** | triage | 15 minutes |
-| **Warm** | merge, infer, compact, mature, semanticize, reindex | 2 hours |
+| **Warm** | merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, mature, semanticize, reindex, microglia | 2 hours |
 | **Cold** | replay, prune, schema, graph_embed, dream | 6 hours |
 
 Tiered cycles only run the phases that are due. Optimizations (incremental graph_embed, selective replay) only apply during tiered scheduling — manual triggers, pressure triggers, and scheduled flat cycles always run all phases fully.
@@ -910,6 +925,31 @@ remember("Working on the auth module today")
 - **Warmth monitoring** — `list_intentions` and `get_context()` show how close each intention is to firing (dormant / cool / warming / warm / HOT)
 - **Cooldown + exhaustion** — Configurable cooldown (default 5 min) and max fires (default 5) prevent spam
 - **Priority levels** — critical / high / normal / low; higher priority surfaces first
+- **Pinned context refresh** — `trigger_type="refresh_context"` keeps a topic packet refreshed after consolidation for persistent context.
+
+REST uses the same snake_case creation fields as MCP tool arguments:
+
+```json
+{
+  "trigger_text": "auth module",
+  "action_text": "Check XSS fix before deploying",
+  "entity_names": ["Auth Module"],
+  "priority": "high"
+}
+```
+
+For pinned context, create a refresh-context intention:
+
+```json
+{
+  "trigger_text": "native Helix path readiness",
+  "action_text": "Keep the native-mode status packet fresh",
+  "trigger_type": "refresh_context",
+  "refresh_trigger": "after_consolidation"
+}
+```
+
+`GET /api/knowledge/intentions` includes `triggerType` on all rows. Refresh-context rows also include `refreshTrigger`, `lastRefreshed`, and `hasPinnedResult`.
 
 **Enable:** Set `ENGRAM_ACTIVATION__RECALL_PROFILE=wave4` or `ENGRAM_ACTIVATION__RECALL_PROFILE=all`. The v2 graph-embedded path is used by default (`prospective_graph_embedded=True`).
 
@@ -930,20 +970,23 @@ This means obvious high-value content is extracted within seconds, obvious noise
 
 ## MCP Integration
 
-Engram exposes 19 MCP tools for AI agents:
+Engram exposes 26 MCP tools for AI agents:
 
 | Tool | Purpose |
 |------|---------|
 | `observe` | Store raw text cheaply; optionally generate a cue-backed latent memory for background processing and later recall |
+| `observe_image` | Store an image attachment as a cueable observation |
+| `observe_file` | Store a file attachment as a cueable observation |
 | `remember` | Store a memory with immediate entity extraction (for high-signal content) |
 | `recall` | Retrieve relevant memories using activation-aware search; returns packets plus raw scored results |
 | `search_entities` | Search entities by name or type |
 | `search_facts` | Search relationships in the knowledge graph |
+| `feedback` | Rate an entity to influence future retrieval preference |
 | `forget` | Soft-delete an entity or fact |
 | `get_context` | Tiered context with identity/project/recency/intentions layers; supports briefing format |
 | `get_graph_state` | Graph statistics and top-activated nodes |
 | `mark_identity_core` | Mark/unmark an entity as identity core (protected from pruning) |
-| `intend` | Create a graph-embedded intention with trigger entities and priority level |
+| `intend` | Create a graph-embedded intention or refresh-context pinned query with trigger entities and priority level |
 | `dismiss_intention` | Disable or permanently delete an intention |
 | `list_intentions` | List active intentions with warmth info (how close to firing) |
 | `trigger_consolidation` | Run a memory consolidation cycle |
@@ -953,6 +996,10 @@ Engram exposes 19 MCP tools for AI agents:
 | `adjudicate_evidence` | Resolve ambiguous entity or relationship evidence |
 | `search_artifacts` | Search bootstrapped project artifacts (README, design docs, config) |
 | `get_runtime_state` | Check effective mode, active profiles, and enabled flags |
+| `get_lifecycle_summary` | Return the shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
+| `record_recall_evaluation` | Record whether an MCP recall decision helped, how many packets were surfaced/used, and false recalls |
+| `record_session_continuity_evaluation` | Record baseline-vs-memory continuity labels, open-loop recovery, and temporal correctness |
+| `get_evaluation_report` | Return the local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report |
 
 Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`) and 2 prompts (`engram_system`, `engram_context_loader`).
 
@@ -1119,6 +1166,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | DELETE | `/api/entities/{id}` | Soft-delete entity |
 | GET | `/api/episodes` | List episodes (paginated) |
 | GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
+| GET | `/api/lifecycle/summary` | Shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
 | GET | `/api/activation/snapshot` | Top activated entities |
 | GET | `/api/activation/{id}/curve` | ACT-R decay curve |
 | POST | `/api/knowledge/observe` | Store content without extraction (fast path) |
@@ -1132,8 +1180,8 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | GET | `/api/knowledge/runtime` | Effective mode/profile/feature state plus artifact freshness |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
-| POST | `/api/knowledge/intentions` | Create a graph-embedded intention |
-| GET | `/api/knowledge/intentions` | List intentions with warmth ratios |
+| POST | `/api/knowledge/intentions` | Create a graph-embedded intention or refresh-context pinned query |
+| GET | `/api/knowledge/intentions` | List intentions with warmth ratios and refresh-context metadata |
 | DELETE | `/api/knowledge/intentions/{id}` | Dismiss (soft/hard delete) an intention |
 | POST | `/api/knowledge/chat` | SSE streaming chat with memory context |
 | GET | `/api/graph/at` | Temporal subgraph at a point in time |
@@ -1142,6 +1190,9 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | GET | `/api/consolidation/status` | Consolidation status + pressure |
 | GET | `/api/consolidation/history` | Cycle history |
 | GET | `/api/consolidation/cycle/{id}` | Cycle detail with audit records |
+| POST | `/api/evaluation/recall-samples` | Record a labeled recall-quality sample |
+| POST | `/api/evaluation/session-samples` | Record a labeled session-continuity sample |
+| GET | `/api/evaluation/brain-loop/report` | Local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report |
 | GET | `/api/conversations/` | List conversations (paginated) |
 | POST | `/api/conversations/` | Create conversation |
 | GET | `/api/conversations/{id}/messages` | Fetch conversation messages |
@@ -1264,6 +1315,58 @@ The benchmark module also includes Phase 6 evaluation primitives for recall beha
 - `open_loop_recovery_rate` and `temporal_correctness` — whether Engram surfaces unresolved work and newer facts at the right moment
 - Echo chamber surfaced-vs-used tracking — the echo chamber benchmark now records surfaced count, used count, and surfaced-to-used ratio to catch passive reinforcement loops
 
+### Local Brain Loop Report
+
+For local native Helix or lite installs, the operator report combines Capture
+-> Cue -> Project -> Recall -> Consolidate health from the configured brain DB:
+
+```bash
+cd server
+uv run engram evaluate
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
+uv run python scripts/brain_loop_report.py
+uv run python scripts/brain_loop_report.py --format json
+```
+
+The report includes cue coverage, cue-to-projection conversion, projection
+yield, recall false-recall/usefulness labels, session-continuity lift,
+consolidation phase yield, adjudication pressure, and calibration snapshots.
+Labeled recall and session-continuity samples are read from the local SQLite
+evaluation-label store by default, or from JSON files via `--recall-samples`
+and `--session-samples`.
+
+`engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
+summary contract. The Recall stage includes active prospective intentions,
+refresh-context pinned queries, cached pinned results, and needs-refresh counts
+so pinned context is visible in the loop rather than hidden behind intention
+lists.
+
+`engram evaluate --smoke --mode helix` seeds a disposable native PyO3 Helix
+brain, runs Capture -> Cue -> Project -> Recall -> Consolidate, and fails if
+projection yield, consolidation cycles, calibration snapshots, or evaluation
+labels are missing. Use `--sqlite-path` for the local label store and
+`--helix-data-dir` for a reusable native data directory when you want to inspect
+the same smoke brain afterward with `engram evaluate --mode helix`,
+`engram lifecycle --mode helix`, or `engram doctor --mode helix`. Doctor uses
+`--helix-data-dir` for the lifecycle snapshot and keeps its smoke on disposable
+native storage. For longer native operator soaks, add `--smoke-load-count`,
+`--smoke-recall-rounds`, and `--smoke-min-duration-seconds`; the duration loop
+keeps recall active against the populated PyO3 brain and records
+`smoke.duration_recall_checks` plus elapsed time in the JSON report.
+
+The same local evaluation store is available over REST and MCP:
+
+- `POST /api/evaluation/recall-samples` records whether a recall decision helped,
+  how many packets were surfaced/used, and how many were false recalls.
+- `POST /api/evaluation/session-samples` records baseline-vs-memory continuity
+  scores plus open-loop and temporal correctness labels.
+- `GET /api/evaluation/brain-loop/report` returns the current local report.
+- MCP tools `record_recall_evaluation`,
+  `record_session_continuity_evaluation`, and `get_evaluation_report` expose the
+  same semantics for agent-side evaluation workflows.
+
 ## Configuration
 
 Engram uses Pydantic Settings with env var support. Config is loaded in order (later sources override earlier):
@@ -1288,13 +1391,15 @@ ENGRAM_EMBEDDING__PROVIDER=auto        # auto | gemini | voyage | local | noop (
 ENGRAM_EMBEDDING__LOCAL_MODEL=nomic-ai/nomic-embed-text-v1.5  # fastembed model name
 
 # Optional — General
-ENGRAM_GROUP_ID=default                # Your brain ID (one per person, not per project)
+ENGRAM_DEFAULT_GROUP_ID=default        # Your brain ID (one per person, not per project)
+# ENGRAM_AUTH__DEFAULT_GROUP_ID=default  # Optional override; omit to follow ENGRAM_DEFAULT_GROUP_ID
 ENGRAM_MODE=auto                       # auto | lite | helix | full
 
 # Optional — HelixDB connection (for helix mode)
 ENGRAM_HELIX__HOST=localhost           # HelixDB host (default: localhost)
 ENGRAM_HELIX__PORT=6969                # HelixDB port (default: 6969)
 ENGRAM_HELIX__TRANSPORT=http           # Transport: native | http | grpc (default: http)
+ENGRAM_HELIX__DATA_DIR=                # Native transport data dir; blank uses helix_native default
 
 # Consolidation (off by default in code; Docker Compose defaults to standard)
 ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard   # Set to enable: off | observe | conservative | standard
@@ -1417,7 +1522,8 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 
 ```bash
 # Public local install
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash     # Full Docker product
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 engramctl status
 engramctl update
@@ -1449,6 +1555,18 @@ make clean                                    # Stop + delete volumes (WARNING: 
 make build-native                             # Build PyO3 extension (one-time, requires Rust toolchain)
 make up-native                                # Start server with native HelixDB
 make mcp-native                               # Start MCP with native HelixDB
+make up-native NATIVE_DATA_DIR=/path/to/native-data
+                                               # Start REST with a specific native brain directory
+make mcp-native NATIVE_DATA_DIR=/path/to/native-data
+                                               # Start MCP with a specific native brain directory
+cd server && uv run engram serve --mode helix --helix-data-dir /path/to/native-data
+                                               # Start REST with a specific native brain directory
+cd server && uv run engram mcp --mode helix --helix-data-dir /path/to/native-data
+                                               # Start MCP with a specific native brain directory
+cd server && ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram lifecycle --mode helix
+                                               # Inspect native brain-loop state
+cd server && uv run engram lifecycle --mode helix --helix-data-dir /path/to/native-data
+                                               # Inspect a specific native brain directory
 make patch-helix                              # Re-apply HDB fork changes after helix push
 
 # Docker (HelixDB HTTP mode) — single-service graph+vector backend
@@ -1466,12 +1584,12 @@ server/engram/
   activation/       # ACT-R engine (BFS, PPR, strategy pattern)
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
-  consolidation/    # 15-phase engine, scheduler, pressure accumulator
+  consolidation/    # 16-phase engine, scheduler, pressure accumulator
   embeddings/       # Embedding providers (Gemini multimodal, Voyage AI cloud, fastembed local, noop)
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
   ingestion/        # CQRS ingestion paths
-  mcp/              # MCP server (19 tools, 3 resources, 2 prompts)
+  mcp/              # MCP server (26 tools, 3 resources, 2 prompts)
   models/           # Pydantic data models
   retrieval/        # Pipeline, scorer, router, reranker, MMR
   security/         # Auth middleware, AES-256-GCM encryption, OIDC, rate limiting

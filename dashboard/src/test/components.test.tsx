@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // Mock force graph components before any imports that use them
@@ -101,6 +101,10 @@ vi.mock("../api/client", () => ({
     getNeighbors: vi.fn(),
     searchEntities: vi.fn().mockResolvedValue([]),
     getEntity: vi.fn(),
+    getLifecycleSummary: vi.fn().mockResolvedValue(null),
+    getEvaluationReport: vi.fn().mockResolvedValue(null),
+    recordRecallEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
+    recordSessionContinuityEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
     getStats: vi.fn().mockResolvedValue({
       totalEntities: 10,
       totalRelationships: 20,
@@ -144,10 +148,11 @@ import { ConnectionStatus } from "../components/ConnectionStatus";
 import { EpisodeCard } from "../components/EpisodeCard";
 import { MemoryFeed } from "../components/MemoryFeed";
 import { StatsPanel } from "../components/StatsPanel";
+import { EvaluationPanel } from "../components/EvaluationPanel";
 import { AtlasView } from "../components/graph/AtlasView";
 import { api } from "../api/client";
 import { useEngramStore } from "../store";
-import type { Episode, SearchResult } from "../store/types";
+import type { BrainLoopEvaluationReport, Episode, SearchResult } from "../store/types";
 
 function resetStore() {
   useEngramStore.setState({
@@ -170,6 +175,7 @@ function resetStore() {
     searchResults: [],
     isSearching: false,
     currentView: "graph",
+    lifecycleDrilldownStage: null,
     renderMode: "3d",
     showActivationHeatmap: true,
     showEdgeLabels: false,
@@ -186,6 +192,12 @@ function resetStore() {
     isLoadingEpisodes: false,
     stats: null,
     isLoadingStats: false,
+    lifecycleSummary: null,
+    isLoadingLifecycleSummary: false,
+    evaluationReport: null,
+    isLoadingEvaluationReport: false,
+    isSavingRecallEvaluation: false,
+    isSavingSessionEvaluation: false,
     readyState: "disconnected",
     lastSeq: 0,
     reconnectAttempt: 0,
@@ -462,6 +474,42 @@ describe("MemoryFeed", () => {
     render(<MemoryFeed />);
     expect(screen.getByText("Filter")).toBeInTheDocument();
   });
+
+  it("applies capture drilldown context as an active capture filter", () => {
+    const queuedEpisode: Episode = {
+      episodeId: "ep_queued",
+      content: "Queued capture waiting for projection",
+      source: "api",
+      status: "queued",
+      createdAt: "2026-05-11T12:00:00Z",
+      updatedAt: "2026-05-11T12:00:00Z",
+      entities: [],
+      factsCount: 0,
+      processingDurationMs: null,
+      error: null,
+      retryCount: 0,
+    };
+    const completedEpisode: Episode = {
+      ...queuedEpisode,
+      episodeId: "ep_completed",
+      content: "Completed capture already projected",
+      status: "completed",
+    };
+    act(() => {
+      useEngramStore.setState({
+        episodes: [queuedEpisode, completedEpisode],
+        hasMoreEpisodes: false,
+        lifecycleDrilldownStage: "capture",
+        loadEpisodes: vi.fn(),
+      });
+    });
+
+    render(<MemoryFeed />);
+
+    expect(screen.getByDisplayValue("Active capture")).toBeInTheDocument();
+    expect(screen.getByText(/Queued capture/)).toBeInTheDocument();
+    expect(screen.queryByText(/Completed capture/)).not.toBeInTheDocument();
+  });
 });
 
 describe("StatsPanel", () => {
@@ -542,6 +590,543 @@ describe("StatsPanel", () => {
     expect(screen.getByText("80%")).toBeInTheDocument();
     expect(screen.getByText("16.7%")).toBeInTheDocument();
   });
+
+  it("highlights stats sections from lifecycle drilldown context", () => {
+    const loadStats = vi.fn();
+    act(() => {
+      useEngramStore.setState({
+        stats: {
+          totalEntities: 42,
+          totalRelationships: 100,
+          totalEpisodes: 15,
+          entityTypeCounts: { Person: 20, Organization: 10 },
+          cueMetrics: {
+            cueCount: 12,
+            episodesWithoutCues: 3,
+            cueCoverage: 0.8,
+            cueHitCount: 9,
+            cueHitEpisodeCount: 4,
+            cueHitEpisodeRate: 0.3333,
+            cueSurfacedCount: 6,
+            cueSelectedCount: 3,
+            cueUsedCount: 2,
+            cueNearMissCount: 1,
+            avgPolicyScore: 0.42,
+            avgProjectionAttempts: 1.5,
+            projectedCueCount: 5,
+            cueToProjectionConversionRate: 0.4167,
+          },
+          projectionMetrics: {
+            stateCounts: {
+              queued: 1,
+              cued: 2,
+              cueOnly: 3,
+              scheduled: 2,
+              projecting: 1,
+              projected: 5,
+              failed: 1,
+              deadLetter: 0,
+            },
+            attemptedEpisodeCount: 6,
+            totalAttempts: 9,
+            failureCount: 1,
+            deadLetterCount: 0,
+            failureRate: 1 / 6,
+            avgProcessingDurationMs: 180,
+            avgTimeToProjectionMs: 3200,
+            yield: {
+              linkedEntityCount: 14,
+              relationshipCount: 8,
+              avgLinkedEntitiesPerProjectedEpisode: 2.8,
+              avgRelationshipsPerProjectedEpisode: 1.6,
+            },
+          },
+          topActivated: [],
+          topConnected: [],
+          growthTimeline: [],
+        },
+        isLoadingStats: false,
+        lifecycleDrilldownStage: "project",
+        loadStats,
+      });
+    });
+
+    render(<StatsPanel />);
+
+    expect(screen.getByTestId("stats-project-section")).toHaveAttribute(
+      "data-lifecycle-focus",
+      "true",
+    );
+    expect(screen.getByTestId("stats-cue-section")).not.toHaveAttribute(
+      "data-lifecycle-focus",
+    );
+  });
+});
+
+describe("EvaluationPanel", () => {
+  function makeEvaluationReportFixture(): BrainLoopEvaluationReport {
+    return {
+      groupId: "default",
+      generatedAt: new Date().toISOString(),
+      loop: ["capture", "cue", "project", "recall", "consolidate"],
+      totals: { episodes: 8, entities: 12, relationships: 5, activeEntities: 3 },
+      capture: { status: "ready", episodeCount: 8, activeCount: 0 },
+      cue: {
+        status: "ready",
+        cueCount: 7,
+        episodesWithoutCues: 1,
+        coverage: 0.875,
+        hitCount: 6,
+        hitEpisodeCount: 3,
+        hitEpisodeRate: 0.5,
+        surfacedCount: 8,
+        selectedCount: 4,
+        usedCount: 3,
+        nearMissCount: 1,
+        selectedRate: 0.5,
+        usedRate: 0.375,
+        nearMissRate: 0.125,
+        avgPolicyScore: 0.74,
+        projectionConversionRate: 0.6,
+      },
+      project: {
+        status: "ready",
+        stateCounts: {
+          queued: 0,
+          cued: 0,
+          cueOnly: 1,
+          scheduled: 0,
+          projecting: 0,
+          projected: 5,
+          merged: 0,
+          failed: 0,
+          deadLetter: 0,
+        },
+        trackedCount: 6,
+        projectedCount: 5,
+        activeCount: 0,
+        projectedRate: 0.8333,
+        backlogRate: 0,
+        failedCount: 0,
+        deadLetterCount: 0,
+        attemptedEpisodeCount: 5,
+        totalAttempts: 5,
+        failureRate: 0,
+        avgProcessingDurationMs: 100,
+        avgTimeToProjectionMs: 200,
+        yield: {
+          linkedEntityCount: 12,
+          relationshipCount: 5,
+          avgLinkedEntitiesPerProjectedEpisode: 2.4,
+          avgRelationshipsPerProjectedEpisode: 1,
+        },
+      },
+      recall: {
+        status: "active",
+        totalAnalyses: 4,
+        triggerCount: 2,
+        runtimeFalseRecallRate: 0,
+        runtimeSurfacedToUsedRatio: null,
+        graphLiftRate: 0.25,
+        probeTriggerRate: 0.5,
+        latency: {
+          analyzerMs: { avgMs: 12, p95Ms: 31 },
+          probeMs: { avgMs: 7, p95Ms: 19 },
+        },
+        control: {
+          usedCount: 3,
+          dismissedCount: 1,
+          surfacedCount: 5,
+          selectedCount: 2,
+          confirmedCount: 1,
+          correctedCount: 1,
+          graphOverrideCount: 2,
+          adaptiveThresholdsEnabled: true,
+          thresholds: { linguistic: 0.32, borderline: 0.18, resonance: 0.5 },
+        },
+        familyContributions: { linguistic: 2 },
+        evaluation: {
+          status: "measured",
+          sampleCount: 2,
+          needStatus: "measured",
+          needLabeledCount: 2,
+          neededCount: 2,
+          missedCount: 1,
+          memoryNeedPrecision: 0.5,
+          memoryNeedRecall: 0.5,
+          missedRecallRate: 0.5,
+          usefulPacketRate: 0.4,
+          falseRecallRate: 0.2,
+          surfacedCount: 5,
+          usedCount: 2,
+          surfacedToUsedRatio: 2.5,
+        },
+        continuity: {
+          status: "measured",
+          sampleCount: 1,
+          sessionContinuityLift: 0.3,
+          openLoopRecoveryRate: 1,
+          temporalCorrectness: 0,
+        },
+      },
+      consolidate: {
+        status: "attention",
+        cycleCount: 1,
+        latestStatus: "failed",
+        latestCycle: { id: "cyc_1", error: "calibration failed" },
+        phaseStatusCounts: { success: 1, error: 1 },
+        phaseTotals: { triage: { runs: 1, itemsProcessed: 4, itemsAffected: 2, effectRate: 0.5 } },
+        adjudication: {
+          status: "active",
+          phaseCount: 1,
+          runs: 1,
+          itemsProcessed: 3,
+          itemsAffected: 1,
+          itemsUnaffected: 2,
+          effectRate: 0.3333,
+          errorCount: 0,
+          phaseTotals: {
+            edge_adjudication: {
+              runs: 1,
+              itemsProcessed: 3,
+              itemsAffected: 1,
+              effectRate: 0.3333,
+            },
+          },
+        },
+        calibration: {
+          status: "measured",
+          snapshotCount: 1,
+          phaseTotals: {
+            triage: {
+              snapshots: 1,
+              totalTraces: 5,
+              labeledExamples: 3,
+              oracleExamples: 1,
+              abstainCount: 0,
+              accuracy: 0.67,
+              meanConfidence: 0.8,
+              expectedCalibrationError: 0.12,
+            },
+          },
+        },
+        itemsProcessed: 4,
+        itemsAffected: 2,
+        effectRate: 0.5,
+        errorCount: 1,
+      },
+      coverageGaps: [],
+    };
+  }
+
+  it("renders measured recall and continuity signals", async () => {
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce({
+      groupId: "default",
+      generatedAt: new Date().toISOString(),
+      loop: ["capture", "cue", "project", "recall", "consolidate"],
+      totals: { episodes: 8, entities: 12, relationships: 5, activeEntities: 3 },
+      capture: { status: "ready", episodeCount: 8, activeCount: 0 },
+      cue: {
+        status: "ready",
+        cueCount: 7,
+        episodesWithoutCues: 1,
+        coverage: 0.875,
+        hitCount: 6,
+        hitEpisodeCount: 3,
+        hitEpisodeRate: 0.5,
+        surfacedCount: 8,
+        selectedCount: 4,
+        usedCount: 3,
+        nearMissCount: 1,
+        selectedRate: 0.5,
+        usedRate: 0.375,
+        nearMissRate: 0.125,
+        avgPolicyScore: 0.74,
+        projectionConversionRate: 0.6,
+      },
+      project: {
+        status: "ready",
+        stateCounts: {
+          queued: 0,
+          cued: 0,
+          cueOnly: 1,
+          scheduled: 0,
+          projecting: 0,
+          projected: 5,
+          merged: 0,
+          failed: 0,
+          deadLetter: 0,
+        },
+        trackedCount: 6,
+        projectedCount: 5,
+        activeCount: 0,
+        projectedRate: 0.8333,
+        backlogRate: 0,
+        failedCount: 0,
+        deadLetterCount: 0,
+        attemptedEpisodeCount: 5,
+        totalAttempts: 5,
+        failureRate: 0,
+        avgProcessingDurationMs: 100,
+        avgTimeToProjectionMs: 200,
+        yield: {
+          linkedEntityCount: 12,
+          relationshipCount: 5,
+          avgLinkedEntitiesPerProjectedEpisode: 2.4,
+          avgRelationshipsPerProjectedEpisode: 1,
+        },
+      },
+      recall: {
+        status: "active",
+        totalAnalyses: 4,
+        triggerCount: 2,
+        runtimeFalseRecallRate: 0,
+        runtimeSurfacedToUsedRatio: null,
+        graphLiftRate: 0.25,
+        probeTriggerRate: 0.5,
+        latency: {
+          analyzerMs: { avgMs: 12, p95Ms: 31 },
+          probeMs: { avgMs: 7, p95Ms: 19 },
+        },
+        control: {
+          usedCount: 3,
+          dismissedCount: 1,
+          surfacedCount: 5,
+          selectedCount: 2,
+          confirmedCount: 1,
+          correctedCount: 1,
+          graphOverrideCount: 2,
+          adaptiveThresholdsEnabled: true,
+          thresholds: { linguistic: 0.32, borderline: 0.18, resonance: 0.5 },
+        },
+        familyContributions: { linguistic: 2 },
+        evaluation: {
+          status: "measured",
+          sampleCount: 2,
+          needStatus: "measured",
+          needLabeledCount: 2,
+          neededCount: 2,
+          missedCount: 1,
+          memoryNeedPrecision: 0.5,
+          memoryNeedRecall: 0.5,
+          missedRecallRate: 0.5,
+          usefulPacketRate: 0.4,
+          falseRecallRate: 0.2,
+          surfacedCount: 5,
+          usedCount: 2,
+          surfacedToUsedRatio: 2.5,
+        },
+        continuity: {
+          status: "measured",
+          sampleCount: 1,
+          sessionContinuityLift: 0.3,
+          openLoopRecoveryRate: 1,
+          temporalCorrectness: 0,
+        },
+      },
+      consolidate: {
+        status: "attention",
+        cycleCount: 1,
+        latestStatus: "failed",
+        latestCycle: { id: "cyc_1", error: "calibration failed" },
+        phaseStatusCounts: { success: 1, error: 1 },
+        phaseTotals: { triage: { runs: 1, itemsProcessed: 4, itemsAffected: 2, effectRate: 0.5 } },
+        adjudication: {
+          status: "active",
+          phaseCount: 1,
+          runs: 1,
+          itemsProcessed: 3,
+          itemsAffected: 1,
+          itemsUnaffected: 2,
+          effectRate: 0.3333,
+          errorCount: 0,
+          phaseTotals: {
+            edge_adjudication: {
+              runs: 1,
+              itemsProcessed: 3,
+              itemsAffected: 1,
+              effectRate: 0.3333,
+            },
+          },
+        },
+        calibration: {
+          status: "measured",
+          snapshotCount: 1,
+          phaseTotals: {
+            triage: {
+              snapshots: 1,
+              totalTraces: 5,
+              labeledExamples: 3,
+              oracleExamples: 1,
+              abstainCount: 0,
+              accuracy: 0.67,
+              meanConfidence: 0.8,
+              expectedCalibrationError: 0.12,
+            },
+          },
+        },
+        itemsProcessed: 4,
+        itemsAffected: 2,
+        effectRate: 0.5,
+        errorCount: 1,
+      },
+      coverageGaps: [],
+    });
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Runtime quality signals")).toBeInTheDocument();
+    expect(screen.getByText("Recall")).toBeInTheDocument();
+    expect(screen.getByText("Continuity")).toBeInTheDocument();
+    expect(screen.getAllByText("50.0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("selected rate")).toBeInTheDocument();
+    expect(screen.getByText("projection")).toBeInTheDocument();
+    expect(screen.getByText("60.0%")).toBeInTheDocument();
+    expect(screen.getByText("backlog")).toBeInTheDocument();
+    expect(screen.getAllByText("0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("latency")).toBeInTheDocument();
+    expect(screen.getByText("200ms")).toBeInTheDocument();
+    expect(screen.getByText("processing")).toBeInTheDocument();
+    expect(screen.getByText("100ms")).toBeInTheDocument();
+    expect(screen.getByText("analysis p95")).toBeInTheDocument();
+    expect(screen.getByText("probe p95")).toBeInTheDocument();
+    expect(screen.getByText("31ms")).toBeInTheDocument();
+    expect(screen.getByText("19ms")).toBeInTheDocument();
+    expect(screen.getByText("Recall Gate")).toBeInTheDocument();
+    expect(screen.getByText("runtime used")).toBeInTheDocument();
+    expect(screen.getByText("graph override")).toBeInTheDocument();
+    expect(screen.getByText("resonance")).toBeInTheDocument();
+    expect(screen.getByText("accuracy")).toBeInTheDocument();
+    expect(screen.getByText("67.0%")).toBeInTheDocument();
+    expect(screen.getByText("effect")).toBeInTheDocument();
+    expect(screen.getAllByText("50.0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("adjudication")).toBeInTheDocument();
+    expect(screen.getByText("33.3%")).toBeInTheDocument();
+    expect(screen.getByText("unaffected")).toBeInTheDocument();
+    expect(screen.getAllByText("0.120").length).toBeGreaterThan(0);
+    expect(screen.getByText("latest issue")).toBeInTheDocument();
+    expect(screen.getByText("calibration failed")).toBeInTheDocument();
+    expect(screen.getByText("open loops")).toBeInTheDocument();
+  });
+
+  it("shows latest consolidation phase issues in evaluation output", async () => {
+    const report = makeEvaluationReportFixture();
+    report.consolidate.latestCycle = {
+      id: "cyc_phase_issue",
+      error: null,
+      phase_issue: "edge_adjudication: judge unavailable",
+    };
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce(report);
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("latest issue")).toBeInTheDocument();
+    expect(screen.getByText("edge_adjudication: judge unavailable")).toBeInTheDocument();
+  });
+
+  it("shows calibration quality gaps without rendering unscored accuracy", async () => {
+    const report = makeEvaluationReportFixture();
+    report.consolidate.calibration = {
+      status: "needs_quality",
+      snapshotCount: 1,
+      phaseTotals: {
+        triage: {
+          snapshots: 1,
+          totalTraces: 4,
+          labeledExamples: 0,
+          oracleExamples: 0,
+          abstainCount: 0,
+          accuracy: null,
+          meanConfidence: null,
+          expectedCalibrationError: null,
+        },
+      },
+    };
+    report.coverageGaps = [
+      "consolidation calibration quality needs labeled decision outcomes",
+    ];
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce(report);
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Needs labeled decisions")).toBeInTheDocument();
+    expect(
+      screen.getByText("consolidation calibration quality needs labeled decision outcomes"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/0 labels/)).not.toBeInTheDocument();
+  });
+
+  it("stores operator evaluation labels from the dashboard", async () => {
+    const user = userEvent.setup();
+    const report = makeEvaluationReportFixture();
+    vi.mocked(api.getEvaluationReport)
+      .mockResolvedValueOnce(report)
+      .mockResolvedValue(report);
+    const recordRecallEvaluation = vi.mocked(api.recordRecallEvaluation);
+    const recordSessionContinuityEvaluation = vi.mocked(api.recordSessionContinuityEvaluation);
+    recordRecallEvaluation.mockClear();
+    recordSessionContinuityEvaluation.mockClear();
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Recall Label")).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Surfaced"));
+    await user.type(screen.getByLabelText("Surfaced"), "3");
+    await user.clear(screen.getByLabelText("Used"));
+    await user.type(screen.getByLabelText("Used"), "2");
+    await user.clear(screen.getByLabelText("False"));
+    await user.type(screen.getByLabelText("False"), "1");
+    await user.type(screen.getByLabelText("Query"), "open loop");
+    await user.click(screen.getByRole("button", { name: "Store Recall" }));
+
+    await waitFor(() => {
+      expect(recordRecallEvaluation).toHaveBeenCalledWith({
+        recallTriggered: true,
+        recallHelped: true,
+        recallNeeded: true,
+        packetsSurfaced: 3,
+        packetsUsed: 2,
+        falseRecalls: 1,
+        source: "dashboard",
+        query: "open loop",
+        notes: null,
+      });
+    });
+
+    await user.clear(screen.getByLabelText("Baseline"));
+    await user.type(screen.getByLabelText("Baseline"), "0.2");
+    await user.clear(screen.getByLabelText("Memory"));
+    await user.type(screen.getByLabelText("Memory"), "0.6");
+    await user.click(screen.getByLabelText("Open loop"));
+    await user.click(screen.getByLabelText("Recovered"));
+    await user.type(screen.getByLabelText("Scenario"), "follow up");
+    await user.click(screen.getByRole("button", { name: "Store Continuity" }));
+
+    await waitFor(() => {
+      expect(recordSessionContinuityEvaluation).toHaveBeenCalledWith({
+        baselineScore: 0.2,
+        memoryScore: 0.6,
+        openLoopExpected: true,
+        openLoopRecovered: true,
+        temporalExpected: false,
+        temporalCorrect: false,
+        source: "dashboard",
+        scenario: "follow up",
+        notes: null,
+      });
+    });
+  });
+
+  it("settles to a manual load action when the report request fails", async () => {
+    const getEvaluationReport = vi.mocked(api.getEvaluationReport);
+    getEvaluationReport.mockClear();
+    getEvaluationReport.mockRejectedValueOnce(new Error("offline"));
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Load Evaluation")).toBeInTheDocument();
+    expect(getEvaluationReport).toHaveBeenCalledTimes(1);
+  });
 });
 
 // --- Knowledge Tab Redesign Tests ---
@@ -582,6 +1167,24 @@ describe("MemoryPulse", () => {
     expect(screen.getByText("Engram")).toBeInTheDocument();
     expect(screen.getByText("Alex")).toBeInTheDocument();
     expect(screen.getByText("PULSE")).toBeInTheDocument();
+  });
+
+  it("keeps recall context visible when opened from the lifecycle stage", () => {
+    act(() => {
+      useEngramStore.setState({
+        pulseEntities: [],
+        isPulseLoading: false,
+        lifecycleDrilldownStage: "recall",
+      });
+    });
+    render(<MemoryPulse />);
+
+    expect(screen.getByText("Recall Context")).toBeInTheDocument();
+    expect(screen.getByText("No active entities loaded")).toBeInTheDocument();
+    expect(screen.getByText("Recall Context").closest("[data-lifecycle-focus]")).toHaveAttribute(
+      "data-lifecycle-focus",
+      "true",
+    );
   });
 });
 

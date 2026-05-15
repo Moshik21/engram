@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,6 +13,7 @@ from engram.models.activation import ActivationState
 from engram.models.entity import Entity
 from engram.models.prospective import IntentionMeta
 from engram.retrieval.prospective import check_intention_activations
+from engram.utils.dates import utc_now
 
 # ─── IntentionMeta model tests ──────────────────────────────────────
 
@@ -249,7 +250,7 @@ class TestCooldown:
     @pytest.mark.asyncio
     async def test_recently_fired_skipped(self):
         """Intention that fired recently should be skipped."""
-        last_fired = datetime.utcnow().isoformat()
+        last_fired = utc_now().isoformat()
         entity = _make_intention_entity(
             threshold=0.3,
             cooldown_seconds=300.0,
@@ -270,7 +271,7 @@ class TestCooldown:
     @pytest.mark.asyncio
     async def test_cooldown_expired_fires(self):
         """Intention past cooldown should fire."""
-        old_fired = (datetime.utcnow() - timedelta(seconds=600)).isoformat()
+        old_fired = (utc_now() - timedelta(seconds=600)).isoformat()
         entity = _make_intention_entity(
             threshold=0.3,
             cooldown_seconds=300.0,
@@ -334,7 +335,7 @@ class TestDisabled:
 class TestExpired:
     @pytest.mark.asyncio
     async def test_expired_intention_skipped(self):
-        expired = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+        expired = (utc_now() - timedelta(hours=1)).isoformat()
         entity = _make_intention_entity(
             threshold=0.3,
             expires_at=expired,
@@ -611,7 +612,7 @@ class TestGraphManagerListIntentions:
         """list_intentions should filter out disabled intentions."""
         from engram.graph_manager import GraphManager
 
-        now = datetime.utcnow()
+        now = utc_now()
         enabled_meta = IntentionMeta(
             trigger_text="active",
             action_text="action",
@@ -696,7 +697,7 @@ class TestGraphManagerListIntentions:
         expired_meta = IntentionMeta(
             trigger_text="old",
             action_text="action",
-            expires_at=(datetime.utcnow() - timedelta(hours=1)).isoformat(),
+            expires_at=(utc_now() - timedelta(hours=1)).isoformat(),
         )
 
         entities = [

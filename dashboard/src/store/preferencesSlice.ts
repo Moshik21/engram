@@ -7,7 +7,8 @@ export const createPreferencesSlice: StateCreator<
   [],
   PreferencesSlice
 > = (set) => ({
-  currentView: "graph",
+  currentView: "lifecycle",
+  lifecycleDrilldownStage: null,
   renderMode: "3d",
   showActivationHeatmap: true,
   showEdgeLabels: false,
@@ -16,10 +17,16 @@ export const createPreferencesSlice: StateCreator<
   graphMaxNodes: 1500,
   lastAtlasVisitAt: null,
   lastAtlasSnapshotId: null,
+  dashboardMode: "observatory" as const,
 
   setCurrentView: (view) =>
     set((s) => {
       s.currentView = view;
+      s.lifecycleDrilldownStage = null;
+    }),
+  setLifecycleDrilldownStage: (stage) =>
+    set((s) => {
+      s.lifecycleDrilldownStage = stage;
     }),
   setRenderMode: (mode) =>
     set((s) => {
@@ -50,5 +57,9 @@ export const createPreferencesSlice: StateCreator<
       if (!generatedAt) return;
       s.lastAtlasVisitAt = generatedAt;
       s.lastAtlasSnapshotId = snapshotId ?? null;
+    }),
+  setDashboardMode: (mode) =>
+    set((s) => {
+      s.dashboardMode = mode;
     }),
 });

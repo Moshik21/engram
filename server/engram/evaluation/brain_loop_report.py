@@ -1,0 +1,1060 @@
+"""Operator report for the Capture -> Cue -> Project -> Recall -> Consolidate loop."""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict
+from datetime import datetime, timezone
+from typing import Any
+
+from engram.benchmark.metrics import (
+    RecallEvalSample,
+    SessionContinuitySample,
+    false_recall_rate,
+    memory_need_precision,
+    memory_need_recall,
+    missed_recall_rate,
+    open_loop_recovery_rate,
+    session_continuity_lift,
+    temporal_correctness,
+    useful_packet_rate,
+)
+
+LOOP = ["capture", "cue", "project", "recall", "consolidate"]
+PROJECT_ACTIVE_STATES = {"queued", "cued", "scheduled", "projecting"}
+ADJUDICATION_PHASES = {"evidence_adjudication", "edge_adjudication"}
+
+
+def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
+    """Return whether recall metrics include real runtime gate coverage."""
+    total_analyses, _analyzer_p95, _surfaced = _recall_runtime_score(
+        _mapping(metrics or {})
+    )
+    return total_analyses > 0
+
+
+def merge_recall_runtime_metrics(
+    stats: Mapping[str, Any],
+    saved_metrics: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Overlay saved Recall Gate metrics when live stats have less coverage."""
+    stats_payload = dict(_mapping(stats))
+    saved = _mapping(saved_metrics or {})
+    if not has_recall_runtime_metrics(saved):
+        return stats_payload
+
+    current = _mapping(_get(stats_payload, "recall_metrics", "recallMetrics", default={}))
+    if _recall_runtime_score(saved) > _recall_runtime_score(current):
+        stats_payload["recall_metrics"] = dict(saved)
+    return stats_payload
+
+
+def build_brain_loop_report(
+    stats: Mapping[str, Any],
+    *,
+    group_id: str = "default",
+    recent_cycles: Sequence[Any] | None = None,
+    calibration_snapshots: Sequence[Any] | None = None,
+    recall_samples: Sequence[RecallEvalSample | Mapping[str, Any]] | None = None,
+    session_samples: Sequence[SessionContinuitySample | Mapping[str, Any]] | None = None,
+    generated_at: datetime | str | None = None,
+) -> dict[str, Any]:
+    """Build a JSON-serializable local report from graph/runtime stats.
+
+    The report intentionally accepts plain dictionaries so it can be used from tests,
+    SQLite/lite scripts, API exports, or future dashboard endpoints without booting the
+    full FastAPI app.
+    """
+    stats_payload = _stats_payload(stats)
+    cue_metrics = _mapping(stats_payload.get("cue_metrics"))
+    projection_metrics = _mapping(stats_payload.get("projection_metrics"))
+    recall_metrics = _mapping(stats_payload.get("recall_metrics"))
+    adjudication_metrics = _mapping(stats_payload.get("adjudication_metrics"))
+
+    episode_count = _int(stats_payload.get("episodes"))
+    entity_count = _int(stats_payload.get("entities"))
+    relationship_count = _int(stats_payload.get("relationships"))
+    active_entity_count = _int(stats_payload.get("active_entities"))
+
+    capture = _capture_summary(stats_payload, episode_count)
+    cue = _cue_summary(cue_metrics, episode_count)
+    project = _project_summary(projection_metrics)
+    recall = _recall_summary(recall_metrics, recall_samples, session_samples)
+    consolidate = _consolidation_summary(
+        recent_cycles or [],
+        calibration_snapshots or [],
+        adjudication_metrics,
+    )
+
+    coverage_gaps = _coverage_gaps(
+        episode_count=episode_count,
+        cue=cue,
+        project=project,
+        recall=recall,
+        consolidate=consolidate,
+    )
+
+    return {
+        "group_id": group_id,
+        "generated_at": _generated_at(generated_at),
+        "loop": LOOP,
+        "totals": {
+            "episodes": episode_count,
+            "entities": entity_count,
+            "relationships": relationship_count,
+            "active_entities": active_entity_count,
+        },
+        "capture": capture,
+        "cue": cue,
+        "project": project,
+        "recall": recall,
+        "consolidate": consolidate,
+        "coverage_gaps": coverage_gaps,
+    }
+
+
+def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
+    """Render a compact Markdown view for operators and local CLI usage."""
+    totals = _mapping(report.get("totals"))
+    capture = _mapping(report.get("capture"))
+    cue = _mapping(report.get("cue"))
+    project = _mapping(report.get("project"))
+    recall = _mapping(report.get("recall"))
+    recall_eval = _mapping(recall.get("evaluation"))
+    continuity = _mapping(recall.get("continuity"))
+    recall_latency = _mapping(recall.get("latency"))
+    analyzer_latency = _mapping(recall_latency.get("analyzer_ms"))
+    probe_latency = _mapping(recall_latency.get("probe_ms"))
+    recall_control = _mapping(recall.get("control"))
+    thresholds = _mapping(recall_control.get("thresholds"))
+    consolidate = _mapping(report.get("consolidate"))
+    latest_cycle = _mapping(_get(consolidate, "latest_cycle", "latestCycle"))
+    latest_cycle_error = _get(latest_cycle, "error")
+    latest_cycle_phase_issue = _get(latest_cycle, "phase_issue", "phaseIssue")
+    latest_cycle_issue_text = ""
+    if isinstance(latest_cycle_error, str) and latest_cycle_error.strip():
+        latest_cycle_issue_text = f" | Error: {latest_cycle_error}"
+    elif isinstance(latest_cycle_phase_issue, str) and latest_cycle_phase_issue.strip():
+        latest_cycle_issue_text = f" | Phase issue: {latest_cycle_phase_issue}"
+    adjudication = _mapping(consolidate.get("adjudication"))
+    calibration = _mapping(consolidate.get("calibration"))
+    calibration_detail = _calibration_markdown_detail(calibration)
+    gaps = list(report.get("coverage_gaps") or [])
+
+    lines = [
+        "# Engram Brain Loop Report",
+        "",
+        f"Group: `{report.get('group_id', 'default')}`",
+        f"Generated: `{report.get('generated_at', '')}`",
+        "",
+        "## Totals",
+        "",
+        (
+            f"- Episodes: {totals.get('episodes', 0)} | Entities: "
+            f"{totals.get('entities', 0)} | Relationships: {totals.get('relationships', 0)}"
+        ),
+        "",
+        "## Capture -> Cue -> Project",
+        "",
+        (
+            f"- Capture: {capture.get('episode_count', 0)} episodes "
+            f"({capture.get('status', 'unknown')})"
+        ),
+        (
+            f"- Cue: {cue.get('cue_count', 0)} cues, coverage "
+            f"{_pct(cue.get('coverage'))}, used rate {_pct(cue.get('used_rate'))}, "
+            f"projection {_pct(cue.get('projection_conversion_rate'))}"
+        ),
+        (
+            f"- Project: {project.get('projected_count', 0)} projected, "
+            f"failure rate {_pct(project.get('failure_rate'))}, "
+            f"backlog {_pct(project.get('backlog_rate'))}, "
+            f"projection lag {_duration(project.get('avg_time_to_projection_ms'))}, "
+            f"processing {_duration(project.get('avg_processing_duration_ms'))}, "
+            f"{project.get('yield', {}).get('linked_entity_count', 0)} linked entities"
+        ),
+        "",
+        "## Recall",
+        "",
+        (
+            f"- Runtime triggers: {recall.get('trigger_count', 0)} from "
+            f"{recall.get('total_analyses', 0)} analyses | analyzer p95 "
+            f"{_duration(analyzer_latency.get('p95_ms'))} | probe p95 "
+            f"{_duration(probe_latency.get('p95_ms'))}"
+        ),
+        (
+            f"- Runtime control: surfaced {recall_control.get('surfaced_count', 0)} | "
+            f"used {recall_control.get('used_count', 0)} | dismissed "
+            f"{recall_control.get('dismissed_count', 0)} | graph overrides "
+            f"{recall_control.get('graph_override_count', 0)} | resonance threshold "
+            f"{_number(thresholds.get('resonance'))}"
+        ),
+        (
+            f"- Labeled quality: precision {_pct(recall_eval.get('memory_need_precision'))}, "
+            f"need recall {_pct(recall_eval.get('memory_need_recall'))}, "
+            f"useful packet rate {_pct(recall_eval.get('useful_packet_rate'))}, "
+            f"false recall {_pct(recall_eval.get('false_recall_rate'))}, "
+            f"missed recall {_pct(recall_eval.get('missed_recall_rate'))}"
+        ),
+        (
+            f"- Continuity: lift {_number(continuity.get('session_continuity_lift'))}, "
+            f"open-loop recovery {_pct(continuity.get('open_loop_recovery_rate'))}, "
+            f"temporal correctness {_pct(continuity.get('temporal_correctness'))}"
+        ),
+        "",
+        "## Consolidate",
+        "",
+        (
+            f"- Recent cycles: {consolidate.get('cycle_count', 0)} | Latest: "
+            f"{consolidate.get('latest_status') or 'none'} | Processed: "
+            f"{consolidate.get('items_processed', 0)} | Affected: "
+            f"{consolidate.get('items_affected', 0)} | Effect "
+            f"{_pct(consolidate.get('effect_rate'))}{latest_cycle_issue_text}"
+        ),
+        (
+            f"- Calibration snapshots: {calibration.get('snapshot_count', 0)} "
+            f"({calibration.get('status', 'unknown')}){calibration_detail}"
+        ),
+        (
+            f"- Adjudication: {adjudication.get('runs', 0)} runs, "
+            f"effect {_pct(adjudication.get('effect_rate'))}, "
+            f"unaffected {adjudication.get('items_unaffected', 0)}, "
+            f"errors {adjudication.get('error_count', 0)}, "
+            f"open work {adjudication.get('open_work_count', 0)} "
+            f"(evidence {adjudication.get('open_evidence_count', 0)}, "
+            f"requests {adjudication.get('open_request_count', 0)})"
+        ),
+    ]
+
+    if gaps:
+        lines.extend(["", "## Coverage Gaps", ""])
+        lines.extend(f"- {gap}" for gap in gaps)
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _capture_summary(stats: Mapping[str, Any], episode_count: int) -> dict[str, Any]:
+    active_count = _int(stats.get("capture_active_count", stats.get("active_episodes")))
+    return {
+        "status": "empty" if episode_count == 0 else "active" if active_count else "ready",
+        "episode_count": episode_count,
+        "active_count": active_count,
+    }
+
+
+def _cue_summary(cue_metrics: Mapping[str, Any], episode_count: int) -> dict[str, Any]:
+    cue_count = _int(cue_metrics.get("cue_count"))
+    surfaced_count = _int(cue_metrics.get("cue_surfaced_count"))
+    selected_count = _int(cue_metrics.get("cue_selected_count"))
+    used_count = _int(cue_metrics.get("cue_used_count"))
+    near_miss_count = _int(cue_metrics.get("cue_near_miss_count"))
+    episodes_without_cues = _int(
+        cue_metrics.get("episodes_without_cues", max(episode_count - cue_count, 0))
+    )
+
+    return {
+        "status": "attention" if episodes_without_cues else "ready",
+        "cue_count": cue_count,
+        "episodes_without_cues": episodes_without_cues,
+        "coverage": _float(cue_metrics.get("cue_coverage", _ratio(cue_count, episode_count))),
+        "hit_count": _int(cue_metrics.get("cue_hit_count")),
+        "hit_episode_count": _int(cue_metrics.get("cue_hit_episode_count")),
+        "hit_episode_rate": _float(cue_metrics.get("cue_hit_episode_rate")),
+        "surfaced_count": surfaced_count,
+        "selected_count": selected_count,
+        "used_count": used_count,
+        "near_miss_count": near_miss_count,
+        "selected_rate": _ratio(selected_count, surfaced_count),
+        "used_rate": _ratio(used_count, surfaced_count),
+        "near_miss_rate": _ratio(near_miss_count, surfaced_count),
+        "avg_policy_score": _float(cue_metrics.get("avg_policy_score")),
+        "projection_conversion_rate": _float(
+            cue_metrics.get("cue_to_projection_conversion_rate")
+        ),
+    }
+
+
+def _project_summary(projection_metrics: Mapping[str, Any]) -> dict[str, Any]:
+    state_counts = _state_counts(_mapping(projection_metrics.get("state_counts")))
+    projected_count = state_counts["projected"]
+    active_count = sum(state_counts[state] for state in PROJECT_ACTIVE_STATES)
+    failure_count = state_counts["failed"] + state_counts["dead_letter"]
+    tracked_count = _int(projection_metrics.get("tracked_episode_count")) or sum(
+        state_counts.values()
+    )
+    yield_metrics = _mapping(projection_metrics.get("yield"))
+
+    return {
+        "status": "attention" if failure_count else "active" if active_count else "ready",
+        "state_counts": state_counts,
+        "tracked_count": tracked_count,
+        "projected_count": projected_count,
+        "active_count": active_count,
+        "projected_rate": _ratio(projected_count, tracked_count),
+        "backlog_rate": _ratio(active_count, tracked_count),
+        "failed_count": state_counts["failed"],
+        "dead_letter_count": state_counts["dead_letter"],
+        "attempted_episode_count": _int(projection_metrics.get("attempted_episode_count")),
+        "total_attempts": _int(projection_metrics.get("total_attempts")),
+        "failure_rate": _float(projection_metrics.get("failure_rate")),
+        "avg_processing_duration_ms": _float(
+            projection_metrics.get("avg_processing_duration_ms")
+        ),
+        "avg_time_to_projection_ms": _float(
+            projection_metrics.get("avg_time_to_projection_ms")
+        ),
+        "yield": {
+            "linked_entity_count": _int(yield_metrics.get("linked_entity_count")),
+            "relationship_count": _int(yield_metrics.get("relationship_count")),
+            "avg_linked_entities_per_projected_episode": _float(
+                yield_metrics.get("avg_linked_entities_per_projected_episode")
+            ),
+            "avg_relationships_per_projected_episode": _float(
+                yield_metrics.get("avg_relationships_per_projected_episode")
+            ),
+        },
+    }
+
+
+def _recall_summary(
+    recall_metrics: Mapping[str, Any],
+    recall_samples: Sequence[RecallEvalSample | Mapping[str, Any]] | None,
+    session_samples: Sequence[SessionContinuitySample | Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    recall_eval_samples = [_recall_sample(sample) for sample in recall_samples or []]
+    continuity_samples = [_session_sample(sample) for sample in session_samples or []]
+    surfaced = sum(max(0, sample.packets_surfaced) for sample in recall_eval_samples)
+    used = sum(
+        min(max(0, sample.packets_used), max(0, sample.packets_surfaced))
+        for sample in recall_eval_samples
+    )
+    need_labeled = [
+        sample for sample in recall_eval_samples if sample.recall_needed is not None
+    ]
+    needed = [sample for sample in need_labeled if sample.recall_needed is True]
+    missed = [sample for sample in needed if not sample.recall_triggered]
+
+    evaluation = {
+        "status": "measured" if recall_eval_samples else "needs_samples",
+        "sample_count": len(recall_eval_samples),
+        "need_status": "measured" if need_labeled else "needs_samples",
+        "need_labeled_count": len(need_labeled),
+        "needed_count": len(needed),
+        "missed_count": len(missed),
+        "memory_need_precision": (
+            round(memory_need_precision(recall_eval_samples), 4)
+            if recall_eval_samples
+            else None
+        ),
+        "memory_need_recall": (
+            round(memory_need_recall(recall_eval_samples), 4) if need_labeled else None
+        ),
+        "missed_recall_rate": (
+            round(missed_recall_rate(recall_eval_samples), 4) if need_labeled else None
+        ),
+        "useful_packet_rate": (
+            round(useful_packet_rate(recall_eval_samples), 4) if recall_eval_samples else None
+        ),
+        "false_recall_rate": (
+            round(false_recall_rate(recall_eval_samples), 4) if recall_eval_samples else None
+        ),
+        "surfaced_count": surfaced,
+        "used_count": used,
+        "surfaced_to_used_ratio": _ratio_or_none(surfaced, used),
+    }
+    continuity = {
+        "status": "measured" if continuity_samples else "needs_samples",
+        "sample_count": len(continuity_samples),
+        "session_continuity_lift": (
+            round(session_continuity_lift(continuity_samples), 4)
+            if continuity_samples
+            else None
+        ),
+        "open_loop_recovery_rate": (
+            round(open_loop_recovery_rate(continuity_samples), 4)
+            if continuity_samples
+            else None
+        ),
+        "temporal_correctness": (
+            round(temporal_correctness(continuity_samples), 4)
+            if continuity_samples
+            else None
+        ),
+    }
+
+    return {
+        "status": "active" if _int(recall_metrics.get("trigger_count")) else "ready",
+        "total_analyses": _int(recall_metrics.get("total_analyses")),
+        "trigger_count": _int(recall_metrics.get("trigger_count")),
+        "runtime_false_recall_rate": _float(recall_metrics.get("false_recall_rate")),
+        "runtime_surfaced_to_used_ratio": recall_metrics.get("surfaced_to_used_ratio"),
+        "graph_lift_rate": _float(recall_metrics.get("graph_lift_rate")),
+        "probe_trigger_rate": _float(recall_metrics.get("probe_trigger_rate")),
+        "latency": {
+            "analyzer_ms": _latency_summary(
+                _get(
+                    recall_metrics,
+                    "analyzer_latency_ms",
+                    "analyzerLatencyMs",
+                    default={},
+                )
+            ),
+            "probe_ms": _latency_summary(
+                _get(recall_metrics, "probe_latency_ms", "probeLatencyMs", default={})
+            ),
+        },
+        "control": _recall_control_summary(recall_metrics),
+        "family_contributions": dict(_mapping(recall_metrics.get("family_contributions"))),
+        "evaluation": evaluation,
+        "continuity": continuity,
+    }
+
+
+def _consolidation_summary(
+    recent_cycles: Sequence[Any],
+    calibration_snapshots: Sequence[Any],
+    adjudication_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    cycle_summaries = [_cycle_summary(cycle) for cycle in recent_cycles]
+    phase_status_counts: Counter[str] = Counter()
+    phase_totals: dict[str, dict[str, int]] = {}
+    calibration = _calibration_summary(calibration_snapshots)
+
+    for cycle in cycle_summaries:
+        phase_status_counts.update(cycle["phase_status_counts"])
+        for phase, totals in cycle["phase_totals"].items():
+            aggregate = phase_totals.setdefault(
+                phase,
+                {"runs": 0, "items_processed": 0, "items_affected": 0},
+            )
+            aggregate["runs"] += totals["runs"]
+            aggregate["items_processed"] += totals["items_processed"]
+            aggregate["items_affected"] += totals["items_affected"]
+
+    latest = cycle_summaries[0] if cycle_summaries else None
+    items_processed = sum(cycle["items_processed"] for cycle in cycle_summaries)
+    items_affected = sum(cycle["items_affected"] for cycle in cycle_summaries)
+    error_count = sum(cycle["error_count"] for cycle in cycle_summaries)
+    normalized_phase_totals = _phase_totals_with_effect_rates(phase_totals)
+    calibration_status = str(calibration.get("status") or "")
+    adjudication = _adjudication_summary(
+        normalized_phase_totals,
+        cycle_summaries,
+        adjudication_metrics,
+    )
+    return {
+        "status": "attention"
+        if error_count
+        or _int(adjudication.get("open_work_count"))
+        or (cycle_summaries and calibration_status != "measured")
+        else "ready"
+        if cycle_summaries
+        else "needs_cycles",
+        "cycle_count": len(cycle_summaries),
+        "latest_status": latest["status"] if latest else None,
+        "latest_cycle": latest,
+        "phase_status_counts": dict(phase_status_counts),
+        "phase_totals": normalized_phase_totals,
+        "adjudication": adjudication,
+        "calibration": calibration,
+        "items_processed": items_processed,
+        "items_affected": items_affected,
+        "effect_rate": _ratio(items_affected, items_processed),
+        "error_count": error_count,
+    }
+
+
+def _cycle_summary(cycle: Any) -> dict[str, Any]:
+    phases = list(_get(cycle, "phase_results", "phases", default=[]) or [])
+    phase_status_counts: Counter[str] = Counter()
+    phase_totals: dict[str, dict[str, int]] = {}
+    errors: list[dict[str, str]] = []
+    cycle_error = _get(cycle, "error", default=None)
+    phase_issue = _get(cycle, "phase_issue", "phaseIssue", default=None)
+    if not (isinstance(phase_issue, str) and phase_issue.strip()):
+        phase_issue = None
+
+    for phase_result in phases:
+        phase = str(_get(phase_result, "phase", default="unknown") or "unknown")
+        status = str(_get(phase_result, "status", default="unknown") or "unknown")
+        processed = _int(_get(phase_result, "items_processed", "itemsProcessed"))
+        affected = _int(_get(phase_result, "items_affected", "itemsAffected"))
+        error = _get(phase_result, "error", default=None)
+        phase_status_counts[status] += 1
+        totals = phase_totals.setdefault(
+            phase,
+            {"runs": 0, "items_processed": 0, "items_affected": 0},
+        )
+        totals["runs"] += 1
+        totals["items_processed"] += processed
+        totals["items_affected"] += affected
+        if error:
+            errors.append({"phase": phase, "error": str(error)})
+
+    if phase_issue is None and errors:
+        first_error = errors[0]
+        phase_issue = f"{first_error['phase']}: {first_error['error']}"
+
+    items_processed = sum(total["items_processed"] for total in phase_totals.values())
+    items_affected = sum(total["items_affected"] for total in phase_totals.values())
+    inferred_phase_issue_count = 1 if phase_issue and not errors else 0
+
+    return {
+        "id": _get(cycle, "id"),
+        "status": _get(cycle, "status"),
+        "error": cycle_error,
+        "phase_issue": phase_issue,
+        "trigger": _get(cycle, "trigger"),
+        "dry_run": bool(_get(cycle, "dry_run", "dryRun", default=False)),
+        "started_at": _get(cycle, "started_at", "startedAt"),
+        "completed_at": _get(cycle, "completed_at", "completedAt"),
+        "total_duration_ms": _float(_get(cycle, "total_duration_ms", "totalDurationMs")),
+        "phase_count": len(phases),
+        "phase_status_counts": dict(phase_status_counts),
+        "phase_totals": _phase_totals_with_effect_rates(phase_totals),
+        "items_processed": items_processed,
+        "items_affected": items_affected,
+        "effect_rate": _ratio(items_affected, items_processed),
+        "error_count": len(errors) + (1 if cycle_error else 0) + inferred_phase_issue_count,
+        "errors": errors,
+    }
+
+
+def _phase_totals_with_effect_rates(
+    phase_totals: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        phase: {
+            "runs": _int(totals.get("runs")),
+            "items_processed": _int(totals.get("items_processed")),
+            "items_affected": _int(totals.get("items_affected")),
+            "effect_rate": _ratio(
+                _int(totals.get("items_affected")),
+                _int(totals.get("items_processed")),
+            ),
+        }
+        for phase, totals in phase_totals.items()
+    }
+
+
+def _calibration_summary(snapshots: Sequence[Any]) -> dict[str, Any]:
+    phase_totals: dict[str, dict[str, Any]] = {}
+    for snapshot in snapshots:
+        phase = str(_get(snapshot, "phase", default="unknown") or "unknown")
+        totals = phase_totals.setdefault(
+            phase,
+            {
+                "snapshots": 0,
+                "total_traces": 0,
+                "labeled_examples": 0,
+                "oracle_examples": 0,
+                "abstain_count": 0,
+                "accuracy_values": [],
+                "mean_confidence_values": [],
+                "expected_calibration_error_values": [],
+            },
+        )
+        totals["snapshots"] += 1
+        totals["total_traces"] += _int(_get(snapshot, "total_traces", "totalTraces"))
+        totals["labeled_examples"] += _int(
+            _get(snapshot, "labeled_examples", "labeledExamples")
+        )
+        totals["oracle_examples"] += _int(_get(snapshot, "oracle_examples", "oracleExamples"))
+        totals["abstain_count"] += _int(_get(snapshot, "abstain_count", "abstainCount"))
+        _append_optional_float(totals["accuracy_values"], _get(snapshot, "accuracy"))
+        _append_optional_float(
+            totals["mean_confidence_values"],
+            _get(snapshot, "mean_confidence", "meanConfidence"),
+        )
+        _append_optional_float(
+            totals["expected_calibration_error_values"],
+            _get(
+                snapshot,
+                "expected_calibration_error",
+                "expectedCalibrationError",
+            ),
+        )
+
+    normalized: dict[str, dict[str, Any]] = {}
+    for phase, totals in phase_totals.items():
+        normalized[phase] = {
+            "snapshots": totals["snapshots"],
+            "total_traces": totals["total_traces"],
+            "labeled_examples": totals["labeled_examples"],
+            "oracle_examples": totals["oracle_examples"],
+            "abstain_count": totals["abstain_count"],
+            "accuracy": _average_or_none(totals["accuracy_values"]),
+            "mean_confidence": _average_or_none(totals["mean_confidence_values"]),
+            "expected_calibration_error": _average_or_none(
+                totals["expected_calibration_error_values"]
+            ),
+        }
+
+    status = "needs_snapshots"
+    if snapshots:
+        status = (
+            "measured"
+            if _calibration_quality_measured({"phase_totals": normalized})
+            else "needs_quality"
+        )
+
+    return {
+        "status": status,
+        "snapshot_count": len(snapshots),
+        "phase_totals": normalized,
+    }
+
+
+def _coverage_gaps(
+    *,
+    episode_count: int,
+    cue: Mapping[str, Any],
+    project: Mapping[str, Any],
+    recall: Mapping[str, Any],
+    consolidate: Mapping[str, Any],
+) -> list[str]:
+    gaps: list[str] = []
+    recall_eval = _mapping(recall.get("evaluation"))
+    continuity = _mapping(recall.get("continuity"))
+    recall_latency = _mapping(recall.get("latency"))
+    analyzer_latency = _mapping(recall_latency.get("analyzer_ms"))
+
+    if episode_count == 0:
+        gaps.append("capture has no stored episodes yet")
+    if episode_count and _int(cue.get("cue_count")) == 0:
+        gaps.append("cue usefulness cannot be measured until episodes have cues")
+    elif _int(cue.get("cue_count")) > 0 and _int(cue.get("surfaced_count")) == 0:
+        gaps.append("cue usefulness needs surfaced cue feedback")
+    if _int(project.get("projected_count")) == 0:
+        gaps.append("projection yield cannot be measured until episodes are projected")
+    if recall_eval.get("status") != "measured":
+        gaps.append("recall quality needs labeled recall_samples input")
+    elif recall_eval.get("need_status") != "measured":
+        gaps.append("missed recall needs recall_needed labels")
+    if _int(recall.get("total_analyses")) == 0:
+        gaps.append("recall gate needs runtime analyses")
+    elif _float(analyzer_latency.get("p95_ms")) <= 0:
+        gaps.append("recall gate latency needs analyzer samples")
+    if continuity.get("status") != "measured":
+        gaps.append("session continuity needs session_samples input")
+    calibration = _mapping(consolidate.get("calibration"))
+    calibration_status = calibration.get("status")
+    if _int(consolidate.get("cycle_count")) == 0:
+        gaps.append("consolidation effects need at least one recent cycle")
+    elif calibration_status == "needs_snapshots" or calibration_status not in {
+        "measured",
+        "needs_quality",
+    }:
+        gaps.append("consolidation calibration needs saved calibration snapshots")
+    elif calibration_status == "needs_quality" or not _calibration_quality_measured(
+        calibration
+    ):
+        gaps.append("consolidation calibration quality needs labeled decision outcomes")
+    return gaps
+
+
+def _recall_runtime_score(metrics: Mapping[str, Any]) -> tuple[int, float, int]:
+    analyzer_latency = _mapping(
+        _get(metrics, "analyzer_latency_ms", "analyzerLatencyMs", default={})
+    )
+    control = _mapping(_get(metrics, "control", default={}))
+    surfaced = _int(
+        _get(
+            metrics,
+            "surfaced_count",
+            "surfacedCount",
+            default=_get(control, "surfaced_count", "surfacedCount", default=0),
+        )
+    )
+    return (
+        _int(_get(metrics, "total_analyses", "totalAnalyses")),
+        _float(_get(analyzer_latency, "p95", "p95_ms", "p95Ms")),
+        surfaced,
+    )
+
+
+def _adjudication_summary(
+    phase_totals: Mapping[str, Mapping[str, Any]],
+    cycle_summaries: Sequence[Mapping[str, Any]],
+    adjudication_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    adjudication_phase_totals = {
+        phase: totals
+        for phase, totals in phase_totals.items()
+        if phase in ADJUDICATION_PHASES
+    }
+    runs = sum(_int(totals.get("runs")) for totals in adjudication_phase_totals.values())
+    items_processed = sum(
+        _int(totals.get("items_processed", totals.get("itemsProcessed")))
+        for totals in adjudication_phase_totals.values()
+    )
+    items_affected = sum(
+        _int(totals.get("items_affected", totals.get("itemsAffected")))
+        for totals in adjudication_phase_totals.values()
+    )
+    error_count = sum(
+        1
+        for cycle in cycle_summaries
+        for error in list(cycle.get("errors") or [])
+        if _get(error, "phase") in ADJUDICATION_PHASES
+    )
+    evidence_status_counts = _status_count_summary(
+        _mapping(
+            _get(
+                adjudication_metrics,
+                "evidence_status_counts",
+                "evidenceStatusCounts",
+                default={},
+            )
+        ),
+        ("pending", "deferred", "approved"),
+    )
+    request_status_counts = _status_count_summary(
+        _mapping(
+            _get(
+                adjudication_metrics,
+                "request_status_counts",
+                "requestStatusCounts",
+                default={},
+            )
+        ),
+        ("pending", "deferred", "error"),
+    )
+    open_evidence_count = _int(
+        _get(
+            adjudication_metrics,
+            "open_evidence_count",
+            "openEvidenceCount",
+            default=sum(evidence_status_counts.values()),
+        )
+    )
+    open_request_count = _int(
+        _get(
+            adjudication_metrics,
+            "open_request_count",
+            "openRequestCount",
+            default=sum(request_status_counts.values()),
+        )
+    )
+    open_work_count = _int(
+        _get(
+            adjudication_metrics,
+            "open_work_count",
+            "openWorkCount",
+            default=open_evidence_count + open_request_count,
+        )
+    )
+
+    return {
+        "status": "attention"
+        if error_count or open_work_count
+        else "active"
+        if items_processed
+        else "ready"
+        if runs
+        else "needs_cycles",
+        "phase_count": len(adjudication_phase_totals),
+        "runs": runs,
+        "items_processed": items_processed,
+        "items_affected": items_affected,
+        "items_unaffected": max(items_processed - items_affected, 0),
+        "effect_rate": _ratio(items_affected, items_processed),
+        "error_count": error_count,
+        "open_evidence_count": open_evidence_count,
+        "open_request_count": open_request_count,
+        "open_work_count": open_work_count,
+        "pending_evidence_count": _int(
+            _get(
+                adjudication_metrics,
+                "pending_evidence_count",
+                "pendingEvidenceCount",
+                default=evidence_status_counts["pending"],
+            )
+        ),
+        "deferred_evidence_count": _int(
+            _get(
+                adjudication_metrics,
+                "deferred_evidence_count",
+                "deferredEvidenceCount",
+                default=evidence_status_counts["deferred"],
+            )
+        ),
+        "approved_evidence_count": _int(
+            _get(
+                adjudication_metrics,
+                "approved_evidence_count",
+                "approvedEvidenceCount",
+                default=evidence_status_counts["approved"],
+            )
+        ),
+        "pending_request_count": _int(
+            _get(
+                adjudication_metrics,
+                "pending_request_count",
+                "pendingRequestCount",
+                default=request_status_counts["pending"],
+            )
+        ),
+        "deferred_request_count": _int(
+            _get(
+                adjudication_metrics,
+                "deferred_request_count",
+                "deferredRequestCount",
+                default=request_status_counts["deferred"],
+            )
+        ),
+        "error_request_count": _int(
+            _get(
+                adjudication_metrics,
+                "error_request_count",
+                "errorRequestCount",
+                default=request_status_counts["error"],
+            )
+        ),
+        "evidence_status_counts": evidence_status_counts,
+        "request_status_counts": request_status_counts,
+        "phase_totals": adjudication_phase_totals,
+    }
+
+
+def _status_count_summary(
+    counts: Mapping[str, Any],
+    statuses: tuple[str, ...],
+) -> dict[str, int]:
+    return {status: _int(counts.get(status)) for status in statuses}
+
+
+def _calibration_quality_measured(calibration: Mapping[str, Any]) -> bool:
+    phase_totals = _mapping(_get(calibration, "phase_totals", "phaseTotals"))
+    for totals in phase_totals.values():
+        data = _mapping(totals)
+        has_labels = _int(_get(data, "labeled_examples", "labeledExamples")) > 0
+        has_quality = (
+            _get(data, "accuracy") is not None
+            or _get(data, "expected_calibration_error", "expectedCalibrationError")
+            is not None
+        )
+        if has_labels and has_quality:
+            return True
+    return False
+
+
+def _calibration_markdown_detail(calibration: Mapping[str, Any]) -> str:
+    if _get(calibration, "status") == "needs_quality":
+        return "; needs labeled decisions"
+
+    phase_totals = _mapping(_get(calibration, "phase_totals", "phaseTotals"))
+    phases: list[tuple[str, Mapping[str, Any]]] = [
+        (str(phase), _mapping(totals)) for phase, totals in phase_totals.items()
+    ]
+    if not phases:
+        return ""
+
+    phase, totals = max(
+        phases,
+        key=lambda item: _int(_get(item[1], "labeled_examples", "labeledExamples")),
+    )
+    accuracy = _get(totals, "accuracy")
+    ece = _get(totals, "expected_calibration_error", "expectedCalibrationError")
+    if accuracy is None and ece is None:
+        return ""
+    return f"; {phase} accuracy {_pct(accuracy)}, ECE {_number(ece)}"
+
+
+def _stats_payload(stats: Mapping[str, Any]) -> Mapping[str, Any]:
+    nested = stats.get("stats")
+    if isinstance(nested, Mapping):
+        return nested
+    return stats
+
+
+def _state_counts(raw: Mapping[str, Any]) -> dict[str, int]:
+    return {
+        "queued": _int(raw.get("queued")),
+        "cued": _int(raw.get("cued")),
+        "cue_only": _int(raw.get("cue_only", raw.get("cueOnly"))),
+        "scheduled": _int(raw.get("scheduled")),
+        "projecting": _int(raw.get("projecting")),
+        "projected": _int(raw.get("projected")),
+        "merged": _int(raw.get("merged")),
+        "failed": _int(raw.get("failed")),
+        "dead_letter": _int(raw.get("dead_letter", raw.get("deadLetter"))),
+    }
+
+
+def _latency_summary(value: Any) -> dict[str, float]:
+    data = _mapping(value)
+    return {
+        "avg_ms": _float(_get(data, "avg_ms", "avgMs", "avg")),
+        "p95_ms": _float(_get(data, "p95_ms", "p95Ms", "p95")),
+    }
+
+
+def _recall_control_summary(recall_metrics: Mapping[str, Any]) -> dict[str, Any]:
+    thresholds = _mapping(_get(recall_metrics, "thresholds", default={}))
+    return {
+        "used_count": _int(_get(recall_metrics, "used_count", "usedCount")),
+        "dismissed_count": _int(
+            _get(recall_metrics, "dismissed_count", "dismissedCount")
+        ),
+        "surfaced_count": _int(_get(recall_metrics, "surfaced_count", "surfacedCount")),
+        "selected_count": _int(_get(recall_metrics, "selected_count", "selectedCount")),
+        "confirmed_count": _int(
+            _get(recall_metrics, "confirmed_count", "confirmedCount")
+        ),
+        "corrected_count": _int(
+            _get(recall_metrics, "corrected_count", "correctedCount")
+        ),
+        "graph_override_count": _int(
+            _get(recall_metrics, "graph_override_count", "graphOverrideCount")
+        ),
+        "adaptive_thresholds_enabled": bool(
+            _get(
+                recall_metrics,
+                "adaptive_thresholds_enabled",
+                "adaptiveThresholdsEnabled",
+                default=False,
+            )
+        ),
+        "thresholds": {
+            "linguistic": _float(_get(thresholds, "linguistic")),
+            "borderline": _float(_get(thresholds, "borderline")),
+            "resonance": _float(_get(thresholds, "resonance")),
+        },
+    }
+
+
+def _recall_sample(sample: RecallEvalSample | Mapping[str, Any]) -> RecallEvalSample:
+    if isinstance(sample, RecallEvalSample):
+        return sample
+    recall_needed = _get(sample, "recall_needed", "recallNeeded", default=None)
+    return RecallEvalSample(
+        recall_triggered=bool(_get(sample, "recall_triggered", "recallTriggered")),
+        recall_helped=bool(_get(sample, "recall_helped", "recallHelped")),
+        packets_surfaced=_int(_get(sample, "packets_surfaced", "packetsSurfaced")),
+        packets_used=_int(_get(sample, "packets_used", "packetsUsed")),
+        false_recalls=_int(_get(sample, "false_recalls", "falseRecalls")),
+        recall_needed=None if recall_needed is None else bool(recall_needed),
+    )
+
+
+def _session_sample(
+    sample: SessionContinuitySample | Mapping[str, Any],
+) -> SessionContinuitySample:
+    if isinstance(sample, SessionContinuitySample):
+        return sample
+    return SessionContinuitySample(
+        baseline_score=_float(_get(sample, "baseline_score", "baselineScore")),
+        memory_score=_float(_get(sample, "memory_score", "memoryScore")),
+        open_loop_expected=bool(_get(sample, "open_loop_expected", "openLoopExpected")),
+        open_loop_recovered=bool(_get(sample, "open_loop_recovered", "openLoopRecovered")),
+        temporal_expected=bool(_get(sample, "temporal_expected", "temporalExpected")),
+        temporal_correct=bool(_get(sample, "temporal_correct", "temporalCorrect")),
+    )
+
+
+def _get(source: Any, *keys: str, default: Any = None) -> Any:
+    if isinstance(source, Mapping):
+        for key in keys:
+            if key in source:
+                return source[key]
+        return default
+    for key in keys:
+        if hasattr(source, key):
+            return getattr(source, key)
+    return default
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _float(value: Any) -> float:
+    try:
+        return round(float(value or 0.0), 4)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 4)
+
+
+def _ratio_or_none(numerator: int, denominator: int) -> float | None:
+    if denominator <= 0:
+        return None
+    return round(numerator / denominator, 4)
+
+
+def _append_optional_float(values: list[float], value: Any) -> None:
+    if value is None:
+        return
+    try:
+        values.append(float(value))
+    except (TypeError, ValueError):
+        return
+
+
+def _average_or_none(values: Sequence[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 4)
+
+
+def _generated_at(value: datetime | str | None) -> str:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        value = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _pct(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _number(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _duration(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        milliseconds = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if milliseconds < 0:
+        return "n/a"
+    if milliseconds < 1000:
+        return f"{milliseconds:.0f}ms"
+    if milliseconds < 60_000:
+        return f"{milliseconds / 1000:.2f}s"
+    return f"{milliseconds / 60_000:.1f}m"
+
+
+def report_to_dict(report: Any) -> dict[str, Any]:
+    """Compatibility helper for dataclass-based callers."""
+    return asdict(report) if hasattr(report, "__dataclass_fields__") else dict(report)

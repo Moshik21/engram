@@ -5,20 +5,26 @@ export function MemoryPulse() {
   const pulseEntities = useEngramStore((s) => s.pulseEntities);
   const isPulseLoading = useEngramStore((s) => s.isPulseLoading);
   const openDrawer = useEngramStore((s) => s.openDrawer);
+  const lifecycleDrilldownStage = useEngramStore((s) => s.lifecycleDrilldownStage);
+  const isRecallDrilldown = lifecycleDrilldownStage === "recall";
 
-  if (!isPulseLoading && pulseEntities.length === 0) return null;
+  if (!isPulseLoading && pulseEntities.length === 0 && !isRecallDrilldown) return null;
 
   return (
     <div
       className="animate-fade-in"
+      data-lifecycle-focus={isRecallDrilldown ? "true" : undefined}
       style={{
         flexShrink: 0,
-        borderBottom: "1px solid var(--border)",
+        borderBottom: `1px solid ${isRecallDrilldown ? "#34d39966" : "var(--border)"}`,
         padding: "8px 16px",
         display: "flex",
         alignItems: "center",
         gap: 10,
         overflow: "hidden",
+        background: isRecallDrilldown
+          ? "linear-gradient(90deg, rgba(52, 211, 153, 0.08), transparent)"
+          : undefined,
       }}
     >
       <span
@@ -27,9 +33,10 @@ export function MemoryPulse() {
           fontSize: 9,
           letterSpacing: "0.1em",
           flexShrink: 0,
+          color: isRecallDrilldown ? "#34d399" : undefined,
         }}
       >
-        PULSE
+        {isRecallDrilldown ? "Recall Context" : "PULSE"}
       </span>
 
       <div
@@ -41,20 +48,30 @@ export function MemoryPulse() {
           scrollbarWidth: "none",
         }}
       >
-        {isPulseLoading
-          ? Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="skeleton"
-                style={{
-                  width: 100,
-                  height: 26,
-                  borderRadius: 99,
-                  flexShrink: 0,
-                }}
-              />
-            ))
-          : pulseEntities.map((entity) => {
+        {isPulseLoading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="skeleton"
+              style={{
+                width: 100,
+                height: 26,
+                borderRadius: 99,
+                flexShrink: 0,
+              }}
+            />
+          ))
+        ) : pulseEntities.length === 0 ? (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            No active entities loaded
+          </span>
+        ) : (
+          pulseEntities.map((entity) => {
               const color = entityColor(entity.entityType);
               const pct = Math.min(entity.currentActivation * 100, 100);
               return (
@@ -127,7 +144,8 @@ export function MemoryPulse() {
                   </div>
                 </button>
               );
-            })}
+            })
+        )}
       </div>
     </div>
   );

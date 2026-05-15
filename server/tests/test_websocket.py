@@ -7,7 +7,8 @@ from starlette.testclient import TestClient
 
 from engram.config import EngramConfig
 from engram.events.bus import get_event_bus
-from engram.main import create_app
+from engram.main import _app_state, create_app
+from engram.notifications.models import MemoryNotification
 
 
 @pytest.fixture
@@ -42,6 +43,27 @@ class TestWebSocket:
                 data = ws.receive_json()
                 assert data["type"] == "test.event"
                 assert data["hello"] == "world"
+
+    def test_receives_only_configured_tenant_group_events(self, tmp_path):
+        """WebSocket event subscriptions follow the resolved tenant group."""
+        tenant_group = "tenant_brain"
+        config = EngramConfig(
+            mode="lite",
+            default_group_id=tenant_group,
+            sqlite={"path": str(tmp_path / "ws_tenant_test.db")},
+            auth={"default_group_id": tenant_group},
+        )
+        app = create_app(config)
+
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws/dashboard") as ws:
+                bus = get_event_bus()
+                bus.publish("default", "wrong.group", {"hello": "default"})
+                bus.publish(tenant_group, "tenant.event", {"hello": "tenant"})
+                data = ws.receive_json()
+                assert data["type"] == "tenant.event"
+                assert data["hello"] == "tenant"
+                assert data["group_id"] == tenant_group
 
     def test_resync_returns_missed_events(self, ws_app):
         """Resync command returns events missed since lastSeq."""
@@ -97,3 +119,73 @@ class TestWebSocket:
                 # In this case we have events and 0 < first event seq
                 # so it returns full=True (gap too large)
                 assert isinstance(resync["isFull"], bool)
+
+    def test_activation_monitor_snapshot_uses_dashboard_payload(self, ws_app):
+        """Activation monitor command emits the shared activation snapshot payload."""
+        app, config = ws_app
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws/dashboard") as ws:
+                ws.send_json(
+                    {
+                        "type": "command",
+                        "command": "subscribe.activation_monitor",
+                        "interval_ms": 1,
+                    }
+                )
+
+                snapshot = ws.receive_json()
+                assert snapshot["type"] == "activation.snapshot"
+                assert snapshot["payload"] == {"topActivated": []}
+
+    def test_dismiss_notification_command_uses_connection_group(self, ws_app):
+        """Dashboard notification dismiss commands cannot cross group boundaries."""
+        app, config = ws_app
+        with TestClient(app) as client:
+            store = _app_state["notification_store"]
+            active = MemoryNotification(
+                group_id="default",
+                notification_type="schema_discovery",
+                priority="normal",
+                title="Default notification",
+                body="Dismiss through websocket.",
+                entity_ids=[],
+                metadata={},
+                created_at=1.0,
+            )
+            other = MemoryNotification(
+                group_id="other_brain",
+                notification_type="schema_discovery",
+                priority="normal",
+                title="Other notification",
+                body="Must not be dismissed through default websocket.",
+                entity_ids=[],
+                metadata={},
+                created_at=2.0,
+            )
+            store.add(active)
+            store.add(other)
+
+            with client.websocket_connect("/ws/dashboard") as ws:
+                ws.send_json(
+                    {
+                        "type": "command",
+                        "command": "dismiss_notification",
+                        "id": other.id,
+                    }
+                )
+                ws.send_json({"type": "ping"})
+                assert ws.receive_json()["type"] == "pong"
+
+                assert other.dismissed_at is None
+
+                ws.send_json(
+                    {
+                        "type": "command",
+                        "command": "dismiss_notification",
+                        "id": active.id,
+                    }
+                )
+                ws.send_json({"type": "ping"})
+                assert ws.receive_json()["type"] == "pong"
+
+                assert active.dismissed_at is not None

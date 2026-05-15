@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
+from engram.utils.dates import utc_now
+
 # Month name → number
 _MONTHS = {
     "january": 1,
@@ -52,7 +54,7 @@ def resolve_temporal_hint(
         return None
 
     hint = hint.strip().lower()
-    ref = reference_date or datetime.utcnow()
+    ref = reference_date or utc_now()
 
     # ISO 8601 passthrough
     try:

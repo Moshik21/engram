@@ -38,14 +38,17 @@ class SQLiteConsolidationStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._owns_db = False
 
     async def initialize(self, db: aiosqlite.Connection | None = None) -> None:
         """Create tables if they don't exist."""
         if db:
             self._db = db
+            self._owns_db = False
         elif not self._db:
             self._db = await aiosqlite.connect(self._db_path)
             self._db.row_factory = aiosqlite.Row
+            self._owns_db = True
 
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS consolidation_cycles (
@@ -1809,9 +1812,10 @@ class SQLiteConsolidationStore:
 
     async def close(self) -> None:
         """Close the database connection."""
-        if self._db:
+        if self._db and self._owns_db:
             await self._db.close()
-            self._db = None
+        self._db = None
+        self._owns_db = False
 
     @staticmethod
     def _row_to_cycle(row) -> ConsolidationCycle:

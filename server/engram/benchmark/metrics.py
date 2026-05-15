@@ -16,6 +16,7 @@ class RecallEvalSample:
     packets_surfaced: int = 0
     packets_used: int = 0
     false_recalls: int = 0
+    recall_needed: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,8 @@ class RecallEvaluationSummary:
     """Aggregate Phase 6 evaluation metrics."""
 
     memory_need_precision: float
+    memory_need_recall: float
+    missed_recall_rate: float
     useful_packet_rate: float
     false_recall_rate: float
     surfaced_to_used_ratio: float
@@ -142,6 +145,24 @@ def memory_need_precision(samples: list[RecallEvalSample]) -> float:
     return helped / len(triggered)
 
 
+def memory_need_recall(samples: list[RecallEvalSample]) -> float:
+    """Recall of true memory-need labels: needed turns where recall triggered."""
+    needed = [sample for sample in samples if sample.recall_needed is True]
+    if not needed:
+        return 0.0
+    triggered = sum(1 for sample in needed if sample.recall_triggered)
+    return triggered / len(needed)
+
+
+def missed_recall_rate(samples: list[RecallEvalSample]) -> float:
+    """Fraction of memory-needed turns where recall failed to trigger."""
+    needed = [sample for sample in samples if sample.recall_needed is True]
+    if not needed:
+        return 0.0
+    missed = sum(1 for sample in needed if not sample.recall_triggered)
+    return missed / len(needed)
+
+
 def useful_packet_rate(samples: list[RecallEvalSample]) -> float:
     """Fraction of surfaced packets that were used downstream."""
     surfaced = sum(max(0, sample.packets_surfaced) for sample in samples)
@@ -214,6 +235,8 @@ def summarize_recall_evaluation(
     )
     return RecallEvaluationSummary(
         memory_need_precision=memory_need_precision(recall_samples),
+        memory_need_recall=memory_need_recall(recall_samples),
+        missed_recall_rate=missed_recall_rate(recall_samples),
         useful_packet_rate=useful_packet_rate(recall_samples),
         false_recall_rate=false_recall_rate(recall_samples),
         surfaced_to_used_ratio=surfaced_to_used_ratio(surfaced, used),

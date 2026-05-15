@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engram.benchmark.memory_need import MemoryNeedFixture, evaluate_memory_need_fixtures
+from engram.benchmark.memory_need import (
+    MEMORY_NEED_BENCHMARK_GROUP_ID,
+    MemoryNeedFixture,
+    evaluate_memory_need_fixtures,
+)
 from engram.retrieval.graph_probe import ProbeResult
 
 
@@ -104,3 +108,4 @@ async def test_evaluate_memory_need_fixtures_supports_graph_probe_cases():
     assert summary.recall == pytest.approx(1.0)
     assert summary.graph_lift_rate == pytest.approx(1.0)
     graph_probe.probe.assert_awaited_once()
+    assert graph_probe.probe.await_args.kwargs["group_id"] == MEMORY_NEED_BENCHMARK_GROUP_ID

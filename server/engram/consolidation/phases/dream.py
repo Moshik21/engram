@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import numpy as np
@@ -22,6 +22,7 @@ from engram.models.consolidation import (
     PhaseResult,
 )
 from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -560,7 +561,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             # Create relationship
             rel_id = None
             if not dry_run:
-                valid_to = datetime.utcnow() + timedelta(
+                valid_to = utc_now() + timedelta(
                     days=cfg.consolidation_dream_assoc_ttl_days
                 )
                 rel = Relationship(

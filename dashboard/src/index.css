@@ -521,3 +521,72 @@ input:focus-visible, button:focus-visible {
 .transition-fast { transition: all 0.15s ease; }
 .transition-normal { transition: all 0.2s ease; }
 .transition-slow { transition: all 0.3s ease; }
+
+/* ── Quest mode theme override ─────────────────────────── */
+
+.quest-mode {
+  --accent: #D4A84B;
+  --accent-bright: #E8C876;
+  --accent-dim: #8B6914;
+  --accent-glow: rgba(212, 168, 75, 0.12);
+  --accent-glow-strong: rgba(212, 168, 75, 0.25);
+}
+
+/* ── Quest mode enhancements ───────────────────────────── */
+
+.quest-mode .card {
+  border-color: rgba(212, 168, 75, 0.06);
+}
+
+.quest-mode .card:hover {
+  border-color: rgba(212, 168, 75, 0.15);
+}
+
+.quest-mode .glass-elevated {
+  border-color: rgba(212, 168, 75, 0.1);
+}
+
+.quest-mode .pill-active {
+  border-color: rgba(212, 168, 75, 0.3);
+  background: rgba(212, 168, 75, 0.06);
+  color: #D4A84B;
+}
+
+.quest-mode .accent-bar {
+  background: linear-gradient(90deg, transparent, rgba(212, 168, 75, 0.2), transparent) !important;
+}
+
+/* Quest mode ambient glow */
+.quest-mode #root::before {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(212, 168, 75, 0.02) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 80% 60%, rgba(212, 168, 75, 0.01) 0%, transparent 70%);
+}
+
+/* Stat bar glow animation for quest mode */
+@keyframes stat-bar-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.3); }
+}
+
+.quest-mode .metric-bar > div {
+  animation: stat-bar-pulse 3s ease-in-out infinite;
+}
+
+/* Level up flash */
+@keyframes level-up-flash {
+  0% { box-shadow: 0 0 0 0 rgba(212, 168, 75, 0.6); }
+  50% { box-shadow: 0 0 30px 10px rgba(212, 168, 75, 0.3); }
+  100% { box-shadow: 0 0 0 0 rgba(212, 168, 75, 0); }
+}
+
+.level-up-glow {
+  animation: level-up-flash 1.5s ease-out;
+}
+
+/* Quest rank badge colors */
+.quest-rank-s { color: #fbbf24; border-color: #fbbf24; text-shadow: 0 0 8px rgba(251, 191, 36, 0.5); }
+.quest-rank-a { color: #f87171; border-color: #f87171; }
+.quest-rank-b { color: #818cf8; border-color: #818cf8; }
+.quest-rank-c { color: #34d399; border-color: #34d399; }
+.quest-rank-d { color: #7a7a94; border-color: #7a7a94; }

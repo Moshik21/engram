@@ -7,6 +7,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
+from engram.config import ActivationConfig
+
 
 @dataclass
 class SessionEntityEntry:
@@ -302,3 +304,96 @@ class ConversationFingerprinter:
             source=source,
             update_fingerprint=update_fingerprint,
         )
+
+
+class ConversationRuntimeService:
+    """Facade for route-level conversation context and live-turn fingerprinting."""
+
+    def __init__(
+        self,
+        *,
+        cfg: ActivationConfig,
+        conv_context: ConversationContext | None,
+        search_index: object,
+    ) -> None:
+        self._cfg = cfg
+        self._conv_context = conv_context
+        self._search_index = search_index
+
+    def get_context(self) -> ConversationContext | None:
+        return self._conv_context
+
+    def get_turn_count(self) -> int:
+        if self._conv_context is None:
+            return 0
+        return self._conv_context._turn_count
+
+    def get_embed_fn(self):
+        provider = getattr(self._search_index, "_provider", None)
+        embed_query = getattr(provider, "embed_query", None)
+        return embed_query if callable(embed_query) else None
+
+    def get_top_entity_names(self, limit: int | None = None) -> list[str]:
+        if self._conv_context is None:
+            return []
+        top_n = limit if limit is not None else self._cfg.conv_multi_query_top_entities
+        return [entry.name for entry in self._conv_context.get_top_entities(top_n)]
+
+    def get_recent_turns(self, limit: int | None = None) -> list[str]:
+        if self._conv_context is None:
+            return []
+        top_n = limit if limit is not None else self._cfg.conv_multi_query_turns
+        return self._conv_context.get_recent_turns(top_n)
+
+    async def ingest_turn(
+        self,
+        text: str,
+        *,
+        source: str,
+        update_fingerprint: bool | None = None,
+    ) -> None:
+        if self._conv_context is None or not text.strip():
+            return
+        await ConversationFingerprinter.ingest_turn(
+            self._conv_context,
+            text,
+            self.get_embed_fn(),
+            source=source,
+            update_fingerprint=update_fingerprint,
+        )
+
+
+class RecallConversationFingerprintRecorder:
+    """Record recall queries in conversation context without shifting the live fingerprint."""
+
+    def __init__(
+        self,
+        *,
+        cfg: ActivationConfig,
+        search_index: object,
+    ) -> None:
+        self._cfg = cfg
+        self._search_index = search_index
+
+    async def record_recall_query(
+        self,
+        ctx: ConversationContext | None,
+        query: str,
+        *,
+        interaction_source: str,
+    ) -> None:
+        if ctx is None or not self._cfg.conv_fingerprint_enabled:
+            return
+        await ConversationFingerprinter.ingest_turn(
+            ctx,
+            query,
+            self._embed_fn(),
+            source=f"recall_query:{interaction_source}",
+            update_fingerprint=False,
+        )
+
+    def _embed_fn(self):
+        provider = getattr(self._search_index, "_provider", None)
+        if provider and hasattr(provider, "embed_query"):
+            return provider.embed_query
+        return None

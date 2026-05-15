@@ -502,7 +502,7 @@ class ApplyEngine:
                 outcome.new_entity_names.append(name)
 
             outcome.entity_map[name] = entity_id
-            await self._graph.link_episode_entity(episode.id, entity_id)
+            await self._graph.link_episode_entity(episode.id, entity_id, group_id=group_id)
             await self._activation.record_access(entity_id, now, group_id=group_id)
             if self._publish_access_event is not None:
                 await self._publish_access_event(

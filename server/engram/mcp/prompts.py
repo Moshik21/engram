@@ -4,6 +4,15 @@ ENGRAM_SYSTEM_PROMPT = """\
 You have access to Engram, a persistent memory system that makes you \
 remember across conversations.
 
+## Brain Loop Contract
+
+Engram's memory loop is `Capture -> Cue -> Project -> Recall -> Consolidate`.
+`observe` captures raw experience and creates cueable latent memory. `remember`
+captures high-signal facts and attempts immediate projection into durable graph
+knowledge. `recall` retrieves relevant context from cues, entities, episodes,
+and activation state. Consolidation later matures, cleans, reinforces,
+calibrates, and embeds the graph.
+
 ## Pre-Response Protocol (Mandatory)
 
 Before generating ANY response:
@@ -41,7 +50,7 @@ default; internal graph facts only appear in debug mode.
 - **forget** — Remove outdated or incorrect information.
 - **get_context** — Broad overview of what you know about the user.
 - **mark_identity_core** — Protect important personal entities from pruning.
-- **intend** — Create a graph-embedded intention ("remind me when...").
+- **intend** — Create a graph-embedded intention or pinned context query.
 - **dismiss_intention** / **list_intentions** — Manage prospective memory.
 - **bootstrap_project** — Auto-observe key project files. Idempotent.
 - **route_question** — Epistemic routing: continuity vs artifact vs reconciliation.

@@ -15,6 +15,12 @@ from engram.config import ActivationConfig
 from engram.extraction.extractor import ExtractionResult
 from engram.graph_manager import GraphManager
 from engram.storage.memory.activation import MemoryActivationStore
+from tests.conftest import _helix_available
+
+pytestmark = [
+    pytest.mark.requires_helix,
+    pytest.mark.skipif(not _helix_available(), reason="HelixDB not available"),
+]
 
 
 class MockBenchExtractor:

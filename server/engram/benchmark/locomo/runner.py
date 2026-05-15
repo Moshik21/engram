@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engram.benchmark.locomo.adapter import (
+    LOCOMO_BENCHMARK_GROUP_ID,
     conversation_to_episodes,
     load_locomo_dataset,
     probes_to_queries,
@@ -63,7 +64,7 @@ async def run_locomo(
     activation_store,
     search_index,
     cfg: ActivationConfig,
-    group_id: str = "default",
+    group_id: str = LOCOMO_BENCHMARK_GROUP_ID,
     max_conversations: int | None = None,
     limit: int = 3,
 ) -> LoCoMoResult:

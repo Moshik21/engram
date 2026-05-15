@@ -46,14 +46,17 @@ class SQLiteVectorStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._owns_db = False
 
     async def initialize(self, db: aiosqlite.Connection | None = None) -> None:
         """Initialize, optionally sharing a db connection."""
         if db:
             self._db = db
+            self._owns_db = False
         elif not self._db:
             self._db = await aiosqlite.connect(self._db_path)
             self._db.row_factory = aiosqlite.Row
+            self._owns_db = True
 
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS embeddings (
@@ -204,7 +207,7 @@ class SQLiteVectorStore:
     async def search(
         self,
         query_vector: list[float],
-        group_id: str,
+        group_id: str | None,
         content_type: str = "entity",
         limit: int = 20,
         storage_dim: int = 0,
@@ -214,10 +217,18 @@ class SQLiteVectorStore:
         Returns (item_id, similarity_score) pairs sorted by score descending.
         When storage_dim > 0, truncates old full-dim vectors to match.
         """
-        cursor = await self.db.execute(
+        sql = (
             "SELECT id, embedding, dimensions FROM embeddings "
-            "WHERE group_id = ? AND content_type = ?",
-            (group_id, content_type),
+            "WHERE content_type = ?"
+        )
+        params: list[str] = [content_type]
+        if group_id is not None:
+            sql += " AND group_id = ?"
+            params.append(group_id)
+
+        cursor = await self.db.execute(
+            sql,
+            params,
         )
         rows = await cursor.fetchall()
 
@@ -274,3 +285,10 @@ class SQLiteVectorStore:
         )
         row = await cursor.fetchone()
         return row is not None
+
+    async def close(self) -> None:
+        """Close owned connections while leaving borrowed graph DBs open."""
+        if self._db and self._owns_db:
+            await self._db.close()
+        self._db = None
+        self._owns_db = False

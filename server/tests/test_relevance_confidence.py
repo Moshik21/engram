@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from engram.config import ActivationConfig
+from engram.retrieval.confidence import RecallConfidenceApplier, apply_relevance_confidence
 from engram.retrieval.relevance import (
     RelevanceScorer,
     compute_answer_containment,
@@ -323,3 +325,110 @@ def test_scored_result_has_relevance():
 
     sr.relevance_confidence = 0.87
     assert sr.relevance_confidence == 0.87
+
+
+# ── raw recall result post-processing ───────────────────────────────
+
+
+class _SearchIndex:
+    def __init__(self, provider, query_vec: list[float] | None = None):
+        self._provider = provider
+        self._last_query_vec = query_vec
+
+
+@pytest.mark.asyncio
+async def test_apply_relevance_confidence_mutates_raw_recall_results():
+    query_vec = [1.0, 0.0, 0.0, 0.0]
+    provider = FakeProvider(
+        dim=4,
+        vectors={
+            "relevant chunk": [0.8, 0.2, 0.0, 0.0],
+        },
+    )
+    results = [
+        {
+            "result_type": "entity",
+            "entity": {"id": "ent_1", "summary": "Entity summary"},
+            "score": 0.9,
+            "score_breakdown": {"semantic": 0.75, "activation": 0.1},
+        },
+        {
+            "result_type": "cue_episode",
+            "episode": {"id": "ep_1"},
+            "cue": {"compressed_content": "relevant chunk"},
+            "score": 0.6,
+            "score_breakdown": {"semantic": 0.2, "edge_proximity": 0.1},
+        },
+    ]
+
+    await apply_relevance_confidence(
+        query="test query",
+        results=results,
+        search_index=_SearchIndex(provider, query_vec=query_vec),
+    )
+
+    assert results[0]["score_breakdown"]["relevance_confidence"] == pytest.approx(0.75)
+    assert results[1]["score_breakdown"]["relevance_confidence"] > 0.9
+
+
+@pytest.mark.asyncio
+async def test_apply_relevance_confidence_noops_without_embedding_provider():
+    results = [
+        {
+            "result_type": "entity",
+            "entity": {"id": "ent_1", "summary": "Entity summary"},
+            "score": 0.9,
+            "score_breakdown": {"semantic": 0.75},
+        }
+    ]
+
+    await apply_relevance_confidence(
+        query="test query",
+        results=results,
+        search_index=object(),
+    )
+
+    assert results[0]["score_breakdown"] == {"semantic": 0.75}
+
+
+@pytest.mark.asyncio
+async def test_recall_confidence_applier_respects_feature_flag():
+    provider = FakeProvider(dim=4)
+    results = [
+        {
+            "result_type": "entity",
+            "entity": {"id": "ent_1", "summary": "Entity summary"},
+            "score": 0.9,
+            "score_breakdown": {"semantic": 0.75},
+        }
+    ]
+
+    await RecallConfidenceApplier(
+        cfg=ActivationConfig(relevance_confidence_enabled=False),
+        search_index=_SearchIndex(provider),
+    ).apply(query="test query", results=results)
+
+    assert results[0]["score_breakdown"] == {"semantic": 0.75}
+
+
+@pytest.mark.asyncio
+async def test_recall_confidence_applier_swallows_scoring_errors():
+    class BrokenProvider:
+        def dimension(self) -> int:
+            raise RuntimeError("provider unavailable")
+
+    results = [
+        {
+            "result_type": "entity",
+            "entity": {"id": "ent_1", "summary": "Entity summary"},
+            "score": 0.9,
+            "score_breakdown": {"semantic": 0.75},
+        }
+    ]
+
+    await RecallConfidenceApplier(
+        cfg=ActivationConfig(relevance_confidence_enabled=True),
+        search_index=_SearchIndex(BrokenProvider()),
+    ).apply(query="test query", results=results)
+
+    assert results[0]["score_breakdown"] == {"semantic": 0.75}

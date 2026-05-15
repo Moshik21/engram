@@ -26,6 +26,7 @@ from engram.events.bus import EventBus
 from engram.extraction.cues import build_episode_cue
 from engram.extraction.discourse import classify_discourse
 from engram.graph_manager import GraphManager
+from engram.ingestion.projection_state import sync_projection_state
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.retrieval.goals import compute_goal_triage_boost, identify_active_goals
 from engram.retrieval.triage_policy import TriageDecision, apply_episode_utility_policy
@@ -153,15 +154,19 @@ class EpisodeWorker:
                 # Check for system meta-commentary before scoring
                 discourse = classify_discourse(content)
                 if discourse == "system":
-                    await self._manager._graph.update_episode(
+                    await sync_projection_state(
+                        self._manager._graph,
                         episode_id,
-                        {
+                        group_id=group_id,
+                        state=EpisodeProjectionState.CUE_ONLY,
+                        reason="system_discourse",
+                        episode_updates={
                             "status": "completed",
                             "skipped_meta": True,
-                            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
-                            "last_projection_reason": "system_discourse",
                         },
-                        group_id=group_id,
+                        cue_layer_enabled=self._cfg.cue_layer_enabled,
+                        cue_reason="system_discourse",
+                        log_prefix="Worker",
                     )
                     logger.debug("Worker: skipped meta-discourse episode %s", episode_id)
                     continue
@@ -250,21 +255,19 @@ class EpisodeWorker:
                 episode_id,
                 decision.score,
             )
-            await self._manager._graph.update_episode(
+            await sync_projection_state(
+                self._manager._graph,
                 episode_id,
-                {
+                group_id=group_id,
+                state=EpisodeProjectionState.CUE_ONLY,
+                reason="worker_skip_threshold",
+                episode_updates={
                     "status": "completed",
                     "skipped_triage": True,
-                    "projection_state": EpisodeProjectionState.CUE_ONLY.value,
-                    "last_projection_reason": "worker_skip_threshold",
                 },
-                group_id=group_id,
-            )
-            await self._sync_cue_projection_state(
-                episode_id,
-                group_id,
-                EpisodeProjectionState.CUE_ONLY,
-                "worker_skip_threshold",
+                cue_layer_enabled=self._cfg.cue_layer_enabled,
+                cue_reason="worker_skip_threshold",
+                log_prefix="Worker",
             )
         else:
             logger.debug(
@@ -272,19 +275,15 @@ class EpisodeWorker:
                 episode_id,
                 decision.score,
             )
-            await self._manager._graph.update_episode(
+            await sync_projection_state(
+                self._manager._graph,
                 episode_id,
-                {
-                    "projection_state": EpisodeProjectionState.SCHEDULED.value,
-                    "last_projection_reason": "worker_deferred_to_triage",
-                },
                 group_id=group_id,
-            )
-            await self._sync_cue_projection_state(
-                episode_id,
-                group_id,
-                EpisodeProjectionState.SCHEDULED,
-                "worker_deferred_to_triage",
+                state=EpisodeProjectionState.SCHEDULED,
+                reason="worker_deferred_to_triage",
+                cue_layer_enabled=self._cfg.cue_layer_enabled,
+                cue_reason="worker_deferred_to_triage",
+                log_prefix="Worker",
             )
 
     def _schedule_batch_flush(self, group_id: str) -> None:
@@ -360,7 +359,7 @@ class EpisodeWorker:
         """Run extraction on an episode, swallowing errors."""
         try:
             await self._manager.project_episode(episode_id, group_id)
-            await self._record_projection_outcome(episode_id, signals)
+            await self._record_projection_outcome(episode_id, group_id, signals)
         except Exception:
             logger.warning("Worker: extraction failed for %s", episode_id, exc_info=True)
 
@@ -465,6 +464,7 @@ class EpisodeWorker:
     async def _record_projection_outcome(
         self,
         episode_id: str,
+        group_id: str,
         signals: Any | None,
     ) -> None:
         """Feed successful worker projections back into the shared scorer."""
@@ -474,42 +474,13 @@ class EpisodeWorker:
         if get_episode_entities is None:
             return
         try:
-            entity_ids = await get_episode_entities(episode_id)
+            entity_ids = await get_episode_entities(episode_id, group_id=group_id)
         except Exception:
             return
         if isinstance(entity_ids, list):
             scorer = self._get_scorer()
             if scorer is not None:
                 scorer.record_outcome(signals, len(entity_ids))
-
-    async def _sync_cue_projection_state(
-        self,
-        episode_id: str,
-        group_id: str,
-        state: EpisodeProjectionState,
-        reason: str,
-    ) -> None:
-        """Keep cue metadata aligned with worker routing decisions."""
-        if not self._cfg.cue_layer_enabled:
-            return
-        update_cue = getattr(self._manager._graph, "update_episode_cue", None)
-        if update_cue is None or not callable(update_cue):
-            return
-        try:
-            await update_cue(
-                episode_id,
-                {
-                    "projection_state": state,
-                    "route_reason": reason,
-                },
-                group_id=group_id,
-            )
-        except Exception:
-            logger.warning(
-                "Worker: failed to sync cue state for %s",
-                episode_id,
-                exc_info=True,
-            )
 
     async def _rebuild_episode_cue(
         self,
@@ -617,13 +588,15 @@ class EpisodeWorker:
 
         try:
             await upsert_cue(cue)
-            await self._manager._graph.update_episode(
+            await sync_projection_state(
+                self._manager._graph,
                 episode_id,
-                {
-                    "projection_state": cue.projection_state.value,
-                    "last_projection_reason": cue.route_reason,
-                },
                 group_id=group_id,
+                state=cue.projection_state,
+                reason=cue.route_reason,
+                cue_layer_enabled=self._cfg.cue_layer_enabled,
+                sync_cue=False,
+                log_prefix="Worker",
             )
             if self._cfg.cue_vector_index_enabled and hasattr(
                 self._manager._search, "index_episode_cue"
@@ -646,14 +619,17 @@ class EpisodeWorker:
         merged_reason = f"merged_into:{primary_episode_id}"
 
         try:
-            await self._manager._graph.update_episode(
+            await sync_projection_state(
+                self._manager._graph,
                 episode_id,
-                {
-                    "status": "completed",
-                    "projection_state": EpisodeProjectionState.MERGED.value,
-                    "last_projection_reason": merged_reason,
-                },
                 group_id=group_id,
+                state=EpisodeProjectionState.MERGED,
+                reason=merged_reason,
+                episode_updates={
+                    "status": "completed",
+                },
+                cue_layer_enabled=False,
+                log_prefix="Worker",
             )
         except Exception:
             logger.warning(

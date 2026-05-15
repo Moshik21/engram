@@ -20,7 +20,7 @@ from engram.graph_manager import GraphManager
 from engram.models.episode import EpisodeProjectionState
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.worker import EpisodeWorker, _PendingEpisode
-from tests.conftest import MockExtractor
+from tests.conftest import MockExtractor, _helix_available
 
 # GROUP is now generated per-test via gid fixture
 
@@ -147,6 +147,47 @@ async def test_auto_observe_short_content_skipped(api_client):
     assert resp.json()["status"] == "skipped"
 
 
+@pytest.mark.asyncio
+async def test_auto_observe_can_be_disabled(tmp_path):
+    """Auto-observe can be disabled for clean local smoke/demo runs."""
+    from engram.config import EngramConfig
+    from engram.main import _shutdown, _startup, create_app
+
+    _DEDUP_CACHE.clear()
+    config = EngramConfig(
+        mode="lite",
+        sqlite={"path": str(tmp_path / "auto_observe_disabled.db")},
+        server={"auto_observe_enabled": False},
+    )
+    app = create_app(config)
+    await _startup(app, config)
+
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            resp = await client.post(
+                "/api/knowledge/auto-observe",
+                json={
+                    "content": "[user|TestProject] This content would normally be captured",
+                    "source": "auto:prompt",
+                    "project": "TestProject",
+                    "role": "user",
+                    "session_id": "sess-disabled",
+                },
+            )
+            episodes = await client.get("/api/episodes")
+    finally:
+        await _shutdown()
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "skipped"
+    assert resp.json()["reason"] == "disabled"
+    assert episodes.status_code == 200
+    assert episodes.json()["items"] == []
+
+
 # ── Worker Full Content Fetch Tests ─────────────────────────────────
 
 
@@ -194,6 +235,8 @@ async def worker_setup(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 async def test_worker_full_content_fetch(worker_setup, gid):
     """Worker fetches full episode content for auto: sources."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup
@@ -237,6 +280,8 @@ async def test_worker_full_content_fetch(worker_setup, gid):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 async def test_turn_batching(worker_setup, gid):
     """Adjacent auto turns within window are merged into one episode."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup
@@ -274,6 +319,8 @@ async def test_turn_batching(worker_setup, gid):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_setup, gid):
     """Batch merge rebuilds the surviving cue and suppresses merged-away cue recall."""
     mgr, worker, event_bus, graph_store, cfg = worker_setup

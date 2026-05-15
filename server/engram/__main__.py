@@ -6,6 +6,9 @@ Usage:
     engram mcp            Start MCP server (stdio or HTTP)
     engram config         Edit configuration
     engram hooks          Install AutoCapture hooks
+    engram lifecycle      Print local Capture -> Cue -> Project -> Recall -> Consolidate state
+    engram evaluate       Print local brain-loop evaluation report
+    engram doctor         Run local diagnostics and brain-loop smoke
     engram health         Check if server is running
     engram update         Update Engram to latest version
     engram version        Show installed version
@@ -13,7 +16,9 @@ Usage:
 
 import argparse
 import logging
+import os
 import sys
+from pathlib import Path
 
 
 def main():
@@ -27,6 +32,11 @@ def main():
         "  engram mcp                Start MCP server (stdio)\n"
         "  engram mcp --transport streamable-http\n"
         "                            Start MCP server (HTTP on :8200)\n"
+        "  engram lifecycle         Print local brain-loop lifecycle snapshot\n"
+        "  engram evaluate          Print brain-loop evaluation report\n"
+        "  engram evaluate --smoke --mode helix\n"
+        "                            Verify the native Helix brain loop end to end\n"
+        "  engram doctor            Run diagnostics and the brain-loop smoke\n"
         "  engram health             Check if server is running\n",
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -40,7 +50,7 @@ def main():
     )
     setup_parser.add_argument(
         "--mode",
-        choices=["lite", "full", "auto"],
+        choices=["lite", "full", "helix", "auto"],
         default=None,
         help="Pre-select engine mode (skips mode prompt)",
     )
@@ -51,9 +61,15 @@ def main():
     serve_parser.add_argument("--port", type=int, default=8100, help="Port (default: 8100)")
     serve_parser.add_argument(
         "--mode",
-        choices=["lite", "full", "auto"],
-        default="auto",
-        help="Engine mode (default: auto-detect)",
+        choices=["lite", "full", "helix", "auto"],
+        default=None,
+        help="Override engine mode (default: config/auto-detect)",
+    )
+    serve_parser.add_argument(
+        "--helix-data-dir",
+        type=Path,
+        default=None,
+        help="Native Helix data directory for --mode helix.",
     )
 
     # --- mcp ---
@@ -74,6 +90,18 @@ def main():
         type=int,
         default=8200,
         help="Port for HTTP transport (default: 8200)",
+    )
+    mcp_parser.add_argument(
+        "--mode",
+        choices=["lite", "full", "helix", "auto"],
+        default=None,
+        help="Override engine mode (default: config/auto-detect)",
+    )
+    mcp_parser.add_argument(
+        "--helix-data-dir",
+        type=Path,
+        default=None,
+        help="Native Helix data directory for --mode helix.",
     )
 
     # --- config ---
@@ -97,6 +125,33 @@ def main():
         help="Override Claude settings path (default: ~/.claude/settings.json)",
     )
 
+    # --- lifecycle ---
+    lifecycle_parser = subparsers.add_parser(
+        "lifecycle",
+        help="Print local brain-loop lifecycle snapshot",
+    )
+    from engram.lifecycle_cli import configure_lifecycle_parser
+
+    configure_lifecycle_parser(lifecycle_parser)
+
+    # --- evaluate ---
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Print local brain-loop evaluation report",
+    )
+    from engram.evaluation.cli import configure_evaluate_parser
+
+    configure_evaluate_parser(evaluate_parser)
+
+    # --- doctor ---
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run local diagnostics and brain-loop smoke",
+    )
+    from engram.doctor import configure_doctor_parser
+
+    configure_doctor_parser(doctor_parser)
+
     # --- health ---
     subparsers.add_parser("health", help="Check if Engram server is running")
 
@@ -117,8 +172,14 @@ def main():
     parser.add_argument("--port", type=int, default=8100, help=argparse.SUPPRESS)
     parser.add_argument(
         "--mode",
-        choices=["lite", "full", "auto"],
-        default="auto",
+        choices=["lite", "full", "helix", "auto"],
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--helix-data-dir",
+        type=Path,
+        default=None,
         help=argparse.SUPPRESS,
     )
 
@@ -126,8 +187,6 @@ def main():
 
     # --- setup ---
     if args.command == "setup":
-        from pathlib import Path
-
         from engram.setup import setup
 
         env_path = Path(args.env_path) if args.env_path else None
@@ -138,6 +197,7 @@ def main():
     if args.command == "serve":
         import uvicorn
 
+        _apply_mode_override(args)
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -156,6 +216,7 @@ def main():
 
     # --- mcp ---
     if args.command == "mcp":
+        _apply_mode_override(args)
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -172,8 +233,6 @@ def main():
 
     # --- config ---
     if args.command == "config":
-        from pathlib import Path
-
         from engram.setup import config_editor
 
         env_path = Path(args.env_path) if args.env_path else None
@@ -182,13 +241,38 @@ def main():
 
     # --- hooks ---
     if args.command == "hooks":
-        from pathlib import Path
-
         from engram.setup import install_hooks_interactive
 
         hooks_dir = Path(args.hooks_dir) if args.hooks_dir else None
         settings_path = Path(args.settings_path) if args.settings_path else None
         install_hooks_interactive(hooks_dir=hooks_dir, settings_path=settings_path)
+        return
+
+    # --- lifecycle ---
+    if args.command == "lifecycle":
+        import asyncio
+
+        from engram.lifecycle_cli import run_lifecycle_command
+
+        asyncio.run(run_lifecycle_command(args))
+        return
+
+    # --- evaluate ---
+    if args.command == "evaluate":
+        import asyncio
+
+        from engram.evaluation.cli import run_evaluate_command
+
+        asyncio.run(run_evaluate_command(args))
+        return
+
+    # --- doctor ---
+    if args.command == "doctor":
+        import asyncio
+
+        from engram.doctor import run_doctor_command
+
+        asyncio.run(run_doctor_command(args))
         return
 
     # --- health ---
@@ -212,7 +296,6 @@ def main():
     # --- update ---
     if args.command == "update":
         import subprocess
-        from pathlib import Path
 
         # Detect install method: git clone vs pip package
         package_dir = Path(__file__).resolve().parent.parent
@@ -274,6 +357,7 @@ def main():
 
     # --- legacy --transport flag ---
     if args.transport:
+        _apply_mode_override(args)
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -296,6 +380,17 @@ def main():
 
     # No command given — show help
     parser.print_help()
+
+
+def _apply_mode_override(args: argparse.Namespace) -> None:
+    """Let CLI runtime flags override config files for commands that boot runtime."""
+    mode = getattr(args, "mode", None)
+    if mode:
+        os.environ["ENGRAM_MODE"] = mode
+    helix_data_dir = getattr(args, "helix_data_dir", None)
+    if helix_data_dir is not None:
+        os.environ["ENGRAM_HELIX__TRANSPORT"] = "native"
+        os.environ["ENGRAM_HELIX__DATA_DIR"] = str(helix_data_dir.expanduser())
 
 
 if __name__ == "__main__":

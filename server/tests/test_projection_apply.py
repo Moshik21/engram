@@ -53,7 +53,11 @@ async def test_apply_engine_creates_and_links_entities():
     created_id = outcome.entity_map["Phoenix"]
     assert outcome.new_entity_names == ["Phoenix"]
     graph.create_entity.assert_called_once()
-    graph.link_episode_entity.assert_called_once_with("ep_apply", created_id)
+    graph.link_episode_entity.assert_called_once_with(
+        "ep_apply",
+        created_id,
+        group_id="default",
+    )
     activation.record_access.assert_called_once()
     publish_access_event.assert_awaited_once()
 

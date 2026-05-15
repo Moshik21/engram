@@ -2,6 +2,7 @@
 
 import time
 
+import aiosqlite
 import pytest
 import pytest_asyncio
 
@@ -30,6 +31,24 @@ async def store(tmp_path):
 
 class TestConsolidationStore:
     """CRUD operations on consolidation store."""
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_close_borrowed_db_connection(self, tmp_path):
+        db = await aiosqlite.connect(tmp_path / "consol.db")
+        db.row_factory = aiosqlite.Row
+        borrowed_store = SQLiteConsolidationStore(str(tmp_path / "consol.db"))
+        await borrowed_store.initialize(db=db)
+        try:
+            cycle = ConsolidationCycle(group_id="test")
+            await borrowed_store.save_cycle(cycle)
+            await borrowed_store.close()
+
+            row = await (
+                await db.execute("SELECT COUNT(*) FROM consolidation_cycles")
+            ).fetchone()
+            assert row[0] == 1
+        finally:
+            await db.close()
 
     @pytest.mark.asyncio
     async def test_save_and_get_cycle(self, store):

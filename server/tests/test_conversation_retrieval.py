@@ -10,7 +10,11 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
-from engram.retrieval.context import ConversationContext, ConversationFingerprinter
+from engram.retrieval.context import (
+    ConversationContext,
+    ConversationFingerprinter,
+    RecallConversationFingerprintRecorder,
+)
 from engram.retrieval.scorer import ScoredResult, extract_near_misses, score_candidates
 
 # ─── TestConversationContext ─────────────────────────────────────────────
@@ -184,6 +188,74 @@ class TestConversationFingerprinter:
         assert ctx.get_recent_turns(5) == ["live turn"]
         all_entries = ctx.get_recent_turn_entries(5, live_only=False)
         assert all_entries[-1].source == "recall_query:explicit"
+
+
+class TestRecallConversationFingerprintRecorder:
+    @pytest.mark.asyncio
+    async def test_records_recall_query_without_updating_live_fingerprint(self):
+        ctx = ConversationContext()
+
+        async def embed_query(text):
+            if text == "live turn":
+                return [1.0, 0.0]
+            return [0.0, 1.0]
+
+        class Provider:
+            pass
+
+        provider = Provider()
+        provider.embed_query = embed_query
+
+        class SearchIndex:
+            pass
+
+        search_index = SearchIndex()
+        search_index._provider = provider
+
+        await ConversationFingerprinter.ingest_turn(
+            ctx,
+            "live turn",
+            embed_query,
+            source="chat_user",
+        )
+        fingerprint_before = ctx.get_fingerprint()
+
+        await RecallConversationFingerprintRecorder(
+            cfg=ActivationConfig(conv_fingerprint_enabled=True),
+            search_index=search_index,
+        ).record_recall_query(
+            ctx,
+            "recall query",
+            interaction_source="explicit",
+        )
+
+        assert ctx.get_fingerprint() == fingerprint_before
+        assert ctx.get_recent_turns(5) == ["live turn"]
+        all_entries = ctx.get_recent_turn_entries(5, live_only=False)
+        assert all_entries[-1].text == "recall query"
+        assert all_entries[-1].source == "recall_query:explicit"
+        assert all_entries[-1].fingerprinted is False
+
+    @pytest.mark.asyncio
+    async def test_noops_when_disabled_or_missing_context(self):
+        ctx = ConversationContext()
+        recorder = RecallConversationFingerprintRecorder(
+            cfg=ActivationConfig(conv_fingerprint_enabled=False),
+            search_index=object(),
+        )
+
+        await recorder.record_recall_query(
+            ctx,
+            "recall query",
+            interaction_source="explicit",
+        )
+        await recorder.record_recall_query(
+            None,
+            "recall query",
+            interaction_source="explicit",
+        )
+
+        assert ctx.get_recent_turn_entries(5, live_only=False) == []
 
 
 # ─── TestNearMissDetection ───────────────────────────────────────────────

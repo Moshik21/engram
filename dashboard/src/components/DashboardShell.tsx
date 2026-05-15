@@ -9,6 +9,11 @@ const BrainMapPanel = lazy(() =>
     default: module.BrainMapPanel,
   })),
 );
+const LifecyclePanel = lazy(() =>
+  import("./LifecyclePanel").then((module) => ({
+    default: module.LifecyclePanel,
+  })),
+);
 const NodeDetailPanel = lazy(() =>
   import("./NodeDetailPanel").then((module) => ({
     default: module.NodeDetailPanel,
@@ -22,6 +27,11 @@ const MemoryFeed = lazy(() =>
 const StatsPanel = lazy(() =>
   import("./StatsPanel").then((module) => ({
     default: module.StatsPanel,
+  })),
+);
+const EvaluationPanel = lazy(() =>
+  import("./EvaluationPanel").then((module) => ({
+    default: module.EvaluationPanel,
   })),
 );
 const TimelineView = lazy(() =>
@@ -43,6 +53,21 @@ const KnowledgePanel = lazy(() =>
   import("./knowledge/KnowledgePanel").then((module) => ({
     default: module.KnowledgePanel,
   })),
+);
+const CharacterSheet = lazy(() =>
+  import("../views/CharacterSheet").then((m) => ({ default: m.CharacterSheet })),
+);
+const QuestLog = lazy(() =>
+  import("../views/QuestLog").then((m) => ({ default: m.QuestLog })),
+);
+const WorldMap = lazy(() =>
+  import("../views/WorldMap").then((m) => ({ default: m.WorldMap })),
+);
+const Tavern = lazy(() =>
+  import("../views/Tavern").then((m) => ({ default: m.Tavern })),
+);
+const GuildHall = lazy(() =>
+  import("../views/GuildHall").then((m) => ({ default: m.GuildHall })),
 );
 
 function PanelFallback() {
@@ -68,6 +93,7 @@ export function DashboardShell() {
   const error = useEngramStore((s) => s.error);
   const currentView = useEngramStore((s) => s.currentView);
   const brainMapScope = useEngramStore((s) => s.brainMapScope);
+  const dashboardMode = useEngramStore((s) => s.dashboardMode);
   const showNodeDetailPanel =
     currentView === "graph" &&
     (brainMapScope === "neighborhood" || brainMapScope === "temporal");
@@ -80,6 +106,15 @@ export function DashboardShell() {
 
   function renderMainContent() {
     switch (currentView) {
+      case "lifecycle":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <LifecyclePanel />
+          </div>
+        );
       case "feed":
         return (
           <div
@@ -96,6 +131,15 @@ export function DashboardShell() {
             style={{ left: contentLeft, top: 54 }}
           >
             <StatsPanel />
+          </div>
+        );
+      case "evaluation":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <EvaluationPanel />
           </div>
         );
       case "timeline":
@@ -140,6 +184,51 @@ export function DashboardShell() {
             <KnowledgePanel />
           </div>
         );
+      case "character":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <CharacterSheet />
+          </div>
+        );
+      case "questlog":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <QuestLog />
+          </div>
+        );
+      case "worldmap":
+        return (
+          <>
+            <div className="absolute inset-0">
+              <WorldMap />
+            </div>
+            <div className="vignette" />
+          </>
+        );
+      case "tavern":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <Tavern />
+          </div>
+        );
+      case "guildhall":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <GuildHall />
+          </div>
+        );
       case "graph":
       default:
         return (
@@ -156,7 +245,7 @@ export function DashboardShell() {
 
   return (
     <div
-      className="relative h-screen w-screen overflow-hidden"
+      className={`relative h-screen w-screen overflow-hidden${dashboardMode === "quest" ? " quest-mode" : ""}`}
       style={{ background: "var(--void)" }}
     >
       <Suspense fallback={<PanelFallback />}>{renderMainContent()}</Suspense>

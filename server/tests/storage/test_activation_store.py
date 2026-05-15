@@ -1,12 +1,21 @@
 """Tests for MemoryActivationStore."""
 
 import time
+from datetime import datetime
 
 import pytest
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
 from engram.storage.memory.activation import MemoryActivationStore
+
+
+class _RecordingGraphStore:
+    def __init__(self) -> None:
+        self.updates: list[tuple[str, dict, str]] = []
+
+    async def update_entity(self, entity_id: str, updates: dict, group_id: str) -> None:
+        self.updates.append((entity_id, updates, group_id))
 
 
 @pytest.mark.asyncio
@@ -118,3 +127,46 @@ class TestMemoryActivationStore:
         await activation_store.record_access("ent_grp", now, group_id="g1")
         await activation_store.clear_activation("ent_grp")
         assert "ent_grp" not in activation_store._group_map
+
+    async def test_snapshot_to_graph_uses_recorded_group(
+        self,
+        activation_store: MemoryActivationStore,
+    ):
+        """Activation snapshots write through the entity's recorded group."""
+        now = 1_765_000_000.0
+        await activation_store.record_access("ent_grp", now, group_id="brain_a")
+        graph_store = _RecordingGraphStore()
+
+        await activation_store.snapshot_to_graph(graph_store)
+
+        assert graph_store.updates == [
+            (
+                "ent_grp",
+                {
+                    "access_count": 1,
+                    "last_accessed": datetime(2025, 12, 6, 5, 46, 40),
+                },
+                "brain_a",
+            )
+        ]
+
+    async def test_snapshot_to_graph_defaults_ungrouped_state(
+        self,
+        activation_store: MemoryActivationStore,
+    ):
+        """Ungrouped test/demo activation still writes to the default brain."""
+        await activation_store.set_activation(
+            "ent_default",
+            ActivationState(node_id="ent_default", access_count=3),
+        )
+        graph_store = _RecordingGraphStore()
+
+        await activation_store.snapshot_to_graph(graph_store)
+
+        assert graph_store.updates == [
+            (
+                "ent_default",
+                {"access_count": 3, "last_accessed": None},
+                "default",
+            )
+        ]

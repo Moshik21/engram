@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 import uuid
@@ -12,6 +13,7 @@ from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.resolver import resolve_entity
+from engram.ingestion.projection_state import sync_projection_state
 from engram.models.consolidation import (
     CycleContext,
     DecisionOutcomeLabel,
@@ -142,7 +144,12 @@ class EpisodeReplayPhase(ConsolidationPhase):
             affected_episodes = []
             for ep in eligible:
                 try:
-                    linked = set(await graph_store.get_episode_entities(ep.id))
+                    linked = set(
+                        await graph_store.get_episode_entities(
+                            ep.id,
+                            group_id=group_id,
+                        )
+                    )
                     if linked & context.affected_entity_ids:
                         affected_episodes.append(ep)
                 except Exception:
@@ -232,7 +239,12 @@ class EpisodeReplayPhase(ConsolidationPhase):
         # Skip re-extraction if episode's linked entities have no new neighbors
         # (no graph changes affect this episode's context)
         if context and context.affected_entity_ids:
-            linked = set(await graph_store.get_episode_entities(episode.id))
+            linked = set(
+                await graph_store.get_episode_entities(
+                    episode.id,
+                    group_id=group_id,
+                )
+            )
             if linked and not (linked & context.affected_entity_ids):
                 return ReplayRecord(
                     cycle_id=cycle_id,
@@ -243,7 +255,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         extractor = self._extractor
         assert extractor is not None
-        result = await extractor.extract(episode.content)
+        result = await self._extract_episode(extractor, episode, group_id)
 
         if not result.entities and not result.relationships:
             return ReplayRecord(
@@ -254,7 +266,12 @@ class EpisodeReplayPhase(ConsolidationPhase):
             )
 
         # Get entities already linked to this episode
-        already_linked = set(await graph_store.get_episode_entities(episode.id))
+        already_linked = set(
+            await graph_store.get_episode_entities(
+                episode.id,
+                group_id=group_id,
+            )
+        )
 
         entity_map: dict[str, str] = {}
         new_entities = 0
@@ -301,6 +318,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     await graph_store.link_episode_entity(
                         episode.id,
                         entity_id,
+                        group_id=group_id,
                     )
                     await activation_store.record_access(
                         entity_id,
@@ -330,6 +348,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     await graph_store.link_episode_entity(
                         episode.id,
                         entity_id,
+                        group_id=group_id,
                     )
                     await activation_store.record_access(
                         entity_id,
@@ -357,13 +376,15 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         # Mark episode as projected after successful extraction
         if not dry_run and (new_entities > 0 or new_rels > 0 or entities_updated > 0):
-            await graph_store.update_episode(
+            await sync_projection_state(
+                graph_store,
                 episode.id,
-                {
-                    "projection_state": EpisodeProjectionState.PROJECTED.value,
-                    "last_projection_reason": "replay_deferred_extraction",
-                },
                 group_id=group_id,
+                state=EpisodeProjectionState.PROJECTED,
+                reason="replay_deferred_extraction",
+                cue_layer_enabled=cfg.cue_layer_enabled,
+                cue_reason="replay_deferred_extraction",
+                log_prefix="Replay",
             )
 
         return ReplayRecord(
@@ -549,7 +570,12 @@ class EpisodeReplayPhase(ConsolidationPhase):
             content_lower = content.lower()
 
             try:
-                already_linked = set(await graph_store.get_episode_entities(ep.id))
+                already_linked = set(
+                    await graph_store.get_episode_entities(
+                        ep.id,
+                        group_id=group_id,
+                    )
+                )
             except Exception:
                 already_linked = set()
 
@@ -559,7 +585,11 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     continue
                 if name_lower in content_lower:
                     if not dry_run:
-                        await graph_store.link_episode_entity(ep.id, entity_id)
+                        await graph_store.link_episode_entity(
+                            ep.id,
+                            entity_id,
+                            group_id=group_id,
+                        )
                     already_linked.add(entity_id)
                     linked_count += 1
                     if context is not None:
@@ -579,6 +609,29 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 )
 
         return records
+
+    @staticmethod
+    async def _extract_episode(extractor: Any, episode: Any, group_id: str) -> Any:
+        """Call group-aware extractors with replay episode metadata."""
+        extract = extractor.extract
+        kwargs: dict[str, str] = {}
+        try:
+            signature = inspect.signature(extract)
+        except (TypeError, ValueError):
+            signature = None
+
+        if signature is not None:
+            params = signature.parameters
+            accepts_kwargs = any(
+                param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params.values()
+            )
+            if accepts_kwargs or "episode_id" in params:
+                kwargs["episode_id"] = episode.id
+            if accepts_kwargs or "group_id" in params:
+                kwargs["group_id"] = group_id
+
+        return await extract(episode.content, **kwargs)
 
 
 def _elapsed_ms(t0: float) -> float:

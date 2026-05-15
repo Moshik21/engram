@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,6 +14,7 @@ from engram.consolidation.phases.semantic_transition import SemanticTransitionPh
 from engram.models.consolidation import CycleContext
 from engram.models.episode import Episode
 from engram.storage.protocols import EPISODE_UPDATABLE_FIELDS
+from engram.utils.dates import utc_now
 
 # --- Episode model tests ---
 
@@ -151,7 +152,7 @@ def _make_entity(
     entity.name = name
     entity.entity_type = "Concept"
     entity.deleted_at = None
-    entity.created_at = datetime.utcnow() - timedelta(days=created_days_ago)
+    entity.created_at = utc_now() - timedelta(days=created_days_ago)
     entity.identity_core = identity_core
     entity.attributes = attrs or {}
     return entity
@@ -207,8 +208,8 @@ async def test_maturation_phase_transitional_threshold(mat_cfg):
     graph.find_entities.return_value = [entity]
     graph.get_entity_episode_count.return_value = 5
     graph.get_entity_temporal_span.return_value = (
-        (datetime.utcnow() - timedelta(days=45)).isoformat(),
-        datetime.utcnow().isoformat(),
+        (utc_now() - timedelta(days=45)).isoformat(),
+        utc_now().isoformat(),
     )
     graph.get_entity_relationship_types.return_value = ["WORKS_AT", "KNOWS", "USES"]
     activation = AsyncMock()
@@ -283,8 +284,8 @@ async def test_maturation_phase_populates_feature_cache(mat_cfg):
     graph.find_entities.return_value = [entity]
     graph.get_entity_episode_count.return_value = 5
     graph.get_entity_temporal_span.return_value = (
-        (datetime.utcnow() - timedelta(days=21)).isoformat(),
-        datetime.utcnow().isoformat(),
+        (utc_now() - timedelta(days=21)).isoformat(),
+        utc_now().isoformat(),
     )
     graph.get_entity_relationship_types.return_value = ["WORKS_AT", "KNOWS", "USES"]
     activation = AsyncMock()
@@ -400,7 +401,7 @@ async def test_semantic_transition_increments_cycles():
 
     phase = SemanticTransitionPhase()
     result, records = await phase.execute(
-        "default",
+        "tenant_brain",
         graph,
         AsyncMock(),
         AsyncMock(),
@@ -435,7 +436,7 @@ async def test_semantic_transition_promotes_on_coverage():
     phase = SemanticTransitionPhase()
     context = CycleContext()
     result, records = await phase.execute(
-        "default",
+        "tenant_brain",
         graph,
         AsyncMock(),
         AsyncMock(),
@@ -447,6 +448,10 @@ async def test_semantic_transition_promotes_on_coverage():
     assert len(records) == 1
     assert records[0].new_tier == "transitional"
     assert ep.id in context.transitioned_episode_ids
+    graph.get_episode_entities.assert_awaited_once_with(
+        ep.id,
+        group_id="tenant_brain",
+    )
 
 
 @pytest.mark.asyncio
@@ -534,6 +539,7 @@ def test_engine_phase_order():
     assert phases == [
         "triage",
         "merge",
+        "calibrate",
         "infer",
         "evidence_adjudication",
         "edge_adjudication",
@@ -560,6 +566,8 @@ def test_scheduler_phase_tiers():
     assert PHASE_TIERS["mature"] == "warm"
     assert "semanticize" in PHASE_TIERS
     assert PHASE_TIERS["semanticize"] == "warm"
+    assert "edge_adjudication" in PHASE_TIERS
+    assert PHASE_TIERS["edge_adjudication"] == "warm"
 
 
 # --- CycleContext fields ---

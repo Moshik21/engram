@@ -711,6 +711,70 @@ class TestResultStructure:
         assert results[0]["identity_core"] is False
 
 
+# ─── Test: Medium entity-probe rerank ───────────────────────────────
+
+
+@pytest.mark.asyncio
+class TestRecallMedium:
+    async def test_embedding_similarity_reranks_fts_candidates(self):
+        """recall_medium should prefer the embedding-strong entity over FTS rank."""
+        alice_noise = _make_entity(
+            "Alice Archive",
+            entity_type="Document",
+            entity_id="ent_alice_archive",
+        )
+        alice_person = _make_entity(
+            "Alice",
+            entity_type="Person",
+            entity_id="ent_alice_person",
+        )
+        manager = _make_manager(
+            find_candidates_map={
+                "Alice": [alice_noise, alice_person],
+            }
+        )
+        manager._search.compute_similarity = AsyncMock(
+            return_value={
+                "ent_alice_archive": 0.0,
+                "ent_alice_person": 1.0,
+            }
+        )
+
+        results = await manager.recall_medium(
+            text="ask @Alice about the deployment issue",
+            group_id="default",
+        )
+
+        assert [result["name"] for result in results] == ["Alice", "Alice Archive"]
+        manager._search.compute_similarity.assert_awaited_once()
+
+    async def test_embedding_failure_falls_back_to_fts_order(self):
+        """recall_medium should still return FTS candidates when embeddings fail."""
+        alice_noise = _make_entity(
+            "Alice Archive",
+            entity_type="Document",
+            entity_id="ent_alice_archive",
+        )
+        alice_person = _make_entity(
+            "Alice",
+            entity_type="Person",
+            entity_id="ent_alice_person",
+        )
+        manager = _make_manager(
+            find_candidates_map={
+                "Alice": [alice_noise, alice_person],
+            }
+        )
+        manager._search.compute_similarity = AsyncMock(side_effect=RuntimeError("boom"))
+
+        results = await manager.recall_medium(
+            text="ask @Alice about the deployment issue",
+            group_id="default",
+        )
+
+        assert [result["name"] for result in results] == ["Alice Archive", "Alice"]
+
+
 # ─── Test: MCP server _auto_recall_lite wiring ──────────────────────
 
 

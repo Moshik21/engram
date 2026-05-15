@@ -18,7 +18,8 @@ class NarrowExtractorAdapter:
 
     Wraps NarrowExtractionPipeline + AdaptiveCommitPolicy + EvidenceBridge
     behind the same ``async extract(text) -> ExtractionResult`` interface
-    that EntityExtractor uses.
+    that EntityExtractor uses, with optional episode/group metadata for
+    projection paths that can provide it.
     """
 
     def __init__(self, cfg: ActivationConfig | None = None) -> None:
@@ -35,7 +36,13 @@ class NarrowExtractorAdapter:
         )
         self._bridge = EvidenceBridge()
 
-    async def extract(self, text: str) -> ExtractionResult:
+    async def extract(
+        self,
+        text: str,
+        *,
+        episode_id: str = "adapter",
+        group_id: str = "default",
+    ) -> ExtractionResult:
         """Extract entities and relationships using narrow pipeline."""
         if not text or not text.strip():
             return ExtractionResult(
@@ -48,8 +55,8 @@ class NarrowExtractorAdapter:
             # 1. Run narrow extractors
             bundle = self._pipeline.extract(
                 text=text,
-                episode_id="adapter",
-                group_id="default",
+                episode_id=episode_id,
+                group_id=group_id,
             )
 
             # 2. Evaluate commit decisions

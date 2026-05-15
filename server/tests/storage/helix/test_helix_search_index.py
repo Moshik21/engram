@@ -14,6 +14,7 @@ use a ``FakeEmbeddingProvider`` that returns deterministic mock vectors.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import socket
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -456,3 +457,202 @@ class TestRRFFusion:
         merged = _rrf_fusion([("a", 1.0)], [], 0.3, 0.7)
         assert len(merged) == 1
         assert merged[0][0] == "a"
+
+
+# ======================================================================
+# Group-scoped fallback behavior (pure unit tests, no HelixDB needed)
+# ======================================================================
+
+
+def _unit_search_index(*, transport: str = "http") -> HelixSearchIndex:
+    return HelixSearchIndex(
+        helix_config=HelixDBConfig(
+            host="localhost",
+            port=6969,
+            transport=transport,
+            verbose=False,
+        ),
+        provider=FakeEmbeddingProvider(dim=64),
+        embed_config=EmbeddingConfig(),
+        storage_dim=64,
+        embed_provider="fake",
+        embed_model="fake-64",
+    )
+
+
+@pytest.mark.asyncio
+async def test_grouped_entity_vector_fallback_overfetches_before_filtering():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {"entity_id": "other-1", "group_id": "other", "score": 0.99},
+        {"entity_id": "other-2", "group_id": "other", "score": 0.98},
+        {"entity_id": "target", "group_id": "brain", "score": 0.80},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_entity_vectors_filtered":
+            return []
+        if endpoint == "search_entities_bm25":
+            return []
+        if endpoint == "search_entity_vectors":
+            return rows[: payload["k"]]
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search("native target", group_id="brain", limit=2)
+
+    assert results == [("target", 1.0)]
+    assert ("search_entity_vectors", {"vec": index._last_query_vec, "k": 6}) in calls
+
+
+@pytest.mark.asyncio
+async def test_grouped_episode_vector_fallback_overfetches_before_filtering():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {"episode_id": "other-1", "group_id": "other", "score": 0.99},
+        {"episode_id": "other-2", "group_id": "other", "score": 0.98},
+        {"episode_id": "target", "group_id": "brain", "score": 0.80},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_episode_vectors_filtered":
+            return []
+        if endpoint == "search_episodes_bm25":
+            return []
+        if endpoint == "search_episode_vectors":
+            return rows[: payload["k"]]
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episodes("native target", group_id="brain", limit=2)
+
+    assert results == [("target", 1.0)]
+    assert ("search_episode_vectors", {"vec": index._last_query_vec, "k": 6}) in calls
+
+
+@pytest.mark.asyncio
+async def test_grouped_cue_vector_fallback_overfetches_before_filtering():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {"episode_id": "other-1", "group_id": "other", "score": 0.99},
+        {"episode_id": "other-2", "group_id": "other", "score": 0.98},
+        {"episode_id": "target", "group_id": "brain", "score": 0.80},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_cue_vectors_filtered":
+            return []
+        if endpoint == "search_cues_bm25":
+            return []
+        if endpoint == "search_cue_vectors":
+            return rows[: payload["k"]]
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episode_cues(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert results == [("target", 1.0)]
+    assert ("search_cue_vectors", {"vec": index._last_query_vec, "k": 6}) in calls
+
+
+@pytest.mark.asyncio
+async def test_native_chunk_search_uses_client_side_vector_query():
+    index = _unit_search_index(transport="native")
+    index._helix_client = object()
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_episode_chunks_filtered":
+            return [
+                {
+                    "episode_id": "ep-native",
+                    "group_id": "brain",
+                    "chunk_text": "native chunk target",
+                    "chunk_index": 0,
+                    "score": 0.9,
+                }
+            ]
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episode_chunks(
+        "native chunk target",
+        group_id="brain",
+        limit=1,
+    )
+
+    assert results[0]["episode_id"] == "ep-native"
+    assert [endpoint for endpoint, _payload in calls] == [
+        "search_episode_chunks_filtered"
+    ]
+    assert calls[0][1]["gid"] == "brain"
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("helix_native") is None,
+    reason="helix_native PyO3 extension is not installed",
+)
+@pytest.mark.asyncio
+async def test_native_graph_embed_vectors_round_trip_and_clear(tmp_path):
+    index = HelixSearchIndex(
+        helix_config=HelixDBConfig(
+            transport="native",
+            data_dir=str(tmp_path / "native-graph-embed-data"),
+        ),
+        provider=FakeEmbeddingProvider(dim=64),
+        embed_config=EmbeddingConfig(),
+        storage_dim=64,
+        embed_provider="fake",
+        embed_model="fake-64",
+    )
+    await index.initialize()
+    try:
+        vectors = {
+            "ent_graph_a": [0.01 * (i + 1) for i in range(64)],
+            "ent_graph_b": [0.02 * (i + 1) for i in range(64)],
+        }
+
+        synced = await index.sync_graph_embeddings(
+            vectors,
+            method="node2vec",
+            group_id="native_brain",
+            model_version="test",
+        )
+        loaded = await index.get_graph_embeddings(
+            list(vectors),
+            method="node2vec",
+            group_id="native_brain",
+        )
+        deleted = await index.clear_graph_embed_vectors(
+            group_id="native_brain",
+            method="node2vec",
+        )
+        after_clear = await index.get_graph_embeddings(
+            list(vectors),
+            method="node2vec",
+            group_id="native_brain",
+        )
+
+        assert synced == 2
+        assert loaded.keys() == vectors.keys()
+        assert loaded["ent_graph_a"] == pytest.approx(vectors["ent_graph_a"])
+        assert loaded["ent_graph_b"] == pytest.approx(vectors["ent_graph_b"])
+        assert deleted == 2
+        assert after_clear == {}
+    finally:
+        await index.close()

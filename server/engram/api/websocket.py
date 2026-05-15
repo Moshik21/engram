@@ -8,6 +8,7 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from engram.api.deps import get_config, get_manager, get_notification_surface_service
 from engram.events.bus import get_event_bus
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ router = APIRouter()
 async def dashboard_ws(websocket: WebSocket) -> None:
     """WebSocket for dashboard real-time events.
 
-    Subscribes to the default group's event bus and forwards events.
+    Subscribes to the authenticated tenant group's event bus and forwards events.
     Commands:
       - {"type": "ping"} -> pong
       - {"type": "command", "command": "resync", "lastSeq": N} -> replay missed events
@@ -28,12 +29,13 @@ async def dashboard_ws(websocket: WebSocket) -> None:
     """
     # Authenticate BEFORE accepting the connection
     from engram.config import AuthConfig
-    from engram.main import _app_state
     from engram.security.middleware import resolve_tenant_from_scope
 
     try:
-        config = _app_state.get("config")
-        auth_config = config.auth if config else AuthConfig()
+        try:
+            auth_config = get_config().auth
+        except RuntimeError:
+            auth_config = AuthConfig()
         # Try headers first, then fall back to query param token (for browser WS)
         try:
             tenant = await resolve_tenant_from_scope(websocket.headers, auth_config)
@@ -53,6 +55,8 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
     await websocket.accept()
     group_id = tenant.group_id
+    manager = get_manager()
+    notification_surface = get_notification_surface_service()
     bus = get_event_bus()
     queue = bus.subscribe(group_id)
     activation_task: asyncio.Task | None = None
@@ -76,48 +80,20 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
     async def activation_snapshot_loop(interval_ms: int) -> None:
         """Periodically compute and send activation snapshots."""
-        from engram.activation.engine import compute_activation
-        from engram.main import _app_state
-
         interval_s = max(interval_ms / 1000.0, 0.5)  # minimum 500ms
 
         try:
             while True:
                 await asyncio.sleep(interval_s)
                 try:
-                    activation_store = _app_state.get("activation_store")
-                    graph_store = _app_state.get("graph_store")
-                    config = _app_state.get("config")
-                    if not activation_store or not graph_store or not config:
-                        continue
-
-                    now = time.time()
-                    top = await activation_store.get_top_activated(group_id=group_id, limit=20)
-
-                    items = []
-                    for entity_id, state in top:
-                        entity = await graph_store.get_entity(entity_id, group_id)
-                        if not entity:
-                            continue
-                        activation = compute_activation(
-                            state.access_history, now, config.activation
-                        )
-                        items.append(
-                            {
-                                "entityId": entity.id,
-                                "name": entity.name,
-                                "entityType": entity.entity_type,
-                                "currentActivation": round(activation, 4),
-                                "accessCount": state.access_count,
-                            }
-                        )
-
-                    items.sort(key=lambda x: x["currentActivation"], reverse=True)
-
+                    snapshot = await manager.get_activation_snapshot(
+                        group_id=group_id,
+                        limit=20,
+                    )
                     await websocket.send_json(
                         {
                             "type": "activation.snapshot",
-                            "payload": {"topActivated": items},
+                            "payload": {"topActivated": snapshot["topActivated"]},
                         }
                     )
                 except Exception as e:
@@ -179,10 +155,11 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
                     elif command == "dismiss_notification":
                         nid = data.get("id")
-                        if nid:
-                            ns = _app_state.get("notification_store")
-                            if ns:
-                                ns.dismiss(nid)
+                        if nid and notification_surface:
+                            notification_surface.dismiss_notifications(
+                                group_id=group_id,
+                                ids=[str(nid)],
+                            )
 
         except (WebSocketDisconnect, Exception):
             pass

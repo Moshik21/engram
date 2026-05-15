@@ -2,76 +2,27 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import time
+from typing import Any
 
 from engram.config import ActivationConfig
-from engram.consolidation.calibration import (
-    build_calibration_snapshots,
-    build_distillation_examples,
-)
-from engram.consolidation.phases.compact import AccessHistoryCompactionPhase
-from engram.consolidation.phases.dream import DreamSpreadingPhase
-from engram.consolidation.phases.edge_adjudication import EdgeAdjudicationPhase
-from engram.consolidation.phases.evidence_adjudication import EvidenceAdjudicationPhase
-from engram.consolidation.phases.graph_embed import GraphEmbedPhase
-from engram.consolidation.phases.infer import EdgeInferencePhase
-from engram.consolidation.phases.maturation import MaturationPhase
-from engram.consolidation.phases.merge import EntityMergePhase
-from engram.consolidation.phases.microglia import MicrogliaPhase
-from engram.consolidation.phases.prune import PrunePhase
-from engram.consolidation.phases.reindex import ReindexPhase
-from engram.consolidation.phases.replay import EpisodeReplayPhase
-from engram.consolidation.phases.schema_formation import SchemaFormationPhase
-from engram.consolidation.phases.semantic_transition import SemanticTransitionPhase
-from engram.consolidation.phases.triage import TriagePhase
+from engram.consolidation.capabilities import ConsolidationCapabilityValidator
+from engram.consolidation.completion import ConsolidationCycleCompletionService
+from engram.consolidation.events import ConsolidationEventPublisher
+from engram.consolidation.finalization import ConsolidationFinalizationService
+from engram.consolidation.learning import ConsolidationLearningService
+from engram.consolidation.lifecycle import build_cycle_plan
+from engram.consolidation.phase_catalog import build_consolidation_phases
+from engram.consolidation.phase_runner import ConsolidationPhaseRunner
 from engram.events.bus import EventBus
 from engram.models.consolidation import (
     ConsolidationCycle,
     CycleContext,
-    DecisionOutcomeLabel,
-    DecisionTrace,
-    DreamAssociationRecord,
-    DreamRecord,
-    EvidenceAdjudicationRecord,
-    GraphEmbedRecord,
-    IdentifierReviewRecord,
-    InferredEdge,
-    MaturationRecord,
-    MergeRecord,
-    MicrogliaRecord,
-    PruneRecord,
-    ReindexRecord,
-    ReplayRecord,
-    SchemaRecord,
-    SemanticTransitionRecord,
-    TriageRecord,
+    PhaseResult,
 )
 from engram.storage.protocols import ConsolidationStore
-from engram.utils.dates import utc_now_iso
 
 logger = logging.getLogger(__name__)
-
-_AUDIT_PERSISTORS: tuple[tuple[type, str], ...] = (
-    (MergeRecord, "save_merge_record"),
-    (IdentifierReviewRecord, "save_identifier_review_record"),
-    (InferredEdge, "save_inferred_edge"),
-    (PruneRecord, "save_prune_record"),
-    (ReindexRecord, "save_reindex_record"),
-    (ReplayRecord, "save_replay_record"),
-    (DreamAssociationRecord, "save_dream_association_record"),
-    (DreamRecord, "save_dream_record"),
-    (TriageRecord, "save_triage_record"),
-    (GraphEmbedRecord, "save_graph_embed_record"),
-    (MaturationRecord, "save_maturation_record"),
-    (SemanticTransitionRecord, "save_semantic_transition_record"),
-    (SchemaRecord, "save_schema_record"),
-    (MicrogliaRecord, "save_microglia_record"),
-    (EvidenceAdjudicationRecord, "save_evidence_adjudication_record"),
-    (DecisionTrace, "save_decision_trace"),
-    (DecisionOutcomeLabel, "save_decision_outcome_label"),
-)
 
 
 class ConsolidationEngine:
@@ -94,32 +45,62 @@ class ConsolidationEngine:
         self._search = search_index
         self._cfg = cfg
         self._store = consolidation_store
-        self._event_bus = event_bus
-        self._graph_manager = graph_manager
+        self._capabilities = ConsolidationCapabilityValidator(
+            graph_store=self._graph,
+            activation_store=self._activation,
+            search_index=self._search,
+        )
+        self._events = ConsolidationEventPublisher(event_bus)
+        self._learning = ConsolidationLearningService(
+            cfg=self._cfg,
+            consolidation_store=self._store,
+        )
+        self._finalization = ConsolidationFinalizationService(
+            graph_manager=graph_manager,
+        )
+        self._completion = ConsolidationCycleCompletionService(
+            consolidation_store=self._store,
+            learning_service=self._learning,
+            finalization_service=self._finalization,
+            event_publisher=self._events,
+        )
+        self._phase_runner = ConsolidationPhaseRunner(
+            graph_store=self._graph,
+            activation_store=self._activation,
+            search_index=self._search,
+            cfg=self._cfg,
+            consolidation_store=self._store,
+        )
         self._running = False
         self._cancelled = False
 
-        self._phases = [
-            TriagePhase(graph_manager=graph_manager),
-            EntityMergePhase(llm_client=llm_client),
-            EdgeInferencePhase(llm_client=llm_client, escalation_client=llm_client),
-            EvidenceAdjudicationPhase(graph_manager=graph_manager),
-            EdgeAdjudicationPhase(graph_manager=graph_manager),
-            EpisodeReplayPhase(extractor=extractor),
-            PrunePhase(),
-            AccessHistoryCompactionPhase(),
-            MaturationPhase(),
-            SemanticTransitionPhase(),
-            SchemaFormationPhase(),
-            ReindexPhase(),
-            GraphEmbedPhase(),
-            MicrogliaPhase(),
-            DreamSpreadingPhase(),
-        ]
+        self._phases = build_consolidation_phases(
+            graph_manager=graph_manager,
+            extractor=extractor,
+            llm_client=llm_client,
+        )
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    async def get_recent_evaluation_context(
+        self,
+        group_id: str,
+        *,
+        cycle_limit: int,
+    ) -> tuple[list[ConsolidationCycle], list[Any]]:
+        """Return recent cycles and calibration snapshots for evaluation reports."""
+        if not self._store:
+            return [], []
+
+        recent_cycles = await self._store.get_recent_cycles(group_id, limit=cycle_limit)
+        calibration_snapshots: list[Any] = []
+        get_snapshots = getattr(self._store, "get_calibration_snapshots", None)
+        if get_snapshots is not None:
+            for cycle in recent_cycles:
+                calibration_snapshots.extend(await get_snapshots(cycle.id, group_id))
+        return recent_cycles, calibration_snapshots
 
     def cancel(self) -> None:
         """Request cancellation of the current cycle (checked between phases)."""
@@ -146,15 +127,21 @@ class ConsolidationEngine:
         if dry_run is None:
             dry_run = self._cfg.consolidation_dry_run
 
-        self._running = True
-        self._cancelled = False
-
         cycle = ConsolidationCycle(
             group_id=group_id,
             trigger=trigger,
             dry_run=dry_run,
             status="running",
         )
+        cycle_plan = build_cycle_plan(
+            cycle=cycle,
+            phases=self._phases,
+            phase_names=phase_names,
+        )
+        cycle_plan.validate_requested_phase_names()
+
+        self._running = True
+        self._cancelled = False
 
         # Persist initial cycle
         if self._store:
@@ -162,21 +149,17 @@ class ConsolidationEngine:
 
         context = CycleContext(trigger=trigger)
 
-        self._publish(
-            group_id,
-            "consolidation.started",
-            {
-                "cycle_id": cycle.id,
-                "dry_run": dry_run,
-                "trigger": trigger,
-            },
-        )
+        self._events.cycle_started(group_id, cycle_plan)
 
         try:
-            selected_phases = [
-                phase for phase in self._phases if phase_names is None or phase.name in phase_names
-            ]
-            self._validate_phase_capabilities(selected_phases)
+            self._capabilities.validate(
+                tuple(
+                    phase
+                    for phase in self._phases
+                    if phase.name in cycle_plan.selected_phase_names
+                ),
+                cfg=self._cfg,
+            )
 
             for phase in self._phases:
                 if self._cancelled:
@@ -184,65 +167,37 @@ class ConsolidationEngine:
                     break
 
                 # Skip phases not in the requested set (tiered scheduling)
-                if phase_names is not None and phase.name not in phase_names:
+                phase_plan = cycle_plan.phase_plan(phase.name)
+                if phase_plan is None or not phase_plan.selected:
                     continue
 
-                self._publish(
+                self._events.phase_started(
                     group_id,
-                    f"consolidation.phase.{phase.name}.started",
-                    {
-                        "cycle_id": cycle.id,
-                        "phase": phase.name,
-                    },
+                    cycle_id=cycle.id,
+                    phase_plan=phase_plan,
                 )
 
                 try:
-                    trace_start = len(context.decision_traces)
-                    outcome_start = len(context.decision_outcome_labels)
-                    result, records = await phase.execute(
+                    phase_run = await self._phase_runner.run_phase(
+                        phase,
                         group_id=group_id,
-                        graph_store=self._graph,
-                        activation_store=self._activation,
-                        search_index=self._search,
-                        cfg=self._cfg,
                         cycle_id=cycle.id,
                         dry_run=dry_run,
                         context=context,
                     )
-                    cycle.phase_results.append(result)
+                    cycle.phase_results.append(phase_run.result)
 
-                    # Persist audit records
-                    if self._store:
-                        for record in records:
-                            await self._persist_record(record)
-                        for trace in context.decision_traces[trace_start:]:
-                            await self._persist_record(trace)
-                        for label in context.decision_outcome_labels[outcome_start:]:
-                            await self._persist_record(label)
-
-                    # Notify dashboard of removed nodes (prune/merge)
-                    removed_ids: list[str] = []
-                    for record in records:
-                        if isinstance(record, PruneRecord):
-                            removed_ids.append(record.entity_id)
-                        elif isinstance(record, MergeRecord):
-                            removed_ids.append(record.remove_id)
-                    if removed_ids and not dry_run:
-                        self._publish(
-                            group_id,
-                            "graph.delta",
-                            {"nodesRemoved": removed_ids},
-                        )
-
-                    self._publish(
+                    self._events.graph_delta(
                         group_id,
-                        f"consolidation.phase.{phase.name}.completed",
-                        {
-                            "cycle_id": cycle.id,
-                            "phase": phase.name,
-                            "items_processed": result.items_processed,
-                            "items_affected": result.items_affected,
-                        },
+                        removed_node_ids=phase_run.removed_node_ids,
+                        dry_run=dry_run,
+                    )
+
+                    self._events.phase_completed(
+                        group_id,
+                        cycle_id=cycle.id,
+                        result=phase_run.result,
+                        phase_plan=phase_plan,
                     )
 
                 except Exception as exc:
@@ -252,23 +207,17 @@ class ConsolidationEngine:
                         exc,
                         exc_info=True,
                     )
-                    from engram.models.consolidation import PhaseResult
-
-                    cycle.phase_results.append(
-                        PhaseResult(
-                            phase=phase.name,
-                            status="error",
-                            error=str(exc),
-                        )
+                    error_result = PhaseResult(
+                        phase=phase.name,
+                        status="error",
+                        error=str(exc),
                     )
-                    self._publish(
+                    cycle.phase_results.append(error_result)
+                    self._events.phase_failed(
                         group_id,
-                        f"consolidation.phase.{phase.name}.failed",
-                        {
-                            "cycle_id": cycle.id,
-                            "phase": phase.name,
-                            "error": str(exc),
-                        },
+                        cycle_id=cycle.id,
+                        result=error_result,
+                        phase_plan=phase_plan,
                     )
 
             if cycle.status != "cancelled":
@@ -281,227 +230,10 @@ class ConsolidationEngine:
 
         finally:
             self._running = False
-            cycle.completed_at = time.time()
-            cycle.total_duration_ms = round(
-                (cycle.completed_at - cycle.started_at) * 1000,
-                1,
-            )
-
-            if self._store:
-                await self._store.update_cycle(cycle)
-                try:
-                    await self._run_post_cycle_analysis(cycle, context)
-                except Exception:
-                    logger.exception(
-                        "Post-cycle distillation/calibration failed for cycle %s",
-                        cycle.id,
-                    )
-
-            # Refresh pinned contexts after successful consolidation
-            if cycle.status == "completed":
-                try:
-                    await self._refresh_pinned_contexts(group_id)
-                except Exception:
-                    logger.warning(
-                        "Pinned context refresh failed after cycle %s",
-                        cycle.id,
-                        exc_info=True,
-                    )
-
-            self._publish(
-                group_id,
-                "consolidation.completed",
-                {
-                    "cycle_id": cycle.id,
-                    "status": cycle.status,
-                    "duration_ms": cycle.total_duration_ms,
-                    "phases": len(cycle.phase_results),
-                },
+            await self._completion.complete_cycle(
+                group_id=group_id,
+                cycle=cycle,
+                context=context,
             )
 
         return cycle
-
-    def _validate_phase_capabilities(self, phases: list) -> None:
-        for phase in phases:
-            self._validate_capability_group(
-                phase.name,
-                "graph_store",
-                self._graph,
-                phase.required_graph_store_methods(self._cfg),
-            )
-            self._validate_capability_group(
-                phase.name,
-                "activation_store",
-                self._activation,
-                phase.required_activation_store_methods(self._cfg),
-            )
-            self._validate_capability_group(
-                phase.name,
-                "search_index",
-                self._search,
-                phase.required_search_index_methods(self._cfg),
-            )
-
-    @staticmethod
-    def _validate_capability_group(
-        phase_name: str,
-        target_name: str,
-        target: object,
-        required_methods: set[str],
-    ) -> None:
-        if not required_methods:
-            return
-        missing = sorted(method for method in required_methods if not hasattr(target, method))
-        if missing:
-            raise RuntimeError(
-                f"Phase '{phase_name}' requires {target_name} methods: {', '.join(missing)}"
-            )
-
-    async def _persist_record(self, record: object) -> None:
-        if self._store is None:
-            return
-        for record_type, method_name in _AUDIT_PERSISTORS:
-            if isinstance(record, record_type):
-                persist = getattr(self._store, method_name, None)
-                if persist is None:
-                    logger.warning(
-                        "Consolidation store %s does not implement %s for %s",
-                        type(self._store).__name__,
-                        method_name,
-                        record_type.__name__,
-                    )
-                    return
-                await persist(record)
-                return
-
-    async def _run_post_cycle_analysis(
-        self,
-        cycle: ConsolidationCycle,
-        context: CycleContext,
-    ) -> None:
-        if self._store is None:
-            return
-
-        distillation_examples = []
-        if self._cfg.consolidation_distillation_enabled and context.decision_traces:
-            distillation_examples = build_distillation_examples(
-                cycle.id,
-                cycle.group_id,
-                context.decision_traces,
-                context.decision_outcome_labels,
-            )
-            for example in distillation_examples:
-                await self._store.save_distillation_example(example)
-
-        snapshots = []
-        if self._cfg.consolidation_calibration_enabled:
-            recent_cycles = await self._store.get_recent_cycles(
-                cycle.group_id,
-                limit=self._cfg.consolidation_calibration_window_cycles,
-            )
-            traces: list[DecisionTrace] = []
-            labels: list[DecisionOutcomeLabel] = []
-            for recent_cycle in recent_cycles:
-                if recent_cycle.id == cycle.id:
-                    traces.extend(context.decision_traces)
-                    labels.extend(context.decision_outcome_labels)
-                    continue
-                traces.extend(
-                    await self._store.get_decision_traces(recent_cycle.id, cycle.group_id)
-                )
-                labels.extend(
-                    await self._store.get_decision_outcome_labels(recent_cycle.id, cycle.group_id)
-                )
-
-            if traces:
-                snapshots = build_calibration_snapshots(
-                    cycle.id,
-                    cycle.group_id,
-                    traces,
-                    labels,
-                    window_cycles=len(recent_cycles),
-                    min_examples=self._cfg.consolidation_calibration_min_examples,
-                    bins=self._cfg.consolidation_calibration_bins,
-                )
-                for snapshot in snapshots:
-                    snapshot.summary.setdefault(
-                        "requested_window_cycles",
-                        self._cfg.consolidation_calibration_window_cycles,
-                    )
-                    snapshot.summary.setdefault(
-                        "cycles_observed",
-                        len(recent_cycles),
-                    )
-                    await self._store.save_calibration_snapshot(snapshot)
-
-        if distillation_examples or snapshots:
-            self._publish(
-                cycle.group_id,
-                "consolidation.learning.updated",
-                {
-                    "cycle_id": cycle.id,
-                    "distillation_examples": len(distillation_examples),
-                    "calibration_snapshots": len(snapshots),
-                },
-            )
-
-    async def _refresh_pinned_contexts(self, group_id: str) -> None:
-        """Refresh pinned context intentions after consolidation.
-
-        Finds intentions with trigger_type="refresh_context" and
-        refresh_trigger="after_consolidation", re-runs get_context
-        with their topic, and stores the result.
-        """
-        if self._graph_manager is None:
-            return
-
-        gm = self._graph_manager
-        if not hasattr(gm, "list_intentions") or not hasattr(gm, "get_context"):
-            return
-
-        intentions = await gm.list_intentions(group_id=group_id, enabled_only=True)
-        refreshed = 0
-        for entity in intentions:
-            attrs = entity.attributes or {} if hasattr(entity, "attributes") else {}
-            if attrs.get("trigger_type") != "refresh_context":
-                continue
-            if attrs.get("refresh_trigger") != "after_consolidation":
-                continue
-
-            topic = attrs.get("trigger_text", "")
-            if not topic:
-                continue
-
-            try:
-                context_result = await gm.get_context(
-                    group_id=group_id,
-                    topic_hint=topic,
-                    format="structured",
-                )
-                pinned_result = (
-                    json.dumps(context_result)
-                    if isinstance(context_result, dict)
-                    else str(context_result)
-                )
-                await gm.update_intention_meta(
-                    intention_id=entity.id,
-                    group_id=group_id,
-                    updates={
-                        "pinned_result": pinned_result,
-                        "last_refreshed": utc_now_iso(),
-                    },
-                )
-                refreshed += 1
-            except Exception:
-                logger.debug(
-                    "Failed to refresh pinned context %s",
-                    entity.id,
-                )
-
-        if refreshed:
-            logger.info("Refreshed %d pinned context(s) for group %s", refreshed, group_id)
-
-    def _publish(self, group_id: str, event_type: str, payload: dict) -> None:
-        """Publish an event if event bus is available."""
-        if self._event_bus:
-            self._event_bus.publish(group_id, event_type, payload)

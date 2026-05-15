@@ -176,13 +176,56 @@ export interface EntityDetail {
   facts: EntityFact[];
 }
 
-export type EpisodeStatus = "queued" | "processing" | "extracting" | "completed" | "failed";
+export type EpisodeStatus =
+  | "queued"
+  | "extracting"
+  | "resolving"
+  | "writing"
+  | "embedding"
+  | "activating"
+  | "completed"
+  | "retrying"
+  | "dead_letter"
+  | "pending"
+  | "processing"
+  | "failed";
+
+export type EpisodeProjectionState =
+  | "queued"
+  | "cued"
+  | "cue_only"
+  | "scheduled"
+  | "projecting"
+  | "projected"
+  | "merged"
+  | "failed"
+  | "dead_letter";
+
+export interface EpisodeCueSummary {
+  cueText: string | null;
+  projectionState: EpisodeProjectionState | null;
+  routeReason: string | null;
+  hitCount: number;
+  surfacedCount: number;
+  selectedCount: number;
+  usedCount: number;
+  nearMissCount: number;
+  policyScore: number | null;
+  projectionAttempts: number;
+  lastHitAt: string | null;
+  lastFeedbackAt: string | null;
+  lastProjectedAt: string | null;
+}
 
 export interface Episode {
   episodeId: string;
   content: string;
   source: string;
   status: EpisodeStatus;
+  projectionState?: EpisodeProjectionState | null;
+  lastProjectionReason?: string | null;
+  lastProjectedAt?: string | null;
+  conversationDate?: string | null;
   createdAt: string;
   updatedAt: string;
   entities: Array<{ id: string; name: string; entityType: string }>;
@@ -190,6 +233,7 @@ export interface Episode {
   processingDurationMs: number | null;
   error: string | null;
   retryCount: number;
+  cue?: EpisodeCueSummary | null;
 }
 
 export interface GraphStats {
@@ -238,9 +282,122 @@ export interface GraphStats {
       avgRelationshipsPerProjectedEpisode: number;
     };
   };
+  adjudicationMetrics?: {
+    evidenceStatusCounts: {
+      pending: number;
+      deferred: number;
+      approved: number;
+    };
+    requestStatusCounts: {
+      pending: number;
+      deferred: number;
+      error: number;
+    };
+    openEvidenceCount: number;
+    pendingEvidenceCount: number;
+    deferredEvidenceCount: number;
+    approvedEvidenceCount: number;
+    openRequestCount: number;
+    pendingRequestCount: number;
+    deferredRequestCount: number;
+    errorRequestCount: number;
+    openWorkCount: number;
+  };
   topActivated: Array<{ id: string; name: string; entityType: string; activation: number }>;
   topConnected: Array<{ id: string; name: string; entityType: string; connectionCount: number }>;
   growthTimeline: Array<{ date: string; entities: number; episodes: number }>;
+}
+
+export type LifecycleStageKey = "capture" | "cue" | "project" | "recall" | "consolidate";
+export type LifecycleStageStatus = "active" | "ready" | "attention";
+
+export interface LifecycleSummary {
+  groupId: string;
+  generatedAt: string;
+  loop: LifecycleStageKey[];
+  totals: {
+    episodes: number;
+    cues: number;
+    projected: number;
+    cycles: number;
+    entities: number;
+    relationships: number;
+  };
+  capture: {
+    status: LifecycleStageStatus;
+    episodeCount: number;
+    activeCount: number;
+    latestEpisode: Episode | null;
+  };
+  cue: {
+    status: LifecycleStageStatus;
+    cueCount: number;
+    episodesWithoutCues: number;
+    coverage: number;
+    hitCount: number;
+    surfacedCount: number;
+    selectedCount: number;
+    usedCount: number;
+    nearMissCount: number;
+    avgPolicyScore: number;
+    projectionConversionRate: number;
+  };
+  project: {
+    status: LifecycleStageStatus;
+    projectedCount: number;
+    activeCount: number;
+    failedCount: number;
+    deadLetterCount: number;
+    failureRate: number;
+    stateCounts: {
+      queued: number;
+      cued: number;
+      cueOnly: number;
+      scheduled: number;
+      projecting: number;
+      projected: number;
+      merged: number;
+      failed: number;
+      deadLetter: number;
+    };
+  };
+  recall: {
+    status: LifecycleStageStatus;
+    activeEntityCount: number;
+    topScore: number;
+    triggerCount: number;
+    intentions: {
+      activeCount: number;
+      refreshContextCount: number;
+      afterConsolidationCount: number;
+      pinnedResultCount: number;
+      needsRefreshCount: number;
+      latestRefreshedAt: string | null;
+    };
+    topActivated: Array<{
+      id: string;
+      name: string;
+      entityType: string;
+      summary: string | null;
+      activation: number;
+      accessCount: number;
+    }>;
+  };
+  consolidate: {
+    status: LifecycleStageStatus;
+    isRunning: boolean;
+    schedulerActive: boolean;
+    cycleCount: number;
+    pressure: {
+      value: number;
+      threshold: number;
+      episodesSinceLast: number;
+      entitiesCreated: number;
+      lastCycleTime: number | null;
+    } | null;
+    latestCycle: ConsolidationCycleSummary | null;
+  };
+  recentEpisodes: Episode[];
 }
 
 export type WsReadyState = "connecting" | "connected" | "reconnecting" | "disconnected";
@@ -251,14 +408,266 @@ export interface TimeRange {
 }
 
 export type GraphRenderMode = "3d" | "2d";
+export type DashboardMode = "observatory" | "quest";
+
+export interface BrainLoopEvaluationReport {
+  groupId: string;
+  generatedAt: string;
+  loop: LifecycleStageKey[];
+  totals: {
+    episodes: number;
+    entities: number;
+    relationships: number;
+    activeEntities: number;
+  };
+  capture: {
+    status: string;
+    episodeCount: number;
+    activeCount: number;
+  };
+  cue: {
+    status: string;
+    cueCount: number;
+    episodesWithoutCues: number;
+    coverage: number;
+    hitCount: number;
+    hitEpisodeCount: number;
+    hitEpisodeRate: number;
+    surfacedCount: number;
+    selectedCount: number;
+    usedCount: number;
+    nearMissCount: number;
+    selectedRate: number;
+    usedRate: number;
+    nearMissRate: number;
+    avgPolicyScore: number;
+    projectionConversionRate: number;
+  };
+  project: {
+    status: string;
+    stateCounts: {
+      queued: number;
+      cued: number;
+      cueOnly: number;
+      scheduled: number;
+      projecting: number;
+      projected: number;
+      merged: number;
+      failed: number;
+      deadLetter: number;
+    };
+    trackedCount: number;
+    projectedCount: number;
+    activeCount: number;
+    projectedRate: number;
+    backlogRate: number;
+    failedCount: number;
+    deadLetterCount: number;
+    attemptedEpisodeCount: number;
+    totalAttempts: number;
+    failureRate: number;
+    avgProcessingDurationMs: number;
+    avgTimeToProjectionMs: number;
+    yield: {
+      linkedEntityCount: number;
+      relationshipCount: number;
+      avgLinkedEntitiesPerProjectedEpisode: number;
+      avgRelationshipsPerProjectedEpisode: number;
+    };
+  };
+  recall: {
+    status: string;
+    totalAnalyses: number;
+    triggerCount: number;
+    runtimeFalseRecallRate: number;
+    runtimeSurfacedToUsedRatio: number | null;
+    graphLiftRate: number;
+    probeTriggerRate: number;
+    latency: {
+      analyzerMs: {
+        avgMs: number;
+        p95Ms: number;
+      };
+      probeMs: {
+        avgMs: number;
+        p95Ms: number;
+      };
+    };
+    control: {
+      usedCount: number;
+      dismissedCount: number;
+      surfacedCount: number;
+      selectedCount: number;
+      confirmedCount: number;
+      correctedCount: number;
+      graphOverrideCount: number;
+      adaptiveThresholdsEnabled: boolean;
+      thresholds: {
+        linguistic: number;
+        borderline: number;
+        resonance: number;
+      };
+    };
+    familyContributions: Record<string, number>;
+    evaluation: {
+      status: string;
+      sampleCount: number;
+      needStatus: string;
+      needLabeledCount: number;
+      neededCount: number;
+      missedCount: number;
+      memoryNeedPrecision: number | null;
+      memoryNeedRecall: number | null;
+      missedRecallRate: number | null;
+      usefulPacketRate: number | null;
+      falseRecallRate: number | null;
+      surfacedCount: number;
+      usedCount: number;
+      surfacedToUsedRatio: number | null;
+    };
+    continuity: {
+      status: string;
+      sampleCount: number;
+      sessionContinuityLift: number | null;
+      openLoopRecoveryRate: number | null;
+      temporalCorrectness: number | null;
+    };
+  };
+  consolidate: {
+    status: string;
+    cycleCount: number;
+    latestStatus: string | null;
+    latestCycle: Record<string, unknown> | null;
+    phaseStatusCounts: Record<string, number>;
+    phaseTotals: Record<
+      string,
+      { runs: number; itemsProcessed: number; itemsAffected: number; effectRate: number }
+    >;
+    adjudication: {
+      status: string;
+      phaseCount: number;
+      runs: number;
+      itemsProcessed: number;
+      itemsAffected: number;
+      itemsUnaffected: number;
+      effectRate: number;
+      errorCount: number;
+      openEvidenceCount?: number;
+      openRequestCount?: number;
+      openWorkCount?: number;
+      pendingEvidenceCount?: number;
+      deferredEvidenceCount?: number;
+      approvedEvidenceCount?: number;
+      pendingRequestCount?: number;
+      deferredRequestCount?: number;
+      errorRequestCount?: number;
+      evidenceStatusCounts?: Record<string, number>;
+      requestStatusCounts?: Record<string, number>;
+      phaseTotals: Record<
+        string,
+        { runs: number; itemsProcessed: number; itemsAffected: number; effectRate: number }
+      >;
+    };
+    calibration: {
+      status: string;
+      snapshotCount: number;
+      phaseTotals: Record<
+        string,
+        {
+          snapshots: number;
+          totalTraces: number;
+          labeledExamples: number;
+          oracleExamples: number;
+          abstainCount: number;
+          accuracy: number | null;
+          meanConfidence: number | null;
+          expectedCalibrationError: number | null;
+        }
+      >;
+    };
+    itemsProcessed: number;
+    itemsAffected: number;
+    effectRate: number;
+    errorCount: number;
+  };
+  coverageGaps: string[];
+}
+
+export interface RecallEvaluationInput {
+  recallTriggered: boolean;
+  recallHelped: boolean;
+  recallNeeded?: boolean | null;
+  packetsSurfaced: number;
+  packetsUsed: number;
+  falseRecalls: number;
+  source?: string;
+  query?: string | null;
+  notes?: string | null;
+}
+
+export interface RecallEvaluationWriteResponse {
+  status: string;
+  groupId: string;
+  sample: {
+    id: string;
+    recallTriggered: boolean;
+    recallHelped: boolean;
+    recallNeeded: boolean | null;
+    packetsSurfaced: number;
+    packetsUsed: number;
+    falseRecalls: number;
+    source: string;
+    query: string | null;
+    notes: string | null;
+    timestamp: number;
+  };
+}
+
+export interface SessionContinuityEvaluationInput {
+  baselineScore: number;
+  memoryScore: number;
+  openLoopExpected: boolean;
+  openLoopRecovered: boolean;
+  temporalExpected: boolean;
+  temporalCorrect: boolean;
+  source?: string;
+  scenario?: string | null;
+  notes?: string | null;
+}
+
+export interface SessionContinuityEvaluationWriteResponse {
+  status: string;
+  groupId: string;
+  sample: {
+    id: string;
+    baselineScore: number;
+    memoryScore: number;
+    openLoopExpected: boolean;
+    openLoopRecovered: boolean;
+    temporalExpected: boolean;
+    temporalCorrect: boolean;
+    source: string;
+    scenario: string | null;
+    notes: string | null;
+    timestamp: number;
+  };
+}
+
 export type DashboardView =
+  | "lifecycle"
   | "knowledge"
   | "graph"
   | "timeline"
   | "feed"
   | "activation"
   | "stats"
-  | "consolidation";
+  | "evaluation"
+  | "consolidation"
+  | "character"
+  | "questlog"
+  | "worldmap"
+  | "tavern"
+  | "guildhall";
 
 export interface RecallResultEntity {
   resultType: "entity";
@@ -275,7 +684,29 @@ export interface RecallResultEpisode {
   scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
 }
 
-export type RecallResult = RecallResultEntity | RecallResultEpisode;
+export interface RecallResultCueEpisode {
+  resultType: "cue_episode";
+  cue: {
+    episodeId: string;
+    cueText: string | null;
+    supportingSpans: string[];
+    projectionState: EpisodeProjectionState | null;
+    routeReason: string | null;
+    hitCount: number;
+    surfacedCount: number;
+    selectedCount: number;
+    usedCount: number;
+    nearMissCount: number;
+    policyScore: number | null;
+    lastFeedbackAt: string | null;
+    lastProjectedAt: string | null;
+  };
+  episode: { id: string | null; source: string | null; createdAt: string | null };
+  score: number;
+  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+}
+
+export type RecallResult = RecallResultEntity | RecallResultEpisode | RecallResultCueEpisode;
 
 export interface FactResult {
   subject: string;
@@ -368,6 +799,7 @@ export interface SelectionSlice {
 
 export interface PreferencesSlice {
   currentView: DashboardView;
+  lifecycleDrilldownStage: LifecycleStageKey | null;
   renderMode: GraphRenderMode;
   showActivationHeatmap: boolean;
   showEdgeLabels: boolean;
@@ -376,7 +808,9 @@ export interface PreferencesSlice {
   graphMaxNodes: number;
   lastAtlasVisitAt: string | null;
   lastAtlasSnapshotId: string | null;
+  dashboardMode: DashboardMode;
   setCurrentView: (view: DashboardView) => void;
+  setLifecycleDrilldownStage: (stage: LifecycleStageKey | null) => void;
   setRenderMode: (mode: GraphRenderMode) => void;
   toggleActivationHeatmap: () => void;
   toggleEdgeLabels: () => void;
@@ -386,6 +820,7 @@ export interface PreferencesSlice {
   recordAtlasVisit: (
     visit: { generatedAt: string | null; snapshotId?: string | null },
   ) => void;
+  setDashboardMode: (mode: DashboardMode) => void;
 }
 
 export interface TimeSlice {
@@ -415,6 +850,22 @@ export interface StatsSlice {
   stats: GraphStats | null;
   isLoadingStats: boolean;
   loadStats: () => Promise<void>;
+}
+
+export interface LifecycleSlice {
+  lifecycleSummary: LifecycleSummary | null;
+  isLoadingLifecycleSummary: boolean;
+  loadLifecycleSummary: () => Promise<void>;
+}
+
+export interface EvaluationSlice {
+  evaluationReport: BrainLoopEvaluationReport | null;
+  isLoadingEvaluationReport: boolean;
+  isSavingRecallEvaluation: boolean;
+  isSavingSessionEvaluation: boolean;
+  loadEvaluationReport: () => Promise<void>;
+  recordRecallEvaluation: (input: RecallEvaluationInput) => Promise<void>;
+  recordSessionContinuityEvaluation: (input: SessionContinuityEvaluationInput) => Promise<void>;
 }
 
 export interface WebSocketSlice {
@@ -480,12 +931,19 @@ export interface ConsolidationPhaseResult {
 export interface ConsolidationCycleSummary {
   id: string;
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+  phase_issue?: string | null;
   dry_run: boolean;
   trigger: string;
   started_at: number;
   completed_at: number | null;
   total_duration_ms: number;
   phases: ConsolidationPhaseResult[];
+  summary?: {
+    total_processed: number;
+    total_affected: number;
+    description: string;
+  };
 }
 
 export interface ConsolidationMerge {
@@ -637,6 +1095,38 @@ export interface IntentionItem {
   linkedEntityIds: string[];
 }
 
+export type PlayerClass = "Artificer" | "Sage" | "Bard" | "Diplomat" | "Alchemist" | "Cartographer" | "Polymath";
+
+export interface PlayerStats {
+  level: number;
+  xp: number;
+  xpToNext: number;
+  hp: number;
+  mp: number;
+  gold: number;
+  playerClass: PlayerClass;
+  domainScores: Record<string, number>;
+}
+
+export interface QuestEvent {
+  id: string;
+  text: string;
+  xp: number;
+  timestamp: number;
+}
+
+export interface QuestSlice {
+  dashboardMode: DashboardMode;
+  playerStats: PlayerStats;
+  questEvents: QuestEvent[];
+  feedbackPositive: number;
+  feedbackNegative: number;
+  setDashboardMode: (mode: DashboardMode) => void;
+  computePlayerStats: (stats: GraphStats) => void;
+  addQuestEvent: (text: string, xp: number) => void;
+  recordFeedback: (positive: boolean) => void;
+}
+
 export interface ConsolidationSlice {
   cycles: ConsolidationCycleSummary[];
   isLoadingCycles: boolean;
@@ -681,8 +1171,11 @@ export type EngramStore =
   TimeSlice &
   EpisodeSlice &
   StatsSlice &
+  LifecycleSlice &
+  EvaluationSlice &
   WebSocketSlice &
   ActivationSlice &
   ConsolidationSlice &
   KnowledgeSlice &
-  ConversationSlice;
+  ConversationSlice &
+  QuestSlice;

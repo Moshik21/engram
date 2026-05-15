@@ -14,6 +14,7 @@ from engram.models.relationship import Relationship
 from engram.retrieval.pipeline import retrieve
 from engram.retrieval.scorer import ScoredResult
 from engram.utils.dates import utc_now
+from tests.conftest import _helix_available
 
 # ── ScoredResult tests ──────────────────────────────────────────────
 
@@ -68,6 +69,8 @@ class TestEpisodeRetrievalConfig:
 # ── HelixSearchIndex search_episodes tests ──────────────────────────
 
 
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 class TestHelixSearchEpisodes:
     @pytest.mark.asyncio
     async def test_search_episodes_returns_results(self):
@@ -280,6 +283,7 @@ class TestPipelineEpisodeRetrieval:
         cfg = ActivationConfig(
             episode_retrieval_enabled=True,
             episode_retrieval_weight=0.5,
+            retrieval_strategy="hybrid",
         )
 
         results = await retrieve(
@@ -677,8 +681,21 @@ class TestGraphManagerRecallEpisodes:
 
         await gm.recall("test query", group_id="default")
 
-        graph.update_episode.assert_awaited()
-        graph.update_episode_cue.assert_awaited()
+        graph.update_episode.assert_awaited_once_with(
+            "ep_1",
+            {
+                "status": EpisodeStatus.QUEUED.value,
+                "error": None,
+                "projection_state": EpisodeProjectionState.SCHEDULED.value,
+                "last_projection_reason": "cue_recall_hits",
+            },
+            group_id="default",
+        )
+        graph.update_episode_cue.assert_awaited_once()
+        cue_updates = graph.update_episode_cue.await_args.args[1]
+        assert cue_updates["projection_state"] == EpisodeProjectionState.SCHEDULED
+        assert cue_updates["route_reason"] == "cue_recall_hits"
+        assert cue_updates["hit_count"] == 2
 
     @pytest.mark.asyncio
     async def test_recall_selected_feedback_can_promote_cue_before_hit_threshold(self):

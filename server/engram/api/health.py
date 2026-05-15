@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from engram import __version__
+from engram.api.deps import get_config, get_graph_store, get_mode
 
 router = APIRouter()
 
@@ -28,13 +29,20 @@ class HealthResponse(BaseModel):
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Return health status. Exempt from auth middleware."""
-    from engram.main import _app_state
-
     services: dict[str, ServiceStatus] = {}
 
-    if _app_state.get("graph_store"):
+    try:
+        graph_store = get_graph_store()
+    except RuntimeError:
+        graph_store = None
+
+    if graph_store:
         try:
-            await _app_state["graph_store"].get_stats()
+            try:
+                group_id = get_config().default_group_id
+            except RuntimeError:
+                group_id = "default"
+            await graph_store.get_stats(group_id=group_id)
             services["graph_store"] = ServiceStatus.HEALTHY
         except Exception:
             services["graph_store"] = ServiceStatus.UNHEALTHY
@@ -51,6 +59,6 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status=status,
         version=__version__,
-        mode=_app_state.get("mode", "unknown"),
+        mode=get_mode(),
         services=services,
     )

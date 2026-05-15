@@ -290,7 +290,7 @@ class TestSurpriseDetection:
         )
         assert surprises == []
 
-    def test_surprise_cache_ttl(self):
+    async def test_surprise_cache_ttl(self):
         """Cache entries expire after TTL."""
         cache = SurpriseCache(ttl_seconds=10.0)
         conn = SurpriseConnection(
@@ -308,7 +308,7 @@ class TestSurpriseDetection:
         assert len(cache.get("default", now + 5)) == 1
         assert len(cache.get("default", now + 15)) == 0
 
-    def test_surprise_cache_clear(self):
+    async def test_surprise_cache_clear(self):
         """Cache clear removes all entries."""
         cache = SurpriseCache(ttl_seconds=300.0)
         conn = SurpriseConnection(

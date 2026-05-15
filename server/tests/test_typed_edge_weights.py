@@ -6,6 +6,7 @@ import pytest
 
 from engram.activation.spreading import spread_activation
 from engram.config import ActivationConfig
+from tests.conftest import _helix_available
 
 
 class MockNeighborProvider2Tuple:
@@ -154,6 +155,8 @@ async def test_zero_weight_blocks_propagation():
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 async def test_sqlite_integration_returns_3tuple(tmp_path):
     from engram.config import HelixDBConfig
     from engram.storage.helix.graph import HelixGraphStore

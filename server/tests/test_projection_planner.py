@@ -32,10 +32,11 @@ def test_projection_planner_prefers_late_correction_span():
 def test_projection_planner_keeps_short_episode_intact():
     content = "Alex moved to Phoenix and is redesigning Engram extraction."
     cfg = ActivationConfig(projection_planner_enabled=True)
-    episode = Episode(id="ep_short", content=content, group_id="default")
+    episode = Episode(id="ep_short", content=content, group_id="brain_a")
 
     plan = ProjectionPlanner(cfg).plan(episode)
 
+    assert plan.group_id == "brain_a"
     assert plan.strategy == "full_episode"
     assert plan.selected_text == content
     assert plan.was_truncated is False

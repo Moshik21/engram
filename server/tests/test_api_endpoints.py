@@ -4,17 +4,50 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 import httpx
 import pytest
 import pytest_asyncio
 
+from engram.api.health import ServiceStatus, health_check
 from engram.config import EngramConfig
+from engram.evaluation.store import StoredRecallRuntimeMetricsSnapshot
 from engram.main import _app_state, _shutdown, _startup, create_app
+from engram.models.consolidation import ConsolidationCycle, PhaseResult
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
+
+
+class _HealthGraphStore:
+    def __init__(self) -> None:
+        self.group_ids: list[str | None] = []
+
+    async def get_stats(self, group_id: str | None = None) -> dict:
+        self.group_ids.append(group_id)
+        return {}
+
+
+@pytest.mark.asyncio
+async def test_health_uses_configured_default_group() -> None:
+    graph_store = _HealthGraphStore()
+    _app_state.clear()
+    _app_state.update(
+        {
+            "graph_store": graph_store,
+            "config": EngramConfig(default_group_id="native_brain"),
+            "mode": "helix",
+        }
+    )
+    try:
+        response = await health_check()
+    finally:
+        _app_state.clear()
+
+    assert response.status == ServiceStatus.HEALTHY
+    assert graph_store.group_ids == ["native_brain"]
 
 
 @pytest_asyncio.fixture
@@ -127,6 +160,62 @@ async def empty_client(tmp_path):
 
     await _shutdown()
     _app_state.clear()
+
+
+class TestConsolidationAPI:
+    @pytest.mark.asyncio
+    async def test_status_and_history_include_cycle_and_phase_errors(self, api_client):
+        store = _app_state["consolidation_store"]
+        cycle = ConsolidationCycle(
+            group_id="default",
+            trigger="manual",
+            dry_run=True,
+            status="failed",
+            error="Capability validation failed",
+            phase_results=[
+                PhaseResult(
+                    phase="triage",
+                    status="error",
+                    items_processed=2,
+                    items_affected=0,
+                    duration_ms=12.5,
+                    error="missing graph method",
+                )
+            ],
+        )
+        cycle.completed_at = cycle.started_at + 1
+        cycle.total_duration_ms = 1000.0
+        await store.save_cycle(cycle)
+
+        status_resp = await api_client.get("/api/consolidation/status")
+        assert status_resp.status_code == 200
+        latest = status_resp.json()["latest_cycle"]
+        assert latest["id"] == cycle.id
+        assert latest["status"] == "failed"
+        assert latest["error"] == "Capability validation failed"
+        assert latest["phases"][0]["duration_ms"] == 12.5
+        assert latest["phases"][0]["error"] == "missing graph method"
+        assert latest["summary"] == {
+            "total_processed": 2,
+            "total_affected": 0,
+            "description": ("Dry run failed cycle: 2 items processed, 0 affected across 1 phases"),
+        }
+
+        history_resp = await api_client.get("/api/consolidation/history")
+        assert history_resp.status_code == 200
+        history_cycle = history_resp.json()["cycles"][0]
+        assert history_cycle["id"] == cycle.id
+        assert history_cycle["error"] == "Capability validation failed"
+        assert history_cycle["phases"][0]["duration_ms"] == 12.5
+        assert history_cycle["phases"][0]["error"] == "missing graph method"
+        assert history_cycle["summary"]["total_processed"] == 2
+
+        detail_resp = await api_client.get(f"/api/consolidation/cycle/{cycle.id}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()
+        assert detail["error"] == "Capability validation failed"
+        assert detail["phases"][0]["error"] == "missing graph method"
+        assert detail["summary"]["description"].startswith("Dry run failed cycle:")
 
 
 # ─── TestGraphNeighborhood ────────────────────────────────────────
@@ -526,6 +615,265 @@ class TestStats:
         assert data["stats"]["cue_metrics"]["cue_coverage"] == 0.0
         assert data["stats"]["projection_metrics"]["state_counts"]["projected"] == 0
         assert data["stats"]["projection_metrics"]["failure_rate"] == 0.0
+
+
+# ─── TestActivation ────────────────────────────────────────────────
+
+
+class TestActivation:
+    @pytest.mark.asyncio
+    async def test_activation_snapshot_returns_dashboard_payload(self, api_client):
+        resp = await api_client.get("/api/activation/snapshot?limit=5")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "topActivated" in data
+        assert isinstance(data["topActivated"], list)
+        if data["topActivated"]:
+            item = data["topActivated"][0]
+            assert "entityId" in item
+            assert "currentActivation" in item
+            assert "decayRate" in item
+
+    @pytest.mark.asyncio
+    async def test_activation_curve_returns_dashboard_payload(self, api_client):
+        resp = await api_client.get("/api/activation/ent_alice/curve?hours=1&points=4")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["entityId"] == "ent_alice"
+        assert data["entityName"] == "Alice"
+        assert len(data["curve"]) == 4
+        assert "accessEvents" in data
+        assert "formula" in data
+
+    @pytest.mark.asyncio
+    async def test_activation_curve_missing_entity_returns_404(self, api_client):
+        resp = await api_client.get("/api/activation/ent_missing/curve")
+        assert resp.status_code == 404
+
+
+# ─── TestLifecycleSummary ────────────────────────────────────────
+
+
+class TestLifecycleSummary:
+    @pytest.mark.asyncio
+    async def test_lifecycle_summary_maps_brain_loop_contract(self, api_client):
+        graph_store = _app_state["graph_store"]
+        await graph_store.update_episode(
+            "ep_test_0",
+            {
+                "projection_state": EpisodeProjectionState.PROJECTED,
+                "processing_duration_ms": 180,
+                "last_projected_at": datetime(2025, 1, 10, 12, 0, 3),
+            },
+            group_id="default",
+        )
+        await graph_store.update_episode(
+            "ep_test_1",
+            {"projection_state": EpisodeProjectionState.FAILED},
+            group_id="default",
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_test_0",
+                group_id="default",
+                projection_state=EpisodeProjectionState.PROJECTED,
+                cue_text="Alice project context",
+                hit_count=2,
+                surfaced_count=1,
+                selected_count=1,
+                used_count=1,
+                policy_score=0.8,
+                projection_attempts=1,
+                created_at=datetime(2025, 1, 10, 12, 0, 0),
+                last_projected_at=datetime(2025, 1, 10, 12, 0, 3),
+            )
+        )
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id="ep_test_1",
+                group_id="default",
+                projection_state=EpisodeProjectionState.FAILED,
+                cue_text="failed projection",
+                near_miss_count=1,
+                policy_score=0.2,
+                projection_attempts=2,
+            )
+        )
+
+        resp = await api_client.get("/api/lifecycle/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["groupId"] == "default"
+        assert data["loop"] == ["capture", "cue", "project", "recall", "consolidate"]
+        assert data["totals"]["episodes"] == 3
+        assert data["totals"]["cues"] == 2
+        assert data["totals"]["projected"] == 1
+        assert data["capture"]["episodeCount"] == 3
+        assert data["capture"]["latestEpisode"]["episodeId"] == "ep_test_2"
+        assert data["cue"]["coverage"] == pytest.approx(2 / 3, abs=1e-4)
+        assert data["cue"]["usedCount"] == 1
+        assert data["project"]["status"] == "attention"
+        assert data["project"]["stateCounts"]["queued"] == 1
+        assert data["project"]["stateCounts"]["failed"] == 1
+        assert data["recall"]["status"] in {"ready", "active"}
+        assert isinstance(data["recall"]["topActivated"], list)
+        assert data["recall"]["intentions"]["activeCount"] == 0
+        assert data["consolidate"]["status"] == "ready"
+        assert data["consolidate"]["latestCycle"] is None
+        assert len(data["recentEpisodes"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_lifecycle_summary_empty_graph_uses_zero_contract(self, empty_client):
+        resp = await empty_client.get("/api/lifecycle/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["totals"]["episodes"] == 0
+        assert data["capture"]["latestEpisode"] is None
+        assert data["cue"]["coverage"] == 0.0
+        assert data["project"]["stateCounts"]["projected"] == 0
+        assert data["recall"]["topActivated"] == []
+        assert data["consolidate"]["cycleCount"] == 0
+
+
+# ─── TestEvaluation ───────────────────────────────────────────────
+
+
+class TestEvaluation:
+    @pytest.mark.asyncio
+    async def test_evaluation_api_records_labels_and_reports_quality(self, api_client):
+        recall_resp = await api_client.post(
+            "/api/evaluation/recall-samples",
+            json={
+                "recallTriggered": True,
+                "recallHelped": True,
+                "recallNeeded": True,
+                "packetsSurfaced": 3,
+                "packetsUsed": 2,
+                "falseRecalls": 1,
+                "query": "What did I decide?",
+            },
+        )
+        assert recall_resp.status_code == 201
+        recall_data = recall_resp.json()
+        assert recall_data["status"] == "stored"
+        assert recall_data["groupId"] == "default"
+        assert recall_data["sample"]["recallTriggered"] is True
+        assert recall_data["sample"]["recallNeeded"] is True
+
+        session_resp = await api_client.post(
+            "/api/evaluation/session-samples",
+            json={
+                "baselineScore": 0.2,
+                "memoryScore": 0.7,
+                "openLoopExpected": True,
+                "openLoopRecovered": True,
+                "temporalExpected": True,
+                "temporalCorrect": False,
+                "scenario": "open-loop follow-up",
+            },
+        )
+        assert session_resp.status_code == 201
+        session_data = session_resp.json()
+        assert session_data["sample"]["openLoopRecovered"] is True
+
+        report_resp = await api_client.get("/api/evaluation/brain-loop/report")
+        assert report_resp.status_code == 200
+        report = report_resp.json()
+
+        assert report["group_id"] == "default"
+        assert report["loop"] == ["capture", "cue", "project", "recall", "consolidate"]
+        assert report["recall"]["evaluation"]["status"] == "measured"
+        assert report["recall"]["evaluation"]["memory_need_precision"] == 1.0
+        assert report["recall"]["evaluation"]["memory_need_recall"] == 1.0
+        assert report["recall"]["evaluation"]["missed_recall_rate"] == 0.0
+        assert report["recall"]["evaluation"]["useful_packet_rate"] == pytest.approx(
+            2 / 3,
+            abs=1e-4,
+        )
+        assert report["recall"]["evaluation"]["false_recall_rate"] == pytest.approx(
+            1 / 3,
+            abs=1e-4,
+        )
+        assert report["recall"]["latency"]["analyzer_ms"] == {"avg_ms": 0.0, "p95_ms": 0.0}
+        assert report["recall"]["latency"]["probe_ms"] == {"avg_ms": 0.0, "p95_ms": 0.0}
+        assert report["recall"]["control"]["graph_override_count"] == 0
+        assert report["recall"]["control"]["adaptive_thresholds_enabled"] is False
+        assert report["recall"]["continuity"]["status"] == "measured"
+        assert report["recall"]["continuity"]["session_continuity_lift"] == 0.5
+        assert report["recall"]["continuity"]["open_loop_recovery_rate"] == 1.0
+        assert report["recall"]["continuity"]["temporal_correctness"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_evaluation_report_empty_graph_uses_gap_contract(self, empty_client):
+        resp = await empty_client.get("/api/evaluation/brain-loop/report")
+        assert resp.status_code == 200
+        report = resp.json()
+
+        assert report["capture"]["status"] == "empty"
+        assert report["recall"]["evaluation"]["status"] == "needs_samples"
+        assert "recall quality needs labeled recall_samples input" in report["coverage_gaps"]
+
+    @pytest.mark.asyncio
+    async def test_evaluation_report_uses_saved_recall_runtime_snapshot(self, api_client):
+        store = _app_state["evaluation_store"]
+        await store.save_recall_metrics_snapshot(
+            StoredRecallRuntimeMetricsSnapshot(
+                group_id="default",
+                metrics={
+                    "total_analyses": 2,
+                    "trigger_count": 1,
+                    "analyzer_latency_ms": {"avg": 7.0, "p95": 14.0},
+                    "probe_latency_ms": {"avg": 4.0, "p95": 8.0},
+                    "surfaced_count": 3,
+                    "thresholds": {"resonance": 0.52},
+                },
+                source="test",
+            )
+        )
+
+        resp = await api_client.get("/api/evaluation/brain-loop/report")
+        assert resp.status_code == 200
+        report = resp.json()
+
+        assert report["recall"]["total_analyses"] == 2
+        assert report["recall"]["trigger_count"] == 1
+        assert report["recall"]["latency"]["analyzer_ms"]["p95_ms"] == 14.0
+        assert report["recall"]["latency"]["probe_ms"]["avg_ms"] == 4.0
+        assert report["recall"]["control"]["surfaced_count"] == 3
+        assert report["recall"]["control"]["thresholds"]["resonance"] == 0.52
+        assert "recall gate needs runtime analyses" not in report["coverage_gaps"]
+
+    @pytest.mark.asyncio
+    async def test_evaluation_report_persists_live_recall_runtime_snapshot(self, api_client):
+        manager = _app_state["graph_manager"]
+        store = _app_state["evaluation_store"]
+        manager.record_memory_need_analysis(
+            "default",
+            SimpleNamespace(
+                should_recall=True,
+                trigger_family="keyword",
+                analyzer_latency_ms=11.0,
+                probe_triggered=True,
+                probe_latency_ms=5.0,
+                decision_path="graph_lift",
+                graph_override_used=True,
+            ),
+        )
+
+        resp = await api_client.get("/api/evaluation/brain-loop/report")
+        assert resp.status_code == 200
+        report = resp.json()
+        saved = await store.get_latest_recall_metrics_snapshot("default")
+
+        assert report["recall"]["total_analyses"] == 1
+        assert report["recall"]["latency"]["analyzer_ms"]["p95_ms"] == 11.0
+        assert report["recall"]["latency"]["probe_ms"]["p95_ms"] == 5.0
+        assert saved["total_analyses"] == 1
+        assert saved["trigger_count"] == 1
+        assert saved["analyzer_latency_ms"]["p95"] == 11.0
+        assert saved["graph_lift_rate"] == 1.0
 
 
 # ─── TestEpisodes ────────────────────────────────────────────────

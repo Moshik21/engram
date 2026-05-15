@@ -28,6 +28,7 @@ def _make_graph_store(episodes: list[FakeEpisode] | None = None):
     store = AsyncMock()
     store.get_episodes_paginated = AsyncMock(return_value=(episodes or [], None))
     store.update_episode = AsyncMock()
+    store.update_episode_cue = AsyncMock()
     return store
 
 
@@ -97,6 +98,33 @@ async def test_triage_scores_and_promotes():
 
 
 @pytest.mark.asyncio
+async def test_triage_projection_outcome_reads_entities_in_cycle_group():
+    """Projection-yield feedback uses the active consolidation group."""
+    graph = _make_graph_store([])
+    graph.get_episode_entities = AsyncMock(return_value=["ent_scoped"])
+
+    phase = TriagePhase()
+    scorer = MagicMock()
+    phase._scorer = scorer
+    scored = MagicMock()
+    scored.episode.id = "ep_scoped"
+    scored.signals = object()
+
+    count = await phase._record_projection_outcome(
+        graph,
+        scored,
+        group_id="tenant_brain",
+    )
+
+    assert count == 1
+    graph.get_episode_entities.assert_awaited_once_with(
+        "ep_scoped",
+        group_id="tenant_brain",
+    )
+    scorer.record_outcome.assert_called_once_with(scored.signals, 1)
+
+
+@pytest.mark.asyncio
 async def test_triage_respects_extract_ratio():
     """Correct number promoted based on ratio."""
     episodes = [
@@ -159,6 +187,46 @@ async def test_triage_allows_zero_extractions_below_threshold():
     assert result.items_affected == 0
     assert all(r.decision == "skip" for r in records)
     manager.project_episode.assert_not_called()
+    graph.update_episode_cue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_triage_ratio_skip_syncs_episode_cue_when_enabled():
+    """Triage-skipped episodes keep cue routing metadata aligned."""
+    episodes = [
+        FakeEpisode(id="ep_1", content="ok"),
+        FakeEpisode(id="ep_2", content="sure"),
+    ]
+    graph = _make_graph_store(episodes)
+    manager = MagicMock()
+    manager.project_episode = AsyncMock()
+
+    phase = TriagePhase(graph_manager=manager)
+    cfg = _make_cfg(
+        cue_layer_enabled=True,
+        triage_extract_ratio=0.35,
+        triage_min_score=0.4,
+    )
+
+    await phase.execute(
+        group_id="default",
+        graph_store=graph,
+        activation_store=AsyncMock(),
+        search_index=AsyncMock(),
+        cfg=cfg,
+        cycle_id="cyc_test",
+        dry_run=False,
+    )
+
+    assert graph.update_episode_cue.call_count == 2
+    graph.update_episode_cue.assert_any_call(
+        "ep_1",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "triage_ratio_skip",
+        },
+        group_id="default",
+    )
 
 
 @pytest.mark.asyncio
@@ -366,8 +434,43 @@ async def test_triage_skips_system_discourse():
         },
         group_id="default",
     )
+    graph.update_episode_cue.assert_not_called()
     # Real episode extracted
     manager.project_episode.assert_called_once_with("ep_real", "default")
+
+
+@pytest.mark.asyncio
+async def test_triage_meta_skip_syncs_episode_cue_when_enabled():
+    """System-discourse triage skips keep cue routing metadata aligned."""
+    episodes = [
+        FakeEpisode(
+            id="ep_meta",
+            content="Entity ent_abc123 has activation score 0.91 in the retrieval pipeline",
+        ),
+    ]
+    graph = _make_graph_store(episodes)
+
+    phase = TriagePhase()
+    cfg = _make_cfg(cue_layer_enabled=True)
+
+    await phase.execute(
+        group_id="default",
+        graph_store=graph,
+        activation_store=AsyncMock(),
+        search_index=AsyncMock(),
+        cfg=cfg,
+        cycle_id="cyc_test",
+        dry_run=False,
+    )
+
+    graph.update_episode_cue.assert_called_once_with(
+        "ep_meta",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "triage_skip_meta",
+        },
+        group_id="default",
+    )
 
 
 @pytest.mark.asyncio
@@ -398,6 +501,7 @@ async def test_triage_dry_run_skips_meta_without_update():
     assert records[0].decision == "skip_meta"
     # No side effects in dry run
     graph.update_episode.assert_not_called()
+    graph.update_episode_cue.assert_not_called()
 
 
 @pytest.mark.asyncio

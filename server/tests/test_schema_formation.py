@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +17,7 @@ from engram.consolidation.phases.schema_formation import (
 from engram.models.consolidation import CycleContext, SchemaRecord
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
 
 # --- Helper factories ---
 
@@ -34,8 +34,8 @@ def _entity(
         entity_type=etype,
         group_id="default",
         attributes=attrs or {},
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=utc_now(),
+        updated_at=utc_now(),
     )
 
 
@@ -560,16 +560,17 @@ async def test_phase_schema_record_fields():
 # --- Integration tests ---
 
 
-def test_engine_has_15_phases():
+def test_engine_has_16_phases():
     from engram.consolidation.engine import ConsolidationEngine
 
     cfg = ActivationConfig()
     e = ConsolidationEngine(AsyncMock(), AsyncMock(), AsyncMock(), cfg)
     phases = [p.name for p in e._phases]
-    assert len(phases) == 15
+    assert len(phases) == 16
     assert phases == [
         "triage",
         "merge",
+        "calibrate",
         "infer",
         "evidence_adjudication",
         "edge_adjudication",
@@ -591,6 +592,8 @@ def test_phase_tiers_has_schema():
 
     assert "schema" in PHASE_TIERS
     assert PHASE_TIERS["schema"] == "cold"
+    assert "edge_adjudication" in PHASE_TIERS
+    assert PHASE_TIERS["edge_adjudication"] == "warm"
 
 
 def test_cycle_context_has_schema_entity_ids():

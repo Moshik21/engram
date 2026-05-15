@@ -5,9 +5,10 @@ Implements the SearchIndex protocol using HelixDB's native vector search
 Rank Fusion in Python.
 
 When a group_id is provided, filtered vector search queries
-(``search_entity_vectors_filtered``, etc.) push group filtering into HelixDB,
-eliminating the need for Python-side overfetch + post-hoc filtering on the
-vector path.  BM25 results still require post-hoc group filtering.
+(``search_entity_vectors_filtered``, etc.) push group filtering into HelixDB.
+If those queries are unavailable or return no rows, the vector path falls back
+to over-fetched unfiltered search plus Python-side group filtering. BM25
+results also require post-hoc group filtering.
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ class HelixSearchIndex:
         embed_provider: str = "auto",
         embed_model: str = "noop",
         client=None,
+        owns_client: bool | None = None,
         topic_segmentation: bool = True,
         topic_threshold: float = 0.5,
     ) -> None:
@@ -125,6 +127,7 @@ class HelixSearchIndex:
         self._topic_threshold = topic_threshold
         self._client: Any = None  # helix.Client, created lazily in initialize()
         self._helix_client = client  # Shared HelixClient (async httpx)
+        self._owns_helix_client = client is None if owns_client is None else owns_client
 
         # Last query vector — reused by RelevanceScorer to avoid re-embedding
         self._last_query_vec: list[float] | None = None
@@ -198,7 +201,7 @@ class HelixSearchIndex:
             raise
 
     async def close(self) -> None:
-        """Log final embedding stats on shutdown."""
+        """Log final embedding stats and close owned clients."""
         stats = self._embed_stats
         total = stats["episodes_indexed"] + stats["episodes_failed"]
         if total > 0:
@@ -218,6 +221,10 @@ class HelixSearchIndex:
                 stats["retries"],
                 stats["fallback_used"],
             )
+        self._client = None
+        if self._owns_helix_client and self._helix_client is not None:
+            await self._helix_client.close()
+            self._helix_client = None
 
     @property
     def embed_stats(self) -> dict[str, int]:
@@ -685,8 +692,10 @@ class HelixSearchIndex:
 
         When *group_id* is provided the optimized ``search_entity_vectors_filtered``
         query pushes group filtering into HelixDB so no Python-side overfetch
-        or post-hoc filtering is needed.  Falls back to the unfiltered query
-        when group_id is ``None`` or if the filtered endpoint is unavailable.
+        or post-hoc filtering is needed. Falls back to an over-fetched
+        unfiltered query when group_id is ``None``, if the filtered endpoint is
+        unavailable, or if an older native schema returns no rows for the
+        filtered endpoint.
         """
         filtered = False
         rows: list[dict] = []
@@ -697,7 +706,7 @@ class HelixSearchIndex:
                     "search_entity_vectors_filtered",
                     {"vec": query_vec, "k": limit, "gid": group_id},
                 )
-                filtered = True
+                filtered = bool(rows)
             except Exception:
                 logger.debug(
                     "search_entity_vectors_filtered unavailable, falling back to unfiltered"
@@ -705,9 +714,10 @@ class HelixSearchIndex:
                 rows = []
 
         if not filtered:
+            fallback_limit = limit * _OVERFETCH_FACTOR if group_id else limit
             rows = await self._query(
                 "search_entity_vectors",
-                {"vec": query_vec, "k": limit},
+                {"vec": query_vec, "k": fallback_limit},
             )
 
         results: list[tuple[str, float]] = []
@@ -725,7 +735,8 @@ class HelixSearchIndex:
     ) -> tuple[list[tuple[str, float]], list[dict], bool]:
         """Search EpisodeVec index. Returns (scored_results, raw_rows, was_filtered).
 
-        Uses ``search_episode_vectors_filtered`` when *group_id* is provided.
+        Uses ``search_episode_vectors_filtered`` when *group_id* is provided,
+        with an over-fetched unfiltered fallback for older schemas/transports.
         """
         filtered = False
         rows: list[dict] = []
@@ -736,7 +747,7 @@ class HelixSearchIndex:
                     "search_episode_vectors_filtered",
                     {"vec": query_vec, "k": limit, "gid": group_id},
                 )
-                filtered = True
+                filtered = bool(rows)
             except Exception:
                 logger.debug(
                     "search_episode_vectors_filtered unavailable, falling back to unfiltered"
@@ -744,9 +755,10 @@ class HelixSearchIndex:
                 rows = []
 
         if not filtered:
+            fallback_limit = limit * _OVERFETCH_FACTOR if group_id else limit
             rows = await self._query(
                 "search_episode_vectors",
-                {"vec": query_vec, "k": limit},
+                {"vec": query_vec, "k": fallback_limit},
             )
 
         results: list[tuple[str, float]] = []
@@ -764,7 +776,8 @@ class HelixSearchIndex:
     ) -> tuple[list[tuple[str, float]], list[dict], bool]:
         """Search CueVec index. Returns (scored_results, raw_rows, was_filtered).
 
-        Uses ``search_cue_vectors_filtered`` when *group_id* is provided.
+        Uses ``search_cue_vectors_filtered`` when *group_id* is provided, with
+        an over-fetched unfiltered fallback for older schemas/transports.
         """
         filtered = False
         rows: list[dict] = []
@@ -775,7 +788,7 @@ class HelixSearchIndex:
                     "search_cue_vectors_filtered",
                     {"vec": query_vec, "k": limit, "gid": group_id},
                 )
-                filtered = True
+                filtered = bool(rows)
             except Exception:
                 logger.debug(
                     "search_cue_vectors_filtered unavailable, falling back to unfiltered"
@@ -783,9 +796,10 @@ class HelixSearchIndex:
                 rows = []
 
         if not filtered:
+            fallback_limit = limit * _OVERFETCH_FACTOR if group_id else limit
             rows = await self._query(
                 "search_cue_vectors",
-                {"vec": query_vec, "k": limit},
+                {"vec": query_vec, "k": fallback_limit},
             )
 
         results: list[tuple[str, float]] = []
@@ -1301,20 +1315,27 @@ class HelixSearchIndex:
             return []
 
         try:
-            # Try server-side Embed() search first
-            if self._helix_client is not None and group_id:
+            is_native = getattr(self._helix_config, "transport", "http") == "native"
+            results: list[dict] = []
+
+            # Try server-side Embed() search first for HTTP Helix. Native PyO3
+            # routes store client-side vectors because server-side Embed() is
+            # unavailable in-process.
+            if self._helix_client is not None and not is_native and group_id:
                 results = await self._query(
                     "search_episode_chunks_embed_filtered",
                     {"query": query, "k": limit * 2, "gid": group_id},
                 )
-            elif self._helix_client is not None:
+            elif self._helix_client is not None and not is_native:
                 results = await self._query(
                     "search_episode_chunks_embed",
                     {"query": query, "k": limit * 2},
                 )
-            else:
-                # Fall back to client-side embedding
-                query_vec = await self._embed_query(query)
+
+            if not results:
+                # Fall back to client-side embedding. This is the primary path
+                # for PyO3 native transport.
+                query_vec = await self._embed_text(query)
                 if not query_vec:
                     return []
                 if group_id:
@@ -1447,8 +1468,9 @@ class HelixSearchIndex:
     ) -> dict[str, list[float]]:
         """Retrieve graph structural embeddings from the GraphEmbedVec index.
 
-        Similar to get_entity_embeddings, uses a broad vector search with a
-        zero vector and filters by entity_id and method in Python.
+        Uses vector search with a zero vector and filters by entity_id and
+        method in Python.  Gracefully returns empty on dimension mismatch
+        (e.g. index contains corrupted entries with wrong dimensions).
         """
         if not entity_ids:
             return {}
@@ -1456,42 +1478,169 @@ class HelixSearchIndex:
         target_ids = set(entity_ids)
         results: dict[str, list[float]] = {}
 
-        # We need to know the graph embedding dimension. Try a reasonable default.
-        # Graph embeddings may have different dimensions than text embeddings.
-        # Use a broad search with a moderate k.
-        # First try with a small dimension zero vector; if it fails, return empty.
-        try:
-            # Start with a moderate-dimension zero vector for graph embeddings.
-            # Node2Vec default is 64, TransE is 64, GNN is 64.
-            graph_dim = 64
-            zero_vec = [0.0] * graph_dim
-
-            rows = await self._query(
-                "search_graph_embed_vectors",
-                {"vec": zero_vec, "k": max(len(entity_ids) * 5, 200)},
-            )
-
-            for row in rows:
-                eid = str(row.get("entity_id", ""))
-                row_method = str(row.get("method", ""))
-                row_gid = str(row.get("group_id", ""))
-
-                if eid not in target_ids:
-                    continue
-                if row_method != method:
-                    continue
-                if group_id and row_gid != group_id:
+        # Try known graph-embedding dimensions (64 is the default for
+        # Node2Vec/TransE/GNN).  If the index was populated with the wrong
+        # dimension we try the common text-embedding sizes as a fallback so
+        # we can still read whatever is stored.
+        for graph_dim in (64, 32, 16, 128):
+            try:
+                zero_vec = [0.0] * graph_dim
+                rows = await self._query(
+                    "search_graph_embed_vectors",
+                    {"vec": zero_vec, "k": max(len(entity_ids) * 5, 200)},
+                )
+                if not rows:
                     continue
 
-                vec = row.get("vec") or row.get("vector") or row.get("embedding")
-                if vec and isinstance(vec, list):
-                    results[eid] = [float(v) for v in vec]
-                    if len(results) == len(target_ids):
-                        break
-        except Exception as e:
-            logger.warning("get_graph_embeddings failed: %s", e)
+                for row in rows:
+                    eid = str(row.get("entity_id", ""))
+                    row_method = str(row.get("method", ""))
+                    row_gid = str(row.get("group_id", ""))
+
+                    if eid not in target_ids:
+                        continue
+                    if row_method != method:
+                        continue
+                    if group_id and row_gid != group_id:
+                        continue
+
+                    vec = (
+                        row.get("vec")
+                        or row.get("vector")
+                        or row.get("embedding")
+                        or row.get("data")
+                    )
+                    if vec and isinstance(vec, list):
+                        results[eid] = [float(v) for v in vec]
+                        if len(results) == len(target_ids):
+                            break
+
+                # Found results at this dimension — stop trying others
+                break
+            except Exception:
+                # Dimension mismatch or other error — try next dimension
+                continue
 
         return results
+
+    # ------------------------------------------------------------------
+    # Graph embedding sync (HelixDB ← consolidation phase)
+    # ------------------------------------------------------------------
+
+    async def sync_graph_embeddings(
+        self,
+        embeddings: dict[str, list[float]],
+        method: str,
+        group_id: str,
+        model_version: str = "",
+    ) -> int:
+        """Push trained graph embeddings into the HelixDB GraphEmbedVec index.
+
+        Called by GraphEmbedPhase after training.  Uses ``add_graph_embed_vector``
+        HelixQL query.  Returns number of vectors successfully written.
+        """
+        if not embeddings:
+            return 0
+
+        client = self._helix_client
+        if client is None:
+            logger.warning("sync_graph_embeddings: no HelixDB client available")
+            return 0
+
+        payloads = [
+            {
+                "entity_id": entity_id,
+                "group_id": group_id,
+                "method": method,
+                "model_version": model_version,
+                "vec": vec,
+            }
+            for entity_id, vec in embeddings.items()
+        ]
+
+        try:
+            results = await client.query_many(
+                "add_graph_embed_vector", payloads, max_concurrent=8
+            )
+            synced = sum(1 for r in results if r is not None)
+            logger.info(
+                "sync_graph_embeddings: wrote %d/%d %s vectors to HelixDB",
+                synced,
+                len(embeddings),
+                method,
+            )
+            return synced
+        except Exception as e:
+            logger.warning(
+                "sync_graph_embeddings batch failed (%s), falling back to individual calls",
+                e,
+            )
+            count = 0
+            for payload in payloads:
+                try:
+                    await self._query("add_graph_embed_vector", payload)
+                    count += 1
+                except Exception:
+                    pass
+            return count
+
+    async def clear_graph_embed_vectors(
+        self,
+        group_id: str | None = None,
+        method: str | None = None,
+    ) -> int:
+        """Delete all GraphEmbedVec entries from HelixDB.
+
+        Tries multiple vector dimensions to find entries (handles the case
+        where the index was populated with corrupted text-embedding-sized
+        vectors).  Returns number of entries deleted.
+
+        If dimension is stuck after clearing, ``helix push dev`` will
+        recreate the schema and reset the index.
+        """
+        deleted = 0
+
+        for dim in (3072, 1536, 768, 384, 128, 64, 32, 16):
+            try:
+                zero_vec = [0.0] * dim
+                rows = await self._query(
+                    "search_graph_embed_vectors",
+                    {"vec": zero_vec, "k": 10000},
+                )
+                if not rows:
+                    continue
+
+                for row in rows:
+                    if method and str(row.get("method", "")) != method:
+                        continue
+                    if group_id and str(row.get("group_id", "")) != group_id:
+                        continue
+
+                    row_id = row.get("id") or row.get("_id")
+                    if row_id is not None:
+                        try:
+                            await self._query(
+                                "delete_graph_embed_vector", {"id": row_id}
+                            )
+                            deleted += 1
+                        except Exception:
+                            pass
+
+                # Found entries at this dimension — that's the index dimension.
+                # No need to try others.
+                break
+            except Exception:
+                # Dimension mismatch for this trial — try next
+                continue
+
+        if deleted:
+            logger.info(
+                "clear_graph_embed_vectors: deleted %d entries (group=%s, method=%s)",
+                deleted,
+                group_id or "*",
+                method or "*",
+            )
+        return deleted
 
     # ------------------------------------------------------------------
     # Deletion (best-effort)

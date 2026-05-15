@@ -1,0 +1,219 @@
+# Brain Runtime Completion Audit
+
+Date: 2026-05-15
+
+This is a readiness audit for the active long-running goal, not a completion
+claim. The current verdict is **not complete**. Engram has strong implementation
+and verification coverage for the brain-loop contract, especially on the
+preferred Helix native PyO3 path, but several requirements still need final
+evidence before the goal can be closed.
+
+## Objective Restated
+
+Engram should be a coherent, production-grade, one-brain-per-person memory
+runtime for AI agents. The runtime contract is:
+
+```text
+Capture -> Cue -> Project -> Recall -> Consolidate
+```
+
+The codebase should expose that loop consistently across runtime services,
+REST, MCP, CLI/operator tooling, tests, and dashboard UI. PyO3 native Helix is
+the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
+
+## Prompt-To-Artifact Checklist
+
+| Requirement | Current Evidence | Status |
+| --- | --- | --- |
+| Audit current architecture and drift | `docs/design/brain-runtime-audit.md`, `docs/CURRENT_HANDOFF.md` | Strong, ongoing |
+| Preserve useful dirty-worktree changes | Worktree remains dirty; new work is scoped to added manifest/tests/docs | Needs final packaging discipline |
+| Make `Capture -> Cue -> Project -> Recall -> Consolidate` explicit | `server/engram/lifecycle_summary.py`, `dashboard/src/components/LifecyclePanel.tsx`, `server/engram/evaluation/brain_loop_report.py` | Strong |
+| Extract capture/observe/store runtime boundaries | `server/engram/ingestion/capture_service.py`, `episode_ingestion.py`, `offline_replay.py`, `dedup.py` | Strong |
+| Extract project runtime boundaries | `server/engram/ingestion/projection_service.py`, `projection_execution.py`, `projection_state.py` | Strong |
+| Extract recall runtime boundaries | `server/engram/retrieval/service.py`, `presenter.py`, `context_builder.py`, `entity_probe.py`, `graph_state.py` | Strong |
+| Extract consolidation orchestration boundaries | `server/engram/consolidation/lifecycle.py`, `phase_runner.py`, `events.py`, `completion.py`, `phase_catalog.py` | Strong |
+| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions | Strong for `GraphManager`; remaining route-local orchestration needs final review |
+| Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
+| Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
+| Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
+| Keep SQLite/lite viable | Broad gate: `2874 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
+| Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
+| Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
+| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
+| Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
+| Do not mark complete until implementation, tests, docs, UI are understandable | This audit says not complete | Blocking |
+
+## Current Verification Evidence
+
+- Backend non-Docker/non-external-Helix gate:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  currently passes with 2874 tests, 43 skips, and 236 deselections.
+- GraphManager facade evidence:
+  `tests/test_graph_manager_facade_boundaries.py` now has 61 static delegate
+  checks for core lifecycle APIs and service-backed compatibility adapters.
+- MCP route-orchestration evidence:
+  `mark_identity_core` now calls `GraphManager.mark_identity_core()` instead of
+  writing through `manager._graph`, with service and public-surface coverage.
+  `trigger_consolidation` now calls
+  `GraphManager.trigger_consolidation_cycle()` instead of building
+  `ConsolidationEngine` from manager private state inside the MCP route.
+  MCP entity profile/neighbors resources now call graph-state manager facades
+  instead of formatting directly from `manager._graph` and `_activation`.
+  REST/MCP graph-probe helpers now call a manager facade instead of building
+  `GraphProbe` from private graph and activation stores.
+  REST/MCP intention-list handlers now call a prospective-memory presentation
+  facade instead of computing warmth from manager private config/activation.
+  MCP `intend` now reads the effective default threshold through the same
+  prospective-memory facade instead of private config.
+  REST/MCP conversation context helpers now call conversation-runtime manager
+  facades for active context, embedding, session entity names, recent turns,
+  turn counts, and live-turn ingestion instead of reaching into
+  `manager._conv_context` or `manager._search`.
+  REST remember/recall/chat policy decisions now call
+  `PublicSurfacePolicyService`-backed manager facades instead of reading
+  `manager._cfg`, and MCP lifecycle summary now uses manager facades for
+  lifecycle graph-store and activation-config access.
+  REST entity detail/PATCH/DELETE now call graph-state and entity-mutation
+  manager facades instead of reading private graph, activation, or config
+  fields in `server/engram/api/entities.py`.
+  REST admin benchmark loading now calls `GraphManager.load_benchmark_corpus()`
+  backed by `BenchmarkLoadService` instead of reading private graph,
+  activation, or search stores in `server/engram/api/admin.py`.
+  REST graph neighborhood and temporal graph routes now call
+  `GraphManager.get_graph_neighborhood()` and `get_temporal_graph()` backed by
+  `GraphStateService` instead of reading private graph, activation, or config
+  fields in `server/engram/api/graph.py`.
+  MCP recall-response enrichment now calls manager facades backed by
+  `RecallResponseStateService` instead of reading private activation,
+  near-miss, surprise-cache, or triggered-intention fields in
+  `server/engram/mcp/server.py`.
+  REST dashboard stats now calls `GraphManager.get_dashboard_stats()` backed by
+  `GraphStateService` instead of reading the graph store directly in
+  `server/engram/api/stats.py`.
+  REST activation monitor reads now call
+  `GraphManager.get_activation_snapshot()` and `get_activation_curve()` backed
+  by `GraphStateService` instead of reading app state, graph store, activation
+  store, config, or `compute_activation` directly in
+  `server/engram/api/activation.py`.
+  REST episode dashboard reads now call
+  `GraphManager.list_episode_summaries()` backed by `GraphStateService` instead
+  of reading the graph store and formatting paginated episode/cue payloads in
+  `server/engram/api/episodes.py`.
+  REST/MCP lifecycle summary reads now call
+  `GraphManager.get_lifecycle_summary()` backed by `LifecycleSummaryService`
+  instead of calling `build_lifecycle_summary` and passing graph/config facades
+  from `server/engram/api/lifecycle.py` or `server/engram/mcp/server.py`.
+  Dashboard WebSocket activation-monitor snapshots now call
+  `GraphManager.get_activation_snapshot()` instead of reading app-state
+  graph/activation/config stores and computing activation inside
+  `server/engram/api/websocket.py`.
+  REST notification reads/dismissal and MCP `memory_notifications`
+  piggybacking now call `NotificationSurfaceService` instead of reading and
+  formatting the notification store directly in `server/engram/api/knowledge.py`
+  or `server/engram/mcp/server.py`.
+- Native/default-group config evidence:
+  `tests/test_config.py` verifies `ENGRAM_DEFAULT_GROUP_ID` drives
+  `auth.default_group_id` when the auth override is omitted, while explicit
+  auth overrides still win.
+- Native public-surface accounting:
+  `server/engram/quality/native_surface_manifest.py` classifies REST routes,
+  WebSocket/MCP transports, MCP tools/resources/prompts, dashboard native smoke,
+  and operator native smoke evidence.
+- Native populated REST/MCP parity:
+  `tests/test_native_surface_parity.py::test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces`
+  passes with the native surface manifest tests.
+- Lifecycle-first UI evidence:
+  `dashboard/src/components/LifecyclePanel.tsx` maps Capture, Cue, Project,
+  Recall, and Consolidate to stage cards and drilldowns.
+- Evaluation-loop evidence:
+  `server/engram/evaluation/brain_loop_report.py` and
+  `dashboard/src/components/EvaluationPanel.tsx` surface cue usefulness,
+  projection yield/backlog/freshness, recall gate quality, continuity,
+  consolidation effect, adjudication pressure, and calibration quality.
+
+## Blocking Gaps Before Goal Completion
+
+1. Final facade audit:
+   `GraphManager` is much thinner, and core lifecycle plus service-backed
+   compatibility facades now have 61 static delegate checks. REST/MCP memory
+   presenters and consolidation presenters are also guarded. The first
+   route-local cleanup moved MCP identity-core writes behind a service and
+   manager facade; the second moved MCP consolidation trigger engine
+   construction behind a service and manager facade; the third moved MCP entity
+   graph resources behind graph-state service facades; the fourth moved
+   REST/MCP graph-probe construction behind a manager facade; the fifth moved
+   REST/MCP intention-list presentation behind the prospective-memory service.
+   MCP `intend` default-threshold reporting now uses the same service boundary.
+   The latest slice moved REST/MCP live conversation context access and
+   turn-ingestion helpers behind `ConversationRuntimeService` and manager
+   facades. The follow-up moved REST public-policy config reads behind
+   `PublicSurfacePolicyService` and moved MCP lifecycle graph/config reads
+   behind manager facades. The latest slice moved REST entity detail and
+   mutation routes behind graph-state/entity-mutation service facades.
+   The follow-up moved REST admin benchmark loading behind a benchmark-loader
+   service facade. The latest slice moved REST graph neighborhood and temporal
+   graph reads behind `GraphStateService` facades. The follow-up moved MCP
+   recall-response transient state behind `RecallResponseStateService`
+   facades, REST dashboard stats moved behind `GraphStateService`, and REST
+   activation monitor reads plus episode dashboard reads now use the same
+   graph-state boundary. REST/MCP lifecycle summary reads now use
+   `LifecycleSummaryService` through a manager facade, and WebSocket activation
+   monitor snapshots use the existing activation snapshot facade. REST/MCP
+   notification surfacing now uses `NotificationSurfaceService`, WebSocket
+   notification dismissal uses that same service boundary, and WebSocket auth
+   config lookup uses `get_config()`. REST knowledge-chat rate limiting now uses
+   `get_rate_limiter()`, and REST health now uses `get_graph_store()`,
+   `get_config()`, and `get_mode()`. The REST/MCP
+   route-private manager read scan is now clean, and the activation/episode/
+   lifecycle/WebSocket activation-monitor/notification scans are clean for
+   route-local app-state, store, config, activation-compute, episode/cue
+   formatting, lifecycle-summary builder, socket-local activation math, and
+   notification formatting/store reads; the WebSocket, knowledge, and health
+   routes no longer import `_app_state` directly. The public-surface guard now
+   generates coverage for every API route module except `api/deps.py`, and the
+   route-local `_app_state` scan is clean outside that dependency layer.
+   The REST evaluation report also reads consolidation cycles/calibration
+   snapshots through `ConsolidationEngine.get_recent_evaluation_context()`
+   instead of `engine._store`; focused evaluation/consolidation/static checks
+   passed, with the latest broad gate still at the previously completed 2874
+   tests after the next broad rerun was interrupted for a commit checkpoint.
+   Completion still needs a continued review of remaining
+   route-local orchestration that may hide lifecycle logic, plus explicit notes
+   for any intentionally retained compatibility behavior.
+
+2. Final dashboard verification:
+   The lifecycle/evaluation UI has a refreshed default gate: full Vitest passes
+   with 214 tests and 1 skipped live-native test, and the production build
+   passes with the existing large-chunk warning. The live native dashboard smoke
+   also passes against a seeded PyO3 REST server when both app and auth default
+   groups are set to `native_brain`. The config contract now allows future
+   unauthenticated REST runs to omit `ENGRAM_AUTH__DEFAULT_GROUP_ID` when they
+   want it to follow `ENGRAM_DEFAULT_GROUP_ID`; this is covered by config tests,
+   not by a separate live dashboard smoke yet. The patched rerun after native
+   evidence update normalization also shuts down without the previous
+   `update_evidence` decode errors. Before closure after any further UI/API
+   changes, rerun these gates or explicitly carry this snapshot as the final
+   dashboard evidence.
+
+3. Native/full-mode boundary decision:
+   PyO3 native is now the main path. Docker Helix/full-mode remains a separate
+   explicit gate; the goal needs a final decision on whether Docker/full is
+   out-of-scope or must pass before completion.
+
+4. Evaluation confidence:
+   The report and labels exist, but a production-grade claim needs a final
+   evaluation run with enough real or benchmark-labeled data to justify recall
+   quality, calibration quality, projection yield, cue usefulness, false recall,
+   and consolidation-effect confidence.
+
+5. Completion packaging:
+   The repo has a large dirty worktree. Before closure, the intended files,
+   ignored docs, generated artifacts, and unrelated user changes need a final
+   packaging/staging plan so the completed work is reproducible.
+
+## Next Concrete Work
+
+The next high-leverage slice is a REST/MCP route orchestration audit against
+the service boundaries already extracted. The output should be either small
+code extractions for any remaining route-local lifecycle logic or an explicit
+note that a compatibility behavior is intentionally retained.

@@ -189,6 +189,9 @@ class GraphStoreContractTests(abc.ABC):
 
         entity_ids = await self.store.get_episode_entities(ep_id)
         assert ent_id in entity_ids
+        group_entity_ids = await self.store.get_episode_entities(ep_id, group_id=self.group_id)
+        assert ent_id in group_entity_ids
+        assert await self.store.get_episode_entities(ep_id, group_id="other_group") == []
 
     # ------------------------------------------------------------------
     # Find entity candidates (text search)

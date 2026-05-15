@@ -29,6 +29,7 @@ class ProjectionPlan:
     selected_text: str
     selected_chars: int
     total_chars: int
+    group_id: str = "default"
     was_truncated: bool = False
     warnings: list[str] = field(default_factory=list)
 

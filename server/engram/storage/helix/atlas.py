@@ -27,10 +27,16 @@ def _safe_get(d: dict, key: str, default: Any = None) -> Any:
 class HelixAtlasStore:
     """Stores materialized atlas snapshots in HelixDB."""
 
-    def __init__(self, config: HelixDBConfig, client=None) -> None:
+    def __init__(
+        self,
+        config: HelixDBConfig,
+        client=None,
+        owns_client: bool | None = None,
+    ) -> None:
         self._config = config
         self._client: Any | None = None
         self._helix_client = client  # Shared HelixClient (async httpx)
+        self._owns_helix_client = client is None if owns_client is None else owns_client
         # logical snapshot id -> Helix internal node ID
         self._snapshot_id_cache: dict[str, int] = {}
         # logical region key -> Helix internal node ID
@@ -115,8 +121,48 @@ class HelixAtlasStore:
         )
 
     async def close(self) -> None:
-        """No-op -- Helix sync client has no close method."""
+        """Close owned clients."""
         self._client = None
+        if self._owns_helix_client and self._helix_client is not None:
+            await self._helix_client.close()
+            self._helix_client = None
+
+    async def _delete_snapshot_children(self, snapshot_id: str, group_id: str) -> None:
+        """Delete materialized atlas child rows using the schema's public queries."""
+        regions = await self._query(
+            "find_atlas_regions",
+            {"snap_id": snapshot_id, "gid": group_id},
+        )
+        for region in regions:
+            region_id = _safe_get(region, "region_id", "")
+            if not region_id:
+                continue
+            members = await self._query(
+                "find_atlas_region_members",
+                {
+                    "snap_id": snapshot_id,
+                    "region_id": region_id,
+                    "gid": group_id,
+                },
+            )
+            for member in members:
+                hid = self._extract_helix_id(member)
+                if hid is not None:
+                    await self._query("hard_delete_atlas_region_member", {"id": hid})
+
+        edges = await self._query(
+            "find_atlas_region_edges",
+            {"snap_id": snapshot_id, "gid": group_id},
+        )
+        for edge in edges:
+            hid = self._extract_helix_id(edge)
+            if hid is not None:
+                await self._query("hard_delete_atlas_region_edge", {"id": hid})
+
+        for region in regions:
+            hid = self._extract_helix_id(region)
+            if hid is not None:
+                await self._query("hard_delete_atlas_region", {"id": hid})
 
     # ------------------------------------------------------------------
     # save_snapshot
@@ -134,29 +180,7 @@ class HelixAtlasStore:
         6. Create region member nodes.
         """
         # -- 1. Delete old child data for this snapshot --
-        try:
-            await self._query(
-                "delete_atlas_region_members_by_snapshot",
-                {"snap_id": snapshot.id, "gid": snapshot.group_id},
-            )
-        except Exception:
-            pass
-
-        try:
-            await self._query(
-                "delete_atlas_region_edges_by_snapshot",
-                {"snap_id": snapshot.id, "gid": snapshot.group_id},
-            )
-        except Exception:
-            pass
-
-        try:
-            await self._query(
-                "delete_atlas_regions_by_snapshot",
-                {"snap_id": snapshot.id, "gid": snapshot.group_id},
-            )
-        except Exception:
-            pass
+        await self._delete_snapshot_children(snapshot.id, snapshot.group_id)
 
         # -- 2. Delete old snapshot node --
         helix_id = self._snapshot_id_cache.pop(snapshot.id, None)
@@ -217,7 +241,7 @@ class HelixAtlasStore:
                     "snapshot_id": snapshot.id,
                     "group_id": snapshot.group_id,
                     "region_id": region.id,
-                    "label": region.label,
+                    "region_label": region.label,
                     "subtitle": region.subtitle or "",
                     "kind": region.kind,
                     "member_count": region.member_count,
@@ -434,7 +458,7 @@ class HelixAtlasStore:
             regions.append(
                 AtlasRegion(
                     id=_safe_get(d, "region_id", ""),
-                    label=_safe_get(d, "label", ""),
+                    label=_safe_get(d, "region_label", _safe_get(d, "label", "")),
                     subtitle=subtitle if subtitle else None,
                     kind=_safe_get(d, "kind", ""),
                     member_count=int(_safe_get(d, "member_count", 0)),

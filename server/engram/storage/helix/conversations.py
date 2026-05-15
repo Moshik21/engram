@@ -34,10 +34,16 @@ class HelixConversationStore:
     every call with ``asyncio.to_thread()`` to keep the event loop responsive.
     """
 
-    def __init__(self, config: HelixDBConfig, client=None) -> None:
+    def __init__(
+        self,
+        config: HelixDBConfig,
+        client=None,
+        owns_client: bool | None = None,
+    ) -> None:
         self._config = config
         self._client: Any | None = None
         self._helix_client = client  # Shared HelixClient (async httpx)
+        self._owns_helix_client = client is None if owns_client is None else owns_client
         # conversation_id (our UUID) -> Helix internal node ID
         self._conv_id_cache: dict[str, Any] = {}
         # message_id (our UUID) -> Helix internal node ID
@@ -202,8 +208,11 @@ class HelixConversationStore:
         )
 
     async def close(self) -> None:
-        """No-op -- Helix sync client has no close method."""
+        """Close owned clients."""
         self._client = None
+        if self._owns_helix_client and self._helix_client is not None:
+            await self._helix_client.close()
+            self._helix_client = None
 
     # ------------------------------------------------------------------
     # Internal guards
@@ -520,15 +529,27 @@ class HelixConversationStore:
         if _safe_get(d, "group_id", "") != group_id:
             return False
 
-        # Delete associated messages first
+        # Delete associated messages first. Helix has single-node hard-delete
+        # queries, so resolve the materialized message node IDs before dropping
+        # the conversation itself.
         try:
-            await self._query(
-                "delete_conversation_messages",
-                {"conv_id": conversation_id},
+            messages = await self._query(
+                "find_messages_by_conversation", {"conv_id": conversation_id}
             )
+            for message in messages:
+                message_helix_id = self._extract_helix_id(message)
+                if message_helix_id is None:
+                    continue
+                message_id = _safe_get(message, "message_id", "")
+                await self._query(
+                    "hard_delete_conversation_message",
+                    {"id": message_helix_id},
+                )
+                if message_id:
+                    self._msg_id_cache.pop(message_id, None)
         except Exception:
             logger.debug(
-                "delete_conversation_messages failed for %s",
+                "conversation message cleanup failed for %s",
                 conversation_id,
                 exc_info=True,
             )

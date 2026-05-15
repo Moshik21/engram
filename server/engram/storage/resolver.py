@@ -52,6 +52,14 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
             except Exception:
                 transport = "http"
         if transport == "native":
+            if not _check_native():
+                raise RuntimeError(
+                    "Helix native mode requested but the helix_native PyO3 extension "
+                    "is not importable. Build it with `make build-native` from the "
+                    "repo root, or install a package that includes native support. "
+                    "Use ENGRAM_HELIX__TRANSPORT=http if you meant to connect to an "
+                    "external HelixDB service."
+                )
             logger.info("Helix mode with native (PyO3) transport — no network check needed")
             return EngineMode.HELIX
         logger.info("Helix mode selected explicitly — verifying HelixDB...")

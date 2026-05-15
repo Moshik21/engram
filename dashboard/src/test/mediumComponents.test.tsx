@@ -114,6 +114,10 @@ vi.mock("../api/client", () => ({
     getNeighbors: vi.fn(),
     searchEntities: vi.fn().mockResolvedValue([]),
     getEntity: vi.fn(),
+    getLifecycleSummary: vi.fn().mockResolvedValue(null),
+    getEvaluationReport: vi.fn().mockResolvedValue(null),
+    recordRecallEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
+    recordSessionContinuityEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
     getStats: vi.fn().mockResolvedValue({
       totalEntities: 10,
       totalRelationships: 20,
@@ -186,6 +190,7 @@ function resetStore() {
     searchResults: [],
     isSearching: false,
     currentView: "graph",
+    lifecycleDrilldownStage: null,
     renderMode: "3d",
     showActivationHeatmap: true,
     showEdgeLabels: false,
@@ -202,6 +207,8 @@ function resetStore() {
     isLoadingEpisodes: false,
     stats: null,
     isLoadingStats: false,
+    lifecycleSummary: null,
+    isLoadingLifecycleSummary: false,
     readyState: "disconnected",
     lastSeq: 0,
     reconnectAttempt: 0,
@@ -281,8 +288,9 @@ describe("ActivationMonitor", () => {
 // --- Sidebar ---
 
 describe("Sidebar", () => {
-  it("renders 6 nav items", () => {
+  it("renders observatory nav items", () => {
     render(<Sidebar />);
+    expect(screen.getByText("Brain Loop")).toBeInTheDocument();
     expect(screen.getByText("Graph")).toBeInTheDocument();
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Feed")).toBeInTheDocument();

@@ -243,12 +243,11 @@ class TestStructuralCandidateDiscovery:
         await store.initialize()
 
         # Create entities: parent, 4 children, and a duplicate "Fourth Son"
-        from datetime import datetime
-
         from engram.models.entity import Entity
         from engram.models.relationship import Relationship
+        from engram.utils.dates import utc_now
 
-        now = datetime.utcnow().isoformat()
+        now = utc_now().isoformat()
         entities = {
             "parent": Entity(
                 id="parent",
@@ -344,77 +343,87 @@ class TestStructuralCandidateDiscovery:
 
     async def test_finds_structural_duplicates(self):
         store = await self._setup_graph()
-        candidates = await store.find_structural_merge_candidates(
-            "default",
-            min_shared_neighbors=3,
-        )
-        # "child4" (Benjamin) and "dupe" (Fourth Son) share parent + 3 siblings
-        pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
-        assert frozenset({"child4", "dupe"}) in pair_ids
+        try:
+            candidates = await store.find_structural_merge_candidates(
+                "default",
+                min_shared_neighbors=3,
+            )
+            # "child4" (Benjamin) and "dupe" (Fourth Son) share parent + 3 siblings
+            pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
+            assert frozenset({"child4", "dupe"}) in pair_ids
+        finally:
+            await store.close()
 
     async def test_min_shared_neighbors_filters(self):
         store = await self._setup_graph()
-        # High threshold should filter out pairs with fewer shared neighbors
-        candidates = await store.find_structural_merge_candidates(
-            "default",
-            min_shared_neighbors=5,
-        )
-        # Most pairs won't have 5+ shared neighbors
-        pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
-        # child4 and dupe share: parent, child1, child2, child3 = 4 neighbors
-        assert frozenset({"child4", "dupe"}) not in pair_ids
+        try:
+            # High threshold should filter out pairs with fewer shared neighbors
+            candidates = await store.find_structural_merge_candidates(
+                "default",
+                min_shared_neighbors=5,
+            )
+            # Most pairs won't have 5+ shared neighbors
+            pair_ids = {frozenset({a, b}) for a, b, _ in candidates}
+            # child4 and dupe share: parent, child1, child2, child3 = 4 neighbors
+            assert frozenset({"child4", "dupe"}) not in pair_ids
+        finally:
+            await store.close()
 
     async def test_cooccurrence_count(self):
         store = await self._setup_graph()
+        try:
+            # No episode links — should return 0
+            count = await store.get_episode_cooccurrence_count(
+                "child4",
+                "dupe",
+                "default",
+            )
+            assert count == 0
 
-        # No episode links — should return 0
-        count = await store.get_episode_cooccurrence_count(
-            "child4",
-            "dupe",
-            "default",
-        )
-        assert count == 0
+            # Add some episodes with entities
+            from engram.models.episode import Episode
+            from engram.utils.dates import utc_now
 
-        # Add some episodes with entities
-        from datetime import datetime
+            now = utc_now().isoformat()
+            ep = Episode(
+                id="ep1",
+                content="Test episode",
+                group_id="default",
+                created_at=now,
+                status="completed",
+            )
+            await store.create_episode(ep)
+            await store.link_episode_entity("ep1", "child1")
+            await store.link_episode_entity("ep1", "child2")
 
-        from engram.models.episode import Episode
+            count = await store.get_episode_cooccurrence_count(
+                "child1",
+                "child2",
+                "default",
+            )
+            assert count == 1
 
-        now = datetime.utcnow().isoformat()
-        ep = Episode(
-            id="ep1",
-            content="Test episode",
-            group_id="default",
-            created_at=now,
-            status="completed",
-        )
-        await store.create_episode(ep)
-        await store.link_episode_entity("ep1", "child1")
-        await store.link_episode_entity("ep1", "child2")
-
-        count = await store.get_episode_cooccurrence_count(
-            "child1",
-            "child2",
-            "default",
-        )
-        assert count == 1
-
-        # child4 and dupe still don't co-occur
-        count = await store.get_episode_cooccurrence_count(
-            "child4",
-            "dupe",
-            "default",
-        )
-        assert count == 0
+            # child4 and dupe still don't co-occur
+            count = await store.get_episode_cooccurrence_count(
+                "child4",
+                "dupe",
+                "default",
+            )
+            assert count == 0
+        finally:
+            await store.close()
 
     async def test_limit_respected(self):
         store = await self._setup_graph()
-        candidates = await store.find_structural_merge_candidates(
-            "default",
-            min_shared_neighbors=2,
-            limit=2,
-        )
-        assert len(candidates) <= 2
+        try:
+            candidates = await store.find_structural_merge_candidates(
+                "default",
+                min_shared_neighbors=2,
+                limit=2,
+            )
+            assert len(candidates) <= 2
+        finally:
+            await store.close()
 
 
 # ---------------------------------------------------------------------------
@@ -430,11 +439,10 @@ class TestPrefixFallback:
         store = SQLiteGraphStore(":memory:")
         await store.initialize()
 
-        from datetime import datetime
-
         from engram.models.entity import Entity
+        from engram.utils.dates import utc_now
 
-        now = datetime.utcnow().isoformat()
+        now = utc_now().isoformat()
         await store.create_entity(
             Entity(
                 id="e1",
@@ -460,25 +468,34 @@ class TestPrefixFallback:
     async def test_prefix_finds_typo_variants(self):
         """Searching 'Alexa' should find 'Alex' via prefix fallback."""
         store = await self._setup_store()
-        candidates = await store.find_entity_candidates("Alexa", "default")
-        names = {c.name for c in candidates}
-        # Both "Alex" and "Alex Chen" share the "ale" prefix
-        assert "Alex" in names
-        assert "Alex Chen" in names
+        try:
+            candidates = await store.find_entity_candidates("Alexa", "default")
+            names = {c.name for c in candidates}
+            # Both "Alex" and "Alex Chen" share the "ale" prefix
+            assert "Alex" in names
+            assert "Alex Chen" in names
+        finally:
+            await store.close()
 
     async def test_prefix_short_name_skipped(self):
         """Names shorter than 3 chars shouldn't trigger prefix search."""
         store = await self._setup_store()
-        # Very short name — no prefix fallback
-        candidates = await store.find_entity_candidates("Al", "default")
-        # Should still work via FTS
-        assert isinstance(candidates, list)
+        try:
+            # Very short name — no prefix fallback
+            candidates = await store.find_entity_candidates("Al", "default")
+            # Should still work via FTS
+            assert isinstance(candidates, list)
+        finally:
+            await store.close()
 
     async def test_exact_match_first(self):
         """Exact match should be found before prefix fallback."""
         store = await self._setup_store()
-        candidates = await store.find_entity_candidates("Alex", "default")
-        assert candidates[0].name == "Alex"
+        try:
+            candidates = await store.find_entity_candidates("Alex", "default")
+            assert candidates[0].name == "Alex"
+        finally:
+            await store.close()
 
 
 # ---------------------------------------------------------------------------

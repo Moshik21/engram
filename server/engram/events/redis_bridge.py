@@ -77,12 +77,15 @@ class RedisEventPublisher:
 
     def __init__(self, redis_client, group_id: str) -> None:
         self._redis = redis_client
+        self._group_id = group_id
         self._channel = f"{_CHANNEL_PREFIX}{group_id}"
 
     async def __call__(self, group_id: str, event_type: str, payload: dict, event: dict) -> None:
         """EventBus on-publish hook signature."""
         # Loop prevention: don't re-publish events that came from Redis
         if event.get("_origin") == _BRIDGE_ORIGIN:
+            return
+        if group_id != self._group_id:
             return
 
         # Strip internal keys (prefixed with _) before serializing
@@ -102,6 +105,7 @@ class RedisEventSubscriber:
 
     def __init__(self, redis_client, group_id: str, event_bus: EventBus) -> None:
         self._redis = redis_client
+        self._group_id = group_id
         self._channel = f"{_CHANNEL_PREFIX}{group_id}"
         self._event_bus = event_bus
         self._task: asyncio.Task | None = None
@@ -148,12 +152,7 @@ class RedisEventSubscriber:
                             data = data.decode("utf-8")
                         event = json.loads(data)
 
-                        self._event_bus.publish(
-                            group_id=event.get("group_id", "default"),
-                            event_type=event.get("type", "unknown"),
-                            payload=event.get("payload", {}),
-                            _origin=_BRIDGE_ORIGIN,
-                        )
+                        self._publish_received_event(event)
                     except (json.JSONDecodeError, KeyError):
                         logger.warning("Malformed event from Redis", exc_info=True)
 
@@ -172,6 +171,22 @@ class RedisEventSubscriber:
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, max_backoff)
+
+    def _publish_received_event(self, event: dict) -> None:
+        event_group_id = event.get("group_id")
+        if event_group_id not in {None, self._group_id}:
+            logger.warning(
+                "Ignoring Redis event for mismatched group %s on channel %s",
+                event_group_id,
+                self._channel,
+            )
+            return
+        self._event_bus.publish(
+            group_id=self._group_id,
+            event_type=event.get("type", "unknown"),
+            payload=event.get("payload", {}),
+            _origin=_BRIDGE_ORIGIN,
+        )
 
 
 async def create_publisher(

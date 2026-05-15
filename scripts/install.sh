@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Engram public installer — lightweight bootstrap that installs engramctl,
-# then runs `engramctl setup` for interactive mode selection (lite or full).
+# then runs `engramctl setup` for interactive mode selection.
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -75,6 +75,13 @@ ensure_uv() {
 install_engram_package() {
   info "Installing Engram..."
 
+  local package_spec="engram[local]"
+  local github_spec="git+https://github.com/${RELEASE_REPOSITORY}.git#subdirectory=server[local]"
+  if [ "$MODE" = "helix" ]; then
+    package_spec="engram[local,native]"
+    github_spec="git+https://github.com/${RELEASE_REPOSITORY}.git#subdirectory=server[local,native]"
+  fi
+
   # Allow override for testing (install from local checkout)
   if [ -n "${ENGRAM_PACKAGE_SOURCE:-}" ]; then
     uv tool install "$ENGRAM_PACKAGE_SOURCE" \
@@ -84,9 +91,9 @@ install_engram_package() {
   fi
 
   # Try PyPI first, fall back to git
-  if uv tool install "engram[local]" 2>/dev/null; then
+  if uv tool install "$package_spec" 2>/dev/null; then
     info "Installed engram from PyPI"
-  elif uv tool install "git+https://github.com/${RELEASE_REPOSITORY}.git#subdirectory=server[local]" 2>/dev/null; then
+  elif uv tool install "$github_spec" 2>/dev/null; then
     info "Installed engram from GitHub"
   else
     die "Failed to install engram. Check your network connection and try again."
@@ -156,13 +163,18 @@ main() {
   ensure_supported_os
   ensure_tools
 
+  case "$MODE" in
+    ""|helix|lite|auto|full|openclaw) ;;
+    *) die "Unknown install mode: $MODE. Use helix, lite, auto, full, or openclaw." ;;
+  esac
+
   # For explicit full/openclaw mode, take the Docker fast path
   if [ "$MODE" = "full" ] || [ "$MODE" = "openclaw" ]; then
     _install_full_mode
     return
   fi
 
-  # Lite-capable bootstrap: Python + uv + engram package + engramctl
+  # Local bootstrap: Python + uv + engram package + engramctl
   ensure_python
   ensure_uv
   install_engram_package
@@ -171,9 +183,9 @@ main() {
   # Create home directory
   mkdir -p "$ENGRAM_HOME"
 
-  # Run setup (interactive mode picker or pre-selected)
-  if [ "$MODE" = "lite" ]; then
-    "$BIN_DIR/engramctl" setup --mode lite
+  # Run setup (interactive mode picker or pre-selected local backend)
+  if [ -n "$MODE" ]; then
+    "$BIN_DIR/engramctl" setup --mode "$MODE"
   else
     "$BIN_DIR/engramctl" setup
   fi

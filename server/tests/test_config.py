@@ -11,7 +11,63 @@ class TestEngramConfig:
     def test_default_config(self, monkeypatch):
         config = EngramConfig(_env_file=None)
         assert config.default_group_id == "default"
+        assert config.auth.default_group_id == "default"
         assert config.server.port == 8100
+        assert config.server.auto_observe_enabled is True
+
+    def test_auth_default_group_inherits_root_default_group(self):
+        config = EngramConfig(default_group_id="native_brain", _env_file=None)
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "native_brain"
+
+    def test_auth_default_group_can_override_root_default_group(self):
+        config = EngramConfig(
+            default_group_id="native_brain",
+            auth={"default_group_id": "auth_brain"},
+            _env_file=None,
+        )
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "auth_brain"
+
+    def test_auth_default_group_can_explicitly_remain_default(self):
+        config = EngramConfig(
+            default_group_id="native_brain",
+            auth={"default_group_id": "default"},
+            _env_file=None,
+        )
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "default"
+
+    def test_auth_default_group_inherits_when_other_auth_fields_set(self):
+        config = EngramConfig(
+            default_group_id="native_brain",
+            auth={"enabled": True},
+            _env_file=None,
+        )
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "native_brain"
+
+    def test_env_root_default_group_drives_auth_fallback(self, monkeypatch):
+        monkeypatch.setenv("ENGRAM_DEFAULT_GROUP_ID", "native_brain")
+        monkeypatch.delenv("ENGRAM_AUTH__DEFAULT_GROUP_ID", raising=False)
+
+        config = EngramConfig(_env_file=None)
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "native_brain"
+
+    def test_env_auth_default_group_overrides_root_default_group(self, monkeypatch):
+        monkeypatch.setenv("ENGRAM_DEFAULT_GROUP_ID", "native_brain")
+        monkeypatch.setenv("ENGRAM_AUTH__DEFAULT_GROUP_ID", "default")
+
+        config = EngramConfig(_env_file=None)
+
+        assert config.default_group_id == "native_brain"
+        assert config.auth.default_group_id == "default"
 
     def test_activation_defaults(self):
         config = EngramConfig()

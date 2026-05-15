@@ -11,12 +11,55 @@ from typing import Any, cast
 
 from engram.config import EngramConfig
 from engram.consolidation.engine import ConsolidationEngine
+from engram.consolidation.presenter import (
+    cycle_phase_issue_text,
+    serialize_cycle_summary,
+)
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.extraction.factory import create_extractor
+from engram.models.consolidation import ConsolidationCycle
 from engram.storage.factory import create_stores
 from engram.storage.resolver import resolve_mode
 
 logger = logging.getLogger(__name__)
+
+
+def _print_cycle_result(
+    cycle: ConsolidationCycle,
+    *,
+    profile: str,
+    graph_stats: dict[str, Any],
+) -> None:
+    result = serialize_cycle_summary(cycle)
+    result["cycle_id"] = result.pop("id")
+    result["profile"] = profile
+    result["graph_stats"] = graph_stats
+    print(json.dumps(result, indent=2))
+
+    summary = result["summary"]
+    mode_str = "DRY RUN" if cycle.dry_run else "LIVE"
+    phase_issue = cycle_phase_issue_text(cycle)
+    summary_status = (
+        "completed with warnings"
+        if cycle.status == "completed" and phase_issue
+        else "complete"
+        if cycle.status == "completed"
+        else cycle.status
+    )
+    print(
+        f"\n[{mode_str}] Consolidation {summary_status}: "
+        f"{summary['total_processed']} items processed, {summary['total_affected']} affected, "
+        f"{cycle.total_duration_ms}ms"
+    )
+
+    if cycle.status == "completed" and phase_issue:
+        print(f"Consolidation warning: {phase_issue}", file=sys.stderr)
+        return
+
+    if cycle.status != "completed":
+        detail = f": {cycle.error}" if cycle.error else ""
+        print(f"Consolidation {cycle.status}{detail}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -88,44 +131,26 @@ async def run(args: argparse.Namespace) -> None:
     )
 
     phase_names = set(args.phases) if args.phases else None
-    cycle = await engine.run_cycle(
-        group_id=group_id,
-        trigger="cli",
-        dry_run=cfg.consolidation_dry_run,
-        phase_names=phase_names,
-    )
+    try:
+        cycle = await engine.run_cycle(
+            group_id=group_id,
+            trigger="cli",
+            dry_run=cfg.consolidation_dry_run,
+            phase_names=phase_names,
+        )
+    except ValueError as exc:
+        print(f"Consolidation failed: {exc}", file=sys.stderr)
+        await graph_store.close()
+        raise SystemExit(2) from None
 
-    # Print results
-    result = {
-        "cycle_id": cycle.id,
-        "status": cycle.status,
-        "dry_run": cycle.dry_run,
-        "profile": args.profile,
-        "graph_stats": stats,
-        "phases": [
-            {
-                "phase": pr.phase,
-                "status": pr.status,
-                "items_processed": pr.items_processed,
-                "items_affected": pr.items_affected,
-            }
-            for pr in cycle.phase_results
-        ],
-        "total_duration_ms": cycle.total_duration_ms,
-    }
-    print(json.dumps(result, indent=2))
-
-    # Human summary
-    total_processed = sum(pr.items_processed for pr in cycle.phase_results)
-    total_affected = sum(pr.items_affected for pr in cycle.phase_results)
-    mode_str = "DRY RUN" if cycle.dry_run else "LIVE"
-    print(
-        f"\n[{mode_str}] Consolidation complete: "
-        f"{total_processed} items processed, {total_affected} affected, "
-        f"{cycle.total_duration_ms}ms"
-    )
-
-    await graph_store.close()
+    try:
+        _print_cycle_result(
+            cycle,
+            profile=args.profile,
+            graph_stats=stats,
+        )
+    finally:
+        await graph_store.close()
 
 
 def main() -> None:

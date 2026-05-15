@@ -8,7 +8,17 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store
 from engram.security.middleware import get_tenant
-from engram.storage.sqlite.conversations import ConversationNotFoundError
+from engram.storage.helix.conversations import (
+    ConversationNotFoundError as HelixConversationNotFoundError,
+)
+from engram.storage.sqlite.conversations import (
+    ConversationNotFoundError as SQLiteConversationNotFoundError,
+)
+
+_CONVERSATION_NOT_FOUND = (
+    SQLiteConversationNotFoundError,
+    HelixConversationNotFoundError,
+)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -55,7 +65,7 @@ async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
     store = get_conversation_store()
     try:
         messages = await store.get_messages(conversation_id, tenant.group_id)
-    except ConversationNotFoundError:
+    except _CONVERSATION_NOT_FOUND:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"messages": messages})
 
@@ -74,7 +84,7 @@ async def append_messages(
             body.messages,
             group_id=tenant.group_id,
         )
-    except ConversationNotFoundError:
+    except _CONVERSATION_NOT_FOUND:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"ids": ids})
 

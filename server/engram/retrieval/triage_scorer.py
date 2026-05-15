@@ -73,6 +73,7 @@ class TriageSignals:
     emotional_salience: float = 0.0
     novelty: float = 0.0
     goal_boost: float = 0.0
+    preference_alignment: float = 0.0
     composite: float = 0.0
     compute_ms: float = 0.0
 
@@ -318,6 +319,36 @@ class TriageScorer:
 
             goal_score = compute_goal_triage_boost(content, goals, cfg)
 
+        # 9. Preference alignment (preference_triage_weight)
+        pref_alignment = 0.0
+        if cfg.preference_directed_enabled and graph_store:
+            try:
+                pref_entities = await graph_store.find_entities(
+                    name="UserPreference",
+                    entity_type="PreferenceProfile",
+                    group_id=group_id,
+                    limit=1,
+                )
+                if pref_entities:
+                    pref_attrs = pref_entities[0].attributes or {}
+                    domain_scores = pref_attrs.get("domain_preference_scores", {})
+                    if domain_scores and candidate_ids:
+                        # Check which domains the episode's candidates belong to
+                        aligned_count = 0
+                        for cid in candidate_ids:
+                            ent = await graph_store.get_entity(cid, group_id)
+                            if ent:
+                                for domain_name, types in cfg.domain_groups.items():
+                                    if ent.entity_type in types and domain_scores.get(
+                                domain_name, 0.0
+                            ) > 0:
+                                        aligned_count += 1
+                                        break
+                        if candidate_ids:
+                            pref_alignment = min(aligned_count / max(len(candidate_ids), 1), 1.0)
+            except Exception:
+                pref_alignment = 0.0
+
         # --- Weighted composite ---
         w = cfg.triage_scorer_weights
         composite = (
@@ -329,6 +360,7 @@ class TriageScorer:
             + w.get("emotional_salience", 0.10) * emotional_score
             + w.get("novelty", 0.05) * novelty_score
             + w.get("goal_boost", 0.05) * goal_score
+            + w.get("preference_alignment", cfg.preference_triage_weight) * pref_alignment
         )
 
         # Personal floor: guarantee extraction for emotionally rich content
@@ -349,6 +381,7 @@ class TriageScorer:
             emotional_salience=round(emotional_score, 4),
             novelty=round(novelty_score, 4),
             goal_boost=round(goal_score, 4),
+            preference_alignment=round(pref_alignment, 4),
             composite=round(composite, 4),
             compute_ms=round(elapsed_ms, 2),
         )

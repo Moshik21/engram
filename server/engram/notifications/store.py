@@ -43,23 +43,37 @@ class NotificationStore:
             ring = self._groups.get(group_id, OrderedDict())
             return [n for n in ring.values() if n.created_at > since_ts]
 
-    def dismiss(self, notification_id: str) -> bool:
+    def dismiss(self, notification_id: str, group_id: str | None = None) -> bool:
         """Mark a single notification as dismissed. Returns True if found."""
         now = time.time()
         with self._lock:
-            for ring in self._groups.values():
+            rings = (
+                [self._groups.get(group_id, OrderedDict())]
+                if group_id is not None
+                else self._groups.values()
+            )
+            for ring in rings:
                 n = ring.get(notification_id)
                 if n is not None:
                     n.dismissed_at = now
                     return True
         return False
 
-    def dismiss_batch(self, notification_ids: list[str]) -> int:
+    def dismiss_batch(
+        self,
+        notification_ids: list[str],
+        group_id: str | None = None,
+    ) -> int:
         """Dismiss multiple notifications. Returns count dismissed."""
         now = time.time()
         count = 0
         with self._lock:
-            for ring in self._groups.values():
+            rings = (
+                [self._groups.get(group_id, OrderedDict())]
+                if group_id is not None
+                else self._groups.values()
+            )
+            for ring in rings:
                 for nid in notification_ids:
                     n = ring.get(nid)
                     if n is not None and n.dismissed_at is None:

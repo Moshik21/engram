@@ -66,12 +66,21 @@ class TestGraphSAGEInference:
     def test_output_normalized(self):
         """Output should be L2-normalized per layer."""
         weights = {
-            "layer_0_self_weight": np.random.randn(4, 4).astype(np.float32),
-            "layer_0_neigh_weight": np.random.randn(4, 4).astype(np.float32),
+            "layer_0_self_weight": np.eye(4, dtype=np.float32),
+            "layer_0_neigh_weight": np.eye(4, dtype=np.float32),
         }
 
         model = GraphSAGEInference(weights)
-        features = np.random.randn(5, 4).astype(np.float32)
+        features = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+                [1.0, 1.0, 0.0, 0.0],
+            ],
+            dtype=np.float32,
+        )
         adj = {0: [1, 2], 1: [0], 2: [0], 3: [4], 4: [3]}
 
         output = model.forward(features, adj)

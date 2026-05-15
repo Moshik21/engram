@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from engram.extraction.extractor import ExtractionStatus
@@ -21,7 +22,7 @@ class EpisodeProjector:
 
     async def project(self, plan: ProjectionPlan) -> ProjectionBundle:
         """Execute extraction for the selected plan text and type the results."""
-        result = await self._extractor.extract(plan.selected_text)
+        result = await self._extract(plan)
 
         is_error = getattr(result, "is_error", False)
         if not isinstance(is_error, bool):
@@ -58,6 +59,27 @@ class EpisodeProjector:
             extractor_error=getattr(result, "error", None),
             retryable=bool(getattr(result, "retryable", False)),
         )
+
+    async def _extract(self, plan: ProjectionPlan) -> Any:
+        extract = self._extractor.extract
+        kwargs: dict[str, str] = {}
+        try:
+            signature = inspect.signature(extract)
+        except (TypeError, ValueError):
+            signature = None
+
+        if signature is not None:
+            params = signature.parameters
+            accepts_kwargs = any(
+                param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params.values()
+            )
+            if accepts_kwargs or "episode_id" in params:
+                kwargs["episode_id"] = plan.episode_id
+            if accepts_kwargs or "group_id" in params:
+                kwargs["group_id"] = plan.group_id
+
+        return await extract(plan.selected_text, **kwargs)
 
     @staticmethod
     def _to_entity_candidate(

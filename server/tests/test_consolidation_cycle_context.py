@@ -61,6 +61,9 @@ class TestMergePopulatesContext:
         entity_a.entity_type = "person"
         entity_a.access_count = 5
         entity_a.created_at = 1000.0
+        entity_a.source_episode_ids = []
+        entity_a.evidence_span_start = None
+        entity_a.evidence_span_end = None
 
         entity_b = MagicMock()
         entity_b.id = "ent_b"
@@ -68,10 +71,14 @@ class TestMergePopulatesContext:
         entity_b.entity_type = "person"
         entity_b.access_count = 1
         entity_b.created_at = 2000.0
+        entity_b.source_episode_ids = []
+        entity_b.evidence_span_start = None
+        entity_b.evidence_span_end = None
 
         graph_store = AsyncMock()
         graph_store.find_entities = AsyncMock(return_value=[entity_a, entity_b])
         graph_store.merge_entities = AsyncMock(return_value=2)
+        graph_store.update_entity = AsyncMock()
 
         activation_store = AsyncMock()
         activation_store.get_activation = AsyncMock(return_value=None)
@@ -246,14 +253,15 @@ class TestEnginePhaseOrder:
         )
 
     @pytest.mark.asyncio
-    async def test_engine_runs_15_phases(self, engine):
-        """Engine should now run 15 phases in correct order."""
+    async def test_engine_runs_16_phases(self, engine):
+        """Engine should now run 16 phases in correct order."""
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
-        assert len(cycle.phase_results) == 15
+        assert len(cycle.phase_results) == 16
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
             "triage",
             "merge",
+            "calibrate",
             "infer",
             "evidence_adjudication",
             "edge_adjudication",

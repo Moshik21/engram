@@ -85,9 +85,12 @@ async def resolve_tenant_from_scope(
         validator = _get_oidc_validator(config)
         if validator:
             try:
-                claims = await validator.validate_token(token)
+                claims = await validator.validate_token(
+                    token,
+                    default_group_id=config.default_group_id,
+                )
                 return TenantContext(
-                    group_id=claims.get("group_id", config.default_group_id),
+                    group_id=claims.get("group_id") or config.default_group_id,
                     user_id=claims.get("sub"),
                     role="owner",
                     auth_method="oidc",

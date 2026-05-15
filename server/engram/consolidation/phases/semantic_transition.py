@@ -62,7 +62,10 @@ class SemanticTransitionPhase(ConsolidationPhase):
             new_cycles = episode.consolidation_cycles + 1
 
             # Compute entity coverage
-            linked_entity_ids = await graph_store.get_episode_entities(episode.id)
+            linked_entity_ids = await graph_store.get_episode_entities(
+                episode.id,
+                group_id=group_id,
+            )
             if not linked_entity_ids:
                 coverage = 0.0
             else:

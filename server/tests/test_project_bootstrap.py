@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +11,8 @@ import pytest
 from engram.config import ActivationConfig
 from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
+from engram.models.episode import EpisodeProjectionState, EpisodeStatus
+from engram.utils.dates import utc_now
 
 # ─── Fixtures ───────────────────────────────────────────────────────
 
@@ -108,12 +110,137 @@ async def test_bootstrap_observes_files(manager: GraphManager, tmp_project: Path
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_artifact_episode_syncs_cue_only_state(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Bootstrap artifact episodes use the shared episode/cue projection state path."""
+    (tmp_path / "README.md").write_text("# My Project\nThis is a test project.")
+    manager._cfg.cue_layer_enabled = True
+    manager._graph.update_episode_cue = AsyncMock()
+    manager.store_episode = AsyncMock(return_value="ep_bootstrap_1")
+
+    result = await manager.bootstrap_project(str(tmp_path), session_id="sess_bootstrap")
+
+    assert result["status"] == "bootstrapped"
+    manager._graph.update_episode.assert_any_await(
+        "ep_bootstrap_1",
+        {
+            "status": EpisodeStatus.COMPLETED.value,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "project_bootstrap_artifact",
+        },
+        group_id="default",
+    )
+    manager._graph.update_episode_cue.assert_awaited_once_with(
+        "ep_bootstrap_1",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "project_bootstrap_artifact",
+        },
+        group_id="default",
+    )
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_project_artifacts_preserve_active_group(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Project paths are graph context; artifact writes stay in the active brain."""
+    (tmp_path / "README.md").write_text("# My Project\nThis is a test project.")
+    manager._cfg.cue_layer_enabled = True
+    manager._graph.update_episode_cue = AsyncMock()
+    manager.store_episode = AsyncMock(return_value="ep_bootstrap_group")
+
+    result = await manager.bootstrap_project(
+        str(tmp_path),
+        group_id="operator_brain",
+        session_id="sess_group",
+    )
+
+    assert result["status"] == "bootstrapped"
+    created_entities = [call.args[0] for call in manager._graph.create_entity.call_args_list]
+    assert {entity.group_id for entity in created_entities} == {"operator_brain"}
+    manager.store_episode.assert_awaited_once()
+    store_kwargs = manager.store_episode.await_args.kwargs
+    assert store_kwargs["group_id"] == "operator_brain"
+    assert store_kwargs["source"] == "auto:bootstrap"
+    assert store_kwargs["session_id"] == "sess_group"
+    manager._graph.update_episode.assert_any_await(
+        "ep_bootstrap_group",
+        {
+            "status": EpisodeStatus.COMPLETED.value,
+            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
+            "last_projection_reason": "project_bootstrap_artifact",
+        },
+        group_id="operator_brain",
+    )
+    manager._graph.update_episode_cue.assert_awaited_once_with(
+        "ep_bootstrap_group",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "project_bootstrap_artifact",
+        },
+        group_id="operator_brain",
+    )
+
+
+@pytest.mark.asyncio
+async def test_artifact_search_uses_lexical_fallback_when_index_misses(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Artifact search can recover content/claim hits when the search index is empty."""
+    project_path = str(tmp_path)
+    artifact = Entity(
+        id="art_readme",
+        name="README.md",
+        entity_type="Artifact",
+        group_id="operator_brain",
+        summary="native-artifact-project artifact README.md",
+        attributes={
+            "project_path": project_path,
+            "rel_path": "README.md",
+            "artifact_class": "readme",
+            "snippet": "# Native Artifact Project",
+            "claims": [
+                {
+                    "subject": "native-artifact-project",
+                    "predicate": "public_launch_path",
+                    "object": "OpenClaw",
+                    "confidence": 0.88,
+                }
+            ],
+            "last_observed_at": utc_now().isoformat(),
+            "stale_after": 3600,
+        },
+    )
+    manager._cfg.artifact_bootstrap_enabled = False
+    manager._search.search = AsyncMock(return_value=[])
+    manager._graph.find_entities = AsyncMock(side_effect=[[], [artifact]])
+    manager._graph.get_entity = AsyncMock(return_value=artifact)
+
+    hits = await manager.search_artifacts(
+        query="OpenClaw native artifact",
+        group_id="operator_brain",
+        project_path=project_path,
+        limit=5,
+    )
+
+    assert hits
+    assert hits[0].path == "README.md"
+    assert hits[0].artifact_class == "readme"
+    assert hits[0].supporting_claims[0].object == "OpenClaw"
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_idempotent_when_fresh(
     manager: GraphManager,
     tmp_project: Path,
 ):
     """Recent bootstrap returns already_bootstrapped, no re-observation."""
-    recent_ts = datetime.utcnow().isoformat()
+    recent_ts = utc_now().isoformat()
     existing = Entity(
         id="ent_existing123",
         name=tmp_project.name,
@@ -136,7 +263,7 @@ async def test_bootstrap_refreshes_when_stale(
     tmp_project: Path,
 ):
     """Stale project (>24h) re-observes files and returns refreshed."""
-    stale_ts = (datetime.utcnow() - timedelta(hours=25)).isoformat()
+    stale_ts = (utc_now() - timedelta(hours=25)).isoformat()
     existing = Entity(
         id="ent_existing123",
         name=tmp_project.name,
@@ -384,6 +511,7 @@ async def test_project_episode_creates_part_of_edges():
     extractor.extract = AsyncMock(return_value=mock_result)
 
     mgr = GraphManager(graph, activation, search, extractor, cfg=cfg)
+    mgr._post_processor.publish_graph_changes = AsyncMock()
 
     await mgr.project_episode("ep_test1", "default")
 

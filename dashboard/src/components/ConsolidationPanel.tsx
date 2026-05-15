@@ -17,6 +17,26 @@ function statusColor(status: string): string {
   return STATUS_COLORS[status] ?? "#94a3b8";
 }
 
+function cycleIssueText(cycle: ConsolidationCycleSummary): string | null {
+  return cycle.error || cycle.phase_issue || null;
+}
+
+function cycleIssueColor(cycle: ConsolidationCycleSummary): string {
+  return cycle.error ? statusColor("failed") : statusColor("cancelled");
+}
+
+function cycleHasWarning(cycle: ConsolidationCycleSummary): boolean {
+  return cycle.status === "completed" && !!cycle.phase_issue?.trim() && !cycle.error;
+}
+
+function cycleStatusColor(cycle: ConsolidationCycleSummary): string {
+  return cycleHasWarning(cycle) ? statusColor("cancelled") : statusColor(cycle.status);
+}
+
+function cycleStatusLabel(cycle: ConsolidationCycleSummary): string {
+  return cycleHasWarning(cycle) ? "warning" : cycle.status;
+}
+
 function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString(undefined, {
     month: "short",
@@ -119,9 +139,23 @@ function PhaseTimeline({ phases }: { phases: ConsolidationPhaseResult[] }) {
               boxShadow: p.status === "error" ? `0 0 6px ${statusColor(p.status)}60` : "none",
             }}
           />
-          <span style={{ flex: 1, fontSize: 12, color: "var(--text-primary)", textTransform: "capitalize" }}>
-            {p.phase}
-          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: "var(--text-primary)", textTransform: "capitalize" }}>
+              {p.phase}
+            </div>
+            {p.error ? (
+              <div
+                style={{
+                  color: "#f87171",
+                  fontSize: 10,
+                  marginTop: 2,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {p.error}
+              </div>
+            ) : null}
+          </div>
           <span className="mono tabular-nums" style={{ fontSize: 10, color: "var(--text-muted)" }}>
             {p.items_processed > 0 && `${p.items_affected}/${p.items_processed}`}
           </span>
@@ -143,6 +177,8 @@ function CycleRow({
   isSelected: boolean;
   onClick: () => void;
 }) {
+  const cycleIssue = cycleIssueText(cycle);
+  const color = cycleStatusColor(cycle);
   return (
     <button
       onClick={onClick}
@@ -171,7 +207,7 @@ function CycleRow({
           width: 7,
           height: 7,
           borderRadius: "50%",
-          background: statusColor(cycle.status),
+          background: color,
           flexShrink: 0,
           boxShadow: cycle.status === "running" ? `0 0 8px ${statusColor("running")}80` : "none",
           animation: cycle.status === "running" ? "glow-ring 2s ease-in-out infinite" : "none",
@@ -189,6 +225,11 @@ function CycleRow({
         <div className="mono" style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 1 }}>
           {formatTime(cycle.started_at)}
         </div>
+        {cycleIssue && (
+          <div style={{ color: cycleIssueColor(cycle), fontSize: 10, marginTop: 3, overflowWrap: "anywhere" }}>
+            {cycleIssue}
+          </div>
+        )}
       </div>
       <span className="mono tabular-nums" style={{ fontSize: 10, color: "var(--text-muted)" }}>
         {formatDuration(cycle.total_duration_ms)}
@@ -212,6 +253,10 @@ export function ConsolidationPanel() {
   const triggerCycle = useEngramStore((s) => s.triggerCycle);
   const triggerDryRun = useEngramStore((s) => s.triggerDryRun);
   const setTriggerDryRun = useEngramStore((s) => s.setTriggerDryRun);
+  const detailIssue = cycleDetail ? cycleIssueText(cycleDetail) : null;
+  const detailColor = cycleDetail ? cycleStatusColor(cycleDetail) : statusColor("pending");
+  const detailIssueColor = cycleDetail ? cycleIssueColor(cycleDetail) : statusColor("pending");
+  const detailStatusLabel = cycleDetail ? cycleStatusLabel(cycleDetail) : "";
 
   useEffect(() => {
     loadStatus();
@@ -423,8 +468,8 @@ export function ConsolidationPanel() {
                     width: 8,
                     height: 8,
                     borderRadius: "50%",
-                    background: statusColor(cycleDetail.status),
-                    boxShadow: `0 0 6px ${statusColor(cycleDetail.status)}60`,
+                    background: detailColor,
+                    boxShadow: `0 0 6px ${detailColor}60`,
                   }}
                 />
                 <span style={{ fontSize: 14, color: "var(--text-primary)", fontWeight: 500, textTransform: "capitalize" }}>
@@ -434,11 +479,11 @@ export function ConsolidationPanel() {
                   className="pill"
                   style={{
                     fontSize: 9,
-                    borderColor: statusColor(cycleDetail.status) + "40",
-                    color: statusColor(cycleDetail.status),
+                    borderColor: detailColor + "40",
+                    color: detailColor,
                   }}
                 >
-                  {cycleDetail.status}
+                  {detailStatusLabel}
                 </span>
                 {cycleDetail.dry_run && (
                   <span className="pill" style={{ fontSize: 9, borderColor: "var(--border-hover)" }}>DRY RUN</span>
@@ -446,8 +491,8 @@ export function ConsolidationPanel() {
               </div>
               <div className="mono" style={{ fontSize: 10, color: "var(--text-muted)" }}>
                 {formatTime(cycleDetail.started_at)} &middot; {formatDuration(cycleDetail.total_duration_ms)}
-                {cycleDetail.error && (
-                  <span style={{ color: "#f87171", marginLeft: 8 }}>{cycleDetail.error}</span>
+                {detailIssue && (
+                  <span style={{ color: detailIssueColor, marginLeft: 8 }}>{detailIssue}</span>
                 )}
               </div>
             </div>

@@ -15,6 +15,8 @@ from engram.config import ActivationConfig
 from engram.retrieval.context import ConversationContext
 from engram.retrieval.need import analyze_memory_need
 
+MEMORY_NEED_BENCHMARK_GROUP_ID = "memory_need_benchmark"
+
 
 @dataclass(frozen=True)
 class MemoryNeedFixture:
@@ -32,7 +34,7 @@ class MemoryNeedFixture:
     session_entity_names: list[str] = field(default_factory=list)
     context_turns: list[str] = field(default_factory=list)
     cfg_overrides: dict[str, Any] = field(default_factory=dict)
-    group_id: str = "default"
+    group_id: str = MEMORY_NEED_BENCHMARK_GROUP_ID
     graph_probe: Any = None
 
 

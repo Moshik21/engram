@@ -1,0 +1,240 @@
+"""Direct entity and fact lookup services."""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from engram.activation.engine import compute_activation
+from engram.config import ActivationConfig
+from engram.models.entity import Entity
+from engram.models.relationship import Relationship
+
+EPISTEMIC_FACT_PREDICATES = {
+    "DECIDED_IN",
+    "DOCUMENTED_IN",
+    "IMPLEMENTED_BY",
+    "ANNOUNCED_AS",
+    "SUPERSEDED_BY",
+}
+
+
+class EntityFactLookupService:
+    """Own read-only entity and fact lookup for REST/MCP surfaces."""
+
+    def __init__(
+        self,
+        *,
+        graph_store: Any,
+        activation_store: Any,
+        search_index: Any,
+        cfg: ActivationConfig,
+    ) -> None:
+        self._graph = graph_store
+        self._activation = activation_store
+        self._search = search_index
+        self._cfg = cfg
+
+    async def resolve_entity_name(self, entity_id: str, group_id: str) -> str:
+        """Resolve an entity ID to its name. Returns ID if not found."""
+        entity = await self._graph.get_entity(entity_id, group_id)
+        return entity.name if entity else entity_id
+
+    async def search_entities(
+        self,
+        group_id: str = "default",
+        name: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Search entities by name and/or type without recording access."""
+        now = time.time()
+        entities: list[Entity] = []
+
+        if name:
+            search_hits = await self._search.search(
+                query=name,
+                group_id=group_id,
+                limit=limit * 2,
+            )
+            for entity_id, _score in search_hits:
+                entity = await self._graph.get_entity(entity_id, group_id)
+                if entity and (not entity_type or entity.entity_type == entity_type):
+                    entities.append(entity)
+                if len(entities) >= limit:
+                    break
+
+            if not entities:
+                entities = await self._graph.find_entities(
+                    name=name,
+                    entity_type=entity_type,
+                    group_id=group_id,
+                    limit=limit,
+                )
+        else:
+            entities = await self._graph.find_entities(
+                entity_type=entity_type,
+                group_id=group_id,
+                limit=limit,
+            )
+
+        states = await self._activation.batch_get([entity.id for entity in entities])
+        result = []
+        for entity in entities:
+            state = states.get(entity.id)
+            activation_score = 0.0
+            access_count = 0
+            if state:
+                activation_score = compute_activation(state.access_history, now, self._cfg)
+                access_count = state.access_count
+
+            result.append(
+                {
+                    "id": entity.id,
+                    "name": entity.name,
+                    "entity_type": entity.entity_type,
+                    "summary": entity.summary,
+                    "lexical_regime": entity.lexical_regime,
+                    "canonical_identifier": entity.canonical_identifier,
+                    "identifier_label": entity.identifier_label,
+                    "activation_score": round(activation_score, 4),
+                    "created_at": entity.created_at.isoformat() if entity.created_at else None,
+                    "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,
+                    "access_count": access_count,
+                },
+            )
+        return result
+
+    async def search_facts(
+        self,
+        group_id: str = "default",
+        query: str = "",
+        subject: str | None = None,
+        predicate: str | None = None,
+        include_expired: bool = False,
+        include_epistemic: bool = False,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Search relationships/facts and resolve entity names for the response."""
+        normalized_predicate = predicate.upper().replace(" ", "_") if predicate else None
+        relationships = await self._find_relationships(
+            group_id=group_id,
+            query=query,
+            subject=subject,
+            predicate=normalized_predicate,
+            include_expired=include_expired,
+            limit=limit,
+        )
+
+        result = []
+        for relationship in relationships:
+            if not include_epistemic and await self.relationship_is_epistemic(
+                relationship,
+                group_id=group_id,
+            ):
+                continue
+            source_name = await self.resolve_entity_name(relationship.source_id, group_id)
+            target_name = await self.resolve_entity_name(relationship.target_id, group_id)
+            result.append(
+                {
+                    "subject": source_name,
+                    "predicate": relationship.predicate,
+                    "object": target_name,
+                    "polarity": relationship.polarity,
+                    "valid_from": (
+                        relationship.valid_from.isoformat()
+                        if relationship.valid_from
+                        else None
+                    ),
+                    "valid_to": (
+                        relationship.valid_to.isoformat() if relationship.valid_to else None
+                    ),
+                    "confidence": relationship.confidence,
+                    "source_episode": relationship.source_episode,
+                    "created_at": (
+                        relationship.created_at.isoformat()
+                        if relationship.created_at
+                        else None
+                    ),
+                },
+            )
+            if len(result) >= limit:
+                break
+        return result
+
+    async def _find_relationships(
+        self,
+        *,
+        group_id: str,
+        query: str,
+        subject: str | None,
+        predicate: str | None,
+        include_expired: bool,
+        limit: int,
+    ) -> list[Relationship]:
+        if subject:
+            subject_entities = await self._resolve_subject_entities(
+                subject,
+                group_id=group_id,
+            )
+            if not subject_entities:
+                return []
+            return await self._graph.get_relationships(
+                subject_entities[0].id,
+                direction="outgoing",
+                predicate=predicate,
+                active_only=not include_expired,
+                group_id=group_id,
+            )
+
+        relationships: list[Relationship] = []
+        seen_rel_ids: set[str] = set()
+        search_hits = await self._search.search(query=query, group_id=group_id, limit=limit)
+        for entity_id, _score in search_hits:
+            rels = await self._graph.get_relationships(
+                entity_id,
+                direction="both",
+                predicate=predicate,
+                active_only=not include_expired,
+                group_id=group_id,
+            )
+            for relationship in rels:
+                if relationship.id not in seen_rel_ids:
+                    seen_rel_ids.add(relationship.id)
+                    relationships.append(relationship)
+            if len(relationships) >= limit:
+                break
+        return relationships
+
+    async def _resolve_subject_entities(self, subject: str, *, group_id: str) -> list[Entity]:
+        subject_entities = await self._graph.find_entities(
+            name=subject,
+            group_id=group_id,
+            limit=1,
+        )
+        if subject_entities:
+            return subject_entities
+
+        hits = await self._search.search(query=subject, group_id=group_id, limit=5)
+        for entity_id, _score in hits:
+            entity = await self._graph.get_entity(entity_id, group_id)
+            if entity and entity.name.lower() == subject.lower():
+                return [entity]
+        return []
+
+    async def relationship_is_epistemic(
+        self,
+        relationship: Relationship,
+        *,
+        group_id: str,
+    ) -> bool:
+        if relationship.predicate in EPISTEMIC_FACT_PREDICATES:
+            return True
+        source_entity = await self._graph.get_entity(relationship.source_id, group_id)
+        target_entity = await self._graph.get_entity(relationship.target_id, group_id)
+        source_type = getattr(source_entity, "entity_type", None)
+        target_type = getattr(target_entity, "entity_type", None)
+        return source_type in {"Decision", "Artifact"} or target_type in {
+            "Decision",
+            "Artifact",
+        }

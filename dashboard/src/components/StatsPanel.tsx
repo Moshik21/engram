@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import {
   AreaChart,
   Area,
@@ -129,13 +129,32 @@ function SectionCard({
   title,
   subtitle,
   children,
+  focusAccent,
+  sectionRef,
+  testId,
 }: {
   title: string;
   subtitle: string;
   children: React.ReactNode;
+  focusAccent?: string;
+  sectionRef?: RefObject<HTMLDivElement | null>;
+  testId?: string;
 }) {
+  const isFocused = Boolean(focusAccent);
   return (
-    <div className="card" style={{ padding: 16, minWidth: 0 }}>
+    <div
+      ref={sectionRef}
+      className="card"
+      data-lifecycle-focus={isFocused ? "true" : undefined}
+      data-testid={testId}
+      style={{
+        padding: 16,
+        minWidth: 0,
+        borderColor: focusAccent ? `${focusAccent}aa` : undefined,
+        boxShadow: focusAccent ? `0 0 0 1px ${focusAccent}33` : undefined,
+        scrollMarginTop: 12,
+      }}
+    >
       <div
         style={{
           display: "flex",
@@ -280,10 +299,24 @@ export function StatsPanel() {
   const stats = useEngramStore((s) => s.stats);
   const isLoading = useEngramStore((s) => s.isLoadingStats);
   const loadStats = useEngramStore((s) => s.loadStats);
+  const lifecycleDrilldownStage = useEngramStore((s) => s.lifecycleDrilldownStage);
+  const cueSectionRef = useRef<HTMLDivElement>(null);
+  const projectSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadStats();
   }, [loadStats]);
+
+  useEffect(() => {
+    if (!stats) return;
+    const target =
+      lifecycleDrilldownStage === "cue"
+        ? cueSectionRef.current
+        : lifecycleDrilldownStage === "project"
+          ? projectSectionRef.current
+          : null;
+    target?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [lifecycleDrilldownStage, stats]);
 
   if (isLoading && !stats) {
     return (
@@ -372,6 +405,9 @@ export function StatsPanel() {
         <SectionCard
           title="Cue Layer"
           subtitle="Immediate recallability before full projection"
+          focusAccent={lifecycleDrilldownStage === "cue" ? "#facc15" : undefined}
+          sectionRef={cueSectionRef}
+          testId="stats-cue-section"
         >
           <div
             style={{
@@ -468,6 +504,9 @@ export function StatsPanel() {
         <SectionCard
           title="Projection Health"
           subtitle="Queue pressure, failure rate, and applied yield"
+          focusAccent={lifecycleDrilldownStage === "project" ? "#818cf8" : undefined}
+          sectionRef={projectSectionRef}
+          testId="stats-project-section"
         >
           <div
             style={{

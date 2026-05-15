@@ -1,0 +1,1572 @@
+
+Verifying vector integrity after migration...
+All vectors verified successfully!
+helix_native: engine initialized (data_dir=/Users/konnermoshier/.helix/engram-native, routes=167)
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 374
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 407
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 379
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 392
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 427
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 426
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 451
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 398
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 436
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 421
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 406
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 465
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 377
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 410
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 454
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 379
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 404
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 378
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 406
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 424
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 420
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 481
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 388
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 476
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 481
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 382
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 447
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 458
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 429
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 469
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 468
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 523
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 448
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 435
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 462
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 401
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 366
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 430
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 418
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 446
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 415
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 438
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 416
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 367
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 448
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 484
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 465
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 424
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 432
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 383
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 406
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 456
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 412
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 423
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 410
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 415
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 385
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 423
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 497
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 425
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 456
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 423
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 408
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 464
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 443
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 376
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 433
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 386
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 412
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 391
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 396
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 406
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 380
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+HelixSearchIndex: embedding attempt 1/3 failed: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}. Retrying in 1.8s
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 407
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 383
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 440
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 383
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 424
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 460
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 418
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 461
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+HelixSearchIndex: embedding attempt 1/3 failed: 502 Bad Gateway. {'message': '<!DOCTYPE html>\n<html lang=en>\n  <meta charset=utf-8>\n  <meta name=viewport content="initial-scale=1, minimum-scale=1, width=device-width">\n  <title>Error 502 (Server Error)!!1</title>\n  <style>\n    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}\n  </style>\n  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>\n  <p><b>502.</b> <ins>That’s an error.</ins>\n  <p>The server encountered a temporary error and could not complete your request.<p>Please try again in 30 seconds.  <ins>That’s all we know.</ins>\n', 'status': 'Bad Gateway'}. Retrying in 1.6s
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 453
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 437
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 388
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 463
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 482
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 385
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 411
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 552
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 410
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 433
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 413
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 459
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 555
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 416
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 390
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 412
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 432
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 388
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 391
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 482
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 390
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 460
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 432
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 404
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 425
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 366
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 469
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 384
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 582
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 452
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 439
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 450
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 422
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 371
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 452
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 442
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 420
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 401
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 416
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 427
+
+	ce": null, "reso
+	........^.......
+
+ring at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 456
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 423
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 408
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 464
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 443
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 376
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 433
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 386
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 412
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 405
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 391
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 396
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 406
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 380
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 407
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 383
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 440
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 383
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 424
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 460
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 418
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 461
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+HelixSearchIndex: embedding attempt 1/3 failed: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}. Retrying in 1.6s
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 453
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 437
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 388
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 463
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 482
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 385
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 411
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 552
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 410
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 433
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 403
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 389
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 393
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 413
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 459
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 555
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 416
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 390
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 412
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 432
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 388
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 402
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 391
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 400
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 482
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 390
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 460
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 432
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 404
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 425
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 366
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 469
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 395
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 384
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 582
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 452
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 439
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 450
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 422
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 371
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 399
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 452
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 442
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 420
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 401
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 397
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 416
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 427
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 436
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 408
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 429
+
+	ce": null, "reso
+	........^.......
+
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+mis-match in vector dimensions!
+3072 != 64
+Native query search_graph_embed_vectors failed: Query 'search_graph_embed_vectors' failed: Vector error: invalid vector dimensions!
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 384
+
+	ce": null, "reso
+	........^.......
+
+Native query create_adjudication failed: Query 'create_adjudication' failed: Decode error: invalid type: null, expected a string at line 1 column 377
+
+	ce": null, "reso
+	........^.......

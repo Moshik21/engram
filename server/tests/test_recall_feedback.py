@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.extraction.extractor import ExtractionResult
+from engram.extraction.policy import ProjectionPolicy
 from engram.graph_manager import GraphManager
+from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
+from engram.retrieval.control import RecallNeedController
 from engram.retrieval.feedback import (
+    RecallCueFeedbackRecorder,
+    RecallEntityAccessRecorder,
+    RecallInteractionRecorder,
+    RecallMemoryInteractionApplier,
     partition_recall_entities_by_usage,
     partition_recall_targets_by_usage,
 )
+from engram.retrieval.reconsolidation import LabileWindowTracker
 from tests.conftest import MockExtractor
 
 
@@ -79,6 +89,259 @@ class TestRecallUsageDetection:
 
         assert [target["episode_id"] for target in used] == ["ep_react"]
         assert [target["episode_id"] for target in dismissed] == ["ep_redis"]
+
+
+class TestRecallInteractionRecorder:
+    def test_entity_interaction_publishes_and_records_need(self):
+        bus = EventBus()
+        queue = bus.subscribe("default")
+        need_controller = MagicMock()
+        recorder = RecallInteractionRecorder(
+            cfg=ActivationConfig(recall_telemetry_enabled=True),
+            event_bus=bus,
+            recall_need_controller=need_controller,
+        )
+
+        recorder.record_entity_interaction(
+            group_id="default",
+            entity=Entity(
+                id="ent_react",
+                name="React",
+                entity_type="Technology",
+                group_id="default",
+            ),
+            interaction_type="used",
+            source="chat_tool_use",
+            query="React",
+            score=0.91,
+            recorded_access=True,
+        )
+
+        event = queue.get_nowait()
+        assert event["type"] == "recall.interaction"
+        assert event["payload"]["entityId"] == "ent_react"
+        assert event["payload"]["interactionType"] == "used"
+        assert event["payload"]["recordedAccess"] is True
+        need_controller.record_interaction.assert_called_once_with(
+            "default",
+            "used",
+            result_type="entity",
+        )
+
+    def test_no_interaction_type_is_noop(self):
+        bus = EventBus()
+        queue = bus.subscribe("default")
+        need_controller = MagicMock()
+        recorder = RecallInteractionRecorder(
+            cfg=ActivationConfig(recall_telemetry_enabled=True),
+            event_bus=bus,
+            recall_need_controller=need_controller,
+        )
+
+        recorder.record_entity_interaction(
+            group_id="default",
+            entity=Entity(id="ent_react", name="React", entity_type="Technology"),
+            interaction_type=None,
+            source="recall",
+            query="React",
+            score=0.91,
+            recorded_access=False,
+        )
+
+        assert queue.empty()
+        need_controller.record_interaction.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestRecallCueFeedbackRecorder:
+    async def test_promotes_hot_cue_through_shared_projection_state(self, graph_store):
+        bus = EventBus()
+        queue = bus.subscribe("default")
+        need_controller = MagicMock(spec=RecallNeedController)
+        cfg = ActivationConfig(
+            cue_recall_hit_threshold=2,
+            cue_policy_learning_enabled=False,
+        )
+        recorder = RecallCueFeedbackRecorder(
+            cfg=cfg,
+            graph_store=graph_store,
+            projection_policy=ProjectionPolicy(cfg),
+            recall_need_controller=need_controller,
+            event_bus=bus,
+        )
+        episode = Episode(
+            id="ep_hot_cue",
+            content="React dashboard migration remains in scope.",
+            source="test",
+            status=EpisodeStatus.COMPLETED,
+            projection_state=EpisodeProjectionState.CUE_ONLY,
+            group_id="default",
+        )
+        await graph_store.create_episode(episode)
+        await graph_store.upsert_episode_cue(
+            EpisodeCue(
+                episode_id=episode.id,
+                group_id="default",
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                route_reason="entity_dense",
+                cue_text="spans: React dashboard migration remains in scope",
+                first_spans=["React dashboard migration remains in scope."],
+                hit_count=1,
+                policy_score=0.48,
+            ),
+        )
+
+        await recorder.record_cue_feedback(
+            episode,
+            score=0.91,
+            query="What remains in scope?",
+            interaction_type="surfaced",
+        )
+
+        stored_episode = await graph_store.get_episode_by_id(episode.id, "default")
+        cue = await graph_store.get_episode_cue(episode.id, "default")
+        events = []
+        while not queue.empty():
+            events.append(await queue.get())
+
+        assert stored_episode is not None
+        assert stored_episode.status == EpisodeStatus.QUEUED
+        assert stored_episode.projection_state == EpisodeProjectionState.SCHEDULED
+        assert cue is not None
+        assert cue.hit_count == 2
+        assert cue.surfaced_count == 1
+        assert cue.projection_state == EpisodeProjectionState.SCHEDULED
+        assert cue.route_reason == "cue_recall_hits"
+        assert [event for event in events if event["type"] == "cue.hit"]
+        assert [event for event in events if event["type"] == "cue.promoted"]
+        assert [event for event in events if event["type"] == "episode.projection_scheduled"]
+        need_controller.record_interaction.assert_called_once_with(
+            "default",
+            "surfaced",
+            result_type="cue_episode",
+        )
+
+
+@pytest.mark.asyncio
+class TestRecallEntityAccessRecorder:
+    async def test_records_activation_event_and_labile_window(self, activation_store):
+        bus = EventBus()
+        queue = bus.subscribe("default")
+        labile_tracker = LabileWindowTracker(ttl=300.0)
+        recorder = RecallEntityAccessRecorder(
+            cfg=ActivationConfig(),
+            activation_store=activation_store,
+            event_bus=bus,
+            labile_tracker=labile_tracker,
+        )
+        entity = Entity(
+            id="ent_react",
+            name="React",
+            entity_type="Technology",
+            summary="UI library",
+            group_id="default",
+        )
+
+        await recorder.record_entity_access(
+            entity,
+            group_id="default",
+            query="React dashboard",
+            source="chat_tool_use",
+            timestamp=123.0,
+        )
+
+        state = await activation_store.get_activation(entity.id)
+        event = await queue.get()
+        labile = labile_tracker.get_labile(entity.id)
+
+        assert state is not None
+        assert state.access_count == 1
+        assert event["type"] == "activation.access"
+        assert event["payload"]["entityId"] == "ent_react"
+        assert event["payload"]["entityType"] == "Technology"
+        assert event["payload"]["accessedVia"] == "chat_tool_use"
+        assert labile is not None
+        assert labile.query == "React dashboard"
+
+
+@pytest.mark.asyncio
+class TestRecallMemoryInteractionApplier:
+    async def test_confirmed_entity_records_access_feedback_event_and_need(
+        self,
+        graph_store,
+        activation_store,
+    ):
+        bus = EventBus()
+        queue = bus.subscribe("default")
+        need_controller = MagicMock(spec=RecallNeedController)
+        cfg = ActivationConfig(
+            recall_telemetry_enabled=True,
+            recall_usage_feedback_enabled=True,
+            ts_enabled=True,
+        )
+        interaction_recorder = RecallInteractionRecorder(
+            cfg=cfg,
+            event_bus=bus,
+            recall_need_controller=need_controller,
+        )
+        cue_feedback_recorder = RecallCueFeedbackRecorder(
+            cfg=cfg,
+            graph_store=graph_store,
+            projection_policy=ProjectionPolicy(cfg),
+            recall_need_controller=need_controller,
+            event_bus=bus,
+        )
+        entity_access_recorder = RecallEntityAccessRecorder(
+            cfg=cfg,
+            activation_store=activation_store,
+            event_bus=bus,
+            labile_tracker=None,
+        )
+        applier = RecallMemoryInteractionApplier(
+            cfg=cfg,
+            graph_store=graph_store,
+            activation_store=activation_store,
+            cue_feedback_recorder=cue_feedback_recorder,
+            entity_access_recorder=entity_access_recorder,
+            interaction_recorder=interaction_recorder,
+            recall_need_controller=need_controller,
+        )
+        entity = Entity(
+            id="ent_react",
+            name="React",
+            entity_type="Technology",
+            summary="UI library",
+            group_id="default",
+        )
+        await graph_store.create_entity(entity)
+
+        await applier.apply(
+            [entity.id],
+            group_id="default",
+            interaction_type="confirmed",
+            source="chat_feedback",
+            query="React",
+            result_lookup={entity.id: {"score": 0.8}},
+        )
+
+        state = await activation_store.get_activation(entity.id)
+        events = []
+        while not queue.empty():
+            events.append(await queue.get())
+
+        assert state is not None
+        assert state.access_count == 1
+        assert state.ts_alpha > 1.0
+        assert [event for event in events if event["type"] == "activation.access"]
+        interaction_events = [event for event in events if event["type"] == "recall.interaction"]
+        assert len(interaction_events) == 1
+        assert interaction_events[0]["payload"]["interactionType"] == "confirmed"
+        assert interaction_events[0]["payload"]["recordedAccess"] is True
+        need_controller.record_interaction.assert_called_once_with(
+            "default",
+            "confirmed",
+            result_type="entity",
+        )
 
 
 @pytest.mark.asyncio

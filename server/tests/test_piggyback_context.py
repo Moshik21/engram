@@ -38,8 +38,14 @@ class TestShouldRecall:
     def test_read_tools_respect_on_tool_call_flag(self):
         cfg_on = ActivationConfig(auto_recall_on_tool_call=True)
         cfg_off = ActivationConfig(auto_recall_on_tool_call=False)
-        for tool in ("recall", "search_entities", "search_facts",
-                      "get_context", "route_question", "search_artifacts"):
+        for tool in (
+            "recall",
+            "search_entities",
+            "search_facts",
+            "get_context",
+            "route_question",
+            "search_artifacts",
+        ):
             assert _should_recall(tool, cfg_on) is True
             assert _should_recall(tool, cfg_off) is False
 
@@ -83,15 +89,14 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=recalled),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
+            patch(
+                "engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=recalled
+            ),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
         ):
             from engram.mcp.server import _recall_middleware
 
-            await _recall_middleware("Alice's project", response,
-                                    tool_name="recall")
+            await _recall_middleware("Alice's project", response, tool_name="recall")
         assert response["recalled_context"] == recalled
 
     @pytest.mark.asyncio
@@ -108,12 +113,13 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=prime_result),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
+            patch(
+                "engram.mcp.server._session_prime",
+                new_callable=AsyncMock,
+                return_value=prime_result,
+            ),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
         ):
             from engram.mcp.server import _recall_middleware
 
@@ -135,25 +141,28 @@ class TestRecallMiddleware:
         intention.context = None
         intention.see_also = None
         manager = AsyncMock()
-        manager._triggered_intentions = [intention]
+        manager.drain_triggered_intention_views.return_value = [
+            {
+                "trigger": intention.trigger_text,
+                "action": intention.action_text,
+                "similarity": round(intention.similarity, 4),
+                "matched_via": intention.matched_via,
+            }
+        ]
         response: dict = {"data": 1}
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
         ):
             from engram.mcp.server import _recall_middleware
 
-            await _recall_middleware("meeting notes", response,
-                                    tool_name="recall")
+            await _recall_middleware("meeting notes", response, tool_name="recall")
         assert len(response["triggered_intentions"]) == 1
         assert response["triggered_intentions"][0]["trigger"] == "meeting"
-        assert manager._triggered_intentions == []
+        manager.drain_triggered_intention_views.assert_called_once_with()
 
     @pytest.mark.asyncio
     async def test_adds_memory_notifications(self):
@@ -175,14 +184,10 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
-            patch("engram.main._app_state",
-                  {"notification_store": ns}),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
+            patch("engram.main._app_state", {"notification_store": ns}),
         ):
             from engram.mcp.server import _recall_middleware
 
@@ -205,18 +210,15 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
         ):
             from engram.mcp.server import _recall_middleware
 
-            await _recall_middleware(long_content, response,
-                                    tool_name="route_question",
-                                    auto_observe=True)
+            await _recall_middleware(
+                long_content, response, tool_name="route_question", auto_observe=True
+            )
         manager.store_episode.assert_called_once()
 
     @pytest.mark.asyncio
@@ -233,18 +235,15 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
         ):
             from engram.mcp.server import _recall_middleware
 
-            await _recall_middleware("short", response,
-                                    tool_name="route_question",
-                                    auto_observe=True)
+            await _recall_middleware(
+                "short", response, tool_name="route_question", auto_observe=True
+            )
         manager.store_episode.assert_not_called()
 
     @pytest.mark.asyncio
@@ -262,16 +261,13 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
             patch("engram.mcp.server._ingest_live_turn", ingest_mock),
         ):
             from engram.mcp.server import _recall_middleware
 
-            await _recall_middleware("content", response,
-                                    tool_name="observe")
+            await _recall_middleware("content", response, tool_name="observe")
         ingest_mock.assert_not_called()
 
     @pytest.mark.asyncio
@@ -288,10 +284,8 @@ class TestRecallMiddleware:
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
             patch("engram.mcp.server._get_manager", return_value=manager),
-            patch("engram.mcp.server._session_prime",
-                  new_callable=AsyncMock, return_value=None),
-            patch("engram.mcp.server._auto_recall_lite",
-                  new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._session_prime", new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._auto_recall_lite", new_callable=AsyncMock, return_value=None),
             patch("engram.mcp.server._ingest_live_turn", ingest_mock),
         ):
             from engram.mcp.server import _recall_middleware
@@ -316,8 +310,7 @@ class TestRecallMiddleware:
         response: dict = {}
         with (
             patch("engram.mcp.server._activation_cfg", cfg),
-            patch("engram.main._app_state",
-                  {"notification_store": ns}),
+            patch("engram.main._app_state", {"notification_store": ns}),
         ):
             from engram.mcp.server import _recall_middleware
 
@@ -362,17 +355,16 @@ class TestToolMiddlewareIntegration:
     async def test_recall_includes_recalled_context(self):
         recalled = {"source": "recall_lite", "entities": []}
         with (
-            patch("engram.mcp.server._recall_middleware",
-                  new_callable=AsyncMock,
-                  side_effect=lambda content, resp, **kw: resp.update(
-                      {"recalled_context": recalled})) as mw,
+            patch(
+                "engram.mcp.server._recall_middleware",
+                new_callable=AsyncMock,
+                side_effect=lambda content, resp, **kw: resp.update({"recalled_context": recalled}),
+            ) as mw,
             patch("engram.mcp.server._get_manager") as gm,
             patch("engram.mcp.server._get_session") as gs,
             patch("engram.mcp.server._activation_cfg", ActivationConfig()),
-            patch("engram.mcp.server._ingest_live_turn",
-                  new_callable=AsyncMock),
-            patch("engram.mcp.server._auto_recall_full",
-                  new_callable=AsyncMock, return_value=None),
+            patch("engram.mcp.server._ingest_live_turn", new_callable=AsyncMock),
+            patch("engram.mcp.server._auto_recall_full", new_callable=AsyncMock, return_value=None),
         ):
             manager = AsyncMock()
             manager.recall = AsyncMock(return_value=[])
@@ -394,8 +386,7 @@ class TestToolMiddlewareIntegration:
     @pytest.mark.asyncio
     async def test_search_entities_calls_middleware(self):
         with (
-            patch("engram.mcp.server._recall_middleware",
-                  new_callable=AsyncMock) as mw,
+            patch("engram.mcp.server._recall_middleware", new_callable=AsyncMock) as mw,
             patch("engram.mcp.server._get_manager") as gm,
         ):
             manager = AsyncMock()
@@ -412,14 +403,12 @@ class TestToolMiddlewareIntegration:
     @pytest.mark.asyncio
     async def test_route_question_auto_observes(self):
         with (
-            patch("engram.mcp.server._recall_middleware",
-                  new_callable=AsyncMock) as mw,
+            patch("engram.mcp.server._recall_middleware", new_callable=AsyncMock) as mw,
             patch("engram.mcp.server._get_manager") as gm,
             patch("engram.mcp.server._get_conv_context", return_value=None),
         ):
             manager = AsyncMock()
-            manager.route_question = AsyncMock(
-                return_value={"route": "remember"})
+            manager.route_question = AsyncMock(return_value={"route": "remember"})
             manager._cfg = MagicMock()
             gm.return_value = manager
 
@@ -433,13 +422,11 @@ class TestToolMiddlewareIntegration:
     @pytest.mark.asyncio
     async def test_forget_does_not_call_middleware(self):
         with (
-            patch("engram.mcp.server._recall_middleware",
-                  new_callable=AsyncMock) as mw,
+            patch("engram.mcp.server._recall_middleware", new_callable=AsyncMock) as mw,
             patch("engram.mcp.server._get_manager") as gm,
         ):
             manager = AsyncMock()
-            manager.forget_entity = AsyncMock(
-                return_value={"status": "forgotten"})
+            manager.forget_entity = AsyncMock(return_value={"status": "forgotten"})
             gm.return_value = manager
 
             from engram.mcp.server import forget

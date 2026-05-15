@@ -10,6 +10,8 @@ from engram.benchmark.metrics import (
     bootstrap_ci,
     false_recall_rate,
     memory_need_precision,
+    memory_need_recall,
+    missed_recall_rate,
     ndcg_at_k,
     open_loop_recovery_rate,
     precision_at_k,
@@ -82,6 +84,34 @@ def test_memory_need_precision():
     assert memory_need_precision(samples) == pytest.approx(0.5)
 
 
+def test_memory_need_recall_and_missed_recall_rate_use_need_labels():
+    samples = [
+        RecallEvalSample(
+            recall_triggered=True,
+            recall_helped=True,
+            recall_needed=True,
+        ),
+        RecallEvalSample(
+            recall_triggered=False,
+            recall_helped=False,
+            recall_needed=True,
+        ),
+        RecallEvalSample(
+            recall_triggered=True,
+            recall_helped=False,
+            recall_needed=False,
+        ),
+        RecallEvalSample(
+            recall_triggered=True,
+            recall_helped=True,
+            recall_needed=None,
+        ),
+    ]
+
+    assert memory_need_recall(samples) == pytest.approx(0.5)
+    assert missed_recall_rate(samples) == pytest.approx(0.5)
+
+
 def test_useful_packet_rate():
     samples = [
         RecallEvalSample(
@@ -111,6 +141,7 @@ def test_false_recall_rate():
         RecallEvalSample(
             recall_triggered=True,
             recall_helped=True,
+            recall_needed=True,
             packets_surfaced=3,
             false_recalls=1,
         ),
@@ -179,6 +210,7 @@ def test_summarize_recall_evaluation():
         RecallEvalSample(
             recall_triggered=True,
             recall_helped=False,
+            recall_needed=True,
             packets_surfaced=1,
             packets_used=0,
             false_recalls=1,
@@ -198,6 +230,8 @@ def test_summarize_recall_evaluation():
     summary = summarize_recall_evaluation(recall_samples, session_samples)
 
     assert summary.memory_need_precision == pytest.approx(0.5)
+    assert summary.memory_need_recall == pytest.approx(1.0)
+    assert summary.missed_recall_rate == pytest.approx(0.0)
     assert summary.useful_packet_rate == pytest.approx(0.5)
     assert summary.false_recall_rate == pytest.approx(0.5)
     assert summary.surfaced_to_used_ratio == pytest.approx(2.0)

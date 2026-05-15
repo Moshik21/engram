@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -12,6 +12,7 @@ from engram.consolidation.phases.replay import EpisodeReplayPhase
 from engram.extraction.extractor import ExtractionResult
 from engram.models.consolidation import CycleContext
 from engram.models.entity import Entity
+from engram.utils.dates import utc_now
 
 
 def _make_episode(
@@ -26,7 +27,7 @@ def _make_episode(
     ep.content = content
     ep.status = MagicMock()
     ep.status.value = status
-    ep.created_at = created_at or (datetime.utcnow() - timedelta(hours=3))
+    ep.created_at = created_at or (utc_now() - timedelta(hours=3))
     ep.group_id = group_id
     return ep
 
@@ -127,7 +128,7 @@ class TestEpisodeReplayPhase:
     async def test_episode_outside_window_skipped(self):
         cfg = _make_cfg(consolidation_replay_window_hours=24.0)
         old_ep = _make_episode(
-            created_at=datetime.utcnow() - timedelta(hours=48),
+            created_at=utc_now() - timedelta(hours=48),
         )
         graph_store = AsyncMock()
         graph_store.get_episodes = AsyncMock(return_value=[old_ep])
@@ -148,7 +149,7 @@ class TestEpisodeReplayPhase:
     async def test_episode_too_young_skipped(self):
         cfg = _make_cfg(consolidation_replay_min_age_hours=2.0)
         young_ep = _make_episode(
-            created_at=datetime.utcnow() - timedelta(minutes=30),
+            created_at=utc_now() - timedelta(minutes=30),
         )
         graph_store = AsyncMock()
         graph_store.get_episodes = AsyncMock(return_value=[young_ep])
@@ -207,6 +208,60 @@ class TestEpisodeReplayPhase:
         search_index.index_entity.assert_called_once()
         assert len(ctx.replay_new_entity_ids) == 1
         assert len(ctx.affected_entity_ids) >= 1
+
+    @pytest.mark.asyncio
+    async def test_replay_scopes_extractor_and_episode_link_reads_to_cycle_group(self):
+        cfg = _make_cfg()
+        ep = _make_episode(group_id="tenant_brain")
+        extractor = _make_extractor(
+            entities=[{"name": "TenantScopedReplay", "entity_type": "concept"}],
+        )
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(
+            side_effect=[
+                ["ent_context"],
+                ["ent_context"],
+                [],
+                [],
+            ],
+        )
+        graph_store.create_entity = AsyncMock()
+        graph_store.link_episode_entity = AsyncMock()
+
+        ctx = CycleContext()
+        ctx.trigger = "manual"
+        ctx.affected_entity_ids.add("ent_context")
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="tenant_brain",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+            context=ctx,
+        )
+
+        assert result.items_processed == 1
+        assert records[0].new_entities_found == 1
+        extractor.extract.assert_awaited_once_with(
+            ep.content,
+            episode_id=ep.id,
+            group_id="tenant_brain",
+        )
+        assert graph_store.get_episode_entities.await_args_list == [
+            call(ep.id, group_id="tenant_brain"),
+            call(ep.id, group_id="tenant_brain"),
+            call(ep.id, group_id="tenant_brain"),
+            call(ep.id, group_id="tenant_brain"),
+        ]
+        created_entity = graph_store.create_entity.call_args.args[0]
+        assert created_entity.group_id == "tenant_brain"
 
     @pytest.mark.asyncio
     async def test_skips_existing_entity_already_linked(self):
@@ -448,11 +503,11 @@ class TestEpisodeReplayPhase:
         )
         recent_ep = _make_episode(
             episode_id="ep_recent",
-            created_at=datetime.utcnow() - timedelta(minutes=20),
+            created_at=utc_now() - timedelta(minutes=20),
         )
         eligible_ep = _make_episode(
             episode_id="ep_eligible",
-            created_at=datetime.utcnow() - timedelta(hours=3),
+            created_at=utc_now() - timedelta(hours=3),
         )
 
         async def _get_episodes(*, group_id=None, limit=50, offset=0):
@@ -818,7 +873,11 @@ class TestReplayDeferredExtraction:
 
         vocab_records = [r for r in records if r.entities_updated > 0]
         assert len(vocab_records) == 1
-        graph_store.link_episode_entity.assert_called_once_with(ep.id, "ent_alice")
+        graph_store.link_episode_entity.assert_called_once_with(
+            ep.id,
+            "ent_alice",
+            group_id="test",
+        )
 
     @pytest.mark.asyncio
     async def test_vocab_linking_disabled_by_config(self):

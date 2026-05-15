@@ -1,10 +1,12 @@
 # Lite Install
 
 Engram's lite mode runs entirely on SQLite — no Docker, no Redis, no FalkorDB.
-All features are available, including the full 12-phase consolidation pipeline,
+All features are available, including the full 16-phase consolidation pipeline,
 graph embeddings, and schema formation.
 
-> For scale/perf with Docker, see [Full Docker Install](full-docker.md).
+> For full HelixDB graph/vector/BM25 without Docker, use
+> [Helix native install](helix.md). For the legacy FalkorDB + Redis stack, see
+> [Full Docker Install](full-docker.md).
 
 ## One-click install
 
@@ -44,6 +46,45 @@ engramctl uninstall --purge-data  # remove everything
 - **API**: `http://127.0.0.1:8100`
 - **Health**: `http://127.0.0.1:8100/health`
 
+## Local diagnostics
+
+Run the local doctor before trusting a lite install:
+
+```bash
+engram doctor
+```
+
+The doctor loads configuration, resolves the engine mode, checks the local API
+health endpoint when the server is running, includes the current local
+`Capture -> Cue -> Project -> Recall -> Consolidate` lifecycle snapshot, and
+runs the disposable projected/consolidated smoke. For a JSON gate:
+
+```bash
+engram doctor --mode lite --skip-server --format json
+```
+
+For a fast config plus lifecycle check without the heavier smoke:
+
+```bash
+engram doctor --mode lite --skip-server --no-smoke
+```
+
+To inspect the current brain-loop state without starting the dashboard, print
+the same lifecycle summary used by REST, MCP, and the Brain Loop view:
+
+```bash
+engram lifecycle
+engram lifecycle --format json
+```
+
+For clean local dashboard or demo smokes, disable hook-driven auto-capture so
+external `/api/knowledge/auto-observe` traffic cannot write unrelated episodes
+into the demo brain:
+
+```bash
+ENGRAM_MODE=lite ENGRAM_SERVER__AUTO_OBSERVE_ENABLED=false engram serve
+```
+
 ## File locations
 
 | Path | Description |
@@ -57,7 +98,7 @@ engramctl uninstall --purge-data  # remove everything
 
 Both modes get the complete Engram feature set:
 
-- Full 12-phase consolidation (triage, merge, infer, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, dream)
+- Full 16-phase consolidation (triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream)
 - Entity extraction + resolution (Claude Haiku)
 - Multi-signal merge/infer scorers (zero LLM cost)
 - Graph embeddings (Node2Vec / TransE / GNN)
@@ -67,7 +108,7 @@ Both modes get the complete Engram feature set:
 - Prospective memory (intentions)
 - Activation-aware retrieval with spreading activation
 - Hybrid search (FTS5 + vectors, RRF fusion)
-- MCP server (15 tools) + REST API
+- MCP server (26 tools) + REST API
 - WebSocket API
 
 **Full mode adds** (scale/perf/infrastructure):
@@ -80,9 +121,18 @@ Both modes get the complete Engram feature set:
 - Multi-process rate limiting
 - Operational headroom for large graphs
 
-## Upgrading to full mode
+## Moving beyond lite
 
-When you outgrow lite mode:
+When you outgrow lite mode, use Helix native first if you want the full
+graph/vector/BM25 backend without Docker:
+
+```bash
+cd server
+make build-native
+make up-native NATIVE_DATA_DIR=/path/to/native-data
+```
+
+The legacy Docker full stack is still available:
 
 ```bash
 engramctl upgrade

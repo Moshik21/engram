@@ -26,10 +26,19 @@ export const createConsolidationSlice: StateCreator<
   loadStatus: async () => {
     try {
       const data = await api.getConsolidationStatus();
+      const latestCycle = data.latest_cycle;
       set((s) => {
         s.isRunning = data.is_running;
         s.schedulerActive = data.scheduler_active;
         s.pressure = data.pressure ?? null;
+        if (latestCycle) {
+          const existingIndex = s.cycles.findIndex((cycle) => cycle.id === latestCycle.id);
+          if (existingIndex >= 0) {
+            s.cycles[existingIndex] = latestCycle;
+          } else {
+            s.cycles.unshift(latestCycle);
+          }
+        }
       });
     } catch {
       // ignore

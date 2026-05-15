@@ -22,6 +22,7 @@ class SQLiteConversationStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._owns_db = False
 
     @property
     def db(self) -> aiosqlite.Connection:
@@ -32,9 +33,11 @@ class SQLiteConversationStore:
     async def initialize(self, db: aiosqlite.Connection | None = None) -> None:
         if db:
             self._db = db
+            self._owns_db = False
         elif not self._db:
             self._db = await aiosqlite.connect(self._db_path)
             self._db.row_factory = aiosqlite.Row
+            self._owns_db = True
 
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
@@ -76,6 +79,12 @@ class SQLiteConversationStore:
                 ON conversation_entities(entity_id)
         """)
         await self.db.commit()
+
+    async def close(self) -> None:
+        if self._db and self._owns_db:
+            await self._db.close()
+        self._db = None
+        self._owns_db = False
 
     async def create_conversation(
         self,

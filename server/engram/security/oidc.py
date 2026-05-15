@@ -47,12 +47,17 @@ class OIDCValidator:
         logger.debug("Refreshed JWKS from %s", jwks_url)
         return self._jwks
 
-    async def validate_token(self, token: str) -> dict[str, Any]:
+    async def validate_token(
+        self,
+        token: str,
+        *,
+        default_group_id: str = "default",
+    ) -> dict[str, Any]:
         """Validate a JWT and return claims.
 
         Returns dict with at least:
           - sub: user ID
-          - group_id: resolved from group_claim (or "default")
+          - group_id: resolved from group_claim or the configured default group
 
         Raises ValueError on invalid/expired tokens.
         """
@@ -69,9 +74,9 @@ class OIDCValidator:
                 ),
             )
             # Extract group_id from configured claim
-            group_id = claims.get(self._group_claim, "default")
+            group_id = claims.get(self._group_claim, default_group_id)
             if not group_id:
-                group_id = "default"
+                group_id = default_group_id
             claims["group_id"] = group_id
             return claims
         except JWTError as e:

@@ -9,7 +9,7 @@ import random
 import re
 import uuid
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, cast
 
 from engram.config import HelixDBConfig
@@ -18,6 +18,11 @@ from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
+from engram.storage.open_work import (
+    OPEN_ADJUDICATION_STATUSES,
+    OPEN_EVIDENCE_STATUSES,
+    build_adjudication_metrics,
+)
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
 from engram.utils.dates import utc_now, utc_now_iso
 from engram.utils.text_guards import is_meta_summary
@@ -36,6 +41,100 @@ def _parse_dt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except (ValueError, TypeError):
         return None
+
+
+def _json_list(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(str(value))
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _count_statuses(rows: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        status = str(row.get("status") or "")
+        if status:
+            counts[status] += 1
+    return dict(counts)
+
+
+def _iso_or_empty(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _projection_state_value(value: Any) -> str:
+    return str(value.value if hasattr(value, "value") else value or "cued")
+
+
+def _cue_model_payload(cue: EpisodeCue, now: str) -> dict[str, Any]:
+    return {
+        "episode_id": cue.episode_id,
+        "group_id": cue.group_id,
+        "cue_version": cue.cue_version,
+        "discourse_class": cue.discourse_class,
+        "cue_text": cue.cue_text,
+        "supporting_spans_json": json.dumps(cue.entity_mentions),
+        "temporal_markers_json": json.dumps(cue.temporal_markers),
+        "quote_spans_json": json.dumps(cue.quote_spans),
+        "contradiction_keys_json": json.dumps(cue.contradiction_keys),
+        "first_spans_json": json.dumps(cue.first_spans),
+        "projection_state": _projection_state_value(cue.projection_state),
+        "cue_score": cue.cue_score,
+        "salience_score": cue.salience_score,
+        "projection_priority": cue.projection_priority,
+        "route_reason": cue.route_reason or "",
+        "hit_count": cue.hit_count,
+        "surfaced_count": cue.surfaced_count,
+        "selected_count": cue.selected_count,
+        "used_count": cue.used_count,
+        "near_miss_count": cue.near_miss_count,
+        "policy_score": cue.policy_score,
+        "projection_attempts": cue.projection_attempts,
+        "last_hit_at": _iso_or_empty(cue.last_hit_at),
+        "last_feedback_at": _iso_or_empty(cue.last_feedback_at),
+        "last_projected_at": _iso_or_empty(cue.last_projected_at),
+        "created_at": cue.created_at.isoformat() if cue.created_at else now,
+        "updated_at": cue.updated_at.isoformat() if cue.updated_at else now,
+    }
+
+
+def _duration_ms(start: str | None, end: str | None) -> float | None:
+    start_dt = _parse_dt(start)
+    end_dt = _parse_dt(end)
+    if start_dt is None or end_dt is None:
+        return None
+
+    if start_dt.tzinfo is not None:
+        start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
+    if end_dt.tzinfo is not None:
+        end_dt = end_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    delta_ms = (end_dt - start_dt).total_seconds() * 1000
+    return delta_ms if delta_ms >= 0 else None
 
 
 def _dedup_summaries(existing: str, incoming: str, max_len: int = 500) -> str:
@@ -144,15 +243,28 @@ class HelixGraphStore:
     every call with ``asyncio.to_thread()`` to keep the event loop responsive.
     """
 
-    def __init__(self, config: HelixDBConfig, encryptor=None, client=None) -> None:
+    def __init__(
+        self,
+        config: HelixDBConfig,
+        encryptor=None,
+        client=None,
+        owns_client: bool | None = None,
+    ) -> None:
         self._config = config
         self._encryptor = encryptor
         self._client: Any | None = None
         self._helix_client = client  # Shared HelixClient (async httpx)
-        # entity_id (our UUID) -> Helix internal node ID
+        self._owns_helix_client = client is None if owns_client is None else owns_client
+        # entity_id (our UUID) -> Helix internal node ID when known to be unique
         self._entity_id_cache: dict[str, Any] = {}
-        # episode_id (our UUID) -> Helix internal node ID
+        # (group_id, entity_id) -> Helix internal node ID for tenant-safe lookups
+        self._entity_group_id_cache: dict[tuple[str, str], Any] = {}
+        # Helix internal node ID -> entity_id for relationship edge conversion
+        self._entity_helix_id_cache: dict[str, str] = {}
+        # episode_id (our UUID) -> Helix internal node ID when known to be unique
         self._episode_id_cache: dict[str, Any] = {}
+        # (group_id, episode_id) -> Helix internal node ID for tenant-safe lookups
+        self._episode_group_id_cache: dict[tuple[str, str], Any] = {}
         # rel_id (our UUID) -> Helix internal edge ID
         self._rel_id_cache: dict[str, Any] = {}
         # evidence_id -> Helix internal node ID
@@ -227,13 +339,39 @@ class HelixGraphStore:
                 return inner[key]
         return None
 
-    def _cache_entity(self, helix_id: Any, entity_id: str) -> None:
-        if helix_id is not None:
-            self._entity_id_cache[entity_id] = helix_id
+    @staticmethod
+    def _remember_unique_id_cache(cache: dict[str, Any], external_id: str, helix_id: Any) -> None:
+        """Cache a bare external id only while it maps to one Helix id."""
+        if helix_id is None or not external_id:
+            return
+        if external_id not in cache:
+            cache[external_id] = helix_id
+            return
+        if str(cache[external_id]) != str(helix_id):
+            cache[external_id] = None
 
-    def _cache_episode(self, helix_id: Any, episode_id: str) -> None:
+    def _cache_entity(
+        self,
+        helix_id: Any,
+        entity_id: str,
+        group_id: str | None = None,
+    ) -> None:
         if helix_id is not None:
-            self._episode_id_cache[episode_id] = helix_id
+            if group_id:
+                self._entity_group_id_cache[(group_id, entity_id)] = helix_id
+            self._remember_unique_id_cache(self._entity_id_cache, entity_id, helix_id)
+            self._entity_helix_id_cache[str(helix_id)] = entity_id
+
+    def _cache_episode(
+        self,
+        helix_id: Any,
+        episode_id: str,
+        group_id: str | None = None,
+    ) -> None:
+        if helix_id is not None:
+            if group_id:
+                self._episode_group_id_cache[(group_id, episode_id)] = helix_id
+            self._remember_unique_id_cache(self._episode_id_cache, episode_id, helix_id)
 
     def _cache_rel(self, helix_id: Any, rel_id: str) -> None:
         if helix_id is not None:
@@ -245,8 +383,9 @@ class HelixGraphStore:
 
     async def _resolve_entity_helix_id(self, entity_id: str, group_id: str) -> int | None:
         """Resolve an entity UUID to a Helix internal ID via cache or query."""
-        if entity_id in self._entity_id_cache:
-            return self._entity_id_cache[entity_id]
+        cached = self._entity_group_id_cache.get((group_id, entity_id))
+        if cached is not None:
+            return cached
         # Scan by group and filter
         results = await self._query(
             "find_entities_exact_name",
@@ -258,23 +397,70 @@ class HelixGraphStore:
             eid = item.get("entity_id", "")
             hid = self._extract_helix_id(item)
             if hid is not None:
-                self._entity_id_cache[eid] = hid
+                self._cache_entity(hid, eid, item.get("group_id") or group_id)
             if eid == entity_id:
                 return hid
         return None
 
+    async def _resolve_entity_helix_id_unscoped(self, entity_id: str) -> int | None:
+        """Resolve an entity UUID only when it is unique across all groups."""
+        if entity_id in self._entity_id_cache:
+            cached = self._entity_id_cache[entity_id]
+            return cached if cached is not None else None
+
+        matches: list[int] = []
+        results = await self._query("find_entities_all", {})
+        for item in results:
+            eid = item.get("entity_id", "")
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_entity(hid, eid, item.get("group_id"))
+            if eid == entity_id and hid is not None:
+                matches.append(hid)
+
+        unique_matches = {str(hid): hid for hid in matches}
+        if len(unique_matches) == 1:
+            return next(iter(unique_matches.values()))
+        if matches:
+            self._entity_id_cache[entity_id] = None
+        return None
+
     async def _resolve_episode_helix_id(self, episode_id: str, group_id: str) -> int | None:
         """Resolve an episode UUID to a Helix internal ID via cache or query."""
-        if episode_id in self._episode_id_cache:
-            return self._episode_id_cache[episode_id]
+        cached = self._episode_group_id_cache.get((group_id, episode_id))
+        if cached is not None:
+            return cached
         results = await self._query("find_episodes_by_group", {"gid": group_id})
         for item in results:
             eid = item.get("episode_id", "")
             hid = self._extract_helix_id(item)
             if hid is not None:
-                self._episode_id_cache[eid] = hid
+                self._cache_episode(hid, eid, item.get("group_id") or group_id)
             if eid == episode_id:
                 return hid
+        return None
+
+    async def _resolve_episode_helix_id_unscoped(self, episode_id: str) -> int | None:
+        """Resolve an episode UUID only when it is unique across all groups."""
+        if episode_id in self._episode_id_cache:
+            cached = self._episode_id_cache[episode_id]
+            return cached if cached is not None else None
+
+        matches: list[int] = []
+        results = await self._query("find_episodes_all", {})
+        for item in results:
+            eid = item.get("episode_id", "")
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_episode(hid, eid, item.get("group_id"))
+            if eid == episode_id and hid is not None:
+                matches.append(hid)
+
+        unique_matches = {str(hid): hid for hid in matches}
+        if len(unique_matches) == 1:
+            return next(iter(unique_matches.values()))
+        if matches:
+            self._episode_id_cache[episode_id] = None
         return None
 
     async def _resolve_rel_helix_id(
@@ -322,7 +508,11 @@ class HelixGraphStore:
         raw_attrs = d.get("attributes_json")
         if raw_attrs:
             try:
-                attributes = json.loads(raw_attrs)
+                parsed_attrs = json.loads(raw_attrs)
+                if isinstance(parsed_attrs, str):
+                    parsed_attrs = json.loads(parsed_attrs)
+                if isinstance(parsed_attrs, dict):
+                    attributes = parsed_attrs
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -337,7 +527,7 @@ class HelixGraphStore:
         # Cache the Helix ID
         hid = self._extract_helix_id(d)
         eid = d.get("entity_id", "")
-        self._cache_entity(hid, eid)
+        self._cache_entity(hid, eid, node_group)
 
         source_episode_ids: list[str] = []
         raw_source_eps = d.get("source_episode_ids")
@@ -381,7 +571,7 @@ class HelixGraphStore:
 
         hid = self._extract_helix_id(d)
         eid = d.get("episode_id", "")
-        self._cache_episode(hid, eid)
+        self._cache_episode(hid, eid, node_group)
 
         raw_status = d.get("status", "pending")
         status = (
@@ -434,16 +624,10 @@ class HelixGraphStore:
         target_id = d.get("target_id", "")
         if not source_id:
             from_hid = d.get("from_node") or d.get("_from", "")
-            for eid, cached_hid in self._entity_id_cache.items():
-                if str(cached_hid) == str(from_hid):
-                    source_id = eid
-                    break
+            source_id = self._entity_helix_id_cache.get(str(from_hid), "")
         if not target_id:
             to_hid = d.get("to_node") or d.get("_to", "")
-            for eid, cached_hid in self._entity_id_cache.items():
-                if str(cached_hid) == str(to_hid):
-                    target_id = eid
-                    break
+            target_id = self._entity_helix_id_cache.get(str(to_hid), "")
 
         return Relationship(
             id=rid,
@@ -469,11 +653,33 @@ class HelixGraphStore:
         return EpisodeCue(
             episode_id=ep_id,
             group_id=d.get("group_id", "default"),
+            cue_version=_as_int(d.get("cue_version")) or 1,
+            discourse_class=d.get("discourse_class", "world") or "world",
             cue_text=d.get("cue_text", ""),
             projection_state=d.get("projection_state", "cued"),
+            cue_score=_as_float(d.get("cue_score")),
+            salience_score=_as_float(d.get("salience_score")),
+            projection_priority=_as_float(d.get("projection_priority")),
+            route_reason=d.get("route_reason") or None,
             created_at=_parse_dt(d.get("created_at")) or utc_now(),
             updated_at=_parse_dt(d.get("updated_at")),
-            entity_mentions=json.loads(d.get("supporting_spans_json", "[]") or "[]"),
+            entity_mentions=_json_list(d.get("supporting_spans_json")),
+            temporal_markers=[str(item) for item in _json_list(d.get("temporal_markers_json"))],
+            quote_spans=[str(item) for item in _json_list(d.get("quote_spans_json"))],
+            contradiction_keys=[
+                str(item) for item in _json_list(d.get("contradiction_keys_json"))
+            ],
+            first_spans=[str(item) for item in _json_list(d.get("first_spans_json"))],
+            hit_count=_as_int(d.get("hit_count")),
+            surfaced_count=_as_int(d.get("surfaced_count")),
+            selected_count=_as_int(d.get("selected_count")),
+            used_count=_as_int(d.get("used_count")),
+            near_miss_count=_as_int(d.get("near_miss_count")),
+            policy_score=_as_float(d.get("policy_score")),
+            projection_attempts=_as_int(d.get("projection_attempts")),
+            last_hit_at=_parse_dt(d.get("last_hit_at")),
+            last_feedback_at=_parse_dt(d.get("last_feedback_at")),
+            last_projected_at=_parse_dt(d.get("last_projected_at")),
         )
 
     @staticmethod
@@ -592,8 +798,11 @@ class HelixGraphStore:
         )
 
     async def close(self) -> None:
-        """No-op — Helix sync client has no close method."""
+        """Close owned clients."""
         self._client = None
+        if self._owns_helix_client and self._helix_client is not None:
+            await self._helix_client.close()
+            self._helix_client = None
 
     # ------------------------------------------------------------------
     # Entities
@@ -645,7 +854,7 @@ class HelixGraphStore:
         )
         if results:
             hid = self._extract_helix_id(results[0])
-            self._cache_entity(hid, entity.id)
+            self._cache_entity(hid, entity.id, entity.group_id)
         return entity.id
 
     async def get_entity(self, entity_id: str, group_id: str) -> Entity | None:
@@ -704,7 +913,9 @@ class HelixGraphStore:
         # Apply updates
         for key, value in updates.items():
             if key == "attributes":
-                current["attributes_json"] = json.dumps(value) if value else "{}"
+                current["attributes_json"] = (
+                    value if isinstance(value, str) else json.dumps(value) if value else "{}"
+                )
             elif key == "pii_categories":
                 current["pii_categories_json"] = json.dumps(value) if value else "[]"
             elif key == "source_episode_ids":
@@ -775,7 +986,11 @@ class HelixGraphStore:
                     except Exception:
                         pass
             await self._query("hard_delete_entity", {"id": helix_id})
+        cached = self._entity_group_id_cache.pop((group_id, entity_id), None)
+        if cached is not None and str(self._entity_id_cache.get(entity_id)) == str(cached):
             self._entity_id_cache.pop(entity_id, None)
+        if cached is not None:
+            self._entity_helix_id_cache.pop(str(cached), None)
 
     async def delete_group(self, group_id: str) -> None:
         """Delete all data belonging to a group by iterating and hard-deleting."""
@@ -820,7 +1035,10 @@ class HelixGraphStore:
 
         # Clear caches
         self._entity_id_cache.clear()
+        self._entity_group_id_cache.clear()
+        self._entity_helix_id_cache.clear()
         self._episode_id_cache.clear()
+        self._episode_group_id_cache.clear()
         self._rel_id_cache.clear()
 
     async def find_entities(
@@ -835,24 +1053,35 @@ class HelixGraphStore:
                 "find_entities_by_name_and_type",
                 {"name_query": name, "etype": entity_type, "gid": group_id},
             )
+        elif name and entity_type:
+            results = await self._query(
+                "find_entities_by_name_and_type_all",
+                {"name_query": name, "etype": entity_type},
+            )
         elif name and group_id:
             results = await self._query(
                 "find_entities_by_name",
                 {"name_query": name, "gid": group_id},
+            )
+        elif name:
+            results = await self._query(
+                "find_entities_by_name_all",
+                {"name_query": name},
             )
         elif entity_type and group_id:
             results = await self._query(
                 "find_entities_by_type",
                 {"etype": entity_type, "gid": group_id},
             )
+        elif entity_type:
+            results = await self._query(
+                "find_entities_by_type_all",
+                {"etype": entity_type},
+            )
         elif group_id:
             results = await self._query("find_entities_by_group", {"gid": group_id})
         else:
-            # No group_id — search across all groups (less efficient)
-            # Helix requires a group_id for indexed queries, so fallback
-            results = await self._query(
-                "find_entities_by_group", {"gid": "default"}
-            )
+            results = await self._query("find_entities_all", {})
 
         entities = []
         for d in results:
@@ -1166,8 +1395,10 @@ class HelixGraphStore:
         seen_edges: set[str] = set()
         frontier_helix_ids: set[int] = set()
 
-        start_hid = await self._resolve_entity_helix_id(
-            entity_id, group_id or "default"
+        start_hid = (
+            await self._resolve_entity_helix_id(entity_id, group_id)
+            if group_id
+            else await self._resolve_entity_helix_id_unscoped(entity_id)
         )
         if start_hid is None:
             return []
@@ -1289,8 +1520,10 @@ class HelixGraphStore:
     async def get_active_neighbors_with_weights(
         self, entity_id: str, group_id: str | None = None
     ) -> list[tuple[str, float, str, str]]:
-        helix_id = await self._resolve_entity_helix_id(
-            entity_id, group_id or "default"
+        helix_id = (
+            await self._resolve_entity_helix_id(entity_id, group_id)
+            if group_id
+            else await self._resolve_entity_helix_id_unscoped(entity_id)
         )
         if helix_id is None:
             return []
@@ -1399,7 +1632,7 @@ class HelixGraphStore:
         )
         if results:
             hid = self._extract_helix_id(results[0])
-            self._cache_episode(hid, episode.id)
+            self._cache_episode(hid, episode.id, episode.group_id)
         return episode.id
 
     async def update_episode(
@@ -1473,7 +1706,7 @@ class HelixGraphStore:
         if group_id:
             results = await self._query("find_episodes_by_group", {"gid": group_id})
         else:
-            results = await self._query("find_episodes_by_group", {"gid": "default"})
+            results = await self._query("find_episodes_all", {})
         episodes = [self._dict_to_episode(d, group_id) for d in results]
         episodes.sort(key=lambda e: e.created_at or utc_now(), reverse=True)
         return episodes[offset : offset + limit]
@@ -1490,20 +1723,32 @@ class HelixGraphStore:
             return None
         return self._dict_to_episode(d, group_id)
 
-    async def get_episode_entities(self, episode_id: str) -> list[str]:
+    async def get_episode_entities(
+        self,
+        episode_id: str,
+        group_id: str | None = None,
+    ) -> list[str]:
         # Need the Helix ID for the episode
-        # Try cache first, then scan default group
-        helix_id = self._episode_id_cache.get(episode_id)
+        # Try the group-scoped cache first, then scan the known group when available.
+        helix_id = (
+            self._episode_group_id_cache.get((group_id, episode_id))
+            if group_id
+            else self._episode_id_cache.get(episode_id)
+        )
         if helix_id is None:
-            # Try to find it
-            for gid in ("default",):
-                helix_id = await self._resolve_episode_helix_id(episode_id, gid)
-                if helix_id is not None:
-                    break
+            helix_id = (
+                await self._resolve_episode_helix_id(episode_id, group_id)
+                if group_id
+                else await self._resolve_episode_helix_id_unscoped(episode_id)
+            )
         if helix_id is None:
             return []
         results = await self._query("get_episode_entities", {"id": helix_id})
-        return [d.get("entity_id", "") for d in results if d.get("entity_id")]
+        return [
+            d.get("entity_id", "")
+            for d in results
+            if d.get("entity_id") and (group_id is None or d.get("group_id") == group_id)
+        ]
 
     async def get_episodes_for_entity(
         self,
@@ -1548,26 +1793,34 @@ class HelixGraphStore:
         episodes.sort(key=lambda e: abs((e.created_at - ref_time).total_seconds()))
         return episodes[:limit]
 
-    async def link_episode_entity(self, episode_id: str, entity_id: str) -> None:
-        ep_hid = self._episode_id_cache.get(episode_id)
-        ent_hid = self._entity_id_cache.get(entity_id)
+    async def link_episode_entity(
+        self,
+        episode_id: str,
+        entity_id: str,
+        group_id: str | None = None,
+    ) -> None:
+        if group_id:
+            ep_hid = self._episode_group_id_cache.get((group_id, episode_id))
+            ent_hid = self._entity_group_id_cache.get((group_id, entity_id))
+            if ep_hid is None:
+                ep_hid = await self._resolve_episode_helix_id(episode_id, group_id)
+            if ent_hid is None:
+                ent_hid = await self._resolve_entity_helix_id(entity_id, group_id)
+        else:
+            ep_hid = self._episode_id_cache.get(episode_id)
+            ent_hid = self._entity_id_cache.get(entity_id)
 
-        if ep_hid is None:
-            for gid in ("default",):
-                ep_hid = await self._resolve_episode_helix_id(episode_id, gid)
-                if ep_hid is not None:
-                    break
-        if ent_hid is None:
-            for gid in ("default",):
-                ent_hid = await self._resolve_entity_helix_id(entity_id, gid)
-                if ent_hid is not None:
-                    break
+            if ep_hid is None:
+                ep_hid = await self._resolve_episode_helix_id_unscoped(episode_id)
+            if ent_hid is None:
+                ent_hid = await self._resolve_entity_helix_id_unscoped(entity_id)
 
         if ep_hid is None or ent_hid is None:
             logger.warning(
-                "link_episode_entity: could not resolve Helix IDs for ep=%s, ent=%s",
+                "link_episode_entity: could not resolve Helix IDs for ep=%s, ent=%s, group=%s",
                 episode_id,
                 entity_id,
+                group_id,
             )
             return
         await self._query(
@@ -1585,41 +1838,27 @@ class HelixGraphStore:
             "find_cue_by_episode",
             {"ep_id": cue.episode_id, "gid": cue.group_id},
         )
-        proj_val = (
-            cue.projection_state.value
-            if hasattr(cue.projection_state, "value")
-            else cue.projection_state
-        )
         now = utc_now_iso()
+        payload = _cue_model_payload(cue, now)
 
         if existing:
             hid = self._extract_helix_id(existing[0])
             if hid is not None:
                 self._cue_id_cache[cue.episode_id] = hid
-                await self._query(
-                    "update_cue",
-                    {
-                        "id": hid,
-                        "cue_text": cue.cue_text,
-                        "supporting_spans_json": json.dumps(cue.entity_mentions),
-                        "projection_state": proj_val,
-                        "updated_at": cue.updated_at.isoformat() if cue.updated_at else now,
-                    },
-                )
-                return
+            update_payload = dict(payload)
+            update_payload.pop("created_at", None)
+            if hid is not None:
+                update_payload["id"] = hid
+                update_payload.pop("episode_id", None)
+                update_payload.pop("group_id", None)
+                await self._query("update_cue", update_payload)
+            else:
+                update_payload["ep_id"] = update_payload.pop("episode_id")
+                update_payload["gid"] = update_payload.pop("group_id")
+                await self._query("update_cue_by_episode", update_payload)
+            return
 
-        results = await self._query(
-            "create_episode_cue",
-            {
-                "episode_id": cue.episode_id,
-                "group_id": cue.group_id,
-                "cue_text": cue.cue_text,
-                "supporting_spans_json": json.dumps(cue.entity_mentions),
-                "projection_state": proj_val,
-                "created_at": cue.created_at.isoformat() if cue.created_at else now,
-                "updated_at": cue.updated_at.isoformat() if cue.updated_at else now,
-            },
-        )
+        results = await self._query("create_episode_cue", payload)
         if results:
             hid = self._extract_helix_id(results[0])
             if hid is not None:
@@ -1652,8 +1891,6 @@ class HelixGraphStore:
         if not existing:
             return
         hid = self._extract_helix_id(existing[0])
-        if hid is None:
-            return
         current = existing[0]
 
         # Apply updates
@@ -1661,39 +1898,102 @@ class HelixGraphStore:
         spans_json = current.get("supporting_spans_json", "[]")
         if "entity_mentions" in updates:
             spans_json = json.dumps(updates["entity_mentions"])
-        proj_state = current.get("projection_state", "cued")
-        if "projection_state" in updates:
-            v = updates["projection_state"]
-            proj_state = v.value if hasattr(v, "value") else v
         now = utc_now_iso()
 
-        await self._query(
-            "update_cue",
-            {
-                "id": hid,
-                "cue_text": cue_text,
-                "supporting_spans_json": spans_json,
-                "projection_state": proj_state,
-                "updated_at": now,
-            },
-        )
+        update_payload = {
+            "cue_version": _as_int(updates.get("cue_version", current.get("cue_version"))) or 1,
+            "discourse_class": updates.get(
+                "discourse_class",
+                current.get("discourse_class", "world"),
+            ),
+            "cue_text": cue_text,
+            "supporting_spans_json": spans_json,
+            "temporal_markers_json": json.dumps(
+                updates.get(
+                    "temporal_markers",
+                    _json_list(current.get("temporal_markers_json")),
+                )
+            ),
+            "quote_spans_json": json.dumps(
+                updates.get("quote_spans", _json_list(current.get("quote_spans_json")))
+            ),
+            "contradiction_keys_json": json.dumps(
+                updates.get(
+                    "contradiction_keys",
+                    _json_list(current.get("contradiction_keys_json")),
+                )
+            ),
+            "first_spans_json": json.dumps(
+                updates.get("first_spans", _json_list(current.get("first_spans_json")))
+            ),
+            "projection_state": _projection_state_value(
+                updates.get("projection_state", current.get("projection_state", "cued"))
+            ),
+            "cue_score": _as_float(updates.get("cue_score", current.get("cue_score"))),
+            "salience_score": _as_float(
+                updates.get("salience_score", current.get("salience_score"))
+            ),
+            "projection_priority": _as_float(
+                updates.get("projection_priority", current.get("projection_priority"))
+            ),
+            "route_reason": updates.get("route_reason", current.get("route_reason") or "")
+            or "",
+            "hit_count": _as_int(updates.get("hit_count", current.get("hit_count"))),
+            "surfaced_count": _as_int(
+                updates.get("surfaced_count", current.get("surfaced_count"))
+            ),
+            "selected_count": _as_int(
+                updates.get("selected_count", current.get("selected_count"))
+            ),
+            "used_count": _as_int(updates.get("used_count", current.get("used_count"))),
+            "near_miss_count": _as_int(
+                updates.get("near_miss_count", current.get("near_miss_count"))
+            ),
+            "policy_score": _as_float(updates.get("policy_score", current.get("policy_score"))),
+            "projection_attempts": _as_int(
+                updates.get("projection_attempts", current.get("projection_attempts"))
+            ),
+            "last_hit_at": _iso_or_empty(updates.get("last_hit_at", current.get("last_hit_at"))),
+            "last_feedback_at": _iso_or_empty(
+                updates.get("last_feedback_at", current.get("last_feedback_at"))
+            ),
+            "last_projected_at": _iso_or_empty(
+                updates.get("last_projected_at", current.get("last_projected_at"))
+            ),
+            "updated_at": now,
+        }
+        if hid is not None:
+            update_payload["id"] = hid
+            await self._query("update_cue", update_payload)
+        else:
+            update_payload["ep_id"] = episode_id
+            update_payload["gid"] = group_id
+            await self._query("update_cue_by_episode", update_payload)
 
     # ------------------------------------------------------------------
     # Stats & Analytics
     # ------------------------------------------------------------------
 
     async def get_stats(self, group_id: str | None = None) -> dict:
-        gid = group_id or "default"
+        entity_query = (
+            ("find_entities_by_group", {"gid": group_id})
+            if group_id
+            else ("find_entities_all", {})
+        )
+        episode_query = (
+            ("find_episodes_by_group", {"gid": group_id})
+            if group_id
+            else ("find_episodes_all", {})
+        )
 
         # Fetch entities and episodes concurrently
         if self._helix_client is not None:
-            entities, episodes = await self._helix_client.query_concurrent([
-                ("find_entities_by_group", {"gid": gid}),
-                ("find_episodes_by_group", {"gid": gid}),
-            ])
+            entities, episodes = await self._helix_client.query_concurrent(
+                [entity_query, episode_query]
+            )
         else:
-            entities = await self._query("find_entities_by_group", {"gid": gid})
-            episodes = await self._query("find_episodes_by_group", {"gid": gid})
+            entities = await self._query(*entity_query)
+            episodes = await self._query(*episode_query)
 
         entity_count = len(entities)
 
@@ -1717,18 +2017,64 @@ class HelixGraphStore:
         if entity_count > 10 and sample_hids:
             relationship_count = int(relationship_count * entity_count / 10)
 
-        episode_count = 0
+        episode_count = len(episodes)
 
         projection_counts: dict[str, Any] = defaultdict(int)
         total_duration = 0.0
         duration_count = 0
+        total_projection_lag = 0.0
+        projection_lag_count = 0
+        projected_episode_ids: list[str] = []
+        total_attempts = 0
         for ep in episodes:
             ps = ep.get("projection_state", "queued")
             projection_counts[ps] += 1
+            if ps == "projected":
+                projected_episode_ids.append(ep.get("episode_id", ""))
             dur = ep.get("processing_duration_ms")
             if ps == "projected" and dur:
                 total_duration += dur
                 duration_count += 1
+            if ps == "projected":
+                lag_ms = _duration_ms(ep.get("created_at"), ep.get("last_projected_at"))
+                if lag_ms is not None:
+                    total_projection_lag += lag_ms
+                    projection_lag_count += 1
+            retry_count = ep.get("retry_count", 0) or 0
+            if ps in {"projected", "failed", "dead_letter"}:
+                total_attempts += max(1, int(retry_count) + 1)
+
+        cues = await self._fetch_episode_cues(episodes, group_id)
+        cue_count = sum(1 for cue in cues if cue.get("cue_text"))
+        projected_cue_count = sum(
+            1
+            for cue in cues
+            if cue.get("cue_text") and cue.get("projection_state") == "projected"
+        )
+        active_cues = [cue for cue in cues if cue.get("cue_text")]
+        cue_hit_count = sum(_as_int(cue.get("hit_count")) for cue in active_cues)
+        cue_hit_episode_count = sum(
+            1 for cue in active_cues if _as_int(cue.get("hit_count")) > 0
+        )
+        cue_surfaced_count = sum(
+            _as_int(cue.get("surfaced_count")) for cue in active_cues
+        )
+        cue_selected_count = sum(_as_int(cue.get("selected_count")) for cue in active_cues)
+        cue_used_count = sum(_as_int(cue.get("used_count")) for cue in active_cues)
+        cue_near_miss_count = sum(
+            _as_int(cue.get("near_miss_count")) for cue in active_cues
+        )
+        total_policy_score = sum(_as_float(cue.get("policy_score")) for cue in active_cues)
+        total_projection_attempts = sum(
+            _as_int(cue.get("projection_attempts")) for cue in active_cues
+        )
+
+        linked_entity_count = 0
+        if projected_episode_ids:
+            linked_entity_count = await self._count_projected_episode_entities(
+                [episode_id for episode_id in projected_episode_ids if episode_id],
+                group_id,
+            )
 
         attempted = (
             projection_counts.get("projected", 0)
@@ -1737,25 +2083,33 @@ class HelixGraphStore:
         )
 
         cue_metrics = {
-            "cue_count": 0,
-            "episodes_without_cues": episode_count,
-            "cue_coverage": 0.0,
-            "cue_hit_count": 0,
-            "cue_hit_episode_count": 0,
-            "cue_hit_episode_rate": 0.0,
-            "cue_surfaced_count": 0,
-            "cue_selected_count": 0,
-            "cue_used_count": 0,
-            "cue_near_miss_count": 0,
-            "avg_policy_score": 0.0,
-            "avg_projection_attempts": 0.0,
-            "projected_cue_count": 0,
-            "cue_to_projection_conversion_rate": 0.0,
+            "cue_count": cue_count,
+            "episodes_without_cues": max(episode_count - cue_count, 0),
+            "cue_coverage": round(cue_count / episode_count, 4) if episode_count else 0.0,
+            "cue_hit_count": cue_hit_count,
+            "cue_hit_episode_count": cue_hit_episode_count,
+            "cue_hit_episode_rate": (
+                round(cue_hit_episode_count / cue_count, 4) if cue_count else 0.0
+            ),
+            "cue_surfaced_count": cue_surfaced_count,
+            "cue_selected_count": cue_selected_count,
+            "cue_used_count": cue_used_count,
+            "cue_near_miss_count": cue_near_miss_count,
+            "avg_policy_score": (
+                round(total_policy_score / cue_count, 4) if cue_count else 0.0
+            ),
+            "avg_projection_attempts": (
+                round(total_projection_attempts / cue_count, 4) if cue_count else 0.0
+            ),
+            "projected_cue_count": projected_cue_count,
+            "cue_to_projection_conversion_rate": (
+                round(projected_cue_count / cue_count, 4) if cue_count else 0.0
+            ),
         }
         projection_metrics = {
             "state_counts": dict(projection_counts),
             "attempted_episode_count": attempted,
-            "total_attempts": 0,
+            "total_attempts": total_attempts,
             "failure_count": projection_counts.get("failed", 0),
             "dead_letter_count": projection_counts.get("dead_letter", 0),
             "failure_rate": (
@@ -1770,14 +2124,23 @@ class HelixGraphStore:
             "avg_processing_duration_ms": (
                 round(total_duration / duration_count, 2) if duration_count else 0.0
             ),
-            "avg_time_to_projection_ms": 0.0,
+            "avg_time_to_projection_ms": (
+                round(total_projection_lag / projection_lag_count, 2)
+                if projection_lag_count
+                else 0.0
+            ),
             "yield": {
-                "linked_entity_count": 0,
+                "linked_entity_count": linked_entity_count,
                 "relationship_count": 0,
-                "avg_linked_entities_per_projected_episode": 0.0,
+                "avg_linked_entities_per_projected_episode": (
+                    round(linked_entity_count / projection_counts.get("projected", 0), 4)
+                    if projection_counts.get("projected", 0)
+                    else 0.0
+                ),
                 "avg_relationships_per_projected_episode": 0.0,
             },
         }
+        adjudication_metrics = await self._get_adjudication_metrics(group_id)
 
         return {
             "entities": entity_count,
@@ -1785,7 +2148,69 @@ class HelixGraphStore:
             "episodes": episode_count,
             "cue_metrics": cue_metrics,
             "projection_metrics": projection_metrics,
+            "adjudication_metrics": adjudication_metrics,
         }
+
+    async def _get_adjudication_metrics(self, group_id: str | None) -> dict[str, Any]:
+        if not group_id:
+            return build_adjudication_metrics({}, {})
+
+        evidence_rows = await self._query_open_status_rows(
+            "find_evidence_by_status",
+            "find_pending_evidence",
+            group_id,
+            OPEN_EVIDENCE_STATUSES,
+        )
+        request_rows = await self._query_open_status_rows(
+            "find_adjudications_by_status",
+            "find_pending_adjudications",
+            group_id,
+            OPEN_ADJUDICATION_STATUSES,
+        )
+        return build_adjudication_metrics(
+            _count_statuses(evidence_rows),
+            _count_statuses(request_rows),
+        )
+
+    async def _fetch_episode_cues(
+        self,
+        episodes: list[dict],
+        group_id: str | None,
+    ) -> list[dict]:
+        episode_queries = [
+            (
+                "find_cue_by_episode",
+                {
+                    "ep_id": episode_id,
+                    "gid": group_id or episode_group,
+                },
+            )
+            for episode in episodes
+            if (episode_id := episode.get("episode_id"))
+            and (group_id or (episode_group := episode.get("group_id")))
+        ]
+        if not episode_queries:
+            return []
+        if self._helix_client is not None:
+            results = await self._helix_client.query_concurrent(episode_queries)
+            return [cue_rows[0] for cue_rows in results if cue_rows]
+
+        cues: list[dict] = []
+        for endpoint, payload in episode_queries:
+            cue_rows = await self._query(endpoint, payload)
+            if cue_rows:
+                cues.append(cue_rows[0])
+        return cues
+
+    async def _count_projected_episode_entities(
+        self,
+        episode_ids: list[str],
+        group_id: str | None,
+    ) -> int:
+        total = 0
+        for episode_id in episode_ids:
+            total += len(await self.get_episode_entities(episode_id, group_id=group_id))
+        return total
 
     async def get_episodes_paginated(
         self,
@@ -1795,24 +2220,26 @@ class HelixGraphStore:
         source: str | None = None,
         status: str | None = None,
     ) -> tuple[list[Episode], str | None]:
-        gid = group_id or "default"
-
-        if source:
-            all_eps = await self._query("find_episodes_by_source", {"gid": gid, "src": source})
-        elif status:
-            all_eps = await self._query("find_episodes_by_status", {"gid": gid, "st": status})
+        if group_id and source:
+            all_eps = await self._query(
+                "find_episodes_by_source",
+                {"gid": group_id, "src": source},
+            )
+        elif group_id and status:
+            all_eps = await self._query(
+                "find_episodes_by_status",
+                {"gid": group_id, "st": status},
+            )
+        elif group_id:
+            all_eps = await self._query("find_episodes_by_group", {"gid": group_id})
         else:
-            all_eps = await self._query("find_episodes_by_group", {"gid": gid})
+            all_eps = await self._query("find_episodes_all", {})
 
         episodes = [self._dict_to_episode(d, group_id) for d in all_eps]
-        # Apply additional filters
-        if source and status:
-            episodes = [e for e in episodes if e.source == source and e.status.value == status]
-        elif status and not source:
-            # Already filtered by query
-            pass
-        elif source and not status:
-            pass
+        if source:
+            episodes = [e for e in episodes if e.source == source]
+        if status:
+            episodes = [e for e in episodes if e.status.value == status]
 
         episodes.sort(key=lambda e: e.created_at or utc_now(), reverse=True)
 
@@ -1830,8 +2257,11 @@ class HelixGraphStore:
     async def get_top_connected(
         self, group_id: str | None = None, limit: int = 10
     ) -> list[dict]:
-        gid = group_id or "default"
-        all_entities = await self._query("find_entities_by_group", {"gid": gid})
+        all_entities = (
+            await self._query("find_entities_by_group", {"gid": group_id})
+            if group_id
+            else await self._query("find_entities_all", {})
+        )
 
         # Collect valid Helix IDs
         valid_ents: list[tuple[dict, Any]] = []
@@ -1853,7 +2283,9 @@ class HelixGraphStore:
                 in_edges = all_results[i * 2 + 1]
                 active_count = 0
                 for e in out_edges + in_edges:
-                    if self._is_active_edge(e) and e.get("group_id") == gid:
+                    if self._is_active_edge(e) and (
+                        group_id is None or e.get("group_id") == group_id
+                    ):
                         active_count += 1
                 entity_edge_counts.append({
                     "id": ent.get("entity_id", ""),
@@ -1867,7 +2299,9 @@ class HelixGraphStore:
                 in_edges = await self._query("get_incoming_edges", {"id": ehid})
                 active_count = 0
                 for e in out_edges + in_edges:
-                    if self._is_active_edge(e) and e.get("group_id") == gid:
+                    if self._is_active_edge(e) and (
+                        group_id is None or e.get("group_id") == group_id
+                    ):
                         active_count += 1
                 entity_edge_counts.append({
                     "id": ent.get("entity_id", ""),
@@ -1882,17 +2316,25 @@ class HelixGraphStore:
     async def get_growth_timeline(
         self, group_id: str | None = None, days: int = 30
     ) -> list[dict]:
-        gid = group_id or "default"
         since = (utc_now() - timedelta(days=days)).isoformat()
+        episode_query = (
+            ("find_episodes_by_group", {"gid": group_id})
+            if group_id
+            else ("find_episodes_all", {})
+        )
+        entity_query = (
+            ("find_entities_by_group", {"gid": group_id})
+            if group_id
+            else ("find_entities_all", {})
+        )
 
         if self._helix_client is not None:
-            all_eps, all_ents = await self._helix_client.query_concurrent([
-                ("find_episodes_by_group", {"gid": gid}),
-                ("find_entities_by_group", {"gid": gid}),
-            ])
+            all_eps, all_ents = await self._helix_client.query_concurrent(
+                [episode_query, entity_query]
+            )
         else:
-            all_eps = await self._query("find_episodes_by_group", {"gid": gid})
-            all_ents = await self._query("find_entities_by_group", {"gid": gid})
+            all_eps = await self._query(*episode_query)
+            all_ents = await self._query(*entity_query)
 
         ep_map: dict[str, Any] = {}
         for d in all_eps:
@@ -1919,8 +2361,11 @@ class HelixGraphStore:
         ]
 
     async def get_entity_type_counts(self, group_id: str | None = None) -> dict[str, Any]:
-        gid = group_id or "default"
-        all_ents = await self._query("find_entities_by_group", {"gid": gid})
+        all_ents = (
+            await self._query("find_entities_by_group", {"gid": group_id})
+            if group_id
+            else await self._query("find_entities_all", {})
+        )
         counts: dict[str, Any] = {}
         for d in all_ents:
             et = d.get("entity_type", "")
@@ -2908,7 +3353,12 @@ class HelixGraphStore:
         group_id: str = "default",
         limit: int = 100,
     ) -> list[dict]:
-        results = await self._query("find_pending_evidence", {"gid": group_id})
+        results = await self._query_open_status_rows(
+            "find_evidence_by_status",
+            "find_pending_evidence",
+            group_id,
+            OPEN_EVIDENCE_STATUSES,
+        )
         evidence = [_evidence_dict_to_storage(d) for d in results]
         evidence.sort(key=lambda e: e.get("confidence", 0.0), reverse=True)
         return evidence[:limit]
@@ -2936,9 +3386,13 @@ class HelixGraphStore:
         updates = updates or {}
         hid = self._evidence_id_cache.get(evidence_id)
         if hid is None:
-            # Search
-            pending = await self._query("find_pending_evidence", {"gid": group_id})
-            for d in pending:
+            open_evidence = await self._query_open_status_rows(
+                "find_evidence_by_status",
+                "find_pending_evidence",
+                group_id,
+                OPEN_EVIDENCE_STATUSES,
+            )
+            for d in open_evidence:
                 eid = d.get("evidence_id", "")
                 ehid = self._extract_helix_id(d)
                 if ehid is not None:
@@ -2960,8 +3414,8 @@ class HelixGraphStore:
                 "id": hid,
                 "status": status,
                 "resolved_at": resolved_at,
-                "commit_reason": updates.get("commit_reason", ""),
-                "committed_id": updates.get("committed_id", ""),
+                "commit_reason": updates.get("commit_reason") or "",
+                "committed_id": updates.get("committed_id") or "",
             },
         )
 
@@ -3046,9 +3500,13 @@ class HelixGraphStore:
             if results:
                 return _adjudication_dict_to_storage(results[0])
 
-        # Search
-        pending = await self._query("find_pending_adjudications", {"gid": group_id})
-        for d in pending:
+        open_requests = await self._query_open_status_rows(
+            "find_adjudications_by_status",
+            "find_pending_adjudications",
+            group_id,
+            OPEN_ADJUDICATION_STATUSES,
+        )
+        for d in open_requests:
             rid = d.get("request_id", "")
             rhid = self._extract_helix_id(d)
             if rhid is not None:
@@ -3062,13 +3520,45 @@ class HelixGraphStore:
         group_id: str = "default",
         limit: int = 100,
     ) -> list[dict]:
-        results = await self._query("find_pending_adjudications", {"gid": group_id})
-        adjudications = [_adjudication_dict_to_storage(d) for d in results]
-        for d, raw in zip(adjudications, results):
+        results = await self._query_open_status_rows(
+            "find_adjudications_by_status",
+            "find_pending_adjudications",
+            group_id,
+            OPEN_ADJUDICATION_STATUSES,
+        )
+        for raw in results:
+            request_id = raw.get("request_id", "")
             hid = self._extract_helix_id(raw)
-            if hid is not None:
-                self._adjudication_id_cache[d["request_id"]] = hid
+            if request_id and hid is not None:
+                self._adjudication_id_cache[request_id] = hid
+        adjudications = [_adjudication_dict_to_storage(d) for d in results]
+        adjudications.sort(key=lambda item: item.get("created_at") or "")
         return adjudications[:limit]
+
+    async def _query_open_status_rows(
+        self,
+        status_query: str,
+        fallback_query: str,
+        group_id: str,
+        statuses: tuple[str, ...],
+    ) -> list[dict]:
+        queries = [(status_query, {"gid": group_id, "st": status}) for status in statuses]
+        try:
+            if self._helix_client is not None:
+                rows_by_status = await self._helix_client.query_concurrent(queries)
+                return [row for rows in rows_by_status for row in rows]
+            rows: list[dict] = []
+            for endpoint, payload in queries:
+                rows.extend(await self._query(endpoint, payload))
+            return rows
+        except Exception:
+            logger.debug(
+                "%s unavailable, falling back to %s",
+                status_query,
+                fallback_query,
+                exc_info=True,
+            )
+            return await self._query(fallback_query, {"gid": group_id})
 
     async def update_adjudication_request(
         self,

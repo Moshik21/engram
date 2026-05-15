@@ -2,7 +2,7 @@
 
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -15,6 +15,7 @@ from engram.models.relationship import Relationship
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
+from engram.utils.dates import utc_now
 
 
 @pytest_asyncio.fixture
@@ -44,13 +45,13 @@ def _old_entity(name, group_id="test", days_old=60):
         entity_type="Concept",
         group_id=group_id,
         access_count=0,
-        created_at=datetime.utcnow() - timedelta(days=days_old),
+        created_at=utc_now() - timedelta(days=days_old),
     )
 
 
 async def _make_old(store, entity_id, days_old=60):
     """Force entity to have an old created_at in the database."""
-    old = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
+    old = (utc_now() - timedelta(days=days_old)).isoformat()
     await store.db.execute(
         "UPDATE entities SET created_at = ? WHERE id = ?",
         (old, entity_id),

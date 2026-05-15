@@ -237,7 +237,7 @@ class HybridSearchIndex:
         try:
             vec_results = await self._vectors.search(
                 query_vec,
-                group_id or "default",
+                group_id,
                 content_type="entity",
                 limit=limit * 2,
                 storage_dim=self._storage_dim,
@@ -364,10 +364,18 @@ class HybridSearchIndex:
 
         results: dict[str, float] = {}
         for eid in entity_ids:
-            cursor = await self._vectors.db.execute(
-                "SELECT embedding, dimensions FROM embeddings WHERE id = ? AND group_id = ?",
-                (eid, group_id or "default"),
-            )
+            if group_id is None:
+                cursor = await self._vectors.db.execute(
+                    "SELECT embedding, dimensions FROM embeddings "
+                    "WHERE id = ? AND content_type = 'entity'",
+                    (eid,),
+                )
+            else:
+                cursor = await self._vectors.db.execute(
+                    "SELECT embedding, dimensions FROM embeddings "
+                    "WHERE id = ? AND group_id = ? AND content_type = 'entity'",
+                    (eid, group_id),
+                )
             row = await cursor.fetchone()
             if row:
                 vec = unpack_vector(row["embedding"], row["dimensions"])
@@ -433,7 +441,7 @@ class HybridSearchIndex:
         try:
             vec_results = await self._vectors.search(
                 query_vec,
-                group_id or "default",
+                group_id,
                 content_type="episode",
                 limit=limit * 2,
                 storage_dim=self._storage_dim,
@@ -481,7 +489,7 @@ class HybridSearchIndex:
         try:
             vec_results = await self._vectors.search(
                 query_vec,
-                group_id or "default",
+                group_id,
                 content_type="episode_cue",
                 limit=limit * 2,
                 storage_dim=self._storage_dim,
@@ -496,8 +504,16 @@ class HybridSearchIndex:
         return self._merge_results(fts_results, vec_results, limit)
 
     async def close(self) -> None:
-        """No-op — connection is shared with the graph store."""
-        pass
+        """Close owned component resources while preserving borrowed DBs."""
+        close_fts = getattr(self._fts, "close", None)
+        if close_fts is not None:
+            await close_fts()
+        close_vectors = getattr(self._vectors, "close", None)
+        if close_vectors is not None:
+            await close_vectors()
+        close_provider = getattr(self._provider, "close", None)
+        if close_provider is not None:
+            await close_provider()
 
     async def get_entity_embeddings(
         self,
@@ -509,12 +525,15 @@ class HybridSearchIndex:
             return {}
         results: dict[str, list[float]] = {}
         placeholders = ",".join("?" * len(entity_ids))
-        gid = group_id or "default"
-        cursor = await self._vectors.db.execute(
+        sql = (
             f"SELECT id, embedding, dimensions FROM embeddings "
-            f"WHERE id IN ({placeholders}) AND group_id = ? AND content_type = 'entity'",
-            [*entity_ids, gid],
+            f"WHERE id IN ({placeholders}) AND content_type = 'entity'"
         )
+        params: list[str] = [*entity_ids]
+        if group_id is not None:
+            sql += " AND group_id = ?"
+            params.append(group_id)
+        cursor = await self._vectors.db.execute(sql, params)
         for row in await cursor.fetchall():
             vec = unpack_vector(row["embedding"], row["dimensions"])
             results[row["id"]] = vec
@@ -536,7 +555,7 @@ class HybridSearchIndex:
             self._vectors.db,
             entity_ids,
             method,
-            group_id or "default",
+            group_id,
         )
 
     async def remove(self, entity_id: str) -> None:

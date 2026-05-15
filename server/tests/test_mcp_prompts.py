@@ -1,11 +1,18 @@
 """Tests for MCP prompt guidance."""
 
+from engram.mcp import server as mcp_server
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_requires_lookup_before_answer():
     assert "BEFORE answering" in ENGRAM_SYSTEM_PROMPT
     assert "observe(user_message)" in ENGRAM_SYSTEM_PROMPT
+
+
+def test_system_prompt_names_brain_loop_contract():
+    assert "Capture -> Cue -> Project -> Recall -> Consolidate" in ENGRAM_SYSTEM_PROMPT
+    assert "cueable latent memory" in ENGRAM_SYSTEM_PROMPT
+    assert "durable graph" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_observe_guidance():
@@ -47,3 +54,15 @@ def test_system_prompt_recalled_context_guidance():
 
 def test_context_loader_prompt_remains_explicit():
     assert ENGRAM_CONTEXT_LOADER_PROMPT.startswith("Before responding, call get_context")
+
+
+def test_mcp_system_prompt_function_returns_brain_loop_guidance():
+    assert mcp_server.engram_system() == ENGRAM_SYSTEM_PROMPT
+    assert "Capture -> Cue -> Project -> Recall -> Consolidate" in mcp_server.engram_system()
+
+
+def test_mcp_context_loader_prompt_function_adds_topic_hint():
+    prompt = mcp_server.engram_context_loader(topic="Engram native mode")
+
+    assert prompt.startswith(ENGRAM_CONTEXT_LOADER_PROMPT)
+    assert 'topic_hint="Engram native mode"' in prompt

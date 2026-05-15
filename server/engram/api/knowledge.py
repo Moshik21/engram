@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
 import json
 import logging
-import time
 from datetime import datetime
 from typing import Any, cast
 
@@ -16,11 +14,24 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from engram.api.deps import get_conversation_store, get_manager
+from engram.api.deps import (
+    get_config,
+    get_conversation_store,
+    get_manager,
+    get_notification_surface_service,
+    get_rate_limiter,
+)
 from engram.events.bus import get_event_bus
+from engram.ingestion.dedup import CaptureDedupCache
+from engram.ingestion.offline_replay import OfflineReplayService
+from engram.ingestion.presenter import (
+    memory_write_contract,
+    present_api_memory_write,
+    present_api_observe_skip,
+)
 from engram.models.episode import Attachment
 from engram.models.recall import MemoryNeed, MemoryPacket
-from engram.retrieval.context import ConversationContext, ConversationFingerprinter
+from engram.retrieval.context import ConversationContext
 from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.feedback import (
@@ -28,16 +39,26 @@ from engram.retrieval.feedback import (
     partition_recall_targets_by_usage,
     publish_memory_need_analysis,
 )
-from engram.retrieval.graph_probe import GraphProbe
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
+from engram.retrieval.presenter import present_api_recall_items, present_chat_recall_items
 from engram.security.middleware import get_tenant
-from engram.storage.sqlite.conversations import ConversationNotFoundError
+from engram.storage.helix.conversations import (
+    ConversationNotFoundError as HelixConversationNotFoundError,
+)
+from engram.storage.sqlite.conversations import (
+    ConversationNotFoundError as SQLiteConversationNotFoundError,
+)
 from engram.utils.offline_queue import drain_queue
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+
+_CONVERSATION_NOT_FOUND = (
+    SQLiteConversationNotFoundError,
+    HelixConversationNotFoundError,
+)
 
 
 # ─── Notifications ──────────────────────────────────────────────
@@ -56,40 +77,40 @@ async def get_notifications(
     """Return pending or recent notifications."""
     tenant = get_tenant(request)
     group_id = tenant.group_id
-    from engram.main import _app_state
 
-    ns = _app_state.get("notification_store")
-    if ns is None:
+    service = get_notification_surface_service()
+    if service is None:
         return JSONResponse(content={"notifications": []})
 
-    from engram.notifications.models import notification_to_dict
-
-    if since > 0:
-        items = ns.get_since(group_id, since)
-    else:
-        items = ns.get_pending(group_id, limit=limit)
     return JSONResponse(
-        content={"notifications": [notification_to_dict(n) for n in items]}
+        content={
+            "notifications": service.list_notifications(
+                group_id=group_id,
+                limit=limit,
+                since=since,
+            )
+        }
     )
 
 
 @router.post("/notifications/dismiss")
 async def dismiss_notifications(request: Request, body: DismissBody) -> JSONResponse:
     """Dismiss one or more notifications by ID."""
-    from engram.main import _app_state
-
-    ns = _app_state.get("notification_store")
-    if ns is None:
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    service = get_notification_surface_service()
+    if service is None:
         return JSONResponse(content={"dismissed": 0})
 
-    count = ns.dismiss_batch(body.ids)
+    count = service.dismiss_notifications(group_id=group_id, ids=body.ids)
     return JSONResponse(content={"dismissed": count})
 
 
 # ─── Dedup cache for auto-observe ────────────────────────────────
 
-_DEDUP_CACHE: dict[str, float] = {}  # content_hash → timestamp
-_DEDUP_TTL = 300  # 5 minutes
+_DEDUP = CaptureDedupCache(ttl_seconds=300.0, max_entries=1000)
+_DEDUP_CACHE = _DEDUP.cache  # compatibility handle for existing tests
+_DEDUP_TTL = _DEDUP.ttl_seconds
 
 
 async def _resolve_recall_need_thresholds(
@@ -135,42 +156,9 @@ async def _get_episode_adjudications(manager, episode_id: str, group_id: str) ->
     return result if isinstance(result, list) else []
 
 
-def _camelize_adjudication_requests(requests: list[dict]) -> list[dict]:
-    """Convert adjudication request shape to REST camelCase."""
-    return [
-        {
-            "requestId": request.get("request_id"),
-            "ambiguityTags": request.get("ambiguity_tags", []),
-            "selectedText": request.get("selected_text", ""),
-            "candidateEvidence": [
-                {
-                    "evidenceId": item.get("evidence_id"),
-                    "factClass": item.get("fact_class"),
-                    "payload": item.get("payload", {}),
-                }
-                for item in request.get("candidate_evidence", [])
-            ],
-            "instructions": request.get("instructions", ""),
-        }
-        for request in requests
-    ]
-
-
 def _dedup_check(content: str) -> bool:
     """Return True if content was seen in the last 5 minutes (skip it)."""
-    now = time.time()
-    # Evict stale entries periodically
-    if len(_DEDUP_CACHE) > 1000:
-        stale = [k for k, ts in _DEDUP_CACHE.items() if now - ts > _DEDUP_TTL]
-        for k in stale:
-            del _DEDUP_CACHE[k]
-
-    content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
-    if content_hash in _DEDUP_CACHE and now - _DEDUP_CACHE[content_hash] < _DEDUP_TTL:
-        return True
-
-    _DEDUP_CACHE[content_hash] = now
-    return False
+    return _DEDUP.check(content)
 
 
 # ─── Request bodies ──────────────────────────────────────────────
@@ -238,6 +226,7 @@ class IntendBody(BaseModel):
     priority: str = "normal"
     context: str | None = None
     see_also: list[str] | None = None
+    refresh_trigger: str = "manual"
 
 
 class BootstrapBody(BaseModel):
@@ -249,6 +238,12 @@ class ForgetBody(BaseModel):
     entity_name: str | None = None
     fact: FactRef | None = None
     reason: str | None = None
+
+
+class FeedbackBody(BaseModel):
+    entity_id: str
+    rating: int
+    comment: str | None = None
 
 
 class ChatMessage(BaseModel):
@@ -274,17 +269,20 @@ async def _analyze_chat_memory_need(
     manager,
     history: list[ChatMessage] | None = None,
     session_entity_names: list[str] | None = None,
-    group_id: str = "default",
+    *,
+    group_id: str,
 ) -> MemoryNeed:
     """Analyze whether this chat turn likely needs memory."""
     recent_turns = [msg.content for msg in (history or []) if msg.content.strip()][-6:]
-    cfg = manager._cfg
+    cfg = manager.get_memory_need_config()
     return await analyze_memory_need(
         message,
         recent_turns=recent_turns,
         session_entity_names=session_entity_names or [],
         mode="chat",
-        graph_probe=_get_graph_probe(manager) if cfg.recall_need_graph_probe_enabled else None,
+        graph_probe=(
+            _get_graph_probe(manager) if manager.recall_need_graph_probe_enabled() else None
+        ),
         group_id=group_id,
         conv_context=_get_conv_context(manager),
         cfg=cfg,
@@ -307,7 +305,15 @@ def _build_chat_memory_guidance(need: MemoryNeed) -> str:
 
 def _get_conv_context(manager) -> ConversationContext | None:
     """Return the manager conversation context when enabled."""
-    conv_context = getattr(manager, "_conv_context", None)
+    try:
+        get_context = manager.get_conversation_context
+    except AttributeError:
+        return None
+    if inspect.iscoroutinefunction(get_context):
+        return None
+    conv_context = get_context()
+    if inspect.isawaitable(conv_context):
+        return None
     if isinstance(conv_context, ConversationContext):
         return conv_context
     return None
@@ -315,19 +321,55 @@ def _get_conv_context(manager) -> ConversationContext | None:
 
 def _get_conv_embed_fn(manager):
     """Return the embedding function for live conversation turns when available."""
-    provider = getattr(manager._search, "_provider", None)
-    if provider and hasattr(provider, "embed_query"):
-        return provider.embed_query
-    return None
+    try:
+        get_embed_fn = manager.get_conversation_embed_fn
+    except AttributeError:
+        return None
+    if inspect.iscoroutinefunction(get_embed_fn):
+        return None
+    embed_fn = get_embed_fn()
+    if inspect.isawaitable(embed_fn):
+        return None
+    return embed_fn if callable(embed_fn) else None
 
 
-def _get_graph_probe(manager) -> GraphProbe:
-    probe = getattr(manager, "_recall_need_graph_probe", None)
-    if isinstance(probe, GraphProbe):
-        return probe
-    probe = GraphProbe(manager._graph, manager._activation)
-    manager._recall_need_graph_probe = probe
-    return probe
+def _get_conv_turn_count(manager) -> int:
+    try:
+        get_turn_count = manager.get_conversation_turn_count
+    except AttributeError:
+        return 0
+    if inspect.iscoroutinefunction(get_turn_count):
+        return 0
+    turn_count = get_turn_count()
+    if inspect.isawaitable(turn_count):
+        return 0
+    return turn_count if isinstance(turn_count, int) else 0
+
+
+def _get_conv_top_entity_names(manager) -> list[str]:
+    try:
+        get_names = manager.get_conversation_top_entity_names
+    except AttributeError:
+        return []
+    if inspect.iscoroutinefunction(get_names):
+        return []
+    names = get_names()
+    if inspect.isawaitable(names):
+        return []
+    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+
+
+async def _ingest_conversation_turn(manager, text: str, *, source: str) -> None:
+    ingest = getattr(manager, "ingest_conversation_turn", None)
+    if not callable(ingest):
+        return
+    result = ingest(text, source=source)
+    if inspect.isawaitable(result):
+        await result
+
+
+def _get_graph_probe(manager):
+    return manager.get_recall_need_graph_probe()
 
 
 async def _hydrate_chat_context(manager, history: list[ChatMessage] | None, message: str) -> None:
@@ -335,21 +377,18 @@ async def _hydrate_chat_context(manager, history: list[ChatMessage] | None, mess
     conv_context = _get_conv_context(manager)
     if conv_context is None:
         return
-    embed_fn = _get_conv_embed_fn(manager)
-    if conv_context._turn_count == 0 and history:
+    if _get_conv_turn_count(manager) == 0 and history:
         history_slice = history[-MAX_HISTORY_MESSAGES:]
         for msg in history_slice:
             source = "chat_user" if msg.role == "user" else "chat_assistant"
-            await ConversationFingerprinter.ingest_turn(
-                conv_context,
+            await _ingest_conversation_turn(
+                manager,
                 msg.content,
-                embed_fn,
                 source=source,
             )
-    await ConversationFingerprinter.ingest_turn(
-        conv_context,
+    await _ingest_conversation_turn(
+        manager,
         message,
-        embed_fn,
         source="chat_user",
     )
 
@@ -359,10 +398,9 @@ async def _record_chat_assistant_turn(manager, message: str) -> None:
     conv_context = _get_conv_context(manager)
     if conv_context is None or not message.strip():
         return
-    await ConversationFingerprinter.ingest_turn(
-        conv_context,
+    await _ingest_conversation_turn(
+        manager,
         message,
-        _get_conv_embed_fn(manager),
         source="chat_assistant",
     )
 
@@ -407,7 +445,12 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
         conversation_date=conv_dt,
     )
 
-    return JSONResponse(content={"status": "observed", "episodeId": episode_id})
+    return JSONResponse(
+        content=present_api_memory_write(
+            memory_write_contract("observe", episode_id),
+            status="observed",
+        ),
+    )
 
 
 @router.post("/auto-observe")
@@ -416,11 +459,18 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
 
+    if not get_config().server.auto_observe_enabled:
+        return JSONResponse(
+            content=present_api_observe_skip("skipped", reason="disabled"),
+        )
+
     if not body.content or len(body.content.strip()) < 10:
-        return JSONResponse(content={"status": "skipped", "reason": "too_short"})
+        return JSONResponse(
+            content=present_api_observe_skip("skipped", reason="too_short"),
+        )
 
     if _dedup_check(body.content):
-        return JSONResponse(content={"status": "dedup_skipped"})
+        return JSONResponse(content=present_api_observe_skip("dedup_skipped"))
 
     manager = get_manager()
 
@@ -438,7 +488,12 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
         conversation_date=conv_dt,
     )
 
-    return JSONResponse(content={"status": "observed", "episodeId": episode_id})
+    return JSONResponse(
+        content=present_api_memory_write(
+            memory_write_contract("observe", episode_id),
+            status="observed",
+        ),
+    )
 
 
 @router.post("/observe-image")
@@ -460,7 +515,13 @@ async def observe_image(request: Request, body: ObserveImageRequest) -> JSONResp
         attachments=[attachment],
     )
 
-    return JSONResponse(content={"episode_id": episode_id, "status": "stored"})
+    return JSONResponse(
+        content=present_api_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind="image"),
+            status="stored",
+            include_legacy_episode_id=True,
+        ),
+    )
 
 
 @router.post("/observe-file")
@@ -482,7 +543,13 @@ async def observe_file(request: Request, body: ObserveFileRequest) -> JSONRespon
         attachments=[attachment],
     )
 
-    return JSONResponse(content={"episode_id": episode_id, "status": "stored"})
+    return JSONResponse(
+        content=present_api_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind="file"),
+            status="stored",
+            include_legacy_episode_id=True,
+        ),
+    )
 
 
 @router.post("/replay-queue")
@@ -496,36 +563,17 @@ async def replay_queue(request: Request) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    entries = drain_queue()
-    replayed = 0
-    skipped = 0
-
-    for entry in entries:
-        content = entry.get("content", "")
-        if not content or len(content.strip()) < 10:
-            skipped += 1
-            continue
-        if _dedup_check(content):
-            skipped += 1
-            continue
-        try:
-            await manager.store_episode(
-                content=content,
-                group_id=entry.get("group_id", group_id),
-                source=entry.get("source", "offline:replay"),
-                session_id=entry.get("session_id"),
-            )
-            replayed += 1
-        except Exception:
-            logger.warning("Failed to replay queue entry", exc_info=True)
-            skipped += 1
+    replay_service = OfflineReplayService(
+        drain_queue=drain_queue,
+        dedup_check=_dedup_check,
+        store_episode=manager.store_episode,
+    )
+    result = await replay_service.replay_queue(group_id=group_id)
 
     return JSONResponse(
         content={
             "status": "replayed",
-            "replayed": replayed,
-            "skipped": skipped,
-            "total": len(entries),
+            **result.as_payload(),
         }
     )
 
@@ -552,15 +600,19 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,
     )
-    response: dict = {"status": "remembered", "episodeId": episode_id}
-    cfg = getattr(manager, "_cfg", None)
-    if cfg is None or cfg.edge_adjudication_client_enabled:
+    adjudications: list[dict] = []
+    if manager.edge_adjudication_client_enabled():
         adjudications = await _get_episode_adjudications(manager, episode_id, group_id)
-        if adjudications:
-            response["adjudicationRequests"] = _camelize_adjudication_requests(
-                adjudications,
-            )
-    return JSONResponse(content=response)
+    return JSONResponse(
+        content=present_api_memory_write(
+            memory_write_contract(
+                "remember",
+                episode_id,
+                adjudication_requests=adjudications,
+            ),
+            status="remembered",
+        ),
+    )
 
 
 @router.post("/adjudicate")
@@ -601,7 +653,7 @@ async def recall(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    cfg = manager._cfg
+    packet_policy = manager.get_explicit_recall_packet_policy()
 
     results = await manager.recall(
         query=q,
@@ -611,10 +663,12 @@ async def recall(
         interaction_source="api_recall",
     )
     packets: list[dict] = []
-    if cfg.recall_packets_enabled:
+    if packet_policy.enabled:
+        cfg = manager.get_memory_need_config()
         packet_need = await analyze_memory_need(
             q,
             mode="explicit_recall",
+            group_id=group_id,
             cfg=cfg,
             thresholds=await _resolve_recall_need_thresholds(manager, group_id),
         )
@@ -625,7 +679,7 @@ async def recall(
                 q,
                 mode="explicit_recall",
                 memory_need=packet_need,
-                max_packets=cfg.recall_packet_explicit_limit,
+                max_packets=packet_policy.max_packets,
                 resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
                     entity_id,
                     group_id,
@@ -633,85 +687,7 @@ async def recall(
             )
         ]
 
-    items = []
-    for r in results:
-        result_type = r.get("result_type", "entity")
-        if result_type == "episode":
-            ep = r["episode"]
-            items.append(
-                {
-                    "resultType": "episode",
-                    "episode": {
-                        "id": ep["id"],
-                        "content": ep["content"],
-                        "source": ep.get("source"),
-                        "createdAt": ep.get("created_at"),
-                    },
-                    "score": r["score"],
-                    "scoreBreakdown": {
-                        "semantic": r["score_breakdown"]["semantic"],
-                        "activation": r["score_breakdown"]["activation"],
-                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                    },
-                }
-            )
-        elif result_type == "cue_episode":
-            cue = r["cue"]
-            ep = r.get("episode", {})
-            items.append(
-                {
-                    "resultType": "cue_episode",
-                    "cue": {
-                        "episodeId": cue.get("episode_id"),
-                        "cueText": cue.get("cue_text"),
-                        "supportingSpans": cue.get("supporting_spans", []),
-                        "projectionState": cue.get("projection_state"),
-                        "routeReason": cue.get("route_reason"),
-                        "hitCount": cue.get("hit_count"),
-                        "surfacedCount": cue.get("surfaced_count"),
-                        "selectedCount": cue.get("selected_count"),
-                        "usedCount": cue.get("used_count"),
-                        "nearMissCount": cue.get("near_miss_count"),
-                        "policyScore": cue.get("policy_score"),
-                        "lastFeedbackAt": cue.get("last_feedback_at"),
-                        "lastProjectedAt": cue.get("last_projected_at"),
-                    },
-                    "episode": {
-                        "id": ep.get("id"),
-                        "source": ep.get("source"),
-                        "createdAt": ep.get("created_at"),
-                    },
-                    "score": r["score"],
-                    "scoreBreakdown": {
-                        "semantic": r["score_breakdown"]["semantic"],
-                        "activation": r["score_breakdown"]["activation"],
-                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                    },
-                }
-            )
-        else:
-            ent = r["entity"]
-            items.append(
-                {
-                    "resultType": "entity",
-                    "entity": {
-                        "id": ent["id"],
-                        "name": ent["name"],
-                        "entityType": ent["type"],
-                        "summary": ent.get("summary"),
-                    },
-                    "score": r["score"],
-                    "scoreBreakdown": {
-                        "semantic": r["score_breakdown"]["semantic"],
-                        "activation": r["score_breakdown"]["activation"],
-                        "edgeProximity": r["score_breakdown"]["edge_proximity"],
-                        "explorationBonus": r["score_breakdown"]["exploration_bonus"],
-                    },
-                    "relationships": r.get("relationships", []),
-                }
-            )
+    items = present_api_recall_items(results)
 
     return JSONResponse(content={"items": items, "packets": packets, "query": q})
 
@@ -825,6 +801,26 @@ async def forget(request: Request, body: ForgetBody) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=result)
 
 
+@router.post("/feedback")
+async def post_feedback(request: Request, body: FeedbackBody) -> JSONResponse:
+    """Record explicit user feedback on an entity."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    if body.rating < 1 or body.rating > 5:
+        return JSONResponse({"error": "Rating must be between 1 and 5"}, status_code=400)
+    try:
+        result = await manager.record_explicit_feedback(
+            group_id=group_id,
+            entity_id=body.entity_id,
+            rating=body.rating,
+            comment=body.comment,
+        )
+        return JSONResponse(result)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+
+
 @router.post("/bootstrap")
 async def bootstrap_project(request: Request, body: BootstrapBody) -> JSONResponse:
     """Bootstrap a project: create Project entity and observe key files. Idempotent."""
@@ -850,13 +846,7 @@ async def route_knowledge_question(request: Request, body: RouteBody) -> JSONRes
     manager = get_manager()
 
     history = [msg.content for msg in (body.history or []) if msg.content.strip()]
-    session_entity_names: list[str] = []
-    conv_context = _get_conv_context(manager)
-    if conv_context is not None:
-        session_entity_names = [
-            entry.name
-            for entry in conv_context.get_top_entities(manager._cfg.conv_multi_query_top_entities)
-        ]
+    session_entity_names = _get_conv_top_entity_names(manager)
 
     result = await manager.route_question(
         body.question,
@@ -930,6 +920,7 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
             group_id=group_id,
             context=body.context,
             see_also=body.see_also,
+            refresh_trigger=body.refresh_trigger,
         )
         return JSONResponse(
             content={
@@ -937,6 +928,8 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
                 "intentionId": intention_id,
                 "triggerText": body.trigger_text,
                 "actionText": body.action_text,
+                "triggerType": body.trigger_type,
+                "refreshTrigger": body.refresh_trigger,
             }
         )
     except ValueError as e:
@@ -953,67 +946,11 @@ async def list_intentions(
     group_id = tenant.group_id
     manager = get_manager()
 
-    intention_entities = await manager.list_intentions(
+    items = await manager.list_intention_views(
         group_id=group_id,
         enabled_only=enabled_only,
+        surface="api",
     )
-
-    cfg = manager._cfg
-    items = []
-
-    if cfg.prospective_graph_embedded:
-        from engram.activation.engine import compute_activation
-        from engram.models.prospective import IntentionMeta
-
-        now = time.time()
-        for entity in intention_entities:
-            attrs = entity.attributes or {}
-            try:
-                meta = IntentionMeta(**attrs)
-            except Exception:
-                continue
-
-            state = await manager._activation.get_activation(entity.id)
-            activation = 0.0
-            if state:
-                activation = compute_activation(state.access_history, now, cfg)
-            warmth_ratio = (
-                activation / meta.activation_threshold if meta.activation_threshold > 0 else 0.0
-            )
-
-            item = {
-                "id": entity.id,
-                "triggerText": meta.trigger_text,
-                "actionText": meta.action_text,
-                "triggerType": meta.trigger_type,
-                "threshold": meta.activation_threshold,
-                "fireCount": meta.fire_count,
-                "maxFires": meta.max_fires,
-                "enabled": meta.enabled,
-                "priority": meta.priority,
-                "expiresAt": meta.expires_at,
-                "warmthRatio": round(warmth_ratio, 4),
-                "linkedEntityIds": meta.trigger_entity_ids,
-            }
-            if meta.context is not None:
-                item["context"] = meta.context
-            if meta.see_also is not None:
-                item["seeAlso"] = meta.see_also
-            items.append(item)
-    else:
-        for i in intention_entities:
-            items.append(
-                {
-                    "id": i.id,
-                    "triggerText": i.trigger_text,
-                    "actionText": i.action_text,
-                    "triggerType": i.trigger_type,
-                    "threshold": i.threshold,
-                    "fireCount": i.fire_count,
-                    "maxFires": i.max_fires,
-                    "enabled": i.enabled,
-                }
-            )
 
     return JSONResponse(content={"intentions": items, "total": len(items)})
 
@@ -1161,38 +1098,23 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
     """Execute a chat tool call against the manager. Returns JSON string."""
     logger.info("Chat tool call: %s(%s)", tool_name, json.dumps(tool_input))
     if tool_name == "recall":
-        cfg = getattr(manager, "_cfg", None)
-        usage_feedback_enabled = bool(
-            getattr(cfg, "recall_usage_feedback_enabled", False),
-        )
-        telemetry_enabled = bool(getattr(cfg, "recall_telemetry_enabled", False))
-        packets_enabled = bool(getattr(cfg, "recall_packets_enabled", True))
-        packet_limit = int(getattr(cfg, "recall_packet_chat_limit", 2))
-
-        record_access = True
-        interaction_type = None
-        interaction_source = "chat_tool_use"
-        if usage_feedback_enabled:
-            record_access = False
-            interaction_type = "selected"
-            interaction_source = "chat_tool_select"
-        elif telemetry_enabled:
-            interaction_type = "used"
+        policy = manager.get_chat_tool_recall_policy()
 
         results = await manager.recall(
             query=tool_input["query"],
             group_id=group_id,
             limit=min(tool_input.get("limit", 5), 20),
-            record_access=record_access,
-            interaction_type=interaction_type,
-            interaction_source=interaction_source,
+            record_access=policy.record_access,
+            interaction_type=policy.interaction_type,
+            interaction_source=policy.interaction_source,
         )
         packets = []
-        if packets_enabled:
+        if policy.packets_enabled:
             packet_need = await analyze_memory_need(
                 tool_input["query"],
                 mode="chat",
-                cfg=manager._cfg,
+                group_id=group_id,
+                cfg=manager.get_memory_need_config(),
                 thresholds=await _resolve_recall_need_thresholds(manager, group_id),
             )
             packets = [
@@ -1210,7 +1132,7 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
                     tool_input["query"],
                     mode="chat_tool_use",
                     memory_need=packet_need,
-                    max_packets=packet_limit,
+                    max_packets=policy.packet_limit,
                     resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
                         entity_id,
                         group_id,
@@ -1218,56 +1140,7 @@ async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict
                 )
             ]
         # Summarize for the LLM
-        items = []
-        for r in results:
-            if r.get("result_type") == "episode":
-                ep = r["episode"]
-                items.append(
-                    {
-                        "type": "episode",
-                        "content": ep["content"][:300],
-                        "source": ep.get("source"),
-                        "score": round(r["score"], 3),
-                    }
-                )
-            elif r.get("result_type") == "cue_episode":
-                cue = r["cue"]
-                ep = r.get("episode", {})
-                items.append(
-                    {
-                        "type": "cue_episode",
-                        "cueText": cue.get("cue_text", "")[:240],
-                        "supportingSpans": cue.get("supporting_spans", [])[:2],
-                        "projectionState": cue.get("projection_state"),
-                        "policyScore": cue.get("policy_score"),
-                        "episodeId": cue.get("episode_id"),
-                        "source": ep.get("source"),
-                        "score": round(r["score"], 3),
-                    }
-                )
-            else:
-                ent = r["entity"]
-                sb = r.get("score_breakdown", {})
-                items.append(
-                    {
-                        "type": "entity",
-                        "name": ent["name"],
-                        "entityType": ent.get("type"),
-                        "summary": ent.get("summary"),
-                        "id": ent.get("id", ""),
-                        "score": round(r["score"], 3),
-                        "activation": round(sb.get("activation", 0), 3),
-                        "relationships": [
-                            {
-                                "predicate": rel.get("predicate"),
-                                "target": rel.get("target_name", rel.get("target_id", "")),
-                                "source": rel.get("source_name", rel.get("source_id", "")),
-                                "polarity": rel.get("polarity", "positive"),
-                            }
-                            for rel in r.get("relationships", [])[:10]
-                        ],
-                    }
-                )
+        items = present_chat_recall_items(results)
         return json.dumps({"packets": packets, "results": items, "total": len(items)})
 
     elif tool_name == "search_entities":
@@ -1338,7 +1211,7 @@ async def _apply_chat_recall_feedback(
     recall_results: list[dict],
 ) -> None:
     """Upgrade selected memories to used/dismissed based on the final response."""
-    if not getattr(manager._cfg, "recall_usage_feedback_enabled", False):
+    if not manager.recall_usage_feedback_enabled():
         return
     if not response_text or not recall_results:
         return
@@ -1409,7 +1282,7 @@ def _should_retry_chat_response(
     recall_results: list[dict],
 ) -> bool:
     """Whether the knowledge-chat safety net should retry once."""
-    if not getattr(manager._cfg, "recall_need_post_response_safety_net_enabled", False):
+    if not manager.recall_need_post_response_safety_net_enabled():
         return False
     if chat_need is None or not chat_need.should_recall:
         return False
@@ -1592,9 +1465,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     group_id = tenant.group_id
 
     # Rate limit chat endpoint (guards against runaway API costs)
-    from engram.main import _app_state
-
-    rate_limiter = _app_state.get("rate_limiter")
+    rate_limiter = get_rate_limiter()
     if rate_limiter:
         allowed, remaining = await rate_limiter.check(group_id, "chat")
         if not allowed:
@@ -1604,7 +1475,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             )
 
     manager = get_manager()
-    cfg = manager._cfg
+    chat_policy = manager.get_chat_runtime_policy()
 
     conversation_id = body.conversation_id
     try:
@@ -1615,7 +1486,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     if conv_store and conversation_id:
         try:
             await conv_store.get_conversation(conversation_id, group_id)
-        except ConversationNotFoundError:
+        except _CONVERSATION_NOT_FOUND:
             return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
     elif conv_store and not conversation_id:
         title = body.message[:60].strip()
@@ -1630,16 +1501,9 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     chat_need: MemoryNeed | None = None
     epistemic_bundle = None
     topic_hint: str | None = body.message
-    session_entity_names: list[str] = []
-    if hasattr(manager, "_conv_context") and manager._conv_context is not None:
-        session_entity_names = [
-            entry.name
-            for entry in manager._conv_context.get_top_entities(
-                cfg.conv_multi_query_top_entities,
-            )
-        ]
+    session_entity_names = _get_conv_top_entity_names(manager)
 
-    if cfg.recall_need_analyzer_enabled:
+    if chat_policy.recall_need_analyzer_enabled:
         chat_need = await _analyze_chat_memory_need(
             body.message,
             manager,
@@ -1648,7 +1512,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             group_id=group_id,
         )
         await _record_memory_need_analysis(manager, group_id, chat_need)
-        if cfg.recall_telemetry_enabled:
+        if chat_policy.recall_telemetry_enabled:
             publish_memory_need_analysis(
                 get_event_bus(),
                 group_id,
@@ -1659,7 +1523,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             )
         topic_hint = chat_need.query_hint if chat_need.should_recall else None
 
-    if cfg.epistemic_routing_enabled:
+    if chat_policy.epistemic_routing_enabled:
         epistemic_bundle = await manager.gather_epistemic_evidence(
             body.message,
             group_id=group_id,

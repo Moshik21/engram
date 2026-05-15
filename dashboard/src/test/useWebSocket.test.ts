@@ -79,6 +79,10 @@ vi.mock("../api/client", () => ({
     getNeighbors: vi.fn(),
     searchEntities: vi.fn(),
     getEntity: vi.fn(),
+    getLifecycleSummary: vi.fn().mockResolvedValue(null),
+    getEvaluationReport: vi.fn().mockResolvedValue(null),
+    recordRecallEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
+    recordSessionContinuityEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
     getStats: vi.fn(),
     getEpisodes: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getGraphAt: vi.fn(),
@@ -389,5 +393,40 @@ describe("useWebSocket", () => {
 
     // Node activation should be synced
     expect(useEngramStore.getState().nodes["ent_x"].activationCurrent).toBe(0.9);
+  });
+
+  it("marks quest consolidation completion as warning when phase_issue is present", async () => {
+    act(() => {
+      useEngramStore.setState({
+        dashboardMode: "quest",
+        questEvents: [],
+        lastSeq: 0,
+      });
+    });
+    renderHook(() => useWebSocket());
+
+    await act(async () => {});
+
+    act(() => {
+      wsInstances[0].readyState = 1;
+      wsInstances[0].onopen?.(new Event("open"));
+    });
+
+    act(() => {
+      wsInstances[0].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "consolidation.completed",
+            seq: 5,
+            phase_issue: "graph_embed: optional vector index unavailable",
+          }),
+        }),
+      );
+    });
+
+    expect(useEngramStore.getState().questEvents[0]).toMatchObject({
+      text: "Quest completed with warning: graph_embed: optional vector index unavailable",
+      xp: 5,
+    });
   });
 });

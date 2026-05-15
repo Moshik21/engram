@@ -11,6 +11,8 @@ from engram.benchmark.metrics import gini_coefficient, surfaced_to_used_ratio
 from engram.config import ActivationConfig
 from engram.retrieval.pipeline import retrieve
 
+ECHO_CHAMBER_BENCHMARK_GROUP_ID = "echo_chamber_benchmark"
+
 
 @dataclass
 class EchoChamberSnapshot:
@@ -51,7 +53,7 @@ async def run_echo_chamber(
     activation_store,
     search_index,
     cfg: ActivationConfig,
-    group_id: str = "default",
+    group_id: str = ECHO_CHAMBER_BENCHMARK_GROUP_ID,
     total_queries: int = 200,
     hot_ratio: float = 0.6,
     snapshot_interval: int = 50,

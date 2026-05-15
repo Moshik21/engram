@@ -895,11 +895,23 @@ class FalkorDBGraphStore:
             return None
         return self._node_to_episode(result.result_set[0][0], group_id)
 
-    async def get_episode_entities(self, episode_id: str) -> list[str]:
-        result = await self._query(
-            "MATCH (ep:Episode {id: $eid})-[:HAS_ENTITY]->(ent:Entity) RETURN ent.id",
-            {"eid": episode_id},
-        )
+    async def get_episode_entities(
+        self,
+        episode_id: str,
+        group_id: str | None = None,
+    ) -> list[str]:
+        if group_id is None:
+            result = await self._query(
+                "MATCH (ep:Episode {id: $eid})-[:HAS_ENTITY]->(ent:Entity) RETURN ent.id",
+                {"eid": episode_id},
+            )
+        else:
+            result = await self._query(
+                """MATCH (ep:Episode {id: $eid, group_id: $gid})-[:HAS_ENTITY]->
+                         (ent:Entity {group_id: $gid})
+                   RETURN ent.id""",
+                {"eid": episode_id, "gid": group_id},
+            )
         return [row[0] for row in result.result_set]
 
     async def get_episodes_for_entity(
@@ -940,7 +952,20 @@ class FalkorDBGraphStore:
             episodes.append(self._node_to_episode(record[0], group_id))
         return episodes
 
-    async def link_episode_entity(self, episode_id: str, entity_id: str) -> None:
+    async def link_episode_entity(
+        self,
+        episode_id: str,
+        entity_id: str,
+        group_id: str | None = None,
+    ) -> None:
+        if group_id:
+            await self._query(
+                """MATCH (ep:Episode {id: $eid, group_id: $gid}),
+                         (ent:Entity {id: $entid, group_id: $gid})
+                   MERGE (ep)-[:HAS_ENTITY]->(ent)""",
+                {"eid": episode_id, "entid": entity_id, "gid": group_id},
+            )
+            return
         await self._query(
             """MATCH (ep:Episode {id: $eid}), (ent:Entity {id: $entid})
                MERGE (ep)-[:HAS_ENTITY]->(ent)""",

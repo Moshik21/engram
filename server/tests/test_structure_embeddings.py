@@ -1,6 +1,5 @@
 """Tests for structure-aware embeddings in GraphManager."""
 
-from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,6 +9,7 @@ from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
 
 
 class TestStructureAwareEmbeddings:
@@ -52,7 +52,7 @@ class TestStructureAwareEmbeddings:
                 predicate="WORKS_AT",
                 weight=1.0,
                 group_id="default",
-                valid_from=datetime.utcnow(),
+                valid_from=utc_now(),
             ),
             Relationship(
                 id="r2",
@@ -61,7 +61,7 @@ class TestStructureAwareEmbeddings:
                 predicate="EXPERT_IN",
                 weight=1.0,
                 group_id="default",
-                valid_from=datetime.utcnow(),
+                valid_from=utc_now(),
             ),
         ]
         graph_store.get_relationships = AsyncMock(return_value=rels)

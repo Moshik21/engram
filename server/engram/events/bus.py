@@ -73,13 +73,16 @@ class EventBus:
                     seq,
                 )
 
-        # Fire on-publish hooks (async, fire-and-forget)
-        for hook in self._on_publish_hooks:
+        # Fire on-publish hooks when publish() is called from an async context.
+        # Sync TestClient and CLI contexts intentionally skip fire-and-forget hooks.
+        if self._on_publish_hooks:
             try:
-                asyncio.ensure_future(hook(group_id, event_type, payload or {}, event))
+                loop = asyncio.get_running_loop()
             except RuntimeError:
-                # No running event loop (e.g. sync test context) — skip hooks
-                pass
+                loop = None
+            if loop is not None:
+                for hook in self._on_publish_hooks:
+                    loop.create_task(hook(group_id, event_type, payload or {}, event))
 
         return seq
 

@@ -12,6 +12,7 @@ from engram.extraction.evidence import (
     EvidenceBundle,
     EvidenceCandidate,
 )
+from tests.conftest import _helix_available
 
 # ── Data model tests ──
 
@@ -158,6 +159,8 @@ async def store_with_episode(graph_store, gid):
     return graph_store, gid
 
 
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 class TestStoreEvidence:
     @pytest.mark.asyncio
     async def test_store_empty_list(self, store_with_episode):
@@ -418,6 +421,8 @@ class TestStoreEvidence:
         assert stored[0]["adjudication_request_id"] == "adj_123"
 
 
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 class TestAdjudicationRequests:
     @pytest.mark.asyncio
     async def test_store_and_fetch_requests(self, store_with_episode, gid):
@@ -495,6 +500,8 @@ class TestAdjudicationRequests:
         assert updated["resolved_at"] is not None
 
 
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 class TestGetEntityCount:
     @pytest.mark.asyncio
     async def test_empty_group(self, graph_store, gid):

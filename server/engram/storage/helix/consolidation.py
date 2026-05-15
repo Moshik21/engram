@@ -45,12 +45,20 @@ def _safe_get(d: dict, key: str, default: Any = None) -> Any:
 class HelixConsolidationStore:
     """Stores consolidation cycle history and audit records in HelixDB."""
 
-    def __init__(self, config: HelixDBConfig, client=None) -> None:
+    def __init__(
+        self,
+        config: HelixDBConfig,
+        client=None,
+        owns_client: bool | None = None,
+    ) -> None:
         self._config = config
         self._client: Any | None = None
         self._helix_client = client  # Shared HelixClient (async httpx)
-        # cycle_id (our string) -> Helix internal node ID
+        self._owns_helix_client = client is None if owns_client is None else owns_client
+        # cycle_id -> Helix internal node ID when known to be unique
         self._cycle_id_cache: dict[str, Any] = {}
+        # (group_id, cycle_id) -> Helix internal node ID for brain-safe lookups
+        self._cycle_group_id_cache: dict[tuple[str, str], Any] = {}
         # complement tag id (int) -> Helix internal node ID
         self._tag_id_cache: dict[int, Any] = {}
         # Auto-incrementing counter for complement tag IDs
@@ -91,6 +99,29 @@ class HelixConsolidationStore:
                 return item[key]
         return None
 
+    @staticmethod
+    def _remember_unique_id_cache(cache: dict[str, Any], external_id: str, helix_id: Any) -> None:
+        """Cache a bare external id only while it maps to one Helix id."""
+        if helix_id is None or not external_id:
+            return
+        if external_id not in cache:
+            cache[external_id] = helix_id
+            return
+        if str(cache[external_id]) != str(helix_id):
+            cache[external_id] = None
+
+    def _cache_cycle(
+        self,
+        helix_id: Any,
+        cycle_id: str,
+        group_id: str | None,
+    ) -> None:
+        if helix_id is None or not cycle_id:
+            return
+        if group_id:
+            self._cycle_group_id_cache[(group_id, cycle_id)] = helix_id
+        self._remember_unique_id_cache(self._cycle_id_cache, cycle_id, helix_id)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -130,8 +161,11 @@ class HelixConsolidationStore:
         )
 
     async def close(self) -> None:
-        """Release client reference."""
+        """Close owned clients."""
         self._client = None
+        if self._owns_helix_client and self._helix_client is not None:
+            await self._helix_client.close()
+            self._helix_client = None
 
     # ------------------------------------------------------------------
     # Cycle CRUD
@@ -169,32 +203,25 @@ class HelixConsolidationStore:
         )
         if result:
             hid = self._extract_helix_id(result[0])
-            if hid is not None:
-                self._cycle_id_cache[cycle.id] = hid
+            self._cache_cycle(hid, cycle.id, cycle.group_id)
 
     async def update_cycle(self, cycle: ConsolidationCycle) -> None:
         """Update an existing consolidation cycle."""
-        helix_id = self._cycle_id_cache.get(cycle.id)
+        helix_id = self._cycle_group_id_cache.get((cycle.group_id, cycle.id))
         if helix_id is None:
-            # Try to resolve via query
             results = await self._query(
-                "get_consol_cycle_by_cycle_id",
-                {"cycle_id": cycle.id},
+                "find_consol_cycles_by_group",
+                {"gid": cycle.group_id},
             )
-            if not results:
-                # Fallback: search in group
-                results = await self._query(
-                    "find_consol_cycles_by_group",
-                    {"gid": cycle.group_id},
-                )
-                for item in results:
-                    if item.get("cycle_id") == cycle.id:
-                        helix_id = self._extract_helix_id(item)
-                        break
-            else:
-                helix_id = self._extract_helix_id(results[0])
-            if helix_id is not None:
-                self._cycle_id_cache[cycle.id] = helix_id
+            for item in results:
+                hid = self._extract_helix_id(item)
+                self._cache_cycle(hid, item.get("cycle_id", ""), item.get("group_id"))
+                if (
+                    item.get("cycle_id") == cycle.id
+                    and item.get("group_id") == cycle.group_id
+                ):
+                    helix_id = hid
+                    break
 
         if helix_id is None:
             logger.warning("Cannot update cycle %s: not found in Helix", cycle.id)
@@ -234,8 +261,7 @@ class HelixConsolidationStore:
         for item in results:
             if item.get("cycle_id") == cycle_id:
                 hid = self._extract_helix_id(item)
-                if hid is not None:
-                    self._cycle_id_cache[cycle_id] = hid
+                self._cache_cycle(hid, cycle_id, item.get("group_id"))
                 return self._dict_to_cycle(item)
         return None
 
@@ -253,8 +279,7 @@ class HelixConsolidationStore:
         for item in results:
             cid = item.get("cycle_id", "")
             hid = self._extract_helix_id(item)
-            if hid is not None and cid:
-                self._cycle_id_cache[cid] = hid
+            self._cache_cycle(hid, cid, item.get("group_id"))
         # Results should already be ordered by started_at DESC from the query
         cycles = [self._dict_to_cycle(item) for item in results]
         # Sort by started_at DESC in Python as safety measure
@@ -1418,18 +1443,12 @@ class HelixConsolidationStore:
         # Find all cycles to determine which are expired
         # We scan all groups — cleanup is global
         # First, try to get cycles from cache
-        expired_cycle_ids: list[str] = []
+        expired_cycles: list[tuple[str, str, Any]] = []
 
-        # We need to scan cycles. Since we don't know all group IDs,
-        # use the cached cycle IDs to find candidates, then query each.
-        # For a more thorough approach, we check all cached cycles.
-        all_cached_ids = list(self._cycle_id_cache.keys())
-
-        # Also try to find cycles by querying with known group "default"
-        # In practice, the engine knows its group_id but cleanup is called
-        # without group context. We rely on cached cycles.
-        for cycle_id in all_cached_ids:
-            helix_id = self._cycle_id_cache[cycle_id]
+        # We need to scan cycles. Since we don't know all group IDs globally,
+        # cleanup works from cycles this process has cached while preserving
+        # their group scope.
+        for (group_id, cycle_id), helix_id in list(self._cycle_group_id_cache.items()):
             try:
                 results = await self._query(
                     "get_consol_cycle",
@@ -1438,11 +1457,11 @@ class HelixConsolidationStore:
                 if results:
                     started_at = _safe_get(results[0], "started_at", 0.0)
                     if started_at < cutoff:
-                        expired_cycle_ids.append(cycle_id)
+                        expired_cycles.append((group_id, cycle_id, helix_id))
             except Exception:
                 pass
 
-        if not expired_cycle_ids:
+        if not expired_cycles:
             return 0
 
         # Record types to delete for each expired cycle
@@ -1469,24 +1488,13 @@ class HelixConsolidationStore:
         ]
 
         deleted_count = 0
-        for cycle_id in expired_cycle_ids:
+        for group_id, cycle_id, helix_id in expired_cycles:
             # Delete associated records
             for query_name in record_query_names:
                 try:
-                    # We need to know the group_id. Extract from cycle data.
-                    helix_id = self._cycle_id_cache.get(cycle_id)
-                    if helix_id is None:
-                        continue
-                    cycle_results = await self._query(
-                        "get_consol_cycle",
-                        {"id": helix_id},
-                    )
-                    if not cycle_results:
-                        continue
-                    gid = _safe_get(cycle_results[0], "group_id", "default")
                     records = await self._query(
                         query_name,
-                        {"cycle_id": cycle_id, "gid": gid},
+                        {"cycle_id": cycle_id, "gid": group_id},
                     )
                     for rec in records:
                         rec_helix_id = self._extract_helix_id(rec)
@@ -1502,7 +1510,6 @@ class HelixConsolidationStore:
                     pass
 
             # Delete the cycle node itself
-            helix_id = self._cycle_id_cache.get(cycle_id)
             if helix_id is not None:
                 try:
                     await self._query(
@@ -1510,7 +1517,9 @@ class HelixConsolidationStore:
                         {"id": helix_id},
                     )
                     deleted_count += 1
-                    del self._cycle_id_cache[cycle_id]
+                    self._cycle_group_id_cache.pop((group_id, cycle_id), None)
+                    if str(self._cycle_id_cache.get(cycle_id)) == str(helix_id):
+                        self._cycle_id_cache.pop(cycle_id, None)
                 except Exception:
                     pass
 

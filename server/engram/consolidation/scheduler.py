@@ -8,6 +8,7 @@ import time
 
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
+from engram.consolidation.phase_registry import CONSOLIDATION_PHASE_TIERS
 from engram.consolidation.pressure import PressureAccumulator
 
 logger = logging.getLogger(__name__)
@@ -15,23 +16,7 @@ logger = logging.getLogger(__name__)
 _PRESSURE_POLL_INTERVAL = 10.0  # seconds
 _TIER_POLL_INTERVAL = 30.0  # seconds — check tiers every 30s
 
-# Phase → scheduling tier mapping
-PHASE_TIERS: dict[str, str] = {
-    "triage": "hot",
-    "merge": "warm",
-    "infer": "warm",
-    "evidence_adjudication": "warm",
-    "compact": "warm",
-    "mature": "warm",
-    "semanticize": "warm",
-    "reindex": "warm",
-    "microglia": "warm",
-    "replay": "cold",
-    "prune": "cold",
-    "schema": "cold",
-    "graph_embed": "cold",
-    "dream": "cold",
-}
+PHASE_TIERS = CONSOLIDATION_PHASE_TIERS
 
 
 class ConsolidationScheduler:
@@ -44,7 +29,8 @@ class ConsolidationScheduler:
 
     Tiered scheduling (when enabled) runs phases at different frequencies:
     - Hot (triage): every 15 min
-    - Warm (merge, infer, compact, mature, semanticize, reindex): every 2 hours
+    - Warm (merge, calibrate, infer, adjudication, compact, mature, semanticize,
+      reindex, microglia): every 2 hours
     - Cold (replay, prune, schema, graph_embed, dream): every 6 hours
     """
 

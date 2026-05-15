@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from engram.consolidation.health import GraphHealthMetrics, compute_graph_health
+from tests.conftest import _helix_available
 
 
 @pytest.fixture
@@ -36,6 +37,8 @@ class TestGraphHealthMetrics:
         assert m.evidence_commit_rate == 0.0
 
 
+@pytest.mark.requires_helix
+@pytest.mark.skipif(not _helix_available(), reason="HelixDB not available")
 class TestComputeGraphHealth:
     @pytest.mark.asyncio
     async def test_empty_graph(self, graph_store, gid):

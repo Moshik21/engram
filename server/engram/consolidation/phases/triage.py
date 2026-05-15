@@ -25,6 +25,7 @@ from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.discourse import classify_discourse
 from engram.extraction.prompts import TRIAGE_JUDGE_SYSTEM_CACHED
+from engram.ingestion.projection_state import sync_projection_state
 from engram.models.consolidation import (
     CycleContext,
     DecisionOutcomeLabel,
@@ -114,6 +115,8 @@ class TriagePhase(ConsolidationPhase):
 
     def required_graph_store_methods(self, cfg: ActivationConfig) -> set[str]:
         methods = {"get_episodes_paginated", "update_episode"}
+        if cfg.cue_layer_enabled:
+            methods.add("update_episode_cue")
         if cfg.triage_multi_signal_enabled and self._manager is not None:
             methods.add("get_episode_entities")
         return methods
@@ -159,15 +162,19 @@ class TriagePhase(ConsolidationPhase):
             ep_content = getattr(ep, "content", "") or ""
             if classify_discourse(ep_content) == "system":
                 if not dry_run:
-                    await graph_store.update_episode(
+                    await sync_projection_state(
+                        graph_store,
                         ep.id,
-                        {
+                        group_id=group_id,
+                        state=EpisodeProjectionState.CUE_ONLY,
+                        reason="triage_skip_meta",
+                        episode_updates={
                             "status": "completed",
                             "skipped_meta": True,
-                            "projection_state": EpisodeProjectionState.CUE_ONLY.value,
-                            "last_projection_reason": "triage_skip_meta",
                         },
-                        group_id=group_id,
+                        cue_layer_enabled=cfg.cue_layer_enabled,
+                        cue_reason="triage_skip_meta",
+                        log_prefix="Triage",
                     )
                 records.append(
                     TriageRecord(
@@ -390,7 +397,11 @@ class TriagePhase(ConsolidationPhase):
                 try:
                     await self._manager.project_episode(ep.id, group_id)
                     promoted += 1
-                    extracted_entities = await self._record_projection_outcome(graph_store, item)
+                    extracted_entities = await self._record_projection_outcome(
+                        graph_store,
+                        item,
+                        group_id,
+                    )
                     if context is not None and trace is not None:
                         context.add_decision_outcome_label(
                             DecisionOutcomeLabel(
@@ -422,15 +433,19 @@ class TriagePhase(ConsolidationPhase):
                             )
                         )
             elif decision_label == "skip":
-                await graph_store.update_episode(
+                await sync_projection_state(
+                    graph_store,
                     ep.id,
-                    {
+                    group_id=group_id,
+                    state=EpisodeProjectionState.CUE_ONLY,
+                    reason="triage_ratio_skip",
+                    episode_updates={
                         "status": "completed",
                         "skipped_triage": True,
-                        "projection_state": EpisodeProjectionState.CUE_ONLY.value,
-                        "last_projection_reason": "triage_ratio_skip",
                     },
-                    group_id=group_id,
+                    cue_layer_enabled=cfg.cue_layer_enabled,
+                    cue_reason="triage_ratio_skip",
+                    log_prefix="Triage",
                 )
 
         return PhaseResult(
@@ -444,6 +459,7 @@ class TriagePhase(ConsolidationPhase):
         self,
         graph_store: Any,
         scored: _ScoredEpisode,
+        group_id: str,
     ) -> int:
         """Feed observed extraction yield back into the shared scorer."""
         if scored.signals is None:
@@ -452,7 +468,10 @@ class TriagePhase(ConsolidationPhase):
         if get_episode_entities is None:
             return 0
         try:
-            entity_ids = await get_episode_entities(scored.episode.id)
+            entity_ids = await get_episode_entities(
+                scored.episode.id,
+                group_id=group_id,
+            )
         except Exception:
             return 0
         count = len(entity_ids) if isinstance(entity_ids, list) else 0

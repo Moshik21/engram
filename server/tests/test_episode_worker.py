@@ -294,6 +294,30 @@ async def test_worker_scores_and_extracts_high():
 
 
 @pytest.mark.asyncio
+async def test_worker_projection_outcome_reads_entities_in_group():
+    """Worker projection-yield feedback uses the event group."""
+    manager = _make_manager()
+    manager._graph.get_episode_entities = AsyncMock(return_value=["ent_worker"])
+    cfg = _make_cfg(triage_multi_signal_enabled=True)
+    worker = EpisodeWorker(manager, cfg)
+    scorer = MagicMock()
+    worker._scorer = scorer
+    signals = object()
+
+    await worker._record_projection_outcome(
+        "ep_worker",
+        "worker_brain",
+        signals,
+    )
+
+    manager._graph.get_episode_entities.assert_awaited_once_with(
+        "ep_worker",
+        group_id="worker_brain",
+    )
+    scorer.record_outcome.assert_called_once_with(signals, 1)
+
+
+@pytest.mark.asyncio
 async def test_worker_confidence_routing_extract():
     """Multi-signal scorer: high-confidence episodes extracted immediately."""
     manager = _make_manager()
@@ -448,7 +472,10 @@ async def test_worker_handles_extraction_error():
 async def test_worker_skips_system_discourse():
     """Worker skips meta-commentary episodes regardless of triage setting."""
     manager = _make_manager()
-    cfg = _make_cfg(triage_enabled=False)  # Even without triage, meta is skipped
+    cfg = _make_cfg(
+        triage_enabled=False,  # Even without triage, meta is skipped
+        cue_layer_enabled=True,
+    )
     bus = EventBus()
 
     worker = EpisodeWorker(manager, cfg)
@@ -471,6 +498,14 @@ async def test_worker_skips_system_discourse():
             "skipped_meta": True,
             "projection_state": EpisodeProjectionState.CUE_ONLY.value,
             "last_projection_reason": "system_discourse",
+        },
+        group_id="default",
+    )
+    manager._graph.update_episode_cue.assert_awaited_once_with(
+        "ep_meta",
+        {
+            "projection_state": EpisodeProjectionState.CUE_ONLY,
+            "route_reason": "system_discourse",
         },
         group_id="default",
     )

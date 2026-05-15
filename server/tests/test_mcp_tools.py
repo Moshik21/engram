@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import pytest_asyncio
 
 from engram.config import ActivationConfig
+from engram.evaluation.store import StoredRecallEvalSample, StoredSessionContinuitySample
 from engram.graph_manager import GraphManager
 from engram.mcp.server import SessionState
 from engram.models.entity import Entity
+from engram.models.epistemic import EvidenceClaim
 from engram.models.relationship import Relationship
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
+from engram.utils.dates import utc_now
 from tests.conftest import MockExtractor
 
 # ─── Fixtures ────────────────────────────────────────────────────────
@@ -110,7 +114,7 @@ async def rich_manager_with_expired(tmp_path):
     search_index = FTS5SearchIndex(db_path)
     await search_index.initialize(db=graph_store._db)
 
-    now_dt = datetime.utcnow()
+    now_dt = utc_now()
     past_dt = now_dt - timedelta(days=30)
 
     entities = [
@@ -388,6 +392,54 @@ class TestSearchFacts:
             limit=20,
         )
         assert len(decisions) == 1
+
+    @pytest.mark.asyncio
+    async def test_artifact_decision_materializer_links_decision_to_artifact(
+        self,
+        decision_manager,
+    ):
+        artifact = Entity(
+            id="art_readme_decision",
+            name="README.md",
+            entity_type="Artifact",
+            summary="README artifact",
+            attributes={"artifact_class": "readme"},
+            group_id=GROUP,
+        )
+        await decision_manager._graph.create_entity(artifact)
+
+        await decision_manager._materialize_artifact_decisions(
+            artifact,
+            [
+                EvidenceClaim(
+                    subject="Engram",
+                    predicate="public_launch_path",
+                    object="OpenClaw",
+                    source_type="artifact",
+                    authority_type="canonical",
+                    externalization_state="documented",
+                    claim_state="decided",
+                    confidence=0.9,
+                )
+            ],
+            group_id=GROUP,
+        )
+
+        decisions = await decision_manager._graph.find_entities(
+            entity_type="Decision",
+            group_id=GROUP,
+            limit=20,
+        )
+        assert len(decisions) == 1
+        relationships = await decision_manager._graph.get_relationships(
+            decisions[0].id,
+            direction="outgoing",
+            group_id=GROUP,
+        )
+        assert any(
+            rel.target_id == artifact.id and rel.predicate == "ANNOUNCED_AS"
+            for rel in relationships
+        )
 
 
 # ─── TestForgetEntity ────────────────────────────────────────────────
@@ -776,8 +828,44 @@ class TestJSONResponses:
                 {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
             ],
             model_tier="opus",
+            attachments=None,
         )
-        assert '"episode_id": "ep_test"' in raw
+        data = json.loads(raw)
+        assert data["episode_id"] == "ep_test"
+        assert data["operation"] == "remember"
+        assert data["lifecycle"]["stage"] == "project"
+        assert data["lifecycle"]["projection_status"] == "attempted"
+
+    @pytest.mark.asyncio
+    async def test_mcp_recall_packet_analysis_uses_active_group(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            recall=AsyncMock(return_value=[]),
+            get_recall_need_thresholds=Mock(return_value=None),
+            get_last_near_miss_views=Mock(return_value=[]),
+            get_surprise_connection_views=Mock(return_value=[]),
+            get_recall_item_access_count=AsyncMock(return_value=0),
+        )
+        analyze = AsyncMock(return_value=SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_session", SessionState(group_id=GROUP))
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+        monkeypatch.setattr(
+            mcp_server,
+            "_activation_cfg",
+            ActivationConfig(recall_packets_enabled=True),
+        )
+        monkeypatch.setattr(mcp_server, "analyze_memory_need", analyze)
+        monkeypatch.setattr(mcp_server, "assemble_memory_packets", AsyncMock(return_value=[]))
+        monkeypatch.setattr(mcp_server, "_recall_middleware", AsyncMock())
+
+        raw = await mcp_server.recall("Engram packet routing", limit=3)
+
+        payload = json.loads(raw)
+        assert payload["total_candidates"] == 0
+        analyze.assert_awaited_once()
+        assert analyze.await_args.kwargs["group_id"] == GROUP
 
     @pytest.mark.asyncio
     async def test_mcp_remember_surfaces_adjudication_requests(self, monkeypatch):
@@ -821,8 +909,9 @@ class TestJSONResponses:
 
         raw = await mcp_server.remember(content="ambiguous memory")
 
-        assert '"adjudication_requests"' in raw
-        assert '"request_id": "adj_123"' in raw
+        data = json.loads(raw)
+        assert data["adjudication_requests"][0]["request_id"] == "adj_123"
+        assert data["operation"] == "remember"
 
     @pytest.mark.asyncio
     async def test_mcp_adjudicate_evidence_forwards_resolution(self, monkeypatch):
@@ -866,6 +955,527 @@ class TestJSONResponses:
             group_id="default",
         )
         assert '"status": "materialized"' in raw
+
+    @pytest.mark.asyncio
+    async def test_mcp_records_recall_evaluation_sample(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        store = SimpleNamespace(save_recall_sample=AsyncMock())
+        monkeypatch.setattr(mcp_server, "_evaluation_store", store)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+
+        raw = await mcp_server.record_recall_evaluation(
+            recall_triggered=True,
+            recall_helped=False,
+            recall_needed=True,
+            packets_surfaced=4,
+            packets_used=1,
+            false_recalls=2,
+            query="What did I decide?",
+            notes="one misleading packet",
+        )
+
+        store.save_recall_sample.assert_awaited_once()
+        sample = store.save_recall_sample.await_args.args[0]
+        assert isinstance(sample, StoredRecallEvalSample)
+        assert sample.group_id == "default"
+        assert sample.source == "mcp"
+        assert sample.recall_needed is True
+        assert sample.false_recalls == 2
+
+        data = json.loads(raw)
+        assert data["status"] == "stored"
+        assert data["operation"] == "record_recall_evaluation"
+        assert data["group_id"] == "default"
+        assert data["sample"]["recall_triggered"] is True
+        assert data["sample"]["recall_needed"] is True
+        assert data["sample"]["packets_used"] == 1
+
+    @pytest.mark.asyncio
+    async def test_mcp_records_session_continuity_evaluation_sample(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        store = SimpleNamespace(save_session_sample=AsyncMock())
+        monkeypatch.setattr(mcp_server, "_evaluation_store", store)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+
+        raw = await mcp_server.record_session_continuity_evaluation(
+            baseline_score=0.2,
+            memory_score=0.8,
+            open_loop_expected=True,
+            open_loop_recovered=True,
+            temporal_expected=True,
+            temporal_correct=False,
+            scenario="open-loop follow-up",
+        )
+
+        store.save_session_sample.assert_awaited_once()
+        sample = store.save_session_sample.await_args.args[0]
+        assert isinstance(sample, StoredSessionContinuitySample)
+        assert sample.group_id == "default"
+        assert sample.scenario == "open-loop follow-up"
+        assert sample.open_loop_recovered is True
+
+        data = json.loads(raw)
+        assert data["status"] == "stored"
+        assert data["operation"] == "record_session_continuity_evaluation"
+        assert data["sample"]["memory_score"] == 0.8
+        assert data["sample"]["temporal_correct"] is False
+
+    @pytest.mark.asyncio
+    async def test_mcp_get_evaluation_report_uses_saved_samples(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        recall_sample = StoredRecallEvalSample(
+            group_id="default",
+            recall_triggered=True,
+            recall_helped=True,
+            packets_surfaced=3,
+            packets_used=2,
+            false_recalls=1,
+        )
+        session_sample = StoredSessionContinuitySample(
+            group_id="default",
+            baseline_score=0.2,
+            memory_score=0.7,
+            open_loop_expected=True,
+            open_loop_recovered=True,
+            temporal_expected=True,
+            temporal_correct=False,
+        )
+        manager = SimpleNamespace(
+            get_graph_state=AsyncMock(
+                return_value={
+                    "stats": {
+                        "episodes": 1,
+                        "entities": 2,
+                        "relationships": 1,
+                        "recall_metrics": {
+                            "total_analyses": 1,
+                            "trigger_count": 1,
+                            "used_count": 2,
+                            "dismissed_count": 1,
+                            "graph_override_count": 1,
+                            "adaptive_thresholds_enabled": True,
+                            "thresholds": {
+                                "linguistic": 0.34,
+                                "borderline": 0.2,
+                                "resonance": 0.52,
+                            },
+                            "analyzer_latency_ms": {"avg": 9.5, "p95": 15.0},
+                            "probe_latency_ms": {"avg": 4.0, "p95": 8.0},
+                        },
+                    }
+                }
+            )
+        )
+        store = SimpleNamespace(
+            get_recall_samples=AsyncMock(return_value=[recall_sample.to_sample()]),
+            get_session_samples=AsyncMock(return_value=[session_sample.to_sample()]),
+            get_latest_recall_metrics_snapshot=AsyncMock(return_value={}),
+            save_recall_metrics_snapshot=AsyncMock(),
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_evaluation_store", store)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(
+            mcp_server,
+            "_load_consolidation_evaluation_inputs",
+            AsyncMock(return_value=([], [])),
+        )
+
+        raw = await mcp_server.get_evaluation_report(sample_limit=50)
+
+        manager.get_graph_state.assert_awaited_once_with(
+            group_id="default",
+            top_n=10,
+            include_edges=False,
+        )
+        store.get_recall_samples.assert_awaited_once_with("default", limit=50)
+        store.get_session_samples.assert_awaited_once_with("default", limit=50)
+        store.get_latest_recall_metrics_snapshot.assert_not_awaited()
+        store.save_recall_metrics_snapshot.assert_awaited_once()
+        snapshot = store.save_recall_metrics_snapshot.await_args.args[0]
+        assert snapshot.group_id == "default"
+        assert snapshot.metrics["total_analyses"] == 1
+        data = json.loads(raw)
+        assert data["group_id"] == "default"
+        assert data["recall"]["evaluation"]["status"] == "measured"
+        assert data["recall"]["evaluation"]["memory_need_precision"] == 1.0
+        assert data["recall"]["latency"]["analyzer_ms"]["p95_ms"] == 15.0
+        assert data["recall"]["latency"]["probe_ms"]["avg_ms"] == 4.0
+        assert data["recall"]["control"]["graph_override_count"] == 1
+        assert data["recall"]["control"]["thresholds"]["resonance"] == 0.52
+        assert data["recall"]["continuity"]["session_continuity_lift"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_mcp_get_evaluation_report_uses_saved_recall_runtime_snapshot(
+        self,
+        monkeypatch,
+    ):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            get_graph_state=AsyncMock(
+                return_value={
+                    "stats": {
+                        "episodes": 1,
+                        "entities": 2,
+                        "relationships": 1,
+                        "recall_metrics": {"total_analyses": 0},
+                    }
+                }
+            )
+        )
+        store = SimpleNamespace(
+            get_recall_samples=AsyncMock(return_value=[]),
+            get_session_samples=AsyncMock(return_value=[]),
+            get_latest_recall_metrics_snapshot=AsyncMock(
+                return_value={
+                    "total_analyses": 3,
+                    "trigger_count": 2,
+                    "analyzer_latency_ms": {"avg": 9.0, "p95": 18.0},
+                    "probe_latency_ms": {"avg": 4.0, "p95": 8.0},
+                    "surfaced_count": 5,
+                    "thresholds": {"resonance": 0.5},
+                }
+            ),
+            save_recall_metrics_snapshot=AsyncMock(),
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_evaluation_store", store)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(
+            mcp_server,
+            "_load_consolidation_evaluation_inputs",
+            AsyncMock(return_value=([], [])),
+        )
+
+        raw = await mcp_server.get_evaluation_report(sample_limit=50)
+
+        store.get_latest_recall_metrics_snapshot.assert_awaited_once_with("default")
+        store.save_recall_metrics_snapshot.assert_not_awaited()
+        data = json.loads(raw)
+        assert data["recall"]["total_analyses"] == 3
+        assert data["recall"]["trigger_count"] == 2
+        assert data["recall"]["latency"]["analyzer_ms"]["p95_ms"] == 18.0
+        assert data["recall"]["latency"]["probe_ms"]["avg_ms"] == 4.0
+        assert data["recall"]["control"]["surfaced_count"] == 5
+        assert data["recall"]["control"]["thresholds"]["resonance"] == 0.5
+        assert "recall gate needs runtime analyses" not in data["coverage_gaps"]
+
+    @pytest.mark.asyncio
+    async def test_mcp_evaluation_report_reads_active_consolidation_store(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        cycle = SimpleNamespace(id="cyc_native", phase_results=[])
+        store = SimpleNamespace(
+            get_recent_cycles=AsyncMock(return_value=[cycle]),
+            get_calibration_snapshots=AsyncMock(return_value=["snapshot"]),
+        )
+        manager = SimpleNamespace(_graph=SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_consolidation_store", store)
+
+        cycles, snapshots = await mcp_server._load_consolidation_evaluation_inputs(
+            manager,
+            "native_brain",
+            cycle_limit=7,
+        )
+
+        assert cycles == [cycle]
+        assert snapshots == ["snapshot"]
+        store.get_recent_cycles.assert_awaited_once_with("native_brain", limit=7)
+        store.get_calibration_snapshots.assert_awaited_once_with("cyc_native", "native_brain")
+
+    @pytest.mark.asyncio
+    async def test_mcp_shutdown_closes_runtime_resources(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        worker = SimpleNamespace(stop=AsyncMock())
+        publisher = SimpleNamespace(close=AsyncMock())
+        evaluation_store = SimpleNamespace(close=AsyncMock())
+        consolidation_store = SimpleNamespace(close=AsyncMock())
+        search = SimpleNamespace(close=AsyncMock())
+        activation = SimpleNamespace(close=AsyncMock())
+        graph = SimpleNamespace(close=AsyncMock())
+        manager = SimpleNamespace(_search=search, _activation=activation, _graph=graph)
+        bus = SimpleNamespace(remove_on_publish_hook=Mock())
+
+        monkeypatch.setattr(mcp_server, "_episode_worker", worker)
+        monkeypatch.setattr(mcp_server, "_redis_publisher", publisher)
+        monkeypatch.setattr(mcp_server, "_evaluation_store", evaluation_store)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", consolidation_store)
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_session", SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_recall_cooldown", SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_activation_cfg", ActivationConfig())
+        monkeypatch.setattr(mcp_server, "get_event_bus", lambda: bus)
+
+        await mcp_server._shutdown()
+
+        worker.stop.assert_awaited_once()
+        bus.remove_on_publish_hook.assert_called_once_with(publisher)
+        publisher.close.assert_awaited_once()
+        evaluation_store.close.assert_awaited_once()
+        consolidation_store.close.assert_awaited_once()
+        search.close.assert_awaited_once()
+        activation.close.assert_awaited_once()
+        graph.close.assert_awaited_once()
+        assert mcp_server._manager is None
+        assert mcp_server._evaluation_store is None
+        assert mcp_server._consolidation_store is None
+
+    @pytest.mark.asyncio
+    async def test_mcp_trigger_consolidation_includes_failure_errors(self, monkeypatch):
+        from engram.consolidation_trigger import ConsolidationTriggerResult
+        from engram.mcp import server as mcp_server
+
+        cycle = SimpleNamespace(
+            id="cyc_mcp_failed",
+            status="failed",
+            error="Phase 'triage' requires graph_store methods: missing_method",
+            dry_run=True,
+            trigger="mcp",
+            started_at=1.0,
+            completed_at=2.0,
+            total_duration_ms=7.5,
+            phase_results=[
+                SimpleNamespace(
+                    phase="triage",
+                    status="error",
+                    items_processed=0,
+                    items_affected=0,
+                    duration_ms=7.5,
+                    error="missing_method",
+                )
+            ],
+        )
+
+        manager = SimpleNamespace(
+            get_consolidation_shared_db=lambda: None,
+            trigger_consolidation_cycle=AsyncMock(
+                return_value=ConsolidationTriggerResult(
+                    cycle=cycle,
+                    graph_stats={"episodes": 3},
+                )
+            ),
+        )
+
+        monkeypatch.setattr(mcp_server, "_get_manager", lambda: manager)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+
+        payload = json.loads(await mcp_server.trigger_consolidation(dry_run=True))
+
+        manager.trigger_consolidation_cycle.assert_awaited_once_with(
+            group_id=GROUP,
+            trigger="mcp",
+            dry_run=True,
+            consolidation_store=None,
+        )
+        assert payload["status"] == "failed"
+        assert payload["error"] == "Phase 'triage' requires graph_store methods: missing_method"
+        assert payload["phases"][0]["error"] == "missing_method"
+        assert payload["summary"]["total_processed"] == 0
+        assert payload["summary"]["total_affected"] == 0
+        assert payload["summary"]["description"].startswith("Dry run failed cycle:")
+
+    @pytest.mark.asyncio
+    async def test_mcp_trigger_consolidation_uses_active_audit_store_for_native_graph(
+        self,
+        monkeypatch,
+    ):
+        from engram.consolidation_trigger import ConsolidationTriggerResult
+        from engram.mcp import server as mcp_server
+
+        active_store = SimpleNamespace(name="active-native-store")
+        cycle = SimpleNamespace(
+            id="cyc_mcp_native_store",
+            status="completed",
+            error=None,
+            dry_run=True,
+            trigger="mcp",
+            started_at=1.0,
+            completed_at=2.0,
+            total_duration_ms=7.5,
+            phase_results=[],
+        )
+
+        manager = SimpleNamespace(
+            get_consolidation_shared_db=lambda: None,
+            trigger_consolidation_cycle=AsyncMock(
+                return_value=ConsolidationTriggerResult(
+                    cycle=cycle,
+                    graph_stats={"episodes": 3},
+                )
+            ),
+        )
+
+        monkeypatch.setattr(mcp_server, "_get_manager", lambda: manager)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", active_store)
+
+        payload = json.loads(await mcp_server.trigger_consolidation(dry_run=True))
+
+        manager.trigger_consolidation_cycle.assert_awaited_once_with(
+            group_id=GROUP,
+            trigger="mcp",
+            dry_run=True,
+            consolidation_store=active_store,
+        )
+        assert payload["status"] == "completed"
+        assert payload["cycle_id"] == "cyc_mcp_native_store"
+
+    @pytest.mark.asyncio
+    async def test_mcp_trigger_consolidation_reports_completed_phase_warnings(self, monkeypatch):
+        from engram.consolidation_trigger import ConsolidationTriggerResult
+        from engram.mcp import server as mcp_server
+
+        cycle = SimpleNamespace(
+            id="cyc_mcp_phase_warning",
+            status="completed",
+            error=None,
+            dry_run=True,
+            trigger="mcp",
+            started_at=1.0,
+            completed_at=2.0,
+            total_duration_ms=7.5,
+            phase_results=[
+                SimpleNamespace(
+                    phase="graph_embed",
+                    status="error",
+                    items_processed=1,
+                    items_affected=0,
+                    duration_ms=7.5,
+                    error="optional vector index unavailable",
+                )
+            ],
+        )
+
+        manager = SimpleNamespace(
+            get_consolidation_shared_db=lambda: None,
+            trigger_consolidation_cycle=AsyncMock(
+                return_value=ConsolidationTriggerResult(
+                    cycle=cycle,
+                    graph_stats={"episodes": 3},
+                )
+            ),
+        )
+
+        monkeypatch.setattr(mcp_server, "_get_manager", lambda: manager)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+
+        payload = json.loads(await mcp_server.trigger_consolidation(dry_run=True))
+
+        assert payload["status"] == "completed"
+        assert payload["phase_issue"] == "graph_embed: optional vector index unavailable"
+        assert payload["phases"][0]["error"] == "optional vector index unavailable"
+        assert payload["summary"]["total_processed"] == 1
+        assert payload["summary"]["total_affected"] == 0
+        assert payload["summary"]["description"].startswith("Dry run cycle with warnings:")
+
+    @pytest.mark.asyncio
+    async def test_mcp_consolidation_status_includes_latest_cycle(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        cycle = SimpleNamespace(
+            id="cyc_status_failed",
+            status="failed",
+            error="calibration failed",
+            dry_run=True,
+            trigger="mcp",
+            started_at=1.0,
+            completed_at=2.0,
+            total_duration_ms=7.5,
+            phase_results=[
+                SimpleNamespace(
+                    phase="calibrate",
+                    status="error",
+                    items_processed=2,
+                    items_affected=0,
+                    duration_ms=7.5,
+                    error="no teacher labels",
+                )
+            ],
+        )
+        store = SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[cycle]))
+
+        monkeypatch.setattr(mcp_server, "_consolidation_store", store)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+
+        payload = json.loads(await mcp_server.get_consolidation_status())
+
+        store.get_recent_cycles.assert_awaited_once_with(GROUP, limit=1)
+        assert payload["is_running"] is False
+        assert payload["latest_cycle"]["id"] == "cyc_status_failed"
+        assert payload["latest_cycle"]["error"] == "calibration failed"
+        assert payload["latest_cycle"]["phases"][0]["error"] == "no teacher labels"
+        assert payload["latest_cycle"]["summary"]["description"].startswith("Dry run failed cycle:")
+
+    @pytest.mark.asyncio
+    async def test_mcp_get_lifecycle_summary_uses_manager_facade(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        consolidation_store = SimpleNamespace(
+            get_recent_cycles=AsyncMock(return_value=[]),
+        )
+        activation_config = ActivationConfig(decay_exponent=0.4)
+        manager = SimpleNamespace(
+            get_lifecycle_summary=AsyncMock(
+                return_value={
+                    "groupId": "default",
+                    "loop": ["capture", "cue", "project", "recall", "consolidate"],
+                    "totals": {"episodes": 2, "cues": 2},
+                }
+            )
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(mcp_server, "_activation_cfg", activation_config)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", consolidation_store)
+
+        raw = await mcp_server.get_lifecycle_summary(episode_limit=1, cycle_limit=3)
+
+        manager.get_lifecycle_summary.assert_awaited_once()
+        kwargs = manager.get_lifecycle_summary.await_args.kwargs
+        assert kwargs["group_id"] == "default"
+        assert kwargs["activation_config"] is activation_config
+        assert kwargs["episode_limit"] == 1
+        assert kwargs["cycle_limit"] == 3
+        assert kwargs["consolidation_engine"]._store is consolidation_store
+        assert kwargs["consolidation_engine"].is_running is False
+        data = json.loads(raw)
+        assert data["groupId"] == "default"
+        assert data["loop"] == ["capture", "cue", "project", "recall", "consolidate"]
+        assert data["totals"]["episodes"] == 2
+        assert data["totals"]["cues"] == 2
+
+    @pytest.mark.asyncio
+    async def test_mcp_get_lifecycle_summary_clamps_limits(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            get_lifecycle_summary=AsyncMock(
+                return_value={
+                    "groupId": "default",
+                    "loop": ["capture", "cue", "project", "recall", "consolidate"],
+                    "totals": {},
+                }
+            )
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_group_id", "default")
+        monkeypatch.setattr(mcp_server, "_activation_cfg", None)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", None)
+
+        await mcp_server.get_lifecycle_summary(episode_limit=0, cycle_limit=0)
+
+        manager.get_lifecycle_summary.assert_awaited_once_with(
+            group_id="default",
+            consolidation_engine=None,
+            activation_config=None,
+            episode_limit=1,
+            cycle_limit=1,
+        )
 
 
 # ─── TestResolveEntityName ───────────────────────────────────────────

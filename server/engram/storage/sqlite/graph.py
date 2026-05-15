@@ -15,6 +15,11 @@ from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.relationship import Relationship
+from engram.storage.open_work import (
+    OPEN_ADJUDICATION_STATUSES,
+    OPEN_EVIDENCE_STATUSES,
+    build_adjudication_metrics,
+)
 from engram.storage.protocols import ENTITY_UPDATABLE_FIELDS, EPISODE_UPDATABLE_FIELDS
 from engram.utils.dates import utc_now, utc_now_iso
 from engram.utils.text_guards import is_meta_summary
@@ -158,6 +163,8 @@ class SQLiteGraphStore:
             "ALTER TABLE episodes ADD COLUMN error TEXT",
             "ALTER TABLE episodes ADD COLUMN retry_count INTEGER DEFAULT 0",
             "ALTER TABLE episodes ADD COLUMN processing_duration_ms INTEGER",
+            "ALTER TABLE episodes ADD COLUMN skipped_meta INTEGER DEFAULT 0",
+            "ALTER TABLE episodes ADD COLUMN skipped_triage INTEGER DEFAULT 0",
             "ALTER TABLE episodes ADD COLUMN projection_state TEXT DEFAULT 'queued'",
             "ALTER TABLE episodes ADD COLUMN last_projection_reason TEXT",
             "ALTER TABLE episodes ADD COLUMN last_projected_at TEXT",
@@ -966,7 +973,13 @@ class SQLiteGraphStore:
         rows = await cursor.fetchall()
         return [self._row_to_episode(r, group_id) for r in rows]
 
-    async def link_episode_entity(self, episode_id: str, entity_id: str) -> None:
+    async def link_episode_entity(
+        self,
+        episode_id: str,
+        entity_id: str,
+        group_id: str | None = None,
+    ) -> None:
+        del group_id
         await self.db.execute(
             "INSERT OR IGNORE INTO episode_entities (episode_id, entity_id) VALUES (?, ?)",
             (episode_id, entity_id),
@@ -984,12 +997,25 @@ class SQLiteGraphStore:
             return None
         return self._row_to_episode(row, group_id)
 
-    async def get_episode_entities(self, episode_id: str) -> list[str]:
+    async def get_episode_entities(
+        self,
+        episode_id: str,
+        group_id: str | None = None,
+    ) -> list[str]:
         """Return entity IDs linked to an episode."""
-        cursor = await self.db.execute(
-            "SELECT entity_id FROM episode_entities WHERE episode_id = ?",
-            (episode_id,),
-        )
+        if group_id is None:
+            cursor = await self.db.execute(
+                "SELECT entity_id FROM episode_entities WHERE episode_id = ?",
+                (episode_id,),
+            )
+        else:
+            cursor = await self.db.execute(
+                """SELECT ee.entity_id FROM episode_entities ee
+                   JOIN episodes ep ON ep.id = ee.episode_id
+                   JOIN entities ent ON ent.id = ee.entity_id
+                   WHERE ee.episode_id = ? AND ep.group_id = ? AND ent.group_id = ?""",
+                (episode_id, group_id, group_id),
+            )
         rows = await cursor.fetchall()
         return [row["entity_id"] for row in rows]
 
@@ -1995,6 +2021,7 @@ class SQLiteGraphStore:
                 ),
             },
         }
+        adjudication_metrics = await self._get_adjudication_metrics(group_id)
 
         return {
             "entities": entity_count,
@@ -2002,7 +2029,40 @@ class SQLiteGraphStore:
             "episodes": episode_count,
             "cue_metrics": cue_metrics,
             "projection_metrics": projection_metrics,
+            "adjudication_metrics": adjudication_metrics,
         }
+
+    async def _get_adjudication_metrics(self, group_id: str | None) -> dict[str, Any]:
+        evidence_status_counts = await self._count_open_statuses(
+            "episode_evidence",
+            OPEN_EVIDENCE_STATUSES,
+            group_id,
+        )
+        request_status_counts = await self._count_open_statuses(
+            "episode_adjudications",
+            OPEN_ADJUDICATION_STATUSES,
+            group_id,
+        )
+        return build_adjudication_metrics(evidence_status_counts, request_status_counts)
+
+    async def _count_open_statuses(
+        self,
+        table: str,
+        statuses: tuple[str, ...],
+        group_id: str | None,
+    ) -> dict[str, int]:
+        status_placeholders = ", ".join("?" for _ in statuses)
+        params: list[Any] = list(statuses)
+        where = f"status IN ({status_placeholders})"
+        if group_id:
+            where = f"group_id = ? AND {where}"
+            params.insert(0, group_id)
+        cursor = await self.db.execute(
+            f"SELECT status, COUNT(*) AS count FROM {table} WHERE {where} GROUP BY status",
+            params,
+        )
+        rows = await cursor.fetchall()
+        return {str(row["status"]): int(row["count"] or 0) for row in rows}
 
     # --- Helpers ---
 

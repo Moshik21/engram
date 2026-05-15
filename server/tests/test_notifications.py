@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from engram.config import ActivationConfig
 from engram.notifications.models import (
     NOTIFICATION_TYPES,
     PRIORITY_LEVELS,
@@ -16,6 +17,7 @@ from engram.notifications.models import (
     notification_to_dict,
 )
 from engram.notifications.store import NotificationStore
+from engram.notifications.surface import NotificationSurfaceService
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -112,6 +114,50 @@ class TestMemoryNotification:
 # ─── Store tests ──────────────────────────────────────────────────
 
 
+class TestNotificationSurfaceService:
+    def test_lists_and_dismisses_rest_notifications_by_group(self):
+        store = NotificationStore()
+        service = NotificationSurfaceService(store)
+        active = _make_notification(group_id="brain", title="Active", created_at=10.0)
+        other = _make_notification(group_id="other", title="Other", created_at=11.0)
+        store.add(active)
+        store.add(other)
+
+        assert [item["title"] for item in service.list_notifications(group_id="brain")] == [
+            "Active"
+        ]
+
+        assert service.dismiss_notifications(group_id="brain", ids=[active.id, other.id]) == 1
+        assert active.dismissed_at is not None
+        assert other.dismissed_at is None
+        assert service.list_notifications(group_id="brain") == []
+
+    def test_presents_mcp_notifications_and_respects_config(self):
+        store = NotificationStore()
+        service = NotificationSurfaceService(store)
+        store.add(_make_notification(group_id="brain", title="MCP note", body="Use this."))
+
+        disabled = ActivationConfig(notification_surfacing_enabled=False)
+        assert service.mcp_notifications(cfg=disabled, group_id="brain") is None
+
+        enabled = ActivationConfig(
+            notification_surfacing_enabled=True,
+            notification_mcp_max_per_response=1,
+            notification_mcp_max_surfaces=1,
+        )
+        payload = service.mcp_notifications(cfg=enabled, group_id="brain")
+
+        assert payload == [
+            {
+                "type": "dream_association",
+                "title": "MCP note",
+                "body": "Use this.",
+                "priority": "normal",
+            }
+        ]
+        assert service.mcp_notifications(cfg=enabled, group_id="brain") is None
+
+
 class TestNotificationStore:
     def test_add_and_get_pending(self):
         store = NotificationStore()
@@ -189,6 +235,32 @@ class TestNotificationStore:
         pending = store.get_pending("default")
         assert len(pending) == 1
         assert pending[0].id == n2.id
+
+    def test_dismiss_batch_can_be_group_scoped(self):
+        store = NotificationStore()
+        n1 = _make_notification(group_id="group_a")
+        n2 = _make_notification(group_id="group_b")
+        store.add(n1)
+        store.add(n2)
+        count = store.dismiss_batch([n1.id, n2.id], group_id="group_a")
+
+        assert count == 1
+        assert n1.dismissed_at is not None
+        assert n2.dismissed_at is None
+        assert store.get_pending("group_a") == []
+        assert store.get_pending("group_b") == [n2]
+
+    def test_dismiss_can_be_group_scoped(self):
+        store = NotificationStore()
+        n1 = _make_notification(group_id="group_a")
+        n2 = _make_notification(group_id="group_b")
+        store.add(n1)
+        store.add(n2)
+
+        assert store.dismiss(n2.id, group_id="group_a") is False
+        assert n2.dismissed_at is None
+        assert store.dismiss(n2.id, group_id="group_b") is True
+        assert n2.dismissed_at is not None
 
     def test_dismiss_batch_ignores_already_dismissed(self):
         store = NotificationStore()

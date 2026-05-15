@@ -919,6 +919,32 @@ async def retrieve(
             if not state_biases:
                 state_biases = None
 
+    # Step 4.97: Preference-directed boosts
+    preference_boosts: dict[str, float] | None = None
+    if cfg.preference_directed_enabled:
+        try:
+            pref_entities = await graph_store.find_entities(
+                name="UserPreference",
+                entity_type="PreferenceProfile",
+                group_id=group_id,
+                limit=1,
+            )
+            if pref_entities:
+                pref_attrs = pref_entities[0].attributes or {}
+                domain_scores = pref_attrs.get("domain_preference_scores", {})
+                if domain_scores and entity_attributes:
+                    preference_boosts = {}
+                    for eid, attrs in entity_attributes.items():
+                        etype = attrs.get("entity_type", "Other")
+                        for domain, types in cfg.domain_groups.items():
+                            if etype in types:
+                                pref_score = domain_scores.get(domain, 0.0)
+                                if pref_score != 0.0:
+                                    preference_boosts[eid] = pref_score
+                                break
+        except Exception:
+            preference_boosts = None
+
     # Step 5: Score all candidates
     if cfg.ts_enabled:
         scored = score_candidates_thompson(
@@ -934,6 +960,7 @@ async def retrieve(
             graph_similarities=graph_similarities,
             entity_attributes=entity_attributes,
             state_biases=state_biases,
+            preference_boosts=preference_boosts,
         )
     else:
         scored = score_candidates(
@@ -949,6 +976,7 @@ async def retrieve(
             graph_similarities=graph_similarities,
             entity_attributes=entity_attributes,
             state_biases=state_biases,
+            preference_boosts=preference_boosts,
         )
 
     if planner_trace is not None:

@@ -121,6 +121,20 @@ class RedisSearchIndex:
     def _hash_key(self, group_id: str, content_type: str, item_id: str) -> str:
         return f"{self._key_prefix}{group_id}:vec:{content_type}:{item_id}"
 
+    async def _entity_embedding_keys(
+        self,
+        entity_id: str,
+        group_id: str | None,
+    ) -> list[bytes | str]:
+        if group_id is not None:
+            return [self._hash_key(group_id, "entity", entity_id)]
+
+        pattern = f"{self._key_prefix}*:vec:entity:{entity_id}"
+        keys: list[bytes | str] = []
+        async for key in self._redis.scan_iter(match=pattern, count=100):
+            keys.append(key)
+        return keys
+
     async def index_entity(self, entity: Entity) -> None:
         """Embed and index an entity."""
         if not self._embeddings_enabled or not entity.name:
@@ -520,21 +534,22 @@ class RedisSearchIndex:
             query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
 
         results: dict[str, float] = {}
-        gid = group_id or "default"
-
         for eid in entity_ids:
-            key = self._hash_key(gid, "entity", eid)
+            keys = await self._entity_embedding_keys(eid, group_id)
             try:
-                stored = await self._redis.hget(key, "embedding")
-                if stored is None:
-                    continue
-                stored_vec = list(struct.unpack(f"<{len(stored) // 4}f", stored))
-                # Compute cosine similarity
-                dot = sum(a * b for a, b in zip(query_vec, stored_vec))
-                norm_q = sum(a * a for a in query_vec) ** 0.5
-                norm_s = sum(a * a for a in stored_vec) ** 0.5
-                if norm_q > 0 and norm_s > 0:
-                    results[eid] = max(0.0, dot / (norm_q * norm_s))
+                best_score = 0.0
+                for key in keys:
+                    stored = await self._redis.hget(key, "embedding")
+                    if stored is None:
+                        continue
+                    stored_vec = list(struct.unpack(f"<{len(stored) // 4}f", stored))
+                    dot = sum(a * b for a, b in zip(query_vec, stored_vec))
+                    norm_q = sum(a * a for a in query_vec) ** 0.5
+                    norm_s = sum(a * a for a in stored_vec) ** 0.5
+                    if norm_q > 0 and norm_s > 0:
+                        best_score = max(best_score, dot / (norm_q * norm_s))
+                if best_score > 0:
+                    results[eid] = best_score
             except Exception:
                 continue
 
@@ -597,20 +612,28 @@ class RedisSearchIndex:
         """Batch retrieve entity embeddings from Redis hashes."""
         if not self._embeddings_enabled or not entity_ids:
             return {}
-        gid = group_id or "default"
         results: dict[str, list[float]] = {}
-        pipe = self._redis.pipeline(transaction=False)
-        keys = []
+        if group_id is not None:
+            pipe = self._redis.pipeline(transaction=False)
+            keys = []
+            for eid in entity_ids:
+                key = self._hash_key(group_id, "entity", eid)
+                keys.append((eid, key))
+                pipe.hget(key, "embedding")
+            raw_values = await pipe.execute()
+            for (eid, _), raw in zip(keys, raw_values):
+                if raw:
+                    vec = list(struct.unpack(f"<{len(raw) // 4}f", raw))
+                    results[eid] = vec
+            return results
+
         for eid in entity_ids:
-            key = self._hash_key(gid, "entity", eid)
-            keys.append((eid, key))
-            pipe.hget(key, "vector")
-        raw_values = await pipe.execute()
-        dim = self._config.dimensions
-        for (eid, _), raw in zip(keys, raw_values):
-            if raw:
-                vec = list(struct.unpack(f"<{dim}f", raw))
-                results[eid] = vec
+            for key in await self._entity_embedding_keys(eid, group_id=None):
+                raw = await self._redis.hget(key, "embedding")
+                if raw:
+                    vec = list(struct.unpack(f"<{len(raw) // 4}f", raw))
+                    results[eid] = vec
+                    break
         return results
 
     async def remove(self, entity_id: str) -> None:

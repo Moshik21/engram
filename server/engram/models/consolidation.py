@@ -425,3 +425,17 @@ class MicrogliaRecord:
     detail: str  # Human-readable reason
     id: str = field(default_factory=lambda: f"mcg_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class CalibrationRecord:
+    """Audit entry for a preference calibration."""
+
+    cycle_id: str
+    group_id: str
+    domain: str
+    preference_score: float
+    entity_count: int
+    decay_applied: float
+    id: str = field(default_factory=lambda: f"pcal_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)

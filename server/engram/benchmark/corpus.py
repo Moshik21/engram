@@ -19,7 +19,7 @@ import json
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 import aiosqlite
@@ -30,6 +30,7 @@ from engram.models.episode import Episode, EpisodeStatus
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 from engram.storage.sqlite.hybrid_search import HybridSearchIndex
+from engram.utils.dates import utc_now
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -1458,7 +1459,7 @@ class CorpusGenerator:
         entity_map: dict[str, Entity],
     ) -> None:
         """Bulk-insert entities, relationships, episodes via executemany."""
-        now = datetime.utcnow().isoformat()
+        now = utc_now().isoformat()
 
         # 1. Bulk insert entities
         entity_rows = []
@@ -1596,8 +1597,13 @@ class CorpusGenerator:
             await graph_store.create_episode(episode)
             await search_index.index_episode(episode)
 
+        episode_groups = {episode.id: episode.group_id for episode in corpus.episodes}
         for episode_id, entity_id in corpus.episode_entities:
-            await graph_store.link_episode_entity(episode_id, entity_id)
+            await graph_store.link_episode_entity(
+                episode_id,
+                entity_id,
+                group_id=episode_groups.get(episode_id),
+            )
 
     async def _bulk_embed(
         self,
@@ -1824,7 +1830,7 @@ class CorpusGenerator:
 
     def _generate_entities(self) -> list[Entity]:
         entities: list[Entity] = []
-        base_time = datetime.utcnow()
+        base_time = utc_now()
         type_counts = self._scale.compute_type_counts()
 
         # Person — first/last combos; beyond 900 add suffix letter
@@ -2300,7 +2306,7 @@ class CorpusGenerator:
         relationships: list[Relationship] = []
         rel_idx = 0
         existing_pairs: set[tuple[str, str]] = set()
-        base_time = datetime.utcnow()
+        base_time = utc_now()
 
         def _add_rel(
             src_id: str,
@@ -2513,7 +2519,10 @@ class CorpusGenerator:
             )
 
             offset_secs = self._rng.uniform(min_days * 86400, max_days * 86400)
-            created_at = datetime.utcfromtimestamp(self._now - offset_secs)
+            created_at = datetime.fromtimestamp(
+                self._now - offset_secs,
+                timezone.utc,
+            ).replace(tzinfo=None)
             ep_id = f"ep_bench_{ep_idx:04d}"
 
             episodes.append(

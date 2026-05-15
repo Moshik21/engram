@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from engram.config import ActivationConfig
-from engram.retrieval.working_memory import WorkingMemoryBuffer
+from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 
 # ── Unit tests: WorkingMemoryBuffer ──────────────────────────────────
 
@@ -129,6 +129,49 @@ class TestWorkingMemoryBuffer:
         assert buf.size == 1
         buf.add("b", "entity", 0.5, "q", now)
         assert buf.size == 2
+
+
+class TestRecallWorkingMemoryUpdater:
+    """Unit tests for Recall-stage working-memory write policy."""
+
+    def test_add_result_records_entity_or_episode(self):
+        buf = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
+        updater = RecallWorkingMemoryUpdater()
+
+        updater.add_result(
+            buf,
+            item_id="ep_1",
+            item_type="episode",
+            score=0.72,
+            query="current query",
+            now=100.0,
+        )
+
+        assert buf.get_candidates(100.0) == [("ep_1", 1.0, "episode")]
+
+    def test_add_query_records_recent_query(self):
+        buf = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
+
+        RecallWorkingMemoryUpdater().add_query(
+            buf,
+            query="current query",
+            now=100.0,
+        )
+
+        assert buf.get_recent_queries() == ["current query"]
+
+    def test_disabled_buffer_is_noop(self):
+        updater = RecallWorkingMemoryUpdater()
+
+        updater.add_result(
+            None,
+            item_id="ent_1",
+            item_type="entity",
+            score=0.9,
+            query="query",
+            now=100.0,
+        )
+        updater.add_query(None, query="query", now=100.0)
 
 
 # ── Config tests ─────────────────────────────────────────────────────
@@ -370,7 +413,7 @@ class TestGraphManagerWorkingMemory:
             edge_proximity=0.1,
             result_type="entity",
         )
-        with patch("engram.graph_manager.retrieve", return_value=[scored]):
+        with patch.object(mgr._recall_service, "_retrieve", AsyncMock(return_value=[scored])):
             await mgr.recall("test query", group_id="default")
 
         # Working memory should now have the entity

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
@@ -77,12 +78,19 @@ class MemoryActivationStore:
         return [(eid, state) for eid, state, _ in scored[:limit]]
 
     async def snapshot_to_graph(self, graph_store) -> None:
-        """Persist current activation state to SQLite entity rows."""
+        """Persist current activation state to graph entity rows."""
         for eid, state in self._states.items():
+            group_id = self._group_map.get(eid, "default")
+            last_accessed = (
+                datetime.fromtimestamp(state.last_accessed, tz=timezone.utc).replace(tzinfo=None)
+                if state.last_accessed
+                else None
+            )
             await graph_store.update_entity(
                 eid,
                 {
                     "access_count": state.access_count,
-                    "last_accessed": state.last_accessed if state.last_accessed else None,
+                    "last_accessed": last_accessed,
                 },
+                group_id=group_id,
             )

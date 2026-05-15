@@ -2,15 +2,21 @@ import type { Episode, EpisodeStatus } from "../store/types";
 import { entityColor, entityColorDim } from "../lib/colors";
 import { formatRelativeTime } from "../lib/utils";
 
-const STATUS_STYLES: Record<
+const STATUS_STYLES: Partial<Record<
   EpisodeStatus,
   { bg: string; color: string; border: string; label: string }
-> = {
+>> = {
   queued: {
     bg: "rgba(255,255,255,0.04)",
     color: "var(--text-secondary)",
     border: "var(--border)",
     label: "Queued",
+  },
+  pending: {
+    bg: "rgba(255,255,255,0.04)",
+    color: "var(--text-secondary)",
+    border: "var(--border)",
+    label: "Pending",
   },
   processing: {
     bg: "rgba(251, 146, 60, 0.08)",
@@ -24,6 +30,12 @@ const STATUS_STYLES: Record<
     border: "rgba(168, 85, 247, 0.25)",
     label: "Extracting",
   },
+  retrying: {
+    bg: "rgba(251, 146, 60, 0.08)",
+    color: "var(--warm)",
+    border: "rgba(251, 146, 60, 0.25)",
+    label: "Retrying",
+  },
   completed: {
     bg: "rgba(34, 211, 238, 0.06)",
     color: "var(--accent)",
@@ -35,6 +47,12 @@ const STATUS_STYLES: Record<
     color: "#ef4444",
     border: "rgba(239, 68, 68, 0.25)",
     label: "Failed",
+  },
+  dead_letter: {
+    bg: "rgba(239, 68, 68, 0.08)",
+    color: "#ef4444",
+    border: "rgba(239, 68, 68, 0.25)",
+    label: "Dead letter",
   },
 };
 

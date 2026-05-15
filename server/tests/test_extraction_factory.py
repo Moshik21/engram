@@ -86,9 +86,9 @@ class TestExplicitProviders:
 class TestConfigDefaults:
     """Config defaults for extraction provider."""
 
-    def test_default_is_auto(self):
+    def test_default_is_narrow(self):
         config = EngramConfig()
-        assert config.activation.extraction_provider == "auto"
+        assert config.activation.extraction_provider == "narrow"
 
     def test_ollama_defaults(self):
         config = EngramConfig()

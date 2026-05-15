@@ -12,6 +12,7 @@ from engram.api.deps import (
     get_consolidation_scheduler,
     get_pressure_accumulator,
 )
+from engram.consolidation.presenter import serialize_cycle_summary
 from engram.security.middleware import get_tenant
 
 logger = logging.getLogger(__name__)
@@ -88,25 +89,7 @@ async def consolidation_status(request: Request) -> JSONResponse:
     if engine._store:
         cycles = await engine._store.get_recent_cycles(group_id, limit=1)
         if cycles:
-            latest = cycles[0]
-            result["latest_cycle"] = {
-                "id": latest.id,
-                "status": latest.status,
-                "dry_run": latest.dry_run,
-                "trigger": latest.trigger,
-                "started_at": latest.started_at,
-                "completed_at": latest.completed_at,
-                "total_duration_ms": latest.total_duration_ms,
-                "phases": [
-                    {
-                        "phase": pr.phase,
-                        "status": pr.status,
-                        "items_processed": pr.items_processed,
-                        "items_affected": pr.items_affected,
-                    }
-                    for pr in latest.phase_results
-                ],
-            }
+            result["latest_cycle"] = serialize_cycle_summary(cycles[0])
 
     return JSONResponse(content=result)
 
@@ -127,27 +110,7 @@ async def consolidation_history(
     cycles = await engine._store.get_recent_cycles(group_id, limit=limit)
     return JSONResponse(
         content={
-            "cycles": [
-                {
-                    "id": c.id,
-                    "status": c.status,
-                    "dry_run": c.dry_run,
-                    "trigger": c.trigger,
-                    "started_at": c.started_at,
-                    "completed_at": c.completed_at,
-                    "total_duration_ms": c.total_duration_ms,
-                    "phases": [
-                        {
-                            "phase": pr.phase,
-                            "status": pr.status,
-                            "items_processed": pr.items_processed,
-                            "items_affected": pr.items_affected,
-                        }
-                        for pr in c.phase_results
-                    ],
-                }
-                for c in cycles
-            ],
+            "cycles": [serialize_cycle_summary(c) for c in cycles],
         }
     )
 
@@ -201,25 +164,7 @@ async def consolidation_cycle_detail(
 
     return JSONResponse(
         content={
-            "id": cycle.id,
-            "status": cycle.status,
-            "dry_run": cycle.dry_run,
-            "trigger": cycle.trigger,
-            "started_at": cycle.started_at,
-            "completed_at": cycle.completed_at,
-            "total_duration_ms": cycle.total_duration_ms,
-            "error": cycle.error,
-            "phases": [
-                {
-                    "phase": pr.phase,
-                    "status": pr.status,
-                    "items_processed": pr.items_processed,
-                    "items_affected": pr.items_affected,
-                    "duration_ms": pr.duration_ms,
-                    "error": pr.error,
-                }
-                for pr in cycle.phase_results
-            ],
+            **serialize_cycle_summary(cycle),
             "merges": [
                 {
                     "id": m.id,

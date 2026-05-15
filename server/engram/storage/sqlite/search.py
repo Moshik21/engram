@@ -135,14 +135,17 @@ class FTS5SearchIndex:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db: aiosqlite.Connection | None = None
+        self._owns_db = False
 
     async def initialize(self, db: aiosqlite.Connection | None = None) -> None:
         """Initialize, optionally sharing a db connection."""
         if db:
             self._db = db
+            self._owns_db = False
         elif not self._db:
             self._db = await aiosqlite.connect(self._db_path)
             self._db.row_factory = aiosqlite.Row
+            self._owns_db = True
 
     @property
     def db(self) -> aiosqlite.Connection:
@@ -298,8 +301,11 @@ class FTS5SearchIndex:
         ]
 
     async def close(self) -> None:
-        """No-op — connection is shared with the graph store."""
-        pass
+        """Close owned connections while leaving borrowed graph DBs open."""
+        if self._db and self._owns_db:
+            await self._db.close()
+        self._db = None
+        self._owns_db = False
 
     async def remove(self, entity_id: str) -> None:
         """Removal is handled by entity deletion triggers."""

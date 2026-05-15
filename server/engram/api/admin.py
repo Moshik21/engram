@@ -30,45 +30,13 @@ async def load_benchmark(
     directly into the graph store, activation store, and search index.
     The dashboard immediately reflects the loaded data.
     """
-    from engram.benchmark.corpus import CorpusGenerator
-
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
 
-    graph_store = manager._graph
-    activation_store = manager._activation
-    search_index = manager._search
-
-    # Generate corpus
-    corpus_gen = CorpusGenerator(seed=seed)
-    corpus = corpus_gen.generate()
-
-    # Override group_id to match the current tenant
-    for entity in corpus.entities:
-        entity.group_id = group_id
-    for rel in corpus.relationships:
-        rel.group_id = group_id
-
-    # Load into live stores (entities, relationships, access events)
-    elapsed = await corpus_gen.load(
-        corpus,
-        graph_store,
-        activation_store,
-        search_index,
+    payload = await manager.load_benchmark_corpus(
+        group_id=group_id,
+        seed=seed,
         structure_aware=structure_aware,
     )
-
-    return JSONResponse(
-        content={
-            "loaded": True,
-            "seed": seed,
-            "group_id": group_id,
-            "entities": len(corpus.entities),
-            "relationships": len(corpus.relationships),
-            "access_events": len(corpus.access_events),
-            "queries": len(corpus.ground_truth),
-            "elapsed_seconds": round(elapsed, 2),
-            "structure_aware": structure_aware,
-        }
-    )
+    return JSONResponse(content=payload)

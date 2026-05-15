@@ -1,0 +1,451 @@
+{
+  "variant": "oracle",
+  "extraction_mode": "narrow",
+  "embedding_provider": "none",
+  "consolidation_used": false,
+  "reader_model": "claude-haiku-4-5-20251001",
+  "judge_model": "claude-haiku-4-5-20251001",
+  "total_instances": 18,
+  "total_correct": 3,
+  "overall_accuracy": 0.1667,
+  "category_accuracy": 0.1944,
+  "type_metrics": [
+    {
+      "question_type": "single-session-user",
+      "count": 3,
+      "correct": 0,
+      "accuracy": 0.0,
+      "avg_latency_ms": 48.9,
+      "avg_recall_at_5": 1.0,
+      "avg_ndcg_at_5": 1.0
+    },
+    {
+      "question_type": "single-session-assistant",
+      "count": 3,
+      "correct": 2,
+      "accuracy": 0.6667,
+      "avg_latency_ms": 33.9,
+      "avg_recall_at_5": 1.0,
+      "avg_ndcg_at_5": 1.0
+    },
+    {
+      "question_type": "single-session-preference",
+      "count": 3,
+      "correct": 0,
+      "accuracy": 0.0,
+      "avg_latency_ms": 50.4,
+      "avg_recall_at_5": 1.0,
+      "avg_ndcg_at_5": 1.0
+    },
+    {
+      "question_type": "multi-session",
+      "count": 2,
+      "correct": 1,
+      "accuracy": 0.5,
+      "avg_latency_ms": 27.9,
+      "avg_recall_at_5": 1.0,
+      "avg_ndcg_at_5": 1.0
+    },
+    {
+      "question_type": "temporal-reasoning",
+      "count": 2,
+      "correct": 0,
+      "accuracy": 0.0,
+      "avg_latency_ms": 62.6,
+      "avg_recall_at_5": 1.0,
+      "avg_ndcg_at_5": 1.0
+    },
+    {
+      "question_type": "knowledge-update",
+      "count": 3,
+      "correct": 0,
+      "accuracy": 0.0,
+      "avg_latency_ms": 435.7,
+      "avg_recall_at_5": 0.3333,
+      "avg_ndcg_at_5": 0.3333
+    },
+    {
+      "question_type": "abstention",
+      "count": 2,
+      "correct": 0,
+      "accuracy": 0.0,
+      "avg_latency_ms": 70.1,
+      "avg_recall_at_5": 0.5,
+      "avg_ndcg_at_5": 0.5
+    }
+  ],
+  "adapter_stats": {
+    "sessions_ingested": 28,
+    "episodes_stored": 28,
+    "episodes_extracted": 28,
+    "extraction_calls": 28,
+    "embedding_calls": 0,
+    "recall_calls": 18,
+    "reader_calls": 18,
+    "total_ingest_ms": 12094.5,
+    "total_query_ms": 2027.9
+  },
+  "elapsed_seconds": 15.4,
+  "instances": [
+    {
+      "question_id": "4d6b87c8",
+      "question_type": "knowledge-update",
+      "correct": false,
+      "hypothesis": "British: It's a British period drama that follows the reign of Queen Victoria, from her ascension to the throne at 18 to her marriage to Prince Albert and beyond.; Here are a few more recommendations that might interest you: * **Poldark**: A British period drama set in the late 18th century, following the story of Ross Poldark, a British Army officer returning t Victoria: I've heard good things about \"Victoria\" and \"The Last Kingdom\", but I'd love to hear more about them.; It's a British peri...",
+      "gold_answer": "25",
+      "retrieval_metrics": {
+        "recall@1": 0.0,
+        "ndcg@1": 0.0,
+        "recall@3": 0.0,
+        "ndcg@3": 0.0,
+        "recall@5": 0.0,
+        "ndcg@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "query_latency_ms": 1236.4,
+      "num_entities": 7,
+      "num_episodes": 0
+    },
+    {
+      "question_id": "852ce960",
+      "question_type": "knowledge-update",
+      "correct": false,
+      "hypothesis": "Wells Fargo: User: I'm actually buying a $325,000 house, and I got pre-approved for $350,000 from Wells Fargo. Assuming: Assuming you're getting a conventional loan from Wells Fargo, here's a breakdown of the estimated closing costs: 1. Congratulations: Assistant: Congratulations on your pre-approval!",
+      "gold_answer": "$400,000",
+      "retrieval_metrics": {
+        "recall@1": 0.5,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 36.3,
+      "num_entities": 7,
+      "num_episodes": 2
+    },
+    {
+      "question_id": "1cea1afa",
+      "question_type": "knowledge-update",
+      "correct": false,
+      "hypothesis": "Instagram Live: **Instagram Live**: Host an Instagram Live session to discuss the results, answer questions, and provide additional insights into your content strategy. Instagram Stories: User: I like the idea of using Instagram Stories to share my writing process, and I think I'll start by posting some snippets of my manuscript.; * Use Instagram's built-in features, like the \"Question\" sticker or polls, to ask your followers about their preferences and adjust your posting schedule accordingl...",
+      "gold_answer": "600",
+      "retrieval_metrics": {
+        "recall@1": 0.0,
+        "ndcg@1": 0.0,
+        "recall@3": 0.0,
+        "ndcg@3": 0.0,
+        "recall@5": 0.0,
+        "ndcg@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "query_latency_ms": 34.5,
+      "num_entities": 7,
+      "num_episodes": 0
+    },
+    {
+      "question_id": "d3ab962e",
+      "question_type": "multi-session",
+      "correct": true,
+      "hypothesis": "Hiking: **Hiking**: Explore the valley on foot via one of the many hiking trails, ranging from easy to challenging. Explore: **Hiking**: Explore the valley on foot via one of the many hiking trails, ranging from easy to challenging. With: Here's a rough estimate of the driving times and distances between each location: * Grand Canyon South Rim to Monument Valley: 200 miles, 4 hours\n* Monument Valley to Four Corners: 100 miles, 2 hours",
+      "gold_answer": "8 miles",
+      "retrieval_metrics": {
+        "recall@1": 0.5,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 31.7,
+      "num_entities": 7,
+      "num_episodes": 2
+    },
+    {
+      "question_id": "80ec1f4f_abs",
+      "question_type": "multi-session",
+      "correct": false,
+      "hypothesis": "Many: **Local art schools and universities**: Many art schools and universities have galleries and exhibition spaces that are open to the public. Local: **Local art organizations and museums**: Look up local art museums, galleries, and organizations in your area. Look: **Facebook groups**: Look for groups like **Contemporary Art Enthusiasts**, **Street Art Lovers**, or **Urban Art Collective** to connect with others who share your interests.; **Local art organizations and museums**: Look up l...",
+      "gold_answer": "0. You did not mention visitng any museum in December",
+      "retrieval_metrics": {
+        "recall@1": 0.3333,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 37.4,
+      "num_entities": 7,
+      "num_episodes": 3
+    },
+    {
+      "question_id": "60bf93ed",
+      "question_type": "multi-session",
+      "correct": false,
+      "hypothesis": "Congratulations: Assistant: Congratulations on taking the first step towards digital organization! 1/15: I bought it from Amazon on 1/15. Amazon: I bought it from Amazon on 1/15.",
+      "gold_answer": "5 days. 6 days (including the last day) is also acceptable.",
+      "retrieval_metrics": {
+        "recall@1": 0.5,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 24.1,
+      "num_entities": 7,
+      "num_episodes": 2
+    },
+    {
+      "question_id": "28bcfaac",
+      "question_type": "single-session-assistant",
+      "correct": false,
+      "hypothesis": "Good: Good luck and have fun learning music theory! Private: Private lessons: If you're serious about learning music theory, consider taking private lessons from a music teacher. Don: Don't hesitate to reach out if you have any questions or want more recommendations.",
+      "gold_answer": "MusicTheory.net",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 31.2,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "7e00a6cb",
+      "question_type": "single-session-assistant",
+      "correct": true,
+      "hypothesis": "Red Light District: International Budget Hostel: This hostel is situated near the famous Red Light District and offers affordable dormitory-style rooms and private rooms.; Visit the Red Light District: The Red Light District is one of Amsterdam's most famous attractions, known for its adult entertainment establishments and vibrant nightlife. Hostel: ClinkNOORD Hostel: Situated in a former laboratory in Amsterdam Noord, this hostel offers a unique and budget-friendly accommodation option.; Int...",
+      "gold_answer": "International Budget Hostel",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 40.2,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "4baee567",
+      "question_type": "single-session-assistant",
+      "correct": true,
+      "hypothesis": "Arrowhead Stadium: Assistant: Of the 23 games played between the Kansas City Chiefs and the Jacksonville Jaguars, 12 games were played at Arrowhead Stadium in Kansas City, Missouri, which is the home stadium of the Kans Missouri: Assistant: Of the 23 games played between the Kansas City Chiefs and the Jacksonville Jaguars, 12 games were played at Arrowhead Stadium in Kansas City, Missouri, which is the home stadium of the Kans The Chiefs: The Chiefs have won 14 games, while the Jaguars have w...",
+      "gold_answer": "The Chiefs played the Jaguars 12 times at Arrowhead Stadium.",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 30.2,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "b6025781",
+      "question_type": "single-session-preference",
+      "correct": false,
+      "hypothesis": "Feel: Feel free to get creative and mix-and-match these suggestions to create your perfect meal prep combination! Meal Prep Ideas: Here are some suggestions: **Roasted Vegetables:** * Roasted broccoli with garlic and lemon\n* Brussels sprouts with balsamic glaze and chopped nuts\n* Sweet potato wedges with rosemary and olive oil\n* Assistant: Assistant: Lentil bolognese and quinoa make a fantastic base for a meal, and adding some tasty sides or mix-ins can elevate it to a whole new level.",
+      "gold_answer": "The user would prefer responses that suggest healthy meal prep recipes, especially those that incorporate quinoa and roasted vegetables, and offer variations in protein sources. They might appreciate suggestions that build upon their existing preferences, such as new twists on chicken Caesar salads or turkey and avocado wraps. The user may not prefer responses that suggest unhealthy or high-calorie meal prep options, or those that deviate significantly from their established healthy eating habits.",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 57.0,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "1c0ddc50",
+      "question_type": "single-session-preference",
+      "correct": false,
+      "hypothesis": "Make: Make use of your daily commute:** Since you have a consistent commute, try to make the most of it by listening to podcasts regularly. Since: Make use of your daily commute:** Since you have a consistent commute, try to make the most of it by listening to podcasts regularly.; **\"The Ghost Map: The Story of London's Most Terrifying Epidemic\u2014and How It Changed Science, Cities, and the Modern World\" by Steven Johnson** - A gripping narrative about the 1854 cholera outbreak in Middle East: *...",
+      "gold_answer": "The user would prefer suggestions related to listening to new podcasts or audiobooks, especially the genre beyond true crime or self-improvement, such as history. They may not be interested in activities that require visual attention, such as reading or watching videos, as they are commuting. The user would not prefer general podcast topics such as true crime or self-improvement, as the user wants to explore other topics.",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 31.4,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "95228167",
+      "question_type": "single-session-preference",
+      "correct": false,
+      "hypothesis": "Guitar Setup: Here are some tips to help you get the best sound out of open D tuning on your Les Paul: **Guitar Setup:** 1. Additional Tips: **Additional Tips:** 1. Getting: Assistant: Getting a great sound out of open D tuning on an electric guitar like the Les Paul requires some adjustments to your playing technique, amp settings, and guitar setup.",
+      "gold_answer": "The user would prefer responses that highlight the differences between Fender Stratocaster and Gibson Les Paul electric guitars, such as the feel of the neck, weight, and sound profile. They might not prefer general tips on buying an electric guitar or suggestions that do not take into account their current guitar and desired upgrade.",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 62.8,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "7527f7e2",
+      "question_type": "single-session-user",
+      "correct": false,
+      "hypothesis": "Decide: **Set a budget**: Decide how much you're willing to spend on luxury items each month and stick to it. Set: **Set a budget**: Decide how much you're willing to spend on luxury items each month and stick to it. Determine: **Set a grocery budget**: Determine how much you want to spend on groceries each week and stick to it.",
+      "gold_answer": "$800",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 24.8,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "c19f7a0b",
+      "question_type": "single-session-user",
+      "correct": false,
+      "hypothesis": "Schedule: * Time blocking: Schedule large blocks of uninterrupted time for focused work. Work: Some popular time management techniques include: * The Pomodoro Technique: Work in focused 25-minute increments, followed by a 5-minute break. Some: Some popular time management techniques include: * The Pomodoro Technique: Work in focused 25-minute increments, followed by a 5-minute break.",
+      "gold_answer": "6:30 pm",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 92.9,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "1e043500",
+      "question_type": "single-session-user",
+      "correct": false,
+      "hypothesis": "Spotify: If you're looking for more music to add, you might enjoy the following playlists on Spotify: 1. Discover Weekly: You can also try exploring Spotify's \"Discover Weekly\" and \"Release Radar\" playlists, which are tailored to your listening habits and preferences. You: You can also try exploring Spotify's \"Discover Weekly\" and \"Release Radar\" playlists, which are tailored to your listening habits and preferences.",
+      "gold_answer": "Summer Vibes",
+      "retrieval_metrics": {
+        "recall@1": 1.0,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 29.0,
+      "num_entities": 7,
+      "num_episodes": 1
+    },
+    {
+      "question_id": "gpt4_385a5000",
+      "question_type": "temporal-reasoning",
+      "correct": false,
+      "hypothesis": "Tomato Cage: **Tomato Cage**: Repurpose a tomato cage by placing it around the marigold plant. Start: Start by tying individual stems to stakes using twine, especially for the weaker or more delicate stems. Stretch: **Netting Trellis**: Stretch a piece of netting (like a tomato trellis net) between two stakes or a frame.",
+      "gold_answer": "Tomatoes",
+      "retrieval_metrics": {
+        "recall@1": 0.5,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 23.8,
+      "num_entities": 7,
+      "num_episodes": 2
+    },
+    {
+      "question_id": "gpt4_483dd43c",
+      "question_type": "temporal-reasoning",
+      "correct": false,
+      "hypothesis": "All: **The Big Bang Theory**: All 12 seasons are available on HBO Max, so you can binge-watch your favorite episodes or start from the beginning. The Big Bang Theory: **The Big Bang Theory**: All 12 seasons are available on HBO Max, so you can binge-watch your favorite episodes or start from the beginning. Netflix: Since we're on the topic of comfort TV, I've been watching some cooking shows on Netflix, particularly \"Nailed It!\" and \"The Great British Baking Show\", which are both so entertain...",
+      "gold_answer": "'Game of Thrones'",
+      "retrieval_metrics": {
+        "recall@1": 0.5,
+        "ndcg@1": 1.0,
+        "recall@3": 1.0,
+        "ndcg@3": 1.0,
+        "recall@5": 1.0,
+        "ndcg@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 1.0
+      },
+      "query_latency_ms": 101.3,
+      "num_entities": 7,
+      "num_episodes": 2
+    },
+    {
+      "question_id": "gpt4_93159ced_abs",
+      "question_type": "temporal-reasoning",
+      "correct": false,
+      "hypothesis": "Start Small: **Start Small**: Begin with a small pilot group or a single application to test the implementation and work out any kinks. Begin: **Start Small**: Begin with a small pilot group or a single application to test the implementation and work out any kinks. Remember: Remember to start small, focusing on a pilot group or a single application to test the implementation and work out any kinks.",
+      "gold_answer": "The information provided is not enough. From the information provided, You haven't started working at Google yet.",
+      "retrieval_metrics": {
+        "recall@1": 0.0,
+        "ndcg@1": 0.0,
+        "recall@3": 0.0,
+        "ndcg@3": 0.0,
+        "recall@5": 0.0,
+        "ndcg@5": 0.0,
+        "recall@10": 0.0,
+        "ndcg@10": 0.0
+      },
+      "query_latency_ms": 102.8,
+      "num_entities": 7,
+      "num_episodes": 0
+    }
+  ]
+}

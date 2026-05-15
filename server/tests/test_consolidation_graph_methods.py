@@ -10,6 +10,7 @@ from engram.models.entity import Entity
 from engram.models.episode import Episode
 from engram.models.relationship import Relationship
 from engram.storage.sqlite.graph import SQLiteGraphStore
+from engram.utils.dates import utc_now
 
 
 @pytest_asyncio.fixture
@@ -48,6 +49,25 @@ def _rel(source_id, target_id, predicate="KNOWS", group_id="test"):
         predicate=predicate,
         group_id=group_id,
     )
+
+
+@pytest.mark.asyncio
+async def test_get_episode_entities_filters_entity_group(store):
+    ep = _episode(group_id="test")
+    same_group = _entity("Same", group_id="test")
+    other_group = _entity("Other", group_id="other")
+    await store.create_episode(ep)
+    await store.create_entity(same_group)
+    await store.create_entity(other_group)
+    await store.link_episode_entity(ep.id, same_group.id, group_id="test")
+    await store.db.execute(
+        "INSERT OR IGNORE INTO episode_entities (episode_id, entity_id) VALUES (?, ?)",
+        (ep.id, other_group.id),
+    )
+    await store.db.commit()
+
+    assert await store.get_episode_entities(ep.id, group_id="test") == [same_group.id]
+    assert set(await store.get_episode_entities(ep.id)) == {same_group.id, other_group.id}
 
 
 class TestCoOccurringEntityPairs:
@@ -116,7 +136,7 @@ class TestDeadEntities:
 
     @pytest.mark.asyncio
     async def test_finds_dead_entities(self, store):
-        old_time = (datetime.utcnow() - timedelta(days=60)).isoformat()
+        old_time = (utc_now() - timedelta(days=60)).isoformat()
         e = _entity("Ghost", access_count=0)
         e.created_at = datetime.fromisoformat(old_time)
         await store.create_entity(e)
@@ -133,7 +153,7 @@ class TestDeadEntities:
 
     @pytest.mark.asyncio
     async def test_entity_with_relationships_not_dead(self, store):
-        old_time = (datetime.utcnow() - timedelta(days=60)).isoformat()
+        old_time = (utc_now() - timedelta(days=60)).isoformat()
         e1 = _entity("Connected")
         e2 = _entity("Other")
         await store.create_entity(e1)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from engram.config import ActivationConfig
+from engram.extraction.evidence import EvidenceBundle
 from engram.extraction.extractor import ExtractionStatus
 from engram.extraction.narrow_adapter import NarrowExtractorAdapter
 
@@ -81,3 +82,34 @@ async def test_confidence_filtering():
     # With very high thresholds, most things should be filtered
     # (may still pass if cross-corroboration pushes above 0.99)
     assert not result.is_error
+
+
+@pytest.mark.asyncio
+async def test_extract_forwards_episode_and_group_to_narrow_pipeline():
+    adapter = NarrowExtractorAdapter(ActivationConfig())
+    calls = []
+
+    class FakePipeline:
+        def extract(self, **kwargs):
+            calls.append(kwargs)
+            return EvidenceBundle(
+                episode_id=kwargs["episode_id"],
+                group_id=kwargs["group_id"],
+            )
+
+    adapter._pipeline = FakePipeline()
+
+    result = await adapter.extract(
+        "Alex moved to Phoenix.",
+        episode_id="ep_grouped",
+        group_id="operator_brain",
+    )
+
+    assert result.status == ExtractionStatus.EMPTY
+    assert calls == [
+        {
+            "text": "Alex moved to Phoenix.",
+            "episode_id": "ep_grouped",
+            "group_id": "operator_brain",
+        }
+    ]

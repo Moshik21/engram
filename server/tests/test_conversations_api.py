@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import aiosqlite
 import httpx
 import pytest
 import pytest_asyncio
 
 from engram.config import EngramConfig
 from engram.main import _app_state, _shutdown, _startup, create_app
+from engram.storage.sqlite.conversations import SQLiteConversationStore
 
 
 @pytest_asyncio.fixture
@@ -30,6 +32,24 @@ async def conversations_client(tmp_path):
 
 
 class TestConversationOwnership:
+    @pytest.mark.asyncio
+    async def test_sqlite_conversation_store_does_not_close_borrowed_db_connection(
+        self,
+        tmp_path,
+    ):
+        db = await aiosqlite.connect(tmp_path / "conversations.db")
+        db.row_factory = aiosqlite.Row
+        store = SQLiteConversationStore(str(tmp_path / "conversations.db"))
+        await store.initialize(db=db)
+        try:
+            await store.create_conversation("group-a", title="Borrowed")
+            await store.close()
+
+            row = await (await db.execute("SELECT COUNT(*) FROM conversations")).fetchone()
+            assert row[0] == 1
+        finally:
+            await db.close()
+
     @pytest.mark.asyncio
     async def test_get_messages_rejects_other_group(self, conversations_client):
         client, store = conversations_client

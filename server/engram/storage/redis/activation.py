@@ -45,14 +45,25 @@ class RedisActivationStore:
             "ts_beta": str(state.ts_beta),
         }
 
+    @staticmethod
+    def _normalize_hash(data: dict) -> dict:
+        if not data:
+            return {}
+        # Handle both bytes and string keys (decode_responses may vary)
+        if isinstance(next(iter(data.keys()), ""), bytes):
+            return {k.decode(): v.decode() if isinstance(v, bytes) else v for k, v in data.items()}
+        if isinstance(next(iter(data.values()), ""), bytes):
+            return {k: v.decode() if isinstance(v, bytes) else v for k, v in data.items()}
+        return data
+
+    def _group_id_from_hash(self, data: dict) -> str:
+        normalized = self._normalize_hash(data)
+        return str(normalized.get("group_id") or "")
+
     def _deserialize(self, data: dict) -> ActivationState | None:
         if not data:
             return None
-        # Handle both bytes and string keys (decode_responses may vary)
-        if isinstance(next(iter(data.keys()), ""), bytes):
-            data = {k.decode(): v.decode() if isinstance(v, bytes) else v for k, v in data.items()}
-        elif isinstance(next(iter(data.values()), ""), bytes):
-            data = {k: v.decode() if isinstance(v, bytes) else v for k, v in data.items()}
+        data = self._normalize_hash(data)
 
         return ActivationState(
             node_id=data.get("node_id", ""),
@@ -71,10 +82,24 @@ class RedisActivationStore:
         return self._deserialize(data)
 
     async def set_activation(self, entity_id: str, state: ActivationState) -> None:
+        from engram.activation.engine import compute_activation
+
         key = self._key(entity_id)
+        existing_group_id = self._group_id_from_hash(await self._redis.hgetall(key))
+        now = time.time()
         pipe = self._redis.pipeline()
-        pipe.hset(key, mapping=self._serialize(state))
+        pipe.hset(key, mapping=self._serialize(state, group_id=existing_group_id))
         pipe.expire(key, self._ttl_seconds)
+        if existing_group_id:
+            act = compute_activation(
+                state.access_history,
+                now,
+                self._cfg,
+                state.consolidated_strength,
+            )
+            zkey = f"act_group:{existing_group_id}"
+            pipe.zadd(zkey, {entity_id: act})
+            pipe.expire(zkey, self._ttl_seconds)
         await pipe.execute()
 
     async def batch_get(self, entity_ids: list[str]) -> dict[str, ActivationState]:
@@ -98,11 +123,16 @@ class RedisActivationStore:
         from engram.activation.engine import compute_activation
 
         now = time.time()
+        group_pipe = self._redis.pipeline()
+        for eid in states:
+            group_pipe.hgetall(self._key(eid))
+        group_rows = await group_pipe.execute()
+
         pipe = self._redis.pipeline()
-        for eid, state in states.items():
+        for (eid, state), existing_data in zip(states.items(), group_rows):
             key = self._key(eid)
-            serialized = self._serialize(state)
-            group_id = serialized.get("group_id", "")
+            group_id = self._group_id_from_hash(existing_data)
+            serialized = self._serialize(state, group_id=group_id)
             pipe.hset(key, mapping=serialized)
             pipe.expire(key, self._ttl_seconds)
             # Update sorted set index for get_top_activated
@@ -136,10 +166,28 @@ class RedisActivationStore:
         pipe = self._redis.pipeline()
         pipe.hset(key, mapping=self._serialize(state, group_id=group_id or ""))
         pipe.expire(key, self._ttl_seconds)
+        if group_id:
+            from engram.activation.engine import compute_activation
+
+            act = compute_activation(
+                state.access_history,
+                timestamp,
+                self._cfg,
+                state.consolidated_strength,
+            )
+            zkey = f"act_group:{group_id}"
+            pipe.zadd(zkey, {entity_id: act})
+            pipe.expire(zkey, self._ttl_seconds)
         await pipe.execute()
 
     async def clear_activation(self, entity_id: str) -> None:
-        await self._redis.delete(self._key(entity_id))
+        key = self._key(entity_id)
+        group_id = self._group_id_from_hash(await self._redis.hgetall(key))
+        pipe = self._redis.pipeline()
+        pipe.delete(key)
+        if group_id:
+            pipe.zrem(f"act_group:{group_id}", entity_id)
+        await pipe.execute()
 
     async def get_top_activated(
         self,
@@ -159,9 +207,14 @@ class RedisActivationStore:
             candidates = await self._redis.zrevrange(zkey, 0, limit * 2 - 1)
             if candidates:
                 entity_ids = [c.decode() if isinstance(c, bytes) else c for c in candidates]
-                states = await self.batch_get(entity_ids)
                 scored = []
-                for eid, indexed_state in states.items():
+                for eid in entity_ids:
+                    data = await self._redis.hgetall(self._key(eid))
+                    if self._group_id_from_hash(data) != group_id:
+                        continue
+                    indexed_state = self._deserialize(data)
+                    if indexed_state is None:
+                        continue
                     act = compute_activation(
                         indexed_state.access_history,
                         now,

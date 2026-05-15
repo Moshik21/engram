@@ -82,6 +82,8 @@ mcp-helix: ## Start MCP server (streamable HTTP on port 8200, connects to Docker
 # Native HelixDB (in-process via PyO3)
 
 HELIX_REPO = helixdb-cfg/.helix/dev/helix-repo-copy
+NATIVE_DATA_DIR ?=
+NATIVE_DATA_ARG = $(if $(NATIVE_DATA_DIR),--helix-data-dir $(NATIVE_DATA_DIR),)
 
 patch-helix: ## Re-apply HDB fork changes after helix push dev
 	cd $(HELIX_REPO) && git apply ../helix-fork.patch
@@ -94,14 +96,12 @@ build-native: ## Build helix_native PyO3 extension (in-process HelixDB)
 	@echo "helix_native installed."
 
 up-native: build-native ## Start with native in-process HelixDB (no Docker)
-	cd server && ENGRAM_MODE=helix \
-		ENGRAM_HELIX__TRANSPORT=native \
-		uv run engram serve
+	cd server && ENGRAM_HELIX__TRANSPORT=native \
+		uv run engram serve --mode helix $(NATIVE_DATA_ARG)
 
 mcp-native: build-native ## Start MCP server with native in-process HelixDB
-	cd server && ENGRAM_MODE=helix \
-		ENGRAM_HELIX__TRANSPORT=native \
-		uv run python -m engram.mcp.server --transport streamable-http
+	cd server && ENGRAM_HELIX__TRANSPORT=native \
+		uv run engram mcp --mode helix --transport streamable-http $(NATIVE_DATA_ARG)
 
 # Development commands
 

@@ -17,9 +17,11 @@ from engram.api.consolidation import router as consolidation_router
 from engram.api.conversations import router as conversations_router
 from engram.api.entities import router as entities_router
 from engram.api.episodes import router as episodes_router
+from engram.api.evaluation import router as evaluation_router
 from engram.api.graph import router as graph_router
 from engram.api.health import router as health_router
 from engram.api.knowledge import router as knowledge_router
+from engram.api.lifecycle import router as lifecycle_router
 from engram.api.stats import router as stats_router
 from engram.api.websocket import router as ws_router
 from engram.config import EngramConfig
@@ -190,6 +192,14 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_manager=manager,
     )
 
+    from engram.evaluation.store import SQLiteEvaluationStore
+
+    evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
+    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
+        await evaluation_store.initialize(db=graph_store._db)
+    else:
+        await evaluation_store.initialize()
+
     # Pressure accumulator (optional)
     from engram.consolidation.pressure import PressureAccumulator
 
@@ -201,11 +211,13 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     # Proactive notification surfacing
     from engram.notifications.collector import NotificationCollector
     from engram.notifications.store import NotificationStore
+    from engram.notifications.surface import NotificationSurfaceService
     from engram.notifications.temporal import TemporalIntentionScanner
 
     notification_store = NotificationStore(
         max_per_group=config.activation.notification_max_per_group,
     )
+    notification_surface_service = NotificationSurfaceService(notification_store)
     notification_collector = None
     if config.activation.notification_surfacing_enabled:
         notification_collector = NotificationCollector(
@@ -318,6 +330,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "embedding_provider": embedding_provider,
             "consolidation_engine": consolidation_engine,
             "consolidation_store": consolidation_store,
+            "evaluation_store": evaluation_store,
             "consolidation_scheduler": consolidation_scheduler,
             "pressure_accumulator": pressure_accumulator,
             "episode_worker": episode_worker,
@@ -326,6 +339,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "usage_meter": usage_meter,
             "redis_metering": redis_for_metering,
             "notification_store": notification_store,
+            "notification_surface_service": notification_surface_service,
             "notification_collector": notification_collector,
             "temporal_scanner": temporal_scanner,
         }
@@ -387,6 +401,10 @@ async def _shutdown() -> None:
     if consolidation_store and hasattr(consolidation_store, "close"):
         await consolidation_store.close()
 
+    evaluation_store = _app_state.get("evaluation_store")
+    if evaluation_store and hasattr(evaluation_store, "close"):
+        await evaluation_store.close()
+
     # Close OIDC validator (httpx client)
     from engram.security.middleware import _oidc_validator
 
@@ -410,6 +428,10 @@ async def _shutdown() -> None:
     atlas_store = _app_state.get("atlas_store")
     if atlas_store and hasattr(atlas_store, "close"):
         await atlas_store.close()
+
+    conversation_store = _app_state.get("conversation_store")
+    if conversation_store and hasattr(conversation_store, "close"):
+        await conversation_store.close()
 
     graph_store = _app_state.get("graph_store")
     if graph_store and hasattr(graph_store, "close"):
@@ -457,9 +479,11 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(entities_router)
     app.include_router(episodes_router)
     app.include_router(stats_router)
+    app.include_router(lifecycle_router)
     app.include_router(activation_router)
     app.include_router(admin_router)
     app.include_router(consolidation_router)
+    app.include_router(evaluation_router)
     app.include_router(ws_router)
     app.include_router(knowledge_router)
     app.include_router(conversations_router)

@@ -52,3 +52,45 @@ async def test_episode_projector_preserves_span_provenance():
     assert set(bundle.warnings) == {"targeted_projection", "planned_subset_only"}
     assert bundle.entities[0].source_span_ids == ["span_0"]
     assert bundle.claims[0].source_span_ids == ["span_0"]
+
+
+@pytest.mark.asyncio
+async def test_episode_projector_forwards_group_metadata_to_capable_extractor():
+    text = "Alex moved to Phoenix."
+
+    class GroupAwareExtractor:
+        def __init__(self) -> None:
+            self.call = None
+
+        async def extract(
+            self,
+            text: str,
+            *,
+            episode_id: str,
+            group_id: str,
+        ) -> ExtractionResult:
+            self.call = {
+                "text": text,
+                "episode_id": episode_id,
+                "group_id": group_id,
+            }
+            return ExtractionResult(entities=[], relationships=[])
+
+    extractor = GroupAwareExtractor()
+    plan = ProjectionPlan(
+        episode_id="ep_grouped",
+        group_id="operator_brain",
+        strategy="full_episode",
+        spans=[],
+        selected_text=text,
+        selected_chars=len(text),
+        total_chars=len(text),
+    )
+
+    await EpisodeProjector(extractor).project(plan)
+
+    assert extractor.call == {
+        "text": text,
+        "episode_id": "ep_grouped",
+        "group_id": "operator_brain",
+    }

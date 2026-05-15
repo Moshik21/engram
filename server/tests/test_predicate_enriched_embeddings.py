@@ -1,6 +1,5 @@
 """Tests for predicate-enriched embeddings in GraphManager."""
 
-from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,6 +8,7 @@ from engram.config import ActivationConfig
 from engram.graph_manager import GraphManager
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
+from engram.utils.dates import utc_now
 
 
 def _make_rel(rid, source_id, target_id, predicate):
@@ -19,7 +19,7 @@ def _make_rel(rid, source_id, target_id, predicate):
         predicate=predicate,
         weight=1.0,
         group_id="default",
-        valid_from=datetime.utcnow(),
+        valid_from=utc_now(),
     )
 
 

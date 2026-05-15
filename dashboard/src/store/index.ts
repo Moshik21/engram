@@ -7,12 +7,15 @@ import { createSelectionSlice } from "./selectionSlice";
 import { createPreferencesSlice } from "./preferencesSlice";
 import { createTimeSlice } from "./timeSlice";
 import { createEpisodeSlice } from "./episodeSlice";
+import { createLifecycleSlice } from "./lifecycleSlice";
+import { createEvaluationSlice } from "./evaluationSlice";
 import { createStatsSlice } from "./statsSlice";
 import { createWsSlice } from "./wsSlice";
 import { createActivationSlice } from "./activationSlice";
 import { createConsolidationSlice } from "./consolidationSlice";
 import { createKnowledgeSlice } from "./knowledgeSlice";
 import { createConversationSlice } from "./conversationSlice";
+import { createQuestSlice } from "./questSlice";
 
 export const useEngramStore = create<EngramStore>()(
   devtools(
@@ -24,15 +27,18 @@ export const useEngramStore = create<EngramStore>()(
         ...createTimeSlice(...a),
         ...createEpisodeSlice(...a),
         ...createStatsSlice(...a),
+        ...createLifecycleSlice(...a),
+        ...createEvaluationSlice(...a),
         ...createWsSlice(...a),
         ...createActivationSlice(...a),
         ...createConsolidationSlice(...a),
         ...createKnowledgeSlice(...a),
         ...createConversationSlice(...a),
+        ...createQuestSlice(...a),
       })),
       {
         name: "engram-dashboard",
-        version: 4,
+        version: 5,
         migrate: (persisted: unknown, version: number) => {
           const state = persisted as Record<string, unknown>;
           if (version < 3) {
@@ -41,6 +47,9 @@ export const useEngramStore = create<EngramStore>()(
           if (version < 4) {
             state.lastAtlasVisitAt = null;
             state.lastAtlasSnapshotId = null;
+          }
+          if (version < 5) {
+            state.dashboardMode = "observatory";
           }
           return state;
         },
@@ -53,6 +62,7 @@ export const useEngramStore = create<EngramStore>()(
           graphMaxNodes: s.graphMaxNodes,
           lastAtlasVisitAt: s.lastAtlasVisitAt,
           lastAtlasSnapshotId: s.lastAtlasSnapshotId,
+          dashboardMode: s.dashboardMode,
         }),
       },
     ),

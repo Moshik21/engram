@@ -57,6 +57,7 @@ Usage: engramctl <command> [options]
 
 Commands:
   setup                          Interactive mode picker + config
+  setup --mode helix|lite|auto   Preselect a local no-Docker backend
   install [--mode full|openclaw] [--no-open]
   install-openclaw
   start
@@ -64,7 +65,7 @@ Commands:
   status
   logs [service]
   update
-  upgrade                        Upgrade from lite to full
+  upgrade                        Upgrade from local mode to full
   uninstall [--purge-data]
 EOF
 }
@@ -187,6 +188,7 @@ prompt_value() {
 # ─── Env File Writers ────────────────────────────────────────────────
 
 write_lite_env_file() {
+  local engine_mode="${1:-lite}"
   mkdir -p "$ENGRAM_HOME"
 
   local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
@@ -215,7 +217,7 @@ ENGRAM_API_PORT=${ENGRAM_API_PORT:-8100}
 ANTHROPIC_API_KEY=$anthropic
 VOYAGE_API_KEY=${voyage:-}
 
-ENGRAM_MODE=lite
+ENGRAM_MODE=$engine_mode
 ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
 ENGRAM_ACTIVATION__RECALL_PROFILE=${ENGRAM_ACTIVATION__RECALL_PROFILE:-all}
 ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
@@ -226,6 +228,13 @@ ENGRAM_AUTH__BEARER_TOKEN=$auth_token
 ENGRAM_ENCRYPTION__ENABLED=${ENGRAM_ENCRYPTION__ENABLED:-false}
 ENGRAM_ENCRYPTION__MASTER_KEY=$enc_key
 EOF
+
+  if [ "$engine_mode" = "helix" ]; then
+    cat >>"$LITE_ENV_FILE" <<EOF
+ENGRAM_HELIX__TRANSPORT=native
+ENGRAM_HELIX__DATA_DIR=${ENGRAM_HELIX__DATA_DIR:-}
+EOF
+  fi
 }
 
 write_full_env_file() {
@@ -380,7 +389,7 @@ download_bundle() {
   echo "$temp_dir/extracted"
 }
 
-# ─── Lite Mode Helpers ───────────────────────────────────────────────
+# ─── Local Mode Helpers ──────────────────────────────────────────────
 
 find_engram_command() {
   # Find the engram CLI command (uv tool or pip installed)
@@ -435,10 +444,17 @@ lite_start() {
   local attempts=30
   while [ "$attempts" -gt 0 ]; do
     if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
-      info "Engram started (PID $pid, lite mode)."
+      local engine_mode="${ENGRAM_MODE:-lite}"
+      info "Engram started (PID $pid, $engine_mode mode)."
       dim "API: http://127.0.0.1:${port}"
       dim "Logs: $LITE_LOG_FILE"
-      dim "DB: $LITE_DB_FILE"
+      if [ "$engine_mode" = "helix" ]; then
+        dim "Native data: ${ENGRAM_HELIX__DATA_DIR:-helix_native default}"
+      elif [ "$engine_mode" = "auto" ]; then
+        dim "Data: auto-detected by Engram"
+      else
+        dim "DB: $LITE_DB_FILE"
+      fi
       return 0
     fi
     attempts=$((attempts - 1))
@@ -477,8 +493,9 @@ lite_stop() {
 lite_status() {
   load_existing_env "$LITE_ENV_FILE"
   local port="${ENGRAM_API_PORT:-8100}"
+  local engine_mode="${ENGRAM_MODE:-lite}"
 
-  echo -e "  ${BOLD}Engram Status (lite mode)${RESET}"
+  echo -e "  ${BOLD}Engram Status (local mode)${RESET}"
   echo ""
 
   if lite_is_running; then
@@ -489,9 +506,17 @@ lite_status() {
     warn "Server: not running"
   fi
 
-  dim "Mode:   lite (SQLite)"
+  if [ "$engine_mode" = "helix" ]; then
+    dim "Mode:   helix native (PyO3)"
+    dim "Data:   ${ENGRAM_HELIX__DATA_DIR:-helix_native default}"
+  elif [ "$engine_mode" = "auto" ]; then
+    dim "Mode:   auto (local resolver)"
+    dim "Data:   auto-detected by Engram"
+  else
+    dim "Mode:   lite (SQLite/local)"
+    dim "DB:     $LITE_DB_FILE"
+  fi
   dim "Port:   $port"
-  dim "DB:     $LITE_DB_FILE"
   dim "Logs:   $LITE_LOG_FILE"
   dim "Config: $LITE_ENV_FILE"
   echo ""
@@ -539,18 +564,22 @@ command_setup() {
     else
       echo -e "  ${BOLD}Choose install mode:${RESET}"
       echo ""
-      echo -e "  ${GREEN}[1]${RESET} Lite  ${DIM}(recommended — no Docker needed)${RESET}"
+      echo -e "  ${GREEN}[1]${RESET} Helix native  ${DIM}(recommended — no Docker needed)${RESET}"
+      echo -e "      ${DIM}PyO3 HelixDB backend, graph + vector + BM25 in-process${RESET}"
+      echo ""
+      echo -e "  ${CYAN}[2]${RESET} Lite  ${DIM}(fallback — no Docker needed)${RESET}"
       echo -e "      ${DIM}SQLite backend, all features, zero infrastructure${RESET}"
       echo ""
-      echo -e "  ${CYAN}[2]${RESET} Full  ${DIM}(Docker required)${RESET}"
+      echo -e "  ${CYAN}[3]${RESET} Full  ${DIM}(Docker required)${RESET}"
       echo -e "      ${DIM}FalkorDB + Redis, dashboard, scale/perf${RESET}"
       echo ""
       local choice
-      read -r -p "  Choose [1/2] (1): " choice || true
+      read -r -p "  Choose [1/2/3] (1): " choice || true
       choice="${choice:-1}"
       case "$choice" in
-        1|lite) mode="lite" ;;
-        2|full) mode="full" ;;
+        1|helix) mode="helix" ;;
+        2|lite) mode="lite" ;;
+        3|full) mode="full" ;;
         *) die "Invalid choice: $choice" ;;
       esac
     fi
@@ -558,11 +587,11 @@ command_setup() {
 
   info "Selected mode: $mode"
 
-  if [ "$mode" = "lite" ]; then
-    _setup_lite
-  else
-    _setup_full
-  fi
+  case "$mode" in
+    helix|lite|auto) _setup_lite "$mode" ;;
+    full) _setup_full ;;
+    *) die "Invalid setup mode: $mode" ;;
+  esac
 
   # OpenClaw skill prompt
   if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
@@ -585,14 +614,19 @@ command_setup() {
 }
 
 _setup_lite() {
-  write_lite_env_file
+  local engine_mode="${1:-lite}"
+  write_lite_env_file "$engine_mode"
 
   # Run the Python setup wizard for detailed config (API keys, profiles, etc.)
   local engram_cmd
   engram_cmd="$(find_engram_command 2>/dev/null || true)"
   if [ -n "$engram_cmd" ]; then
     info "Running Engram setup wizard..."
-    "$engram_cmd" setup --mode lite --env-path "$LITE_ENV_FILE" 2>/dev/null || true
+    "$engram_cmd" setup --mode "$engine_mode" --env-path "$LITE_ENV_FILE" 2>/dev/null || true
+  fi
+
+  if [ "$engine_mode" = "helix" ]; then
+    _verify_helix_native_runtime "$engram_cmd"
   fi
 
   # Re-stamp ENGRAM_INSTALL_VARIANT — the Python wizard may have rewritten the
@@ -603,8 +637,32 @@ _setup_lite() {
     fi
   fi
 
-  info "Lite mode configured."
+  info "$engine_mode mode configured."
   dim "Config: $LITE_ENV_FILE"
+}
+
+_verify_helix_native_runtime() {
+  local engram_cmd="${1:-}"
+
+  if [ "${ENGRAM_INSTALL_SKIP_NATIVE_VERIFY:-0}" = "1" ]; then
+    warn "Skipping Helix native verification."
+    return
+  fi
+
+  if [ -z "$engram_cmd" ]; then
+    warn "Could not verify Helix native support because the engram command was not found."
+    return
+  fi
+
+  if ! "$engram_cmd" doctor --mode helix --skip-server --no-smoke --no-lifecycle --format json >/dev/null 2>&1; then
+    warn "Helix native verification failed."
+    note "Native mode requires the helix_native PyO3 extension in the Engram tool environment."
+    note "For source installs, run: make build-native"
+    note "For external HelixDB instead, set ENGRAM_HELIX__TRANSPORT=http and run the Helix service."
+    die "Helix native setup did not produce a runnable native runtime."
+  fi
+
+  info "Verified Helix native PyO3 runtime."
 }
 
 _setup_full() {
@@ -821,7 +879,16 @@ command_update() {
   variant="$(detect_variant)"
 
   if [ "$variant" = "lite" ]; then
-    info "Updating Engram (lite mode)..."
+    load_existing_env "$LITE_ENV_FILE"
+    local engine_mode="${ENGRAM_MODE:-lite}"
+    local package_spec="engram[local]"
+    local github_spec="git+https://github.com/${DEFAULT_RELEASE_REPOSITORY}.git#subdirectory=server[local]"
+    if [ "$engine_mode" = "helix" ]; then
+      package_spec="engram[local,native]"
+      github_spec="git+https://github.com/${DEFAULT_RELEASE_REPOSITORY}.git#subdirectory=server[local,native]"
+    fi
+
+    info "Updating Engram ($engine_mode local mode)..."
     local was_running=0
     if lite_is_running; then
       was_running=1
@@ -830,11 +897,17 @@ command_update() {
 
     # Upgrade via uv tool
     if command -v uv >/dev/null 2>&1; then
-      uv tool upgrade "engram[local]" 2>/dev/null \
-        || uv tool install --force "git+https://github.com/${DEFAULT_RELEASE_REPOSITORY}.git#subdirectory=server[local]" 2>/dev/null \
-        || warn "Update failed. Try: uv tool install --force 'engram[local]'"
+      uv tool upgrade "$package_spec" 2>/dev/null \
+        || uv tool install --force "$github_spec" 2>/dev/null \
+        || warn "Update failed. Try: uv tool install --force '$package_spec'"
     else
       warn "uv not found. Install uv or update manually."
+    fi
+
+    if [ "$engine_mode" = "helix" ]; then
+      local engram_cmd
+      engram_cmd="$(find_engram_command 2>/dev/null || true)"
+      _verify_helix_native_runtime "$engram_cmd"
     fi
 
     if [ "$was_running" = "1" ]; then
@@ -865,11 +938,11 @@ command_upgrade() {
   variant="$(detect_variant)"
 
   if [ "$variant" != "lite" ]; then
-    die "Upgrade is only available from lite mode. You're already running full mode."
+    die "Upgrade is only available from local mode. You're already running full mode."
   fi
 
   echo ""
-  echo -e "  ${BOLD}Upgrading Lite → Full${RESET}"
+  echo -e "  ${BOLD}Upgrading Local → Full${RESET}"
   echo ""
   note "Full mode starts with a fresh FalkorDB/Redis store."
   note "Your SQLite data is kept at $LITE_DB_FILE for reference"

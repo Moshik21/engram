@@ -110,8 +110,8 @@ def _welcome() -> None:
 def _collect_config(preset_mode: str | None = None) -> dict:
     """Walk user through all config questions. Returns config dict.
 
-    If *preset_mode* is given (e.g. ``"lite"`` or ``"full"``), the mode
-    prompt is skipped and the value is used directly.
+    If *preset_mode* is given (e.g. ``"helix"``, ``"lite"``, or ``"full"``),
+    the mode prompt is skipped and the value is used directly.
     """
     cfg: dict[str, str | None] = {}
 
@@ -139,12 +139,14 @@ def _collect_config(preset_mode: str | None = None) -> dict:
         _check(f"Mode: {mode} (pre-selected)")
     else:
         _section("Engine Mode")
+        print(f"  {_DIM}helix = Helix native PyO3 (recommended, no Docker){_RESET}")
         print(f"  {_DIM}lite  = SQLite only (no Docker needed){_RESET}")
         print(f"  {_DIM}full  = FalkorDB + Redis (requires Docker){_RESET}")
-        print(f"  {_DIM}auto  = try full, fall back to lite{_RESET}")
-        mode = _ask("Mode", default="auto", choices=["lite", "full", "auto"])
+        print(f"  {_DIM}auto  = detect native Helix, services, then lite{_RESET}")
+        mode = _ask("Mode", default="auto", choices=["helix", "lite", "full", "auto"])
         _check(f"Mode: {mode}")
     cfg["ENGRAM_MODE"] = mode
+    cfg["ENGRAM_HELIX__TRANSPORT"] = "native" if mode == "helix" else None
 
     # --- Full-mode passwords ---
     if mode in ("full", "auto"):
@@ -267,6 +269,7 @@ def _generate_env(config: dict, env_path: Path) -> None:
             "Engine",
             [
                 ("ENGRAM_MODE", config.get("ENGRAM_MODE")),
+                ("ENGRAM_HELIX__TRANSPORT", config.get("ENGRAM_HELIX__TRANSPORT")),
             ],
         ),
         (
@@ -349,6 +352,8 @@ def _print_mcp_config(config: dict) -> None:
         env_block["ENGRAM_FALKORDB__PASSWORD"] = str(config["ENGRAM_FALKORDB__PASSWORD"])
     if config.get("ENGRAM_REDIS__URL"):
         env_block["ENGRAM_REDIS__URL"] = str(config["ENGRAM_REDIS__URL"])
+    if config.get("ENGRAM_HELIX__TRANSPORT"):
+        env_block["ENGRAM_HELIX__TRANSPORT"] = str(config["ENGRAM_HELIX__TRANSPORT"])
 
     snippet = {
         "mcpServers": {
@@ -435,7 +440,14 @@ _SETTINGS: list[tuple[str, str, str, bool, list[str] | None]] = [
     # (key, section, label, secret, choices)
     ("ANTHROPIC_API_KEY", "API Keys", "Anthropic API key", True, None),
     ("VOYAGE_API_KEY", "API Keys", "Voyage AI key", True, None),
-    ("ENGRAM_MODE", "Engine", "Engine mode", False, ["lite", "full", "auto"]),
+    ("ENGRAM_MODE", "Engine", "Engine mode", False, ["helix", "lite", "full", "auto"]),
+    (
+        "ENGRAM_HELIX__TRANSPORT",
+        "Engine",
+        "Helix transport",
+        False,
+        ["native", "http", "grpc", "auto"],
+    ),
     (
         "ENGRAM_FALKORDB__PASSWORD",
         "Full Mode",
@@ -856,7 +868,8 @@ def setup(env_path: Path | None = None, mode: str | None = None) -> None:
     env_path : Path | None
         Where to write the ``.env`` file.  Defaults to ``~/.engram/.env``.
     mode : str | None
-        Pre-select engine mode (``"lite"``, ``"full"``, or ``"auto"``).
+        Pre-select engine mode (``"helix"``, ``"lite"``, ``"full"``, or
+        ``"auto"``).
         When set, the mode prompt in the wizard is skipped.
     """
     _welcome()

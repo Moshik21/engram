@@ -202,7 +202,12 @@ def create_stores(
         helix_client = HelixClient(config.helix)
 
         return (
-            HelixGraphStore(config.helix, encryptor=encryptor, client=helix_client),
+            HelixGraphStore(
+                config.helix,
+                encryptor=encryptor,
+                client=helix_client,
+                owns_client=True,
+            ),
             MemoryActivationStore(cfg=config.activation),
             HelixSearchIndex(
                 config.helix,

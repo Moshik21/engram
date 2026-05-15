@@ -96,3 +96,38 @@ class WorkingMemoryBuffer:
     def size(self) -> int:
         """Number of entries currently in the buffer."""
         return len(self._entries)
+
+
+class RecallWorkingMemoryUpdater:
+    """Apply Recall-stage working-memory writes while tolerating disabled buffers."""
+
+    def add_result(
+        self,
+        buffer: WorkingMemoryBuffer | None,
+        *,
+        item_id: str,
+        item_type: str,
+        score: float,
+        query: str,
+        now: float,
+    ) -> None:
+        if buffer is None:
+            return
+        buffer.add(
+            item_id,
+            item_type,
+            score,
+            query,
+            now,
+        )
+
+    def add_query(
+        self,
+        buffer: WorkingMemoryBuffer | None,
+        *,
+        query: str,
+        now: float,
+    ) -> None:
+        if buffer is None:
+            return
+        buffer.add_query(query, now)

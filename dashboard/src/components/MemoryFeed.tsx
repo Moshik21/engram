@@ -4,12 +4,26 @@ import { EpisodeCard } from "./EpisodeCard";
 import type { EpisodeStatus } from "../store/types";
 
 const SOURCE_OPTIONS = ["all", "mcp", "api", "manual"] as const;
-const STATUS_OPTIONS: Array<"all" | EpisodeStatus> = [
+type StatusFilter = "all" | "capture_active" | EpisodeStatus;
+
+const CAPTURE_ACTIVE_STATUSES = new Set<EpisodeStatus>([
+  "queued",
+  "pending",
+  "processing",
+  "extracting",
+  "retrying",
+]);
+
+const STATUS_OPTIONS: StatusFilter[] = [
   "all",
+  "capture_active",
   "queued",
   "processing",
+  "extracting",
+  "retrying",
   "completed",
   "failed",
+  "dead_letter",
 ];
 
 function SkeletonCard() {
@@ -42,13 +56,21 @@ export function MemoryFeed() {
   const selectNode = useEngramStore((s) => s.selectNode);
   const setCurrentView = useEngramStore((s) => s.setCurrentView);
   const loadNeighborhood = useEngramStore((s) => s.loadNeighborhood);
+  const lifecycleDrilldownStage = useEngramStore((s) => s.lifecycleDrilldownStage);
 
   const [sourceFilter, setSourceFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   useEffect(() => {
     loadEpisodes();
   }, [loadEpisodes]);
+
+  useEffect(() => {
+    if (lifecycleDrilldownStage === "capture") {
+      setSourceFilter("all");
+      setStatusFilter("capture_active");
+    }
+  }, [lifecycleDrilldownStage]);
 
   const handleLoadMore = useCallback(() => {
     if (cursor && hasMore && !isLoading) {
@@ -67,6 +89,9 @@ export function MemoryFeed() {
 
   const filtered = episodes.filter((ep) => {
     if (sourceFilter !== "all" && ep.source !== sourceFilter) return false;
+    if (statusFilter === "capture_active") {
+      return CAPTURE_ACTIVE_STATUSES.has(ep.status);
+    }
     if (statusFilter !== "all" && ep.status !== statusFilter) return false;
     return true;
   });
@@ -120,7 +145,7 @@ export function MemoryFeed() {
 
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
           style={{
             padding: "3px 8px",
             borderRadius: "var(--radius-xs)",
@@ -135,7 +160,11 @@ export function MemoryFeed() {
         >
           {STATUS_OPTIONS.map((opt) => (
             <option key={opt} value={opt}>
-              {opt === "all" ? "All statuses" : opt}
+              {opt === "all"
+                ? "All statuses"
+                : opt === "capture_active"
+                  ? "Active capture"
+                  : opt}
             </option>
           ))}
         </select>

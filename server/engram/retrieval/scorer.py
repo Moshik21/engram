@@ -29,6 +29,7 @@ class ScoredResult:
     result_type: str = "entity"
     source: str = ""
     chunk_context: str | None = None
+    preference_boost: float = 0.0
     planner_support: float = 0.0
     relevance_confidence: float = 0.0
     planner_intents: list[str] = field(default_factory=list)
@@ -59,6 +60,7 @@ def score_candidates(
     graph_similarities: dict[str, float] | None = None,
     entity_attributes: dict[str, dict] | None = None,
     state_biases: dict[str, float] | None = None,
+    preference_boosts: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score and rank candidate nodes.
 
@@ -142,6 +144,11 @@ def score_candidates(
         # State-dependent retrieval boost
         s_boost = state_biases.get(node_id, 0.0) if state_biases else 0.0
 
+        # Preference-directed boost
+        pref_boost = 0.0
+        if preference_boosts is not None and cfg.preference_directed_enabled:
+            pref_boost = cfg.preference_retrieval_weight * preference_boosts.get(node_id, 0.0)
+
         # Composite score
         score = (
             cfg.weight_semantic * sem_sim
@@ -154,6 +161,7 @@ def score_candidates(
             + prime_boost
             + emo_boost
             + s_boost
+            + pref_boost
         )
 
         # Hop distance: 0 for seeds, from hop_distances dict, or None
@@ -176,6 +184,7 @@ def score_candidates(
                 graph_structural=graph_sim,
                 emotional_boost=emo_boost,
                 state_boost=s_boost,
+                preference_boost=pref_boost,
                 hop_distance=hop_dist,
             )
         )
@@ -198,6 +207,7 @@ def score_candidates_thompson(
     graph_similarities: dict[str, float] | None = None,
     entity_attributes: dict[str, dict] | None = None,
     state_biases: dict[str, float] | None = None,
+    preference_boosts: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score candidates using Thompson Sampling for exploration.
 
@@ -277,6 +287,11 @@ def score_candidates_thompson(
         # State-dependent retrieval boost
         s_boost = state_biases.get(node_id, 0.0) if state_biases else 0.0
 
+        # Preference-directed boost
+        pref_boost = 0.0
+        if preference_boosts is not None and cfg.preference_directed_enabled:
+            pref_boost = cfg.preference_retrieval_weight * preference_boosts.get(node_id, 0.0)
+
         score = (
             cfg.weight_semantic * sem_sim
             + cfg.weight_activation * base_act
@@ -288,6 +303,7 @@ def score_candidates_thompson(
             + prime_boost
             + emo_boost
             + s_boost
+            + pref_boost
         )
 
         if node_id in seed_node_ids:
@@ -309,6 +325,7 @@ def score_candidates_thompson(
                 graph_structural=graph_sim,
                 emotional_boost=emo_boost,
                 state_boost=s_boost,
+                preference_boost=pref_boost,
                 hop_distance=hop_dist_t,
             )
         )
