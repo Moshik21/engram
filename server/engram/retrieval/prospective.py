@@ -25,6 +25,163 @@ logger = logging.getLogger(__name__)
 _PRIORITY_ORDER = {"critical": 0, "high": 1, "normal": 2, "low": 3}
 
 
+async def build_api_create_intention_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str,
+    entity_names: list[str] | None,
+    threshold: float | None,
+    priority: str,
+    context: str | None,
+    see_also: list[str] | None,
+    refresh_trigger: str,
+) -> dict:
+    """Create an intention and return the REST acknowledgement payload."""
+    intention_id = await _create_manager_intention(
+        manager,
+        group_id=group_id,
+        trigger_text=trigger_text,
+        action_text=action_text,
+        trigger_type=trigger_type,
+        entity_names=entity_names,
+        threshold=threshold,
+        priority=priority,
+        context=context,
+        see_also=see_also,
+        refresh_trigger=refresh_trigger,
+    )
+    return {
+        "status": "created",
+        "intentionId": intention_id,
+        "triggerText": trigger_text,
+        "actionText": action_text,
+        "triggerType": trigger_type,
+        "refreshTrigger": refresh_trigger,
+    }
+
+
+async def build_mcp_create_intention_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str,
+    entity_names: list[str] | None,
+    threshold: float | None,
+    priority: str,
+    context: str | None,
+    see_also: list[str] | None,
+    refresh_trigger: str,
+) -> dict:
+    """Create an intention and return the MCP acknowledgement payload."""
+    intention_id = await _create_manager_intention(
+        manager,
+        group_id=group_id,
+        trigger_text=trigger_text,
+        action_text=action_text,
+        trigger_type=trigger_type,
+        entity_names=entity_names,
+        threshold=threshold,
+        priority=priority,
+        context=context,
+        see_also=see_also,
+        refresh_trigger=refresh_trigger,
+    )
+    effective_threshold = manager.effective_intention_threshold(threshold)
+    if inspect.isawaitable(effective_threshold):
+        effective_threshold = await effective_threshold
+    return {
+        "status": "created",
+        "intention_id": intention_id,
+        "trigger_type": trigger_type,
+        "refresh_trigger": refresh_trigger,
+        "linked_entities": entity_names or [],
+        "threshold": effective_threshold,
+        "message": f"Intention set: will fire when '{trigger_text}' activates.",
+    }
+
+
+async def build_intention_list_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    enabled_only: bool,
+    surface: str,
+) -> dict:
+    """Return public intention rows for API or MCP."""
+    items = await manager.list_intention_views(
+        group_id=group_id,
+        enabled_only=enabled_only,
+        surface=surface,
+    )
+    return {"intentions": items, "total": len(items)}
+
+
+async def build_api_dismiss_intention_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    intention_id: str,
+    hard: bool,
+) -> dict:
+    """Dismiss an intention and return the REST acknowledgement payload."""
+    await manager.dismiss_intention(intention_id, group_id, hard=hard)
+    return {
+        "status": "dismissed",
+        "intentionId": intention_id,
+        "hard": hard,
+    }
+
+
+async def build_mcp_dismiss_intention_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    intention_id: str,
+    hard: bool,
+) -> dict:
+    """Dismiss an intention and return the MCP acknowledgement payload."""
+    await manager.dismiss_intention(intention_id, group_id, hard=hard)
+    return {
+        "status": "dismissed",
+        "intention_id": intention_id,
+        "hard": hard,
+        "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
+    }
+
+
+async def _create_manager_intention(
+    manager: Any,
+    *,
+    group_id: str,
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str,
+    entity_names: list[str] | None,
+    threshold: float | None,
+    priority: str,
+    context: str | None,
+    see_also: list[str] | None,
+    refresh_trigger: str,
+) -> str:
+    return await manager.create_intention(
+        trigger_text=trigger_text,
+        action_text=action_text,
+        trigger_type=trigger_type,
+        entity_names=entity_names,
+        threshold=threshold,
+        priority=priority,
+        group_id=group_id,
+        context=context,
+        see_also=see_also,
+        refresh_trigger=refresh_trigger,
+    )
+
+
 class ProspectiveMemoryService:
     """Create, list, dismiss, and update prospective memory intentions."""
 

@@ -2879,6 +2879,82 @@ selection. `server/engram/api/knowledge.py` still owns the AI SDK SSE framing
 through `_emit_tool()`, which is an intentional transport concern. Focused chat
 event, recall presenter, public-surface, and full knowledge API checks passed.
 
+Knowledge-chat tool execution payloads now live outside the REST route too.
+`server/engram/retrieval/chat_tools.py` owns recall/search_entities/search_facts
+tool dispatch payloads for the Anthropic chat loop, including chat recall packet
+shaping, entity/fact LLM payloads, fact deduplication, and unknown-tool
+responses. `server/engram/api/knowledge.py` keeps the Anthropic tool-use loop
+and JSON-string compatibility wrapper. Focused chat-tool, chat-recall-helper,
+chat-event, public-surface, and Ruff checks passed.
+
+Knowledge-chat recall feedback and retry policy now live outside the REST route
+too. `server/engram/retrieval/chat_feedback.py` owns used/dismissed memory
+interaction application, generic memory-free response detection, retry gating,
+and retry system-prompt construction. `server/engram/api/knowledge.py` keeps the
+actual Anthropic retry call and stream framing as transport/client behavior.
+Focused chat-feedback, chat-tool, full knowledge API, chat-event,
+public-surface, Ruff, and `git diff --check` gates passed.
+
+Knowledge-chat memory-need and live-context runtime helpers now live outside the
+REST route as well. `server/engram/retrieval/chat_runtime.py` owns chat
+memory-need analysis, memory-guidance text, live conversation hydration,
+assistant-turn recording, and recent-turn extraction. `server/engram/api/knowledge.py`
+keeps rate limiting, conversation resolution, context fetch, Anthropic tool-loop
+streaming, and final SSE framing. Focused chat-runtime/feedback/tool, full
+knowledge API, chat-event, public-surface, Ruff, and `git diff --check` gates
+passed.
+
+REST/MCP explicit recall result and packet assembly now share a retrieval
+boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
+Recall-stage manager call, recall packet analysis, memory packet assembly, and
+API/MCP recall item presentation. REST still returns `items`, camelCase packets,
+and `query`; MCP still adds query timing, near-miss/surprise side channels, and
+recall middleware enrichment. Focused knowledge API, MCP JSON-response,
+autorecall, chat, public-surface, Ruff, and `git diff --check` gates passed.
+
+Recall-control manager compatibility helpers now have one home.
+`server/engram/retrieval/control.py` owns sync/async recall-need threshold
+resolution and memory-need analysis recording. REST, MCP, chat runtime, chat
+tool execution, and explicit recall surface code now share those adapters
+instead of carrying private helper copies. Focused recall-control, knowledge
+API, MCP JSON-response, autorecall, chat, public-surface, Ruff, and
+`git diff --check` gates passed.
+
+REST/MCP artifact search now shares retrieval-side result assembly.
+`server/engram/retrieval/artifacts.py` owns artifact hit loading and item
+serialization for both public surfaces. REST keeps the existing `projectPath`
+response key; MCP keeps `project_path` and recall middleware enrichment.
+Focused artifact-search, artifact service, REST artifact endpoint, MCP artifact,
+public-surface, Ruff, and `git diff --check` gates passed.
+
+REST/MCP deterministic question routing now shares retrieval-side route surface
+assembly. `server/engram/retrieval/epistemic_route.py` owns route history
+normalization and the manager `route_question` call. REST keeps HTTP response
+wrapping; MCP keeps recall middleware enrichment. Focused route-surface, REST
+epistemic endpoint, MCP JSON-response, public-surface, Ruff, and
+`git diff --check` gates passed.
+
+REST/MCP prospective-memory intention surfaces now share retrieval-side
+assembly. `server/engram/retrieval/prospective.py` owns intention create, list,
+and dismiss manager calls plus API/MCP acknowledgement shapes. REST keeps HTTP
+status mapping; MCP keeps JSON error wrappers. Focused prospective-surface,
+public-surface, full knowledge API, full MCP tool, Ruff, and `git diff --check`
+gates passed.
+
+REST/MCP forget surfaces now share retrieval-side target dispatch.
+`server/engram/retrieval/forgetting.py` owns the public forget helpers and
+fact-field normalization. REST keeps its entity-first behavior when both an
+entity and fact are supplied; MCP keeps its exactly-one-target validation.
+Focused forget-surface, REST forget, MCP forget, public-surface, Ruff, and
+`git diff --check` gates passed.
+
+REST/MCP explicit preference feedback now shares retrieval-side validation and
+manager dispatch. `server/engram/retrieval/preference_feedback.py` owns public
+rating validation and the `record_explicit_feedback` manager call. REST keeps
+400/404 HTTP mapping; MCP keeps JSON error responses. Focused feedback-surface,
+feedback recorder, full knowledge API, full MCP tool, public-surface, Ruff, and
+`git diff --check` gates passed.
+
 Knowledge-chat conversation persistence now has its own helper boundary too.
 `server/engram/retrieval/chat_persistence.py` validates existing conversation
 IDs against the active `group_id`, creates missing conversations with the

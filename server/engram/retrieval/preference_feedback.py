@@ -11,6 +11,29 @@ from engram.models.entity import Entity
 from engram.models.relationship import Relationship
 
 
+class FeedbackRatingError(ValueError):
+    """Raised when a public feedback rating is outside the accepted range."""
+
+
+async def build_explicit_feedback_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+    rating: int,
+    comment: str | None,
+) -> dict:
+    """Validate and record explicit public feedback through the manager facade."""
+    if rating < 1 or rating > 5:
+        raise FeedbackRatingError("Rating must be between 1 and 5")
+    return await manager.record_explicit_feedback(
+        group_id=group_id,
+        entity_id=entity_id,
+        rating=rating,
+        comment=comment,
+    )
+
+
 class PreferenceFeedbackRecorder:
     """Record explicit user preference feedback as graph reinforcement edges."""
 

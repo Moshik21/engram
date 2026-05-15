@@ -191,6 +191,70 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    `server/engram/retrieval/chat_events.py`, with the REST route retaining only
    AI SDK SSE framing. Focused chat-event, recall-presenter, public-surface, and
    full knowledge API checks passed.
+   Knowledge-chat tool execution payloads are now in
+   `server/engram/retrieval/chat_tools.py`, covering recall/search_entities/
+   search_facts LLM payloads, chat recall packet shaping, fact deduplication,
+   and unknown-tool responses while the REST route keeps the Anthropic tool-use
+   loop and JSON-string compatibility wrapper. Focused chat-tool,
+   chat-recall-helper, chat-event, public-surface, and Ruff checks passed.
+   Knowledge-chat recall feedback and retry policy are now in
+   `server/engram/retrieval/chat_feedback.py`, covering used/dismissed memory
+   interaction application, generic memory-free response detection, retry
+   gating, and retry system-prompt construction while the REST route keeps the
+   actual Anthropic retry call and stream framing. Focused chat-feedback,
+   chat-tool, full knowledge API, chat-event, public-surface, Ruff, and
+   `git diff --check` gates passed.
+   Knowledge-chat memory-need and live-context runtime helpers are now in
+   `server/engram/retrieval/chat_runtime.py`, covering chat memory-need
+   analysis, memory-guidance text, live conversation hydration, assistant-turn
+   recording, and recent-turn extraction while the REST route keeps rate
+   limiting, conversation resolution, context fetch, Anthropic tool-loop
+   streaming, and final SSE framing. Focused chat-runtime/feedback/tool, full
+   knowledge API, chat-event, public-surface, Ruff, and `git diff --check`
+   gates passed.
+   REST/MCP explicit recall result and packet assembly are now in
+   `server/engram/retrieval/recall_surface.py`, covering the explicit
+   Recall-stage manager call, recall packet analysis, memory packet assembly,
+   and API/MCP recall item presentation while REST and MCP keep their
+   transport-specific metadata and response shapes. Focused knowledge API, MCP
+   JSON-response, autorecall, chat, public-surface, Ruff, and `git diff --check`
+   gates passed.
+   Recall-need threshold resolution and memory-need analysis recording now share
+   `server/engram/retrieval/control.py` helpers, covering sync/async manager
+   facade compatibility for REST, MCP, chat runtime, chat tool execution, and
+   explicit recall surfaces. Focused recall-control, knowledge API, MCP
+   JSON-response, autorecall, chat, public-surface, Ruff, and `git diff --check`
+   gates passed.
+   REST/MCP artifact search result assembly now shares
+   `server/engram/retrieval/artifacts.py` helpers, covering artifact hit loading
+   and item serialization while REST keeps `projectPath` and MCP keeps
+   `project_path` plus recall middleware enrichment. Focused artifact-search,
+   artifact service, REST artifact endpoint, MCP artifact, public-surface, Ruff,
+   and `git diff --check` gates passed.
+   REST/MCP deterministic question routing now shares
+   `server/engram/retrieval/epistemic_route.py` helpers, covering route history
+   normalization and the manager `route_question` call while REST keeps HTTP
+   response wrapping and MCP keeps recall middleware enrichment. Focused
+   route-surface, REST epistemic endpoint, MCP JSON-response, public-surface,
+   Ruff, and `git diff --check` gates passed.
+   REST/MCP prospective-memory intention surfaces now share
+   `server/engram/retrieval/prospective.py` helpers, covering intention create,
+   list, and dismiss manager calls plus API/MCP acknowledgement shapes while
+   REST keeps HTTP status mapping and MCP keeps JSON error wrappers. Focused
+   prospective-surface, public-surface, full knowledge API, full MCP tool, Ruff,
+   and `git diff --check` gates passed.
+   REST/MCP forget entity/fact surfaces now share
+   `server/engram/retrieval/forgetting.py` helpers, covering target dispatch and
+   fact-field normalization while REST keeps entity-first behavior for dual
+   targets and MCP keeps exactly-one-target validation. Focused forget-surface,
+   REST forget, MCP forget, public-surface, Ruff, and `git diff --check` gates
+   passed.
+   REST/MCP explicit preference feedback now shares
+   `server/engram/retrieval/preference_feedback.py` helpers, covering public
+   rating validation and the `record_explicit_feedback` manager call while REST
+   keeps 400/404 HTTP mapping and MCP keeps JSON error responses. Focused
+   feedback-surface, feedback recorder, full knowledge API, full MCP tool,
+   public-surface, Ruff, and `git diff --check` gates passed.
    Knowledge-chat conversation persistence is now in
    `server/engram/retrieval/chat_persistence.py`, covering conversation
    validation/creation, active-`group_id` not-found handling, completed-turn
@@ -276,8 +340,16 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 Continue the REST/MCP route orchestration audit against the service boundaries
 already extracted. The consolidation audit-store and knowledge-chat event
-presenter slices are complete, chat conversation persistence has a helper
-boundary, REST conversation CRUD has a group-scoped helper, REST/MCP
+presenter slices are complete, knowledge-chat tool execution payloads have a
+retrieval helper, chat recall feedback/retry policy has a retrieval helper,
+chat memory-need/live-context runtime has a retrieval helper, chat conversation
+persistence has a helper boundary, REST/MCP explicit recall result/packet
+assembly has a retrieval helper, recall-control manager compatibility has shared
+helpers, REST/MCP artifact search has retrieval helpers, REST conversation CRUD
+has a group-scoped helper, REST/MCP deterministic question routing has retrieval
+helpers, REST/MCP prospective-memory intentions have retrieval helpers, REST/MCP
+forget target dispatch has retrieval helpers, REST/MCP explicit preference
+feedback has retrieval helpers, REST/MCP
 post-write adjudication request loading has an ingestion helper, REST/MCP
 live conversation manager-facade access uses retrieval helpers, REST/MCP
 evaluation report assembly shares a service, REST/MCP evaluation label writes

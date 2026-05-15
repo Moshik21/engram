@@ -40,6 +40,7 @@ from engram.ingestion.presenter import memory_write_contract, present_mcp_memory
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.models.episode import Attachment
 from engram.notifications.surface import get_notification_surface_service_from_state
+from engram.retrieval.artifacts import build_mcp_artifact_search_surface
 from engram.retrieval.auto_recall import (
     RECALL_TOOLS,
     WRITE_TOOLS,
@@ -59,33 +60,30 @@ from engram.retrieval.context import (
     manager_conversation_recent_turns,
     manager_conversation_top_entity_names,
 )
-from engram.retrieval.control import RecallNeedThresholds
+from engram.retrieval.control import (
+    record_manager_memory_need_analysis,
+    resolve_manager_recall_need_thresholds,
+)
+from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.feedback import publish_memory_need_analysis
+from engram.retrieval.forgetting import build_mcp_forget_surface
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
-from engram.retrieval.presenter import present_mcp_recall_items
+from engram.retrieval.preference_feedback import (
+    FeedbackRatingError,
+    build_explicit_feedback_surface,
+)
+from engram.retrieval.prospective import (
+    build_intention_list_surface,
+    build_mcp_create_intention_surface,
+    build_mcp_dismiss_intention_surface,
+)
+from engram.retrieval.recall_surface import build_mcp_recall_surface
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
-
-
-async def _resolve_recall_need_thresholds(manager: GraphManager) -> RecallNeedThresholds:
-    """Support sync and async threshold providers."""
-    thresholds = cast(Any, manager).get_recall_need_thresholds(_group_id)
-    if inspect.isawaitable(thresholds):
-        thresholds = await thresholds
-    if isinstance(thresholds, RecallNeedThresholds):
-        return thresholds
-    return RecallNeedThresholds()
-
-
-async def _record_memory_need_analysis(manager: GraphManager, need: object) -> None:
-    """Support sync and async analysis recorders."""
-    result = cast(Any, manager).record_memory_need_analysis(_group_id, need)
-    if inspect.isawaitable(result):
-        await result
 
 
 @asynccontextmanager
@@ -402,9 +400,9 @@ async def _auto_recall_full(
             group_id=_group_id,
             conv_context=conv_context,
             cfg=cfg,
-            thresholds=await _resolve_recall_need_thresholds(manager),
+            thresholds=await resolve_manager_recall_need_thresholds(manager, _group_id),
         )
-        await _record_memory_need_analysis(manager, need)
+        await record_manager_memory_need_analysis(manager, _group_id, need)
         if cfg.recall_telemetry_enabled:
             publish_memory_need_analysis(
                 get_event_bus(),
@@ -741,14 +739,16 @@ async def feedback(
         JSON with status, entity_id, domain, edge_type, edge_weight.
     """
     manager = _get_manager()
-    if rating < 1 or rating > 5:
-        return json.dumps({"error": "Rating must be between 1 and 5"})
-    result = await manager.record_explicit_feedback(
-        group_id=_group_id,
-        entity_id=entity_id,
-        rating=rating,
-        comment=comment,
-    )
+    try:
+        result = await build_explicit_feedback_surface(
+            manager,
+            group_id=_group_id,
+            entity_id=entity_id,
+            rating=rating,
+            comment=comment,
+        )
+    except FeedbackRatingError as e:
+        return json.dumps({"error": str(e)})
     return json.dumps(result)
 
 
@@ -936,17 +936,6 @@ async def recall(query: str, limit: int = 5) -> str:
     session = _get_session()
     cfg = _activation_cfg or ActivationConfig()
     t0 = time.perf_counter()
-    results = await manager.recall(
-        query=query,
-        group_id=_group_id,
-        limit=limit,
-        interaction_type="used",
-        interaction_source="mcp_recall",
-    )
-    query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
-    session.last_recall_time = time.time()
-    session.auto_recall_primed = True
-
     async def _resolve_entity_name(entity_id: str) -> str:
         return await manager.resolve_entity_name(entity_id, _group_id)
 
@@ -956,42 +945,19 @@ async def recall(query: str, limit: int = 5) -> str:
         value = await manager.get_recall_item_access_count(entity_id)
         return value if isinstance(value, int) else 0
 
-    formatted = await present_mcp_recall_items(
-        results,
+    response_dict = await build_mcp_recall_surface(
+        manager,
+        group_id=_group_id,
+        query=query,
+        limit=limit,
+        cfg=cfg,
         resolve_entity_name=_resolve_entity_name,
         get_access_count=_get_access_count,
     )
-
-    packets = []
-    if cfg.recall_packets_enabled:
-        packet_need = await analyze_memory_need(
-            query,
-            mode="explicit_recall",
-            group_id=_group_id,
-            cfg=cfg,
-            thresholds=await _resolve_recall_need_thresholds(manager),
-        )
-        packets = [
-            packet.to_dict()
-            for packet in await assemble_memory_packets(
-                results,
-                query,
-                mode="explicit_recall",
-                memory_need=packet_need,
-                max_packets=cfg.recall_packet_explicit_limit,
-                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
-                    entity_id,
-                    _group_id,
-                ),
-            )
-        ]
-
-    response_dict: dict = {
-        "packets": packets,
-        "results": formatted,
-        "total_candidates": len(formatted),
-        "query_time_ms": query_time_ms,
-    }
+    query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
+    session.last_recall_time = time.time()
+    session.auto_recall_primed = True
+    response_dict["query_time_ms"] = query_time_ms
 
     # Append near-misses if available (Wave 2)
     near_misses = manager.get_last_near_miss_views()
@@ -1097,25 +1063,14 @@ async def forget(
     Returns:
         JSON with status and details.
     """
-    if (entity_name is None) == (fact is None):
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "Provide exactly one of 'entity_name' or 'fact'.",
-            }
-        )
     manager = _get_manager()
-    if entity_name:
-        result = await manager.forget_entity(entity_name, _group_id, reason=reason)
-    else:
-        assert fact is not None
-        result = await manager.forget_fact(
-            subject_name=fact["subject"],
-            predicate=fact["predicate"],
-            object_name=fact["object"],
-            group_id=_group_id,
-            reason=reason,
-        )
+    result = await build_mcp_forget_surface(
+        manager,
+        group_id=_group_id,
+        entity_name=entity_name,
+        fact=fact,
+        reason=reason,
+    )
     return json.dumps(result)
 
 
@@ -1188,11 +1143,12 @@ async def route_question(
     """Classify a question as remember, inspect, or reconcile."""
     manager = _get_manager()
     session_entity_names = _get_conv_top_entity_names(manager)
-    result = await manager.route_question(
-        question,
+    result = await build_question_route_surface(
+        manager,
         group_id=_group_id,
+        question=question,
         project_path=project_path,
-        recent_turns=history or [],
+        history=history,
         session_entity_names=session_entity_names,
         surface="mcp",
     )
@@ -1208,18 +1164,13 @@ async def search_artifacts(
 ) -> str:
     """Search the bootstrapped artifact substrate."""
     manager = _get_manager()
-    hits = await manager.search_artifacts(
+    result = await build_mcp_artifact_search_surface(
+        manager,
+        group_id=_group_id,
         query=query,
         project_path=project_path,
-        group_id=_group_id,
         limit=limit,
     )
-    result = {
-        "query": query,
-        "project_path": project_path,
-        "items": [hit.to_dict() for hit in hits],
-        "total": len(hits),
-    }
     await _recall_middleware(query, result, tool_name="search_artifacts")
     return json.dumps(result)
 
@@ -1552,29 +1503,20 @@ async def intend(
     """
     manager = _get_manager()
     try:
-        intention_id = await manager.create_intention(
+        payload = await build_mcp_create_intention_surface(
+            manager,
+            group_id=_group_id,
             trigger_text=trigger_text,
             action_text=action_text,
             trigger_type=trigger_type,
             entity_names=entity_names,
             threshold=threshold,
             priority=priority,
-            group_id=_group_id,
             context=context,
             see_also=see_also,
             refresh_trigger=refresh_trigger,
         )
-        return json.dumps(
-            {
-                "status": "created",
-                "intention_id": intention_id,
-                "trigger_type": trigger_type,
-                "refresh_trigger": refresh_trigger,
-                "linked_entities": entity_names or [],
-                "threshold": manager.effective_intention_threshold(threshold),
-                "message": f"Intention set: will fire when '{trigger_text}' activates.",
-            }
-        )
+        return json.dumps(payload)
     except ValueError as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -1592,15 +1534,13 @@ async def dismiss_intention(intention_id: str, hard: bool = False) -> str:
     """
     manager = _get_manager()
     try:
-        await manager.dismiss_intention(intention_id, _group_id, hard=hard)
-        return json.dumps(
-            {
-                "status": "dismissed",
-                "intention_id": intention_id,
-                "hard": hard,
-                "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
-            }
+        payload = await build_mcp_dismiss_intention_surface(
+            manager,
+            group_id=_group_id,
+            intention_id=intention_id,
+            hard=hard,
         )
+        return json.dumps(payload)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -1616,13 +1556,14 @@ async def list_intentions(enabled_only: bool = True) -> str:
         JSON with intentions array and total count.
     """
     manager = _get_manager()
-    items = await manager.list_intention_views(
+    payload = await build_intention_list_surface(
+        manager,
         group_id=_group_id,
         enabled_only=enabled_only,
         surface="mcp",
     )
 
-    return json.dumps({"intentions": items, "total": len(items)})
+    return json.dumps(payload)
 
 
 # ─── Resources ──────────────────────────────────────────────────────

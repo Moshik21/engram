@@ -30,10 +30,7 @@ PRESENTER_BOUNDARIES = {
         "present_api_memory_write",
     },
     ("engram/api/knowledge.py", "recall"): {
-        "present_api_recall_items",
-    },
-    ("engram/api/knowledge.py", "_execute_tool"): {
-        "present_chat_recall_items",
+        "build_api_recall_surface",
     },
     ("engram/mcp/server.py", "remember"): {
         "memory_write_contract",
@@ -52,7 +49,7 @@ PRESENTER_BOUNDARIES = {
         "present_mcp_memory_write",
     },
     ("engram/mcp/server.py", "recall"): {
-        "present_mcp_recall_items",
+        "build_mcp_recall_surface",
     },
 }
 
@@ -62,30 +59,8 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_manager",
         "get_notification_surface_service",
     },
-    ("engram/api/knowledge.py", "_get_graph_probe"): {"get_recall_need_graph_probe"},
-    ("engram/api/knowledge.py", "_get_conv_context"): {"manager_conversation_context"},
-    ("engram/api/knowledge.py", "_get_conv_embed_fn"): {"manager_conversation_embed_fn"},
-    ("engram/api/knowledge.py", "_get_conv_turn_count"): {
-        "manager_conversation_turn_count",
-    },
     ("engram/api/knowledge.py", "_get_conv_top_entity_names"): {
         "manager_conversation_top_entity_names",
-    },
-    ("engram/api/knowledge.py", "_ingest_conversation_turn"): {
-        "ingest_manager_conversation_turn",
-    },
-    ("engram/api/knowledge.py", "_hydrate_chat_context"): {
-        "_get_conv_context",
-        "_get_conv_turn_count",
-        "_ingest_conversation_turn",
-    },
-    ("engram/api/knowledge.py", "_record_chat_assistant_turn"): {
-        "_get_conv_context",
-        "_ingest_conversation_turn",
-    },
-    ("engram/api/knowledge.py", "_analyze_chat_memory_need"): {
-        "get_memory_need_config",
-        "recall_need_graph_probe_enabled",
     },
     ("engram/api/knowledge.py", "remember"): {
         "edge_adjudication_client_enabled",
@@ -94,35 +69,38 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "memory_write_contract",
         "present_api_memory_write",
     },
+    ("engram/api/knowledge.py", "forget"): {
+        "build_api_forget_surface",
+    },
+    ("engram/api/knowledge.py", "post_feedback"): {
+        "build_explicit_feedback_surface",
+    },
     ("engram/api/knowledge.py", "recall"): {
-        "get_explicit_recall_packet_policy",
-        "get_memory_need_config",
-        "present_api_recall_items",
+        "build_api_recall_surface",
     },
     ("engram/api/knowledge.py", "_execute_tool"): {
-        "get_chat_tool_recall_policy",
-        "get_memory_need_config",
-        "present_chat_recall_items",
+        "execute_chat_tool",
     },
     ("engram/api/knowledge.py", "_build_tool_events"): {
         "_emit_tool",
         "build_chat_tool_events",
     },
-    ("engram/api/knowledge.py", "_apply_chat_recall_feedback"): {
-        "apply_memory_interaction",
-        "recall_usage_feedback_enabled",
-    },
-    ("engram/api/knowledge.py", "_should_retry_chat_response"): {
-        "recall_need_post_response_safety_net_enabled",
+    ("engram/api/knowledge.py", "_retry_memory_grounded_response"): {
+        "build_memory_grounding_retry_system_prompt",
     },
     ("engram/api/knowledge.py", "chat"): {
+        "apply_chat_recall_feedback",
         "get_chat_runtime_policy",
         "get_context",
         "get_rate_limiter",
-        "_hydrate_chat_context",
+        "analyze_chat_memory_need",
+        "build_chat_memory_guidance",
+        "hydrate_chat_context",
         "persist_chat_turn",
         "raw_recall_from_chat_item",
+        "record_chat_assistant_turn",
         "resolve_chat_conversation",
+        "should_retry_chat_response",
     },
     ("engram/api/health.py", "health_check"): {
         "get_config",
@@ -174,7 +152,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/api/knowledge.py", "route_knowledge_question"): {
         "_get_conv_top_entity_names",
-        "route_question",
+        "build_question_route_surface",
+    },
+    ("engram/api/knowledge.py", "search_artifacts"): {
+        "build_api_artifact_search_surface",
     },
     ("engram/api/knowledge.py", "get_notifications"): {"get_notification_surface_service"},
     ("engram/api/knowledge.py", "dismiss_notifications"): {
@@ -212,7 +193,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "plan_mcp_recall_middleware",
     },
     ("engram/mcp/server.py", "recall"): {
-        "get_recall_item_access_count",
+        "build_mcp_recall_surface",
         "get_last_near_miss_views",
         "get_surprise_connection_views",
     },
@@ -254,6 +235,12 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "memory_write_contract",
         "present_mcp_memory_write",
     },
+    ("engram/mcp/server.py", "forget"): {
+        "build_mcp_forget_surface",
+    },
+    ("engram/mcp/server.py", "feedback"): {
+        "build_explicit_feedback_surface",
+    },
     ("engram/mcp/server.py", "mark_identity_core"): {"mark_identity_core"},
     ("engram/mcp/server.py", "trigger_consolidation"): {
         "serialize_cycle_summary",
@@ -261,15 +248,26 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "entity_profile_resource"): {"get_entity_profile"},
     ("engram/mcp/server.py", "entity_neighbors_resource"): {"get_entity_neighbors"},
-    ("engram/api/knowledge.py", "list_intentions"): {"list_intention_views"},
-    ("engram/mcp/server.py", "list_intentions"): {"list_intention_views"},
+    ("engram/api/knowledge.py", "create_intention"): {
+        "build_api_create_intention_surface",
+    },
+    ("engram/api/knowledge.py", "list_intentions"): {"build_intention_list_surface"},
+    ("engram/api/knowledge.py", "dismiss_intention"): {
+        "build_api_dismiss_intention_surface",
+    },
+    ("engram/mcp/server.py", "list_intentions"): {"build_intention_list_surface"},
     ("engram/mcp/server.py", "intend"): {
-        "create_intention",
-        "effective_intention_threshold",
+        "build_mcp_create_intention_surface",
+    },
+    ("engram/mcp/server.py", "dismiss_intention"): {
+        "build_mcp_dismiss_intention_surface",
     },
     ("engram/mcp/server.py", "route_question"): {
         "_get_conv_top_entity_names",
-        "route_question",
+        "build_question_route_surface",
+    },
+    ("engram/mcp/server.py", "search_artifacts"): {
+        "build_mcp_artifact_search_surface",
     },
 }
 

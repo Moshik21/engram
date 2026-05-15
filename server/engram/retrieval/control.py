@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,30 @@ class RecallNeedThresholds:
             "borderline": round(self.borderline_score, 4),
             "resonance": round(self.resonance_score, 4),
         }
+
+
+async def resolve_manager_recall_need_thresholds(
+    manager: Any,
+    group_id: str,
+) -> RecallNeedThresholds:
+    """Return manager-provided recall-need thresholds with sync/async compatibility."""
+    thresholds = cast(Any, manager).get_recall_need_thresholds(group_id)
+    if inspect.isawaitable(thresholds):
+        thresholds = await thresholds
+    if isinstance(thresholds, RecallNeedThresholds):
+        return thresholds
+    return RecallNeedThresholds()
+
+
+async def record_manager_memory_need_analysis(
+    manager: Any,
+    group_id: str,
+    need: Any,
+) -> None:
+    """Record a memory-need analysis through sync or async manager facades."""
+    result = cast(Any, manager).record_memory_need_analysis(group_id, need)
+    if inspect.isawaitable(result):
+        await result
 
 
 @dataclass

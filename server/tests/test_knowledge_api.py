@@ -17,12 +17,7 @@ from engram.api.knowledge import (
     ChatMessage,
     DismissBody,
     RememberBody,
-    _analyze_chat_memory_need,
-    _apply_chat_recall_feedback,
-    _build_chat_memory_guidance,
     _execute_tool,
-    _hydrate_chat_context,
-    _record_chat_assistant_turn,
     dismiss_notifications,
     replay_queue,
 )
@@ -51,6 +46,13 @@ from engram.models.tenant import TenantContext
 from engram.notifications.models import MemoryNotification
 from engram.notifications.store import NotificationStore
 from engram.public_surface_policy import PublicSurfacePolicyService
+from engram.retrieval.chat_feedback import apply_chat_recall_feedback
+from engram.retrieval.chat_runtime import (
+    analyze_chat_memory_need,
+    build_chat_memory_guidance,
+    hydrate_chat_context,
+    record_chat_assistant_turn,
+)
 from engram.retrieval.context import ConversationContext, ConversationRuntimeService
 
 
@@ -630,8 +632,11 @@ class TestRecall:
 
         with (
             patch("engram.api.knowledge.get_manager", return_value=manager),
-            patch("engram.api.knowledge.analyze_memory_need", analyze),
-            patch("engram.api.knowledge.assemble_memory_packets", AsyncMock(return_value=[])),
+            patch("engram.retrieval.recall_surface.analyze_memory_need", analyze),
+            patch(
+                "engram.retrieval.recall_surface.assemble_memory_packets",
+                AsyncMock(return_value=[]),
+            ),
         ):
             resp = await recall_handler(request, q="Alice", limit=3)
 
@@ -721,8 +726,11 @@ class TestChatRecallHelpers:
         analyze = AsyncMock(return_value=SimpleNamespace())
 
         with (
-            patch("engram.api.knowledge.analyze_memory_need", analyze),
-            patch("engram.api.knowledge.assemble_memory_packets", AsyncMock(return_value=[])),
+            patch("engram.retrieval.chat_tools.analyze_memory_need", analyze),
+            patch(
+                "engram.retrieval.chat_tools.assemble_memory_packets",
+                AsyncMock(return_value=[]),
+            ),
         ):
             raw = await _execute_tool(
                 manager,
@@ -764,7 +772,7 @@ class TestChatMemoryNeedHelpers:
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
 
-        need = await _analyze_chat_memory_need(
+        need = await analyze_chat_memory_need(
             "Did we decide on that yet?",
             manager,
             history=[
@@ -783,8 +791,8 @@ class TestChatMemoryNeedHelpers:
         manager._conv_context = None
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
-        guidance = _build_chat_memory_guidance(
-            await _analyze_chat_memory_need(
+        guidance = build_chat_memory_guidance(
+            await analyze_chat_memory_need(
                 "thanks",
                 manager,
                 history=None,
@@ -799,8 +807,8 @@ class TestChatMemoryNeedHelpers:
         manager._conv_context = None
         manager._graph = AsyncMock()
         manager._activation = AsyncMock()
-        guidance = _build_chat_memory_guidance(
-            await _analyze_chat_memory_need(
+        guidance = build_chat_memory_guidance(
+            await analyze_chat_memory_need(
                 "How's the auth migration going?",
                 manager,
                 history=None,
@@ -838,7 +846,7 @@ class TestChatContextHelpers:
             ChatMessage(role="assistant", content="I mentioned the cache tradeoffs."),
         ]
 
-        await _hydrate_chat_context(manager, history, "Did we decide on Redis?")
+        await hydrate_chat_context(manager, history, "Did we decide on Redis?")
 
         assert conv_context._turn_count == 3
         assert conv_context.get_recent_turns(5) == [
@@ -872,7 +880,7 @@ class TestChatContextHelpers:
         manager.get_conversation_context.side_effect = runtime.get_context
         manager.ingest_conversation_turn.side_effect = runtime.ingest_turn
 
-        await _record_chat_assistant_turn(manager, "Here is the follow-up.")
+        await record_chat_assistant_turn(manager, "Here is the follow-up.")
 
         assert conv_context._turn_count == 1
         assert conv_context.get_recent_turns() == ["Here is the follow-up."]
@@ -958,7 +966,7 @@ class TestChatRecallFeedbackHelpers:
             },
         ]
 
-        await _apply_chat_recall_feedback(
+        await apply_chat_recall_feedback(
             manager,
             group_id="default",
             query="What should we use?",
@@ -1007,7 +1015,7 @@ class TestChatRecallFeedbackHelpers:
             },
         ]
 
-        await _apply_chat_recall_feedback(
+        await apply_chat_recall_feedback(
             manager,
             group_id="default",
             query="What should stay in scope?",

@@ -16,6 +16,37 @@ from engram.retrieval.epistemic import (
 )
 
 
+async def build_question_route_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    question: str,
+    project_path: str | None,
+    history: list[Any] | None,
+    session_entity_names: list[str] | None,
+    surface: str,
+) -> dict:
+    """Build the deterministic question-route payload for REST or MCP."""
+    return await manager.route_question(
+        question,
+        group_id=group_id,
+        project_path=project_path,
+        recent_turns=recent_route_turn_contents(history, limit=6),
+        session_entity_names=session_entity_names or [],
+        surface=surface,
+    )
+
+
+def recent_route_turn_contents(history: list[Any] | None, *, limit: int) -> list[str]:
+    """Return recent non-empty route history strings from strings or chat messages."""
+    values: list[str] = []
+    for item in history or []:
+        content = getattr(item, "content", item)
+        if isinstance(content, str) and content.strip():
+            values.append(content)
+    return values[-limit:]
+
+
 class EpistemicRouteService:
     """Build question frames, evidence plans, and answer contracts."""
 

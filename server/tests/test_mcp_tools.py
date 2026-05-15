@@ -856,8 +856,10 @@ class TestJSONResponses:
             "_activation_cfg",
             ActivationConfig(recall_packets_enabled=True),
         )
-        monkeypatch.setattr(mcp_server, "analyze_memory_need", analyze)
-        monkeypatch.setattr(mcp_server, "assemble_memory_packets", AsyncMock(return_value=[]))
+        from engram.retrieval import recall_surface
+
+        monkeypatch.setattr(recall_surface, "analyze_memory_need", analyze)
+        monkeypatch.setattr(recall_surface, "assemble_memory_packets", AsyncMock(return_value=[]))
         monkeypatch.setattr(mcp_server, "_recall_middleware", AsyncMock())
 
         raw = await mcp_server.recall("Engram packet routing", limit=3)

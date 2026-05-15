@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
@@ -13,6 +14,70 @@ from engram.storage.protocols import GraphStore, SearchIndex
 from engram.utils.dates import utc_now
 
 ProjectBootstrapper = Callable[..., Awaitable[dict]]
+
+
+async def build_api_artifact_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """Build the REST artifact-search payload."""
+    hits = await _search_artifact_hits(
+        manager,
+        group_id=group_id,
+        query=query,
+        project_path=project_path,
+        limit=limit,
+    )
+    return {
+        "query": query,
+        "projectPath": project_path,
+        "items": [hit.to_dict() for hit in hits],
+        "total": len(hits),
+    }
+
+
+async def build_mcp_artifact_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    """Build the MCP artifact-search payload."""
+    hits = await _search_artifact_hits(
+        manager,
+        group_id=group_id,
+        query=query,
+        project_path=project_path,
+        limit=limit,
+    )
+    return {
+        "query": query,
+        "project_path": project_path,
+        "items": [hit.to_dict() for hit in hits],
+        "total": len(hits),
+    }
+
+
+async def _search_artifact_hits(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str | None,
+    limit: int,
+) -> list[ArtifactHit]:
+    return await manager.search_artifacts(
+        query=query,
+        project_path=project_path,
+        group_id=group_id,
+        limit=limit,
+    )
 
 
 class ArtifactSearchService:

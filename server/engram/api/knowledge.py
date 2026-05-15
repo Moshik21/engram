@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 from datetime import datetime
@@ -31,30 +30,45 @@ from engram.ingestion.presenter import (
     present_api_observe_skip,
 )
 from engram.models.episode import Attachment
-from engram.models.recall import MemoryNeed, MemoryPacket
+from engram.models.recall import MemoryNeed
+from engram.retrieval.artifacts import build_api_artifact_search_surface
 from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
+from engram.retrieval.chat_feedback import (
+    apply_chat_recall_feedback,
+    build_memory_grounding_retry_system_prompt,
+    should_retry_chat_response,
+)
 from engram.retrieval.chat_persistence import (
     persist_chat_turn,
     resolve_chat_conversation,
 )
+from engram.retrieval.chat_runtime import (
+    DEFAULT_MAX_HISTORY_MESSAGES,
+    analyze_chat_memory_need,
+    build_chat_memory_guidance,
+    hydrate_chat_context,
+    recent_chat_turn_contents,
+    record_chat_assistant_turn,
+)
+from engram.retrieval.chat_tools import execute_chat_tool
 from engram.retrieval.context import (
-    ConversationContext,
-    ingest_manager_conversation_turn,
-    manager_conversation_context,
-    manager_conversation_embed_fn,
     manager_conversation_top_entity_names,
-    manager_conversation_turn_count,
 )
-from engram.retrieval.control import RecallNeedThresholds
+from engram.retrieval.control import record_manager_memory_need_analysis
 from engram.retrieval.epistemic import render_epistemic_summary
-from engram.retrieval.feedback import (
-    extract_recall_targets,
-    partition_recall_targets_by_usage,
-    publish_memory_need_analysis,
+from engram.retrieval.epistemic_route import build_question_route_surface
+from engram.retrieval.feedback import publish_memory_need_analysis
+from engram.retrieval.forgetting import build_api_forget_surface
+from engram.retrieval.preference_feedback import (
+    FeedbackRatingError,
+    build_explicit_feedback_surface,
 )
-from engram.retrieval.need import analyze_memory_need
-from engram.retrieval.packets import assemble_memory_packets
-from engram.retrieval.presenter import present_api_recall_items, present_chat_recall_items
+from engram.retrieval.prospective import (
+    build_api_create_intention_surface,
+    build_api_dismiss_intention_surface,
+    build_intention_list_surface,
+)
+from engram.retrieval.recall_surface import build_api_recall_surface
 from engram.security.middleware import get_tenant
 from engram.utils.offline_queue import drain_queue
 
@@ -112,26 +126,6 @@ async def dismiss_notifications(request: Request, body: DismissBody) -> JSONResp
 _DEDUP = CaptureDedupCache(ttl_seconds=300.0, max_entries=1000)
 _DEDUP_CACHE = _DEDUP.cache  # compatibility handle for existing tests
 _DEDUP_TTL = _DEDUP.ttl_seconds
-
-
-async def _resolve_recall_need_thresholds(
-    manager,
-    group_id: str,
-) -> RecallNeedThresholds:
-    """Support sync and async threshold providers."""
-    thresholds = cast(Any, manager).get_recall_need_thresholds(group_id)
-    if inspect.isawaitable(thresholds):
-        thresholds = await thresholds
-    if isinstance(thresholds, RecallNeedThresholds):
-        return thresholds
-    return RecallNeedThresholds()
-
-
-async def _record_memory_need_analysis(manager, group_id: str, need: MemoryNeed) -> None:
-    """Support sync and async analysis recorders."""
-    result = cast(Any, manager).record_memory_need_analysis(group_id, need)
-    if inspect.isawaitable(result):
-        await result
 
 
 def _extract_message_text(blocks: object) -> str:
@@ -254,119 +248,8 @@ class RouteBody(BaseModel):
     history: list[ChatMessage] | None = None
 
 
-async def _analyze_chat_memory_need(
-    message: str,
-    manager,
-    history: list[ChatMessage] | None = None,
-    session_entity_names: list[str] | None = None,
-    *,
-    group_id: str,
-) -> MemoryNeed:
-    """Analyze whether this chat turn likely needs memory."""
-    recent_turns = [msg.content for msg in (history or []) if msg.content.strip()][-6:]
-    cfg = manager.get_memory_need_config()
-    return await analyze_memory_need(
-        message,
-        recent_turns=recent_turns,
-        session_entity_names=session_entity_names or [],
-        mode="chat",
-        graph_probe=(
-            _get_graph_probe(manager) if manager.recall_need_graph_probe_enabled() else None
-        ),
-        group_id=group_id,
-        conv_context=_get_conv_context(manager),
-        cfg=cfg,
-        thresholds=await _resolve_recall_need_thresholds(manager, group_id),
-    )
-
-
-def _build_chat_memory_guidance(need: MemoryNeed) -> str:
-    """Produce a short system-prompt hint for memory usage on this turn."""
-    if not need.should_recall:
-        return (
-            "Memory does not look required for this turn. Answer directly unless you need "
-            "specific prior facts, commitments, or project history."
-        )
-    return (
-        f"Memory is likely relevant for this turn ({need.need_type}). "
-        "Use recall/search tools before answering when prior context could change the answer."
-    )
-
-
-def _get_conv_context(manager) -> ConversationContext | None:
-    """Return the manager conversation context when enabled."""
-    return manager_conversation_context(manager)
-
-
-def _get_conv_embed_fn(manager):
-    """Return the embedding function for live conversation turns when available."""
-    return manager_conversation_embed_fn(manager)
-
-
-def _get_conv_turn_count(manager) -> int:
-    return manager_conversation_turn_count(manager)
-
-
 def _get_conv_top_entity_names(manager) -> list[str]:
     return manager_conversation_top_entity_names(manager)
-
-
-async def _ingest_conversation_turn(manager, text: str, *, source: str) -> None:
-    await ingest_manager_conversation_turn(manager, text, source=source)
-
-
-def _get_graph_probe(manager):
-    return manager.get_recall_need_graph_probe()
-
-
-async def _hydrate_chat_context(manager, history: list[ChatMessage] | None, message: str) -> None:
-    """Ground conversation context in live chat turns before recall/tool use."""
-    conv_context = _get_conv_context(manager)
-    if conv_context is None:
-        return
-    if _get_conv_turn_count(manager) == 0 and history:
-        history_slice = history[-MAX_HISTORY_MESSAGES:]
-        for msg in history_slice:
-            source = "chat_user" if msg.role == "user" else "chat_assistant"
-            await _ingest_conversation_turn(
-                manager,
-                msg.content,
-                source=source,
-            )
-    await _ingest_conversation_turn(
-        manager,
-        message,
-        source="chat_user",
-    )
-
-
-async def _record_chat_assistant_turn(manager, message: str) -> None:
-    """Record the assistant reply as a live conversation turn."""
-    conv_context = _get_conv_context(manager)
-    if conv_context is None or not message.strip():
-        return
-    await _ingest_conversation_turn(
-        manager,
-        message,
-        source="chat_assistant",
-    )
-
-
-def _packet_to_api_dict(packet: MemoryPacket) -> dict:
-    """Convert a packet model to camelCase API shape."""
-    return {
-        "packetType": packet.packet_type,
-        "title": packet.title,
-        "summary": packet.summary,
-        "whyNow": packet.why_now,
-        "confidence": round(packet.confidence, 4),
-        "entityIds": packet.entity_ids,
-        "relationshipIds": packet.relationship_ids,
-        "episodeIds": packet.episode_ids,
-        "evidenceLines": packet.evidence_lines,
-        "provenance": packet.provenance,
-        "supportingIntents": packet.supporting_intents,
-    }
 
 
 # ─── Endpoints ───────────────────────────────────────────────────
@@ -604,43 +487,13 @@ async def recall(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    packet_policy = manager.get_explicit_recall_packet_policy()
-
-    results = await manager.recall(
-        query=q,
+    payload = await build_api_recall_surface(
+        manager,
         group_id=group_id,
+        query=q,
         limit=limit,
-        interaction_type="used",
-        interaction_source="api_recall",
     )
-    packets: list[dict] = []
-    if packet_policy.enabled:
-        cfg = manager.get_memory_need_config()
-        packet_need = await analyze_memory_need(
-            q,
-            mode="explicit_recall",
-            group_id=group_id,
-            cfg=cfg,
-            thresholds=await _resolve_recall_need_thresholds(manager, group_id),
-        )
-        packets = [
-            _packet_to_api_dict(packet)
-            for packet in await assemble_memory_packets(
-                results,
-                q,
-                mode="explicit_recall",
-                memory_need=packet_need,
-                max_packets=packet_policy.max_packets,
-                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
-                    entity_id,
-                    group_id,
-                ),
-            )
-        ]
-
-    items = present_api_recall_items(results)
-
-    return JSONResponse(content={"items": items, "packets": packets, "query": q})
+    return JSONResponse(content=payload)
 
 
 @router.get("/facts")
@@ -728,21 +581,15 @@ async def forget(request: Request, body: ForgetBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    if body.entity_name:
-        result = await manager.forget_entity(
+    try:
+        result = await build_api_forget_surface(
+            manager,
+            group_id=group_id,
             entity_name=body.entity_name,
-            group_id=group_id,
+            fact=body.fact,
             reason=body.reason,
         )
-    elif body.fact:
-        result = await manager.forget_fact(
-            subject_name=body.fact.subject,
-            predicate=body.fact.predicate,
-            object_name=body.fact.object,
-            group_id=group_id,
-            reason=body.reason,
-        )
-    else:
+    except ValueError:
         return JSONResponse(
             status_code=400,
             content={"detail": "Provide either entity_name or fact."},
@@ -758,16 +605,17 @@ async def post_feedback(request: Request, body: FeedbackBody) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    if body.rating < 1 or body.rating > 5:
-        return JSONResponse({"error": "Rating must be between 1 and 5"}, status_code=400)
     try:
-        result = await manager.record_explicit_feedback(
+        result = await build_explicit_feedback_surface(
+            manager,
             group_id=group_id,
             entity_id=body.entity_id,
             rating=body.rating,
             comment=body.comment,
         )
         return JSONResponse(result)
+    except FeedbackRatingError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=404)
 
@@ -796,14 +644,13 @@ async def route_knowledge_question(request: Request, body: RouteBody) -> JSONRes
     group_id = tenant.group_id
     manager = get_manager()
 
-    history = [msg.content for msg in (body.history or []) if msg.content.strip()]
     session_entity_names = _get_conv_top_entity_names(manager)
-
-    result = await manager.route_question(
-        body.question,
+    result = await build_question_route_surface(
+        manager,
         group_id=group_id,
+        question=body.question,
         project_path=body.project_path,
-        recent_turns=history[-6:],
+        history=body.history,
         session_entity_names=session_entity_names,
         surface="rest",
     )
@@ -821,20 +668,14 @@ async def search_artifacts(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    hits = await manager.search_artifacts(
+    payload = await build_api_artifact_search_surface(
+        manager,
+        group_id=group_id,
         query=q,
         project_path=project_path,
         limit=limit,
-        group_id=group_id,
     )
-    return JSONResponse(
-        content={
-            "query": q,
-            "projectPath": project_path,
-            "items": [hit.to_dict() for hit in hits],
-            "total": len(hits),
-        }
-    )
+    return JSONResponse(content=payload)
 
 
 @router.get("/runtime")
@@ -861,28 +702,20 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
     manager = get_manager()
 
     try:
-        intention_id = await manager.create_intention(
+        payload = await build_api_create_intention_surface(
+            manager,
+            group_id=group_id,
             trigger_text=body.trigger_text,
             action_text=body.action_text,
             trigger_type=body.trigger_type,
             entity_names=body.entity_names,
             threshold=body.threshold,
             priority=body.priority,
-            group_id=group_id,
             context=body.context,
             see_also=body.see_also,
             refresh_trigger=body.refresh_trigger,
         )
-        return JSONResponse(
-            content={
-                "status": "created",
-                "intentionId": intention_id,
-                "triggerText": body.trigger_text,
-                "actionText": body.action_text,
-                "triggerType": body.trigger_type,
-                "refreshTrigger": body.refresh_trigger,
-            }
-        )
+        return JSONResponse(content=payload)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": str(e)})
 
@@ -897,13 +730,13 @@ async def list_intentions(
     group_id = tenant.group_id
     manager = get_manager()
 
-    items = await manager.list_intention_views(
+    payload = await build_intention_list_surface(
+        manager,
         group_id=group_id,
         enabled_only=enabled_only,
         surface="api",
     )
-
-    return JSONResponse(content={"intentions": items, "total": len(items)})
+    return JSONResponse(content=payload)
 
 
 @router.delete("/intentions/{intention_id}")
@@ -918,14 +751,13 @@ async def dismiss_intention(
     manager = get_manager()
 
     try:
-        await manager.dismiss_intention(intention_id, group_id, hard=hard)
-        return JSONResponse(
-            content={
-                "status": "dismissed",
-                "intentionId": intention_id,
-                "hard": hard,
-            }
+        payload = await build_api_dismiss_intention_surface(
+            manager,
+            group_id=group_id,
+            intention_id=intention_id,
+            hard=hard,
         )
+        return JSONResponse(content=payload)
     except Exception:
         return JSONResponse(status_code=404, content={"detail": "Intention not found"})
 
@@ -958,7 +790,7 @@ def _emit_tool(tool_call_id: str, tool_name: str, input_data: dict) -> str:
 
 
 MAX_TOOL_TURNS = 3  # Cap agentic loop iterations
-MAX_HISTORY_MESSAGES = 10  # Sliding window for conversation history (cost control)
+MAX_HISTORY_MESSAGES = DEFAULT_MAX_HISTORY_MESSAGES  # Sliding window for cost control
 
 CHAT_TOOLS = [
     {
@@ -1047,203 +879,13 @@ CHAT_TOOLS = [
 
 async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict) -> str:
     """Execute a chat tool call against the manager. Returns JSON string."""
-    logger.info("Chat tool call: %s(%s)", tool_name, json.dumps(tool_input))
-    if tool_name == "recall":
-        policy = manager.get_chat_tool_recall_policy()
-
-        results = await manager.recall(
-            query=tool_input["query"],
-            group_id=group_id,
-            limit=min(tool_input.get("limit", 5), 20),
-            record_access=policy.record_access,
-            interaction_type=policy.interaction_type,
-            interaction_source=policy.interaction_source,
-        )
-        packets = []
-        if policy.packets_enabled:
-            packet_need = await analyze_memory_need(
-                tool_input["query"],
-                mode="chat",
-                group_id=group_id,
-                cfg=manager.get_memory_need_config(),
-                thresholds=await _resolve_recall_need_thresholds(manager, group_id),
-            )
-            packets = [
-                {
-                    "packetType": packet.packet_type,
-                    "title": packet.title,
-                    "summary": packet.summary,
-                    "whyNow": packet.why_now,
-                    "confidence": round(packet.confidence, 3),
-                    "evidence": packet.evidence_lines[:3],
-                    "provenance": packet.provenance[:4],
-                }
-                for packet in await assemble_memory_packets(
-                    results,
-                    tool_input["query"],
-                    mode="chat_tool_use",
-                    memory_need=packet_need,
-                    max_packets=policy.packet_limit,
-                    resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
-                        entity_id,
-                        group_id,
-                    ),
-                )
-            ]
-        # Summarize for the LLM
-        items = present_chat_recall_items(results)
-        return json.dumps({"packets": packets, "results": items, "total": len(items)})
-
-    elif tool_name == "search_entities":
-        results = await manager.search_entities(
-            group_id=group_id,
-            name=tool_input.get("name"),
-            entity_type=tool_input.get("entity_type"),
-            limit=min(tool_input.get("limit", 10), 20),
-        )
-        items = []
-        for ent in results:
-            items.append(
-                {
-                    "name": ent.get("name", ""),
-                    "entityType": ent.get("type", ""),
-                    "summary": ent.get("summary"),
-                    "id": ent.get("id", ""),
-                }
-            )
-        return json.dumps({"entities": items, "total": len(items)})
-
-    elif tool_name == "search_facts":
-        # Over-fetch then deduplicate — duplicate (subject, predicate, object)
-        # triples are common and can crowd out unique results at low limits.
-        requested_limit = min(tool_input.get("limit", 10), 20)
-        results = await manager.search_facts(
-            group_id=group_id,
-            query=tool_input.get("query", ""),
-            subject=tool_input.get("subject"),
-            predicate=tool_input.get("predicate"),
-            include_epistemic=bool(tool_input.get("include_epistemic", False)),
-            limit=requested_limit * 2,  # over-fetch to survive duplicates
-        )
-        seen: set[tuple[str, str, str]] = set()
-        items = []
-        for f in results:
-            key = (f["subject"], f["predicate"], f["object"])
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append(
-                {
-                    "subject": f["subject"],
-                    "predicate": f["predicate"],
-                    "object": f["object"],
-                    "confidence": f.get("confidence"),
-                }
-            )
-            if len(items) >= requested_limit:
-                break
-        logger.info(
-            "Chat search_facts returned %d unique facts (from %d raw)",
-            len(items),
-            len(results),
-        )
-        return json.dumps({"facts": items, "total": len(items)})
-
-    else:
-        return json.dumps({"error": f"Unknown tool: {tool_name}"})
-
-
-async def _apply_chat_recall_feedback(
-    manager,
-    *,
-    group_id: str,
-    query: str,
-    response_text: str,
-    recall_results: list[dict],
-) -> None:
-    """Upgrade selected memories to used/dismissed based on the final response."""
-    if not manager.recall_usage_feedback_enabled():
-        return
-    if not response_text or not recall_results:
-        return
-
-    target_lookup = {
-        target["lookup_id"]: target for target in extract_recall_targets(recall_results)
-    }
-    if not target_lookup:
-        return
-
-    used_targets, dismissed_targets = partition_recall_targets_by_usage(
-        response_text,
-        recall_results,
+    payload = await execute_chat_tool(
+        manager,
+        group_id=group_id,
+        tool_name=tool_name,
+        tool_input=tool_input,
     )
-    if used_targets:
-        await manager.apply_memory_interaction(
-            [target["lookup_id"] for target in used_targets],
-            group_id=group_id,
-            interaction_type="used",
-            source="chat_response",
-            query=query,
-            result_lookup=target_lookup,
-        )
-    if dismissed_targets:
-        await manager.apply_memory_interaction(
-            [target["lookup_id"] for target in dismissed_targets],
-            group_id=group_id,
-            interaction_type="dismissed",
-            source="chat_response",
-            query=query,
-            result_lookup=target_lookup,
-        )
-
-
-def _is_generic_memory_free_response(response_text: str) -> bool:
-    """Detect generic chat replies that likely failed to use memory."""
-    lowered = " ".join(response_text.lower().split())
-    if not lowered:
-        return False
-    generic_prefixes = (
-        "that makes sense",
-        "got it",
-        "understood",
-        "thanks for sharing",
-        "that sounds",
-        "i understand",
-        "you're right",
-        "it makes sense",
-    )
-    generic_fragments = (
-        "let me know if you want help",
-        "if you'd like, i can help",
-        "happy to help",
-        "we can work through it",
-    )
-    if len(lowered.split()) > 80:
-        return False
-    if any(lowered.startswith(prefix) for prefix in generic_prefixes):
-        return True
-    return any(fragment in lowered for fragment in generic_fragments)
-
-
-def _should_retry_chat_response(
-    manager,
-    *,
-    chat_need: MemoryNeed | None,
-    response_text: str,
-    recall_results: list[dict],
-) -> bool:
-    """Whether the knowledge-chat safety net should retry once."""
-    if not manager.recall_need_post_response_safety_net_enabled():
-        return False
-    if chat_need is None or not chat_need.should_recall:
-        return False
-    if not _is_generic_memory_free_response(response_text):
-        return False
-    used_targets, _dismissed_targets = partition_recall_targets_by_usage(
-        response_text,
-        recall_results,
-    )
-    return not used_targets
+    return json.dumps(payload)
 
 
 async def _retry_memory_grounded_response(
@@ -1255,19 +897,10 @@ async def _retry_memory_grounded_response(
     prior_response: str,
 ) -> str:
     """Retry once with a stronger memory-grounding instruction."""
-    retry_system = list(system_prompt)
-    retry_system.append(
-        {
-            "type": "text",
-            "text": (
-                "The previous draft stayed too generic for a memory-relevant turn. "
-                "Revise once and ground the answer in specific remembered facts, "
-                "people, timelines, or project state when available. If memory "
-                "still does not help, say that plainly instead of giving a generic "
-                f"reassurance. Need type: {chat_need.need_type}. Prior draft: "
-                f"{prior_response[:400]}"
-            ),
-        }
+    retry_system = build_memory_grounding_retry_system_prompt(
+        system_prompt,
+        chat_need=chat_need,
+        prior_response=prior_response,
     )
     retry_response = await client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -1327,7 +960,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
     conversation_id = conversation.conversation_id
 
-    await _hydrate_chat_context(manager, body.history, body.message)
+    await hydrate_chat_context(manager, body.history, body.message)
 
     chat_need: MemoryNeed | None = None
     epistemic_bundle = None
@@ -1335,14 +968,14 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     session_entity_names = _get_conv_top_entity_names(manager)
 
     if chat_policy.recall_need_analyzer_enabled:
-        chat_need = await _analyze_chat_memory_need(
+        chat_need = await analyze_chat_memory_need(
             body.message,
             manager,
             body.history,
             session_entity_names=session_entity_names,
             group_id=group_id,
         )
-        await _record_memory_need_analysis(manager, group_id, chat_need)
+        await record_manager_memory_need_analysis(manager, group_id, chat_need)
         if chat_policy.recall_telemetry_enabled:
             publish_memory_need_analysis(
                 get_event_bus(),
@@ -1359,7 +992,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             body.message,
             group_id=group_id,
             project_path=None,
-            recent_turns=[msg.content for msg in (body.history or []) if msg.content.strip()][-6:],
+            recent_turns=recent_chat_turn_contents(body.history, limit=6),
             session_entity_names=session_entity_names,
             surface="rest",
             memory_need=chat_need,
@@ -1374,7 +1007,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
 
     # Build system prompt with memory context + tool-use guidance
     memory_guidance = (
-        _build_chat_memory_guidance(chat_need)
+        build_chat_memory_guidance(chat_need)
         if chat_need is not None
         else (
             "Use memory tools when prior context matters. Do not guess when tools "
@@ -1522,7 +1155,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             final_text = _extract_message_text(response.content)
 
             if final_text:
-                if _should_retry_chat_response(
+                if should_retry_chat_response(
                     manager,
                     chat_need=chat_need,
                     response_text=final_text,
@@ -1537,14 +1170,14 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                         chat_need=chat_need,
                         prior_response=final_text,
                     )
-                await _apply_chat_recall_feedback(
+                await apply_chat_recall_feedback(
                     manager,
                     group_id=group_id,
                     query=body.message,
                     response_text=final_text,
                     recall_results=all_recall_results,
                 )
-                await _record_chat_assistant_turn(manager, final_text)
+                await record_chat_assistant_turn(manager, final_text)
                 yield _sse({"type": "text-start", "id": text_part_id})
                 # Emit in chunks for streaming feel
                 chunk_size = 20

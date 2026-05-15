@@ -10,6 +10,77 @@ from engram.utils.dates import utc_now, utc_now_iso
 logger = logging.getLogger(__name__)
 
 
+async def build_api_forget_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_name: str | None,
+    fact: Any,
+    reason: str | None,
+) -> dict:
+    """Apply an API forget request while preserving the REST entity-first contract."""
+    if entity_name:
+        return await manager.forget_entity(
+            entity_name=entity_name,
+            group_id=group_id,
+            reason=reason,
+        )
+    if fact is None:
+        raise ValueError("Provide either entity_name or fact.")
+    return await _forget_fact_target(
+        manager,
+        group_id=group_id,
+        fact=fact,
+        reason=reason,
+    )
+
+
+async def build_mcp_forget_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_name: str | None,
+    fact: dict | None,
+    reason: str | None,
+) -> dict:
+    """Apply an MCP forget request while preserving the exactly-one-target contract."""
+    if (entity_name is None) == (fact is None):
+        return {
+            "status": "error",
+            "message": "Provide exactly one of 'entity_name' or 'fact'.",
+        }
+    if entity_name:
+        return await manager.forget_entity(entity_name, group_id, reason=reason)
+    return await _forget_fact_target(
+        manager,
+        group_id=group_id,
+        fact=fact,
+        reason=reason,
+    )
+
+
+async def _forget_fact_target(
+    manager: Any,
+    *,
+    group_id: str,
+    fact: Any,
+    reason: str | None,
+) -> dict:
+    return await manager.forget_fact(
+        subject_name=_fact_field(fact, "subject"),
+        predicate=_fact_field(fact, "predicate"),
+        object_name=_fact_field(fact, "object"),
+        group_id=group_id,
+        reason=reason,
+    )
+
+
+def _fact_field(fact: Any, key: str) -> str:
+    if isinstance(fact, dict):
+        return fact[key]
+    return getattr(fact, key)
+
+
 class MemoryForgettingService:
     """Own entity forgetting and fact invalidation mutations."""
 
