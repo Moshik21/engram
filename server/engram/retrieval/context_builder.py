@@ -7,6 +7,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
@@ -14,6 +15,52 @@ from engram.models.entity import Entity
 from engram.storage.protocols import ActivationStore, GraphStore
 
 logger = logging.getLogger(__name__)
+
+
+async def build_api_context_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    max_tokens: int = 2000,
+    topic_hint: str | None = None,
+    project_path: str | None = None,
+    format: str = "structured",
+) -> dict:
+    """Build the REST context response from the shared context manager facade."""
+    result = await build_mcp_context_surface(
+        manager,
+        group_id=group_id,
+        max_tokens=max_tokens,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        format=format,
+    )
+    return {
+        "context": result["context"],
+        "entityCount": result["entity_count"],
+        "factCount": result["fact_count"],
+        "tokenEstimate": result["token_estimate"],
+        "format": result.get("format", "structured"),
+    }
+
+
+async def build_mcp_context_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    max_tokens: int = 2000,
+    topic_hint: str | None = None,
+    project_path: str | None = None,
+    format: str = "structured",
+) -> dict:
+    """Build the MCP context response from the shared context manager facade."""
+    return await manager.get_context(
+        group_id=group_id,
+        max_tokens=max_tokens,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        format=format,
+    )
 
 
 class MemoryContextBuilder:

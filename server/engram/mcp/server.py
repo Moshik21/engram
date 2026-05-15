@@ -35,10 +35,19 @@ from engram.evaluation.store import (
 from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
-from engram.ingestion.adjudication_surface import load_episode_adjudication_requests
+from engram.ingestion.adjudication_surface import (
+    build_mcp_adjudication_resolution_surface,
+    load_episode_adjudication_requests,
+)
+from engram.ingestion.capture_surface import (
+    build_observation_attachment,
+    ingest_projecting_memory,
+    parse_conversation_date,
+    store_observation,
+)
 from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
+from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
-from engram.models.episode import Attachment
 from engram.notifications.surface import get_notification_surface_service_from_state
 from engram.retrieval.artifacts import build_mcp_artifact_search_surface
 from engram.retrieval.auto_recall import (
@@ -60,6 +69,7 @@ from engram.retrieval.context import (
     manager_conversation_recent_turns,
     manager_conversation_top_entity_names,
 )
+from engram.retrieval.context_builder import build_mcp_context_surface
 from engram.retrieval.control import (
     record_manager_memory_need_analysis,
     resolve_manager_recall_need_thresholds,
@@ -67,6 +77,16 @@ from engram.retrieval.control import (
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.forgetting import build_mcp_forget_surface
+from engram.retrieval.graph_state import (
+    build_mcp_entity_neighbors_resource_surface,
+    build_mcp_entity_profile_resource_surface,
+    build_mcp_graph_state_surface,
+    build_mcp_graph_stats_resource_surface,
+)
+from engram.retrieval.lookup import (
+    build_mcp_entity_search_surface,
+    build_mcp_fact_search_surface,
+)
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.preference_feedback import (
@@ -79,6 +99,7 @@ from engram.retrieval.prospective import (
     build_mcp_dismiss_intention_surface,
 )
 from engram.retrieval.recall_surface import build_mcp_recall_surface
+from engram.retrieval.runtime_state import build_runtime_state_surface
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
@@ -669,31 +690,28 @@ async def remember(
     manager = _get_manager()
     session = _get_session()
     cfg = _activation_cfg
-    conv_dt = None
-    if conversation_date:
-        try:
-            conv_dt = datetime.fromisoformat(conversation_date)
-        except (ValueError, TypeError):
-            pass
-    attachments: list[Attachment] = []
+    attachments = []
     if image_data:
         attachments.append(
-            Attachment(
+            build_observation_attachment(
                 mime_type=image_mime,
                 data_url=image_data,
                 description=content[:200] if content else "",
             )
         )
-    episode_id = await manager.ingest_episode(
+    episode_id = await ingest_projecting_memory(
+        manager,
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
-        conversation_date=conv_dt,
+        conversation_date=parse_conversation_date(conversation_date),
         proposed_entities=proposed_entities,
         proposed_relationships=proposed_relationships,
         model_tier=model_tier,
         attachments=attachments or None,
+        pass_session_id=True,
+        pass_attachments=True,
     )
     session.episode_count += 1
     session.last_activity = utc_now()
@@ -775,25 +793,17 @@ async def adjudicate_evidence(
         JSON with request status and committed IDs.
     """
     manager = _get_manager()
-    outcome = await manager.submit_adjudication_resolution(
-        request_id,
+    result = await build_mcp_adjudication_resolution_surface(
+        manager,
+        group_id=_group_id,
+        request_id=request_id,
         entities=entities,
         relationships=relationships,
         reject_evidence_ids=reject_evidence_ids,
-        source="client_adjudication",
         model_tier=model_tier,
         rationale=rationale,
-        group_id=_group_id,
     )
-    return json.dumps(
-        {
-            "status": outcome.status,
-            "request_id": outcome.request_id,
-            "committed_ids": outcome.committed_ids,
-            "superseded_evidence_ids": outcome.superseded_evidence_ids,
-            "replacement_evidence_ids": outcome.replacement_evidence_ids,
-        },
-    )
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -810,18 +820,15 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
     """
     manager = _get_manager()
     session = _get_session()
-    conv_dt = None
-    if conversation_date:
-        try:
-            conv_dt = datetime.fromisoformat(conversation_date)
-        except (ValueError, TypeError):
-            pass
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
-        conversation_date=conv_dt,
+        conversation_date=parse_conversation_date(conversation_date),
+        pass_session_id=True,
+        pass_conversation_date=True,
     )
     session.episode_count += 1
     session.last_activity = utc_now()
@@ -856,17 +863,19 @@ async def observe_image(
     manager = _get_manager()
     session = _get_session()
     content = description or "Image observation"
-    attachment = Attachment(
+    attachment = build_observation_attachment(
         mime_type=mime_type,
         data_url=image_data,
         description=description,
     )
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
         attachments=[attachment],
+        pass_session_id=True,
     )
     session.episode_count += 1
     session.last_activity = utc_now()
@@ -899,17 +908,19 @@ async def observe_file(
     manager = _get_manager()
     session = _get_session()
     content = description or "File observation"
-    attachment = Attachment(
+    attachment = build_observation_attachment(
         mime_type=mime_type,
         data_url=file_data,
         description=description,
     )
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=content,
         group_id=_group_id,
         source=source,
         session_id=session.session_id,
         attachments=[attachment],
+        pass_session_id=True,
     )
     session.episode_count += 1
     session.last_activity = utc_now()
@@ -992,18 +1003,16 @@ async def search_entities(
     Returns:
         JSON with entities array and total count.
     """
-    if not name and not entity_type:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "At least one of 'name' or 'entity_type' is required.",
-            }
-        )
     manager = _get_manager()
-    entities = await manager.search_entities(
-        group_id=_group_id, name=name, entity_type=entity_type, limit=limit
+    result = await build_mcp_entity_search_surface(
+        manager,
+        group_id=_group_id,
+        name=name,
+        entity_type=entity_type,
+        limit=limit,
     )
-    result = {"entities": entities, "total": len(entities)}
+    if result.get("status") == "error":
+        return json.dumps(result)
     await _recall_middleware(name or entity_type or "", result, tool_name="search_entities")
     return json.dumps(result)
 
@@ -1031,7 +1040,8 @@ async def search_facts(
         JSON with facts array and total count.
     """
     manager = _get_manager()
-    facts = await manager.search_facts(
+    result = await build_mcp_fact_search_surface(
+        manager,
         group_id=_group_id,
         query=query,
         subject=subject,
@@ -1040,7 +1050,6 @@ async def search_facts(
         include_epistemic=include_epistemic,
         limit=limit,
     )
-    result = {"facts": facts, "total": len(facts)}
     await _recall_middleware(query, result, tool_name="search_facts")
     return json.dumps(result)
 
@@ -1093,7 +1102,8 @@ async def get_context(
         JSON with context markdown, entity_count, fact_count, token_estimate.
     """
     manager = _get_manager()
-    result = await manager.get_context(
+    result = await build_mcp_context_surface(
+        manager,
         group_id=_group_id,
         max_tokens=max_tokens,
         topic_hint=topic_hint,
@@ -1126,9 +1136,10 @@ async def bootstrap_project(project_path: str) -> str:
     """
     manager = _get_manager()
     session = _get_session()
-    result = await manager.bootstrap_project(
-        project_path=project_path,
+    result = await build_project_bootstrap_surface(
+        manager,
         group_id=_group_id,
+        project_path=project_path,
         session_id=session.session_id,
     )
     return json.dumps(result)
@@ -1179,7 +1190,8 @@ async def search_artifacts(
 async def get_runtime_state(project_path: str | None = None) -> str:
     """Return effective runtime/config state and artifact freshness."""
     manager = _get_manager()
-    result = await manager.get_runtime_state(
+    result = await build_runtime_state_surface(
+        manager,
         group_id=_group_id,
         project_path=project_path,
     )
@@ -1203,7 +1215,8 @@ async def get_graph_state(
         JSON with stats, top_activated, edges (if requested), and group_id.
     """
     manager = _get_manager()
-    result = await manager.get_graph_state(
+    result = await build_mcp_graph_state_surface(
+        manager,
         group_id=_group_id,
         top_n=top_n,
         include_edges=include_edges,
@@ -1573,22 +1586,32 @@ async def list_intentions(enabled_only: bool = True) -> str:
 async def graph_stats_resource() -> str:
     """Current graph statistics: entity counts, relationship counts, type distribution."""
     manager = _get_manager()
-    state = await manager.get_graph_state(group_id=_group_id, top_n=10, include_edges=False)
-    return json.dumps(state["stats"])
+    stats = await build_mcp_graph_stats_resource_surface(manager, group_id=_group_id)
+    return json.dumps(stats)
 
 
 @mcp.resource("engram://entity/{entity_id}")
 async def entity_profile_resource(entity_id: str) -> str:
     """Full profile for a specific entity including activation and relationships."""
     manager = _get_manager()
-    return json.dumps(await manager.get_entity_profile(entity_id, _group_id))
+    payload = await build_mcp_entity_profile_resource_surface(
+        manager,
+        group_id=_group_id,
+        entity_id=entity_id,
+    )
+    return json.dumps(payload)
 
 
 @mcp.resource("engram://entity/{entity_id}/neighbors")
 async def entity_neighbors_resource(entity_id: str) -> str:
     """Entities directly connected to the specified entity with relationship details."""
     manager = _get_manager()
-    return json.dumps(await manager.get_entity_neighbors(entity_id, _group_id))
+    payload = await build_mcp_entity_neighbors_resource_surface(
+        manager,
+        group_id=_group_id,
+        entity_id=entity_id,
+    )
+    return json.dumps(payload)
 
 
 # ─── Prompts ────────────────────────────────────────────────────────

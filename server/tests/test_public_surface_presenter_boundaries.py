@@ -62,18 +62,48 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "_get_conv_top_entity_names"): {
         "manager_conversation_top_entity_names",
     },
+    ("engram/api/knowledge.py", "observe"): {
+        "parse_conversation_date",
+        "store_observation",
+    },
+    ("engram/api/knowledge.py", "auto_observe"): {
+        "parse_conversation_date",
+        "store_observation",
+    },
+    ("engram/api/knowledge.py", "observe_image"): {
+        "build_observation_attachment",
+        "store_observation",
+    },
+    ("engram/api/knowledge.py", "observe_file"): {
+        "build_observation_attachment",
+        "store_observation",
+    },
     ("engram/api/knowledge.py", "remember"): {
         "edge_adjudication_client_enabled",
-        "ingest_episode",
+        "ingest_projecting_memory",
         "load_episode_adjudication_requests",
         "memory_write_contract",
+        "parse_conversation_date",
         "present_api_memory_write",
+    },
+    ("engram/api/knowledge.py", "adjudicate"): {
+        "build_api_adjudication_resolution_surface",
     },
     ("engram/api/knowledge.py", "forget"): {
         "build_api_forget_surface",
     },
     ("engram/api/knowledge.py", "post_feedback"): {
         "build_explicit_feedback_surface",
+    },
+    ("engram/api/knowledge.py", "search_facts"): {
+        "build_api_fact_search_surface",
+    },
+    ("engram/api/knowledge.py", "get_context"): {
+        "build_api_context_surface",
+    },
+    ("engram/api/knowledge.py", "bootstrap_project"): {
+        "build_project_bootstrap_surface",
+        "project_bootstrap_http_status",
     },
     ("engram/api/knowledge.py", "recall"): {
         "build_api_recall_surface",
@@ -138,6 +168,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/conversations.py", "delete_conversation"): {
         "delete_group_conversation",
     },
+    ("engram/api/entities.py", "search_entities"): {
+        "build_api_entity_search_surface",
+    },
     ("engram/api/evaluation.py", "brain_loop_evaluation_report"): {
         "build_brain_loop_evaluation_surface",
         "get_recent_evaluation_context",
@@ -157,13 +190,25 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "search_artifacts"): {
         "build_api_artifact_search_surface",
     },
+    ("engram/api/knowledge.py", "get_runtime_state"): {
+        "build_runtime_state_surface",
+    },
     ("engram/api/knowledge.py", "get_notifications"): {"get_notification_surface_service"},
     ("engram/api/knowledge.py", "dismiss_notifications"): {
         "get_notification_surface_service",
     },
-    ("engram/api/entities.py", "get_entity"): {"get_entity_detail"},
-    ("engram/api/entities.py", "patch_entity"): {"update_entity_profile"},
-    ("engram/api/entities.py", "delete_entity"): {"delete_entity_by_id"},
+    ("engram/api/entities.py", "get_entity"): {
+        "build_api_entity_detail_surface",
+        "entity_not_found_payload",
+    },
+    ("engram/api/entities.py", "patch_entity"): {
+        "build_api_entity_update_surface",
+        "entity_not_found_payload",
+    },
+    ("engram/api/entities.py", "delete_entity"): {
+        "build_api_entity_delete_surface",
+        "entity_not_found_payload",
+    },
     ("engram/api/admin.py", "load_benchmark"): {"load_benchmark_corpus"},
     ("engram/api/graph.py", "get_neighborhood"): {"get_graph_neighborhood"},
     ("engram/api/graph.py", "get_graph_at"): {"get_temporal_graph"},
@@ -231,9 +276,27 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "present_session_sample_write",
     },
     ("engram/mcp/server.py", "remember"): {
+        "build_observation_attachment",
+        "ingest_projecting_memory",
         "load_episode_adjudication_requests",
         "memory_write_contract",
+        "parse_conversation_date",
         "present_mcp_memory_write",
+    },
+    ("engram/mcp/server.py", "observe"): {
+        "parse_conversation_date",
+        "store_observation",
+    },
+    ("engram/mcp/server.py", "observe_image"): {
+        "build_observation_attachment",
+        "store_observation",
+    },
+    ("engram/mcp/server.py", "observe_file"): {
+        "build_observation_attachment",
+        "store_observation",
+    },
+    ("engram/mcp/server.py", "adjudicate_evidence"): {
+        "build_mcp_adjudication_resolution_surface",
     },
     ("engram/mcp/server.py", "forget"): {
         "build_mcp_forget_surface",
@@ -241,13 +304,38 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "feedback"): {
         "build_explicit_feedback_surface",
     },
+    ("engram/mcp/server.py", "search_entities"): {
+        "build_mcp_entity_search_surface",
+    },
+    ("engram/mcp/server.py", "search_facts"): {
+        "build_mcp_fact_search_surface",
+    },
+    ("engram/mcp/server.py", "get_context"): {
+        "build_mcp_context_surface",
+    },
+    ("engram/mcp/server.py", "bootstrap_project"): {
+        "build_project_bootstrap_surface",
+    },
+    ("engram/mcp/server.py", "get_runtime_state"): {
+        "build_runtime_state_surface",
+    },
+    ("engram/mcp/server.py", "get_graph_state"): {
+        "build_mcp_graph_state_surface",
+    },
     ("engram/mcp/server.py", "mark_identity_core"): {"mark_identity_core"},
     ("engram/mcp/server.py", "trigger_consolidation"): {
         "serialize_cycle_summary",
         "trigger_consolidation_cycle",
     },
-    ("engram/mcp/server.py", "entity_profile_resource"): {"get_entity_profile"},
-    ("engram/mcp/server.py", "entity_neighbors_resource"): {"get_entity_neighbors"},
+    ("engram/mcp/server.py", "graph_stats_resource"): {
+        "build_mcp_graph_stats_resource_surface",
+    },
+    ("engram/mcp/server.py", "entity_profile_resource"): {
+        "build_mcp_entity_profile_resource_surface",
+    },
+    ("engram/mcp/server.py", "entity_neighbors_resource"): {
+        "build_mcp_entity_neighbors_resource_surface",
+    },
     ("engram/api/knowledge.py", "create_intention"): {
         "build_api_create_intention_surface",
     },

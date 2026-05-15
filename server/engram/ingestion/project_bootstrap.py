@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
@@ -24,6 +25,26 @@ SyncProjectionState = Callable[..., Awaitable[None]]
 EnsureRelationship = Callable[..., Awaitable[None]]
 IndexEntity = Callable[[Entity, str], Awaitable[None]]
 MaterializeArtifactDecisions = Callable[..., Awaitable[None]]
+
+
+async def build_project_bootstrap_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    project_path: str,
+    session_id: str | None = None,
+) -> dict:
+    """Run project bootstrap through the shared manager compatibility facade."""
+    return await manager.bootstrap_project(
+        project_path=project_path,
+        group_id=group_id,
+        session_id=session_id,
+    )
+
+
+def project_bootstrap_http_status(result: dict) -> int:
+    """Map bootstrap result status to the REST endpoint status code."""
+    return 200 if result.get("status") != "skipped" else 400
 
 
 class ProjectBootstrapService:

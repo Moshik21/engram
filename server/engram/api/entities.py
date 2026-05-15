@@ -7,6 +7,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from engram.api.deps import get_manager
+from engram.retrieval.entity_surface import (
+    build_api_entity_delete_surface,
+    build_api_entity_detail_surface,
+    build_api_entity_update_surface,
+    entity_not_found_payload,
+)
+from engram.retrieval.lookup import build_api_entity_search_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/entities", tags=["entities"])
@@ -31,33 +38,14 @@ async def search_entities(
     group_id = tenant.group_id
     manager = get_manager()
 
-    results = await manager.search_entities(
+    payload = await build_api_entity_search_surface(
+        manager,
         group_id=group_id,
         name=q,
         entity_type=type,
         limit=limit,
     )
-
-    # Convert to camelCase
-    items = []
-    for r in results:
-        items.append(
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "entityType": r["entity_type"],
-                "summary": r["summary"],
-                "lexicalRegime": r.get("lexical_regime"),
-                "canonicalIdentifier": r.get("canonical_identifier"),
-                "identifierLabel": bool(r.get("identifier_label", False)),
-                "activationCurrent": r["activation_score"],
-                "accessCount": r["access_count"],
-                "createdAt": r["created_at"],
-                "updatedAt": r["updated_at"],
-            }
-        )
-
-    return JSONResponse(content={"items": items, "total": len(items)})
+    return JSONResponse(content=payload)
 
 
 @router.get("/{entity_id}")
@@ -66,9 +54,13 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    detail = await manager.get_entity_detail(entity_id, group_id)
+    detail = await build_api_entity_detail_surface(
+        manager,
+        group_id=group_id,
+        entity_id=entity_id,
+    )
     if detail is None:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
+        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
     return JSONResponse(content=detail)
 
 
@@ -100,15 +92,15 @@ async def patch_entity(request: Request, entity_id: str, body: EntityPatchBody) 
     group_id = tenant.group_id
     manager = get_manager()
 
-    updates = {}
-    if body.name is not None:
-        updates["name"] = body.name
-    if body.summary is not None:
-        updates["summary"] = body.summary
-
-    updated = await manager.update_entity_profile(entity_id, updates, group_id=group_id)
+    updated = await build_api_entity_update_surface(
+        manager,
+        group_id=group_id,
+        entity_id=entity_id,
+        name=body.name,
+        summary=body.summary,
+    )
     if updated is None:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
+        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
     return JSONResponse(content=updated)
 
 
@@ -119,7 +111,11 @@ async def delete_entity(request: Request, entity_id: str) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    result = await manager.delete_entity_by_id(entity_id, group_id=group_id)
+    result = await build_api_entity_delete_surface(
+        manager,
+        group_id=group_id,
+        entity_id=entity_id,
+    )
     if result is None:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{entity_id}' not found"})
+        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
     return JSONResponse(content=result)

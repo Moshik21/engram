@@ -4,10 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
 from engram.utils.dates import utc_now_iso
+
+
+async def build_runtime_state_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    project_path: str | None = None,
+) -> dict:
+    """Read runtime state through the shared manager compatibility facade."""
+    return await manager.get_runtime_state(
+        group_id=group_id,
+        project_path=project_path,
+    )
 
 
 class RuntimeStateService:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
 from typing import Any, cast
 
 import anthropic
@@ -21,7 +20,16 @@ from engram.api.deps import (
     get_rate_limiter,
 )
 from engram.events.bus import get_event_bus
-from engram.ingestion.adjudication_surface import load_episode_adjudication_requests
+from engram.ingestion.adjudication_surface import (
+    build_api_adjudication_resolution_surface,
+    load_episode_adjudication_requests,
+)
+from engram.ingestion.capture_surface import (
+    build_observation_attachment,
+    ingest_projecting_memory,
+    parse_conversation_date,
+    store_observation,
+)
 from engram.ingestion.dedup import CaptureDedupCache
 from engram.ingestion.offline_replay import OfflineReplayService
 from engram.ingestion.presenter import (
@@ -29,7 +37,10 @@ from engram.ingestion.presenter import (
     present_api_memory_write,
     present_api_observe_skip,
 )
-from engram.models.episode import Attachment
+from engram.ingestion.project_bootstrap import (
+    build_project_bootstrap_surface,
+    project_bootstrap_http_status,
+)
 from engram.models.recall import MemoryNeed
 from engram.retrieval.artifacts import build_api_artifact_search_surface
 from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
@@ -54,11 +65,13 @@ from engram.retrieval.chat_tools import execute_chat_tool
 from engram.retrieval.context import (
     manager_conversation_top_entity_names,
 )
+from engram.retrieval.context_builder import build_api_context_surface
 from engram.retrieval.control import record_manager_memory_need_analysis
 from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.forgetting import build_api_forget_surface
+from engram.retrieval.lookup import build_api_fact_search_surface
 from engram.retrieval.preference_feedback import (
     FeedbackRatingError,
     build_explicit_feedback_surface,
@@ -69,6 +82,7 @@ from engram.retrieval.prospective import (
     build_intention_list_surface,
 )
 from engram.retrieval.recall_surface import build_api_recall_surface
+from engram.retrieval.runtime_state import build_runtime_state_surface
 from engram.security.middleware import get_tenant
 from engram.utils.offline_queue import drain_queue
 
@@ -262,17 +276,13 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    conv_dt = None
-    if body.conversation_date:
-        try:
-            conv_dt = datetime.fromisoformat(body.conversation_date)
-        except (ValueError, TypeError):
-            pass
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
-        conversation_date=conv_dt,
+        conversation_date=parse_conversation_date(body.conversation_date),
+        pass_conversation_date=True,
     )
 
     return JSONResponse(
@@ -304,18 +314,14 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
 
     manager = get_manager()
 
-    conv_dt = None
-    if body.conversation_date:
-        try:
-            conv_dt = datetime.fromisoformat(body.conversation_date)
-        except (ValueError, TypeError):
-            pass
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
         session_id=body.session_id,
-        conversation_date=conv_dt,
+        conversation_date=parse_conversation_date(body.conversation_date),
+        pass_conversation_date=True,
     )
 
     return JSONResponse(
@@ -333,12 +339,13 @@ async def observe_image(request: Request, body: ObserveImageRequest) -> JSONResp
     group_id = tenant.group_id
     manager = get_manager()
 
-    attachment = Attachment(
+    attachment = build_observation_attachment(
         mime_type=body.mime_type,
         data_url=body.image_data,
         description=body.description,
     )
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=body.description or f"[image: {body.mime_type}]",
         group_id=group_id,
         source=body.source,
@@ -361,12 +368,13 @@ async def observe_file(request: Request, body: ObserveFileRequest) -> JSONRespon
     group_id = tenant.group_id
     manager = get_manager()
 
-    attachment = Attachment(
+    attachment = build_observation_attachment(
         mime_type=body.mime_type,
         data_url=body.file_data,
         description=body.description,
     )
-    episode_id = await manager.store_episode(
+    episode_id = await store_observation(
+        manager,
         content=body.description or f"[file: {body.mime_type}]",
         group_id=group_id,
         source=body.source,
@@ -415,17 +423,12 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    conv_dt = None
-    if body.conversation_date:
-        try:
-            conv_dt = datetime.fromisoformat(body.conversation_date)
-        except (ValueError, TypeError):
-            pass
-    episode_id = await manager.ingest_episode(
+    episode_id = await ingest_projecting_memory(
+        manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
-        conversation_date=conv_dt,
+        conversation_date=parse_conversation_date(body.conversation_date),
         proposed_entities=body.proposed_entities,
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,
@@ -456,25 +459,17 @@ async def adjudicate(request: Request, body: AdjudicateBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    outcome = await manager.submit_adjudication_resolution(
-        body.request_id,
+    payload = await build_api_adjudication_resolution_surface(
+        manager,
+        group_id=group_id,
+        request_id=body.request_id,
         entities=body.entities,
         relationships=body.relationships,
         reject_evidence_ids=body.reject_evidence_ids,
-        source="client_adjudication",
         model_tier=body.model_tier,
         rationale=body.rationale,
-        group_id=group_id,
     )
-    return JSONResponse(
-        content={
-            "status": outcome.status,
-            "requestId": outcome.request_id,
-            "committedIds": outcome.committed_ids,
-            "supersededEvidenceIds": outcome.superseded_evidence_ids,
-            "replacementEvidenceIds": outcome.replacement_evidence_ids,
-        },
-    )
+    return JSONResponse(content=payload)
 
 
 @router.get("/recall")
@@ -514,7 +509,8 @@ async def search_facts(
     group_id = tenant.group_id
     manager = get_manager()
 
-    results = await manager.search_facts(
+    payload = await build_api_fact_search_surface(
+        manager,
         group_id=group_id,
         query=q,
         subject=subject,
@@ -524,22 +520,7 @@ async def search_facts(
         limit=limit,
     )
 
-    items = []
-    for r in results:
-        items.append(
-            {
-                "subject": r["subject"],
-                "predicate": r["predicate"],
-                "object": r["object"],
-                "validFrom": r.get("valid_from"),
-                "validTo": r.get("valid_to"),
-                "confidence": r.get("confidence"),
-                "sourceEpisode": r.get("source_episode"),
-                "createdAt": r.get("created_at"),
-            }
-        )
-
-    return JSONResponse(content={"items": items})
+    return JSONResponse(content=payload)
 
 
 @router.get("/context")
@@ -555,7 +536,8 @@ async def get_context(
     group_id = tenant.group_id
     manager = get_manager()
 
-    result = await manager.get_context(
+    payload = await build_api_context_surface(
+        manager,
         group_id=group_id,
         max_tokens=max_tokens,
         topic_hint=topic_hint,
@@ -563,15 +545,7 @@ async def get_context(
         format=format,
     )
 
-    return JSONResponse(
-        content={
-            "context": result["context"],
-            "entityCount": result["entity_count"],
-            "factCount": result["fact_count"],
-            "tokenEstimate": result["token_estimate"],
-            "format": result.get("format", "structured"),
-        }
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/forget")
@@ -627,14 +601,14 @@ async def bootstrap_project(request: Request, body: BootstrapBody) -> JSONRespon
     group_id = tenant.group_id
     manager = get_manager()
 
-    result = await manager.bootstrap_project(
-        project_path=body.project_path,
+    result = await build_project_bootstrap_surface(
+        manager,
         group_id=group_id,
+        project_path=body.project_path,
         session_id=body.session_id,
     )
 
-    status_code = 200 if result.get("status") != "skipped" else 400
-    return JSONResponse(status_code=status_code, content=result)
+    return JSONResponse(status_code=project_bootstrap_http_status(result), content=result)
 
 
 @router.post("/route")
@@ -687,7 +661,8 @@ async def get_runtime_state(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    result = await manager.get_runtime_state(
+    result = await build_runtime_state_surface(
+        manager,
         group_id=group_id,
         project_path=project_path,
     )

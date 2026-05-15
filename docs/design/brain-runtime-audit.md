@@ -2955,6 +2955,61 @@ rating validation and the `record_explicit_feedback` manager call. REST keeps
 feedback recorder, full knowledge API, full MCP tool, public-surface, Ruff, and
 `git diff --check` gates passed.
 
+REST/MCP project bootstrap and runtime-state calls now share route-facing
+surface helpers. `server/engram/ingestion/project_bootstrap.py` owns the public
+bootstrap manager call and REST skipped-status mapping while the existing
+`ProjectBootstrapService` still owns artifact capture, cue-only bootstrap
+episodes, and graph writes. `server/engram/retrieval/runtime_state.py` owns the
+public runtime-state manager call while `RuntimeStateService` still owns the
+runtime/config/artifact freshness read model. Focused project-runtime surface,
+REST bootstrap/runtime, MCP runtime, public-surface, and Ruff checks passed.
+
+REST/MCP public entity/fact lookup now shares route-facing lookup helpers too.
+`server/engram/retrieval/lookup.py` still owns the deeper
+`EntityFactLookupService`, and now also owns REST entity/fact search payload
+shaping plus MCP entity/fact search payload shaping and missing-query
+validation. REST keeps camelCase `items`; MCP keeps raw lookup results and
+recall middleware enrichment. Focused lookup-surface, REST facts, MCP entity/fact
+search, MCP middleware, public-surface, and Ruff checks passed.
+
+REST/MCP public agent-context assembly now shares route-facing context helpers.
+`server/engram/retrieval/context_builder.py` still owns the deeper
+`MemoryContextBuilder`, and now also owns REST context payload shaping and MCP
+raw context manager access. REST keeps camelCase count/token fields; MCP keeps
+the raw `get_context` shape and its recall/notification middleware. Focused
+context-surface, tiered context, REST context/runtime, MCP context middleware,
+public-surface, and Ruff checks passed.
+
+REST/MCP adjudication resolution now shares ingestion-side surface helpers.
+`server/engram/ingestion/adjudication_surface.py` owns the public
+client-adjudication manager dispatch and API/MCP outcome shaping for resolved
+edge-adjudication work items. REST keeps camelCase IDs; MCP keeps snake_case IDs.
+Focused adjudication-surface, REST adjudicate, MCP adjudicate, public-surface,
+and Ruff checks passed.
+
+REST/MCP public Capture writes now share route-facing capture helpers.
+`server/engram/ingestion/capture_surface.py` owns public conversation-date
+parsing, attachment construction, raw observation storage dispatch, and
+Capture -> Project ingest dispatch. REST and MCP still keep transport-specific
+session accounting, live-turn ingestion, recall middleware, skip handling, and
+memory-write presenters. Focused capture-surface, memory-write presenter, REST
+remember/adjudication, MCP remember/adjudication, public-surface, and Ruff
+checks passed.
+
+REST entity detail/update/delete now has a route-facing public-surface helper.
+`server/engram/retrieval/entity_surface.py` owns entity detail manager dispatch,
+sparse update payload construction, delete dispatch, and the shared REST
+not-found payload, while `GraphStateService` and `EntityMutationService` remain
+the deeper service owners. Focused entity-surface, REST entity detail/mutation,
+public-surface, and Ruff checks passed.
+
+MCP graph-state tool and graph/entity resources now have route-facing public
+surface helpers. `server/engram/retrieval/graph_state.py` now owns MCP graph
+tool dispatch, graph stats resource shaping, entity profile resource dispatch,
+and entity-neighbor resource dispatch on top of the existing `GraphStateService`
+read model. Focused MCP graph-state surface, graph-state service/resource, MCP
+graph-state, public-surface, and Ruff checks passed.
+
 Knowledge-chat conversation persistence now has its own helper boundary too.
 `server/engram/retrieval/chat_persistence.py` validates existing conversation
 IDs against the active `group_id`, creates missing conversations with the

@@ -20,6 +20,58 @@ class TopActivatedEntry(TypedDict):
     access_count: int
 
 
+async def build_mcp_graph_state_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    top_n: int = 20,
+    include_edges: bool = False,
+    entity_types: list[str] | None = None,
+) -> dict:
+    """Build the MCP graph-state tool payload through the manager facade."""
+    return await manager.get_graph_state(
+        group_id=group_id,
+        top_n=top_n,
+        include_edges=include_edges,
+        entity_types=entity_types,
+    )
+
+
+async def build_mcp_graph_stats_resource_surface(
+    manager: Any,
+    *,
+    group_id: str,
+) -> dict:
+    """Build the MCP graph stats resource payload."""
+    state = await build_mcp_graph_state_surface(
+        manager,
+        group_id=group_id,
+        top_n=10,
+        include_edges=False,
+    )
+    return state["stats"]
+
+
+async def build_mcp_entity_profile_resource_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+) -> dict:
+    """Build the MCP entity profile resource payload through the manager facade."""
+    return await manager.get_entity_profile(entity_id, group_id)
+
+
+async def build_mcp_entity_neighbors_resource_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+) -> dict:
+    """Build the MCP entity neighbors resource payload through the manager facade."""
+    return await manager.get_entity_neighbors(entity_id, group_id)
+
+
 class GraphStateService:
     """Build the shared graph-state read model exposed through GraphManager."""
 

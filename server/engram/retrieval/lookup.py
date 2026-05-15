@@ -19,6 +19,149 @@ EPISTEMIC_FACT_PREDICATES = {
 }
 
 
+async def build_api_entity_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    name: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 20,
+) -> dict:
+    """Build the REST entity-search response from the shared lookup facade."""
+    results = await manager.search_entities(
+        group_id=group_id,
+        name=name,
+        entity_type=entity_type,
+        limit=limit,
+    )
+    items = [_api_entity_item(result) for result in results]
+    return {"items": items, "total": len(items)}
+
+
+async def build_mcp_entity_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    name: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 10,
+) -> dict:
+    """Build the MCP entity-search response while preserving MCP validation."""
+    if not name and not entity_type:
+        return {
+            "status": "error",
+            "message": "At least one of 'name' or 'entity_type' is required.",
+        }
+    entities = await manager.search_entities(
+        group_id=group_id,
+        name=name,
+        entity_type=entity_type,
+        limit=limit,
+    )
+    return {"entities": entities, "total": len(entities)}
+
+
+async def build_api_fact_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str = "",
+    subject: str | None = None,
+    predicate: str | None = None,
+    include_expired: bool = False,
+    include_epistemic: bool = False,
+    limit: int = 10,
+) -> dict:
+    """Build the REST fact-search response from the shared lookup facade."""
+    results = await _search_facts(
+        manager,
+        group_id=group_id,
+        query=query,
+        subject=subject,
+        predicate=predicate,
+        include_expired=include_expired,
+        include_epistemic=include_epistemic,
+        limit=limit,
+    )
+    return {"items": [_api_fact_item(result) for result in results]}
+
+
+async def build_mcp_fact_search_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str = "",
+    subject: str | None = None,
+    predicate: str | None = None,
+    include_expired: bool = False,
+    include_epistemic: bool = False,
+    limit: int = 10,
+) -> dict:
+    """Build the MCP fact-search response from the shared lookup facade."""
+    facts = await _search_facts(
+        manager,
+        group_id=group_id,
+        query=query,
+        subject=subject,
+        predicate=predicate,
+        include_expired=include_expired,
+        include_epistemic=include_epistemic,
+        limit=limit,
+    )
+    return {"facts": facts, "total": len(facts)}
+
+
+async def _search_facts(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    subject: str | None,
+    predicate: str | None,
+    include_expired: bool,
+    include_epistemic: bool,
+    limit: int,
+) -> list[dict]:
+    return await manager.search_facts(
+        group_id=group_id,
+        query=query,
+        subject=subject,
+        predicate=predicate,
+        include_expired=include_expired,
+        include_epistemic=include_epistemic,
+        limit=limit,
+    )
+
+
+def _api_entity_item(result: dict) -> dict:
+    return {
+        "id": result["id"],
+        "name": result["name"],
+        "entityType": result["entity_type"],
+        "summary": result["summary"],
+        "lexicalRegime": result.get("lexical_regime"),
+        "canonicalIdentifier": result.get("canonical_identifier"),
+        "identifierLabel": bool(result.get("identifier_label", False)),
+        "activationCurrent": result["activation_score"],
+        "accessCount": result["access_count"],
+        "createdAt": result["created_at"],
+        "updatedAt": result["updated_at"],
+    }
+
+
+def _api_fact_item(result: dict) -> dict:
+    return {
+        "subject": result["subject"],
+        "predicate": result["predicate"],
+        "object": result["object"],
+        "validFrom": result.get("valid_from"),
+        "validTo": result.get("valid_to"),
+        "confidence": result.get("confidence"),
+        "sourceEpisode": result.get("source_episode"),
+        "createdAt": result.get("created_at"),
+    }
+
+
 class EntityFactLookupService:
     """Own read-only entity and fact lookup for REST/MCP surfaces."""
 
