@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engram.retrieval.chat_persistence import (
+    chat_conversation_not_found_payload,
     persist_chat_turn,
     resolve_chat_conversation,
 )
@@ -80,6 +81,10 @@ async def test_resolve_chat_conversation_noops_without_store() -> None:
 
     assert result.conversation_id == "conv_client"
     assert result.not_found is False
+
+
+def test_chat_conversation_not_found_payload() -> None:
+    assert chat_conversation_not_found_payload() == {"detail": "Conversation not found"}
 
 
 @pytest.mark.asyncio

@@ -2,8 +2,181 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class ApiConsolidationTriggerSurface:
+    """REST trigger payload plus whether a background cycle should be scheduled."""
+
+    status_code: int
+    payload: dict
+    should_run: bool
+
+
+@dataclass(frozen=True)
+class ApiConsolidationDetailSurface:
+    """REST consolidation detail payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
+
+
+def build_api_consolidation_trigger_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    dry_run: bool,
+) -> ApiConsolidationTriggerSurface:
+    """Return the REST trigger response and run decision."""
+    if engine.is_running:
+        return ApiConsolidationTriggerSurface(
+            status_code=409,
+            payload={"detail": "A consolidation cycle is already running"},
+            should_run=False,
+        )
+    return ApiConsolidationTriggerSurface(
+        status_code=200,
+        payload={
+            "status": "triggered",
+            "group_id": group_id,
+            "dry_run": dry_run,
+        },
+        should_run=True,
+    )
+
+
+async def run_api_consolidation_cycle(
+    engine: Any,
+    *,
+    group_id: str,
+    dry_run: bool,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Run a REST-triggered consolidation cycle for a background task."""
+    try:
+        await engine.run_cycle(group_id=group_id, trigger="manual", dry_run=dry_run)
+    except Exception:
+        if logger is not None:
+            logger.exception("Background consolidation cycle failed")
+
+
+async def build_api_consolidation_status_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    scheduler: Any | None = None,
+    pressure: Any | None = None,
+    activation_cfg: Any | None = None,
+) -> dict:
+    """Return the REST consolidation status payload."""
+    from engram.consolidation.presenter import serialize_cycle_summary
+
+    result: dict = {
+        "is_running": engine.is_running,
+        "scheduler_active": scheduler.is_active if scheduler else False,
+    }
+
+    if pressure and activation_cfg:
+        snapshot = pressure.get_snapshot(group_id)
+        if snapshot:
+            result["pressure"] = {
+                "value": round(pressure.get_pressure(group_id, activation_cfg), 2),
+                "threshold": activation_cfg.consolidation_pressure_threshold,
+                "episodes_since_last": snapshot.episodes_since_last,
+                "entities_created": snapshot.entities_created,
+                "last_cycle_time": snapshot.last_cycle_time,
+            }
+
+    latest_cycle = await engine.get_latest_cycle(group_id)
+    if latest_cycle is not None:
+        result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
+    return result
+
+
+async def build_api_consolidation_history_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    limit: int,
+) -> dict:
+    """Return the REST consolidation history payload."""
+    from engram.consolidation.presenter import serialize_cycle_summary
+
+    cycles = await engine.get_recent_cycles(group_id, limit=limit)
+    return {"cycles": [serialize_cycle_summary(cycle) for cycle in cycles]}
+
+
+async def build_api_consolidation_cycle_detail_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    cycle_id: str,
+) -> ApiConsolidationDetailSurface:
+    """Return the REST consolidation cycle detail payload."""
+    from engram.consolidation.presenter import serialize_cycle_detail
+
+    if not engine.audit_store_available:
+        return ApiConsolidationDetailSurface(
+            status_code=404,
+            payload={"detail": "Consolidation store not available"},
+        )
+
+    detail = await engine.get_cycle_detail(cycle_id, group_id)
+    if detail is None:
+        return ApiConsolidationDetailSurface(
+            status_code=404,
+            payload={"detail": "Cycle not found"},
+        )
+
+    return ApiConsolidationDetailSurface(
+        status_code=200,
+        payload=serialize_cycle_detail(detail),
+    )
+
+
+async def build_mcp_consolidation_status_surface(
+    consolidation_store: Any | None,
+    *,
+    group_id: str,
+) -> dict:
+    """Return the MCP consolidation status payload from the active audit store."""
+    from engram.consolidation.audit_reader import ConsolidationAuditReader
+    from engram.consolidation.presenter import serialize_cycle_summary
+
+    result = {
+        "is_running": False,
+        "message": "Use trigger_consolidation to run a cycle. "
+        "In MCP mode, cycles run synchronously.",
+    }
+    latest_cycle = await ConsolidationAuditReader(consolidation_store).latest_cycle(group_id)
+    if latest_cycle is not None:
+        result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
+    return result
+
+
+async def build_mcp_consolidation_trigger_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    dry_run: bool,
+    consolidation_store: Any | None,
+) -> dict:
+    """Run an MCP-triggered consolidation cycle and return its public payload."""
+    from engram.consolidation.presenter import serialize_cycle_summary
+
+    trigger_result = await manager.trigger_consolidation_cycle(
+        group_id=group_id,
+        trigger="mcp",
+        dry_run=dry_run,
+        consolidation_store=consolidation_store,
+    )
+    result = serialize_cycle_summary(trigger_result.cycle)
+    result["cycle_id"] = result.pop("id")
+    result["graph_stats"] = trigger_result.graph_stats
+    return result
 
 
 @dataclass(frozen=True)

@@ -61,6 +61,37 @@ class NotificationSurfaceService:
         ]
 
 
+def build_api_notifications_surface(
+    service: NotificationSurfaceService | None,
+    *,
+    group_id: str,
+    limit: int = 20,
+    since: float = 0.0,
+) -> dict[str, Any]:
+    """Return the REST notification list payload."""
+    if service is None:
+        return {"notifications": []}
+    return {
+        "notifications": service.list_notifications(
+            group_id=group_id,
+            limit=limit,
+            since=since,
+        )
+    }
+
+
+def build_api_notification_dismiss_surface(
+    service: NotificationSurfaceService | None,
+    *,
+    group_id: str,
+    ids: list[str],
+) -> dict[str, int]:
+    """Return the REST notification dismissal payload."""
+    if service is None:
+        return {"dismissed": 0}
+    return {"dismissed": service.dismiss_notifications(group_id=group_id, ids=ids)}
+
+
 def get_notification_surface_service_from_state() -> NotificationSurfaceService | None:
     """Return the app notification surface service if notification storage exists."""
     from engram.main import _app_state

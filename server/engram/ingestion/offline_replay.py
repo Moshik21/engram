@@ -73,3 +73,23 @@ class OfflineReplayService:
             skipped=skipped,
             total=len(entries),
         )
+
+
+async def build_api_offline_replay_surface(
+    *,
+    drain_queue: DrainQueue,
+    dedup_check: DedupCheck,
+    store_episode: EpisodeStore,
+    group_id: str,
+) -> dict[str, int | str]:
+    """Replay queued offline captures and return the REST acknowledgement payload."""
+    replay_service = OfflineReplayService(
+        drain_queue=drain_queue,
+        dedup_check=dedup_check,
+        store_episode=store_episode,
+    )
+    result = await replay_service.replay_queue(group_id=group_id)
+    return {
+        "status": "replayed",
+        **result.as_payload(),
+    }

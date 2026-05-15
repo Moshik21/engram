@@ -17,6 +17,11 @@ class ChatConversationResolution:
     not_found: bool = False
 
 
+def chat_conversation_not_found_payload() -> dict:
+    """Return the REST not-found payload for chat conversation ownership failures."""
+    return {"detail": "Conversation not found"}
+
+
 async def resolve_chat_conversation(
     conversation_store: Any | None,
     *,

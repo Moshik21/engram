@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_atlas_service, get_manager
+from engram.retrieval.graph_state import (
+    build_api_graph_neighborhood_surface,
+    build_api_temporal_graph_surface,
+)
 from engram.security.middleware import get_tenant
 
 logger = logging.getLogger(__name__)
@@ -192,16 +195,15 @@ async def get_neighborhood(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    payload = await manager.get_graph_neighborhood(
+    result = await build_api_graph_neighborhood_surface(
+        manager,
         group_id=group_id,
         center=center,
         depth=depth,
         max_nodes=max_nodes,
         min_activation=min_activation,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{center}' not found"})
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/at")
@@ -217,22 +219,12 @@ async def get_graph_at(
     group_id = tenant.group_id
     manager = get_manager()
 
-    try:
-        at_time = datetime.fromisoformat(at)
-    except (ValueError, TypeError):
-        return JSONResponse(
-            status_code=400,
-            content={"detail": f"Invalid ISO 8601 timestamp: '{at}'"},
-        )
-
-    payload = await manager.get_temporal_graph(
+    result = await build_api_temporal_graph_surface(
+        manager,
         group_id=group_id,
         center=center,
-        at_time=at_time,
-        at_label=at,
+        at=at,
         depth=depth,
         max_nodes=max_nodes,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content={"detail": f"Entity '{center}' not found"})
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)

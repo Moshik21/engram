@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.retrieval.prospective import (
+    api_intention_not_found_payload,
+    api_intention_validation_error_payload,
     build_api_create_intention_surface,
     build_api_dismiss_intention_surface,
     build_intention_list_surface,
@@ -87,3 +89,10 @@ async def test_list_and_dismiss_intention_surfaces() -> None:
     }
     assert mcp_dismiss["intention_id"] == "int_native"
     assert mcp_dismiss["message"].endswith("deleted.")
+
+
+def test_api_intention_error_payloads() -> None:
+    assert api_intention_validation_error_payload(ValueError("bad trigger")) == {
+        "detail": "bad trigger"
+    }
+    assert api_intention_not_found_payload() == {"detail": "Intention not found"}

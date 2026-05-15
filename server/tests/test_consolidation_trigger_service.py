@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from engram import consolidation_trigger as trigger_module
 from engram.config import ActivationConfig
-from engram.consolidation_trigger import ConsolidationTriggerService
+from engram.consolidation.audit_reader import ConsolidationCycleDetail
+from engram.consolidation_trigger import (
+    ConsolidationTriggerResult,
+    ConsolidationTriggerService,
+    build_api_consolidation_cycle_detail_surface,
+    build_api_consolidation_history_surface,
+    build_api_consolidation_status_surface,
+    build_api_consolidation_trigger_surface,
+    build_mcp_consolidation_status_surface,
+    build_mcp_consolidation_trigger_surface,
+    run_api_consolidation_cycle,
+)
+from engram.models.consolidation import ConsolidationCycle, PhaseResult
 
 
 class FakeGraphStore:
@@ -83,3 +96,226 @@ def test_consolidation_trigger_service_exposes_shared_sqlite_db() -> None:
     )
 
     assert service.shared_sqlite_db() is graph._db
+
+
+def _cycle(cycle_id: str = "cyc_1") -> ConsolidationCycle:
+    cycle = ConsolidationCycle(
+        id=cycle_id,
+        group_id="native_brain",
+        trigger="manual",
+        dry_run=True,
+        status="completed",
+        phase_results=[
+            PhaseResult(
+                phase="triage",
+                status="completed",
+                items_processed=2,
+                items_affected=1,
+                duration_ms=12.5,
+            )
+        ],
+    )
+    cycle.completed_at = cycle.started_at + 1
+    cycle.total_duration_ms = 1000.0
+    return cycle
+
+
+def test_api_consolidation_trigger_surface_handles_running_and_triggered() -> None:
+    running = build_api_consolidation_trigger_surface(
+        SimpleNamespace(is_running=True),
+        group_id="native_brain",
+        dry_run=True,
+    )
+    assert running.status_code == 409
+    assert running.payload == {"detail": "A consolidation cycle is already running"}
+    assert running.should_run is False
+
+    ready = build_api_consolidation_trigger_surface(
+        SimpleNamespace(is_running=False),
+        group_id="native_brain",
+        dry_run=False,
+    )
+    assert ready.status_code == 200
+    assert ready.payload == {
+        "status": "triggered",
+        "group_id": "native_brain",
+        "dry_run": False,
+    }
+    assert ready.should_run is True
+
+
+@pytest.mark.asyncio
+async def test_run_api_consolidation_cycle_runs_manual_background_cycle() -> None:
+    engine = SimpleNamespace(run_cycle=AsyncMock())
+
+    await run_api_consolidation_cycle(
+        engine,
+        group_id="native_brain",
+        dry_run=True,
+    )
+
+    engine.run_cycle.assert_awaited_once_with(
+        group_id="native_brain",
+        trigger="manual",
+        dry_run=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_status_surface_includes_scheduler_pressure_and_latest() -> None:
+    engine = SimpleNamespace(
+        is_running=True,
+        get_latest_cycle=AsyncMock(return_value=_cycle("cyc_status")),
+    )
+    scheduler = SimpleNamespace(is_active=True)
+    pressure = MagicMock()
+    pressure.get_snapshot.return_value = SimpleNamespace(
+        episodes_since_last=3,
+        entities_created=2,
+        last_cycle_time=10.0,
+    )
+    pressure.get_pressure.return_value = 123.456
+    cfg = ActivationConfig()
+
+    result = await build_api_consolidation_status_surface(
+        engine,
+        group_id="native_brain",
+        scheduler=scheduler,
+        pressure=pressure,
+        activation_cfg=cfg,
+    )
+
+    assert result["is_running"] is True
+    assert result["scheduler_active"] is True
+    assert result["pressure"] == {
+        "value": 123.46,
+        "threshold": cfg.consolidation_pressure_threshold,
+        "episodes_since_last": 3,
+        "entities_created": 2,
+        "last_cycle_time": 10.0,
+    }
+    assert result["latest_cycle"]["id"] == "cyc_status"
+    engine.get_latest_cycle.assert_awaited_once_with("native_brain")
+    pressure.get_snapshot.assert_called_once_with("native_brain")
+    pressure.get_pressure.assert_called_once_with("native_brain", cfg)
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_history_surface_serializes_cycles() -> None:
+    engine = SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[_cycle("cyc_hist")]))
+
+    result = await build_api_consolidation_history_surface(
+        engine,
+        group_id="native_brain",
+        limit=5,
+    )
+
+    assert result["cycles"][0]["id"] == "cyc_hist"
+    assert result["cycles"][0]["summary"]["total_processed"] == 2
+    engine.get_recent_cycles.assert_awaited_once_with("native_brain", limit=5)
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_cycle_detail_surface_statuses() -> None:
+    unavailable = SimpleNamespace(audit_store_available=False)
+    unavailable_result = await build_api_consolidation_cycle_detail_surface(
+        unavailable,
+        group_id="native_brain",
+        cycle_id="cyc_missing",
+    )
+    assert unavailable_result.status_code == 404
+    assert unavailable_result.payload == {"detail": "Consolidation store not available"}
+
+    missing = SimpleNamespace(
+        audit_store_available=True,
+        get_cycle_detail=AsyncMock(return_value=None),
+    )
+    missing_result = await build_api_consolidation_cycle_detail_surface(
+        missing,
+        group_id="native_brain",
+        cycle_id="cyc_missing",
+    )
+    assert missing_result.status_code == 404
+    assert missing_result.payload == {"detail": "Cycle not found"}
+
+    detail = ConsolidationCycleDetail(cycle=_cycle("cyc_detail"))
+    engine = SimpleNamespace(
+        audit_store_available=True,
+        get_cycle_detail=AsyncMock(return_value=detail),
+    )
+    detail_result = await build_api_consolidation_cycle_detail_surface(
+        engine,
+        group_id="native_brain",
+        cycle_id="cyc_detail",
+    )
+    assert detail_result.status_code == 200
+    assert detail_result.payload["id"] == "cyc_detail"
+    assert detail_result.payload["summary"]["total_affected"] == 1
+    engine.get_cycle_detail.assert_awaited_once_with("cyc_detail", "native_brain")
+
+
+@pytest.mark.asyncio
+async def test_mcp_consolidation_status_surface_includes_latest_cycle() -> None:
+    cycle = SimpleNamespace(
+        id="cyc_status",
+        status="failed",
+        error="calibration failed",
+        dry_run=True,
+        trigger="mcp",
+        started_at=1.0,
+        completed_at=2.0,
+        total_duration_ms=7.5,
+        phase_results=[],
+    )
+    store = MagicMock()
+    store.get_recent_cycles = AsyncMock(return_value=[cycle])
+
+    result = await build_mcp_consolidation_status_surface(
+        store,
+        group_id="native_brain",
+    )
+
+    assert result["is_running"] is False
+    assert result["latest_cycle"]["id"] == "cyc_status"
+    assert result["latest_cycle"]["error"] == "calibration failed"
+    store.get_recent_cycles.assert_awaited_once_with("native_brain", limit=1)
+
+
+@pytest.mark.asyncio
+async def test_mcp_consolidation_trigger_surface_formats_cycle_payload() -> None:
+    cycle = SimpleNamespace(
+        id="cyc_1",
+        status="completed",
+        error=None,
+        dry_run=True,
+        trigger="mcp",
+        started_at=1.0,
+        completed_at=2.0,
+        total_duration_ms=7.5,
+        phase_results=[],
+    )
+    store = SimpleNamespace(name="active-store")
+    manager = MagicMock()
+    manager.trigger_consolidation_cycle = AsyncMock(
+        return_value=ConsolidationTriggerResult(
+            cycle=cycle,
+            graph_stats={"episodes": 3},
+        )
+    )
+
+    result = await build_mcp_consolidation_trigger_surface(
+        manager,
+        group_id="native_brain",
+        dry_run=True,
+        consolidation_store=store,
+    )
+
+    assert result["cycle_id"] == "cyc_1"
+    assert "id" not in result
+    assert result["graph_stats"] == {"episodes": 3}
+    manager.trigger_consolidation_cycle.assert_awaited_once_with(
+        group_id="native_brain",
+        trigger="mcp",
+        dry_run=True,
+        consolidation_store=store,
+    )

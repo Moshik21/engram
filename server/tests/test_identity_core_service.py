@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from engram.retrieval.identity_core import IdentityCoreService
+from engram.retrieval.identity_core import IdentityCoreService, build_mcp_identity_core_surface
 
 
 class FakeGraphStore:
@@ -60,3 +61,29 @@ async def test_identity_core_service_reports_missing_entity() -> None:
 
     assert result == {"status": "error", "message": "Entity 'Missing' not found."}
     assert graph.updates == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_identity_core_surface_forwards_group_and_flag() -> None:
+    manager = MagicMock()
+    manager.mark_identity_core = AsyncMock(
+        return_value={
+            "status": "updated",
+            "entity": "Alex",
+            "identity_core": True,
+        }
+    )
+
+    result = await build_mcp_identity_core_surface(
+        manager,
+        group_id="native_brain",
+        entity_name="Alex",
+        identity_core=True,
+    )
+
+    assert result["status"] == "updated"
+    manager.mark_identity_core.assert_awaited_once_with(
+        "Alex",
+        identity_core=True,
+        group_id="native_brain",
+    )

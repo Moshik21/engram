@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -85,11 +87,42 @@ async def build_mcp_recall_surface(
         cfg=cfg,
         serializer=lambda packet: packet.to_dict(),
     )
-    return {
+    response = {
         "packets": packets,
         "results": formatted,
         "total_candidates": len(formatted),
     }
+    await attach_mcp_explicit_recall_enrichment(
+        manager,
+        response,
+        group_id=group_id,
+    )
+    return response
+
+
+async def attach_mcp_explicit_recall_enrichment(
+    manager: Any,
+    response: dict[str, Any],
+    *,
+    group_id: str,
+    now: float | None = None,
+) -> None:
+    """Attach MCP explicit-recall near-miss and surprise views when available."""
+    near_misses = manager.get_last_near_miss_views()
+    if inspect.isawaitable(near_misses):
+        near_misses = await near_misses
+    if isinstance(near_misses, list) and near_misses:
+        response["near_misses"] = near_misses
+
+    surprises = manager.get_surprise_connection_views(
+        group_id,
+        now=time.time() if now is None else now,
+        limit=3,
+    )
+    if inspect.isawaitable(surprises):
+        surprises = await surprises
+    if isinstance(surprises, list) and surprises:
+        response["surprise_connections"] = surprises
 
 
 async def assemble_explicit_recall_packet_payloads(

@@ -17,7 +17,11 @@ from engram.notifications.models import (
     notification_to_dict,
 )
 from engram.notifications.store import NotificationStore
-from engram.notifications.surface import NotificationSurfaceService
+from engram.notifications.surface import (
+    NotificationSurfaceService,
+    build_api_notification_dismiss_surface,
+    build_api_notifications_surface,
+)
 
 # ─── Helpers ──────────────────────────────────────────────────────
 
@@ -131,6 +135,44 @@ class TestNotificationSurfaceService:
         assert active.dismissed_at is not None
         assert other.dismissed_at is None
         assert service.list_notifications(group_id="brain") == []
+
+    def test_builds_rest_notification_payloads(self):
+        store = NotificationStore()
+        service = NotificationSurfaceService(store)
+        active = _make_notification(group_id="brain", title="Active", created_at=10.0)
+        other = _make_notification(group_id="other", title="Other", created_at=11.0)
+        store.add(active)
+        store.add(other)
+
+        listed = build_api_notifications_surface(
+            service,
+            group_id="brain",
+            limit=20,
+            since=0.0,
+        )
+        assert [item["title"] for item in listed["notifications"]] == ["Active"]
+
+        dismissed = build_api_notification_dismiss_surface(
+            service,
+            group_id="brain",
+            ids=[active.id, other.id],
+        )
+        assert dismissed == {"dismissed": 1}
+        assert active.dismissed_at is not None
+        assert other.dismissed_at is None
+
+    def test_builds_empty_rest_notification_payloads_without_service(self):
+        assert build_api_notifications_surface(
+            None,
+            group_id="brain",
+            limit=20,
+            since=0.0,
+        ) == {"notifications": []}
+        assert build_api_notification_dismiss_surface(
+            None,
+            group_id="brain",
+            ids=["notif_1"],
+        ) == {"dismissed": 0}
 
     def test_presents_mcp_notifications_and_respects_config(self):
         store = NotificationStore()

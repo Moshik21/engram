@@ -8,11 +8,18 @@ from fastapi import APIRouter, BackgroundTasks, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import (
+    get_config,
     get_consolidation_engine,
     get_consolidation_scheduler,
     get_pressure_accumulator,
 )
-from engram.consolidation.presenter import serialize_cycle_detail, serialize_cycle_summary
+from engram.consolidation_trigger import (
+    build_api_consolidation_cycle_detail_surface,
+    build_api_consolidation_history_surface,
+    build_api_consolidation_status_surface,
+    build_api_consolidation_trigger_surface,
+    run_api_consolidation_cycle,
+)
 from engram.security.middleware import get_tenant
 
 logger = logging.getLogger(__name__)
@@ -34,27 +41,20 @@ async def trigger_consolidation(
     group_id = tenant.group_id
     engine = get_consolidation_engine()
 
-    if engine.is_running:
-        return JSONResponse(
-            status_code=409,
-            content={"detail": "A consolidation cycle is already running"},
-        )
-
-    async def _run():
-        try:
-            await engine.run_cycle(group_id=group_id, trigger="manual", dry_run=dry_run)
-        except Exception:
-            logger.exception("Background consolidation cycle failed")
-
-    background_tasks.add_task(_run)
-
-    return JSONResponse(
-        content={
-            "status": "triggered",
-            "group_id": group_id,
-            "dry_run": dry_run,
-        }
+    result = build_api_consolidation_trigger_surface(
+        engine,
+        group_id=group_id,
+        dry_run=dry_run,
     )
+    if result.should_run:
+        background_tasks.add_task(
+            run_api_consolidation_cycle,
+            engine,
+            group_id=group_id,
+            dry_run=dry_run,
+            logger=logger,
+        )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/status")
@@ -63,34 +63,18 @@ async def consolidation_status(request: Request) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     engine = get_consolidation_engine()
-
     scheduler = get_consolidation_scheduler()
-    result: dict = {
-        "is_running": engine.is_running,
-        "scheduler_active": scheduler.is_active if scheduler else False,
-    }
-
-    # Include pressure snapshot if available
     pressure = get_pressure_accumulator()
-    if pressure:
-        snapshot = pressure.get_snapshot(group_id)
-        if snapshot:
-            from engram.api.deps import get_config
+    activation_cfg = get_config().activation if pressure is not None else None
 
-            cfg = get_config().activation
-            result["pressure"] = {
-                "value": round(pressure.get_pressure(group_id, cfg), 2),
-                "threshold": cfg.consolidation_pressure_threshold,
-                "episodes_since_last": snapshot.episodes_since_last,
-                "entities_created": snapshot.entities_created,
-                "last_cycle_time": snapshot.last_cycle_time,
-            }
-
-    latest_cycle = await engine.get_latest_cycle(group_id)
-    if latest_cycle is not None:
-        result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
-
-    return JSONResponse(content=result)
+    payload = await build_api_consolidation_status_surface(
+        engine,
+        group_id=group_id,
+        scheduler=scheduler,
+        pressure=pressure,
+        activation_cfg=activation_cfg,
+    )
+    return JSONResponse(content=payload)
 
 
 @router.get("/history")
@@ -103,12 +87,12 @@ async def consolidation_history(
     group_id = tenant.group_id
     engine = get_consolidation_engine()
 
-    cycles = await engine.get_recent_cycles(group_id, limit=limit)
-    return JSONResponse(
-        content={
-            "cycles": [serialize_cycle_summary(c) for c in cycles],
-        }
+    payload = await build_api_consolidation_history_surface(
+        engine,
+        group_id=group_id,
+        limit=limit,
     )
+    return JSONResponse(content=payload)
 
 
 @router.get("/cycle/{cycle_id}")
@@ -121,14 +105,9 @@ async def consolidation_cycle_detail(
     group_id = tenant.group_id
     engine = get_consolidation_engine()
 
-    if not engine.audit_store_available:
-        return JSONResponse(
-            status_code=404,
-            content={"detail": "Consolidation store not available"},
-        )
-
-    detail = await engine.get_cycle_detail(cycle_id, group_id)
-    if detail is None:
-        return JSONResponse(status_code=404, content={"detail": "Cycle not found"})
-
-    return JSONResponse(content=serialize_cycle_detail(detail))
+    result = await build_api_consolidation_cycle_detail_surface(
+        engine,
+        group_id=group_id,
+        cycle_id=cycle_id,
+    )
+    return JSONResponse(status_code=result.status_code, content=result.payload)

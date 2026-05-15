@@ -34,6 +34,27 @@ async def build_explicit_feedback_surface(
     )
 
 
+async def build_mcp_explicit_feedback_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+    rating: int,
+    comment: str | None,
+) -> dict:
+    """Validate, record, and present MCP explicit feedback."""
+    try:
+        return await build_explicit_feedback_surface(
+            manager,
+            group_id=group_id,
+            entity_id=entity_id,
+            rating=rating,
+            comment=comment,
+        )
+    except FeedbackRatingError as e:
+        return {"error": str(e)}
+
+
 class PreferenceFeedbackRecorder:
     """Record explicit user preference feedback as graph reinforcement edges."""
 

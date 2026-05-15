@@ -5,6 +5,21 @@ from __future__ import annotations
 from typing import Any
 
 
+async def build_mcp_identity_core_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_name: str,
+    identity_core: bool,
+) -> dict:
+    """Apply an MCP identity-core mutation and return its public payload."""
+    return await manager.mark_identity_core(
+        entity_name,
+        identity_core=identity_core,
+        group_id=group_id,
+    )
+
+
 class IdentityCoreService:
     """Own identity-core protection mutations for a brain group."""
 

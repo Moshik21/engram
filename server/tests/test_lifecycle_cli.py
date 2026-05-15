@@ -15,7 +15,7 @@ from engram.lifecycle_cli import (
     configure_lifecycle_parser,
     format_lifecycle_summary_markdown,
 )
-from engram.lifecycle_summary import build_lifecycle_summary
+from engram.lifecycle_summary import build_lifecycle_summary, build_mcp_lifecycle_summary_surface
 from engram.models.consolidation import ConsolidationCycle, PhaseResult
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
@@ -27,6 +27,39 @@ def _parse_lifecycle_args(*args: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     configure_lifecycle_parser(parser)
     return parser.parse_args(list(args))
+
+
+@pytest.mark.asyncio
+async def test_mcp_lifecycle_summary_surface_forwards_store_reader_and_clamped_limits() -> None:
+    consolidation_store = SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[]))
+    activation_config = SimpleNamespace(decay_exponent=0.4)
+    manager = SimpleNamespace(
+        get_lifecycle_summary=AsyncMock(
+            return_value={
+                "groupId": "native_brain",
+                "loop": ["capture", "cue", "project", "recall", "consolidate"],
+            }
+        )
+    )
+
+    result = await build_mcp_lifecycle_summary_surface(
+        manager,
+        group_id="native_brain",
+        consolidation_store=consolidation_store,
+        activation_config=activation_config,
+        episode_limit=0,
+        cycle_limit=0,
+    )
+
+    assert result["groupId"] == "native_brain"
+    manager.get_lifecycle_summary.assert_awaited_once()
+    kwargs = manager.get_lifecycle_summary.await_args.kwargs
+    assert kwargs["group_id"] == "native_brain"
+    assert kwargs["activation_config"] is activation_config
+    assert kwargs["episode_limit"] == 1
+    assert kwargs["cycle_limit"] == 1
+    assert kwargs["consolidation_reader"].available is True
+    assert kwargs["consolidation_engine"].is_running is False
 
 
 @pytest.mark.asyncio

@@ -959,6 +959,19 @@ class TestJSONResponses:
         assert '"status": "materialized"' in raw
 
     @pytest.mark.asyncio
+    async def test_mcp_feedback_returns_error_payload_for_invalid_rating(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(record_explicit_feedback=AsyncMock())
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+
+        raw = await mcp_server.feedback(entity_id="ent_1", rating=6)
+
+        assert json.loads(raw) == {"error": "Rating must be between 1 and 5"}
+        manager.record_explicit_feedback.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_mcp_records_recall_evaluation_sample(self, monkeypatch):
         from engram.mcp import server as mcp_server
 
@@ -1082,8 +1095,8 @@ class TestJSONResponses:
         monkeypatch.setattr(mcp_server, "_group_id", "default")
         monkeypatch.setattr(
             mcp_server,
-            "_load_consolidation_evaluation_inputs",
-            AsyncMock(return_value=([], [])),
+            "_consolidation_store",
+            SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[])),
         )
 
         raw = await mcp_server.get_evaluation_report(sample_limit=50)
@@ -1149,8 +1162,8 @@ class TestJSONResponses:
         monkeypatch.setattr(mcp_server, "_group_id", "default")
         monkeypatch.setattr(
             mcp_server,
-            "_load_consolidation_evaluation_inputs",
-            AsyncMock(return_value=([], [])),
+            "_consolidation_store",
+            SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[])),
         )
 
         raw = await mcp_server.get_evaluation_report(sample_limit=50)
@@ -1167,20 +1180,18 @@ class TestJSONResponses:
         assert "recall gate needs runtime analyses" not in data["coverage_gaps"]
 
     @pytest.mark.asyncio
-    async def test_mcp_evaluation_report_reads_active_consolidation_store(self, monkeypatch):
-        from engram.mcp import server as mcp_server
+    async def test_mcp_evaluation_report_reads_active_consolidation_store(self):
+        from engram.evaluation.report_service import load_consolidation_evaluation_inputs
 
         cycle = SimpleNamespace(id="cyc_native", phase_results=[])
         store = SimpleNamespace(
             get_recent_cycles=AsyncMock(return_value=[cycle]),
             get_calibration_snapshots=AsyncMock(return_value=["snapshot"]),
         )
-        manager = SimpleNamespace(_graph=SimpleNamespace())
-        monkeypatch.setattr(mcp_server, "_consolidation_store", store)
 
-        cycles, snapshots = await mcp_server._load_consolidation_evaluation_inputs(
-            manager,
-            "native_brain",
+        cycles, snapshots = await load_consolidation_evaluation_inputs(
+            store,
+            group_id="native_brain",
             cycle_limit=7,
         )
 

@@ -111,6 +111,12 @@ What changed in this pass:
   and MCP `trigger_consolidation` now formats the returned cycle instead of
   building an engine from `manager._graph`, `_activation`, `_search`, `_cfg`,
   and `_extractor`.
+- Moved MCP identity-core and consolidation-control response assembly behind
+  route-facing helpers. `server/engram/retrieval/identity_core.py` now owns MCP
+  identity-core dispatch, and `server/engram/consolidation_trigger.py` now owns
+  MCP trigger dispatch, consolidation status reads, and cycle-summary shaping
+  while the MCP transport keeps JSON wrapping and active consolidation-store
+  selection.
 - Extracted MCP entity graph resources out of route-local graph/activation
   reads. `GraphStateService` now owns entity profile and one-hop neighbor
   resource views, `GraphManager.get_entity_profile()` and
@@ -167,7 +173,8 @@ What changed in this pass:
   `get_temporal_graph()` now own the dashboard graph payload construction, so
   `/api/graph/neighborhood` and `/api/graph/at` no longer read
   `manager._graph`, `_activation`, or `_cfg` while preserving the existing JSON
-  shapes.
+  shapes. Route-facing helpers in `server/engram/retrieval/graph_state.py` now
+  also own REST missing-entity and invalid-timestamp payloads for those routes.
 - Moved MCP recall-response enrichment behind `RecallResponseStateService`.
   `GraphManager` now exposes facades for draining triggered-intention views,
   latest near misses, recall item access counts, and surprise-connection views,
@@ -193,6 +200,11 @@ What changed in this pass:
   `/api/lifecycle/summary` and MCP `get_lifecycle_summary`, so both transports
   preserve the shared payload without directly calling `build_lifecycle_summary`
   or passing graph/config facades themselves.
+- Moved MCP lifecycle-summary audit-store wiring behind
+  `server/engram/lifecycle_summary.py`. MCP `get_lifecycle_summary` now delegates
+  active audit-store reader construction, inactive-engine placeholder wiring, and
+  limit clamping to a route-facing helper while keeping JSON wrapping in the
+  tool handler.
 - Moved the dashboard WebSocket activation-monitor snapshot behind the existing
   graph-state activation facade. `subscribe.activation_monitor` now sends
   `GraphManager.get_activation_snapshot()` payloads instead of reading
@@ -202,7 +214,10 @@ What changed in this pass:
   REST `/api/knowledge/notifications`, REST dismiss, and MCP
   `memory_notifications` piggybacking now share one group-scoped presentation
   and dismissal boundary instead of reading the app notification store and
-  formatting payloads in route/tool code.
+  formatting payloads in route/tool code. The notification surface now also
+  owns REST list/dismiss response envelopes and missing-service fallbacks, so
+  `server/engram/api/knowledge.py` keeps only tenant lookup and JSON wrapping
+  for those routes.
 - Moved the dashboard WebSocket notification dismiss command behind the same
   notification surface boundary. `dismiss_notification` now calls
   `NotificationSurfaceService.dismiss_notifications()` with the connected brain
@@ -238,6 +253,13 @@ What changed in this pass:
   MCP consolidation status, and MCP lifecycle summaries use the same reader, and
   lifecycle summaries now accept an explicit `consolidation_reader` instead of a
   synthetic engine object with private store state.
+- Moved REST consolidation control/read response assembly behind route-facing
+  helpers in `server/engram/consolidation_trigger.py`. REST trigger conflict and
+  acknowledgement payloads, background-cycle execution, status pressure/latest
+  cycle shaping, history cycle lists, and cycle-detail 404/detail payloads now
+  live beside the MCP consolidation-control helpers while
+  `server/engram/api/consolidation.py` keeps tenant lookup, dependency lookup,
+  background-task registration, and HTTP wrapping.
 - Moved knowledge-chat rich tool-event shaping behind
   `server/engram/retrieval/chat_events.py`. The REST route still owns AI SDK
   SSE framing, but recall/fact-to-UI-event selection and chat-recall
@@ -261,8 +283,9 @@ What changed in this pass:
 - Moved REST/MCP explicit recall result and packet assembly behind
   `server/engram/retrieval/recall_surface.py`. REST and MCP still keep their
   transport-specific metadata, middleware, and response field names, but the
-  Recall-stage manager call, packet analysis, packet assembly, and API/MCP
-  recall item presentation now share one retrieval-side boundary.
+  Recall-stage manager call, packet analysis, packet assembly, API/MCP recall
+  item presentation, and MCP near-miss/surprise side-channel enrichment now
+  share one retrieval-side boundary.
 - Moved sync/async recall-need threshold resolution and memory-need analysis
   recording behind helpers in `server/engram/retrieval/control.py`. REST, MCP,
   chat runtime, chat tool execution, and explicit recall surface code now share
@@ -279,15 +302,17 @@ What changed in this pass:
 - Moved REST/MCP prospective-memory intention surfaces behind helpers in
   `server/engram/retrieval/prospective.py`. REST and MCP now share intention
   create/list/dismiss manager calls and acknowledgement shaping while preserving
-  HTTP status mapping and MCP error wrappers.
+  HTTP status mapping and MCP error wrappers. REST intention validation and
+  not-found payload bodies now live in the same helper module instead of
+  `server/engram/api/knowledge.py`.
 - Moved REST/MCP forget entity/fact surfaces behind helpers in
   `server/engram/retrieval/forgetting.py`. REST keeps its entity-first behavior
   when both targets are supplied; MCP keeps its exactly-one-target validation,
   but both surfaces share target dispatch and fact-field normalization.
 - Moved REST/MCP explicit preference-feedback validation and manager dispatch
   behind `server/engram/retrieval/preference_feedback.py`. REST keeps 400/404
-  HTTP mapping and MCP keeps its JSON error response, but rating validation and
-  `record_explicit_feedback` dispatch now share one helper.
+  HTTP mapping, but rating validation, `record_explicit_feedback` dispatch, and
+  MCP invalid-rating error payloads now share route-facing helpers.
 - Moved REST/MCP project bootstrap and runtime-state route calls behind shared
   surface helpers. `server/engram/ingestion/project_bootstrap.py` now owns the
   transport-facing bootstrap manager call plus REST skipped-status mapping, and
@@ -308,12 +333,15 @@ What changed in this pass:
   `server/engram/retrieval/chat_persistence.py`. The REST chat route still owns
   streaming and AI SDK tool-loop behavior, but conversation validation/creation,
   group-scoped not-found handling, completed-turn persistence, and recalled
-  entity tagging now live in a retrieval-side helper.
+  entity tagging now live in a retrieval-side helper. The chat conversation
+  not-found payload body now also lives in that helper, leaving the route with
+  HTTP status mapping.
 - Moved REST conversation CRUD behind
   `server/engram/retrieval/conversation_persistence.py`. The conversations API
   now delegates group-scoped listing, creation, message reads/appends,
-  title updates, deletes, and not-found translation to a shared helper instead
-  of encoding store calls in the route.
+  title updates, deletes, REST response-envelope shaping, and not-found
+  translation to shared helpers instead of encoding store calls or payload
+  bodies in the route.
 - Moved REST/MCP episode adjudication request loading behind
   `server/engram/ingestion/adjudication_surface.py`. REST and MCP remember
   surfaces now share the compatibility lookup for post-write adjudication work
@@ -333,10 +361,16 @@ What changed in this pass:
   transport-specific stores, cycle context, and snapshot source labels, but
   graph-state reads, runtime Recall metric snapshot persistence/reload, saved
   label reads, and report construction now share one service boundary.
+- Moved MCP evaluation report consolidation-input loading behind the same report
+  service boundary. `server/engram/evaluation/report_service.py` now owns active
+  MCP audit-store reads, cycle-limit clamping, and calibration snapshot loading
+  before building the MCP report, so `mcp/server.py` no longer carries a local
+  evaluation-input loader.
 - Moved REST/MCP evaluation label writes behind
   `server/engram/evaluation/label_service.py`. REST and MCP now share the
   recall-quality and session-continuity sample construction, count clamping,
-  active `group_id` persistence, and existing write presenters.
+  active `group_id` persistence, and write acknowledgement presentation through
+  route-facing helpers.
 - Moved REST/MCP public Capture write dispatch behind
   `server/engram/ingestion/capture_surface.py`. REST and MCP observe/remember
   paths now share conversation-date parsing, attachment construction, raw
@@ -576,10 +610,11 @@ What changed in this pass:
   behavior.
 - Extracted REST offline capture replay into
   `server/engram/ingestion/offline_replay.py`. The `/api/knowledge/replay-queue`
-  route still owns tenant resolution and response shape, while
-  `OfflineReplayService` owns queue draining, short-content skips, dedup skips,
-  active `group_id` store calls, failed-entry accounting, and replay payload
-  counts.
+  route still owns tenant resolution, manager dependency lookup, and JSON
+  wrapping, while `OfflineReplayService` owns queue draining, short-content
+  skips, dedup skips, active `group_id` store calls, failed-entry accounting,
+  and replay counts. `build_api_offline_replay_surface()` now owns service
+  construction and the `status: replayed` REST acknowledgement payload.
 - Extracted auto-observe/replay deduplication into
   `server/engram/ingestion/dedup.py`. The API keeps `_DEDUP_CACHE` and
   `_dedup_check()` compatibility handles for existing tests and monkeypatches,
@@ -4573,12 +4608,17 @@ What changed in this pass:
   tests/test_knowledge_api.py::TestReplayQueue::test_replay_queue_uses_current_tenant_group
   -q`
   - Result: 3 passed.
+  `uv run pytest tests/test_offline_replay_service.py
+  tests/test_knowledge_api.py::TestReplayQueue
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 124 passed.
   `uv run pytest
   tests/test_native_surface_parity.py::test_native_helix_rest_surfaces_handle_bounded_remember_recall_load
   -q`
   - Result: 1 passed.
   `uv run ruff check engram/api/knowledge.py engram/ingestion/offline_replay.py
-  tests/test_offline_replay_service.py tests/test_knowledge_api.py`
+  tests/test_offline_replay_service.py tests/test_knowledge_api.py
+  tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2643 passed, 43 skipped, 236 deselected in 112.22s.
@@ -4728,6 +4768,41 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2735 passed, 43 skipped, 236 deselected in 199.69s.
+- MCP identity-core/consolidation control public-surface boundary:
+  `uv run pytest tests/test_identity_core_service.py
+  tests/test_consolidation_trigger_service.py tests/test_mcp_tools.py -k
+  "identity_core or mcp_trigger_consolidation"
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py -q`
+  - Result: 7 passed, 190 deselected.
+  `uv run ruff check engram/retrieval/identity_core.py
+  engram/consolidation_trigger.py engram/mcp/server.py
+  tests/test_identity_core_service.py tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py tests/test_mcp_tools.py`
+  - Result: passed.
+- MCP consolidation status public-surface boundary:
+  `uv run pytest tests/test_consolidation_trigger_service.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_consolidation_status_includes_latest_cycle
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py -q`
+  - Result: 130 passed.
+  `uv run ruff check engram/consolidation_trigger.py engram/mcp/server.py
+  tests/test_consolidation_trigger_service.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py`
+  - Result: passed.
+- REST consolidation control/read public-surface boundary:
+  `uv run pytest tests/test_consolidation_trigger_service.py
+  tests/test_api_endpoints.py::TestConsolidationAPI
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py -q`
+  - Result: 137 passed.
+  `uv run ruff check engram/consolidation_trigger.py
+  engram/api/consolidation.py tests/test_consolidation_trigger_service.py
+  tests/test_api_endpoints.py tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py`
+  - Result: passed.
 - MCP entity graph-resource service boundary:
   `uv run pytest tests/test_graph_state_resource_views.py
   tests/test_graph_manager_facade_boundaries.py
@@ -4874,9 +4949,13 @@ What changed in this pass:
   tests/test_mcp_tools.py::TestGetGraphState tests/test_graph_state_resource_views.py
   tests/test_public_surface_presenter_boundaries.py -q`
   - Result: 142 passed.
-  `uv run ruff check engram/retrieval/graph_state.py engram/mcp/server.py
-  tests/test_mcp_graph_state_surfaces.py tests/test_graph_state_resource_views.py
-  tests/test_mcp_tools.py tests/test_public_surface_presenter_boundaries.py`
+  `uv run pytest tests/test_mcp_graph_state_surfaces.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 126 passed.
+  `uv run ruff check engram/retrieval/graph_state.py engram/api/graph.py
+  engram/mcp/server.py tests/test_mcp_graph_state_surfaces.py
+  tests/test_graph_state_resource_views.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
 - MCP recall-response state boundary:
   `uv run pytest tests/test_recall_response_state.py tests/test_piggyback_context.py
@@ -4959,6 +5038,17 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2851 passed, 43 skipped, 236 deselected in 338.44s.
+- MCP lifecycle-summary public-surface boundary:
+  `uv run pytest
+  tests/test_lifecycle_cli.py::test_mcp_lifecycle_summary_surface_forwards_store_reader_and_clamped_limits
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_lifecycle_summary_uses_manager_facade
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_lifecycle_summary_clamps_limits
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 122 passed.
+  `uv run ruff check engram/lifecycle_summary.py engram/mcp/server.py
+  tests/test_lifecycle_cli.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - Dashboard WebSocket activation monitor service boundary:
   `uv run pytest
   tests/test_websocket.py::TestWebSocket::test_activation_monitor_snapshot_uses_dashboard_payload
@@ -4988,6 +5078,15 @@ What changed in this pass:
   engram/main.py engram/api/knowledge.py engram/mcp/server.py
   tests/test_notifications.py tests/test_knowledge_api.py
   tests/test_piggyback_context.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- REST notification response-envelope helpers:
+  `uv run pytest tests/test_notifications.py
+  tests/test_knowledge_api.py::TestNotifications
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 169 passed.
+  `uv run ruff check engram/notifications/surface.py engram/api/knowledge.py
+  tests/test_notifications.py tests/test_knowledge_api.py
+  tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2858 passed, 43 skipped, 236 deselected in 697.63s.
@@ -5158,6 +5257,15 @@ What changed in this pass:
   - Result: passed.
   `git diff --check`
   - Result: passed.
+- MCP explicit recall enrichment surface:
+  `uv run pytest tests/test_recall_surface.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_recall_packet_analysis_uses_active_group
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 121 passed.
+  `uv run ruff check engram/retrieval/recall_surface.py engram/mcp/server.py
+  tests/test_recall_surface.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - Shared recall-control manager compatibility helpers:
   `uv run pytest tests/test_recall_control_helpers.py tests/test_chat_feedback.py
   tests/test_chat_tools.py tests/test_knowledge_api.py tests/test_chat_events.py
@@ -5211,6 +5319,16 @@ What changed in this pass:
   engram/mcp/server.py tests/test_prospective_surface.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+  `uv run pytest tests/test_prospective_surface.py
+  tests/test_chat_persistence.py
+  tests/test_conversations_api.py::TestConversationOwnership::test_chat_rejects_other_group_conversation_id
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 132 passed.
+  `uv run ruff check engram/retrieval/prospective.py
+  engram/retrieval/chat_persistence.py engram/api/knowledge.py
+  tests/test_prospective_surface.py tests/test_chat_persistence.py
+  tests/test_conversations_api.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
   `git diff --check`
   - Result: passed.
 - REST/MCP forget surface boundary:
@@ -5240,6 +5358,15 @@ What changed in this pass:
   - Result: passed.
   `git diff --check`
   - Result: passed.
+- MCP preference-feedback error surface:
+  `uv run pytest tests/test_preference_feedback_surface.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_feedback_returns_error_payload_for_invalid_rating
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 123 passed.
+  `uv run ruff check engram/retrieval/preference_feedback.py
+  engram/mcp/server.py tests/test_preference_feedback_surface.py
+  tests/test_mcp_tools.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - Knowledge-chat conversation persistence boundary:
   `uv run pytest tests/test_chat_persistence.py
   tests/test_conversations_api.py::TestConversationOwnership::test_chat_rejects_other_group_conversation_id
@@ -5254,14 +5381,18 @@ What changed in this pass:
   engram/api/knowledge.py tests/test_chat_persistence.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+  Latest focused prospective/chat error-payload helper gate:
+  `uv run pytest tests/test_prospective_surface.py tests/test_chat_persistence.py
+  tests/test_conversations_api.py::TestConversationOwnership::test_chat_rejects_other_group_conversation_id
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 132 passed.
 - REST conversation persistence boundary:
   `uv run pytest tests/test_conversation_persistence.py
   tests/test_conversations_api.py tests/test_public_surface_presenter_boundaries.py -q`
-  - Result: 103 passed.
+  - Result: 127 passed.
   `uv run ruff check engram/retrieval/conversation_persistence.py
-  engram/retrieval/chat_persistence.py engram/api/conversations.py
-  tests/test_conversation_persistence.py
-  tests/test_public_surface_presenter_boundaries.py`
+  engram/api/conversations.py tests/test_conversation_persistence.py
+  tests/test_conversations_api.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
 - REST/MCP adjudication request surface:
   `uv run pytest tests/test_adjudication_surface.py
@@ -5351,16 +5482,28 @@ What changed in this pass:
   tests/test_evaluation_report_service.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+- MCP evaluation report public-surface boundary:
+  `uv run pytest tests/test_evaluation_report_service.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_evaluation_report_uses_saved_samples
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_evaluation_report_uses_saved_recall_runtime_snapshot
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_evaluation_report_reads_active_consolidation_store
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 126 passed.
+  `uv run ruff check engram/evaluation/report_service.py engram/mcp/server.py
+  tests/test_evaluation_report_service.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - Shared REST/MCP evaluation label writes:
   `uv run pytest tests/test_evaluation_label_service.py
-  tests/test_evaluation_report_service.py tests/test_api_endpoints.py::TestEvaluation
+  tests/test_api_endpoints.py::TestEvaluation
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_records_recall_evaluation_sample
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_records_session_continuity_evaluation_sample
   tests/test_public_surface_presenter_boundaries.py -q`
-  - Result: 99 passed.
-  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses -q`
-  - Result: 16 passed, 2 skipped.
+  - Result: 129 passed.
   `uv run ruff check engram/evaluation/label_service.py
   engram/api/evaluation.py engram/mcp/server.py
-  tests/test_evaluation_label_service.py
+  tests/test_evaluation_label_service.py tests/test_api_endpoints.py
+  tests/test_mcp_tools.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
 - Combined service-boundary focused gate:
@@ -5372,6 +5515,24 @@ What changed in this pass:
   - Result: 139 passed.
   `uv run ruff check` on the touched consolidation/API/evaluation/retrieval/MCP
   modules and focused tests.
+  - Result: passed.
+- Route-facing public-surface cleanup combined gate:
+  `uv run pytest tests/test_preference_feedback_surface.py
+  tests/test_recall_surface.py tests/test_identity_core_service.py
+  tests/test_consolidation_trigger_service.py tests/test_lifecycle_cli.py
+  tests/test_evaluation_report_service.py tests/test_evaluation_label_service.py
+  tests/test_api_endpoints.py::TestEvaluation
+  tests/test_api_endpoints.py::TestConsolidationAPI tests/test_mcp_tools.py
+  tests/test_conversation_persistence.py tests/test_conversations_api.py
+  tests/test_notifications.py tests/test_knowledge_api.py::TestNotifications
+  tests/test_offline_replay_service.py tests/test_knowledge_api.py::TestReplayQueue
+  tests/test_prospective_surface.py tests/test_chat_persistence.py
+  tests/test_mcp_graph_state_surfaces.py tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_presenter_boundaries.py -q`
+  - Result: 310 passed, 2 skipped.
+  `uv run ruff check` on the touched route-surface modules and focused tests.
+  - Result: passed.
+  `/Applications/Xcode.app/Contents/Developer/usr/bin/git diff --check`
   - Result: passed.
 - Broad backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
@@ -5616,18 +5777,39 @@ visibility work treated as done:
    `retrieval.graph_state` surface helpers, so keep graph tool dispatch, graph
    stats shaping, entity profile resource dispatch, and entity-neighbor resource
    dispatch out of `mcp/server.py`.
+   REST graph neighborhood and temporal graph routes also share
+   `retrieval.graph_state` surface helpers, so keep manager dispatch,
+   missing-entity payloads, temporal timestamp parsing, and invalid-timestamp
+   payloads out of `server/engram/api/graph.py`.
+   REST and MCP consolidation controls/read payloads now share route-facing
+   helpers in `consolidation_trigger.py`, so keep REST trigger/status/history/
+   detail payload shaping and MCP consolidation-status/trigger cycle-summary
+   shaping out of public transport code. MCP still owns JSON wrapping and
+   active consolidation-store selection.
+   MCP lifecycle summary now shares a route-facing lifecycle helper, so keep
+   audit-store reader construction, inactive-engine placeholder wiring, and
+   limit clamping out of `mcp/server.py`.
+   MCP explicit recall near-miss/surprise enrichment now shares
+   `retrieval.recall_surface`, so keep those side-channel response fields out
+   of `mcp/server.py`; the tool still owns query timing, session flags, JSON
+   wrapping, and recall middleware.
    REST/MCP deterministic question routing now shares
    `retrieval.epistemic_route` helpers, so keep route history normalization and
    the manager route call out of public transport code.
    REST/MCP prospective-memory intention surfaces now share
    `retrieval.prospective` helpers, so keep intention create/list/dismiss
-   manager calls and acknowledgement shapes out of public transport code.
+   manager calls, acknowledgement shapes, and REST intention validation/not-found
+   payload bodies out of public transport code.
+   Knowledge-chat conversation persistence now shares `retrieval.chat_persistence`
+   helpers, so keep conversation validation/creation, group-scoped not-found
+   handling and payload shaping, completed-turn persistence, and recalled entity
+   tagging out of the REST chat route.
    REST/MCP forget entity/fact surfaces now share `retrieval.forgetting`
    helpers, so keep target dispatch and fact-field normalization out of public
    transport code.
    REST/MCP explicit preference feedback now shares `retrieval.preference_feedback`
-   validation/dispatch, so keep rating validation and manager feedback calls out
-   of public transport code.
+   validation/dispatch, so keep rating validation, manager feedback calls, and
+   MCP invalid-rating error payload shaping out of public transport code.
 7. Use `docs/design/brain-runtime-completion-audit.md` before any completion
    claim. The current verdict is not complete; the GraphManager compatibility
    facade is now guarded more broadly, and the consolidation audit store reads
@@ -5640,18 +5822,27 @@ visibility work treated as done:
    prospective-memory intentions, and chat conversation persistence are also
    behind shared helpers now. REST/MCP forget target dispatch shares a retrieval
    helper, REST/MCP explicit preference feedback shares a retrieval helper, REST
-   conversation CRUD has a group-scoped persistence helper, and SSE framing plus
-   the Anthropic tool-use loop/retry call remain in the route as intentional
-   transport concerns. REST/MCP episode adjudication request loading now shares
-   an ingestion helper, and REST/MCP adjudication resolution now shares the same
-   adjudication surface module. REST/MCP public Capture write dispatch now shares
-   an ingestion capture-surface helper. REST entity detail/mutation response
+   conversation CRUD has group-scoped persistence and response-envelope helpers,
+   and SSE framing plus the Anthropic tool-use loop/retry call remain in the
+   route as intentional transport concerns. REST/MCP episode adjudication
+   request loading now shares an ingestion helper, and REST/MCP adjudication
+   resolution now shares the same adjudication surface module. REST/MCP public
+   Capture write dispatch now shares an ingestion capture-surface helper. REST
+   entity detail/mutation response
    assembly now shares a retrieval entity-surface helper. MCP graph-state and
    graph/entity resource response assembly now shares retrieval graph-state
-   surface helpers. REST/MCP live conversation manager-facade helpers are
-   centralized in `retrieval.context`. REST/MCP brain-loop evaluation report
-   assembly now shares a service boundary too, and REST/MCP evaluation label
-   writes share a label service. MCP auto-recall cooldown, query extraction,
+   surface helpers, and REST graph neighborhood/temporal route response assembly
+   now uses the same graph-state surface module. REST and MCP consolidation
+   control/read response assembly now share route-facing helpers, and MCP
+   identity-core response assembly has a route-facing helper. REST/MCP live
+   conversation manager-facade helpers are centralized in `retrieval.context`.
+   MCP lifecycle summary audit-store/limit wiring now shares a lifecycle helper.
+   REST/MCP
+   brain-loop evaluation report assembly now shares a service boundary too, and
+   MCP evaluation report audit-store/cycle-snapshot loading now lives in that
+   report service. REST/MCP evaluation label writes now share label write
+   surface helpers. MCP explicit recall near-miss/surprise enrichment now lives
+   in the recall surface helper. MCP auto-recall cooldown, query extraction,
    per-tool gating,
    first-call session-prime planning, and middleware side-effect planning are
    also now in retrieval policy code, and lite/full auto-recall result

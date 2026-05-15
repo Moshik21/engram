@@ -8,12 +8,13 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store
 from engram.retrieval.conversation_persistence import (
-    append_group_conversation_messages,
-    create_group_conversation,
-    delete_group_conversation,
-    get_group_conversation_messages,
-    list_group_conversations,
-    update_group_conversation_title,
+    build_api_conversation_append_messages_surface,
+    build_api_conversation_create_surface,
+    build_api_conversation_delete_surface,
+    build_api_conversation_list_surface,
+    build_api_conversation_messages_surface,
+    build_api_conversation_update_surface,
+    conversation_not_found_payload,
 )
 from engram.security.middleware import get_tenant
 
@@ -40,39 +41,39 @@ async def list_conversations(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    conversations = await list_group_conversations(
+    payload = await build_api_conversation_list_surface(
         store,
         group_id=tenant.group_id,
         limit=limit,
     )
-    return JSONResponse(content={"conversations": conversations})
+    return JSONResponse(content=payload)
 
 
 @router.post("/")
 async def create_conversation(request: Request, body: CreateConversationBody) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    conv_id = await create_group_conversation(
+    payload = await build_api_conversation_create_surface(
         store,
         group_id=tenant.group_id,
         session_date=body.session_date,
         title=body.title,
     )
-    return JSONResponse(content={"id": conv_id})
+    return JSONResponse(content=payload)
 
 
 @router.get("/{conversation_id}/messages")
 async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    messages = await get_group_conversation_messages(
+    payload = await build_api_conversation_messages_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
     )
-    if messages is None:
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
-    return JSONResponse(content={"messages": messages})
+    if payload is None:
+        return JSONResponse(status_code=404, content=conversation_not_found_payload())
+    return JSONResponse(content=payload)
 
 
 @router.post("/{conversation_id}/messages")
@@ -83,15 +84,15 @@ async def append_messages(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    ids = await append_group_conversation_messages(
+    payload = await build_api_conversation_append_messages_surface(
         store,
         conversation_id=conversation_id,
         messages=body.messages,
         group_id=tenant.group_id,
     )
-    if ids is None:
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
-    return JSONResponse(content={"ids": ids})
+    if payload is None:
+        return JSONResponse(status_code=404, content=conversation_not_found_payload())
+    return JSONResponse(content=payload)
 
 
 @router.patch("/{conversation_id}")
@@ -102,26 +103,26 @@ async def update_conversation(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    updated = await update_group_conversation_title(
+    payload = await build_api_conversation_update_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
         title=body.title,
     )
-    if not updated:
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
-    return JSONResponse(content={"status": "updated"})
+    if payload is None:
+        return JSONResponse(status_code=404, content=conversation_not_found_payload())
+    return JSONResponse(content=payload)
 
 
 @router.delete("/{conversation_id}")
 async def delete_conversation(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    deleted = await delete_group_conversation(
+    payload = await build_api_conversation_delete_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
     )
-    if not deleted:
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
-    return JSONResponse(content={"status": "deleted"})
+    if payload is None:
+        return JSONResponse(status_code=404, content=conversation_not_found_payload())
+    return JSONResponse(content=payload)

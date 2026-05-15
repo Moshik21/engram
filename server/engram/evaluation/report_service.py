@@ -5,12 +5,52 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     has_recall_runtime_metrics,
     merge_recall_runtime_metrics,
 )
 from engram.evaluation.store import StoredRecallRuntimeMetricsSnapshot
+
+
+async def load_consolidation_evaluation_inputs(
+    consolidation_store: Any | None,
+    *,
+    group_id: str,
+    cycle_limit: int,
+) -> tuple[list[Any], list[Any]]:
+    """Read recent consolidation context from an optional audit store."""
+    return await ConsolidationAuditReader(consolidation_store).evaluation_context(
+        group_id,
+        cycle_limit=max(1, cycle_limit),
+    )
+
+
+async def build_mcp_evaluation_report_surface(
+    manager: Any,
+    evaluation_store: Any,
+    *,
+    consolidation_store: Any | None,
+    group_id: str,
+    cycle_limit: int,
+    sample_limit: int,
+) -> dict[str, Any]:
+    """Build the MCP brain-loop report from active MCP stores."""
+    recent_cycles, calibration_snapshots = await load_consolidation_evaluation_inputs(
+        consolidation_store,
+        group_id=group_id,
+        cycle_limit=cycle_limit,
+    )
+    return await build_brain_loop_evaluation_surface(
+        manager,
+        evaluation_store,
+        group_id=group_id,
+        recent_cycles=recent_cycles,
+        calibration_snapshots=calibration_snapshots,
+        sample_limit=max(1, sample_limit),
+        snapshot_source="mcp_report",
+    )
 
 
 async def build_brain_loop_evaluation_surface(

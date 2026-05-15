@@ -31,7 +31,7 @@ from engram.ingestion.capture_surface import (
     store_observation,
 )
 from engram.ingestion.dedup import CaptureDedupCache
-from engram.ingestion.offline_replay import OfflineReplayService
+from engram.ingestion.offline_replay import build_api_offline_replay_surface
 from engram.ingestion.presenter import (
     memory_write_contract,
     present_api_memory_write,
@@ -42,6 +42,10 @@ from engram.ingestion.project_bootstrap import (
     project_bootstrap_http_status,
 )
 from engram.models.recall import MemoryNeed
+from engram.notifications.surface import (
+    build_api_notification_dismiss_surface,
+    build_api_notifications_surface,
+)
 from engram.retrieval.artifacts import build_api_artifact_search_surface
 from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
 from engram.retrieval.chat_feedback import (
@@ -50,6 +54,7 @@ from engram.retrieval.chat_feedback import (
     should_retry_chat_response,
 )
 from engram.retrieval.chat_persistence import (
+    chat_conversation_not_found_payload,
     persist_chat_turn,
     resolve_chat_conversation,
 )
@@ -77,6 +82,8 @@ from engram.retrieval.preference_feedback import (
     build_explicit_feedback_surface,
 )
 from engram.retrieval.prospective import (
+    api_intention_not_found_payload,
+    api_intention_validation_error_payload,
     build_api_create_intention_surface,
     build_api_dismiss_intention_surface,
     build_intention_list_surface,
@@ -108,18 +115,13 @@ async def get_notifications(
     group_id = tenant.group_id
 
     service = get_notification_surface_service()
-    if service is None:
-        return JSONResponse(content={"notifications": []})
-
-    return JSONResponse(
-        content={
-            "notifications": service.list_notifications(
-                group_id=group_id,
-                limit=limit,
-                since=since,
-            )
-        }
+    payload = build_api_notifications_surface(
+        service,
+        group_id=group_id,
+        limit=limit,
+        since=since,
     )
+    return JSONResponse(content=payload)
 
 
 @router.post("/notifications/dismiss")
@@ -128,11 +130,12 @@ async def dismiss_notifications(request: Request, body: DismissBody) -> JSONResp
     tenant = get_tenant(request)
     group_id = tenant.group_id
     service = get_notification_surface_service()
-    if service is None:
-        return JSONResponse(content={"dismissed": 0})
-
-    count = service.dismiss_notifications(group_id=group_id, ids=body.ids)
-    return JSONResponse(content={"dismissed": count})
+    payload = build_api_notification_dismiss_surface(
+        service,
+        group_id=group_id,
+        ids=body.ids,
+    )
+    return JSONResponse(content=payload)
 
 
 # ─── Dedup cache for auto-observe ────────────────────────────────
@@ -401,19 +404,13 @@ async def replay_queue(request: Request) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    replay_service = OfflineReplayService(
+    payload = await build_api_offline_replay_surface(
         drain_queue=drain_queue,
         dedup_check=_dedup_check,
         store_episode=manager.store_episode,
+        group_id=group_id,
     )
-    result = await replay_service.replay_queue(group_id=group_id)
-
-    return JSONResponse(
-        content={
-            "status": "replayed",
-            **result.as_payload(),
-        }
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/remember")
@@ -692,7 +689,7 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
         )
         return JSONResponse(content=payload)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"detail": str(e)})
+        return JSONResponse(status_code=400, content=api_intention_validation_error_payload(e))
 
 
 @router.get("/intentions")
@@ -734,7 +731,7 @@ async def dismiss_intention(
         )
         return JSONResponse(content=payload)
     except Exception:
-        return JSONResponse(status_code=404, content={"detail": "Intention not found"})
+        return JSONResponse(status_code=404, content=api_intention_not_found_payload())
 
 
 def _sse(data: dict) -> str:
@@ -932,7 +929,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         session_date=body.session_date,
     )
     if conversation.not_found:
-        return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
+        return JSONResponse(status_code=404, content=chat_conversation_not_found_payload())
     conversation_id = conversation.conversation_id
 
     await hydrate_chat_context(manager, body.history, body.message)

@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engram.ingestion.offline_replay import OfflineReplayService
+from engram.ingestion.offline_replay import (
+    OfflineReplayService,
+    build_api_offline_replay_surface,
+)
 
 
 @pytest.mark.asyncio
@@ -58,4 +61,37 @@ async def test_offline_replay_counts_deduped_and_failed_entries_as_skipped():
         group_id="tenant_brain",
         source="offline:replay",
         session_id=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_api_offline_replay_surface_returns_route_payload():
+    entries = [
+        {
+            "content": "offline replay content long enough",
+            "source": "offline:test",
+            "session_id": "session_1",
+        },
+        {"content": "too short"},
+    ]
+    store_episode = AsyncMock(return_value="ep_queued")
+
+    payload = await build_api_offline_replay_surface(
+        drain_queue=lambda: entries,
+        dedup_check=lambda _content: False,
+        store_episode=store_episode,
+        group_id="tenant_brain",
+    )
+
+    assert payload == {
+        "status": "replayed",
+        "replayed": 1,
+        "skipped": 1,
+        "total": 2,
+    }
+    store_episode.assert_awaited_once_with(
+        content="offline replay content long enough",
+        group_id="tenant_brain",
+        source="offline:test",
+        session_id="session_1",
     )

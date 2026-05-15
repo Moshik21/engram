@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -21,6 +22,32 @@ EMPTY_INTENTION_SUMMARY = {
     "needsRefreshCount": 0,
     "latestRefreshedAt": None,
 }
+
+
+async def build_mcp_lifecycle_summary_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    consolidation_store: Any | None,
+    activation_config: ActivationConfig | None,
+    episode_limit: int,
+    cycle_limit: int,
+) -> dict[str, Any]:
+    """Build the MCP lifecycle summary payload with MCP-local audit-store context."""
+    consolidation_engine = None
+    consolidation_reader = None
+    if consolidation_store is not None:
+        consolidation_engine = SimpleNamespace(is_running=False)
+        consolidation_reader = ConsolidationAuditReader(consolidation_store)
+
+    return await manager.get_lifecycle_summary(
+        group_id=group_id,
+        consolidation_engine=consolidation_engine,
+        consolidation_reader=consolidation_reader,
+        activation_config=activation_config,
+        episode_limit=max(1, episode_limit),
+        cycle_limit=max(1, cycle_limit),
+    )
 
 
 def _enum_value(value: object) -> str | None:

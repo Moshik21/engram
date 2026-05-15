@@ -8,19 +8,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 CONSOLIDATION_PRESENTER_BOUNDARIES = {
-    ("engram/api/consolidation.py", "consolidation_status"): {
+    ("engram/consolidation_trigger.py", "build_api_consolidation_status_surface"): {
         "serialize_cycle_summary",
     },
-    ("engram/api/consolidation.py", "consolidation_history"): {
+    ("engram/consolidation_trigger.py", "build_api_consolidation_history_surface"): {
         "serialize_cycle_summary",
     },
-    ("engram/api/consolidation.py", "consolidation_cycle_detail"): {
+    ("engram/consolidation_trigger.py", "build_api_consolidation_cycle_detail_surface"): {
         "serialize_cycle_detail",
     },
-    ("engram/mcp/server.py", "trigger_consolidation"): {
+    ("engram/consolidation_trigger.py", "build_mcp_consolidation_trigger_surface"): {
         "serialize_cycle_summary",
     },
-    ("engram/mcp/server.py", "get_consolidation_status"): {
+    ("engram/consolidation_trigger.py", "build_mcp_consolidation_status_surface"): {
         "serialize_cycle_summary",
     },
     ("engram/consolidation/cli.py", "_print_cycle_result"): {

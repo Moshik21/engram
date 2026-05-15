@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engram.evaluation.label_service import (
+    build_recall_evaluation_write_surface,
+    build_session_continuity_evaluation_write_surface,
     persist_recall_eval_sample,
     persist_session_continuity_sample,
 )
@@ -70,3 +72,45 @@ async def test_persist_session_continuity_sample_saves() -> None:
     assert sample.scenario == "handoff"
     assert sample.notes == "manual label"
     store.save_session_sample.assert_awaited_once_with(sample)
+
+
+@pytest.mark.asyncio
+async def test_recall_evaluation_write_surface_persists_and_presents() -> None:
+    store = AsyncMock()
+
+    payload = await build_recall_evaluation_write_surface(
+        store,
+        group_id="brain_a",
+        surface="mcp",
+        recall_triggered=True,
+        recall_helped=True,
+        packets_surfaced=2,
+        packets_used=1,
+        source="mcp",
+    )
+
+    store.save_recall_sample.assert_awaited_once()
+    assert payload["status"] == "stored"
+    assert payload["operation"] == "record_recall_evaluation"
+    assert payload["group_id"] == "brain_a"
+    assert payload["sample"]["packets_used"] == 1
+
+
+@pytest.mark.asyncio
+async def test_session_continuity_write_surface_persists_and_presents() -> None:
+    store = AsyncMock()
+
+    payload = await build_session_continuity_evaluation_write_surface(
+        store,
+        group_id="brain_a",
+        surface="rest",
+        baseline_score=0.2,
+        memory_score=0.8,
+        open_loop_expected=True,
+        open_loop_recovered=True,
+    )
+
+    store.save_session_sample.assert_awaited_once()
+    assert payload["status"] == "stored"
+    assert payload["groupId"] == "brain_a"
+    assert payload["sample"]["memoryScore"] == 0.8

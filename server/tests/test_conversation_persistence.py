@@ -6,6 +6,13 @@ import pytest
 
 from engram.retrieval.conversation_persistence import (
     append_group_conversation_messages,
+    build_api_conversation_append_messages_surface,
+    build_api_conversation_create_surface,
+    build_api_conversation_delete_surface,
+    build_api_conversation_list_surface,
+    build_api_conversation_messages_surface,
+    build_api_conversation_update_surface,
+    conversation_not_found_payload,
     create_group_conversation,
     delete_group_conversation,
     get_group_conversation_messages,
@@ -103,3 +110,81 @@ async def test_group_conversation_helpers_return_none_for_missing_owned_conversa
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_api_conversation_surfaces_build_route_payloads() -> None:
+    store = AsyncMock()
+    store.list_conversations.return_value = [{"id": "conv_1"}]
+    store.create_conversation.return_value = "conv_2"
+    store.get_messages.return_value = [{"role": "user", "content": "hello"}]
+    store.add_messages_bulk.return_value = ["msg_1"]
+    store.update_conversation.return_value = True
+    store.delete_conversation.return_value = True
+
+    assert await build_api_conversation_list_surface(
+        store,
+        group_id="brain_a",
+        limit=5,
+    ) == {"conversations": [{"id": "conv_1"}]}
+    assert await build_api_conversation_create_surface(
+        store,
+        group_id="brain_a",
+        session_date="2026-05-15",
+        title="Daily",
+    ) == {"id": "conv_2"}
+    assert await build_api_conversation_messages_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+    ) == {"messages": [{"role": "user", "content": "hello"}]}
+    assert await build_api_conversation_append_messages_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        messages=[{"role": "assistant", "content": "hi"}],
+    ) == {"ids": ["msg_1"]}
+    assert await build_api_conversation_update_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        title="Updated",
+    ) == {"status": "updated"}
+    assert await build_api_conversation_delete_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+    ) == {"status": "deleted"}
+
+
+@pytest.mark.asyncio
+async def test_api_conversation_surfaces_return_none_for_not_found() -> None:
+    store = AsyncMock()
+    store.get_messages.side_effect = ConversationNotFoundError("conv_foreign")
+    store.add_messages_bulk.side_effect = ConversationNotFoundError("conv_foreign")
+    store.update_conversation.return_value = False
+    store.delete_conversation.return_value = False
+
+    assert await build_api_conversation_messages_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+    ) is None
+    assert await build_api_conversation_append_messages_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+        messages=[{"role": "user", "content": "blocked"}],
+    ) is None
+    assert await build_api_conversation_update_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+        title="Blocked",
+    ) is None
+    assert await build_api_conversation_delete_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+    ) is None
+    assert conversation_not_found_payload() == {"detail": "Not found"}

@@ -7,6 +7,7 @@ import pytest
 from engram.retrieval.preference_feedback import (
     FeedbackRatingError,
     build_explicit_feedback_surface,
+    build_mcp_explicit_feedback_surface,
 )
 
 
@@ -52,4 +53,21 @@ async def test_explicit_feedback_surface_rejects_invalid_rating() -> None:
             comment=None,
         )
 
+    manager.record_explicit_feedback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_mcp_explicit_feedback_surface_returns_error_payload_for_invalid_rating() -> None:
+    manager = MagicMock()
+    manager.record_explicit_feedback = AsyncMock()
+
+    result = await build_mcp_explicit_feedback_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_native",
+        rating=6,
+        comment=None,
+    )
+
+    assert result == {"error": "Rating must be between 1 and 5"}
     manager.record_explicit_feedback.assert_not_called()

@@ -13,22 +13,20 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
 
 from engram.config import ActivationConfig, EngramConfig
-from engram.consolidation.audit_reader import ConsolidationAuditReader
+from engram.consolidation_trigger import (
+    build_mcp_consolidation_status_surface,
+    build_mcp_consolidation_trigger_surface,
+)
 from engram.evaluation.label_service import (
-    persist_recall_eval_sample,
-    persist_session_continuity_sample,
+    build_recall_evaluation_write_surface,
+    build_session_continuity_evaluation_write_surface,
 )
-from engram.evaluation.presenter import (
-    present_recall_sample_write,
-    present_session_sample_write,
-)
-from engram.evaluation.report_service import build_brain_loop_evaluation_surface
+from engram.evaluation.report_service import build_mcp_evaluation_report_surface
 from engram.evaluation.store import (
     SQLiteEvaluationStore,
 )
@@ -47,6 +45,7 @@ from engram.ingestion.capture_surface import (
 )
 from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
+from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.notifications.surface import get_notification_surface_service_from_state
 from engram.retrieval.artifacts import build_mcp_artifact_search_surface
@@ -83,6 +82,7 @@ from engram.retrieval.graph_state import (
     build_mcp_graph_state_surface,
     build_mcp_graph_stats_resource_surface,
 )
+from engram.retrieval.identity_core import build_mcp_identity_core_surface
 from engram.retrieval.lookup import (
     build_mcp_entity_search_surface,
     build_mcp_fact_search_surface,
@@ -90,8 +90,7 @@ from engram.retrieval.lookup import (
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.preference_feedback import (
-    FeedbackRatingError,
-    build_explicit_feedback_surface,
+    build_mcp_explicit_feedback_surface,
 )
 from engram.retrieval.prospective import (
     build_intention_list_surface,
@@ -548,18 +547,6 @@ async def _session_prime(
         return None
 
 
-async def _load_consolidation_evaluation_inputs(
-    manager: GraphManager,
-    group_id: str,
-    cycle_limit: int,
-) -> tuple[list[Any], list[Any]]:
-    """Read recent consolidation context from the active MCP runtime store."""
-    return await ConsolidationAuditReader(_consolidation_store).evaluation_context(
-        group_id,
-        cycle_limit=max(1, cycle_limit),
-    )
-
-
 # ─── Recall Middleware ───────────────────────────────────────────────
 
 _RECALL_TOOLS = RECALL_TOOLS
@@ -757,16 +744,13 @@ async def feedback(
         JSON with status, entity_id, domain, edge_type, edge_weight.
     """
     manager = _get_manager()
-    try:
-        result = await build_explicit_feedback_surface(
-            manager,
-            group_id=_group_id,
-            entity_id=entity_id,
-            rating=rating,
-            comment=comment,
-        )
-    except FeedbackRatingError as e:
-        return json.dumps({"error": str(e)})
+    result = await build_mcp_explicit_feedback_surface(
+        manager,
+        group_id=_group_id,
+        entity_id=entity_id,
+        rating=rating,
+        comment=comment,
+    )
     return json.dumps(result)
 
 
@@ -969,19 +953,6 @@ async def recall(query: str, limit: int = 5) -> str:
     session.last_recall_time = time.time()
     session.auto_recall_primed = True
     response_dict["query_time_ms"] = query_time_ms
-
-    # Append near-misses if available (Wave 2)
-    near_misses = manager.get_last_near_miss_views()
-    if inspect.isawaitable(near_misses):
-        near_misses = await near_misses
-    if isinstance(near_misses, list) and near_misses:
-        response_dict["near_misses"] = near_misses
-
-    surprises = manager.get_surprise_connection_views(_group_id, now=time.time(), limit=3)
-    if inspect.isawaitable(surprises):
-        surprises = await surprises
-    if isinstance(surprises, list) and surprises:
-        response_dict["surprise_connections"] = surprises
 
     await _recall_middleware(query, response_dict, tool_name="recall")
     return json.dumps(response_dict)
@@ -1229,20 +1200,13 @@ async def get_graph_state(
 async def get_lifecycle_summary(episode_limit: int = 5, cycle_limit: int = 10) -> str:
     """Return the shared Capture -> Cue -> Project -> Recall -> Consolidate summary."""
     manager = _get_manager()
-    consolidation_engine = None
-    consolidation_reader = None
-    if _consolidation_store is not None:
-        consolidation_engine = SimpleNamespace(
-            is_running=False,
-        )
-        consolidation_reader = ConsolidationAuditReader(_consolidation_store)
-    summary = await manager.get_lifecycle_summary(
+    summary = await build_mcp_lifecycle_summary_surface(
+        manager,
         group_id=_group_id,
-        consolidation_engine=consolidation_engine,
-        consolidation_reader=consolidation_reader,
+        consolidation_store=_consolidation_store,
         activation_config=_activation_cfg,
-        episode_limit=max(1, episode_limit),
-        cycle_limit=max(1, cycle_limit),
+        episode_limit=episode_limit,
+        cycle_limit=cycle_limit,
     )
     return json.dumps(summary)
 
@@ -1276,9 +1240,10 @@ async def record_recall_evaluation(
         JSON acknowledgement with the persisted sample contract.
     """
     store = _get_evaluation_store()
-    sample = await persist_recall_eval_sample(
+    payload = await build_recall_evaluation_write_surface(
         store,
         group_id=_group_id,
+        surface="mcp",
         recall_triggered=recall_triggered,
         recall_helped=recall_helped,
         recall_needed=recall_needed,
@@ -1289,7 +1254,7 @@ async def record_recall_evaluation(
         query=query,
         notes=notes,
     )
-    return json.dumps(present_recall_sample_write(sample, surface="mcp"))
+    return json.dumps(payload)
 
 
 @mcp.tool()
@@ -1321,9 +1286,10 @@ async def record_session_continuity_evaluation(
         JSON acknowledgement with the persisted sample contract.
     """
     store = _get_evaluation_store()
-    sample = await persist_session_continuity_sample(
+    payload = await build_session_continuity_evaluation_write_surface(
         store,
         group_id=_group_id,
+        surface="mcp",
         baseline_score=baseline_score,
         memory_score=memory_score,
         open_loop_expected=open_loop_expected,
@@ -1334,7 +1300,7 @@ async def record_session_continuity_evaluation(
         scenario=scenario,
         notes=notes,
     )
-    return json.dumps(present_session_sample_write(sample, surface="mcp"))
+    return json.dumps(payload)
 
 
 @mcp.tool()
@@ -1353,19 +1319,13 @@ async def get_evaluation_report(
     """
     manager = _get_manager()
     store = _get_evaluation_store()
-    recent_cycles, calibration_snapshots = await _load_consolidation_evaluation_inputs(
-        manager,
-        _group_id,
-        cycle_limit=max(1, cycle_limit),
-    )
-    report = await build_brain_loop_evaluation_surface(
+    report = await build_mcp_evaluation_report_surface(
         manager,
         store,
+        consolidation_store=_consolidation_store,
         group_id=_group_id,
-        recent_cycles=recent_cycles,
-        calibration_snapshots=calibration_snapshots,
-        sample_limit=max(1, sample_limit),
-        snapshot_source="mcp_report",
+        cycle_limit=cycle_limit,
+        sample_limit=sample_limit,
     )
     return json.dumps(report)
 
@@ -1385,10 +1345,11 @@ async def mark_identity_core(entity_name: str, identity_core: bool = True) -> st
         JSON with status and entity details.
     """
     manager = _get_manager()
-    result = await manager.mark_identity_core(
-        entity_name,
+    result = await build_mcp_identity_core_surface(
+        manager,
         identity_core=identity_core,
         group_id=_group_id,
+        entity_name=entity_name,
     )
     return json.dumps(result)
 
@@ -1407,22 +1368,14 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     """
     manager = _get_manager()
 
-    from engram.consolidation.presenter import (
-        serialize_cycle_summary,
-    )
-
     store = await _get_mcp_consolidation_trigger_store(manager)
 
-    trigger_result = await manager.trigger_consolidation_cycle(
+    result = await build_mcp_consolidation_trigger_surface(
+        manager,
         group_id=_group_id,
-        trigger="mcp",
         dry_run=dry_run,
         consolidation_store=store,
     )
-
-    result = serialize_cycle_summary(trigger_result.cycle)
-    result["cycle_id"] = result.pop("id")
-    result["graph_stats"] = trigger_result.graph_stats
 
     return json.dumps(result)
 
@@ -1450,17 +1403,10 @@ async def get_consolidation_status() -> str:
     Returns:
         JSON with is_running flag and latest cycle summary if available.
     """
-    from engram.consolidation.presenter import serialize_cycle_summary
-
-    # In MCP mode, consolidation runs synchronously so is_running is always false
-    result = {
-        "is_running": False,
-        "message": "Use trigger_consolidation to run a cycle. "
-        "In MCP mode, cycles run synchronously.",
-    }
-    latest_cycle = await ConsolidationAuditReader(_consolidation_store).latest_cycle(_group_id)
-    if latest_cycle is not None:
-        result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
+    result = await build_mcp_consolidation_status_surface(
+        _consolidation_store,
+        group_id=_group_id,
+    )
     return json.dumps(result)
 
 

@@ -137,6 +137,16 @@ async def build_api_dismiss_intention_surface(
     }
 
 
+def api_intention_validation_error_payload(error: Exception | str) -> dict:
+    """Return the REST validation error payload for intention creation."""
+    return {"detail": str(error)}
+
+
+def api_intention_not_found_payload() -> dict:
+    """Return the REST not-found payload for intention dismissal."""
+    return {"detail": "Intention not found"}
+
+
 async def build_mcp_dismiss_intention_surface(
     manager: Any,
     *,

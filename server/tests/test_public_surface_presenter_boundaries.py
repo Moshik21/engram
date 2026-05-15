@@ -78,6 +78,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_observation_attachment",
         "store_observation",
     },
+    ("engram/api/knowledge.py", "replay_queue"): {
+        "build_api_offline_replay_surface",
+    },
     ("engram/api/knowledge.py", "remember"): {
         "edge_adjudication_client_enabled",
         "ingest_projecting_memory",
@@ -125,6 +128,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_rate_limiter",
         "analyze_chat_memory_need",
         "build_chat_memory_guidance",
+        "chat_conversation_not_found_payload",
         "hydrate_chat_context",
         "persist_chat_turn",
         "raw_recall_from_chat_item",
@@ -137,36 +141,40 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_graph_store",
         "get_mode",
     },
+    ("engram/api/consolidation.py", "trigger_consolidation"): {
+        "build_api_consolidation_trigger_surface",
+        "run_api_consolidation_cycle",
+    },
     ("engram/api/consolidation.py", "consolidation_status"): {
-        "get_latest_cycle",
-        "serialize_cycle_summary",
+        "build_api_consolidation_status_surface",
     },
     ("engram/api/consolidation.py", "consolidation_history"): {
-        "get_recent_cycles",
-        "serialize_cycle_summary",
+        "build_api_consolidation_history_surface",
     },
     ("engram/api/consolidation.py", "consolidation_cycle_detail"): {
-        "audit_store_available",
-        "get_cycle_detail",
-        "serialize_cycle_detail",
+        "build_api_consolidation_cycle_detail_surface",
     },
     ("engram/api/conversations.py", "list_conversations"): {
-        "list_group_conversations",
+        "build_api_conversation_list_surface",
     },
     ("engram/api/conversations.py", "create_conversation"): {
-        "create_group_conversation",
+        "build_api_conversation_create_surface",
     },
     ("engram/api/conversations.py", "get_messages"): {
-        "get_group_conversation_messages",
+        "build_api_conversation_messages_surface",
+        "conversation_not_found_payload",
     },
     ("engram/api/conversations.py", "append_messages"): {
-        "append_group_conversation_messages",
+        "build_api_conversation_append_messages_surface",
+        "conversation_not_found_payload",
     },
     ("engram/api/conversations.py", "update_conversation"): {
-        "update_group_conversation_title",
+        "build_api_conversation_update_surface",
+        "conversation_not_found_payload",
     },
     ("engram/api/conversations.py", "delete_conversation"): {
-        "delete_group_conversation",
+        "build_api_conversation_delete_surface",
+        "conversation_not_found_payload",
     },
     ("engram/api/entities.py", "search_entities"): {
         "build_api_entity_search_surface",
@@ -176,12 +184,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_recent_evaluation_context",
     },
     ("engram/api/evaluation.py", "create_recall_sample"): {
-        "persist_recall_eval_sample",
-        "present_recall_sample_write",
+        "build_recall_evaluation_write_surface",
     },
     ("engram/api/evaluation.py", "create_session_sample"): {
-        "persist_session_continuity_sample",
-        "present_session_sample_write",
+        "build_session_continuity_evaluation_write_surface",
     },
     ("engram/api/knowledge.py", "route_knowledge_question"): {
         "_get_conv_top_entity_names",
@@ -193,8 +199,12 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "get_runtime_state"): {
         "build_runtime_state_surface",
     },
-    ("engram/api/knowledge.py", "get_notifications"): {"get_notification_surface_service"},
+    ("engram/api/knowledge.py", "get_notifications"): {
+        "build_api_notifications_surface",
+        "get_notification_surface_service",
+    },
     ("engram/api/knowledge.py", "dismiss_notifications"): {
+        "build_api_notification_dismiss_surface",
         "get_notification_surface_service",
     },
     ("engram/api/entities.py", "get_entity"): {
@@ -210,8 +220,8 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "entity_not_found_payload",
     },
     ("engram/api/admin.py", "load_benchmark"): {"load_benchmark_corpus"},
-    ("engram/api/graph.py", "get_neighborhood"): {"get_graph_neighborhood"},
-    ("engram/api/graph.py", "get_graph_at"): {"get_temporal_graph"},
+    ("engram/api/graph.py", "get_neighborhood"): {"build_api_graph_neighborhood_surface"},
+    ("engram/api/graph.py", "get_graph_at"): {"build_api_temporal_graph_surface"},
     ("engram/api/stats.py", "get_stats"): {"get_dashboard_stats"},
     ("engram/api/episodes.py", "list_episodes"): {"list_episode_summaries"},
     ("engram/api/lifecycle.py", "lifecycle_summary"): {"get_lifecycle_summary"},
@@ -239,8 +249,6 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "recall"): {
         "build_mcp_recall_surface",
-        "get_last_near_miss_views",
-        "get_surprise_connection_views",
     },
     ("engram/mcp/server.py", "_get_graph_probe"): {"get_recall_need_graph_probe"},
     ("engram/mcp/server.py", "_get_conv_context"): {"manager_conversation_context"},
@@ -256,24 +264,19 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "ingest_manager_conversation_turn",
     },
     ("engram/mcp/server.py", "get_lifecycle_summary"): {
-        "ConsolidationAuditReader",
-        "get_lifecycle_summary",
+        "build_mcp_lifecycle_summary_surface",
     },
     ("engram/mcp/server.py", "get_consolidation_status"): {
-        "ConsolidationAuditReader",
-        "serialize_cycle_summary",
+        "build_mcp_consolidation_status_surface",
     },
     ("engram/mcp/server.py", "get_evaluation_report"): {
-        "_load_consolidation_evaluation_inputs",
-        "build_brain_loop_evaluation_surface",
+        "build_mcp_evaluation_report_surface",
     },
     ("engram/mcp/server.py", "record_recall_evaluation"): {
-        "persist_recall_eval_sample",
-        "present_recall_sample_write",
+        "build_recall_evaluation_write_surface",
     },
     ("engram/mcp/server.py", "record_session_continuity_evaluation"): {
-        "persist_session_continuity_sample",
-        "present_session_sample_write",
+        "build_session_continuity_evaluation_write_surface",
     },
     ("engram/mcp/server.py", "remember"): {
         "build_observation_attachment",
@@ -302,7 +305,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_mcp_forget_surface",
     },
     ("engram/mcp/server.py", "feedback"): {
-        "build_explicit_feedback_surface",
+        "build_mcp_explicit_feedback_surface",
     },
     ("engram/mcp/server.py", "search_entities"): {
         "build_mcp_entity_search_surface",
@@ -322,10 +325,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "get_graph_state"): {
         "build_mcp_graph_state_surface",
     },
-    ("engram/mcp/server.py", "mark_identity_core"): {"mark_identity_core"},
+    ("engram/mcp/server.py", "mark_identity_core"): {"build_mcp_identity_core_surface"},
     ("engram/mcp/server.py", "trigger_consolidation"): {
-        "serialize_cycle_summary",
-        "trigger_consolidation_cycle",
+        "build_mcp_consolidation_trigger_surface",
     },
     ("engram/mcp/server.py", "graph_stats_resource"): {
         "build_mcp_graph_stats_resource_surface",
@@ -337,10 +339,12 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_mcp_entity_neighbors_resource_surface",
     },
     ("engram/api/knowledge.py", "create_intention"): {
+        "api_intention_validation_error_payload",
         "build_api_create_intention_surface",
     },
     ("engram/api/knowledge.py", "list_intentions"): {"build_intention_list_surface"},
     ("engram/api/knowledge.py", "dismiss_intention"): {
+        "api_intention_not_found_payload",
         "build_api_dismiss_intention_surface",
     },
     ("engram/mcp/server.py", "list_intentions"): {"build_intention_list_surface"},

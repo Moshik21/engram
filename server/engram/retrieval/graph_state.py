@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
@@ -18,6 +19,83 @@ class TopActivatedEntry(TypedDict):
     summary: str | None
     activation: float
     access_count: int
+
+
+@dataclass(frozen=True)
+class ApiGraphSurface:
+    """REST graph payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
+
+
+def graph_entity_not_found_payload(entity_id: str | None) -> dict:
+    """Return the REST not-found payload for graph entity lookups."""
+    return {"detail": f"Entity '{entity_id}' not found"}
+
+
+def temporal_graph_invalid_timestamp_payload(value: str) -> dict:
+    """Return the REST validation payload for temporal graph timestamps."""
+    return {"detail": f"Invalid ISO 8601 timestamp: '{value}'"}
+
+
+async def build_api_graph_neighborhood_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    center: str | None,
+    depth: int,
+    max_nodes: int,
+    min_activation: float,
+) -> ApiGraphSurface:
+    """Build the REST graph-neighborhood payload through the manager facade."""
+    payload = await manager.get_graph_neighborhood(
+        group_id=group_id,
+        center=center,
+        depth=depth,
+        max_nodes=max_nodes,
+        min_activation=min_activation,
+    )
+    if payload is None:
+        return ApiGraphSurface(
+            status_code=404,
+            payload=graph_entity_not_found_payload(center),
+        )
+    return ApiGraphSurface(status_code=200, payload=payload)
+
+
+async def build_api_temporal_graph_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    center: str,
+    at: str,
+    depth: int,
+    max_nodes: int,
+) -> ApiGraphSurface:
+    """Build the REST temporal graph payload through the manager facade."""
+    try:
+        at_time = datetime.fromisoformat(at)
+    except (ValueError, TypeError):
+        return ApiGraphSurface(
+            status_code=400,
+            payload=temporal_graph_invalid_timestamp_payload(at),
+        )
+
+    payload = await manager.get_temporal_graph(
+        group_id=group_id,
+        center=center,
+        at_time=at_time,
+        at_label=at,
+        depth=depth,
+        max_nodes=max_nodes,
+    )
+    if payload is None:
+        return ApiGraphSurface(
+            status_code=404,
+            payload=graph_entity_not_found_payload(center),
+        )
+    return ApiGraphSurface(status_code=200, payload=payload)
 
 
 async def build_mcp_graph_state_surface(

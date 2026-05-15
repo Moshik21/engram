@@ -12,12 +12,8 @@ from engram.api.deps import (
     get_manager,
 )
 from engram.evaluation.label_service import (
-    persist_recall_eval_sample,
-    persist_session_continuity_sample,
-)
-from engram.evaluation.presenter import (
-    present_recall_sample_write,
-    present_session_sample_write,
+    build_recall_evaluation_write_surface,
+    build_session_continuity_evaluation_write_surface,
 )
 from engram.evaluation.report_service import build_brain_loop_evaluation_surface
 from engram.security.middleware import get_tenant
@@ -65,9 +61,10 @@ async def create_recall_sample(
     """Persist a labeled recall-quality sample for the active group."""
     tenant = get_tenant(request)
     store = get_evaluation_store()
-    sample = await persist_recall_eval_sample(
+    payload = await build_recall_evaluation_write_surface(
         store,
         group_id=tenant.group_id,
+        surface="rest",
         recall_triggered=body.recall_triggered,
         recall_helped=body.recall_helped,
         recall_needed=body.recall_needed,
@@ -78,10 +75,7 @@ async def create_recall_sample(
         query=body.query,
         notes=body.notes,
     )
-    return JSONResponse(
-        status_code=201,
-        content=present_recall_sample_write(sample, surface="rest"),
-    )
+    return JSONResponse(status_code=201, content=payload)
 
 
 @router.post("/session-samples")
@@ -92,9 +86,10 @@ async def create_session_sample(
     """Persist a labeled session-continuity sample for the active group."""
     tenant = get_tenant(request)
     store = get_evaluation_store()
-    sample = await persist_session_continuity_sample(
+    payload = await build_session_continuity_evaluation_write_surface(
         store,
         group_id=tenant.group_id,
+        surface="rest",
         baseline_score=body.baseline_score,
         memory_score=body.memory_score,
         open_loop_expected=body.open_loop_expected,
@@ -105,10 +100,7 @@ async def create_session_sample(
         scenario=body.scenario,
         notes=body.notes,
     )
-    return JSONResponse(
-        status_code=201,
-        content=present_session_sample_write(sample, surface="rest"),
-    )
+    return JSONResponse(status_code=201, content=payload)
 
 
 @router.get("/brain-loop/report")
