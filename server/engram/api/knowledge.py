@@ -22,6 +22,7 @@ from engram.api.deps import (
     get_rate_limiter,
 )
 from engram.events.bus import get_event_bus
+from engram.ingestion.adjudication_surface import load_episode_adjudication_requests
 from engram.ingestion.dedup import CaptureDedupCache
 from engram.ingestion.offline_replay import OfflineReplayService
 from engram.ingestion.presenter import (
@@ -31,7 +32,19 @@ from engram.ingestion.presenter import (
 )
 from engram.models.episode import Attachment
 from engram.models.recall import MemoryNeed, MemoryPacket
-from engram.retrieval.context import ConversationContext
+from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
+from engram.retrieval.chat_persistence import (
+    persist_chat_turn,
+    resolve_chat_conversation,
+)
+from engram.retrieval.context import (
+    ConversationContext,
+    ingest_manager_conversation_turn,
+    manager_conversation_context,
+    manager_conversation_embed_fn,
+    manager_conversation_top_entity_names,
+    manager_conversation_turn_count,
+)
 from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.feedback import (
@@ -43,23 +56,11 @@ from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.presenter import present_api_recall_items, present_chat_recall_items
 from engram.security.middleware import get_tenant
-from engram.storage.helix.conversations import (
-    ConversationNotFoundError as HelixConversationNotFoundError,
-)
-from engram.storage.sqlite.conversations import (
-    ConversationNotFoundError as SQLiteConversationNotFoundError,
-)
 from engram.utils.offline_queue import drain_queue
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
-
-_CONVERSATION_NOT_FOUND = (
-    SQLiteConversationNotFoundError,
-    HelixConversationNotFoundError,
-)
-
 
 # ─── Notifications ──────────────────────────────────────────────
 
@@ -143,17 +144,6 @@ def _extract_message_text(blocks: object) -> str:
         if isinstance(text, str) and text:
             parts.append(text)
     return "".join(parts)
-
-
-async def _get_episode_adjudications(manager, episode_id: str, group_id: str) -> list[dict]:
-    """Return episode adjudication work items when supported by the manager."""
-    getter = getattr(manager, "get_episode_adjudications", None)
-    if getter is None:
-        return []
-    result = getter(episode_id, group_id)
-    if inspect.isawaitable(result):
-        result = await result
-    return result if isinstance(result, list) else []
 
 
 def _dedup_check(content: str) -> bool:
@@ -305,67 +295,24 @@ def _build_chat_memory_guidance(need: MemoryNeed) -> str:
 
 def _get_conv_context(manager) -> ConversationContext | None:
     """Return the manager conversation context when enabled."""
-    try:
-        get_context = manager.get_conversation_context
-    except AttributeError:
-        return None
-    if inspect.iscoroutinefunction(get_context):
-        return None
-    conv_context = get_context()
-    if inspect.isawaitable(conv_context):
-        return None
-    if isinstance(conv_context, ConversationContext):
-        return conv_context
-    return None
+    return manager_conversation_context(manager)
 
 
 def _get_conv_embed_fn(manager):
     """Return the embedding function for live conversation turns when available."""
-    try:
-        get_embed_fn = manager.get_conversation_embed_fn
-    except AttributeError:
-        return None
-    if inspect.iscoroutinefunction(get_embed_fn):
-        return None
-    embed_fn = get_embed_fn()
-    if inspect.isawaitable(embed_fn):
-        return None
-    return embed_fn if callable(embed_fn) else None
+    return manager_conversation_embed_fn(manager)
 
 
 def _get_conv_turn_count(manager) -> int:
-    try:
-        get_turn_count = manager.get_conversation_turn_count
-    except AttributeError:
-        return 0
-    if inspect.iscoroutinefunction(get_turn_count):
-        return 0
-    turn_count = get_turn_count()
-    if inspect.isawaitable(turn_count):
-        return 0
-    return turn_count if isinstance(turn_count, int) else 0
+    return manager_conversation_turn_count(manager)
 
 
 def _get_conv_top_entity_names(manager) -> list[str]:
-    try:
-        get_names = manager.get_conversation_top_entity_names
-    except AttributeError:
-        return []
-    if inspect.iscoroutinefunction(get_names):
-        return []
-    names = get_names()
-    if inspect.isawaitable(names):
-        return []
-    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+    return manager_conversation_top_entity_names(manager)
 
 
 async def _ingest_conversation_turn(manager, text: str, *, source: str) -> None:
-    ingest = getattr(manager, "ingest_conversation_turn", None)
-    if not callable(ingest):
-        return
-    result = ingest(text, source=source)
-    if inspect.isawaitable(result):
-        await result
+    await ingest_manager_conversation_turn(manager, text, source=source)
 
 
 def _get_graph_probe(manager):
@@ -602,7 +549,11 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
     )
     adjudications: list[dict] = []
     if manager.edge_adjudication_client_enabled():
-        adjudications = await _get_episode_adjudications(manager, episode_id, group_id)
+        adjudications = await load_episode_adjudication_requests(
+            manager,
+            episode_id=episode_id,
+            group_id=group_id,
+        )
     return JSONResponse(
         content=present_api_memory_write(
             memory_write_contract(
@@ -1330,128 +1281,10 @@ async def _retry_memory_grounded_response(
 
 def _build_tool_events(recall_results: list, facts: list) -> str:
     """Analyze recall results and emit synthetic tool events for rich components."""
-    lines = ""
-    tc_idx = 0
-
-    # --- show_entities: when recall has entity results ---
-    entities = []
-    for r in recall_results:
-        if r.get("result_type") == "entity":
-            ent = r["entity"]
-            entities.append(
-                {
-                    "id": ent["id"],
-                    "name": ent["name"],
-                    "entityType": ent.get("type", "Other"),
-                    "summary": ent.get("summary"),
-                    "score": round(r["score"], 3),
-                    "activation": round(r["score_breakdown"].get("activation", 0), 3),
-                }
-            )
-
-    if entities:
-        tc_idx += 1
-        lines += _emit_tool(f"tc_{tc_idx}", "show_entities", {"entities": entities})
-
-    # --- show_relationship_graph: entity with 3+ relationships ---
-    for r in recall_results:
-        if r.get("result_type") != "entity":
-            continue
-        rels = r.get("relationships", [])
-        if len(rels) >= 3:
-            ent = r["entity"]
-            nodes = [{"id": ent["id"], "name": ent["name"], "type": ent.get("type", "Other")}]
-            edges = []
-            seen_ids = {ent["id"]}
-            for rel in rels[:12]:  # cap at 12 edges
-                target_id = rel.get("target_id", "")
-                source_id = rel.get("source_id", "")
-                other_id = target_id if source_id == ent["id"] else source_id
-                if other_id and other_id not in seen_ids:
-                    other_name = other_id
-                    for e in entities:
-                        if e["id"] == other_id:
-                            other_name = e["name"]
-                            break
-                    nodes.append({"id": other_id, "name": other_name, "type": "Other"})
-                    seen_ids.add(other_id)
-                edges.append(
-                    {
-                        "source": source_id,
-                        "target": target_id,
-                        "predicate": rel.get("predicate", "RELATED"),
-                        "weight": rel.get("weight", 1.0),
-                    }
-                )
-            tc_idx += 1
-            lines += _emit_tool(
-                f"tc_{tc_idx}",
-                "show_relationship_graph",
-                {
-                    "centralEntity": ent["name"],
-                    "nodes": nodes,
-                    "edges": edges,
-                },
-            )
-            break  # only one graph per response
-
-    # --- show_facts: when facts search returns results ---
-    if facts:
-        fact_items = []
-        for f in facts[:10]:  # cap at 10
-            fact_items.append(
-                {
-                    "subject": f["subject"],
-                    "predicate": f["predicate"],
-                    "object": f["object"],
-                    "confidence": f.get("confidence"),
-                }
-            )
-        tc_idx += 1
-        lines += _emit_tool(f"tc_{tc_idx}", "show_facts", {"facts": fact_items})
-
-    # --- show_activation_chart: when 3+ entities ---
-    if len(entities) >= 3:
-        chart_entities = [
-            {"name": e["name"], "entityType": e["entityType"], "activation": e["activation"]}
-            for e in sorted(entities, key=lambda x: x["activation"], reverse=True)[:8]
-        ]
-        tc_idx += 1
-        lines += _emit_tool(f"tc_{tc_idx}", "show_activation_chart", {"entities": chart_entities})
-
-    # --- show_timeline: when episodes in recall ---
-    episodes = []
-    for r in recall_results:
-        if r.get("result_type") == "episode":
-            ep = r["episode"]
-            episodes.append(
-                {
-                    "id": ep["id"],
-                    "content": ep["content"][:200],
-                    "source": ep.get("source"),
-                    "createdAt": ep.get("created_at"),
-                    "score": round(r["score"], 3),
-                }
-            )
-        elif r.get("result_type") == "cue_episode":
-            cue = r.get("cue", {})
-            ep = r.get("episode", {})
-            episodes.append(
-                {
-                    "id": cue.get("episode_id") or ep.get("id"),
-                    "content": (cue.get("cue_text") or "")[:200],
-                    "source": ep.get("source"),
-                    "createdAt": ep.get("created_at"),
-                    "score": round(r["score"], 3),
-                    "latent": True,
-                }
-            )
-
-    if episodes:
-        tc_idx += 1
-        lines += _emit_tool(f"tc_{tc_idx}", "show_timeline", {"episodes": episodes})
-
-    return lines
+    return "".join(
+        _emit_tool(f"tc_{idx}", event.name, event.input)
+        for idx, event in enumerate(build_chat_tool_events(recall_results, facts), start=1)
+    )
 
 
 @router.post("/chat", response_model=None)
@@ -1483,18 +1316,16 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     except RuntimeError:
         conv_store = None
 
-    if conv_store and conversation_id:
-        try:
-            await conv_store.get_conversation(conversation_id, group_id)
-        except _CONVERSATION_NOT_FOUND:
-            return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
-    elif conv_store and not conversation_id:
-        title = body.message[:60].strip()
-        conversation_id = await conv_store.create_conversation(
-            group_id=group_id,
-            session_date=body.session_date,
-            title=title,
-        )
+    conversation = await resolve_chat_conversation(
+        conv_store,
+        group_id=group_id,
+        conversation_id=conversation_id,
+        message=body.message,
+        session_date=body.session_date,
+    )
+    if conversation.not_found:
+        return JSONResponse(status_code=404, content={"detail": "Conversation not found"})
+    conversation_id = conversation.conversation_id
 
     await _hydrate_chat_context(manager, body.history, body.message)
 
@@ -1664,7 +1495,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                         parsed = json.loads(result_str)
                         if tool_name == "recall":
                             for item in parsed.get("results", []):
-                                all_recall_results.append(_to_raw_recall(item))
+                                all_recall_results.append(raw_recall_from_chat_item(item))
                         elif tool_name == "search_facts":
                             all_facts.extend(parsed.get("facts", []))
                     except Exception:
@@ -1741,27 +1572,14 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
 
                 async def _persist():
                     try:
-                        await conv_store.add_messages_bulk(
-                            conversation_id,
-                            [
-                                {"role": "user", "content": body.message},
-                                {"role": "assistant", "content": final_text},
-                            ],
+                        await persist_chat_turn(
+                            conv_store,
+                            conversation_id=conversation_id,
                             group_id=group_id,
+                            user_message=body.message,
+                            assistant_message=final_text,
+                            recall_results=all_recall_results,
                         )
-                        # Tag entities discovered during tool use
-                        entity_ids: set[str] = set()
-                        for r in all_recall_results:
-                            if r.get("result_type") == "entity":
-                                eid = r.get("entity", {}).get("id")
-                                if eid:
-                                    entity_ids.add(eid)
-                        for eid in entity_ids:
-                            await conv_store.tag_entity(
-                                conversation_id,
-                                eid,
-                                group_id=group_id,
-                            )
                     except Exception:
                         logger.warning("Failed to persist chat messages", exc_info=True)
 
@@ -1778,72 +1596,3 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         event_stream(),
         media_type="text/event-stream",
     )
-
-
-def _to_raw_recall(item: dict) -> dict:
-    """Convert summarized tool result back to raw recall format for _build_tool_events."""
-    if item.get("type") == "episode":
-        return {
-            "result_type": "episode",
-            "episode": {
-                "id": "",
-                "content": item.get("content", ""),
-                "source": item.get("source"),
-                "created_at": None,
-            },
-            "score": item.get("score", 0),
-            "score_breakdown": {
-                "semantic": 0,
-                "activation": 0,
-                "edge_proximity": 0,
-                "exploration_bonus": 0,
-            },
-        }
-    if item.get("type") == "cue_episode":
-        return {
-            "result_type": "cue_episode",
-            "cue": {
-                "episode_id": item.get("episodeId", ""),
-                "cue_text": item.get("cueText", ""),
-                "supporting_spans": item.get("supportingSpans", []),
-                "projection_state": item.get("projectionState"),
-            },
-            "episode": {
-                "id": item.get("episodeId", ""),
-                "source": item.get("source"),
-                "created_at": None,
-            },
-            "score": item.get("score", 0),
-            "score_breakdown": {
-                "semantic": 0,
-                "activation": 0,
-                "edge_proximity": 0,
-                "exploration_bonus": 0,
-            },
-        }
-    else:
-        return {
-            "result_type": "entity",
-            "entity": {
-                "id": item.get("id", ""),
-                "name": item.get("name", ""),
-                "type": item.get("entityType", "Other"),
-                "summary": item.get("summary"),
-            },
-            "score": item.get("score", 0),
-            "score_breakdown": {
-                "semantic": 0,
-                "activation": item.get("activation", 0),
-                "edge_proximity": 0,
-                "exploration_bonus": 0,
-            },
-            "relationships": [
-                {
-                    "predicate": rel.get("predicate"),
-                    "target_id": rel.get("target", ""),
-                    "source_id": rel.get("source", ""),
-                    "polarity": rel.get("polarity", "positive"),
-                }
-                for rel in item.get("relationships", [])
-            ],
-        }

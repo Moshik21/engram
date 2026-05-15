@@ -6,11 +6,9 @@ import inspect
 import json
 import logging
 import os
-import re
 import sys
 import time
 import uuid
-from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -21,28 +19,46 @@ from typing import Any, Literal, cast
 from mcp.server.fastmcp import FastMCP
 
 from engram.config import ActivationConfig, EngramConfig
-from engram.evaluation.brain_loop_report import (
-    build_brain_loop_report,
-    has_recall_runtime_metrics,
-    merge_recall_runtime_metrics,
+from engram.consolidation.audit_reader import ConsolidationAuditReader
+from engram.evaluation.label_service import (
+    persist_recall_eval_sample,
+    persist_session_continuity_sample,
 )
 from engram.evaluation.presenter import (
     present_recall_sample_write,
     present_session_sample_write,
 )
+from engram.evaluation.report_service import build_brain_loop_evaluation_surface
 from engram.evaluation.store import (
     SQLiteEvaluationStore,
-    StoredRecallEvalSample,
-    StoredRecallRuntimeMetricsSnapshot,
-    StoredSessionContinuitySample,
 )
 from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
+from engram.ingestion.adjudication_surface import load_episode_adjudication_requests
 from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.models.episode import Attachment
 from engram.notifications.surface import get_notification_surface_service_from_state
+from engram.retrieval.auto_recall import (
+    RECALL_TOOLS,
+    WRITE_TOOLS,
+    RecallCooldown,
+    apply_mcp_recall_enrichment,
+    compact_auto_recall_surface,
+    compact_lite_auto_recall_surface,
+    extract_recall_query,
+    plan_mcp_recall_middleware,
+    plan_session_prime,
+    should_recall_for_tool,
+)
+from engram.retrieval.context import (
+    ingest_manager_conversation_turn,
+    manager_conversation_context,
+    manager_conversation_embed_fn,
+    manager_conversation_recent_turns,
+    manager_conversation_top_entity_names,
+)
 from engram.retrieval.control import RecallNeedThresholds
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.need import analyze_memory_need
@@ -100,40 +116,6 @@ class SessionState:
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
     recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
-
-
-class RecallCooldown:
-    """Rate limiter + topic dedup for auto-recall."""
-
-    def __init__(self, max_per_minute: int = 3, cooldown_seconds: float = 60.0) -> None:
-        self._entries: deque[tuple[set[str], float]] = deque(maxlen=20)
-        self.max_per_minute = max_per_minute
-        self.cooldown_seconds = cooldown_seconds
-
-    def _tokenize(self, query: str) -> set[str]:
-        return {w.lower() for w in query.split() if len(w) > 2}
-
-    def is_throttled(self, query: str, now: float) -> bool:
-        # Rate limit: count entries in last 60s
-        recent = [t for _, t in self._entries if now - t < 60.0]
-        if len(recent) >= self.max_per_minute:
-            return True
-        # Topic dedup: check token overlap within cooldown window
-        tokens = self._tokenize(query)
-        if not tokens:
-            return False
-        for prev_tokens, ts in self._entries:
-            if now - ts > self.cooldown_seconds:
-                continue
-            if not prev_tokens:
-                continue
-            overlap = len(tokens & prev_tokens) / max(len(tokens | prev_tokens), 1)
-            if overlap > 0.5:
-                return True
-        return False
-
-    def record(self, query: str, now: float) -> None:
-        self._entries.append((self._tokenize(query), now))
 
 
 # Module-level state initialized on startup
@@ -309,67 +291,20 @@ def _get_evaluation_store() -> SQLiteEvaluationStore:
 
 def _get_conv_context(manager: GraphManager):
     """Return the concrete conversation context if one is configured."""
-    try:
-        get_context = manager.get_conversation_context
-    except AttributeError:
-        return None
-    if inspect.iscoroutinefunction(get_context):
-        return None
-    try:
-        from engram.retrieval.context import ConversationContext
-
-        conv_context = get_context()
-        if inspect.isawaitable(conv_context):
-            return None
-        if isinstance(conv_context, ConversationContext):
-            return conv_context
-    except Exception:
-        logger.debug("conversation context type check failed", exc_info=True)
-    return None
+    return manager_conversation_context(manager)
 
 
 def _get_conv_embed_fn(manager: GraphManager):
     """Return the embedding function used for live conversation turns, if available."""
-    try:
-        get_embed_fn = manager.get_conversation_embed_fn
-    except AttributeError:
-        return None
-    if inspect.iscoroutinefunction(get_embed_fn):
-        return None
-    embed_fn = get_embed_fn()
-    if inspect.isawaitable(embed_fn):
-        return None
-    return embed_fn if callable(embed_fn) else None
+    return manager_conversation_embed_fn(manager)
 
 
 def _get_conv_top_entity_names(manager: GraphManager) -> list[str]:
-    try:
-        get_names = manager.get_conversation_top_entity_names
-    except AttributeError:
-        return []
-    if inspect.iscoroutinefunction(get_names):
-        return []
-    names = get_names()
-    if inspect.isawaitable(names):
-        return []
-    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+    return manager_conversation_top_entity_names(manager)
 
 
 def _get_conv_recent_turns(manager: GraphManager, limit: int) -> list[str]:
-    try:
-        get_recent_turns = manager.get_conversation_recent_turns
-    except AttributeError:
-        return []
-    if inspect.iscoroutinefunction(get_recent_turns):
-        return []
-    recent_turns = get_recent_turns(limit)
-    if inspect.isawaitable(recent_turns):
-        return []
-    return (
-        [turn for turn in recent_turns if isinstance(turn, str)]
-        if isinstance(recent_turns, list)
-        else []
-    )
+    return manager_conversation_recent_turns(manager, limit)
 
 
 def _get_graph_probe(manager: GraphManager):
@@ -386,9 +321,7 @@ async def _ingest_live_turn(
     conv_context = _get_conv_context(manager)
     if conv_context is None:
         return
-    result = manager.ingest_conversation_turn(text, source=source)
-    if inspect.isawaitable(result):
-        await result
+    await ingest_manager_conversation_turn(manager, text, source=source)
 
 
 # ─── AutoRecall Helpers ──────────────────────────────────────────────
@@ -396,15 +329,7 @@ async def _ingest_live_turn(
 
 def _extract_recall_query(content: str) -> str:
     """Extract a recall query from content: proper nouns first, then first sentence."""
-    if len(content) < 20:
-        return ""
-    # Extract capitalized proper nouns
-    proper_nouns = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b", content)
-    if proper_nouns:
-        return " ".join(proper_nouns)[:200]
-    # Fallback: first meaningful sentence
-    first_sentence = content.split(".")[0].strip()
-    return first_sentence[:200]
+    return extract_recall_query(content)
 
 
 async def _auto_recall_lite(
@@ -444,13 +369,7 @@ async def _auto_recall_lite(
         logger.debug("auto_recall failed", exc_info=True)
         return None
 
-    if not results:
-        return None
-
-    return {
-        "source": f"recall_{level}",
-        "entities": results,
-    }
+    return compact_lite_auto_recall_surface(results, level=level)
 
 
 async def _auto_recall_full(
@@ -564,55 +483,18 @@ async def _auto_recall_full(
             )
         ]
 
-    # Filter and compact into additive recall surfaces
-    entities = []
-    cue_episodes = []
-    for r in results:
-        if r.get("score", 0) < cfg.auto_recall_min_score:
-            continue
-
-        if r.get("result_type") == "entity" and "entity" in r:
-            entity = r["entity"]
-            # Compact format — no expensive relationship resolution
-            facts = []
-            for rel in r.get("relationships", [])[:3]:
-                facts.append(f"{rel.get('predicate', '?')}")
-            entry: dict = {
-                "name": entity["name"],
-                "type": entity["type"],
-                "summary": (entity.get("summary") or "")[:100],
-            }
-            if facts:
-                entry["top_facts"] = facts
-            entities.append(entry)
-            continue
-
-        if r.get("result_type") == "cue_episode":
-            cue = r.get("cue", {})
-            cue_episodes.append(
-                {
-                    "episode_id": cue.get("episode_id"),
-                    "cue_text": (cue.get("cue_text") or "")[:140],
-                    "supporting_spans": (cue.get("supporting_spans") or [])[:2],
-                    "projection_state": cue.get("projection_state"),
-                    "score": round(r.get("score", 0.0), 4),
-                }
-            )
-
-    if not entities and not cue_episodes:
+    response = compact_auto_recall_surface(
+        results,
+        query=query,
+        packets=packets,
+        min_score=cfg.auto_recall_min_score,
+    )
+    if response is None:
         return None
 
     if cooldown:
         cooldown.record(query, now)
 
-    response = {
-        "source": "auto_recall",
-        "query_used": query,
-        "packets": packets,
-        "entities": entities,
-    }
-    if cue_episodes:
-        response["cue_episodes"] = cue_episodes
     return response
 
 
@@ -625,19 +507,20 @@ async def _session_prime(
     if not cfg.auto_recall_session_prime:
         return None
     session = _get_session()
-    if session.auto_recall_primed:
+    plan = plan_session_prime(
+        content,
+        cfg,
+        already_primed=session.auto_recall_primed,
+    )
+    if plan is None:
         return None
     session.auto_recall_primed = True
-
-    topic = None
-    if content:
-        topic = _extract_recall_query(content) or None
 
     try:
         result = await manager.get_context(
             group_id=_group_id,
-            max_tokens=cfg.auto_recall_session_prime_max_tokens,
-            topic_hint=topic,
+            max_tokens=plan.max_tokens,
+            topic_hint=plan.topic_hint,
             format="structured",
         )
         return result
@@ -646,61 +529,27 @@ async def _session_prime(
         return None
 
 
-async def _get_episode_adjudications(manager, episode_id: str, group_id: str) -> list[dict]:
-    """Return episode adjudication work items when available."""
-    getter = getattr(manager, "get_episode_adjudications", None)
-    if getter is None:
-        return []
-    result = getter(episode_id, group_id)
-    if inspect.isawaitable(result):
-        result = await result
-    return result if isinstance(result, list) else []
-
-
 async def _load_consolidation_evaluation_inputs(
     manager: GraphManager,
     group_id: str,
     cycle_limit: int,
 ) -> tuple[list[Any], list[Any]]:
     """Read recent consolidation context from the active MCP runtime store."""
-    store = _consolidation_store
-    if store is None:
-        return [], []
-    recent_cycles = await store.get_recent_cycles(group_id, limit=max(1, cycle_limit))
-    calibration_snapshots: list[Any] = []
-    get_snapshots = getattr(store, "get_calibration_snapshots", None)
-    if get_snapshots is not None:
-        for cycle in recent_cycles:
-            calibration_snapshots.extend(await get_snapshots(cycle.id, group_id))
-    return recent_cycles, calibration_snapshots
+    return await ConsolidationAuditReader(_consolidation_store).evaluation_context(
+        group_id,
+        cycle_limit=max(1, cycle_limit),
+    )
 
 
 # ─── Recall Middleware ───────────────────────────────────────────────
 
-_RECALL_TOOLS = frozenset(
-    {
-        "observe",
-        "remember",
-        "recall",
-        "search_entities",
-        "search_facts",
-        "get_context",
-        "route_question",
-        "search_artifacts",
-    }
-)
-_WRITE_TOOLS = frozenset({"observe", "remember"})
+_RECALL_TOOLS = RECALL_TOOLS
+_WRITE_TOOLS = WRITE_TOOLS
 
 
 def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
     """Unified gate: should this tool get recall context?"""
-    if not cfg or tool_name not in _RECALL_TOOLS:
-        return False
-    if tool_name == "observe":
-        return bool(cfg.auto_recall_on_observe)
-    if tool_name == "remember":
-        return bool(cfg.auto_recall_on_remember)
-    return bool(cfg.auto_recall_on_tool_call)
+    return should_recall_for_tool(tool_name, cfg)
 
 
 async def _serialize_intentions(manager: GraphManager) -> list[dict] | None:
@@ -739,46 +588,52 @@ async def _recall_middleware(
     and memory_notifications to any tool response.
     """
     cfg = _activation_cfg
-    if not _should_recall(tool_name, cfg):
+    plan = plan_mcp_recall_middleware(
+        content,
+        tool_name=tool_name,
+        cfg=cfg,
+        auto_observe=auto_observe,
+    )
+    if not plan.should_recall:
         # Even when recall is disabled, surface notifications for get_context
-        if tool_name == "get_context" and cfg and cfg.notification_surfacing_enabled:
-            notifs = _serialize_notifications(cfg, _group_id)
-            if notifs:
-                response["memory_notifications"] = notifs
+        if plan.surface_notifications_when_recall_disabled and cfg:
+            apply_mcp_recall_enrichment(
+                response,
+                memory_notifications=_serialize_notifications(cfg, _group_id),
+            )
         return
     assert cfg is not None
     manager = _get_manager()
 
     # Auto-observe long content (e.g. route_question questions)
-    if auto_observe and len(content) >= 50:
+    if plan.auto_observe_content:
         try:
             await manager.store_episode(content, _group_id, source="tool_piggyback")
         except Exception:
             logger.debug("middleware auto-observe failed", exc_info=True)
 
     # Update conversation fingerprint (read tools only; write tools do it inline)
-    if tool_name not in _WRITE_TOOLS:
+    if plan.ingest_live_turn:
         await _ingest_live_turn(manager, content, source="tool_piggyback")
 
     # Session prime (first call only)
     prime = await _session_prime(content, manager, cfg)
-    if prime:
-        response["session_context"] = prime
 
     # Recall
     recalled = await _auto_recall_lite(content, manager, cfg)
-    if recalled:
-        response["recalled_context"] = recalled
 
     # Triggered intentions
     intentions = await _serialize_intentions(manager)
-    if intentions:
-        response["triggered_intentions"] = intentions
 
     # Memory notifications
     notifs = _serialize_notifications(cfg, _group_id)
-    if notifs:
-        response["memory_notifications"] = notifs
+    apply_mcp_recall_enrichment(
+        response,
+        session_context=prime,
+        recalled_context=recalled,
+        triggered_intentions=intentions,
+        memory_notifications=notifs,
+    )
 
 
 # ─── Tools ──────────────────────────────────────────────────────────
@@ -852,10 +707,10 @@ async def remember(
     if cfg and cfg.evidence_extraction_enabled:
         message = "Memory received. Evidence extracted and evaluated."
         if cfg.edge_adjudication_client_enabled:
-            adjudications = await _get_episode_adjudications(
+            adjudications = await load_episode_adjudication_requests(
                 manager,
-                episode_id,
-                _group_id,
+                episode_id=episode_id,
+                group_id=_group_id,
             )
     response = present_mcp_memory_write(
         memory_write_contract(
@@ -1411,14 +1266,16 @@ async def get_lifecycle_summary(episode_limit: int = 5, cycle_limit: int = 10) -
     """Return the shared Capture -> Cue -> Project -> Recall -> Consolidate summary."""
     manager = _get_manager()
     consolidation_engine = None
+    consolidation_reader = None
     if _consolidation_store is not None:
         consolidation_engine = SimpleNamespace(
-            _store=_consolidation_store,
             is_running=False,
         )
+        consolidation_reader = ConsolidationAuditReader(_consolidation_store)
     summary = await manager.get_lifecycle_summary(
         group_id=_group_id,
         consolidation_engine=consolidation_engine,
+        consolidation_reader=consolidation_reader,
         activation_config=_activation_cfg,
         episode_limit=max(1, episode_limit),
         cycle_limit=max(1, cycle_limit),
@@ -1455,19 +1312,19 @@ async def record_recall_evaluation(
         JSON acknowledgement with the persisted sample contract.
     """
     store = _get_evaluation_store()
-    sample = StoredRecallEvalSample(
+    sample = await persist_recall_eval_sample(
+        store,
         group_id=_group_id,
         recall_triggered=recall_triggered,
         recall_helped=recall_helped,
         recall_needed=recall_needed,
-        packets_surfaced=max(0, packets_surfaced),
-        packets_used=max(0, packets_used),
-        false_recalls=max(0, false_recalls),
+        packets_surfaced=packets_surfaced,
+        packets_used=packets_used,
+        false_recalls=false_recalls,
         source=source,
         query=query,
         notes=notes,
     )
-    await store.save_recall_sample(sample)
     return json.dumps(present_recall_sample_write(sample, surface="mcp"))
 
 
@@ -1500,7 +1357,8 @@ async def record_session_continuity_evaluation(
         JSON acknowledgement with the persisted sample contract.
     """
     store = _get_evaluation_store()
-    sample = StoredSessionContinuitySample(
+    sample = await persist_session_continuity_sample(
+        store,
         group_id=_group_id,
         baseline_score=baseline_score,
         memory_score=memory_score,
@@ -1512,7 +1370,6 @@ async def record_session_continuity_evaluation(
         scenario=scenario,
         notes=notes,
     )
-    await store.save_session_sample(sample)
     return json.dumps(present_session_sample_write(sample, surface="mcp"))
 
 
@@ -1532,38 +1389,19 @@ async def get_evaluation_report(
     """
     manager = _get_manager()
     store = _get_evaluation_store()
-    graph_state = await manager.get_graph_state(
-        group_id=_group_id,
-        top_n=10,
-        include_edges=False,
-    )
-    stats = graph_state.get("stats") or {}
-    recall_metrics = stats.get("recall_metrics") or {}
-    if has_recall_runtime_metrics(recall_metrics):
-        await store.save_recall_metrics_snapshot(
-            StoredRecallRuntimeMetricsSnapshot(
-                group_id=_group_id,
-                metrics=dict(recall_metrics),
-                source="mcp_report",
-            )
-        )
-    else:
-        stats = merge_recall_runtime_metrics(
-            stats,
-            await store.get_latest_recall_metrics_snapshot(_group_id),
-        )
     recent_cycles, calibration_snapshots = await _load_consolidation_evaluation_inputs(
         manager,
         _group_id,
         cycle_limit=max(1, cycle_limit),
     )
-    report = build_brain_loop_report(
-        stats,
+    report = await build_brain_loop_evaluation_surface(
+        manager,
+        store,
         group_id=_group_id,
         recent_cycles=recent_cycles,
         calibration_snapshots=calibration_snapshots,
-        recall_samples=await store.get_recall_samples(_group_id, limit=max(1, sample_limit)),
-        session_samples=await store.get_session_samples(_group_id, limit=max(1, sample_limit)),
+        sample_limit=max(1, sample_limit),
+        snapshot_source="mcp_report",
     )
     return json.dumps(report)
 
@@ -1656,10 +1494,9 @@ async def get_consolidation_status() -> str:
         "message": "Use trigger_consolidation to run a cycle. "
         "In MCP mode, cycles run synchronously.",
     }
-    if _consolidation_store is not None:
-        cycles = await _consolidation_store.get_recent_cycles(_group_id, limit=1)
-        if cycles:
-            result["latest_cycle"] = serialize_cycle_summary(cycles[0])
+    latest_cycle = await ConsolidationAuditReader(_consolidation_store).latest_cycle(_group_id)
+    if latest_cycle is not None:
+        result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
     return json.dumps(result)
 
 

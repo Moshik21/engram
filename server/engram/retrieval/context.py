@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import time
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
 
 from engram.config import ActivationConfig
 
@@ -361,6 +363,86 @@ class ConversationRuntimeService:
             source=source,
             update_fingerprint=update_fingerprint,
         )
+
+
+def manager_conversation_context(manager: Any) -> ConversationContext | None:
+    """Read a concrete conversation context from a manager facade when available."""
+    get_context = getattr(manager, "get_conversation_context", None)
+    if get_context is None or inspect.iscoroutinefunction(get_context):
+        return None
+    try:
+        conv_context = get_context()
+    except Exception:
+        return None
+    if inspect.isawaitable(conv_context):
+        return None
+    return conv_context if isinstance(conv_context, ConversationContext) else None
+
+
+def manager_conversation_embed_fn(manager: Any):
+    """Read the live-turn embedding function from a manager facade when available."""
+    get_embed_fn = getattr(manager, "get_conversation_embed_fn", None)
+    if get_embed_fn is None or inspect.iscoroutinefunction(get_embed_fn):
+        return None
+    embed_fn = get_embed_fn()
+    if inspect.isawaitable(embed_fn):
+        return None
+    return embed_fn if callable(embed_fn) else None
+
+
+def manager_conversation_turn_count(manager: Any) -> int:
+    """Read active live-turn count from a manager facade when available."""
+    get_turn_count = getattr(manager, "get_conversation_turn_count", None)
+    if get_turn_count is None or inspect.iscoroutinefunction(get_turn_count):
+        return 0
+    turn_count = get_turn_count()
+    if inspect.isawaitable(turn_count):
+        return 0
+    return turn_count if isinstance(turn_count, int) else 0
+
+
+def manager_conversation_top_entity_names(
+    manager: Any,
+    limit: int | None = None,
+) -> list[str]:
+    """Read session entity names from a manager facade when available."""
+    get_names = getattr(manager, "get_conversation_top_entity_names", None)
+    if get_names is None or inspect.iscoroutinefunction(get_names):
+        return []
+    names = get_names(limit) if limit is not None else get_names()
+    if inspect.isawaitable(names):
+        return []
+    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+
+
+def manager_conversation_recent_turns(manager: Any, limit: int) -> list[str]:
+    """Read recent live turn text from a manager facade when available."""
+    get_recent_turns = getattr(manager, "get_conversation_recent_turns", None)
+    if get_recent_turns is None or inspect.iscoroutinefunction(get_recent_turns):
+        return []
+    recent_turns = get_recent_turns(limit)
+    if inspect.isawaitable(recent_turns):
+        return []
+    return (
+        [turn for turn in recent_turns if isinstance(turn, str)]
+        if isinstance(recent_turns, list)
+        else []
+    )
+
+
+async def ingest_manager_conversation_turn(
+    manager: Any,
+    text: str,
+    *,
+    source: str,
+) -> None:
+    """Record a live turn through a manager facade when available."""
+    ingest = getattr(manager, "ingest_conversation_turn", None)
+    if not callable(ingest):
+        return
+    result = ingest(text, source=source)
+    if inspect.isawaitable(result):
+        await result
 
 
 class RecallConversationFingerprintRecorder:

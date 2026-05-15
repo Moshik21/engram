@@ -63,13 +63,16 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_notification_surface_service",
     },
     ("engram/api/knowledge.py", "_get_graph_probe"): {"get_recall_need_graph_probe"},
-    ("engram/api/knowledge.py", "_get_conv_context"): {"get_conversation_context"},
-    ("engram/api/knowledge.py", "_get_conv_embed_fn"): {"get_conversation_embed_fn"},
+    ("engram/api/knowledge.py", "_get_conv_context"): {"manager_conversation_context"},
+    ("engram/api/knowledge.py", "_get_conv_embed_fn"): {"manager_conversation_embed_fn"},
     ("engram/api/knowledge.py", "_get_conv_turn_count"): {
-        "get_conversation_turn_count",
+        "manager_conversation_turn_count",
     },
     ("engram/api/knowledge.py", "_get_conv_top_entity_names"): {
-        "get_conversation_top_entity_names",
+        "manager_conversation_top_entity_names",
+    },
+    ("engram/api/knowledge.py", "_ingest_conversation_turn"): {
+        "ingest_manager_conversation_turn",
     },
     ("engram/api/knowledge.py", "_hydrate_chat_context"): {
         "_get_conv_context",
@@ -87,6 +90,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "remember"): {
         "edge_adjudication_client_enabled",
         "ingest_episode",
+        "load_episode_adjudication_requests",
         "memory_write_contract",
         "present_api_memory_write",
     },
@@ -100,6 +104,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_memory_need_config",
         "present_chat_recall_items",
     },
+    ("engram/api/knowledge.py", "_build_tool_events"): {
+        "_emit_tool",
+        "build_chat_tool_events",
+    },
     ("engram/api/knowledge.py", "_apply_chat_recall_feedback"): {
         "apply_memory_interaction",
         "recall_usage_feedback_enabled",
@@ -112,15 +120,57 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_context",
         "get_rate_limiter",
         "_hydrate_chat_context",
+        "persist_chat_turn",
+        "raw_recall_from_chat_item",
+        "resolve_chat_conversation",
     },
     ("engram/api/health.py", "health_check"): {
         "get_config",
         "get_graph_store",
         "get_mode",
     },
+    ("engram/api/consolidation.py", "consolidation_status"): {
+        "get_latest_cycle",
+        "serialize_cycle_summary",
+    },
+    ("engram/api/consolidation.py", "consolidation_history"): {
+        "get_recent_cycles",
+        "serialize_cycle_summary",
+    },
+    ("engram/api/consolidation.py", "consolidation_cycle_detail"): {
+        "audit_store_available",
+        "get_cycle_detail",
+        "serialize_cycle_detail",
+    },
+    ("engram/api/conversations.py", "list_conversations"): {
+        "list_group_conversations",
+    },
+    ("engram/api/conversations.py", "create_conversation"): {
+        "create_group_conversation",
+    },
+    ("engram/api/conversations.py", "get_messages"): {
+        "get_group_conversation_messages",
+    },
+    ("engram/api/conversations.py", "append_messages"): {
+        "append_group_conversation_messages",
+    },
+    ("engram/api/conversations.py", "update_conversation"): {
+        "update_group_conversation_title",
+    },
+    ("engram/api/conversations.py", "delete_conversation"): {
+        "delete_group_conversation",
+    },
     ("engram/api/evaluation.py", "brain_loop_evaluation_report"): {
-        "get_graph_state",
+        "build_brain_loop_evaluation_surface",
         "get_recent_evaluation_context",
+    },
+    ("engram/api/evaluation.py", "create_recall_sample"): {
+        "persist_recall_eval_sample",
+        "present_recall_sample_write",
+    },
+    ("engram/api/evaluation.py", "create_session_sample"): {
+        "persist_session_continuity_sample",
+        "present_session_sample_write",
     },
     ("engram/api/knowledge.py", "route_knowledge_question"): {
         "_get_conv_top_entity_names",
@@ -147,25 +197,63 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "_serialize_notifications"): {
         "get_notification_surface_service_from_state",
     },
+    ("engram/mcp/server.py", "_should_recall"): {"should_recall_for_tool"},
+    ("engram/mcp/server.py", "_auto_recall_lite"): {
+        "compact_lite_auto_recall_surface",
+    },
+    ("engram/mcp/server.py", "_auto_recall_full"): {
+        "compact_auto_recall_surface",
+    },
+    ("engram/mcp/server.py", "_session_prime"): {
+        "plan_session_prime",
+    },
+    ("engram/mcp/server.py", "_recall_middleware"): {
+        "apply_mcp_recall_enrichment",
+        "plan_mcp_recall_middleware",
+    },
     ("engram/mcp/server.py", "recall"): {
         "get_recall_item_access_count",
         "get_last_near_miss_views",
         "get_surprise_connection_views",
     },
     ("engram/mcp/server.py", "_get_graph_probe"): {"get_recall_need_graph_probe"},
-    ("engram/mcp/server.py", "_get_conv_context"): {"get_conversation_context"},
-    ("engram/mcp/server.py", "_get_conv_embed_fn"): {"get_conversation_embed_fn"},
+    ("engram/mcp/server.py", "_get_conv_context"): {"manager_conversation_context"},
+    ("engram/mcp/server.py", "_get_conv_embed_fn"): {"manager_conversation_embed_fn"},
     ("engram/mcp/server.py", "_get_conv_top_entity_names"): {
-        "get_conversation_top_entity_names",
+        "manager_conversation_top_entity_names",
     },
     ("engram/mcp/server.py", "_get_conv_recent_turns"): {
-        "get_conversation_recent_turns",
+        "manager_conversation_recent_turns",
     },
     ("engram/mcp/server.py", "_ingest_live_turn"): {
         "_get_conv_context",
-        "ingest_conversation_turn",
+        "ingest_manager_conversation_turn",
     },
-    ("engram/mcp/server.py", "get_lifecycle_summary"): {"get_lifecycle_summary"},
+    ("engram/mcp/server.py", "get_lifecycle_summary"): {
+        "ConsolidationAuditReader",
+        "get_lifecycle_summary",
+    },
+    ("engram/mcp/server.py", "get_consolidation_status"): {
+        "ConsolidationAuditReader",
+        "serialize_cycle_summary",
+    },
+    ("engram/mcp/server.py", "get_evaluation_report"): {
+        "_load_consolidation_evaluation_inputs",
+        "build_brain_loop_evaluation_surface",
+    },
+    ("engram/mcp/server.py", "record_recall_evaluation"): {
+        "persist_recall_eval_sample",
+        "present_recall_sample_write",
+    },
+    ("engram/mcp/server.py", "record_session_continuity_evaluation"): {
+        "persist_session_continuity_sample",
+        "present_session_sample_write",
+    },
+    ("engram/mcp/server.py", "remember"): {
+        "load_episode_adjudication_requests",
+        "memory_write_contract",
+        "present_mcp_memory_write",
+    },
     ("engram/mcp/server.py", "mark_identity_core"): {"mark_identity_core"},
     ("engram/mcp/server.py", "trigger_consolidation"): {
         "serialize_cycle_summary",

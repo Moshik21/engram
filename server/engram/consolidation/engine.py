@@ -6,6 +6,10 @@ import logging
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.consolidation.audit_reader import (
+    ConsolidationAuditReader,
+    ConsolidationCycleDetail,
+)
 from engram.consolidation.capabilities import ConsolidationCapabilityValidator
 from engram.consolidation.completion import ConsolidationCycleCompletionService
 from engram.consolidation.events import ConsolidationEventPublisher
@@ -45,6 +49,7 @@ class ConsolidationEngine:
         self._search = search_index
         self._cfg = cfg
         self._store = consolidation_store
+        self._audit_reader = ConsolidationAuditReader(consolidation_store)
         self._capabilities = ConsolidationCapabilityValidator(
             graph_store=self._graph,
             activation_store=self._activation,
@@ -91,16 +96,36 @@ class ConsolidationEngine:
         cycle_limit: int,
     ) -> tuple[list[ConsolidationCycle], list[Any]]:
         """Return recent cycles and calibration snapshots for evaluation reports."""
-        if not self._store:
-            return [], []
+        return await self._audit_reader.evaluation_context(
+            group_id,
+            cycle_limit=cycle_limit,
+        )
 
-        recent_cycles = await self._store.get_recent_cycles(group_id, limit=cycle_limit)
-        calibration_snapshots: list[Any] = []
-        get_snapshots = getattr(self._store, "get_calibration_snapshots", None)
-        if get_snapshots is not None:
-            for cycle in recent_cycles:
-                calibration_snapshots.extend(await get_snapshots(cycle.id, group_id))
-        return recent_cycles, calibration_snapshots
+    @property
+    def audit_store_available(self) -> bool:
+        """Whether this runtime has a consolidation audit store attached."""
+        return self._audit_reader.available
+
+    async def get_latest_cycle(self, group_id: str) -> ConsolidationCycle | None:
+        """Return the latest persisted consolidation cycle for a group."""
+        return await self._audit_reader.latest_cycle(group_id)
+
+    async def get_recent_cycles(
+        self,
+        group_id: str,
+        *,
+        limit: int = 10,
+    ) -> list[ConsolidationCycle]:
+        """Return recent persisted consolidation cycles for a group."""
+        return await self._audit_reader.recent_cycles(group_id, limit=limit)
+
+    async def get_cycle_detail(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> ConsolidationCycleDetail | None:
+        """Return a full persisted consolidation cycle detail view."""
+        return await self._audit_reader.cycle_detail(cycle_id, group_id)
 
     def cancel(self) -> None:
         """Request cancellation of the current cycle (checked between phases)."""

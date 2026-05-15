@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 2874 tests, 43 skips, and 236 external-service tests deselected after
+  with 2933 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -226,6 +226,64 @@ What changed in this pass:
   longer reaches into `engine._store` directly for recent cycles and calibration
   snapshots, and the public-surface guard now rejects route-local `engine._*`
   access alongside `manager._*` access.
+- Moved REST/MCP consolidation audit reads behind
+  `ConsolidationAuditReader`. REST status/history/detail now call public
+  `ConsolidationEngine` reader facades and the shared
+  `serialize_cycle_detail()` presenter instead of reading `engine._store` or
+  assembling audit-record payloads in the route. MCP evaluation report inputs,
+  MCP consolidation status, and MCP lifecycle summaries use the same reader, and
+  lifecycle summaries now accept an explicit `consolidation_reader` instead of a
+  synthetic engine object with private store state.
+- Moved knowledge-chat rich tool-event shaping behind
+  `server/engram/retrieval/chat_events.py`. The REST route still owns AI SDK
+  SSE framing, but recall/fact-to-UI-event selection and chat-recall
+  round-tripping now live in a retrieval-side presenter instead of
+  `server/engram/api/knowledge.py`.
+- Moved knowledge-chat conversation persistence behind
+  `server/engram/retrieval/chat_persistence.py`. The REST chat route still owns
+  streaming and AI SDK tool-loop behavior, but conversation validation/creation,
+  group-scoped not-found handling, completed-turn persistence, and recalled
+  entity tagging now live in a retrieval-side helper.
+- Moved REST conversation CRUD behind
+  `server/engram/retrieval/conversation_persistence.py`. The conversations API
+  now delegates group-scoped listing, creation, message reads/appends,
+  title updates, deletes, and not-found translation to a shared helper instead
+  of encoding store calls in the route.
+- Moved REST/MCP episode adjudication request loading behind
+  `server/engram/ingestion/adjudication_surface.py`. REST and MCP remember
+  surfaces now share the compatibility lookup for post-write adjudication work
+  items before passing them to the shared memory-write presenters.
+- Moved REST/MCP live conversation manager-facade helpers into
+  `server/engram/retrieval/context.py`. REST chat and MCP recall piggybacking
+  now share the defensive sync/async/type filtering around conversation
+  context, embed functions, turn counts, recent turns, session entity names,
+  and live-turn ingestion.
+- Moved REST/MCP brain-loop evaluation report assembly behind
+  `server/engram/evaluation/report_service.py`. REST and MCP still supply their
+  transport-specific stores, cycle context, and snapshot source labels, but
+  graph-state reads, runtime Recall metric snapshot persistence/reload, saved
+  label reads, and report construction now share one service boundary.
+- Moved REST/MCP evaluation label writes behind
+  `server/engram/evaluation/label_service.py`. REST and MCP now share the
+  recall-quality and session-continuity sample construction, count clamping,
+  active `group_id` persistence, and existing write presenters.
+- Moved reusable MCP auto-recall policy helpers behind
+  `server/engram/retrieval/auto_recall.py`. Cooldown/topic deduplication,
+  compact recall-query extraction, per-tool recall gating, first-call session
+  prime planning, middleware side-effect planning, lite/medium entity-probe
+  response shaping, and additive MCP response enrichment now live outside
+  `server/engram/mcp/server.py`, while the MCP middleware still owns
+  tool-specific fetching and transport behavior.
+- Moved MCP auto-recall result compaction into the same retrieval helper module.
+  `compact_auto_recall_surface()` now owns the score filter, compact entity
+  summary, top-fact truncation, cue-episode payload, packet attachment, and
+  no-surfaceable-results decision; `_auto_recall_full()` now delegates that
+  result shape instead of building the MCP response inline.
+- Moved MCP recall enrichment attachment into the same retrieval helper module.
+  `apply_mcp_recall_enrichment()` now owns the additive response keys for
+  session context, recalled context, triggered intentions, and memory
+  notifications; `_recall_middleware()` still decides what to fetch and when to
+  surface it.
 - Added `server/tests/test_public_surface_presenter_boundaries.py` so REST and
   MCP observe/remember/recall/chat recall surfaces stay tied to the shared
   ingestion and retrieval presenters instead of drifting back to local response
@@ -4911,8 +4969,156 @@ What changed in this pass:
   - Result: route now calls `get_recent_evaluation_context`; no route-local
     `engine._store` read remains.
   - Note: the broad non-Docker/non-Helix rerun was interrupted while still
-    running when the commit checkpoint was requested; latest completed broad
-    gate remains 2874 passed, 43 skipped, 236 deselected.
+    running when the commit checkpoint was requested; a later route-orchestration
+    broad gate now passes with 2933 passed, 43 skipped, 236 deselected.
+- Consolidation audit reader and REST/MCP consolidation route cleanup:
+  `uv run pytest tests/test_lifecycle_cli.py
+  tests/test_consolidation_presenter.py
+  tests/test_consolidation_presenter_boundaries.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 101 passed.
+  `uv run pytest tests/test_api_endpoints.py::TestConsolidationAPI
+  tests/test_api_endpoints.py::TestLifecycleSummary
+  tests/test_mcp_tools.py::TestJSONResponses -q`
+  - Result: 19 passed, 2 skipped.
+  `uv run pytest tests/test_consolidation_engine.py
+  tests/test_consolidation_learning.py
+  tests/test_graph_manager_facade_boundaries.py -q`
+  - Result: 119 passed.
+  `uv run pytest tests/test_api_endpoints.py
+  tests/test_mcp_tools.py::TestJSONResponses -q`
+  - Result: 60 passed, 2 skipped.
+  `uv run ruff check engram/consolidation/audit_reader.py
+  engram/consolidation/engine.py engram/consolidation/presenter.py
+  engram/api/consolidation.py engram/mcp/server.py engram/lifecycle_summary.py
+  engram/lifecycle_cli.py engram/graph_manager.py
+  tests/test_consolidation_presenter.py
+  tests/test_consolidation_presenter_boundaries.py
+  tests/test_public_surface_presenter_boundaries.py tests/test_mcp_tools.py
+  tests/test_lifecycle_cli.py`
+  - Result: passed.
+  `git diff --check`
+  - Result: passed.
+- Knowledge-chat rich tool-event presenter:
+  `uv run pytest tests/test_chat_events.py tests/test_recall_presenter.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 86 passed.
+  `uv run pytest tests/test_knowledge_api.py::TestChat -q`
+  - Result: 6 passed.
+  `uv run pytest tests/test_knowledge_api.py tests/test_chat_events.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 131 passed.
+  `uv run ruff check engram/retrieval/chat_events.py engram/api/knowledge.py
+  tests/test_chat_events.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- Knowledge-chat conversation persistence boundary:
+  `uv run pytest tests/test_chat_persistence.py
+  tests/test_conversations_api.py::TestConversationOwnership::test_chat_rejects_other_group_conversation_id
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 93 passed.
+  `uv run pytest tests/test_knowledge_api.py::TestChat tests/test_chat_events.py
+  tests/test_chat_persistence.py -q`
+  - Result: 14 passed.
+  `uv run pytest tests/test_knowledge_api.py -q`
+  - Result: 48 passed.
+  `uv run ruff check engram/retrieval/chat_persistence.py
+  engram/api/knowledge.py tests/test_chat_persistence.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- REST conversation persistence boundary:
+  `uv run pytest tests/test_conversation_persistence.py
+  tests/test_conversations_api.py tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 103 passed.
+  `uv run ruff check engram/retrieval/conversation_persistence.py
+  engram/retrieval/chat_persistence.py engram/api/conversations.py
+  tests/test_conversation_persistence.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- REST/MCP adjudication request surface:
+  `uv run pytest tests/test_adjudication_surface.py
+  tests/test_knowledge_api.py::TestRemember::test_remember_returns_adjudication_requests
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_remember_surfaces_adjudication_requests
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 104 passed.
+  `uv run pytest tests/test_knowledge_api.py::TestRemember
+  tests/test_mcp_tools.py::TestJSONResponses -q`
+  - Result: 20 passed, 2 skipped.
+  `uv run ruff check engram/ingestion/adjudication_surface.py
+  engram/api/knowledge.py engram/mcp/server.py tests/test_adjudication_surface.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- REST/MCP live conversation facade helpers:
+  `uv run pytest tests/test_conversation_runtime_service.py
+  tests/test_knowledge_api.py::TestChatContextHelpers tests/test_piggyback_context.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 135 passed.
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses
+  tests/test_knowledge_api.py::TestChat -q`
+  - Result: 22 passed, 2 skipped.
+  `uv run ruff check engram/retrieval/context.py engram/api/knowledge.py
+  engram/mcp/server.py tests/test_conversation_runtime_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- Shared REST/MCP evaluation report assembly:
+  `uv run pytest tests/test_evaluation_report_service.py
+  tests/test_api_endpoints.py::TestEvaluation
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 93 passed.
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses -q`
+  - Result: 16 passed, 2 skipped.
+  `uv run ruff check engram/evaluation/report_service.py
+  engram/api/evaluation.py engram/mcp/server.py
+  tests/test_evaluation_report_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- Shared REST/MCP evaluation label writes:
+  `uv run pytest tests/test_evaluation_label_service.py
+  tests/test_evaluation_report_service.py tests/test_api_endpoints.py::TestEvaluation
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 99 passed.
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses -q`
+  - Result: 16 passed, 2 skipped.
+  `uv run ruff check engram/evaluation/label_service.py
+  engram/api/evaluation.py engram/mcp/server.py
+  tests/test_evaluation_label_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- Combined service-boundary focused gate:
+  `uv run pytest tests/test_conversation_runtime_service.py
+  tests/test_adjudication_surface.py tests/test_conversation_persistence.py
+  tests/test_chat_persistence.py tests/test_evaluation_label_service.py
+  tests/test_evaluation_report_service.py tests/test_auto_recall_policy.py
+  tests/test_chat_events.py tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 139 passed.
+  `uv run ruff check` on the touched consolidation/API/evaluation/retrieval/MCP
+  modules and focused tests.
+  - Result: passed.
+- Broad backend non-Docker/non-external-Helix gate:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 2933 passed, 43 skipped, 236 deselected.
+- MCP auto-recall policy boundary:
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_autorecall.py
+  tests/test_piggyback_context.py -q`
+  - Result: 79 passed.
+  `uv run pytest tests/test_recall_lite.py::TestAutoRecallLiteWiring
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 90 passed.
+  `uv run pytest tests/test_mcp_tools.py -k "observe or remember or
+  route_question or recall" -q`
+  - Result: 6 passed, 2 skipped, 57 deselected.
+  `uv run ruff check engram/retrieval/auto_recall.py engram/mcp/server.py
+  tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- MCP auto-recall response enrichment boundary:
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_piggyback_context.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 121 passed.
+  `uv run pytest tests/test_mcp_tools.py -k "observe or remember or
+  route_question or recall" -q`
+  - Result: 6 passed, 2 skipped, 57 deselected.
+  `uv run ruff check engram/retrieval/auto_recall.py engram/mcp/server.py
+  tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.
@@ -5032,6 +5238,9 @@ visibility work treated as done:
    rest-admin-benchmark-loader-service-boundary/rest-graph-route-service-boundary/
    mcp-recall-response-state-boundary/rest-dashboard-stats-service-boundary/
    rest-activation-monitor-service-boundary/rest-episode-dashboard-read-service-boundary/
+   consolidation-audit-reader-boundary/
+   knowledge-chat-event-presenter-boundary/
+   mcp-auto-recall-policy-boundary/
    websocket-activation-monitor-service-boundary/rest-mcp-notification-surface-boundary/
    websocket-notification-dismiss-surface-boundary/
    websocket-auth-config-dependency-boundary/
@@ -5058,11 +5267,22 @@ visibility work treated as done:
    signal, persistence path, or benchmark integration.
 7. Use `docs/design/brain-runtime-completion-audit.md` before any completion
    claim. The current verdict is not complete; the GraphManager compatibility
-   facade is now guarded more broadly, so the next high-leverage slice is a
-   REST/MCP route orchestration audit to identify any remaining lifecycle logic
-   that should either move into services or be documented as intentional
-   compatibility surface.
-7. Keep quest mode as a drilldown or alternate presentation, not the primary
+   facade is now guarded more broadly, and the consolidation audit store reads
+   are now behind `ConsolidationAuditReader`. Knowledge-chat rich tool-event
+   shaping and chat conversation persistence are also behind retrieval helpers
+   now, REST conversation CRUD has a group-scoped persistence helper, and SSE
+   framing remains in the route as an intentional transport concern. REST/MCP
+   episode adjudication request loading now shares an ingestion helper. REST/MCP
+   live conversation manager-facade helpers are centralized in
+   `retrieval.context`. REST/MCP brain-loop evaluation report assembly now
+   shares a service boundary too, and REST/MCP evaluation label writes share a
+   label service. MCP auto-recall cooldown, query extraction, per-tool gating,
+   first-call session-prime planning, and middleware side-effect planning are
+   also now in retrieval policy code, and lite/full auto-recall result
+   compaction plus additive response enrichment now live there too. The next
+   high-leverage slice is a continued REST/MCP route orchestration audit for
+   any remaining lifecycle logic still hidden in transport code.
+8. Keep quest mode as a drilldown or alternate presentation, not the primary
    explanation of the brain loop.
 
 Do not start by rewriting `GraphManager` wholesale. Keep extracting one shared

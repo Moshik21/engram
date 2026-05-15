@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from engram.evaluation.label_service import (
+    persist_recall_eval_sample,
+    persist_session_continuity_sample,
+)
+
+
+@pytest.mark.asyncio
+async def test_persist_recall_eval_sample_clamps_counts_and_saves() -> None:
+    store = AsyncMock()
+
+    sample = await persist_recall_eval_sample(
+        store,
+        group_id="brain_a",
+        recall_triggered=True,
+        recall_helped=False,
+        recall_needed=True,
+        packets_surfaced=-2,
+        packets_used=-1,
+        false_recalls=-3,
+        source="mcp",
+        query="native recall",
+        notes="operator label",
+    )
+
+    assert sample.group_id == "brain_a"
+    assert sample.recall_triggered is True
+    assert sample.recall_helped is False
+    assert sample.recall_needed is True
+    assert sample.packets_surfaced == 0
+    assert sample.packets_used == 0
+    assert sample.false_recalls == 0
+    assert sample.source == "mcp"
+    assert sample.query == "native recall"
+    assert sample.notes == "operator label"
+    store.save_recall_sample.assert_awaited_once_with(sample)
+
+
+@pytest.mark.asyncio
+async def test_persist_session_continuity_sample_saves() -> None:
+    store = AsyncMock()
+
+    sample = await persist_session_continuity_sample(
+        store,
+        group_id="brain_a",
+        baseline_score=0.4,
+        memory_score=0.9,
+        open_loop_expected=True,
+        open_loop_recovered=True,
+        temporal_expected=True,
+        temporal_correct=False,
+        source="rest",
+        scenario="handoff",
+        notes="manual label",
+    )
+
+    assert sample.group_id == "brain_a"
+    assert sample.baseline_score == 0.4
+    assert sample.memory_score == 0.9
+    assert sample.open_loop_expected is True
+    assert sample.open_loop_recovered is True
+    assert sample.temporal_expected is True
+    assert sample.temporal_correct is False
+    assert sample.source == "rest"
+    assert sample.scenario == "handoff"
+    assert sample.notes == "manual label"
+    store.save_session_sample.assert_awaited_once_with(sample)

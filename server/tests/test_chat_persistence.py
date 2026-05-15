@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from engram.retrieval.chat_persistence import (
+    persist_chat_turn,
+    resolve_chat_conversation,
+)
+from engram.storage.sqlite.conversations import ConversationNotFoundError
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_conversation_validates_existing_group() -> None:
+    store = AsyncMock()
+
+    result = await resolve_chat_conversation(
+        store,
+        group_id="brain_a",
+        conversation_id="conv_1",
+        message="ignored",
+        session_date=None,
+    )
+
+    assert result.conversation_id == "conv_1"
+    assert result.not_found is False
+    store.get_conversation.assert_awaited_once_with("conv_1", "brain_a")
+    store.create_conversation.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_conversation_creates_when_missing_id() -> None:
+    store = AsyncMock()
+    store.create_conversation.return_value = "conv_new"
+
+    result = await resolve_chat_conversation(
+        store,
+        group_id="brain_a",
+        conversation_id=None,
+        message="A" * 80,
+        session_date="2026-05-15",
+    )
+
+    assert result.conversation_id == "conv_new"
+    assert result.not_found is False
+    store.create_conversation.assert_awaited_once_with(
+        group_id="brain_a",
+        session_date="2026-05-15",
+        title="A" * 60,
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_conversation_reports_not_found_for_foreign_id() -> None:
+    store = AsyncMock()
+    store.get_conversation.side_effect = ConversationNotFoundError("conv_foreign")
+
+    result = await resolve_chat_conversation(
+        store,
+        group_id="brain_a",
+        conversation_id="conv_foreign",
+        message="ignored",
+        session_date=None,
+    )
+
+    assert result.conversation_id == "conv_foreign"
+    assert result.not_found is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_chat_conversation_noops_without_store() -> None:
+    result = await resolve_chat_conversation(
+        None,
+        group_id="brain_a",
+        conversation_id="conv_client",
+        message="ignored",
+        session_date=None,
+    )
+
+    assert result.conversation_id == "conv_client"
+    assert result.not_found is False
+
+
+@pytest.mark.asyncio
+async def test_persist_chat_turn_saves_messages_and_tags_unique_entities() -> None:
+    store = AsyncMock()
+
+    await persist_chat_turn(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        user_message="What changed?",
+        assistant_message="The recall path changed.",
+        recall_results=[
+            {"result_type": "entity", "entity": {"id": "ent_a"}},
+            {"result_type": "entity", "entity": {"id": "ent_a"}},
+            {"result_type": "entity", "entity": {"id": "ent_b"}},
+            {"result_type": "cue_episode", "cue": {"episode_id": "ep_1"}},
+        ],
+    )
+
+    store.add_messages_bulk.assert_awaited_once_with(
+        "conv_1",
+        [
+            {"role": "user", "content": "What changed?"},
+            {"role": "assistant", "content": "The recall path changed."},
+        ],
+        group_id="brain_a",
+    )
+    assert store.tag_entity.await_args_list[0].args == ("conv_1", "ent_a")
+    assert store.tag_entity.await_args_list[0].kwargs == {"group_id": "brain_a"}
+    assert store.tag_entity.await_args_list[1].args == ("conv_1", "ent_b")
+    assert store.tag_entity.await_args_list[1].kwargs == {"group_id": "brain_a"}
+
+
+@pytest.mark.asyncio
+async def test_persist_chat_turn_noops_without_store_conversation_or_assistant() -> None:
+    store = AsyncMock()
+
+    await persist_chat_turn(
+        None,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        user_message="hello",
+        assistant_message="hi",
+        recall_results=[],
+    )
+    await persist_chat_turn(
+        store,
+        conversation_id=None,
+        group_id="brain_a",
+        user_message="hello",
+        assistant_message="hi",
+        recall_results=[],
+    )
+    await persist_chat_turn(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        user_message="hello",
+        assistant_message="",
+        recall_results=[],
+    )
+
+    store.add_messages_bulk.assert_not_called()
+    store.tag_entity.assert_not_called()

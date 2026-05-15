@@ -1441,7 +1441,7 @@ class TestJSONResponses:
         assert kwargs["activation_config"] is activation_config
         assert kwargs["episode_limit"] == 1
         assert kwargs["cycle_limit"] == 3
-        assert kwargs["consolidation_engine"]._store is consolidation_store
+        assert kwargs["consolidation_reader"].available is True
         assert kwargs["consolidation_engine"].is_running is False
         data = json.loads(raw)
         assert data["groupId"] == "default"
@@ -1472,6 +1472,7 @@ class TestJSONResponses:
         manager.get_lifecycle_summary.assert_awaited_once_with(
             group_id="default",
             consolidation_engine=None,
+            consolidation_reader=None,
             activation_config=None,
             episode_limit=1,
             cycle_limit=1,

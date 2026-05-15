@@ -1,18 +1,20 @@
 """Test Agent SDK with actual LongMemEval prompt."""
+
+import asyncio
 import os
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from engram.benchmark.longmemeval.dataset import load_dataset
+from engram.embeddings.provider import GeminiProvider
+
 os.environ.pop("CLAUDECODE", None)
 os.environ.pop("CLAUDE_CODE_ENTRYPOINT", None)
 
-import asyncio
-import sys
-from pathlib import Path
-from dotenv import load_dotenv
 load_dotenv(Path.home() / ".engram" / ".env", override=False)
 load_dotenv()
-
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage, AssistantMessage, TextBlock
-from engram.benchmark.longmemeval.dataset import load_dataset
-from engram.embeddings.provider import GeminiProvider
 
 # Init embedding provider (same as baseline)
 try:
@@ -45,7 +47,16 @@ prompt = (
 print(f"Question: {inst.question}")
 print(f"Prompt length: {len(prompt)} chars")
 
+
 async def test():
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+        query,
+    )
+
     opts = ClaudeAgentOptions(
         model="claude-sonnet-4-6",
         max_turns=1,
@@ -63,5 +74,6 @@ async def test():
                 print("DONE:", msg.subtype, f"cost=${getattr(msg, 'total_cost_usd', '?')}")
     except Exception as e:
         print(f"ERROR: {e}")
+
 
 asyncio.run(test())

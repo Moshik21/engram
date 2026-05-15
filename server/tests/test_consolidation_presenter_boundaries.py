@@ -15,7 +15,7 @@ CONSOLIDATION_PRESENTER_BOUNDARIES = {
         "serialize_cycle_summary",
     },
     ("engram/api/consolidation.py", "consolidation_cycle_detail"): {
-        "serialize_cycle_summary",
+        "serialize_cycle_detail",
     },
     ("engram/mcp/server.py", "trigger_consolidation"): {
         "serialize_cycle_summary",

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engram.config import EngramConfig
+from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.lifecycle_cli import (
     build_lifecycle_summary_for_config,
     build_lifecycle_summary_from_args,
@@ -415,10 +416,8 @@ async def test_lifecycle_summary_uses_shared_consolidation_cycle_contract() -> N
     summary = await build_lifecycle_summary(
         group_id="native_brain",
         manager=manager,
-        consolidation_engine=SimpleNamespace(
-            _store=FakeConsolidationStore(),
-            is_running=False,
-        ),
+        consolidation_engine=SimpleNamespace(is_running=False),
+        consolidation_reader=ConsolidationAuditReader(FakeConsolidationStore()),
         episode_limit=0,
         cycle_limit=1,
         top_n=0,
@@ -474,10 +473,8 @@ async def test_lifecycle_summary_marks_completed_cycle_with_phase_error_attentio
     summary = await build_lifecycle_summary(
         group_id="native_brain",
         manager=manager,
-        consolidation_engine=SimpleNamespace(
-            _store=FakeConsolidationStore(),
-            is_running=False,
-        ),
+        consolidation_engine=SimpleNamespace(is_running=False),
+        consolidation_reader=ConsolidationAuditReader(FakeConsolidationStore()),
         episode_limit=0,
         cycle_limit=1,
         top_n=0,

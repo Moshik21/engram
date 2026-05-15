@@ -32,11 +32,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Extract project runtime boundaries | `server/engram/ingestion/projection_service.py`, `projection_execution.py`, `projection_state.py` | Strong |
 | Extract recall runtime boundaries | `server/engram/retrieval/service.py`, `presenter.py`, `context_builder.py`, `entity_probe.py`, `graph_state.py` | Strong |
 | Extract consolidation orchestration boundaries | `server/engram/consolidation/lifecycle.py`, `phase_runner.py`, `events.py`, `completion.py`, `phase_catalog.py` | Strong |
-| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions | Strong for `GraphManager`; remaining route-local orchestration needs final review |
+| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions; consolidation audit reads now use `ConsolidationAuditReader`, and MCP auto-recall lite/full shaping plus enrichment now use retrieval helpers instead of route-local response construction | Strong for `GraphManager`; route-local orchestration audit remains ongoing |
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `2874 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
+| Keep SQLite/lite viable | Broad gate: `2933 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -47,7 +47,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 2874 tests, 43 skips, and 236 deselections.
+  currently passes with 2933 tests, 43 skips, and 236 deselections.
 - GraphManager facade evidence:
   `tests/test_graph_manager_facade_boundaries.py` now has 61 static delegate
   checks for core lifecycle APIs and service-backed compatibility adapters.
@@ -86,7 +86,10 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   MCP recall-response enrichment now calls manager facades backed by
   `RecallResponseStateService` instead of reading private activation,
   near-miss, surprise-cache, or triggered-intention fields in
-  `server/engram/mcp/server.py`.
+  `server/engram/mcp/server.py`. MCP auto-recall response payload attachment
+  also delegates to `apply_mcp_recall_enrichment()` so the additive
+  `session_context`, `recalled_context`, `triggered_intentions`, and
+  `memory_notifications` keys share one retrieval-side contract.
   REST dashboard stats now calls `GraphManager.get_dashboard_stats()` backed by
   `GraphStateService` instead of reading the graph store directly in
   `server/engram/api/stats.py`.
@@ -175,8 +178,66 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    The REST evaluation report also reads consolidation cycles/calibration
    snapshots through `ConsolidationEngine.get_recent_evaluation_context()`
    instead of `engine._store`; focused evaluation/consolidation/static checks
-   passed, with the latest broad gate still at the previously completed 2874
-   tests after the next broad rerun was interrupted for a commit checkpoint.
+   passed, with a later route-orchestration broad gate now passing 2933 tests.
+   The follow-up moved REST consolidation status/history/detail reads through
+   public `ConsolidationEngine` reader facades backed by
+   `ConsolidationAuditReader`, moved detail payload assembly into
+   `serialize_cycle_detail()`, and moved MCP evaluation report inputs,
+   consolidation status, and lifecycle summary cycle reads through the same
+   reader. Focused lifecycle/consolidation/API/MCP/static checks passed, and
+   route-local `engine._store` plus synthetic lifecycle `consolidation_engine._store`
+   usage has been removed.
+   The knowledge-chat rich event selection is now in
+   `server/engram/retrieval/chat_events.py`, with the REST route retaining only
+   AI SDK SSE framing. Focused chat-event, recall-presenter, public-surface, and
+   full knowledge API checks passed.
+   Knowledge-chat conversation persistence is now in
+   `server/engram/retrieval/chat_persistence.py`, covering conversation
+   validation/creation, active-`group_id` not-found handling, completed-turn
+   persistence, and recalled entity tagging. Focused chat-persistence,
+   conversation ownership, chat, public-surface, full knowledge API, and Ruff
+   checks passed.
+   REST conversation CRUD now uses
+   `server/engram/retrieval/conversation_persistence.py`, covering group-scoped
+   listing, creation, message reads/appends, title updates, deletes, and
+   not-found translation. Focused conversation-persistence, conversation API,
+   public-surface, and Ruff checks passed.
+   REST/MCP post-write adjudication request loading now uses
+   `server/engram/ingestion/adjudication_surface.py`, covering the compatibility
+   lookup for sync/async manager facades and missing/malformed responses before
+   shared memory-write presenters run. Focused adjudication-surface, REST
+   remember, MCP JSON-response, public-surface, and Ruff checks passed.
+   REST/MCP live conversation manager-facade access now uses helpers in
+   `server/engram/retrieval/context.py`, covering defensive sync/async/type
+   checks for conversation context, embed functions, turn counts, session entity
+   names, recent turns, and live-turn ingestion. Focused conversation-runtime,
+   chat-context, MCP piggyback, public-surface, and Ruff checks passed.
+   REST/MCP brain-loop evaluation report assembly is now in
+   `server/engram/evaluation/report_service.py`, covering graph-state reads,
+   runtime Recall metrics snapshot persistence/reload, saved label reads, and
+   report construction while each transport still supplies cycle context and
+   snapshot source labels. Focused evaluation report service, REST evaluation,
+   MCP JSON-response, public-surface, and Ruff checks passed.
+   REST/MCP evaluation label writes are now in
+   `server/engram/evaluation/label_service.py`, covering recall-quality and
+   session-continuity sample construction, count clamping, active-`group_id`
+   persistence, and shared write presenters. Focused label service, REST
+   evaluation, MCP JSON-response, public-surface, and Ruff checks passed.
+   The broad non-Docker/non-external-Helix backend gate now passes with 2933
+   tests, 43 skips, and 236 deselections after these route-orchestration
+   slices.
+   MCP auto-recall cooldown/topic deduplication, compact query extraction,
+   per-tool recall gating, first-call session-prime planning, and MCP
+   middleware side-effect planning now live in
+   `server/engram/retrieval/auto_recall.py`. Auto-recall result compaction also
+   lives there now, including lite/medium entity-probe response shaping, score
+   filtering, compact entity summaries, top-fact truncation, cue-episode
+   payloads, packet attachment, and the no-surfaceable-results decision.
+   The same helper module now owns additive MCP response enrichment for session
+   context, recalled context, triggered intentions, and memory notifications.
+   The MCP middleware still owns tool-specific fetching and transport behavior,
+   which remains an intentional compatibility surface pending any further
+   extraction.
    Completion still needs a continued review of remaining
    route-local orchestration that may hide lifecycle logic, plus explicit notes
    for any intentionally retained compatibility behavior.
@@ -213,7 +274,17 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 ## Next Concrete Work
 
-The next high-leverage slice is a REST/MCP route orchestration audit against
-the service boundaries already extracted. The output should be either small
-code extractions for any remaining route-local lifecycle logic or an explicit
-note that a compatibility behavior is intentionally retained.
+Continue the REST/MCP route orchestration audit against the service boundaries
+already extracted. The consolidation audit-store and knowledge-chat event
+presenter slices are complete, chat conversation persistence has a helper
+boundary, REST conversation CRUD has a group-scoped helper, REST/MCP
+post-write adjudication request loading has an ingestion helper, REST/MCP
+live conversation manager-facade access uses retrieval helpers, REST/MCP
+evaluation report assembly shares a service, REST/MCP evaluation label writes
+share a service, and MCP auto-recall policy helpers have been extracted,
+including first-call session-prime planning and middleware side-effect
+planning. Auto-recall result compaction and additive MCP response enrichment
+have also been extracted for both lite/medium entity-probe and full recall
+surfaces. The next likely area is any remaining REST/MCP route-local
+orchestration that still hides lifecycle behavior rather than surface transport
+details.

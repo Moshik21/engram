@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from engram.benchmark_loader import BenchmarkLoadService
 from engram.config import ActivationConfig
@@ -104,6 +105,9 @@ from engram.retrieval.runtime_state import RuntimeStateService
 from engram.retrieval.service import RecallService
 from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
+
+if TYPE_CHECKING:
+    from engram.consolidation.audit_reader import ConsolidationAuditReader
 
 logger = logging.getLogger(__name__)
 
@@ -2259,6 +2263,7 @@ class GraphManager:
         *,
         group_id: str = "default",
         consolidation_engine: object | None = None,
+        consolidation_reader: ConsolidationAuditReader | None = None,
         consolidation_scheduler: object | None = None,
         pressure_accumulator: object | None = None,
         activation_config: ActivationConfig | None = None,
@@ -2269,6 +2274,7 @@ class GraphManager:
         return await self._lifecycle_summary_service.get_lifecycle_summary(
             group_id=group_id,
             consolidation_engine=consolidation_engine,
+            consolidation_reader=consolidation_reader,
             consolidation_scheduler=consolidation_scheduler,
             pressure_accumulator=pressure_accumulator,
             activation_config=activation_config,

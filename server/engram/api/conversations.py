@@ -7,18 +7,15 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store
+from engram.retrieval.conversation_persistence import (
+    append_group_conversation_messages,
+    create_group_conversation,
+    delete_group_conversation,
+    get_group_conversation_messages,
+    list_group_conversations,
+    update_group_conversation_title,
+)
 from engram.security.middleware import get_tenant
-from engram.storage.helix.conversations import (
-    ConversationNotFoundError as HelixConversationNotFoundError,
-)
-from engram.storage.sqlite.conversations import (
-    ConversationNotFoundError as SQLiteConversationNotFoundError,
-)
-
-_CONVERSATION_NOT_FOUND = (
-    SQLiteConversationNotFoundError,
-    HelixConversationNotFoundError,
-)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -43,7 +40,11 @@ async def list_conversations(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    conversations = await store.list_conversations(tenant.group_id, limit=limit)
+    conversations = await list_group_conversations(
+        store,
+        group_id=tenant.group_id,
+        limit=limit,
+    )
     return JSONResponse(content={"conversations": conversations})
 
 
@@ -51,7 +52,8 @@ async def list_conversations(
 async def create_conversation(request: Request, body: CreateConversationBody) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    conv_id = await store.create_conversation(
+    conv_id = await create_group_conversation(
+        store,
         group_id=tenant.group_id,
         session_date=body.session_date,
         title=body.title,
@@ -63,9 +65,12 @@ async def create_conversation(request: Request, body: CreateConversationBody) ->
 async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    try:
-        messages = await store.get_messages(conversation_id, tenant.group_id)
-    except _CONVERSATION_NOT_FOUND:
+    messages = await get_group_conversation_messages(
+        store,
+        conversation_id=conversation_id,
+        group_id=tenant.group_id,
+    )
+    if messages is None:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"messages": messages})
 
@@ -78,13 +83,13 @@ async def append_messages(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    try:
-        ids = await store.add_messages_bulk(
-            conversation_id,
-            body.messages,
-            group_id=tenant.group_id,
-        )
-    except _CONVERSATION_NOT_FOUND:
+    ids = await append_group_conversation_messages(
+        store,
+        conversation_id=conversation_id,
+        messages=body.messages,
+        group_id=tenant.group_id,
+    )
+    if ids is None:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"ids": ids})
 
@@ -97,7 +102,12 @@ async def update_conversation(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    updated = await store.update_conversation(conversation_id, tenant.group_id, title=body.title)
+    updated = await update_group_conversation_title(
+        store,
+        conversation_id=conversation_id,
+        group_id=tenant.group_id,
+        title=body.title,
+    )
     if not updated:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"status": "updated"})
@@ -107,7 +117,11 @@ async def update_conversation(
 async def delete_conversation(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    deleted = await store.delete_conversation(conversation_id, tenant.group_id)
+    deleted = await delete_group_conversation(
+        store,
+        conversation_id=conversation_id,
+        group_id=tenant.group_id,
+    )
     if not deleted:
         return JSONResponse(status_code=404, content={"detail": "Not found"})
     return JSONResponse(content={"status": "deleted"})

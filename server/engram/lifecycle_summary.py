@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.consolidation.presenter import serialize_cycle_summary
 
 LOOP = ["capture", "cue", "project", "recall", "consolidate"]
@@ -121,12 +122,16 @@ async def _recent_cycles(
     *,
     graph_store: Any | None,
     consolidation_engine: Any | None,
+    consolidation_reader: ConsolidationAuditReader | None,
     group_id: str,
     limit: int,
 ) -> list[Any]:
-    cycle_store = getattr(consolidation_engine, "_store", None)
-    if cycle_store is not None:
-        return await cycle_store.get_recent_cycles(group_id, limit=limit)
+    if consolidation_reader is not None:
+        return await consolidation_reader.recent_cycles(group_id, limit=limit)
+
+    get_recent_cycles = getattr(consolidation_engine, "get_recent_cycles", None)
+    if callable(get_recent_cycles):
+        return await get_recent_cycles(group_id, limit=limit)
 
     db = getattr(graph_store, "_db", None)
     if db is None:
@@ -192,6 +197,7 @@ async def build_lifecycle_summary(
     manager: Any,
     graph_store: Any | None = None,
     consolidation_engine: Any | None = None,
+    consolidation_reader: ConsolidationAuditReader | None = None,
     consolidation_scheduler: Any | None = None,
     pressure_accumulator: Any | None = None,
     activation_config: ActivationConfig | None = None,
@@ -240,6 +246,7 @@ async def build_lifecycle_summary(
     recent_cycles = await _recent_cycles(
         graph_store=graph_store,
         consolidation_engine=consolidation_engine,
+        consolidation_reader=consolidation_reader,
         group_id=group_id,
         limit=max(1, cycle_limit),
     )
@@ -369,6 +376,7 @@ class LifecycleSummaryService:
         *,
         group_id: str,
         consolidation_engine: Any | None = None,
+        consolidation_reader: ConsolidationAuditReader | None = None,
         consolidation_scheduler: Any | None = None,
         pressure_accumulator: Any | None = None,
         activation_config: ActivationConfig | None = None,
@@ -380,6 +388,7 @@ class LifecycleSummaryService:
             group_id=group_id,
             manager=self._manager,
             consolidation_engine=consolidation_engine,
+            consolidation_reader=consolidation_reader,
             consolidation_scheduler=consolidation_scheduler,
             pressure_accumulator=pressure_accumulator,
             activation_config=activation_config or self._activation_config,

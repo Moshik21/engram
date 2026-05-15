@@ -1493,7 +1493,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 2874 tests, 43 skips, and 236 external-service
+   gate currently passes with 2933 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -2846,7 +2846,7 @@ routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
 shows `_app_state` only in `server/engram/api/deps.py`, and the broad
-non-Docker/non-Helix gate passes with 2874 tests, 43 skips, and 236
+non-Docker/non-Helix gate now passes with 2933 tests, 43 skips, and 236
 external-service deselections.
 
 The REST evaluation report no longer reaches into consolidation engine private
@@ -2856,8 +2856,98 @@ recent cycles plus calibration snapshots for report builders, and
 `engine._store`. The public-surface guard rejects route-local `engine._*` access
 alongside `manager._*` access. Focused evaluation/consolidation/static checks
 and Ruff passed; the broad rerun was interrupted when the commit checkpoint was
-requested, so the latest completed broad gate remains 2874 tests, 43 skips, and
-236 external-service deselections.
+requested, and a later route-orchestration broad gate now passes with 2933
+tests, 43 skips, and 236 external-service deselections.
+
+Consolidation audit reads now have a single read-side boundary.
+`server/engram/consolidation/audit_reader.py` owns latest/recent cycle reads,
+cycle-detail audit record fanout, and evaluation-context snapshot collection.
+REST consolidation status/history/detail routes call public
+`ConsolidationEngine` reader facades, and cycle-detail payload assembly lives in
+`serialize_cycle_detail()` instead of `server/engram/api/consolidation.py`.
+MCP evaluation reports, MCP consolidation status, CLI lifecycle summaries, and
+MCP lifecycle summaries also use `ConsolidationAuditReader`, so those surfaces
+no longer need synthetic `consolidation_engine._store` objects. Focused
+lifecycle/consolidation/API/MCP/static checks, Ruff, and `git diff --check`
+passed.
+
+Knowledge-chat rich UI event shaping now lives outside the REST route.
+`server/engram/retrieval/chat_events.py` converts raw recall/fact results into
+route-neutral chat tool events and converts summarized chat recall output back
+into the raw recall shape used by post-response feedback and UI event
+selection. `server/engram/api/knowledge.py` still owns the AI SDK SSE framing
+through `_emit_tool()`, which is an intentional transport concern. Focused chat
+event, recall presenter, public-surface, and full knowledge API checks passed.
+
+Knowledge-chat conversation persistence now has its own helper boundary too.
+`server/engram/retrieval/chat_persistence.py` validates existing conversation
+IDs against the active `group_id`, creates missing conversations with the
+request group and session date, persists completed user/assistant turns, and
+tags unique recalled entity IDs. The REST chat route still owns streaming and
+AI SDK tool-loop behavior, but no longer owns conversation persistence rules.
+Focused chat-persistence, conversation ownership, chat, public-surface, and
+full knowledge API checks passed, and Ruff passed.
+
+REST conversation CRUD now uses a group-scoped persistence helper.
+`server/engram/retrieval/conversation_persistence.py` owns conversation listing,
+creation, message reads/appends, title updates, deletes, and not-found
+translation for the active `group_id`. `server/engram/api/conversations.py`
+keeps HTTP response shapes and request parsing, but no longer directly encodes
+conversation store calls. Focused conversation-persistence, conversation API,
+public-surface, and Ruff checks passed.
+
+REST/MCP post-write adjudication request loading now has one helper.
+`server/engram/ingestion/adjudication_surface.py` owns the compatibility lookup
+for episode adjudication work items after remember writes, including sync/async
+manager facades and missing/malformed responses. REST and MCP remember surfaces
+still own their transport response shapes, but the adjudication request loading
+contract is shared before the common memory-write presenters run. Focused
+adjudication-surface, REST remember, MCP JSON-response, public-surface, and
+Ruff checks passed.
+
+REST/MCP live conversation facade access now uses shared retrieval helpers.
+`server/engram/retrieval/context.py` owns the defensive sync/async/type checks
+around manager conversation context, live-turn embedding function, turn counts,
+session entity names, recent turns, and live-turn ingestion. REST chat and MCP
+recall piggybacking keep their local compatibility wrapper names, but those
+wrappers now delegate to the shared retrieval-side facade helpers. Focused
+conversation-runtime, chat-context, MCP piggyback, public-surface, and Ruff
+checks passed.
+
+REST/MCP brain-loop evaluation reports now share report assembly as well.
+`server/engram/evaluation/report_service.py` reads graph state through the
+manager facade, persists or reloads runtime Recall metrics snapshots through
+the evaluation store, loads saved recall/session labels, and calls the shared
+`build_brain_loop_report()` contract. REST and MCP still provide their
+transport-specific cycle context and snapshot source labels. Focused evaluation
+report service, REST evaluation, MCP JSON-response, public-surface, and Ruff
+checks passed.
+
+REST/MCP evaluation label writes now share a service boundary too.
+`server/engram/evaluation/label_service.py` builds and persists recall-quality
+and session-continuity samples for the active `group_id`, preserving count
+clamping for MCP inputs and the shared REST/MCP write presenters. Focused label
+service, REST evaluation, MCP JSON-response, public-surface, and Ruff checks
+passed.
+
+After these route-orchestration slices, the broad backend non-Docker/non-Helix
+gate passes with 2933 tests, 43 skips, and 236 external-service deselections.
+
+MCP auto-recall policy helpers now live in retrieval runtime code.
+`server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication
+class, compact recall-query extraction, per-tool recall gating, and first-call
+session-prime planning used by MCP. It also owns the MCP recall middleware
+side-effect plan for auto-observe, live-turn ingestion, and notification
+fallbacks when recall is disabled. It now also owns
+`compact_lite_auto_recall_surface()`, the lite/medium entity-probe surface,
+`compact_auto_recall_surface()`, the score-filtered entity/cue/packet surface
+that `_auto_recall_full()` attaches as `recalled_context`, and
+`apply_mcp_recall_enrichment()`, the additive response attachment contract for
+session context, recalled context, triggered intentions, and memory
+notifications. `server/engram/mcp/server.py` keeps compatibility wrappers for
+existing tool tests and still owns tool-specific fetching and transport
+behavior. Focused autorecall, piggyback, recall-lite/MCP recall-selection, MCP
+response-enrichment, public-surface, and Ruff checks passed.
 
 Not covered in this pass:
 

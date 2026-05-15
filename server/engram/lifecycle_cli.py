@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from engram.config import EngramConfig
+from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.lifecycle_summary import build_lifecycle_summary
@@ -119,15 +120,13 @@ async def build_lifecycle_summary_for_config(
             cfg=config.activation,
             runtime_mode=mode.value,
         )
-        consolidation_engine = SimpleNamespace(
-            _store=consolidation_store,
-            is_running=False,
-        )
+        consolidation_engine = SimpleNamespace(is_running=False)
         return await build_lifecycle_summary(
             group_id=resolved_group_id,
             manager=manager,
             graph_store=graph_store,
             consolidation_engine=consolidation_engine,
+            consolidation_reader=ConsolidationAuditReader(consolidation_store),
             activation_config=config.activation,
             top_n=top_n,
             episode_limit=episode_limit,
