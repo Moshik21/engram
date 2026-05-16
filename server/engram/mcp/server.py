@@ -187,10 +187,19 @@ async def _init() -> None:
     _consolidation_store = await _create_consolidation_store(mode, config, graph_store)
 
     # Background episode worker
+    from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
     from engram.worker import EpisodeWorker
 
     if config.activation.worker_enabled:
-        _episode_worker = EpisodeWorker(_manager, config.activation)
+        _episode_worker = EpisodeWorker(
+            _manager,
+            config.activation,
+            stores=EpisodeWorkerRuntimeStores(
+                graph=graph_store,
+                activation=activation_store,
+                search=search_index,
+            ),
+        )
         _episode_worker.start(_group_id, event_bus)
 
     # In full mode, bridge events to Redis so the REST API/dashboard can see them

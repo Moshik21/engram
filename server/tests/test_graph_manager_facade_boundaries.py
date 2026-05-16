@@ -231,6 +231,34 @@ def test_close_runtime_resources_closes_owned_runtime_stores() -> None:
     )
 
 
+def test_episode_worker_runtime_stores_expose_owned_stores() -> None:
+    source = textwrap.dedent(
+        inspect.getsource(GraphManager.get_episode_worker_runtime_stores)
+    )
+    tree = ast.parse(source)
+    returns = [node.value for node in ast.walk(tree) if isinstance(node, ast.Return)]
+    assert len(returns) == 1
+    call = returns[0]
+    assert isinstance(call, ast.Call)
+    assert isinstance(call.func, ast.Name)
+    assert call.func.id == "EpisodeWorkerRuntimeStores"
+
+    returned_attrs: dict[str, str] = {}
+    for keyword in call.keywords:
+        assert keyword.arg is not None
+        value = keyword.value
+        assert isinstance(value, ast.Attribute)
+        assert isinstance(value.value, ast.Name)
+        assert value.value.id == "self"
+        returned_attrs[keyword.arg] = value.attr
+
+    assert returned_attrs == {
+        "graph": "_graph",
+        "activation": "_activation",
+        "search": "_search",
+    }
+
+
 @pytest.mark.parametrize(
     ("method_name", "expected_delegate"),
     COMPATIBILITY_FACADE_DELEGATES.items(),

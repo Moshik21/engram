@@ -36,7 +36,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3141 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3160 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -47,7 +47,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3141 tests, 43 skips, and 236 deselections.
+  currently passes with 3160 tests, 43 skips, and 236 deselections.
 - Shared lite storage bootstrap evidence:
   `server/engram/storage/bootstrap.py` centralizes companion-store
   initialization against the active graph store. REST startup, MCP startup,
@@ -60,6 +60,31 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   graph stores through `engram.storage.bootstrap.close_if_supported()`, and MCP
   lifespan shutdown now calls that facade instead of reading private manager
   store fields.
+- Episode worker runtime-store evidence:
+  `server/engram/ingestion/worker_runtime.py` defines the graph, activation, and
+  search stores needed by `EpisodeWorker`. REST and MCP startup pass those
+  stores explicitly, while `GraphManager.get_episode_worker_runtime_stores()`
+  remains a compatibility accessor for direct worker construction.
+- Episode worker batching evidence:
+  `server/engram/ingestion/worker_batching.py` owns adjacent auto-capture turn
+  merging, primary cue rebuild, merged-away cue retirement, and cue re-indexing.
+  `EpisodeWorker` now keeps queue consumption, deterministic scoring, and
+  projection routing instead of embedding that Cue-stage lifecycle mutation.
+- Episode worker scoring evidence:
+  `server/engram/ingestion/worker_scoring.py` owns deterministic worker triage
+  scoring, multi-signal scorer access, goal boost lookup, and projection-yield
+  feedback. `EpisodeWorker` delegates scoring and outcome recording while
+  keeping queue event routing and Project-stage dispatch.
+- Episode worker routing evidence:
+  `server/engram/ingestion/worker_routing.py` owns duplicate projection guards,
+  system-discourse cue-only skips, skip/defer projection-state sync, and the
+  boolean project-now routing contract. `EpisodeWorker` keeps event
+  consumption, batch timing, and Project-stage dispatch.
+- Episode worker event evidence:
+  `server/engram/ingestion/worker_events.py` owns EventBus payload parsing for
+  queued and scheduled-projection episodes plus compact auto-capture content
+  loading. `EpisodeWorker` now subscribes, batches, routes, and dispatches
+  without embedding raw `episodeId` payload keys or event names.
 - GraphManager facade evidence:
   `tests/test_graph_manager_facade_boundaries.py` now has 61 static delegate
   checks for core lifecycle APIs and service-backed compatibility adapters.
@@ -211,7 +236,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    The REST evaluation report also reads consolidation cycles/calibration
    snapshots through `ConsolidationEngine.get_recent_evaluation_context()`
    instead of `engine._store`; focused evaluation/consolidation/static checks
-   passed, with a later route-orchestration broad gate now passing 3141 tests.
+   passed, with a later route-orchestration broad gate now passing 3160 tests.
    The follow-up moved REST consolidation status/history/detail reads through
    public `ConsolidationEngine` reader facades backed by
    `ConsolidationAuditReader`, moved detail payload assembly into
@@ -491,7 +516,11 @@ evaluation report assembly shares a service, MCP evaluation report audit-store
 input loading shares that report service, REST/MCP evaluation label writes share
 write-surface helpers, dashboard WebSocket command/event payload shaping has a
 route-facing helper, shared storage bootstrap initialization has helper
-coverage, and MCP auto-recall policy helpers have been extracted,
+coverage, episode-worker runtime stores have an explicit dependency object,
+auto-capture worker batching has a Cue-stage helper, worker deterministic
+scoring has an ingestion helper, worker projection routing has an ingestion
+helper, worker event parsing and compact auto-content loading have an ingestion
+helper, and MCP auto-recall policy helpers have been extracted,
 including first-call session-prime planning and middleware side-effect
 planning. Auto-recall result compaction and additive MCP response enrichment
 have also been extracted for both lite/medium entity-probe and full recall

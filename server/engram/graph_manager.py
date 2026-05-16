@@ -57,6 +57,7 @@ from engram.ingestion.projection_execution import (
 from engram.ingestion.projection_service import EpisodeProjectionService
 from engram.ingestion.projection_service import ProjectionError as ProjectionError
 from engram.ingestion.projection_state import sync_projection_state
+from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
 from engram.models.consolidation import RelationshipApplyResult
 from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
@@ -2371,6 +2372,14 @@ class GraphManager:
         await close_if_supported(self._search)
         await close_if_supported(self._activation)
         await close_if_supported(self._graph)
+
+    def get_episode_worker_runtime_stores(self) -> EpisodeWorkerRuntimeStores:
+        """Compatibility API exposing the stores needed by the episode worker."""
+        return EpisodeWorkerRuntimeStores(
+            graph=self._graph,
+            activation=self._activation,
+            search=self._search,
+        )
 
     async def update_entity_profile(
         self,

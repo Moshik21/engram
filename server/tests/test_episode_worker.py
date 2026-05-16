@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,6 +11,7 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
+from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
 from engram.models.episode import EpisodeProjectionState
 from engram.retrieval.triage_policy import TriageDecision
 from engram.worker import EpisodeWorker
@@ -27,6 +29,12 @@ def _make_manager():
     m._graph.upsert_episode_cue = AsyncMock()
     m._search = MagicMock()
     m._search.index_episode_cue = AsyncMock()
+    m._activation = MagicMock()
+    m.get_episode_worker_runtime_stores.return_value = EpisodeWorkerRuntimeStores(
+        graph=m._graph,
+        activation=m._activation,
+        search=m._search,
+    )
     return m
 
 
@@ -68,6 +76,56 @@ def _scheduled_event(episode_id: str = "ep_1") -> dict:
             "reason": "cue_recall_hits",
         },
     }
+
+
+def test_worker_uses_runtime_store_boundary():
+    """Worker lifecycle logic should use explicit stores, not manager internals."""
+    worker_source = (
+        Path(__file__).resolve().parents[1] / "engram" / "worker.py"
+    ).read_text()
+
+    assert "self._manager._graph" not in worker_source
+    assert "self._manager._search" not in worker_source
+    assert "self._manager._activation" not in worker_source
+    assert "def _rebuild_episode_cue" not in worker_source
+    assert "def _retire_merged_episode" not in worker_source
+    assert "def _score" not in worker_source
+    assert "def _record_projection_outcome" not in worker_source
+    assert "def _load_episode" not in worker_source
+    assert "def _should_skip_projection" not in worker_source
+    assert "def _route_episode" not in worker_source
+    assert "episodeId" not in worker_source
+    assert "episode.queued" not in worker_source
+    assert "episode.projection_scheduled" not in worker_source
+
+
+def test_worker_resolves_runtime_stores_from_manager_facade():
+    manager = _make_manager()
+    cfg = _make_cfg()
+
+    worker = EpisodeWorker(manager, cfg)
+
+    manager.get_episode_worker_runtime_stores.assert_called_once_with()
+    assert worker._graph is manager._graph
+    assert worker._activation is manager._activation
+    assert worker._search is manager._search
+
+
+def test_worker_accepts_explicit_runtime_stores():
+    manager = _make_manager()
+    cfg = _make_cfg()
+    stores = EpisodeWorkerRuntimeStores(
+        graph=MagicMock(),
+        activation=MagicMock(),
+        search=MagicMock(),
+    )
+
+    worker = EpisodeWorker(manager, cfg, stores=stores)
+
+    manager.get_episode_worker_runtime_stores.assert_not_called()
+    assert worker._graph is stores.graph
+    assert worker._activation is stores.activation
+    assert worker._search is stores.search
 
 
 @pytest.mark.asyncio
@@ -211,7 +269,7 @@ async def test_worker_skip_syncs_cue_projection_state():
     cfg = _make_cfg(cue_layer_enabled=True)
     worker = EpisodeWorker(manager, cfg)
 
-    await worker._route_episode(
+    should_project = await worker._routing.route_decision(
         "ep_low",
         TriageDecision(
             action="skip",
@@ -223,6 +281,7 @@ async def test_worker_skip_syncs_cue_projection_state():
         "default",
     )
 
+    assert should_project is False
     manager._graph.update_episode_cue.assert_awaited_once_with(
         "ep_low",
         {
@@ -240,7 +299,7 @@ async def test_worker_defer_syncs_cue_projection_state():
     cfg = _make_cfg(cue_layer_enabled=True)
     worker = EpisodeWorker(manager, cfg)
 
-    await worker._route_episode(
+    should_project = await worker._routing.route_decision(
         "ep_mid",
         TriageDecision(
             action="defer",
@@ -252,6 +311,7 @@ async def test_worker_defer_syncs_cue_projection_state():
         "default",
     )
 
+    assert should_project is False
     manager._graph.update_episode_cue.assert_awaited_once_with(
         "ep_mid",
         {
@@ -294,27 +354,22 @@ async def test_worker_scores_and_extracts_high():
 
 
 @pytest.mark.asyncio
-async def test_worker_projection_outcome_reads_entities_in_group():
-    """Worker projection-yield feedback uses the event group."""
+async def test_worker_process_records_projection_outcome_through_scoring_service():
+    """Worker keeps projection dispatch but delegates yield feedback."""
     manager = _make_manager()
-    manager._graph.get_episode_entities = AsyncMock(return_value=["ent_worker"])
     cfg = _make_cfg(triage_multi_signal_enabled=True)
     worker = EpisodeWorker(manager, cfg)
-    scorer = MagicMock()
-    worker._scorer = scorer
     signals = object()
+    worker._scoring.record_projection_outcome = AsyncMock()
 
-    await worker._record_projection_outcome(
+    await worker._process("ep_worker", "worker_brain", signals)
+
+    manager.project_episode.assert_awaited_once_with("ep_worker", "worker_brain")
+    worker._scoring.record_projection_outcome.assert_awaited_once_with(
         "ep_worker",
         "worker_brain",
         signals,
     )
-
-    manager._graph.get_episode_entities.assert_awaited_once_with(
-        "ep_worker",
-        group_id="worker_brain",
-    )
-    scorer.record_outcome.assert_called_once_with(signals, 1)
 
 
 @pytest.mark.asyncio

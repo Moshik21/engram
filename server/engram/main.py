@@ -246,11 +246,20 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         consolidation_scheduler.start()
 
     # Background episode worker
+    from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
     from engram.worker import EpisodeWorker
 
     episode_worker = None
     if config.activation.worker_enabled:
-        episode_worker = EpisodeWorker(manager, config.activation)
+        episode_worker = EpisodeWorker(
+            manager,
+            config.activation,
+            stores=EpisodeWorkerRuntimeStores(
+                graph=graph_store,
+                activation=activation_store,
+                search=search_index,
+            ),
+        )
         episode_worker.start(config.default_group_id, event_bus)
 
     # Rate limiter + usage meter (Redis-backed in full mode)

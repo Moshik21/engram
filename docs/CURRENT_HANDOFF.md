@@ -36,12 +36,14 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3141 tests, 43 skips, and 236 external-service tests deselected after
+  with 3160 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
-  presenter-boundary guards, native evidence-update normalization, and the
-  native default-group config inheritance contract. The GraphManager guard now
+  presenter-boundary guards, native evidence-update normalization, the native
+  default-group config inheritance contract, and the episode-worker
+  runtime-store, batching, scoring, routing, and event parsing boundaries. The
+  GraphManager guard now
   covers the remaining service-backed compatibility adapters too, and the MCP
   identity-core mutation, MCP consolidation trigger, and MCP entity graph
   resources now route through service-backed manager facades. REST/MCP
@@ -1611,6 +1613,25 @@ What changed in this pass:
 - Added the shared close helper and `GraphManager.close_runtime_resources()` so
   MCP shutdown closes owned search, activation, and graph resources through the
   manager facade instead of reaching into private manager fields.
+- Added `server/engram/ingestion/worker_runtime.py` so `EpisodeWorker` receives
+  explicit graph, activation, and search stores from REST/MCP startup instead of
+  reaching through `GraphManager` private fields. `GraphManager` keeps
+  `get_episode_worker_runtime_stores()` as a compatibility accessor for direct
+  worker construction in tests and legacy internal callers.
+- Added `server/engram/ingestion/worker_batching.py` so adjacent auto-capture
+  turn merging, primary cue rebuild, and merged-away cue retirement live in a
+  Cue-stage ingestion helper instead of `EpisodeWorker`. The worker now keeps
+  queue consumption, deterministic scoring, and projection routing.
+- Added `server/engram/ingestion/worker_scoring.py` so deterministic worker
+  triage scoring, multi-signal scorer access, goal boost lookup, and
+  projection-yield feedback live behind a scoring service. `EpisodeWorker`
+  delegates scoring and outcome feedback while keeping event routing and
+  Project-stage dispatch.
+- Added `server/engram/ingestion/worker_routing.py` so duplicate projection
+  guards, system-discourse cue-only skips, worker skip/defer projection-state
+  sync, and the "project now" routing flag live outside the worker loop.
+  `EpisodeWorker` now keeps event consumption, batch timing, and Project-stage
+  dispatch.
 - Updated the no-bind native dashboard smoke fixture with the same Recall gate
   payload shape emitted by the PyO3 smoke. The dashboard API client test path
   now verifies native-shaped analyzer latency, trigger count, surfaced recall
@@ -5420,7 +5441,7 @@ What changed in this pass:
     `engine._store` read remains.
   - Note: the broad non-Docker/non-Helix rerun was interrupted while still
     running when the commit checkpoint was requested; the latest
-    route-orchestration broad gate now passes with 3141 passed, 43 skipped, and
+    route-orchestration broad gate now passes with 3155 passed, 43 skipped, and
     236 deselected.
 - Consolidation audit reader and REST/MCP consolidation route cleanup:
   `uv run pytest tests/test_lifecycle_cli.py
@@ -5508,6 +5529,89 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 3141 passed, 43 skipped, 236 deselected in 125.18s.
+- Episode worker runtime-store boundary:
+  `uv run pytest tests/test_episode_worker.py tests/test_graph_manager_facade_boundaries.py
+  tests/test_group_scope_static_contract.py tests/test_auto_observe.py
+  tests/test_rework_integration.py -q`
+  - Result: 132 passed, 3 skipped.
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_graph_manager_facade_boundaries.py
+  tests/test_api_endpoints.py::test_health_uses_configured_default_group
+  tests/test_auto_observe.py tests/test_episode_worker.py -q`
+  - Result: 127 passed, 3 skipped.
+  `uv run ruff check engram/worker.py engram/ingestion/worker_runtime.py
+  engram/graph_manager.py engram/main.py engram/mcp/server.py
+  tests/test_episode_worker.py tests/test_graph_manager_facade_boundaries.py
+  tests/test_group_scope_static_contract.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3145 passed, 43 skipped, 236 deselected in 128.48s.
+- Episode worker auto-capture batching boundary:
+  `uv run pytest tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py tests/test_rework_integration.py -q`
+  - Result: 134 passed, 3 skipped.
+  `uv run ruff check engram/worker.py engram/ingestion/worker_batching.py
+  engram/ingestion/worker_runtime.py engram/graph_manager.py engram/main.py
+  engram/mcp/server.py tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3147 passed, 43 skipped, 236 deselected in 126.86s.
+- Episode worker deterministic scoring boundary:
+  `uv run pytest tests/test_worker_scoring.py tests/test_worker_batching.py
+  tests/test_episode_worker.py tests/test_graph_manager_facade_boundaries.py
+  tests/test_group_scope_static_contract.py tests/test_auto_observe.py
+  tests/test_rework_integration.py -q`
+  - Result: 137 passed, 3 skipped.
+  `uv run ruff check engram/worker.py engram/ingestion/worker_batching.py
+  engram/ingestion/worker_runtime.py engram/ingestion/worker_scoring.py
+  engram/graph_manager.py engram/main.py engram/mcp/server.py
+  tests/test_worker_scoring.py tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3150 passed, 43 skipped, 236 deselected in 138.92s.
+- Episode worker projection routing boundary:
+  `uv run pytest tests/test_worker_routing.py tests/test_worker_scoring.py
+  tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py tests/test_rework_integration.py -q`
+  - Result: 142 passed, 3 skipped.
+  `uv run ruff check engram/worker.py engram/ingestion/worker_batching.py
+  engram/ingestion/worker_routing.py engram/ingestion/worker_runtime.py
+  engram/ingestion/worker_scoring.py engram/graph_manager.py engram/main.py
+  engram/mcp/server.py tests/test_worker_routing.py tests/test_worker_scoring.py
+  tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3155 passed, 43 skipped, 236 deselected in 136.44s.
+- Episode worker event parsing and content loading boundary:
+  `uv run pytest tests/test_worker_events.py tests/test_worker_routing.py
+  tests/test_worker_scoring.py tests/test_worker_batching.py
+  tests/test_episode_worker.py tests/test_auto_observe.py tests/test_rework_integration.py -q`
+  - Result: 55 passed, 3 skipped.
+  `uv run pytest tests/test_worker_events.py tests/test_worker_routing.py
+  tests/test_worker_scoring.py tests/test_worker_batching.py
+  tests/test_episode_worker.py tests/test_graph_manager_facade_boundaries.py
+  tests/test_group_scope_static_contract.py tests/test_auto_observe.py
+  tests/test_rework_integration.py -q`
+  - Result: 147 passed, 3 skipped.
+  `uv run ruff check engram/worker.py engram/ingestion/worker_events.py
+  engram/ingestion/worker_batching.py engram/ingestion/worker_routing.py
+  engram/ingestion/worker_runtime.py engram/ingestion/worker_scoring.py
+  engram/graph_manager.py engram/main.py engram/mcp/server.py
+  tests/test_worker_events.py tests/test_worker_routing.py tests/test_worker_scoring.py
+  tests/test_worker_batching.py tests/test_episode_worker.py
+  tests/test_graph_manager_facade_boundaries.py tests/test_group_scope_static_contract.py
+  tests/test_auto_observe.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3160 passed, 43 skipped, 236 deselected in 128.29s.
 - Knowledge-chat tool execution payload boundary:
   `uv run pytest tests/test_chat_tools.py
   tests/test_knowledge_api.py::TestChatRecallHelpers tests/test_chat_events.py
@@ -5567,7 +5671,7 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: superseded by latest route-orchestration broad gate:
-    3141 passed, 43 skipped, 236 deselected in 125.18s.
+    3155 passed, 43 skipped, 236 deselected in 136.44s.
 - REST/MCP explicit recall surface boundary:
   `uv run pytest tests/test_chat_feedback.py tests/test_chat_tools.py
   tests/test_knowledge_api.py tests/test_chat_events.py
@@ -6260,7 +6364,19 @@ visibility work treated as done:
    notification state lookup for piggyback `memory_notifications` is now in
    `notifications.surface`. The direct manager-dispatch scan
    across REST API routes and `server/engram/mcp/server.py` now returns no
-   matches. The next
+   matches. `EpisodeWorker` runtime store access now uses explicit
+   `EpisodeWorkerRuntimeStores` from REST/MCP startup, with a `GraphManager`
+   compatibility accessor for direct construction, so do not repeat worker
+   private-store extraction. Worker adjacent-turn batching, primary cue rebuild,
+   and merged-away cue retirement now live in `ingestion.worker_batching`, so do
+   not repeat that worker Cue-stage extraction. Worker deterministic scoring,
+   multi-signal scorer access, goal boost lookup, and projection-yield feedback
+   now live in `ingestion.worker_scoring`, so do not repeat that worker
+   scoring extraction. Worker duplicate projection guards, system-discourse cue-only skips, and
+   skip/defer projection-state sync now live in `ingestion.worker_routing`, so
+   do not repeat worker routing extraction. Worker raw EventBus parsing and
+   compact auto-capture content loading now live in `ingestion.worker_events`,
+   so do not repeat worker event-shape extraction. The next
    high-leverage slice is a continued REST/MCP route orchestration audit for
    any remaining lifecycle logic still hidden in transport code.
 8. Keep quest mode as a drilldown or alternate presentation, not the primary

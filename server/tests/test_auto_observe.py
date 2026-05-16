@@ -17,9 +17,10 @@ from engram.api.knowledge import _DEDUP_CACHE, _dedup_check
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
+from engram.ingestion.worker_batching import PendingEpisode
 from engram.models.episode import EpisodeProjectionState
 from engram.storage.memory.activation import MemoryActivationStore
-from engram.worker import EpisodeWorker, _PendingEpisode
+from engram.worker import EpisodeWorker
 from tests.conftest import MockExtractor, _helix_available
 
 # GROUP is now generated per-test via gid fixture
@@ -299,12 +300,12 @@ async def test_turn_batching(worker_setup, gid):
     )
 
     worker._batch_buffer = [
-        _PendingEpisode(
+        PendingEpisode(
             ep1,
             "[user|Engram] What is spreading activation?",
             "auto:prompt",
         ),
-        _PendingEpisode(ep2, ep2_content, "auto:response"),
+        PendingEpisode(ep2, ep2_content, "auto:response"),
     ]
 
     await worker._flush_batch(gid)
@@ -348,8 +349,8 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
     assert "cognitive science" not in primary_cue_before.cue_text
 
     worker._batch_buffer = [
-        _PendingEpisode(ep1, ep1_content, "auto:prompt"),
-        _PendingEpisode(ep2, ep2_content, "auto:response"),
+        PendingEpisode(ep1, ep1_content, "auto:prompt"),
+        PendingEpisode(ep2, ep2_content, "auto:response"),
     ]
 
     await worker._flush_batch(gid)

@@ -1496,7 +1496,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3141 tests, 43 skips, and 236 external-service
+   gate currently passes with 3160 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -1639,6 +1639,8 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   - Done: project bootstrap service
   - Done: lightweight entity-probe recall
   - Done: consolidation lifecycle orchestration boundaries
+  - Done: episode worker runtime-store, batching, scoring, routing, and event
+    parsing boundaries
 - Keep `GraphManager` as a compatibility facade while tests are migrated.
 - Done: move projection-state and cue-state synchronization into one shared
   helper for the touched worker, triage, replay, and projection paths.
@@ -1771,6 +1773,27 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   `GraphManager.close_runtime_resources()` now uses the same module's
   `close_if_supported()` helper so MCP shutdown closes owned runtime stores
   through the manager facade instead of reaching into private manager fields.
+  Background worker startup now has the same explicit dependency shape:
+  `server/engram/ingestion/worker_runtime.py` defines
+  `EpisodeWorkerRuntimeStores`, REST/MCP startup pass graph, activation, and
+  search stores into `EpisodeWorker`, and `GraphManager` exposes
+  `get_episode_worker_runtime_stores()` only as a compatibility accessor for
+  direct worker construction.
+  Adjacent auto-capture turn batching now has its own Cue-stage helper too:
+  `server/engram/ingestion/worker_batching.py` owns primary content merge,
+  primary cue rebuild/re-index, and merged-away cue retirement/re-index while
+  `EpisodeWorker` keeps queue consumption, deterministic scoring, and
+  projection routing.
+  Worker deterministic scoring now has its own helper too:
+  `server/engram/ingestion/worker_scoring.py` owns heuristic scoring,
+  multi-signal scorer access, goal boost lookup, and projection-yield feedback;
+  `EpisodeWorker` delegates scoring and outcome recording while keeping event
+  routing and Project-stage dispatch.
+  Worker projection routing now has its own helper too:
+  `server/engram/ingestion/worker_routing.py` owns duplicate projection guards,
+  system-discourse cue-only skips, skip/defer projection-state sync, and the
+  boolean project-now routing contract while `EpisodeWorker` keeps event
+  consumption, batch timing, and Project-stage dispatch.
 - Native dashboard Recall gate fixture done: the no-bind native dashboard smoke
   verifies analyzer latency, trigger count, surfaced recall feedback, and
   threshold mapping from native-shaped evaluation payloads, then renders the
@@ -2870,7 +2893,7 @@ envelopes, and connected-group notification dismiss dispatch. The WebSocket
 route keeps auth, event-bus subscription task lifecycle, and JSON transport
 only. Focused WebSocket-surface, WebSocket, auth, public-surface, and Ruff
 checks passed with 176 tests, and the broad non-Docker/non-Helix gate now
-passes with 3141 tests, 43 skips, and 236 external-service deselections.
+passes with 3155 tests, 43 skips, and 236 external-service deselections.
 
 The dashboard WebSocket auth setup now uses the existing API config dependency
 too. `server/engram/api/websocket.py` calls `get_config().auth`, preserving the
@@ -2904,7 +2927,7 @@ default-brain stats checks, service status aggregation, and the public
 public-surface guard now forbids `health_check()` from calling `get_stats`
 directly. Focused health-surface, health endpoint, public-surface, and Ruff
 checks passed with 165 tests, and the broad non-Docker/non-Helix gate now
-passes with 3141 tests, 43 skips, and 236 external-service deselections.
+passes with 3155 tests, 43 skips, and 236 external-service deselections.
 
 That app-state guard now covers every API route module, not just the three
 routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
@@ -2986,7 +3009,7 @@ Focused chat-runtime/feedback/tool, full knowledge API, chat-event,
 public-surface, Ruff, and `git diff --check` gates passed. The latest chat
 prompt/message surface check passed with 170 focused tests, and the full
 knowledge API file passed with 57 tests. The broad non-Docker/non-Helix gate
-now passes with 3141 tests, 43 skips, and 236 external-service deselections.
+now passes with 3155 tests, 43 skips, and 236 external-service deselections.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
 and live-turn piggyback compatibility paths. A later MCP auto-recall helper
@@ -3198,7 +3221,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3141 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3155 tests, 43 skips, and 236 external-service deselections.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
@@ -3208,6 +3231,56 @@ instead of repeating private graph-store SQLite connection checks. Focused
 storage-bootstrap, borrowed-connection, lifecycle CLI, consolidation CLI,
 projected/consolidated smoke, REST startup, auto-observe, native manifest,
 runtime shutdown-facade, and Ruff checks passed.
+
+Episode worker runtime-store access now has the same named dependency boundary.
+`server/engram/ingestion/worker_runtime.py` defines `EpisodeWorkerRuntimeStores`,
+REST and MCP startup pass graph/search/activation stores explicitly to the
+worker, and `GraphManager.get_episode_worker_runtime_stores()` exists only as
+the compatibility accessor for direct worker construction. `EpisodeWorker`
+still uses `GraphManager.project_episode()` as the Project-stage facade, but it
+no longer reaches through private manager graph/search/activation fields for
+Capture/Cue batching, projection-state sync, multi-signal scoring, goal boosts,
+cue rebuild, or merged-cue retirement. Focused worker, auto-observe, rework,
+facade-boundary, group-scope, Ruff, and broad non-Docker/non-Helix checks
+passed.
+
+Episode worker adjacent-turn batching is now a named ingestion helper as well.
+`server/engram/ingestion/worker_batching.py` owns auto-capture batch merge,
+primary episode content update, primary cue rebuild/re-index, and merged-away
+episode/cue retirement. `EpisodeWorker` still decides when to flush, score, and
+route the primary episode, but the Cue-stage mutation and indexing contract no
+longer lives inside the worker loop. Focused worker-batching, worker,
+auto-observe, rework, facade-boundary, group-scope, Ruff, and broad
+non-Docker/non-Helix checks passed.
+
+Episode worker deterministic scoring is now a named ingestion helper.
+`server/engram/ingestion/worker_scoring.py` owns heuristic triage scoring,
+multi-signal scorer access, goal boost lookup, and projection-yield feedback.
+`EpisodeWorker` now delegates scoring and outcome recording while keeping event
+consumption, duplicate guards, routing, and the `GraphManager.project_episode()`
+Project-stage facade call. Focused worker-scoring, worker-batching, worker,
+auto-observe, rework, facade-boundary, group-scope, Ruff, and broad
+non-Docker/non-Helix checks passed.
+
+Episode worker projection routing is now a named ingestion helper.
+`server/engram/ingestion/worker_routing.py` owns duplicate projection guards,
+system-discourse cue-only skips, skip/defer projection-state sync, and the
+boolean project-now routing contract. `EpisodeWorker` now keeps event
+consumption, batch timing, and Project-stage dispatch. Focused worker-routing,
+worker-scoring, worker-batching, worker, auto-observe, rework, facade-boundary,
+group-scope, Ruff, and broad non-Docker/non-Helix checks passed.
+
+Episode worker event parsing and compact content loading are now a named
+ingestion helper. `server/engram/ingestion/worker_events.py` owns raw EventBus
+payload parsing for `episode.queued` and `episode.projection_scheduled`,
+normalizes the worker event shape, and expands compact auto-capture payloads
+from the graph store before batching. `EpisodeWorker` now keeps subscription
+lifecycle, queue/batch timing, and Project-stage dispatch without embedding
+raw payload keys or route-specific event shape. Focused worker-event,
+worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
+group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
+broad gate passes with 3160 tests, 43 skips, and 236 external-service
+deselections.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication
