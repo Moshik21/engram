@@ -8,6 +8,11 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_atlas_service, get_manager
+from engram.retrieval.atlas_surface import (
+    build_api_atlas_history_surface,
+    build_api_atlas_region_surface,
+    build_api_atlas_surface,
+)
 from engram.retrieval.graph_state import (
     build_api_graph_neighborhood_surface,
     build_api_temporal_graph_surface,
@@ -17,31 +22,6 @@ from engram.security.middleware import get_tenant
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
-
-
-def _build_representation(
-    *,
-    scope: str,
-    layout: str,
-    represented_entity_count: int,
-    represented_edge_count: int,
-    displayed_node_count: int,
-    displayed_edge_count: int,
-    truncated: bool,
-    snapshot_id: str | None = None,
-) -> dict:
-    payload = {
-        "scope": scope,
-        "layout": layout,
-        "representedEntityCount": represented_entity_count,
-        "representedEdgeCount": represented_edge_count,
-        "displayedNodeCount": displayed_node_count,
-        "displayedEdgeCount": displayed_edge_count,
-        "truncated": truncated,
-    }
-    if snapshot_id:
-        payload["snapshotId"] = snapshot_id
-    return payload
 
 
 @router.get("/atlas")
@@ -55,67 +35,15 @@ async def get_atlas(
 ) -> JSONResponse:
     """Return a stable, display-bounded atlas of the whole memory graph."""
     tenant = get_tenant(request)
-    try:
-        snapshot = await get_atlas_service().get_snapshot(
-            tenant.group_id,
-            force=refresh,
-            snapshot_id=snapshot_id,
-        )
-    except LookupError as exc:
-        logger.warning("Atlas snapshot lookup failed: %s", exc)
-        return JSONResponse(status_code=404, content={"detail": "Atlas snapshot not found"})
-    payload = {
-        "representation": _build_representation(
-            scope="atlas",
-            layout="precomputed",
-            represented_entity_count=snapshot.represented_entity_count,
-            represented_edge_count=snapshot.represented_edge_count,
-            displayed_node_count=snapshot.displayed_node_count,
-            displayed_edge_count=snapshot.displayed_edge_count,
-            truncated=snapshot.truncated,
-            snapshot_id=snapshot.id,
-        ),
-        "generatedAt": snapshot.generated_at,
-        "regions": [
-            {
-                "id": region.id,
-                "label": region.label,
-                "subtitle": region.subtitle,
-                "kind": region.kind,
-                "memberCount": region.member_count,
-                "representedEdgeCount": region.represented_edge_count,
-                "activationScore": region.activation_score,
-                "growth7d": region.growth_7d,
-                "growth30d": region.growth_30d,
-                "dominantEntityTypes": region.dominant_entity_types,
-                "hubEntityIds": region.hub_entity_ids,
-                "centerEntityId": region.center_entity_id,
-                "latestEntityCreatedAt": region.latest_entity_created_at,
-                "x": region.x,
-                "y": region.y,
-                "z": region.z,
-            }
-            for region in snapshot.regions
-        ],
-        "bridges": [
-            {
-                "id": bridge.id,
-                "source": bridge.source,
-                "target": bridge.target,
-                "weight": bridge.weight,
-                "relationshipCount": bridge.relationship_count,
-            }
-            for bridge in snapshot.bridges
-        ],
-        "stats": {
-            "totalEntities": snapshot.total_entities,
-            "totalRelationships": snapshot.total_relationships,
-            "totalRegions": snapshot.total_regions,
-            "hottestRegionId": snapshot.hottest_region_id,
-            "fastestGrowingRegionId": snapshot.fastest_growing_region_id,
-        },
-    }
-    return JSONResponse(content=payload)
+    result = await build_api_atlas_surface(
+        get_atlas_service(),
+        group_id=tenant.group_id,
+        refresh=refresh,
+        snapshot_id=snapshot_id,
+    )
+    if result.log_warning:
+        logger.warning(result.log_warning)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/atlas/history")
@@ -125,28 +53,12 @@ async def get_atlas_history(
 ) -> JSONResponse:
     """Return atlas snapshot history for timeline scrubbing."""
     tenant = get_tenant(request)
-    snapshots = await get_atlas_service().list_snapshots(tenant.group_id, limit=limit)
-    return JSONResponse(
-        content={
-            "items": [
-                {
-                    "id": snapshot.id,
-                    "generatedAt": snapshot.generated_at,
-                    "representedEntityCount": snapshot.represented_entity_count,
-                    "representedEdgeCount": snapshot.represented_edge_count,
-                    "displayedNodeCount": snapshot.displayed_node_count,
-                    "displayedEdgeCount": snapshot.displayed_edge_count,
-                    "totalEntities": snapshot.total_entities,
-                    "totalRelationships": snapshot.total_relationships,
-                    "totalRegions": snapshot.total_regions,
-                    "hottestRegionId": snapshot.hottest_region_id,
-                    "fastestGrowingRegionId": snapshot.fastest_growing_region_id,
-                    "truncated": snapshot.truncated,
-                }
-                for snapshot in snapshots
-            ],
-        }
+    payload = await build_api_atlas_history_surface(
+        get_atlas_service(),
+        group_id=tenant.group_id,
+        limit=limit,
     )
+    return JSONResponse(content=payload)
 
 
 @router.get("/regions/{region_id}")
@@ -161,22 +73,16 @@ async def get_region(
 ) -> JSONResponse:
     """Return a bounded drill-down for one atlas region."""
     tenant = get_tenant(request)
-    try:
-        payload = await get_atlas_service().get_region_payload(
-            tenant.group_id,
-            region_id,
-            force=refresh,
-            snapshot_id=snapshot_id,
-        )
-    except LookupError as exc:
-        logger.warning("Region or snapshot lookup failed: %s", exc)
-        return JSONResponse(status_code=404, content={"detail": "Region or snapshot not found"})
-    if payload is None:
-        return JSONResponse(
-            status_code=404,
-            content={"detail": f"Region '{region_id}' not found"},
-        )
-    return JSONResponse(content=payload)
+    result = await build_api_atlas_region_surface(
+        get_atlas_service(),
+        group_id=tenant.group_id,
+        region_id=region_id,
+        refresh=refresh,
+        snapshot_id=snapshot_id,
+    )
+    if result.log_warning:
+        logger.warning(result.log_warning)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/neighborhood")

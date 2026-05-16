@@ -6,11 +6,15 @@ import pytest
 
 from engram.retrieval.conversation_persistence import (
     append_group_conversation_messages,
+    build_api_conversation_append_messages_response_surface,
     build_api_conversation_append_messages_surface,
     build_api_conversation_create_surface,
+    build_api_conversation_delete_response_surface,
     build_api_conversation_delete_surface,
     build_api_conversation_list_surface,
+    build_api_conversation_messages_response_surface,
     build_api_conversation_messages_surface,
+    build_api_conversation_update_response_surface,
     build_api_conversation_update_surface,
     conversation_not_found_payload,
     create_group_conversation,
@@ -188,3 +192,85 @@ async def test_api_conversation_surfaces_return_none_for_not_found() -> None:
         group_id="brain_a",
     ) is None
     assert conversation_not_found_payload() == {"detail": "Not found"}
+
+
+@pytest.mark.asyncio
+async def test_api_conversation_response_surfaces_map_not_found_to_404() -> None:
+    store = AsyncMock()
+    store.get_messages.side_effect = ConversationNotFoundError("conv_foreign")
+    store.add_messages_bulk.side_effect = ConversationNotFoundError("conv_foreign")
+    store.update_conversation.return_value = False
+    store.delete_conversation.return_value = False
+
+    messages = await build_api_conversation_messages_response_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+    )
+    append = await build_api_conversation_append_messages_response_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+        messages=[{"role": "user", "content": "blocked"}],
+    )
+    update = await build_api_conversation_update_response_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+        title="Blocked",
+    )
+    delete = await build_api_conversation_delete_response_surface(
+        store,
+        conversation_id="conv_foreign",
+        group_id="brain_a",
+    )
+
+    assert messages.status_code == 404
+    assert append.status_code == 404
+    assert update.status_code == 404
+    assert delete.status_code == 404
+    assert messages.payload == conversation_not_found_payload()
+    assert append.payload == conversation_not_found_payload()
+    assert update.payload == conversation_not_found_payload()
+    assert delete.payload == conversation_not_found_payload()
+
+
+@pytest.mark.asyncio
+async def test_api_conversation_response_surfaces_preserve_success_status() -> None:
+    store = AsyncMock()
+    store.get_messages.return_value = [{"role": "user", "content": "hello"}]
+    store.add_messages_bulk.return_value = ["msg_1"]
+    store.update_conversation.return_value = True
+    store.delete_conversation.return_value = True
+
+    messages = await build_api_conversation_messages_response_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+    )
+    append = await build_api_conversation_append_messages_response_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        messages=[{"role": "assistant", "content": "hi"}],
+    )
+    update = await build_api_conversation_update_response_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        title="Updated",
+    )
+    delete = await build_api_conversation_delete_response_surface(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+    )
+
+    assert messages.status_code == 200
+    assert messages.payload == {"messages": [{"role": "user", "content": "hello"}]}
+    assert append.status_code == 200
+    assert append.payload == {"ids": ["msg_1"]}
+    assert update.status_code == 200
+    assert update.payload == {"status": "updated"}
+    assert delete.status_code == 200
+    assert delete.payload == {"status": "deleted"}

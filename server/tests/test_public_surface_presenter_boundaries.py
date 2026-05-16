@@ -93,10 +93,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_adjudication_resolution_surface",
     },
     ("engram/api/knowledge.py", "forget"): {
-        "build_api_forget_surface",
+        "build_api_forget_response_surface",
     },
     ("engram/api/knowledge.py", "post_feedback"): {
-        "build_explicit_feedback_surface",
+        "build_api_explicit_feedback_surface",
     },
     ("engram/api/knowledge.py", "search_facts"): {
         "build_api_fact_search_surface",
@@ -123,6 +123,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/api/knowledge.py", "chat"): {
         "apply_chat_recall_feedback",
+        "build_api_chat_rate_limit_surface",
         "get_chat_runtime_policy",
         "get_context",
         "get_rate_limiter",
@@ -161,20 +162,16 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_conversation_create_surface",
     },
     ("engram/api/conversations.py", "get_messages"): {
-        "build_api_conversation_messages_surface",
-        "conversation_not_found_payload",
+        "build_api_conversation_messages_response_surface",
     },
     ("engram/api/conversations.py", "append_messages"): {
-        "build_api_conversation_append_messages_surface",
-        "conversation_not_found_payload",
+        "build_api_conversation_append_messages_response_surface",
     },
     ("engram/api/conversations.py", "update_conversation"): {
-        "build_api_conversation_update_surface",
-        "conversation_not_found_payload",
+        "build_api_conversation_update_response_surface",
     },
     ("engram/api/conversations.py", "delete_conversation"): {
-        "build_api_conversation_delete_surface",
-        "conversation_not_found_payload",
+        "build_api_conversation_delete_response_surface",
     },
     ("engram/api/entities.py", "search_entities"): {
         "build_api_entity_search_surface",
@@ -208,18 +205,20 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_notification_surface_service",
     },
     ("engram/api/entities.py", "get_entity"): {
-        "build_api_entity_detail_surface",
-        "entity_not_found_payload",
+        "build_api_entity_detail_response_surface",
     },
     ("engram/api/entities.py", "patch_entity"): {
-        "build_api_entity_update_surface",
-        "entity_not_found_payload",
+        "build_api_entity_update_response_surface",
     },
     ("engram/api/entities.py", "delete_entity"): {
-        "build_api_entity_delete_surface",
-        "entity_not_found_payload",
+        "build_api_entity_delete_response_surface",
     },
     ("engram/api/admin.py", "load_benchmark"): {"load_benchmark_corpus"},
+    ("engram/api/graph.py", "get_atlas"): {"build_api_atlas_surface"},
+    ("engram/api/graph.py", "get_atlas_history"): {
+        "build_api_atlas_history_surface",
+    },
+    ("engram/api/graph.py", "get_region"): {"build_api_atlas_region_surface"},
     ("engram/api/graph.py", "get_neighborhood"): {"build_api_graph_neighborhood_surface"},
     ("engram/api/graph.py", "get_graph_at"): {"build_api_temporal_graph_surface"},
     ("engram/api/stats.py", "get_stats"): {"get_dashboard_stats"},
@@ -228,7 +227,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/websocket.py", "activation_snapshot_loop"): {"get_activation_snapshot"},
     ("engram/api/websocket.py", "receive_commands"): {"dismiss_notifications"},
     ("engram/api/activation.py", "get_activation_snapshot"): {"get_activation_snapshot"},
-    ("engram/api/activation.py", "get_activation_curve"): {"get_activation_curve"},
+    ("engram/api/activation.py", "get_activation_curve"): {
+        "build_api_activation_curve_surface",
+    },
     ("engram/mcp/server.py", "_serialize_intentions"): {"drain_triggered_intention_views"},
     ("engram/mcp/server.py", "_serialize_notifications"): {
         "get_notification_surface_service_from_state",
@@ -339,20 +340,18 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_mcp_entity_neighbors_resource_surface",
     },
     ("engram/api/knowledge.py", "create_intention"): {
-        "api_intention_validation_error_payload",
-        "build_api_create_intention_surface",
+        "build_api_create_intention_response_surface",
     },
     ("engram/api/knowledge.py", "list_intentions"): {"build_intention_list_surface"},
     ("engram/api/knowledge.py", "dismiss_intention"): {
-        "api_intention_not_found_payload",
-        "build_api_dismiss_intention_surface",
+        "build_api_dismiss_intention_response_surface",
     },
     ("engram/mcp/server.py", "list_intentions"): {"build_intention_list_surface"},
     ("engram/mcp/server.py", "intend"): {
-        "build_mcp_create_intention_surface",
+        "build_mcp_create_intention_response_surface",
     },
     ("engram/mcp/server.py", "dismiss_intention"): {
-        "build_mcp_dismiss_intention_surface",
+        "build_mcp_dismiss_intention_response_surface",
     },
     ("engram/mcp/server.py", "route_question"): {
         "_get_conv_top_entity_names",
@@ -360,6 +359,86 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "search_artifacts"): {
         "build_mcp_artifact_search_surface",
+    },
+}
+
+PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
+    ("engram/api/knowledge.py", "forget"): {
+        "api_forget_missing_target_payload",
+        "build_api_forget_surface",
+    },
+    ("engram/api/entities.py", "get_entity"): {
+        "build_api_entity_detail_surface",
+        "entity_not_found_payload",
+    },
+    ("engram/api/entities.py", "patch_entity"): {
+        "build_api_entity_update_surface",
+        "entity_not_found_payload",
+    },
+    ("engram/api/entities.py", "delete_entity"): {
+        "build_api_entity_delete_surface",
+        "entity_not_found_payload",
+    },
+    ("engram/api/conversations.py", "get_messages"): {
+        "build_api_conversation_messages_surface",
+        "conversation_not_found_payload",
+    },
+    ("engram/api/conversations.py", "append_messages"): {
+        "build_api_conversation_append_messages_surface",
+        "conversation_not_found_payload",
+    },
+    ("engram/api/conversations.py", "update_conversation"): {
+        "build_api_conversation_update_surface",
+        "conversation_not_found_payload",
+    },
+    ("engram/api/conversations.py", "delete_conversation"): {
+        "build_api_conversation_delete_surface",
+        "conversation_not_found_payload",
+    },
+    ("engram/api/activation.py", "get_activation_curve"): {
+        "get_activation_curve",
+        "HTTPException",
+    },
+    ("engram/api/knowledge.py", "create_intention"): {
+        "api_intention_validation_error_payload",
+        "build_api_create_intention_surface",
+    },
+    ("engram/api/knowledge.py", "dismiss_intention"): {
+        "api_intention_not_found_payload",
+        "build_api_dismiss_intention_surface",
+    },
+    ("engram/mcp/server.py", "intend"): {
+        "build_mcp_create_intention_surface",
+        "mcp_intention_error_payload",
+    },
+    ("engram/mcp/server.py", "dismiss_intention"): {
+        "build_mcp_dismiss_intention_surface",
+        "mcp_intention_error_payload",
+    },
+    ("engram/api/graph.py", "get_atlas"): {
+        "get_snapshot",
+        "represented_entity_count",
+        "represented_edge_count",
+        "displayed_node_count",
+        "displayed_edge_count",
+        "total_entities",
+        "total_relationships",
+        "total_regions",
+    },
+    ("engram/api/graph.py", "get_atlas_history"): {
+        "list_snapshots",
+        "represented_entity_count",
+        "represented_edge_count",
+        "displayed_node_count",
+        "displayed_edge_count",
+        "total_entities",
+        "total_relationships",
+        "total_regions",
+    },
+    ("engram/api/graph.py", "get_region"): {
+        "get_region_payload",
+        "atlas_region_not_found_payload",
+        "atlas_region_or_snapshot_not_found_payload",
     },
 }
 
@@ -441,6 +520,19 @@ def test_public_mutation_surfaces_use_manager_facades(
     assert missing == set()
     assert _manager_private_attrs_used(relative_path, function_name) == set()
     assert _private_attrs_used(relative_path, function_name, "engine") == set()
+
+
+@pytest.mark.parametrize(
+    ("surface", "forbidden_names"),
+    PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS.items(),
+)
+def test_public_routes_do_not_reassemble_delegated_payloads(
+    surface: tuple[str, str],
+    forbidden_names: set[str],
+) -> None:
+    relative_path, function_name = surface
+    names_used = _function_identifiers_used(relative_path, function_name)
+    assert names_used & forbidden_names == set()
 
 
 @pytest.mark.parametrize("relative_path", PUBLIC_SURFACES_WITHOUT_APP_STATE_READS)

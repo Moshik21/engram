@@ -8,13 +8,12 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_conversation_store
 from engram.retrieval.conversation_persistence import (
-    build_api_conversation_append_messages_surface,
+    build_api_conversation_append_messages_response_surface,
     build_api_conversation_create_surface,
-    build_api_conversation_delete_surface,
+    build_api_conversation_delete_response_surface,
     build_api_conversation_list_surface,
-    build_api_conversation_messages_surface,
-    build_api_conversation_update_surface,
-    conversation_not_found_payload,
+    build_api_conversation_messages_response_surface,
+    build_api_conversation_update_response_surface,
 )
 from engram.security.middleware import get_tenant
 
@@ -66,14 +65,12 @@ async def create_conversation(request: Request, body: CreateConversationBody) ->
 async def get_messages(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    payload = await build_api_conversation_messages_surface(
+    result = await build_api_conversation_messages_response_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content=conversation_not_found_payload())
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.post("/{conversation_id}/messages")
@@ -84,15 +81,13 @@ async def append_messages(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    payload = await build_api_conversation_append_messages_surface(
+    result = await build_api_conversation_append_messages_response_surface(
         store,
         conversation_id=conversation_id,
         messages=body.messages,
         group_id=tenant.group_id,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content=conversation_not_found_payload())
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.patch("/{conversation_id}")
@@ -103,26 +98,22 @@ async def update_conversation(
 ) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    payload = await build_api_conversation_update_surface(
+    result = await build_api_conversation_update_response_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
         title=body.title,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content=conversation_not_found_payload())
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.delete("/{conversation_id}")
 async def delete_conversation(request: Request, conversation_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     store = get_conversation_store()
-    payload = await build_api_conversation_delete_surface(
+    result = await build_api_conversation_delete_response_surface(
         store,
         conversation_id=conversation_id,
         group_id=tenant.group_id,
     )
-    if payload is None:
-        return JSONResponse(status_code=404, content=conversation_not_found_payload())
-    return JSONResponse(content=payload)
+    return JSONResponse(status_code=result.status_code, content=result.payload)

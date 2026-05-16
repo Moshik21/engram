@@ -94,8 +94,8 @@ from engram.retrieval.preference_feedback import (
 )
 from engram.retrieval.prospective import (
     build_intention_list_surface,
-    build_mcp_create_intention_surface,
-    build_mcp_dismiss_intention_surface,
+    build_mcp_create_intention_response_surface,
+    build_mcp_dismiss_intention_response_surface,
 )
 from engram.retrieval.recall_surface import build_mcp_recall_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
@@ -1461,23 +1461,20 @@ async def intend(
         JSON with status, intention_id, linked entities, and threshold.
     """
     manager = _get_manager()
-    try:
-        payload = await build_mcp_create_intention_surface(
-            manager,
-            group_id=_group_id,
-            trigger_text=trigger_text,
-            action_text=action_text,
-            trigger_type=trigger_type,
-            entity_names=entity_names,
-            threshold=threshold,
-            priority=priority,
-            context=context,
-            see_also=see_also,
-            refresh_trigger=refresh_trigger,
-        )
-        return json.dumps(payload)
-    except ValueError as e:
-        return json.dumps({"status": "error", "message": str(e)})
+    payload = await build_mcp_create_intention_response_surface(
+        manager,
+        group_id=_group_id,
+        trigger_text=trigger_text,
+        action_text=action_text,
+        trigger_type=trigger_type,
+        entity_names=entity_names,
+        threshold=threshold,
+        priority=priority,
+        context=context,
+        see_also=see_also,
+        refresh_trigger=refresh_trigger,
+    )
+    return json.dumps(payload)
 
 
 @mcp.tool()
@@ -1492,16 +1489,13 @@ async def dismiss_intention(intention_id: str, hard: bool = False) -> str:
         JSON with status and intention_id.
     """
     manager = _get_manager()
-    try:
-        payload = await build_mcp_dismiss_intention_surface(
-            manager,
-            group_id=_group_id,
-            intention_id=intention_id,
-            hard=hard,
-        )
-        return json.dumps(payload)
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
+    payload = await build_mcp_dismiss_intention_response_surface(
+        manager,
+        group_id=_group_id,
+        intention_id=intention_id,
+        hard=hard,
+    )
+    return json.dumps(payload)
 
 
 @mcp.tool()

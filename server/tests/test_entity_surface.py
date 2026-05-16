@@ -5,8 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.retrieval.entity_surface import (
+    build_api_entity_delete_response_surface,
     build_api_entity_delete_surface,
+    build_api_entity_detail_response_surface,
     build_api_entity_detail_surface,
+    build_api_entity_update_response_surface,
     build_api_entity_update_surface,
     entity_not_found_payload,
 )
@@ -69,3 +72,50 @@ def test_entity_not_found_payload() -> None:
     assert entity_not_found_payload("ent_missing") == {
         "detail": "Entity 'ent_missing' not found",
     }
+
+
+@pytest.mark.asyncio
+async def test_entity_detail_response_surface_maps_missing_entity_to_404() -> None:
+    manager = MagicMock()
+    manager.get_entity_detail = AsyncMock(return_value=None)
+
+    result = await build_api_entity_detail_response_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_missing",
+    )
+
+    assert result.status_code == 404
+    assert result.payload == entity_not_found_payload("ent_missing")
+
+
+@pytest.mark.asyncio
+async def test_entity_update_response_surface_maps_missing_entity_to_404() -> None:
+    manager = MagicMock()
+    manager.update_entity_profile = AsyncMock(return_value=None)
+
+    result = await build_api_entity_update_response_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_missing",
+        name="Missing",
+        summary=None,
+    )
+
+    assert result.status_code == 404
+    assert result.payload == entity_not_found_payload("ent_missing")
+
+
+@pytest.mark.asyncio
+async def test_entity_delete_response_surface_maps_missing_entity_to_404() -> None:
+    manager = MagicMock()
+    manager.delete_entity_by_id = AsyncMock(return_value=None)
+
+    result = await build_api_entity_delete_response_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_missing",
+    )
+
+    assert result.status_code == 404
+    assert result.payload == entity_not_found_payload("ent_missing")

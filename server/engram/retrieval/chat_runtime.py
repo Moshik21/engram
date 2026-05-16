@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from engram.models.recall import MemoryNeed
@@ -15,6 +16,22 @@ from engram.retrieval.control import resolve_manager_recall_need_thresholds
 from engram.retrieval.need import analyze_memory_need
 
 DEFAULT_MAX_HISTORY_MESSAGES = 10
+
+
+@dataclass(frozen=True)
+class ApiChatRateLimitSurface:
+    """REST chat rate-limit payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
+
+
+def build_api_chat_rate_limit_surface(remaining: int) -> ApiChatRateLimitSurface:
+    """Return the REST chat rate-limit response surface."""
+    return ApiChatRateLimitSurface(
+        status_code=429,
+        payload={"detail": "Rate limit exceeded for chat", "remaining": remaining},
+    )
 
 
 async def analyze_chat_memory_need(

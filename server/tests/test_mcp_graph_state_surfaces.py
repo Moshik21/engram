@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.retrieval.graph_state import (
+    activation_curve_entity_not_found_payload,
+    build_api_activation_curve_surface,
     build_api_graph_neighborhood_surface,
     build_api_temporal_graph_surface,
     build_mcp_entity_neighbors_resource_surface,
@@ -113,6 +115,41 @@ async def test_api_graph_neighborhood_surface_forwards_options_and_handles_missi
 
     assert missing.status_code == 404
     assert missing.payload == {"detail": "Entity 'missing' not found"}
+
+
+@pytest.mark.asyncio
+async def test_api_activation_curve_surface_forwards_options_and_handles_missing() -> None:
+    manager = MagicMock()
+    manager.get_activation_curve = AsyncMock(return_value={"entityId": "ent_alpha"})
+
+    result = await build_api_activation_curve_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_alpha",
+        hours=1,
+        points=4,
+    )
+
+    assert result.status_code == 200
+    assert result.payload == {"entityId": "ent_alpha"}
+    manager.get_activation_curve.assert_awaited_once_with(
+        group_id="native_brain",
+        entity_id="ent_alpha",
+        hours=1,
+        points=4,
+    )
+
+    manager.get_activation_curve = AsyncMock(return_value=None)
+    missing = await build_api_activation_curve_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_missing",
+        hours=24,
+        points=48,
+    )
+
+    assert missing.status_code == 404
+    assert missing.payload == activation_curve_entity_not_found_payload("ent_missing")
 
 
 @pytest.mark.asyncio

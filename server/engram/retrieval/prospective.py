@@ -8,6 +8,7 @@ import math
 import time
 import uuid
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -23,6 +24,14 @@ logger = logging.getLogger(__name__)
 
 # Priority ordering for tie-breaking
 _PRIORITY_ORDER = {"critical": 0, "high": 1, "normal": 2, "low": 3}
+
+
+@dataclass(frozen=True)
+class ApiIntentionSurface:
+    """REST intention payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
 
 
 async def build_api_create_intention_surface(
@@ -61,6 +70,43 @@ async def build_api_create_intention_surface(
         "triggerType": trigger_type,
         "refreshTrigger": refresh_trigger,
     }
+
+
+async def build_api_create_intention_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str,
+    entity_names: list[str] | None,
+    threshold: float | None,
+    priority: str,
+    context: str | None,
+    see_also: list[str] | None,
+    refresh_trigger: str,
+) -> ApiIntentionSurface:
+    """Create and present a REST intention response surface."""
+    try:
+        payload = await build_api_create_intention_surface(
+            manager,
+            group_id=group_id,
+            trigger_text=trigger_text,
+            action_text=action_text,
+            trigger_type=trigger_type,
+            entity_names=entity_names,
+            threshold=threshold,
+            priority=priority,
+            context=context,
+            see_also=see_also,
+            refresh_trigger=refresh_trigger,
+        )
+    except ValueError as exc:
+        return ApiIntentionSurface(
+            status_code=400,
+            payload=api_intention_validation_error_payload(exc),
+        )
+    return ApiIntentionSurface(status_code=200, payload=payload)
 
 
 async def build_mcp_create_intention_surface(
@@ -105,6 +151,39 @@ async def build_mcp_create_intention_surface(
     }
 
 
+async def build_mcp_create_intention_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    trigger_text: str,
+    action_text: str,
+    trigger_type: str,
+    entity_names: list[str] | None,
+    threshold: float | None,
+    priority: str,
+    context: str | None,
+    see_also: list[str] | None,
+    refresh_trigger: str,
+) -> dict:
+    """Create an intention and return the MCP response payload."""
+    try:
+        return await build_mcp_create_intention_surface(
+            manager,
+            group_id=group_id,
+            trigger_text=trigger_text,
+            action_text=action_text,
+            trigger_type=trigger_type,
+            entity_names=entity_names,
+            threshold=threshold,
+            priority=priority,
+            context=context,
+            see_also=see_also,
+            refresh_trigger=refresh_trigger,
+        )
+    except ValueError as exc:
+        return mcp_intention_error_payload(exc)
+
+
 async def build_intention_list_surface(
     manager: Any,
     *,
@@ -137,6 +216,29 @@ async def build_api_dismiss_intention_surface(
     }
 
 
+async def build_api_dismiss_intention_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    intention_id: str,
+    hard: bool,
+) -> ApiIntentionSurface:
+    """Dismiss and present a REST intention response surface."""
+    try:
+        payload = await build_api_dismiss_intention_surface(
+            manager,
+            group_id=group_id,
+            intention_id=intention_id,
+            hard=hard,
+        )
+    except Exception:
+        return ApiIntentionSurface(
+            status_code=404,
+            payload=api_intention_not_found_payload(),
+        )
+    return ApiIntentionSurface(status_code=200, payload=payload)
+
+
 def api_intention_validation_error_payload(error: Exception | str) -> dict:
     """Return the REST validation error payload for intention creation."""
     return {"detail": str(error)}
@@ -162,6 +264,30 @@ async def build_mcp_dismiss_intention_surface(
         "hard": hard,
         "message": f"Intention {intention_id} {'deleted' if hard else 'disabled'}.",
     }
+
+
+async def build_mcp_dismiss_intention_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    intention_id: str,
+    hard: bool,
+) -> dict:
+    """Dismiss an intention and return the MCP response payload."""
+    try:
+        return await build_mcp_dismiss_intention_surface(
+            manager,
+            group_id=group_id,
+            intention_id=intention_id,
+            hard=hard,
+        )
+    except Exception as exc:
+        return mcp_intention_error_payload(exc)
+
+
+def mcp_intention_error_payload(error: Exception | str) -> dict:
+    """Return the MCP error payload for intention tools."""
+    return {"status": "error", "message": str(error)}
 
 
 async def _create_manager_intention(

@@ -6,6 +6,7 @@ import pytest
 
 from engram.retrieval.preference_feedback import (
     FeedbackRatingError,
+    build_api_explicit_feedback_surface,
     build_explicit_feedback_surface,
     build_mcp_explicit_feedback_surface,
 )
@@ -54,6 +55,47 @@ async def test_explicit_feedback_surface_rejects_invalid_rating() -> None:
         )
 
     manager.record_explicit_feedback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_explicit_feedback_surface_maps_invalid_rating_to_400() -> None:
+    manager = MagicMock()
+    manager.record_explicit_feedback = AsyncMock()
+
+    result = await build_api_explicit_feedback_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_native",
+        rating=0,
+        comment=None,
+    )
+
+    assert result.status_code == 400
+    assert result.payload == {"error": "Rating must be between 1 and 5"}
+    manager.record_explicit_feedback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_explicit_feedback_surface_maps_missing_entity_to_404() -> None:
+    manager = MagicMock()
+    manager.record_explicit_feedback = AsyncMock(side_effect=ValueError("Entity missing"))
+
+    result = await build_api_explicit_feedback_surface(
+        manager,
+        group_id="native_brain",
+        entity_id="ent_missing",
+        rating=5,
+        comment=None,
+    )
+
+    assert result.status_code == 404
+    assert result.payload == {"error": "Entity missing"}
+    manager.record_explicit_feedback.assert_awaited_once_with(
+        group_id="native_brain",
+        entity_id="ent_missing",
+        rating=5,
+        comment=None,
+    )
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,10 @@
 """Activation monitor API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_manager
+from engram.retrieval.graph_state import build_api_activation_curve_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/activation", tags=["activation"])
@@ -26,12 +28,11 @@ async def get_activation_curve(
     """Simulated ACT-R decay curve over past N hours."""
     tenant = get_tenant(request)
     manager = get_manager()
-    payload = await manager.get_activation_curve(
+    result = await build_api_activation_curve_surface(
+        manager,
         group_id=tenant.group_id,
         entity_id=entity_id,
         hours=hours,
         points=points,
     )
-    if payload is None:
-        raise HTTPException(status_code=404, detail=f"Entity {entity_id} not found")
-    return payload
+    return JSONResponse(status_code=result.status_code, content=result.payload)

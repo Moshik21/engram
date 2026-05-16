@@ -61,6 +61,7 @@ from engram.retrieval.chat_persistence import (
 from engram.retrieval.chat_runtime import (
     DEFAULT_MAX_HISTORY_MESSAGES,
     analyze_chat_memory_need,
+    build_api_chat_rate_limit_surface,
     build_chat_memory_guidance,
     hydrate_chat_context,
     recent_chat_turn_contents,
@@ -75,17 +76,14 @@ from engram.retrieval.control import record_manager_memory_need_analysis
 from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.feedback import publish_memory_need_analysis
-from engram.retrieval.forgetting import build_api_forget_surface
+from engram.retrieval.forgetting import build_api_forget_response_surface
 from engram.retrieval.lookup import build_api_fact_search_surface
 from engram.retrieval.preference_feedback import (
-    FeedbackRatingError,
-    build_explicit_feedback_surface,
+    build_api_explicit_feedback_surface,
 )
 from engram.retrieval.prospective import (
-    api_intention_not_found_payload,
-    api_intention_validation_error_payload,
-    build_api_create_intention_surface,
-    build_api_dismiss_intention_surface,
+    build_api_create_intention_response_surface,
+    build_api_dismiss_intention_response_surface,
     build_intention_list_surface,
 )
 from engram.retrieval.recall_surface import build_api_recall_surface
@@ -552,22 +550,14 @@ async def forget(request: Request, body: ForgetBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    try:
-        result = await build_api_forget_surface(
-            manager,
-            group_id=group_id,
-            entity_name=body.entity_name,
-            fact=body.fact,
-            reason=body.reason,
-        )
-    except ValueError:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "Provide either entity_name or fact."},
-        )
-
-    status_code = 200 if result.get("status") != "error" else 404
-    return JSONResponse(status_code=status_code, content=result)
+    result = await build_api_forget_response_surface(
+        manager,
+        group_id=group_id,
+        entity_name=body.entity_name,
+        fact=body.fact,
+        reason=body.reason,
+    )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.post("/feedback")
@@ -576,19 +566,14 @@ async def post_feedback(request: Request, body: FeedbackBody) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    try:
-        result = await build_explicit_feedback_surface(
-            manager,
-            group_id=group_id,
-            entity_id=body.entity_id,
-            rating=body.rating,
-            comment=body.comment,
-        )
-        return JSONResponse(result)
-    except FeedbackRatingError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-    except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=404)
+    result = await build_api_explicit_feedback_surface(
+        manager,
+        group_id=group_id,
+        entity_id=body.entity_id,
+        rating=body.rating,
+        comment=body.comment,
+    )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.post("/bootstrap")
@@ -673,23 +658,20 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    try:
-        payload = await build_api_create_intention_surface(
-            manager,
-            group_id=group_id,
-            trigger_text=body.trigger_text,
-            action_text=body.action_text,
-            trigger_type=body.trigger_type,
-            entity_names=body.entity_names,
-            threshold=body.threshold,
-            priority=body.priority,
-            context=body.context,
-            see_also=body.see_also,
-            refresh_trigger=body.refresh_trigger,
-        )
-        return JSONResponse(content=payload)
-    except ValueError as e:
-        return JSONResponse(status_code=400, content=api_intention_validation_error_payload(e))
+    result = await build_api_create_intention_response_surface(
+        manager,
+        group_id=group_id,
+        trigger_text=body.trigger_text,
+        action_text=body.action_text,
+        trigger_type=body.trigger_type,
+        entity_names=body.entity_names,
+        threshold=body.threshold,
+        priority=body.priority,
+        context=body.context,
+        see_also=body.see_also,
+        refresh_trigger=body.refresh_trigger,
+    )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/intentions")
@@ -722,16 +704,13 @@ async def dismiss_intention(
     group_id = tenant.group_id
     manager = get_manager()
 
-    try:
-        payload = await build_api_dismiss_intention_surface(
-            manager,
-            group_id=group_id,
-            intention_id=intention_id,
-            hard=hard,
-        )
-        return JSONResponse(content=payload)
-    except Exception:
-        return JSONResponse(status_code=404, content=api_intention_not_found_payload())
+    result = await build_api_dismiss_intention_response_surface(
+        manager,
+        group_id=group_id,
+        intention_id=intention_id,
+        hard=hard,
+    )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 def _sse(data: dict) -> str:
@@ -907,9 +886,10 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     if rate_limiter:
         allowed, remaining = await rate_limiter.check(group_id, "chat")
         if not allowed:
+            result = build_api_chat_rate_limit_surface(remaining)
             return JSONResponse(
-                status_code=429,
-                content={"detail": "Rate limit exceeded for chat", "remaining": remaining},
+                status_code=result.status_code,
+                content=result.payload,
             )
 
     manager = get_manager()

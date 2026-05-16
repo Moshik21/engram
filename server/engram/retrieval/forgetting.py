@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from engram.utils.dates import utc_now, utc_now_iso
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ApiForgetSurface:
+    """REST forget payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
+
+
+def api_forget_missing_target_payload() -> dict:
+    """Return the REST validation payload for missing forget targets."""
+    return {"detail": "Provide either entity_name or fact."}
 
 
 async def build_api_forget_surface(
@@ -33,6 +47,33 @@ async def build_api_forget_surface(
         fact=fact,
         reason=reason,
     )
+
+
+async def build_api_forget_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_name: str | None,
+    fact: Any,
+    reason: str | None,
+) -> ApiForgetSurface:
+    """Apply and present an API forget request."""
+    try:
+        payload = await build_api_forget_surface(
+            manager,
+            group_id=group_id,
+            entity_name=entity_name,
+            fact=fact,
+            reason=reason,
+        )
+    except ValueError:
+        return ApiForgetSurface(
+            status_code=400,
+            payload=api_forget_missing_target_payload(),
+        )
+
+    status_code = 200 if payload.get("status") != "error" else 404
+    return ApiForgetSurface(status_code=status_code, payload=payload)
 
 
 async def build_mcp_forget_surface(

@@ -36,7 +36,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `2933 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3076 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -84,6 +84,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   `GraphStateService` instead of reading private graph, activation, or config
   fields in `server/engram/api/graph.py`; route-facing graph-state helpers now
   also own REST missing-entity and invalid-timestamp payloads for those routes.
+  REST atlas snapshot/history/region routes now use
+  `server/engram/retrieval/atlas_surface.py` for atlas service dispatch,
+  representation metadata, snapshot/history serialization, and region/snapshot
+  404 payloads instead of assembling those response bodies in
+  `server/engram/api/graph.py`.
   MCP recall-response enrichment now calls manager facades backed by
   `RecallResponseStateService` instead of reading private activation,
   near-miss, surprise-cache, or triggered-intention fields in
@@ -98,7 +103,8 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   `GraphManager.get_activation_snapshot()` and `get_activation_curve()` backed
   by `GraphStateService` instead of reading app state, graph store, activation
   store, config, or `compute_activation` directly in
-  `server/engram/api/activation.py`.
+  `server/engram/api/activation.py`; activation curve 404 payload/status mapping
+  now also lives in the graph-state route-facing helper.
   REST episode dashboard reads now call
   `GraphManager.list_episode_summaries()` backed by `GraphStateService` instead
   of reading the graph store and formatting paginated episode/cue payloads in
@@ -215,8 +221,9 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    Knowledge-chat memory-need and live-context runtime helpers are now in
    `server/engram/retrieval/chat_runtime.py`, covering chat memory-need
    analysis, memory-guidance text, live conversation hydration, assistant-turn
-   recording, and recent-turn extraction while the REST route keeps rate
-   limiting, conversation resolution, context fetch, Anthropic tool-loop
+   recording, recent-turn extraction, and chat rate-limit response payloads
+   while the REST route keeps rate-limiter dependency lookup, conversation
+   resolution, context fetch, Anthropic tool-loop
    streaming, and final SSE framing. Focused chat-runtime/feedback/tool, full
    knowledge API, chat-event, public-surface, Ruff, and `git diff --check`
    gates passed.
@@ -248,22 +255,23 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    REST/MCP prospective-memory intention surfaces now share
    `server/engram/retrieval/prospective.py` helpers, covering intention create,
    list, and dismiss manager calls plus API/MCP acknowledgement shapes while
-   REST keeps HTTP status mapping and MCP keeps JSON error wrappers. REST
-   intention validation and not-found payload bodies now live in the same helper
-   module. Focused prospective-surface, public-surface, full knowledge API, full
-   MCP tool, Ruff, and `git diff --check` gates passed.
+   REST keeps HTTP wrapping and MCP keeps JSON wrapping. REST intention
+   validation/not-found payload bodies, REST create/dismiss status mapping, and
+   MCP create/dismiss error payloads now live in the same helper module. Focused prospective-surface, public-surface,
+   full knowledge API, full MCP tool, Ruff, and `git diff --check` gates passed.
    REST/MCP forget entity/fact surfaces now share
    `server/engram/retrieval/forgetting.py` helpers, covering target dispatch and
    fact-field normalization while REST keeps entity-first behavior for dual
-   targets and MCP keeps exactly-one-target validation. Focused forget-surface,
-   REST forget, MCP forget, public-surface, Ruff, and `git diff --check` gates
-   passed.
+   targets and MCP keeps exactly-one-target validation. REST missing-target
+   payloads and 400/404 response mapping now live in the same route-facing
+   helper. Focused forget-surface, REST forget, MCP forget, public-surface,
+   Ruff, and `git diff --check` gates passed.
    REST/MCP explicit preference feedback now shares
    `server/engram/retrieval/preference_feedback.py` helpers, covering public
-   rating validation, the `record_explicit_feedback` manager call, and MCP
-   invalid-rating error payloads while REST keeps 400/404 HTTP mapping. Focused
-   feedback-surface, feedback recorder, full knowledge API, full MCP tool,
-   public-surface, Ruff, and `git diff --check` gates passed.
+   rating validation, the `record_explicit_feedback` manager call, REST error
+   payloads, and MCP invalid-rating error payloads while REST keeps HTTP status
+   mapping. Focused feedback-surface, feedback recorder, full knowledge API,
+   full MCP tool, public-surface, Ruff, and `git diff --check` gates passed.
    REST/MCP project bootstrap and runtime-state calls now share route-facing
    helpers. `server/engram/ingestion/project_bootstrap.py` owns the public
    bootstrap manager call and REST skipped-status mapping while
@@ -302,10 +310,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    public-surface, and Ruff checks passed.
    REST entity detail/update/delete now has a route-facing public-surface helper.
    `server/engram/retrieval/entity_surface.py` owns entity detail manager
-   dispatch, sparse update payload construction, delete dispatch, and the shared
-   REST not-found payload, while `GraphStateService` and `EntityMutationService`
-   remain the deeper service owners. Focused entity-surface, REST entity
-   detail/mutation, public-surface, and Ruff checks passed.
+   dispatch, sparse update payload construction, delete dispatch, 404 status
+   mapping, and the shared REST not-found payload, while `GraphStateService` and
+   `EntityMutationService` remain the deeper service owners. Focused
+   entity-surface, REST entity detail/mutation, public-surface, and Ruff checks
+   passed.
    MCP graph-state tool and graph/entity resources now have route-facing public
    surface helpers. `server/engram/retrieval/graph_state.py` now owns MCP graph
    tool dispatch, graph stats resource shaping, entity profile resource
@@ -315,6 +324,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    REST graph neighborhood/temporal route response assembly now also uses
    `server/engram/retrieval/graph_state.py` helpers for manager dispatch,
    not-found payloads, timestamp parsing, and invalid-timestamp payloads.
+   REST atlas snapshot/history/region response assembly now uses
+   `server/engram/retrieval/atlas_surface.py` helpers for atlas service
+   dispatch, representation metadata, snapshot/history serialization,
+   passthrough region drill-down payloads, and region/snapshot lookup payloads.
+   Focused atlas helper, graph atlas API, and public-surface checks passed.
    MCP identity-core and consolidation controls now have route-facing public
    surface helpers. `server/engram/retrieval/identity_core.py` owns MCP
    identity-core manager dispatch, and `server/engram/consolidation_trigger.py`
@@ -339,8 +353,8 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    `server/engram/retrieval/conversation_persistence.py`, covering group-scoped
    listing, creation, message reads/appends, title updates, deletes, and
    not-found translation plus the REST response envelopes and shared not-found
-   body. Focused conversation-persistence, conversation API, public-surface, and
-   Ruff checks passed.
+   body/status mapping. Focused conversation-persistence, conversation API,
+   public-surface, and Ruff checks passed.
    REST/MCP post-write adjudication request loading now uses
    `server/engram/ingestion/adjudication_surface.py`, covering the compatibility
    lookup for sync/async manager facades and missing/malformed responses before
@@ -425,14 +439,15 @@ persistence and not-found payloads have a helper boundary, REST/MCP explicit rec
 assembly and MCP explicit recall enrichment have a retrieval helper,
 recall-control manager compatibility has shared helpers, REST/MCP artifact
 search has retrieval helpers, REST conversation CRUD
-has group-scoped persistence and response-envelope helpers, REST/MCP project
+has group-scoped persistence and response-envelope/status helpers, REST/MCP project
 bootstrap/runtime-state calls have surface helpers, REST/MCP public entity/fact
 lookup has surface helpers, REST/MCP public agent-context response assembly has
 surface helpers, REST/MCP
 adjudication resolution has ingestion-surface helpers, REST/MCP
 Capture write dispatch has capture-surface helpers, REST entity detail/mutation
-response assembly has a public-surface helper, REST/MCP graph-state resources
-and graph route payloads have public-surface helpers, REST and MCP consolidation controls/read payloads have
+response/status assembly has a public-surface helper, REST/MCP graph-state resources
+and graph route payloads have public-surface helpers, REST atlas
+snapshot/history/region payloads have a public-surface helper, REST and MCP consolidation controls/read payloads have
 public-surface helpers, MCP identity-core has a public-surface helper, MCP
 lifecycle summary has a public-surface helper, REST/MCP
 deterministic question routing has retrieval helpers, REST/MCP

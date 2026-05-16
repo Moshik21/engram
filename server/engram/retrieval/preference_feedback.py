@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -13,6 +14,14 @@ from engram.models.relationship import Relationship
 
 class FeedbackRatingError(ValueError):
     """Raised when a public feedback rating is outside the accepted range."""
+
+
+@dataclass(frozen=True)
+class ApiFeedbackSurface:
+    """REST feedback payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
 
 
 async def build_explicit_feedback_surface(
@@ -32,6 +41,30 @@ async def build_explicit_feedback_surface(
         rating=rating,
         comment=comment,
     )
+
+
+async def build_api_explicit_feedback_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+    rating: int,
+    comment: str | None,
+) -> ApiFeedbackSurface:
+    """Validate, record, and present REST explicit feedback."""
+    try:
+        payload = await build_explicit_feedback_surface(
+            manager,
+            group_id=group_id,
+            entity_id=entity_id,
+            rating=rating,
+            comment=comment,
+        )
+    except FeedbackRatingError as e:
+        return ApiFeedbackSurface(status_code=400, payload={"error": str(e)})
+    except ValueError as e:
+        return ApiFeedbackSurface(status_code=404, payload={"error": str(e)})
+    return ApiFeedbackSurface(status_code=200, payload=payload)
 
 
 async def build_mcp_explicit_feedback_surface(

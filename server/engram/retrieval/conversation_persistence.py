@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from engram.storage.helix.conversations import (
@@ -15,6 +16,14 @@ CONVERSATION_NOT_FOUND_ERRORS = (
     SQLiteConversationNotFoundError,
     HelixConversationNotFoundError,
 )
+
+
+@dataclass(frozen=True)
+class ApiConversationSurface:
+    """REST conversation payload plus HTTP status."""
+
+    status_code: int
+    payload: dict
 
 
 async def build_api_conversation_list_surface(
@@ -66,6 +75,26 @@ async def build_api_conversation_messages_surface(
     return {"messages": messages}
 
 
+async def build_api_conversation_messages_response_surface(
+    conversation_store: Any,
+    *,
+    conversation_id: str,
+    group_id: str,
+) -> ApiConversationSurface:
+    """Return the REST conversation message-list response surface."""
+    payload = await build_api_conversation_messages_surface(
+        conversation_store,
+        conversation_id=conversation_id,
+        group_id=group_id,
+    )
+    if payload is None:
+        return ApiConversationSurface(
+            status_code=404,
+            payload=conversation_not_found_payload(),
+        )
+    return ApiConversationSurface(status_code=200, payload=payload)
+
+
 async def build_api_conversation_append_messages_surface(
     conversation_store: Any,
     *,
@@ -83,6 +112,28 @@ async def build_api_conversation_append_messages_surface(
     if message_ids is None:
         return None
     return {"ids": message_ids}
+
+
+async def build_api_conversation_append_messages_response_surface(
+    conversation_store: Any,
+    *,
+    conversation_id: str,
+    group_id: str,
+    messages: list[dict],
+) -> ApiConversationSurface:
+    """Return the REST conversation append response surface."""
+    payload = await build_api_conversation_append_messages_surface(
+        conversation_store,
+        conversation_id=conversation_id,
+        group_id=group_id,
+        messages=messages,
+    )
+    if payload is None:
+        return ApiConversationSurface(
+            status_code=404,
+            payload=conversation_not_found_payload(),
+        )
+    return ApiConversationSurface(status_code=200, payload=payload)
 
 
 async def build_api_conversation_update_surface(
@@ -104,6 +155,28 @@ async def build_api_conversation_update_surface(
     return {"status": "updated"}
 
 
+async def build_api_conversation_update_response_surface(
+    conversation_store: Any,
+    *,
+    conversation_id: str,
+    group_id: str,
+    title: str | None,
+) -> ApiConversationSurface:
+    """Return the REST conversation update response surface."""
+    payload = await build_api_conversation_update_surface(
+        conversation_store,
+        conversation_id=conversation_id,
+        group_id=group_id,
+        title=title,
+    )
+    if payload is None:
+        return ApiConversationSurface(
+            status_code=404,
+            payload=conversation_not_found_payload(),
+        )
+    return ApiConversationSurface(status_code=200, payload=payload)
+
+
 async def build_api_conversation_delete_surface(
     conversation_store: Any,
     *,
@@ -119,6 +192,26 @@ async def build_api_conversation_delete_surface(
     if not deleted:
         return None
     return {"status": "deleted"}
+
+
+async def build_api_conversation_delete_response_surface(
+    conversation_store: Any,
+    *,
+    conversation_id: str,
+    group_id: str,
+) -> ApiConversationSurface:
+    """Return the REST conversation delete response surface."""
+    payload = await build_api_conversation_delete_surface(
+        conversation_store,
+        conversation_id=conversation_id,
+        group_id=group_id,
+    )
+    if payload is None:
+        return ApiConversationSurface(
+            status_code=404,
+            payload=conversation_not_found_payload(),
+        )
+    return ApiConversationSurface(status_code=200, payload=payload)
 
 
 def conversation_not_found_payload() -> dict:

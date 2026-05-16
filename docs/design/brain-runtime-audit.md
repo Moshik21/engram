@@ -2744,6 +2744,15 @@ facade/public-surface checks passed, and the broad non-Docker/non-Helix gate now
 passes with 2821 tests, 43 skips, and 236 external-service deselections. The
 latest route-facing graph-state surface check passed with 126 tests.
 
+REST atlas snapshot/history/region routes now have a route-facing atlas surface
+boundary. `server/engram/retrieval/atlas_surface.py` owns atlas representation
+metadata, snapshot region/bridge/stat serialization, history row shaping,
+region/snapshot lookup error payloads, and atlas service dispatch. The graph
+route now preserves tenant lookup, dependency lookup, logging, and HTTP wrapping
+for `/api/graph/atlas`, `/api/graph/atlas/history`, and
+`/api/graph/regions/{region_id}` without reassembling atlas payloads locally.
+Focused atlas helper/API/public-surface checks passed with 140 tests.
+
 MCP recall-response enrichment now has a route-facing state boundary.
 `engram.retrieval.response_state.RecallResponseStateService` owns triggered
 intention serialization, near-miss payload copying, recall-item access-count
@@ -2769,9 +2778,13 @@ curve payload construction, and `GraphManager.get_activation_snapshot()` plus
 `get_activation_curve()` are the route-facing compatibility facades. The
 activation route preserves snapshot/curve JSON and missing-entity 404 behavior
 without reading app state, graph store, activation store, config, or
-`compute_activation` directly in the transport layer. Focused graph-state/API/
-facade/public-surface checks passed, and the broad non-Docker/non-Helix gate
-now passes with 2845 tests, 43 skips, and 236 external-service deselections.
+`compute_activation` directly in the transport layer. The activation curve route
+now also delegates missing-entity 404 payload/status mapping to the graph-state
+route-facing helper instead of raising a route-local `HTTPException`. Focused
+graph-state/API/facade/public-surface checks passed, the latest activation
+response-surface gate passed with 150 tests, and the broad non-Docker/non-Helix
+gate now passes with 2845 tests, 43 skips, and 236 external-service
+deselections.
 
 REST episode dashboard reads now use `GraphStateService` too.
 `GraphStateService.list_episode_summaries()` owns `/api/episodes` paginated
@@ -2916,11 +2929,12 @@ public-surface, Ruff, and `git diff --check` gates passed.
 Knowledge-chat memory-need and live-context runtime helpers now live outside the
 REST route as well. `server/engram/retrieval/chat_runtime.py` owns chat
 memory-need analysis, memory-guidance text, live conversation hydration,
-assistant-turn recording, and recent-turn extraction. `server/engram/api/knowledge.py`
-keeps rate limiting, conversation resolution, context fetch, Anthropic tool-loop
-streaming, and final SSE framing. Focused chat-runtime/feedback/tool, full
-knowledge API, chat-event, public-surface, Ruff, and `git diff --check` gates
-passed.
+assistant-turn recording, recent-turn extraction, and the chat rate-limit
+response payload. `server/engram/api/knowledge.py` keeps rate-limiter dependency
+lookup, conversation resolution, context fetch, Anthropic tool-loop streaming,
+and final SSE framing. Focused chat-runtime/feedback/tool, full knowledge API,
+chat-event, public-surface, Ruff, and `git diff --check` gates passed. The
+latest chat rate-limit response-surface check passed with 130 tests.
 
 REST/MCP explicit recall result and packet assembly now share a retrieval
 boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
@@ -2957,25 +2971,32 @@ epistemic endpoint, MCP JSON-response, public-surface, Ruff, and
 REST/MCP prospective-memory intention surfaces now share retrieval-side
 assembly. `server/engram/retrieval/prospective.py` owns intention create, list,
 and dismiss manager calls plus API/MCP acknowledgement shapes. REST keeps HTTP
-status mapping; MCP keeps JSON error wrappers. REST intention validation and
-not-found payload bodies now live in the same helper module too. Focused
+wrapping; MCP keeps JSON wrapping. REST intention validation/not-found payload
+bodies, REST create/dismiss status mapping, and MCP create/dismiss error
+payloads now live in the same helper module too. Focused
 prospective-surface, public-surface, full knowledge API, full MCP tool, Ruff,
 and `git diff --check` gates passed. The latest prospective/chat error-payload
-helper gate passed with 132 tests.
+helper gate passed with 132 tests; the latest route-facing response-surface
+check covering intentions, entities, and conversations passed with 165 tests;
+the latest MCP intention response-surface gate passed with 165 tests and 2
+skips.
 
 REST/MCP forget surfaces now share retrieval-side target dispatch.
 `server/engram/retrieval/forgetting.py` owns the public forget helpers and
 fact-field normalization. REST keeps its entity-first behavior when both an
-entity and fact are supplied; MCP keeps its exactly-one-target validation.
-Focused forget-surface, REST forget, MCP forget, public-surface, Ruff, and
-`git diff --check` gates passed.
+entity and fact are supplied; MCP keeps its exactly-one-target validation. REST
+missing-target payload and 400/404 response mapping now also live in the
+route-facing helper. Focused forget-surface, REST forget, MCP forget,
+public-surface, Ruff, and `git diff --check` gates passed. The latest REST
+forget response-surface check passed with 138 tests.
 
 REST/MCP explicit preference feedback now shares retrieval-side validation and
 manager dispatch. `server/engram/retrieval/preference_feedback.py` owns public
-rating validation, the `record_explicit_feedback` manager call, and MCP
-invalid-rating error payloads. REST keeps 400/404 HTTP mapping. Focused
-feedback-surface, feedback recorder, full knowledge API, full MCP tool,
-public-surface, Ruff, and `git diff --check` gates passed.
+rating validation, the `record_explicit_feedback` manager call, REST error
+payloads, and MCP invalid-rating error payloads. REST keeps HTTP status mapping.
+Focused feedback-surface, feedback recorder, full knowledge API, full MCP tool,
+public-surface, Ruff, and `git diff --check` gates passed. The latest REST
+preference-feedback response-surface check passed with 135 tests.
 
 REST/MCP project bootstrap and runtime-state calls now share route-facing
 surface helpers. `server/engram/ingestion/project_bootstrap.py` owns the public
@@ -3020,10 +3041,11 @@ checks passed.
 
 REST entity detail/update/delete now has a route-facing public-surface helper.
 `server/engram/retrieval/entity_surface.py` owns entity detail manager dispatch,
-sparse update payload construction, delete dispatch, and the shared REST
-not-found payload, while `GraphStateService` and `EntityMutationService` remain
-the deeper service owners. Focused entity-surface, REST entity detail/mutation,
-public-surface, and Ruff checks passed.
+sparse update payload construction, delete dispatch, 404 status mapping, and
+the shared REST not-found payload, while `GraphStateService` and
+`EntityMutationService` remain the deeper service owners. Focused entity-surface,
+REST entity detail/mutation, public-surface, and Ruff checks passed. The latest
+entity response-surface check passed with 143 tests.
 
 MCP graph-state tool and graph/entity resources now have route-facing public
 surface helpers. `server/engram/retrieval/graph_state.py` now owns MCP graph
@@ -3064,11 +3086,11 @@ REST conversation CRUD now uses a group-scoped persistence helper.
 creation, message reads/appends, title updates, deletes, and not-found
 translation for the active `group_id`; it now also owns the REST response
 envelopes for list/create/message/update/delete acknowledgements and the shared
-not-found body. `server/engram/api/conversations.py` keeps tenant lookup,
-request parsing, JSON wrapping, and HTTP status mapping, but no longer directly
-encodes conversation store calls or payload bodies. Focused
+not-found body/status mapping. `server/engram/api/conversations.py` keeps tenant
+lookup, request parsing, and JSON wrapping, but no longer directly encodes
+conversation store calls, payload bodies, or 404 branches. Focused
 conversation-persistence, conversation API, public-surface, and Ruff checks
-passed.
+passed. The latest conversation response-surface check passed with 157 tests.
 
 REST/MCP post-write adjudication request loading now has one helper.
 `server/engram/ingestion/adjudication_surface.py` owns the compatibility lookup

@@ -49,6 +49,7 @@ from engram.public_surface_policy import PublicSurfacePolicyService
 from engram.retrieval.chat_feedback import apply_chat_recall_feedback
 from engram.retrieval.chat_runtime import (
     analyze_chat_memory_need,
+    build_api_chat_rate_limit_surface,
     build_chat_memory_guidance,
     hydrate_chat_context,
     record_chat_assistant_turn,
@@ -279,6 +280,41 @@ class TestReplayQueue:
             source="offline:test",
             session_id="session_1",
         )
+
+
+class TestExplicitFeedback:
+    @pytest.mark.asyncio
+    async def test_feedback_endpoint_records_valid_rating(self, knowledge_client):
+        resp = await knowledge_client.post(
+            "/api/knowledge/feedback",
+            json={"entity_id": "ent_alice", "rating": 5, "comment": "useful"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "recorded"
+        assert data["entity_id"] == "ent_alice"
+        assert data["edge_type"] == "PREFERS"
+
+    @pytest.mark.asyncio
+    async def test_feedback_endpoint_maps_invalid_rating_to_400(self, knowledge_client):
+        resp = await knowledge_client.post(
+            "/api/knowledge/feedback",
+            json={"entity_id": "ent_alice", "rating": 6},
+        )
+
+        assert resp.status_code == 400
+        assert resp.json() == {"error": "Rating must be between 1 and 5"}
+
+    @pytest.mark.asyncio
+    async def test_feedback_endpoint_maps_missing_entity_to_404(self, knowledge_client):
+        resp = await knowledge_client.post(
+            "/api/knowledge/feedback",
+            json={"entity_id": "ent_missing", "rating": 5},
+        )
+
+        assert resp.status_code == 404
+        assert resp.json() == {"error": "Entity ent_missing not found"}
 
 
 # ─── Remember ────────────────────────────────────────────────────
@@ -1158,6 +1194,32 @@ class TestChat:
             if line.startswith("data: ") and line != "data: [DONE]":
                 events.append(json.loads(line[6:]))
         return events
+
+    def test_build_api_chat_rate_limit_surface(self):
+        result = build_api_chat_rate_limit_surface(remaining=2)
+
+        assert result.status_code == 429
+        assert result.payload == {
+            "detail": "Rate limit exceeded for chat",
+            "remaining": 2,
+        }
+
+    @pytest.mark.asyncio
+    async def test_chat_rate_limit_returns_shared_surface(self, knowledge_client, monkeypatch):
+        rate_limiter = SimpleNamespace(check=AsyncMock(return_value=(False, 2)))
+        monkeypatch.setattr("engram.api.knowledge.get_rate_limiter", lambda: rate_limiter)
+
+        resp = await knowledge_client.post(
+            "/api/knowledge/chat",
+            json={"message": "Tell me about Alice"},
+        )
+
+        assert resp.status_code == 429
+        assert resp.json() == {
+            "detail": "Rate limit exceeded for chat",
+            "remaining": 2,
+        }
+        rate_limiter.check.assert_awaited_once_with("default", "chat")
 
     @pytest.mark.asyncio
     async def test_chat_streams_sse(self, knowledge_client):

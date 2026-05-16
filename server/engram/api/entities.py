@@ -8,10 +8,9 @@ from pydantic import BaseModel
 
 from engram.api.deps import get_manager
 from engram.retrieval.entity_surface import (
-    build_api_entity_delete_surface,
-    build_api_entity_detail_surface,
-    build_api_entity_update_surface,
-    entity_not_found_payload,
+    build_api_entity_delete_response_surface,
+    build_api_entity_detail_response_surface,
+    build_api_entity_update_response_surface,
 )
 from engram.retrieval.lookup import build_api_entity_search_surface
 from engram.security.middleware import get_tenant
@@ -54,14 +53,12 @@ async def get_entity(request: Request, entity_id: str) -> JSONResponse:
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    detail = await build_api_entity_detail_surface(
+    result = await build_api_entity_detail_response_surface(
         manager,
         group_id=group_id,
         entity_id=entity_id,
     )
-    if detail is None:
-        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
-    return JSONResponse(content=detail)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.get("/{entity_id}/neighbors")
@@ -92,16 +89,14 @@ async def patch_entity(request: Request, entity_id: str, body: EntityPatchBody) 
     group_id = tenant.group_id
     manager = get_manager()
 
-    updated = await build_api_entity_update_surface(
+    result = await build_api_entity_update_response_surface(
         manager,
         group_id=group_id,
         entity_id=entity_id,
         name=body.name,
         summary=body.summary,
     )
-    if updated is None:
-        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
-    return JSONResponse(content=updated)
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.delete("/{entity_id}")
@@ -111,11 +106,9 @@ async def delete_entity(request: Request, entity_id: str) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    result = await build_api_entity_delete_surface(
+    result = await build_api_entity_delete_response_surface(
         manager,
         group_id=group_id,
         entity_id=entity_id,
     )
-    if result is None:
-        return JSONResponse(status_code=404, content=entity_not_found_payload(entity_id))
-    return JSONResponse(content=result)
+    return JSONResponse(status_code=result.status_code, content=result.payload)

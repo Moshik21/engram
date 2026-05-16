@@ -39,6 +39,11 @@ def temporal_graph_invalid_timestamp_payload(value: str) -> dict:
     return {"detail": f"Invalid ISO 8601 timestamp: '{value}'"}
 
 
+def activation_curve_entity_not_found_payload(entity_id: str) -> dict:
+    """Return the REST not-found payload for activation curve lookups."""
+    return {"detail": f"Entity {entity_id} not found"}
+
+
 async def build_api_graph_neighborhood_surface(
     manager: Any,
     *,
@@ -60,6 +65,29 @@ async def build_api_graph_neighborhood_surface(
         return ApiGraphSurface(
             status_code=404,
             payload=graph_entity_not_found_payload(center),
+        )
+    return ApiGraphSurface(status_code=200, payload=payload)
+
+
+async def build_api_activation_curve_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    entity_id: str,
+    hours: int,
+    points: int,
+) -> ApiGraphSurface:
+    """Build the REST activation-curve payload through the manager facade."""
+    payload = await manager.get_activation_curve(
+        group_id=group_id,
+        entity_id=entity_id,
+        hours=hours,
+        points=points,
+    )
+    if payload is None:
+        return ApiGraphSurface(
+            status_code=404,
+            payload=activation_curve_entity_not_found_payload(entity_id),
         )
     return ApiGraphSurface(status_code=200, payload=payload)
 
