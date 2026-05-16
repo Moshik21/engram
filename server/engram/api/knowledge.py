@@ -47,7 +47,11 @@ from engram.notifications.surface import (
     build_api_notifications_surface,
 )
 from engram.retrieval.artifacts import build_api_artifact_search_surface
-from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
+from engram.retrieval.chat_events import (
+    accumulate_chat_tool_result,
+    build_chat_tool_events,
+    build_chat_tool_result_message,
+)
 from engram.retrieval.chat_feedback import (
     apply_chat_recall_feedback,
     build_memory_grounding_retry_system_prompt,
@@ -63,8 +67,9 @@ from engram.retrieval.chat_runtime import (
     analyze_chat_memory_need,
     build_api_chat_rate_limit_surface,
     build_chat_context_surface,
-    build_chat_memory_guidance,
+    build_chat_messages,
     build_chat_runtime_policy,
+    build_chat_system_prompt_surface,
     gather_chat_epistemic_evidence,
     hydrate_chat_context,
     record_chat_assistant_turn,
@@ -75,7 +80,6 @@ from engram.retrieval.context import (
 )
 from engram.retrieval.context_builder import build_api_context_surface
 from engram.retrieval.control import record_manager_memory_need_analysis
-from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.forgetting import build_api_forget_response_surface
@@ -957,63 +961,16 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         topic_hint=topic_hint,
     )
 
-    # Build system prompt with memory context + tool-use guidance
-    memory_guidance = (
-        build_chat_memory_guidance(chat_need)
-        if chat_need is not None
-        else (
-            "Use memory tools when prior context matters. Do not guess when tools "
-            "can provide precise answers."
-        )
+    system_prompt = build_chat_system_prompt_surface(
+        context=context_result["context"],
+        memory_need=chat_need,
+        epistemic_bundle=epistemic_bundle,
     )
-    static_preamble = (
-        "You are a helpful assistant with access to the user's memory graph. "
-        "You have tools to search the graph — use them to answer questions accurately.\n\n"
-        "Guidelines:\n"
-        "- Use search_facts for user-facing relationships like family members or work history\n"
-        "- Do not use search_facts as the primary path for project reconcile questions "
-        "when artifacts or runtime are required\n"
-        "- Use search_entities to find entities by name\n"
-        "- Use recall for general semantic search\n"
-        f"- {memory_guidance}\n\n"
-        "Below is baseline context about the user:\n\n"
+    messages = build_chat_messages(
+        body.history,
+        body.message,
+        max_history_messages=MAX_HISTORY_MESSAGES,
     )
-    system_prompt = [
-        {
-            "type": "text",
-            "text": static_preamble,
-            "cache_control": {"type": "ephemeral"},
-        },
-        {
-            "type": "text",
-            "text": context_result["context"],
-        },
-    ]
-    if epistemic_bundle is not None:
-        contract_guidance = "\n".join(
-            f"- {item}" for item in epistemic_bundle.answer_contract.guidance[:4]
-        )
-        system_prompt.append(
-            {
-                "type": "text",
-                "text": (
-                    "Epistemic routing and gathered evidence for this turn:\n\n"
-                    f"{render_epistemic_summary(epistemic_bundle)}\n\n"
-                    "Answer-contract guidance for this turn:\n"
-                    f"{contract_guidance}"
-                ),
-            }
-        )
-
-    # Build messages (sliding window to control token costs)
-    messages: list[dict] = []
-    if body.history:
-        history = body.history
-        if len(history) > MAX_HISTORY_MESSAGES:
-            history = history[-MAX_HISTORY_MESSAGES:]
-        for msg in history:
-            messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": body.message})
 
     text_part_id = "text_0"
 
@@ -1067,24 +1024,13 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                         logger.warning("Chat tool %s failed: %s", tool_name, e)
                         result_str = json.dumps({"error": str(e)})
 
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result_str,
-                        }
+                    tool_results.append(build_chat_tool_result_message(block.id, result_str))
+                    accumulate_chat_tool_result(
+                        tool_name=tool_name,
+                        result=result_str,
+                        recall_results=all_recall_results,
+                        facts=all_facts,
                     )
-
-                    # Accumulate for UI components
-                    try:
-                        parsed = json.loads(result_str)
-                        if tool_name == "recall":
-                            for item in parsed.get("results", []):
-                                all_recall_results.append(raw_recall_from_chat_item(item))
-                        elif tool_name == "search_facts":
-                            all_facts.extend(parsed.get("facts", []))
-                    except Exception:
-                        pass
 
                 # Append assistant + tool results for next turn
                 loop_messages.append({"role": "assistant", "content": assistant_content})

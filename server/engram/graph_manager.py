@@ -2364,6 +2364,14 @@ class GraphManager:
         """Compatibility API for one-hop entity-neighbor resource reads."""
         return await self._graph_state_service.get_entity_neighbors(entity_id, group_id)
 
+    async def close_runtime_resources(self) -> None:
+        """Close runtime stores owned by this manager."""
+        from engram.storage.bootstrap import close_if_supported
+
+        await close_if_supported(self._search)
+        await close_if_supported(self._activation)
+        await close_if_supported(self._graph)
+
     async def update_entity_profile(
         self,
         entity_id: str,

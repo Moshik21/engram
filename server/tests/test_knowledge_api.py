@@ -52,7 +52,9 @@ from engram.retrieval.chat_runtime import (
     build_api_chat_rate_limit_surface,
     build_chat_context_surface,
     build_chat_memory_guidance,
+    build_chat_messages,
     build_chat_runtime_policy,
+    build_chat_system_prompt_surface,
     gather_chat_epistemic_evidence,
     hydrate_chat_context,
     record_chat_assistant_turn,
@@ -902,6 +904,67 @@ class TestChatMemoryNeedHelpers:
             ),
         )
         assert "Memory is likely relevant" in guidance
+
+    async def test_build_chat_messages_clamps_history(self):
+        history = [
+            ChatMessage(role="user", content=f"u{i}")
+            for i in range(12)
+        ]
+
+        messages = build_chat_messages(
+            history,
+            "current",
+            max_history_messages=3,
+        )
+
+        assert messages == [
+            {"role": "user", "content": "u9"},
+            {"role": "user", "content": "u10"},
+            {"role": "user", "content": "u11"},
+            {"role": "user", "content": "current"},
+        ]
+
+    async def test_build_chat_system_prompt_surface_includes_context_and_default_guidance(self):
+        prompt = build_chat_system_prompt_surface(
+            context="baseline context",
+            memory_need=None,
+            epistemic_bundle=None,
+        )
+
+        assert prompt[0]["type"] == "text"
+        assert prompt[0]["cache_control"] == {"type": "ephemeral"}
+        assert "Use memory tools when prior context matters" in prompt[0]["text"]
+        assert prompt[1] == {"type": "text", "text": "baseline context"}
+
+    async def test_build_chat_system_prompt_surface_includes_epistemic_guidance(self):
+        bundle = EpistemicBundle(
+            question_frame=QuestionFrame(
+                mode="reconcile",
+                domain="project",
+                timeframe="current",
+            ),
+            evidence_plan=EvidencePlan(
+                required_next_sources=["memory"],
+                source_queries={"memory": "Redis decision"},
+            ),
+            reconciliation=ReconciliationResult(status="supported"),
+            answer_contract=AnswerContract(
+                operator="reconcile",
+                requested_truth_kind="project_decision",
+                guidance=["Use memory before answering."],
+            ),
+        )
+
+        prompt = build_chat_system_prompt_surface(
+            context="baseline context",
+            memory_need=None,
+            epistemic_bundle=bundle,
+        )
+
+        assert len(prompt) == 3
+        assert "Epistemic routing" in prompt[2]["text"]
+        assert "Route: reconcile (project, current)" in prompt[2]["text"]
+        assert "Use memory before answering." in prompt[2]["text"]
 
 
 @pytest.mark.asyncio

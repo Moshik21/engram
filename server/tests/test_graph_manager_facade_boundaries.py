@@ -190,6 +190,27 @@ def _method_calls_service(method_name: str, service_attr: str, service_method: s
     return False
 
 
+def _method_calls_function_for_self_attrs(
+    method_name: str,
+    function_name: str,
+    expected_attrs: tuple[str, ...],
+) -> bool:
+    source = textwrap.dedent(inspect.getsource(getattr(GraphManager, method_name)))
+    tree = ast.parse(source)
+    seen_attrs: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != function_name:
+            continue
+        if len(node.args) != 1 or not isinstance(node.args[0], ast.Attribute):
+            continue
+        receiver = node.args[0]
+        if isinstance(receiver.value, ast.Name) and receiver.value.id == "self":
+            seen_attrs.append(receiver.attr)
+    return tuple(seen_attrs) == expected_attrs
+
+
 @pytest.mark.parametrize(
     ("method_name", "expected_delegate"),
     CORE_LIFECYCLE_DELEGATES.items(),
@@ -200,6 +221,14 @@ def test_core_lifecycle_facades_delegate_to_services(
 ) -> None:
     service_attr, service_method = expected_delegate
     assert _method_calls_service(method_name, service_attr, service_method)
+
+
+def test_close_runtime_resources_closes_owned_runtime_stores() -> None:
+    assert _method_calls_function_for_self_attrs(
+        "close_runtime_resources",
+        "close_if_supported",
+        ("_search", "_activation", "_graph"),
+    )
 
 
 @pytest.mark.parametrize(

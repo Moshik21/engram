@@ -36,7 +36,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3115 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3141 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -47,7 +47,19 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3115 tests, 43 skips, and 236 deselections.
+  currently passes with 3141 tests, 43 skips, and 236 deselections.
+- Shared lite storage bootstrap evidence:
+  `server/engram/storage/bootstrap.py` centralizes companion-store
+  initialization against the active graph store. REST startup, MCP startup,
+  lifecycle summary CLI, consolidation CLI, and evaluation smoke use it for
+  search/evaluation/consolidation/atlas/conversation initialization, and
+  `tests/storage/test_storage_bootstrap.py` plus the borrowed-connection
+  contract tests guard the behavior.
+- Runtime resource shutdown evidence:
+  `GraphManager.close_runtime_resources()` closes owned search, activation, and
+  graph stores through `engram.storage.bootstrap.close_if_supported()`, and MCP
+  lifespan shutdown now calls that facade instead of reading private manager
+  store fields.
 - GraphManager facade evidence:
   `tests/test_graph_manager_facade_boundaries.py` now has 61 static delegate
   checks for core lifecycle APIs and service-backed compatibility adapters.
@@ -124,6 +136,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   `GraphManager.get_activation_snapshot()` instead of calling the manager
   directly, reading app-state graph/activation/config stores, or computing
   activation inside `server/engram/api/websocket.py`.
+  Dashboard WebSocket event/command payload shaping now lives in
+  `server/engram/api/websocket_surface.py`, covering event flattening, `pong`,
+  `resync`, activation snapshot envelopes, and connected-group notification
+  dismiss dispatch while the route keeps socket auth, task lifecycle, and JSON
+  transport.
   REST notification reads/dismissal and MCP `memory_notifications`
   piggybacking now call `NotificationSurfaceService` instead of reading and
   formatting the notification store directly in `server/engram/api/knowledge.py`
@@ -181,7 +198,8 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    notification dismissal uses that same service boundary, and WebSocket auth
    config lookup uses `get_config()`. REST knowledge-chat rate limiting now uses
    `get_rate_limiter()`, and REST health now uses `get_graph_store()`,
-   `get_config()`, and `get_mode()`. The REST/MCP
+   `get_config()`, `get_mode()`, and `build_api_health_surface()` so graph-store
+   probing plus status aggregation live outside the route. The REST/MCP
    route-private manager read scan is now clean, and the activation/episode/
    lifecycle/WebSocket activation-monitor/notification scans are clean for
    route-local app-state, store, config, activation-compute, episode/cue
@@ -193,7 +211,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    The REST evaluation report also reads consolidation cycles/calibration
    snapshots through `ConsolidationEngine.get_recent_evaluation_context()`
    instead of `engine._store`; focused evaluation/consolidation/static checks
-   passed, with a later route-orchestration broad gate now passing 3115 tests.
+   passed, with a later route-orchestration broad gate now passing 3141 tests.
    The follow-up moved REST consolidation status/history/detail reads through
    public `ConsolidationEngine` reader facades backed by
    `ConsolidationAuditReader`, moved detail payload assembly into
@@ -209,9 +227,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    cycle-detail 404/detail payloads. Focused consolidation-trigger, REST API,
    public-surface, consolidation-presenter, and Ruff checks passed.
    The knowledge-chat rich event selection is now in
-   `server/engram/retrieval/chat_events.py`, with the REST route retaining only
-   AI SDK SSE framing. Focused chat-event, recall-presenter, public-surface, and
-   full knowledge API checks passed.
+   `server/engram/retrieval/chat_events.py`, including rich memory UI event
+   selection, chat recall round-tripping, Anthropic tool-result message shaping,
+   and recall/fact tool JSON accumulation, with the REST route retaining only
+   tool execution, AI SDK loop control, and SSE framing. Focused chat-event,
+   recall-presenter, public-surface, and full knowledge API checks passed.
    Knowledge-chat tool execution payloads are now in
    `server/engram/retrieval/chat_tools.py`, covering recall/search_entities/
    search_facts LLM payloads, chat recall packet shaping, fact deduplication,
@@ -229,11 +249,12 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    `server/engram/retrieval/chat_runtime.py`, covering chat memory-need
    analysis, memory-guidance text, live conversation hydration, assistant-turn
    recording, recent-turn extraction, chat runtime policy lookup, chat
-   epistemic-evidence dispatch, baseline context dispatch, and chat rate-limit
-   response payloads while the REST route keeps rate-limiter dependency lookup,
+   epistemic-evidence dispatch, baseline context dispatch, system-prompt
+   assembly, sliding-window message assembly, and chat rate-limit response
+   payloads while the REST route keeps rate-limiter dependency lookup,
    conversation resolution, Anthropic tool-loop streaming, and final SSE
-   framing. Focused chat-runtime/feedback/tool, full knowledge API, chat-event,
-   public-surface, Ruff, and `git diff --check` gates passed.
+   framing. Focused chat-runtime/feedback/tool, prompt/message, full knowledge
+   API, chat-event, public-surface, Ruff, and `git diff --check` gates passed.
    REST/MCP explicit recall result and packet assembly are now in
    `server/engram/retrieval/recall_surface.py`, covering the explicit
    Recall-stage manager call, recall packet analysis, memory packet assembly,
@@ -468,7 +489,9 @@ post-write adjudication request loading and client-enabled surfacing gates have 
 live conversation manager-facade access uses retrieval helpers, REST/MCP
 evaluation report assembly shares a service, MCP evaluation report audit-store
 input loading shares that report service, REST/MCP evaluation label writes share
-write-surface helpers, and MCP auto-recall policy helpers have been extracted,
+write-surface helpers, dashboard WebSocket command/event payload shaping has a
+route-facing helper, shared storage bootstrap initialization has helper
+coverage, and MCP auto-recall policy helpers have been extracted,
 including first-call session-prime planning and middleware side-effect
 planning. Auto-recall result compaction and additive MCP response enrichment
 have also been extracted for both lite/medium entity-probe and full recall

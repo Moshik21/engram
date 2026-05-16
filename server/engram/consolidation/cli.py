@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Any, cast
+from typing import Any
 
 from engram.config import EngramConfig
 from engram.consolidation.engine import ConsolidationEngine
@@ -18,6 +18,11 @@ from engram.consolidation.presenter import (
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.extraction.factory import create_extractor
 from engram.models.consolidation import ConsolidationCycle
+from engram.storage.bootstrap import (
+    initialize_search_index_for_graph,
+    initialize_store_for_graph,
+    shared_sqlite_db,
+)
 from engram.storage.factory import create_stores
 from engram.storage.resolver import resolve_mode
 
@@ -69,14 +74,11 @@ async def run(args: argparse.Namespace) -> None:
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    search_initializer = getattr(search_index, "initialize", None)
-    if search_initializer is not None:
-        from engram.storage.resolver import EngineMode
-
-        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await cast(Any, search_initializer)(db=graph_store._db)
-        else:
-            await cast(Any, search_initializer)()
+    await initialize_search_index_for_graph(
+        search_index,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     # Build activation config — use EngramConfig's nested activation
     # so env vars like ENGRAM_ACTIVATION__MICROGLIA_SCAN_EDGES_PER_CYCLE work.
@@ -106,10 +108,9 @@ async def run(args: argparse.Namespace) -> None:
 
     # Create consolidation store
     store = None
-    if hasattr(graph_store, "_db") and hasattr(graph_store._db, "execute"):
+    if shared_sqlite_db(graph_store, mode) is not None:
         # Lite mode — share the SQLite connection
         store = SQLiteConsolidationStore(":memory:")
-        await store.initialize(db=graph_store._db)
     else:
         # Full mode — use a standalone SQLite file for consolidation audit
         import os
@@ -118,7 +119,7 @@ async def run(args: argparse.Namespace) -> None:
         os.makedirs(data_dir, exist_ok=True)
         consolidation_db = os.path.join(data_dir, "consolidation.db")
         store = SQLiteConsolidationStore(consolidation_db)
-        await store.initialize()
+    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
 
     extractor = create_extractor(config)
     engine = ConsolidationEngine(

@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from engram.api.deps import get_config, get_manager, get_notification_surface_service
+from engram.api.websocket_surface import (
+    build_dashboard_activation_snapshot_message,
+    build_dashboard_pong_surface,
+    build_dashboard_resync_surface,
+    dismiss_dashboard_notification_command,
+    flatten_dashboard_event,
+)
 from engram.events.bus import get_event_bus
 from engram.retrieval.graph_state import build_api_activation_snapshot_surface
 
@@ -72,10 +78,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
         try:
             while True:
                 event = await queue.get()
-                flat = {k: v for k, v in event.items() if k != "payload"}
-                if event.get("payload"):
-                    flat.update(event["payload"])
-                await websocket.send_json(flat)
+                await websocket.send_json(flatten_dashboard_event(event))
         except (WebSocketDisconnect, Exception):
             pass
 
@@ -93,10 +96,7 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                         limit=20,
                     )
                     await websocket.send_json(
-                        {
-                            "type": "activation.snapshot",
-                            "payload": {"topActivated": snapshot["topActivated"]},
-                        }
+                        build_dashboard_activation_snapshot_message(snapshot)
                     )
                 except Exception as e:
                     logger.debug("Activation snapshot error: %s", e)
@@ -114,25 +114,18 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                 msg_type = data.get("type", "")
 
                 if msg_type == "ping":
-                    await websocket.send_json(
-                        {
-                            "type": "pong",
-                            "timestamp": time.time(),
-                        }
-                    )
+                    await websocket.send_json(build_dashboard_pong_surface())
 
                 elif msg_type == "command":
                     command = data.get("command", "")
 
                     if command == "resync":
-                        last_seq = data.get("lastSeq", 0)
-                        events, is_full = bus.get_events_since(group_id, last_seq)
                         await websocket.send_json(
-                            {
-                                "type": "resync",
-                                "events": events,
-                                "isFull": is_full,
-                            }
+                            build_dashboard_resync_surface(
+                                bus,
+                                group_id=group_id,
+                                last_seq=data.get("lastSeq", 0),
+                            )
                         )
 
                     elif command == "subscribe.activation_monitor":
@@ -144,7 +137,9 @@ async def dashboard_ws(websocket: WebSocket) -> None:
                                 await activation_task
                             except asyncio.CancelledError:
                                 pass
-                        activation_task = asyncio.create_task(activation_snapshot_loop(interval_ms))
+                        activation_task = asyncio.create_task(
+                            activation_snapshot_loop(interval_ms)
+                        )
 
                     elif command == "unsubscribe.activation_monitor":
                         if activation_task and not activation_task.done():
@@ -157,11 +152,11 @@ async def dashboard_ws(websocket: WebSocket) -> None:
 
                     elif command == "dismiss_notification":
                         nid = data.get("id")
-                        if nid and notification_surface:
-                            notification_surface.dismiss_notifications(
-                                group_id=group_id,
-                                ids=[str(nid)],
-                            )
+                        dismiss_dashboard_notification_command(
+                            notification_surface,
+                            group_id=group_id,
+                            notification_id=nid,
+                        )
 
         except (WebSocketDisconnect, Exception):
             pass

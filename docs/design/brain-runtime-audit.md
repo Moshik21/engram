@@ -1496,7 +1496,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3115 tests, 43 skips, and 236 external-service
+   gate currently passes with 3141 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -1763,6 +1763,14 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   stores/providers. A shared borrowed-connection contract test now covers
   atlas, consolidation, conversation, evaluation, feedback, FTS, and vector
   storage so future close-path edits keep the lite shared-DB runtime intact.
+  Runtime entrypoints now use `server/engram/storage/bootstrap.py` for that
+  same shared-DB contract. REST startup, MCP startup, lifecycle summary CLI,
+  consolidation CLI, and evaluation smoke initialize search/evaluation/
+  consolidation/atlas/conversation stores through `initialize_*_for_graph()`
+  helpers instead of repeating `graph_store._db` checks.
+  `GraphManager.close_runtime_resources()` now uses the same module's
+  `close_if_supported()` helper so MCP shutdown closes owned runtime stores
+  through the manager facade instead of reaching into private manager fields.
 - Native dashboard Recall gate fixture done: the no-bind native dashboard smoke
   verifies analyzer latency, trigger count, surfaced recall feedback, and
   threshold mapping from native-shaped evaluation payloads, then renders the
@@ -2855,6 +2863,15 @@ the widened notification/WebSocket/static suite, Ruff, and `git diff --check`
 passed; the broad non-Docker/non-Helix gate now passes with 2859 tests, 43
 skips, and 236 external-service deselections.
 
+Dashboard WebSocket command/event payload shaping now has a route-facing helper
+too. `server/engram/api/websocket_surface.py` owns event payload flattening,
+`pong` responses, `resync` replay envelopes, activation snapshot WebSocket
+envelopes, and connected-group notification dismiss dispatch. The WebSocket
+route keeps auth, event-bus subscription task lifecycle, and JSON transport
+only. Focused WebSocket-surface, WebSocket, auth, public-surface, and Ruff
+checks passed with 176 tests, and the broad non-Docker/non-Helix gate now
+passes with 3141 tests, 43 skips, and 236 external-service deselections.
+
 The dashboard WebSocket auth setup now uses the existing API config dependency
 too. `server/engram/api/websocket.py` calls `get_config().auth`, preserving the
 previous `AuthConfig()` fallback if app config is unavailable, and the public
@@ -2879,6 +2896,15 @@ importing `_app_state` directly. The public-surface guard now covers
 Focused health/public-surface checks, the widened API/public-surface suite, and
 Ruff passed; the broad non-Docker/non-Helix gate now passes with 2864 tests, 43
 skips, and 236 external-service deselections.
+
+REST health response assembly now has a route-facing helper too.
+`server/engram/api/health_surface.py` owns graph-store health probing,
+default-brain stats checks, service status aggregation, and the public
+`HealthResponse`; `/health` keeps dependency lookup and return wiring. The
+public-surface guard now forbids `health_check()` from calling `get_stats`
+directly. Focused health-surface, health endpoint, public-surface, and Ruff
+checks passed with 165 tests, and the broad non-Docker/non-Helix gate now
+passes with 3141 tests, 43 skips, and 236 external-service deselections.
 
 That app-state guard now covers every API route module, not just the three
 routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
@@ -2923,9 +2949,14 @@ Knowledge-chat rich UI event shaping now lives outside the REST route.
 `server/engram/retrieval/chat_events.py` converts raw recall/fact results into
 route-neutral chat tool events and converts summarized chat recall output back
 into the raw recall shape used by post-response feedback and UI event
-selection. `server/engram/api/knowledge.py` still owns the AI SDK SSE framing
-through `_emit_tool()`, which is an intentional transport concern. Focused chat
-event, recall presenter, public-surface, and full knowledge API checks passed.
+selection. It also owns Anthropic tool-result message shaping and accumulation
+of recall/fact tool JSON outputs for later rich-memory UI events, so the REST
+route no longer parses tool JSON to rebuild memory result state. `server/engram/api/knowledge.py`
+still owns the AI SDK SSE framing through `_emit_tool()`, which is an
+intentional transport concern. Focused chat event, recall presenter,
+public-surface, full knowledge API, and Ruff checks passed; the latest
+tool-result accumulation check passed with 173 focused tests and 62
+knowledge/chat-event tests.
 
 Knowledge-chat tool execution payloads now live outside the REST route too.
 `server/engram/retrieval/chat_tools.py` owns recall/search_entities/search_facts
@@ -2947,12 +2978,15 @@ Knowledge-chat memory-need and live-context runtime helpers now live outside the
 REST route as well. `server/engram/retrieval/chat_runtime.py` owns chat
 memory-need analysis, memory-guidance text, live conversation hydration,
 assistant-turn recording, recent-turn extraction, chat runtime policy lookup,
-chat epistemic-evidence dispatch, baseline context dispatch, and the chat
-rate-limit response payload. `server/engram/api/knowledge.py` keeps rate-limiter
-dependency lookup, conversation resolution, Anthropic tool-loop streaming, and
-final SSE framing. Focused chat-runtime/feedback/tool, full knowledge API,
-chat-event, public-surface, Ruff, and `git diff --check` gates passed. The
-latest chat route-facing runtime helper check passed with 161 tests.
+chat epistemic-evidence dispatch, baseline context dispatch, system-prompt
+assembly, sliding-window message assembly, and the chat rate-limit response
+payload. `server/engram/api/knowledge.py` keeps rate-limiter dependency lookup,
+conversation resolution, Anthropic tool-loop streaming, and final SSE framing.
+Focused chat-runtime/feedback/tool, full knowledge API, chat-event,
+public-surface, Ruff, and `git diff --check` gates passed. The latest chat
+prompt/message surface check passed with 170 focused tests, and the full
+knowledge API file passed with 57 tests. The broad non-Docker/non-Helix gate
+now passes with 3141 tests, 43 skips, and 236 external-service deselections.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
 and live-turn piggyback compatibility paths. A later MCP auto-recall helper
@@ -3164,7 +3198,16 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3115 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3141 tests, 43 skips, and 236 external-service deselections.
+
+Shared storage bootstrap initialization now has a named helper boundary.
+`server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
+and search-index initialization helpers. REST startup, MCP startup, lifecycle
+summary CLI, consolidation CLI, and evaluation smoke now call those helpers
+instead of repeating private graph-store SQLite connection checks. Focused
+storage-bootstrap, borrowed-connection, lifecycle CLI, consolidation CLI,
+projected/consolidated smoke, REST startup, auto-observe, native manifest,
+runtime shutdown-facade, and Ruff checks passed.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication

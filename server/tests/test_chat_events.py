@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from engram.retrieval.chat_events import build_chat_tool_events, raw_recall_from_chat_item
+import json
+
+from engram.retrieval.chat_events import (
+    accumulate_chat_tool_result,
+    build_chat_tool_events,
+    build_chat_tool_result_message,
+    raw_recall_from_chat_item,
+)
 
 
 def test_build_chat_tool_events_from_recall_and_facts() -> None:
@@ -155,3 +162,75 @@ def test_raw_recall_from_chat_item_round_trips_chat_shapes() -> None:
     assert cue["cue"]["supporting_spans"] == ["native"]
     assert episode["result_type"] == "episode"
     assert episode["episode"]["content"] == "Discussed PyO3 native mode."
+
+
+def test_build_chat_tool_result_message_preserves_tool_call_contract() -> None:
+    assert build_chat_tool_result_message("tool_1", "{\"ok\": true}") == {
+        "type": "tool_result",
+        "tool_use_id": "tool_1",
+        "content": "{\"ok\": true}",
+    }
+
+
+def test_accumulate_chat_tool_result_collects_recall_and_facts() -> None:
+    recall_results: list[dict] = []
+    facts: list[dict] = []
+
+    accumulate_chat_tool_result(
+        tool_name="recall",
+        result=json.dumps(
+            {
+                "results": [
+                    {
+                        "type": "cue_episode",
+                        "episodeId": "ep_cue",
+                        "cueText": "latent native cue",
+                        "score": 0.49,
+                    }
+                ]
+            }
+        ),
+        recall_results=recall_results,
+        facts=facts,
+    )
+    accumulate_chat_tool_result(
+        tool_name="search_facts",
+        result=json.dumps(
+            {
+                "facts": [
+                    {
+                        "subject": "Alice",
+                        "predicate": "WORKS_ON",
+                        "object": "Engram",
+                    }
+                ]
+            }
+        ),
+        recall_results=recall_results,
+        facts=facts,
+    )
+
+    assert recall_results[0]["result_type"] == "cue_episode"
+    assert recall_results[0]["cue"]["episode_id"] == "ep_cue"
+    assert facts == [
+        {
+            "subject": "Alice",
+            "predicate": "WORKS_ON",
+            "object": "Engram",
+        }
+    ]
+
+
+def test_accumulate_chat_tool_result_ignores_malformed_json() -> None:
+    recall_results: list[dict] = []
+    facts: list[dict] = []
+
+    accumulate_chat_tool_result(
+        tool_name="recall",
+        result="not json",
+        recall_results=recall_results,
+        facts=facts,
+    )
+
+    assert recall_results == []
+    assert facts == []

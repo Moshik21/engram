@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +29,10 @@ from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.security.middleware import TenantContextMiddleware
+from engram.storage.bootstrap import (
+    initialize_search_index_for_graph,
+    initialize_store_for_graph,
+)
 from engram.storage.factory import create_stores
 from engram.storage.protocols import AtlasStore, ConsolidationStore
 from engram.storage.resolver import EngineMode, resolve_mode
@@ -46,11 +50,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    search_initializer = cast(Any, search_index).initialize
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await search_initializer(db=graph_store._db)
-    else:
-        await search_initializer()
+    await initialize_search_index_for_graph(
+        search_index,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     extractor = create_extractor(config)
     event_bus = get_event_bus()
@@ -118,10 +122,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         from engram.storage.sqlite.atlas import SQLiteAtlasStore
 
         atlas_store = SQLiteAtlasStore(str(config.get_sqlite_path()))
-        if hasattr(graph_store, "_db"):
-            await atlas_store.initialize(db=graph_store._db)
-        else:
-            await atlas_store.initialize()
+        await initialize_store_for_graph(atlas_store, graph_store=graph_store, mode=mode)
     else:
         from engram.storage.redis.atlas import RedisAtlasStore
 
@@ -176,10 +177,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             ConsolidationStore,
             SQLiteConsolidationStore(str(config.get_sqlite_path())),
         )
-        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await cast(Any, consolidation_store).initialize(db=graph_store._db)
-        else:
-            await consolidation_store.initialize()
+        await initialize_store_for_graph(
+            consolidation_store,
+            graph_store=graph_store,
+            mode=mode,
+        )
 
     consolidation_engine = ConsolidationEngine(
         graph_store,
@@ -195,10 +197,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     from engram.evaluation.store import SQLiteEvaluationStore
 
     evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await evaluation_store.initialize(db=graph_store._db)
-    else:
-        await evaluation_store.initialize()
+    await initialize_store_for_graph(
+        evaluation_store,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     # Pressure accumulator (optional)
     from engram.consolidation.pressure import PressureAccumulator
@@ -310,10 +313,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         from engram.storage.sqlite.conversations import SQLiteConversationStore
 
         conversation_store = SQLiteConversationStore(str(config.get_sqlite_path()))
-        if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-            await conversation_store.initialize(db=graph_store._db)
-        else:
-            await conversation_store.initialize()
+        await initialize_store_for_graph(
+            conversation_store,
+            graph_store=graph_store,
+            mode=mode,
+        )
 
     _app_state.update(
         {

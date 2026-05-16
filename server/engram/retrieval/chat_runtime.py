@@ -13,6 +13,7 @@ from engram.retrieval.context import (
     manager_conversation_turn_count,
 )
 from engram.retrieval.control import resolve_manager_recall_need_thresholds
+from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.need import analyze_memory_need
 
 DEFAULT_MAX_HISTORY_MESSAGES = 10
@@ -114,6 +115,82 @@ def build_chat_memory_guidance(need: MemoryNeed) -> str:
         f"Memory is likely relevant for this turn ({need.need_type}). "
         "Use recall/search tools before answering when prior context could change the answer."
     )
+
+
+def build_chat_system_prompt_surface(
+    *,
+    context: str,
+    memory_need: MemoryNeed | None,
+    epistemic_bundle: Any | None,
+) -> list[dict[str, Any]]:
+    """Build the Anthropic system prompt for REST knowledge chat."""
+    memory_guidance = (
+        build_chat_memory_guidance(memory_need)
+        if memory_need is not None
+        else (
+            "Use memory tools when prior context matters. Do not guess when tools "
+            "can provide precise answers."
+        )
+    )
+    static_preamble = (
+        "You are a helpful assistant with access to the user's memory graph. "
+        "You have tools to search the graph — use them to answer questions accurately.\n\n"
+        "Guidelines:\n"
+        "- Use search_facts for user-facing relationships like family members or work history\n"
+        "- Do not use search_facts as the primary path for project reconcile questions "
+        "when artifacts or runtime are required\n"
+        "- Use search_entities to find entities by name\n"
+        "- Use recall for general semantic search\n"
+        f"- {memory_guidance}\n\n"
+        "Below is baseline context about the user:\n\n"
+    )
+    system_prompt: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": static_preamble,
+            "cache_control": {"type": "ephemeral"},
+        },
+        {
+            "type": "text",
+            "text": context,
+        },
+    ]
+    if epistemic_bundle is not None:
+        contract_guidance = "\n".join(
+            f"- {item}" for item in epistemic_bundle.answer_contract.guidance[:4]
+        )
+        system_prompt.append(
+            {
+                "type": "text",
+                "text": (
+                    "Epistemic routing and gathered evidence for this turn:\n\n"
+                    f"{render_epistemic_summary(epistemic_bundle)}\n\n"
+                    "Answer-contract guidance for this turn:\n"
+                    f"{contract_guidance}"
+                ),
+            }
+        )
+    return system_prompt
+
+
+def build_chat_messages(
+    history: Sequence[Any] | None,
+    message: str,
+    *,
+    max_history_messages: int = DEFAULT_MAX_HISTORY_MESSAGES,
+) -> list[dict[str, str]]:
+    """Build the sliding-window Anthropic message list for REST knowledge chat."""
+    messages: list[dict[str, str]] = []
+    if history:
+        for msg in history[-max_history_messages:]:
+            messages.append(
+                {
+                    "role": str(getattr(msg, "role", "")),
+                    "content": str(getattr(msg, "content", "")),
+                }
+            )
+    messages.append({"role": "user", "content": message})
+    return messages
 
 
 async def hydrate_chat_context(

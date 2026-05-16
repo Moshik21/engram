@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3115 tests, 43 skips, and 236 external-service tests deselected after
+  with 3141 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -80,7 +80,8 @@ What changed in this pass:
   knowledge-chat rate limiting now reads the optional rate limiter through
   `get_rate_limiter()`, so `server/engram/api/knowledge.py` is app-state-free
   too. REST `/health` now uses `get_graph_store()`, `get_config()`, and
-  `get_mode()`, so the health route is also free of direct app-state reads. The
+  `get_mode()`, and `build_api_health_surface()`, so the health route is also
+  free of direct app-state reads and direct graph-store probe/status assembly. The
   public-surface guard now generates coverage for every API route module except
   `api/deps.py`, making direct route-local `_app_state` reads a guarded
   regression.
@@ -240,6 +241,12 @@ What changed in this pass:
   `NotificationSurfaceService.dismiss_notifications()` with the connected brain
   group instead of reading `_app_state["notification_store"]` directly in the
   socket loop.
+- Moved dashboard WebSocket event/command payload shaping into
+  `server/engram/api/websocket_surface.py`. `forward_events`,
+  `activation_snapshot_loop`, and `receive_commands` now delegate event
+  flattening, `pong`, `resync`, activation snapshot envelopes, and
+  `dismiss_notification` dispatch to route-facing helpers while the socket
+  route keeps connection auth, subscription task lifecycle, and JSON transport.
 - Moved dashboard WebSocket auth config lookup behind the existing API config
   dependency. The route now uses `get_config().auth` with the previous
   `AuthConfig()` fallback if app config is unavailable, and the public-surface
@@ -253,6 +260,10 @@ What changed in this pass:
   one-brain stats scope, and `get_mode()` for the response mode; the
   public-surface guard now asserts `server/engram/api/health.py` does not import
   `_app_state` directly.
+- Moved REST health response assembly into `server/engram/api/health_surface.py`.
+  The helper owns graph-store probing, default-brain stats checks, service
+  status aggregation, and the public `HealthResponse`, while `/health` keeps
+  dependency lookup and response return.
 - Generalized the public-surface app-state guard to every API route module. The
   guard now discovers `server/engram/api/*.py` dynamically, excludes only
   `__init__.py` and `deps.py`, and fails if any route module imports
@@ -297,8 +308,9 @@ What changed in this pass:
   `server/engram/retrieval/chat_runtime.py`. The REST route now delegates chat
   memory-need analysis, memory-guidance text, live conversation hydration,
   assistant-turn recording, recent-turn extraction, chat runtime policy lookup,
-  epistemic-evidence dispatch, baseline context dispatch, and chat rate-limit
-  response payload shaping to retrieval code.
+  epistemic-evidence dispatch, baseline context dispatch, system-prompt
+  assembly, sliding-window message assembly, and chat rate-limit response
+  payload shaping to retrieval code.
 - Moved REST/MCP explicit recall result and packet assembly behind
   `server/engram/retrieval/recall_surface.py`. REST and MCP still keep their
   transport-specific metadata, middleware, and response field names, but the
@@ -1590,6 +1602,15 @@ What changed in this pass:
   consolidation, conversation, evaluation, feedback, FTS, and vector storage so
   future close-path changes fail before they can break the shared lite runtime
   connection.
+- Added `server/engram/storage/bootstrap.py` as the shared runtime
+  initialization contract for companion stores that can borrow the lite graph
+  DB connection. REST startup, MCP startup, lifecycle summary CLI, consolidation
+  CLI, and evaluation smoke now initialize search/evaluation/consolidation/
+  atlas/conversation stores through that helper instead of repeating
+  `graph_store._db` checks.
+- Added the shared close helper and `GraphManager.close_runtime_resources()` so
+  MCP shutdown closes owned search, activation, and graph resources through the
+  manager facade instead of reaching into private manager fields.
 - Updated the no-bind native dashboard smoke fixture with the same Recall gate
   payload shape emitted by the PyO3 smoke. The dashboard API client test path
   now verifies native-shaped analyzer latency, trigger count, surfaced recall
@@ -5271,6 +5292,17 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2853 passed, 43 skipped, 236 deselected in 292.08s.
+- Dashboard WebSocket command/event surface boundary:
+  `uv run ruff check engram/api/websocket.py engram/api/websocket_surface.py
+  tests/test_websocket.py tests/test_websocket_surface.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_websocket_surface.py tests/test_websocket.py
+  tests/security/test_websocket_auth.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 176 passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3123 passed, 43 skipped, 236 deselected in 127.87s.
 - REST/MCP notification surface service boundary:
   `uv run pytest tests/test_notifications.py::TestNotificationSurfaceService
   tests/test_knowledge_api.py::TestNotifications tests/test_piggyback_context.py
@@ -5347,6 +5379,17 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2864 passed, 43 skipped, 236 deselected in 117.15s.
+- REST health response surface boundary:
+  `uv run pytest tests/test_health_surface.py
+  tests/test_api_endpoints.py::test_health_uses_configured_default_group
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 165 passed.
+  `uv run ruff check engram/api/health.py engram/api/health_surface.py
+  tests/test_health_surface.py tests/test_api_endpoints.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3129 passed, 43 skipped, 236 deselected in 127.64s.
 - Generated API route app-state guard:
   `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
   - Result: 75 passed.
@@ -5377,7 +5420,7 @@ What changed in this pass:
     `engine._store` read remains.
   - Note: the broad non-Docker/non-Helix rerun was interrupted while still
     running when the commit checkpoint was requested; the latest
-    route-orchestration broad gate now passes with 3115 passed, 43 skipped, and
+    route-orchestration broad gate now passes with 3141 passed, 43 skipped, and
     236 deselected.
 - Consolidation audit reader and REST/MCP consolidation route cleanup:
   `uv run pytest tests/test_lifecycle_cli.py
@@ -5425,6 +5468,46 @@ What changed in this pass:
   `uv run ruff check engram/retrieval/chat_events.py engram/api/knowledge.py
   tests/test_chat_events.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+  Latest tool-result accumulation check:
+  `uv run pytest tests/test_chat_events.py tests/test_knowledge_api.py::TestChat
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 173 passed.
+  `uv run pytest tests/test_knowledge_api.py tests/test_chat_events.py -q`
+  - Result: 62 passed.
+  `uv run ruff check engram/api/knowledge.py engram/retrieval/chat_events.py
+  tests/test_chat_events.py tests/test_knowledge_api.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3138 passed, 43 skipped, 236 deselected in 114.10s.
+- Shared storage bootstrap initialization boundary:
+  `uv run pytest tests/storage/test_storage_bootstrap.py
+  tests/storage/test_sqlite_borrowed_connection_contract.py -q`
+  - Result: 12 passed.
+  `uv run pytest tests/test_lifecycle_cli.py tests/test_consolidation_cli.py
+  tests/test_projected_consolidated_smoke.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_lifecycle_summary_uses_manager_facade
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_get_lifecycle_summary_clamps_limits -q`
+  - Result: 37 passed.
+  `uv run pytest tests/test_api_endpoints.py tests/test_conversations_api.py
+  tests/test_activation_api.py -q`
+  - Result: 53 passed.
+  `uv run pytest tests/test_auto_observe.py tests/test_native_surface_manifest.py -q`
+  - Result: 16 passed, 3 skipped.
+  `uv run ruff check engram/storage/bootstrap.py engram/main.py
+  engram/mcp/server.py engram/lifecycle_cli.py engram/evaluation/smoke.py
+  engram/consolidation/cli.py tests/storage/test_storage_bootstrap.py`
+  - Result: passed.
+- Runtime resource shutdown facade:
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_graph_manager_facade_boundaries.py tests/storage/test_storage_bootstrap.py -q`
+  - Result: 95 passed.
+  `uv run ruff check engram/storage/bootstrap.py engram/graph_manager.py
+  engram/mcp/server.py tests/test_mcp_tools.py
+  tests/test_graph_manager_facade_boundaries.py tests/storage/test_storage_bootstrap.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3141 passed, 43 skipped, 236 deselected in 125.18s.
 - Knowledge-chat tool execution payload boundary:
   `uv run pytest tests/test_chat_tools.py
   tests/test_knowledge_api.py::TestChatRecallHelpers tests/test_chat_events.py
@@ -5472,6 +5555,19 @@ What changed in this pass:
   `uv run ruff check engram/api/knowledge.py engram/retrieval/chat_runtime.py
   tests/test_knowledge_api.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+  Latest chat prompt/message surface check:
+  `uv run pytest tests/test_knowledge_api.py::TestChatMemoryNeedHelpers
+  tests/test_knowledge_api.py::TestChatContextHelpers
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 170 passed.
+  `uv run pytest tests/test_knowledge_api.py -q`
+  - Result: 57 passed.
+  `uv run ruff check engram/api/knowledge.py engram/retrieval/chat_runtime.py
+  tests/test_knowledge_api.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: superseded by latest route-orchestration broad gate:
+    3141 passed, 43 skipped, 236 deselected in 125.18s.
 - REST/MCP explicit recall surface boundary:
   `uv run pytest tests/test_chat_feedback.py tests/test_chat_tools.py
   tests/test_knowledge_api.py tests/test_chat_events.py

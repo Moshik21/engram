@@ -59,6 +59,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "get_manager",
         "get_notification_surface_service",
     },
+    ("engram/api/websocket.py", "forward_events"): {"flatten_dashboard_event"},
     ("engram/api/knowledge.py", "_get_conv_top_entity_names"): {
         "manager_conversation_top_entity_names",
     },
@@ -124,20 +125,23 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "apply_chat_recall_feedback",
         "build_api_chat_rate_limit_surface",
         "build_chat_runtime_policy",
+        "build_chat_messages",
+        "build_chat_system_prompt_surface",
         "get_rate_limiter",
         "analyze_chat_memory_need",
         "build_chat_context_surface",
-        "build_chat_memory_guidance",
         "chat_conversation_not_found_payload",
         "gather_chat_epistemic_evidence",
         "hydrate_chat_context",
         "persist_chat_turn",
-        "raw_recall_from_chat_item",
+        "accumulate_chat_tool_result",
+        "build_chat_tool_result_message",
         "record_chat_assistant_turn",
         "resolve_chat_conversation",
         "should_retry_chat_response",
     },
     ("engram/api/health.py", "health_check"): {
+        "build_api_health_surface",
         "get_config",
         "get_graph_store",
         "get_mode",
@@ -230,9 +234,14 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_lifecycle_summary_surface"
     },
     ("engram/api/websocket.py", "activation_snapshot_loop"): {
-        "build_api_activation_snapshot_surface"
+        "build_api_activation_snapshot_surface",
+        "build_dashboard_activation_snapshot_message",
     },
-    ("engram/api/websocket.py", "receive_commands"): {"dismiss_notifications"},
+    ("engram/api/websocket.py", "receive_commands"): {
+        "build_dashboard_pong_surface",
+        "build_dashboard_resync_surface",
+        "dismiss_dashboard_notification_command",
+    },
     ("engram/api/activation.py", "get_activation_snapshot"): {
         "build_api_activation_snapshot_surface",
     },
@@ -419,6 +428,11 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
     ("engram/api/websocket.py", "activation_snapshot_loop"): {
         "get_activation_snapshot",
     },
+    ("engram/api/websocket.py", "receive_commands"): {
+        "dismiss_notifications",
+        "get_events_since",
+    },
+    ("engram/api/health.py", "health_check"): {"get_stats"},
     ("engram/api/activation.py", "get_activation_curve"): {
         "get_activation_curve",
         "HTTPException",

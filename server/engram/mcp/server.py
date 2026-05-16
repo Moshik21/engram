@@ -93,6 +93,7 @@ from engram.retrieval.prospective import (
 )
 from engram.retrieval.recall_surface import build_mcp_recall_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
+from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
@@ -153,11 +154,11 @@ async def _init() -> None:
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     await graph_store.initialize()
-    search_initializer = cast(Any, search_index).initialize
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await search_initializer(db=graph_store._db)
-    else:
-        await search_initializer()
+    await initialize_search_index_for_graph(
+        search_index,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     extractor = create_extractor(config)
     event_bus = get_event_bus()
@@ -178,10 +179,11 @@ async def _init() -> None:
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
     _evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await _evaluation_store.initialize(db=graph_store._db)
-    else:
-        await _evaluation_store.initialize()
+    await initialize_store_for_graph(
+        _evaluation_store,
+        graph_store=graph_store,
+        mode=mode,
+    )
     _consolidation_store = await _create_consolidation_store(mode, config, graph_store)
 
     # Background episode worker
@@ -225,9 +227,7 @@ async def _shutdown() -> None:
     _consolidation_store = None
 
     if _manager is not None:
-        await _maybe_close(getattr(_manager, "_search", None))
-        await _maybe_close(getattr(_manager, "_activation", None))
-        await _maybe_close(getattr(_manager, "_graph", None))
+        await _manager.close_runtime_resources()
         _manager = None
 
     _session = None
@@ -276,10 +276,7 @@ async def _create_consolidation_store(
     from engram.consolidation.store import SQLiteConsolidationStore
 
     store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await store.initialize(db=graph_store._db)
-    else:
-        await store.initialize()
+    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
     return store
 
 

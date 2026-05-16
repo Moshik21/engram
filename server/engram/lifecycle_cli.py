@@ -13,6 +13,7 @@ from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.lifecycle_summary import build_lifecycle_summary
+from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.storage.sqlite.graph import SQLiteGraphStore
@@ -105,11 +106,11 @@ async def build_lifecycle_summary_for_config(
     consolidation_store: Any | None = None
 
     await graph_store.initialize()
-    search_initializer = search_index.initialize
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await search_initializer(db=graph_store._db)
-    else:
-        await search_initializer()
+    await initialize_search_index_for_graph(
+        search_index,
+        graph_store=graph_store,
+        mode=mode,
+    )
     try:
         consolidation_store = await _create_consolidation_store(mode, config, graph_store)
         manager = GraphManager(
@@ -186,10 +187,7 @@ async def _create_consolidation_store(
     from engram.consolidation.store import SQLiteConsolidationStore
 
     store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await store.initialize(db=graph_store._db)
-    else:
-        await store.initialize()
+    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
     return store
 
 

@@ -1208,10 +1208,7 @@ class TestJSONResponses:
         publisher = SimpleNamespace(close=AsyncMock())
         evaluation_store = SimpleNamespace(close=AsyncMock())
         consolidation_store = SimpleNamespace(close=AsyncMock())
-        search = SimpleNamespace(close=AsyncMock())
-        activation = SimpleNamespace(close=AsyncMock())
-        graph = SimpleNamespace(close=AsyncMock())
-        manager = SimpleNamespace(_search=search, _activation=activation, _graph=graph)
+        manager = SimpleNamespace(close_runtime_resources=AsyncMock())
         bus = SimpleNamespace(remove_on_publish_hook=Mock())
 
         monkeypatch.setattr(mcp_server, "_episode_worker", worker)
@@ -1231,9 +1228,7 @@ class TestJSONResponses:
         publisher.close.assert_awaited_once()
         evaluation_store.close.assert_awaited_once()
         consolidation_store.close.assert_awaited_once()
-        search.close.assert_awaited_once()
-        activation.close.assert_awaited_once()
-        graph.close.assert_awaited_once()
+        manager.close_runtime_resources.assert_awaited_once()
         assert mcp_server._manager is None
         assert mcp_server._evaluation_store is None
         assert mcp_server._consolidation_store is None

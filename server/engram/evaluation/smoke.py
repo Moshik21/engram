@@ -26,6 +26,7 @@ from engram.evaluation.store import (
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.retrieval.need import analyze_memory_need
+from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
 from engram.storage.factory import create_stores
 from engram.storage.helix.consolidation import HelixConsolidationStore
 from engram.storage.resolver import EngineMode
@@ -124,10 +125,11 @@ async def run_projected_consolidated_smoke(
 
     graph_store, activation_store, search_index = create_stores(mode, config)
     await graph_store.initialize()
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await search_index.initialize(db=getattr(graph_store, "_db"))
-    else:
-        await search_index.initialize()
+    await initialize_search_index_for_graph(
+        search_index,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     if mode == EngineMode.HELIX:
         consolidation_store = HelixConsolidationStore(
@@ -138,12 +140,16 @@ async def run_projected_consolidated_smoke(
     else:
         consolidation_store = SQLiteConsolidationStore(str(sqlite_path))
     evaluation_store = SQLiteEvaluationStore(str(sqlite_path))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await consolidation_store.initialize(db=getattr(graph_store, "_db"))
-        await evaluation_store.initialize(db=getattr(graph_store, "_db"))
-    else:
-        await consolidation_store.initialize()
-        await evaluation_store.initialize()
+    await initialize_store_for_graph(
+        consolidation_store,
+        graph_store=graph_store,
+        mode=mode,
+    )
+    await initialize_store_for_graph(
+        evaluation_store,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     try:
         manager = GraphManager(

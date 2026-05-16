@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -92,6 +93,41 @@ def build_chat_tool_events(
         events.append(ChatToolEvent("show_timeline", {"episodes": episodes}))
 
     return events
+
+
+def build_chat_tool_result_message(tool_use_id: str, result: str) -> dict[str, str]:
+    """Build the Anthropic tool_result message for a chat tool call."""
+    return {
+        "type": "tool_result",
+        "tool_use_id": tool_use_id,
+        "content": result,
+    }
+
+
+def accumulate_chat_tool_result(
+    *,
+    tool_name: str,
+    result: str,
+    recall_results: list[dict[str, Any]],
+    facts: list[dict[str, Any]],
+) -> None:
+    """Accumulate chat tool JSON output for rich memory UI events."""
+    try:
+        parsed = json.loads(result)
+    except Exception:
+        return
+
+    if not isinstance(parsed, Mapping):
+        return
+
+    if tool_name == "recall":
+        for item in parsed.get("results", []) or []:
+            if isinstance(item, Mapping):
+                recall_results.append(raw_recall_from_chat_item(item))
+    elif tool_name == "search_facts":
+        for fact in parsed.get("facts", []) or []:
+            if isinstance(fact, Mapping):
+                facts.append(dict(fact))
 
 
 def raw_recall_from_chat_item(item: Mapping[str, Any]) -> dict[str, Any]:
