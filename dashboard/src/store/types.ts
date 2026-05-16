@@ -410,6 +410,21 @@ export interface TimeRange {
 export type GraphRenderMode = "3d" | "2d";
 export type DashboardMode = "observatory" | "quest";
 
+export type BrainLoopEvaluationSignalKey =
+  | "cueUsefulness"
+  | "projectionYield"
+  | "recallQuality"
+  | "falseRecall"
+  | "triageCalibration"
+  | "consolidationEffect";
+
+export interface BrainLoopEvaluationSignal {
+  status: string;
+  evidenceCount: number;
+  metric: number | null;
+  gap: string | null;
+}
+
 export interface BrainLoopEvaluationReport {
   groupId: string;
   generatedAt: string;
@@ -590,6 +605,7 @@ export interface BrainLoopEvaluationReport {
     effectRate: number;
     errorCount: number;
   };
+  evaluationSignals: Record<BrainLoopEvaluationSignalKey, BrainLoopEvaluationSignal>;
   coverageGaps: string[];
 }
 

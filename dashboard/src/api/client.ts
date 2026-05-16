@@ -347,6 +347,8 @@ interface RawEvaluationReport {
     effect_rate?: number;
     error_count?: number;
   };
+  evaluation_signals?: RawEvaluationSignals;
+  evaluationSignals?: RawEvaluationSignals;
   coverage_gaps?: string[];
 }
 
@@ -358,6 +360,16 @@ interface RawLatencySummary {
   p95_ms?: number;
   p95Ms?: number;
 }
+
+type RawEvaluationSignal = {
+  status?: string;
+  evidence_count?: number;
+  evidenceCount?: number;
+  metric?: number | null;
+  gap?: string | null;
+};
+
+type RawEvaluationSignals = Record<string, RawEvaluationSignal | undefined>;
 
 type RawPhaseTotals = NonNullable<NonNullable<RawEvaluationReport["consolidate"]>["phase_totals"]>;
 type RawAdjudicationPhaseTotals = NonNullable<
@@ -410,6 +422,32 @@ function mapLatencySummary(summary?: RawLatencySummary) {
   return {
     avgMs: summary?.avg_ms ?? summary?.avgMs ?? summary?.avg ?? 0,
     p95Ms: summary?.p95_ms ?? summary?.p95Ms ?? summary?.p95 ?? 0,
+  };
+}
+
+function mapEvaluationSignal(raw: RawEvaluationSignal | undefined) {
+  return {
+    status: raw?.status ?? "needs_data",
+    evidenceCount: raw?.evidence_count ?? raw?.evidenceCount ?? 0,
+    metric: raw?.metric ?? null,
+    gap: raw?.gap ?? null,
+  };
+}
+
+function mapEvaluationSignals(
+  raw?: RawEvaluationSignals,
+): BrainLoopEvaluationReport["evaluationSignals"] {
+  return {
+    cueUsefulness: mapEvaluationSignal(raw?.cue_usefulness ?? raw?.cueUsefulness),
+    projectionYield: mapEvaluationSignal(raw?.projection_yield ?? raw?.projectionYield),
+    recallQuality: mapEvaluationSignal(raw?.recall_quality ?? raw?.recallQuality),
+    falseRecall: mapEvaluationSignal(raw?.false_recall ?? raw?.falseRecall),
+    triageCalibration: mapEvaluationSignal(
+      raw?.triage_calibration ?? raw?.triageCalibration,
+    ),
+    consolidationEffect: mapEvaluationSignal(
+      raw?.consolidation_effect ?? raw?.consolidationEffect,
+    ),
   };
 }
 
@@ -806,6 +844,9 @@ export const api = {
         effectRate: consolidate.effect_rate ?? 0,
         errorCount: consolidate.error_count ?? 0,
       },
+      evaluationSignals: mapEvaluationSignals(
+        raw.evaluation_signals ?? raw.evaluationSignals,
+      ),
       coverageGaps: raw.coverage_gaps ?? [],
     };
   },

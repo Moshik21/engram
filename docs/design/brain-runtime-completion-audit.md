@@ -36,10 +36,10 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3200 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3202 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
-| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
+| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map; projected/consolidated smoke now fails if required signals are missing or unmeasured | Strong, needs more real labeled evidence before production claim |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
 | Do not mark complete until implementation, tests, docs, UI are understandable | This audit says not complete | Blocking |
 
@@ -47,7 +47,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3200 tests, 43 skips, and 236 deselections.
+  currently passes with 3202 tests, 43 skips, and 236 deselections.
 - Shared lite storage bootstrap evidence:
   `server/engram/storage/bootstrap.py` centralizes companion-store
   initialization against the active graph store. REST startup, MCP startup,
@@ -473,7 +473,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    persistence, and shared write acknowledgement payloads through route-facing
    helpers. Focused label service, REST
    evaluation, MCP JSON-response, public-surface, and Ruff checks passed.
-   The broad non-Docker/non-external-Helix backend gate now passes with 3200
+   The broad non-Docker/non-external-Helix backend gate now passes with 3202
    tests, 43 skips, and 236 deselections after these route-orchestration
    slices.
    MCP auto-recall cooldown/topic deduplication, compact query extraction,
@@ -512,10 +512,13 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    out-of-scope or must pass before completion.
 
 4. Evaluation confidence:
-   The report and labels exist, but a production-grade claim needs a final
-   evaluation run with enough real or benchmark-labeled data to justify recall
-   quality, calibration quality, projection yield, cue usefulness, false recall,
-   and consolidation-effect confidence.
+   The report and labels exist, and the report now exposes structured
+   `evaluation_signals` for cue usefulness, projection yield, recall quality,
+   false recall, triage calibration, and consolidation effect. The projected/
+   consolidated smoke verifier fails if those records are missing or unmeasured.
+   A production-grade claim still needs a final evaluation run with enough real
+   or benchmark-labeled data to move those readiness records from smoke coverage
+   to meaningful evidence.
 
 5. Completion packaging:
    The repo has a large dirty worktree. Before closure, the intended files,

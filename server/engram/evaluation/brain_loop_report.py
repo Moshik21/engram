@@ -24,6 +24,15 @@ from engram.benchmark.metrics import (
 LOOP = ["capture", "cue", "project", "recall", "consolidate"]
 PROJECT_ACTIVE_STATES = {"queued", "cued", "scheduled", "projecting"}
 ADJUDICATION_PHASES = {"evidence_adjudication", "edge_adjudication"}
+EVALUATION_SIGNAL_ORDER = (
+    "cue_usefulness",
+    "projection_yield",
+    "recall_quality",
+    "false_recall",
+    "triage_calibration",
+    "consolidation_effect",
+)
+REQUIRED_EVALUATION_SIGNALS = set(EVALUATION_SIGNAL_ORDER)
 
 
 def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
@@ -32,6 +41,25 @@ def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
         _mapping(metrics or {})
     )
     return total_analyses > 0
+
+
+def unmeasured_evaluation_signals(report: Mapping[str, Any]) -> list[str]:
+    """Return required evaluation signals that are missing or not measured."""
+    evaluation_signals = _mapping(report.get("evaluation_signals"))
+    missing_signals = sorted(REQUIRED_EVALUATION_SIGNALS - set(evaluation_signals))
+    failures = [f"{name}:missing" for name in missing_signals]
+    for name in EVALUATION_SIGNAL_ORDER:
+        if name in missing_signals:
+            continue
+        signal = _mapping(evaluation_signals.get(name))
+        if signal.get("status") != "measured":
+            failures.append(f"{name}:{signal.get('status', 'missing')}")
+            continue
+        if _int(signal.get("evidence_count")) <= 0:
+            failures.append(f"{name}:no_evidence")
+        elif signal.get("metric") is None:
+            failures.append(f"{name}:no_metric")
+    return failures
 
 
 def merge_recall_runtime_metrics(
@@ -94,6 +122,12 @@ def build_brain_loop_report(
         recall=recall,
         consolidate=consolidate,
     )
+    evaluation_signals = _evaluation_signals(
+        cue=cue,
+        project=project,
+        recall=recall,
+        consolidate=consolidate,
+    )
 
     return {
         "group_id": group_id,
@@ -110,6 +144,7 @@ def build_brain_loop_report(
         "project": project,
         "recall": recall,
         "consolidate": consolidate,
+        "evaluation_signals": evaluation_signals,
         "coverage_gaps": coverage_gaps,
     }
 
@@ -141,6 +176,7 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
     calibration = _mapping(consolidate.get("calibration"))
     calibration_detail = _calibration_markdown_detail(calibration)
     gaps = list(report.get("coverage_gaps") or [])
+    evaluation_signals = _mapping(report.get("evaluation_signals"))
 
     lines = [
         "# Engram Brain Loop Report",
@@ -226,6 +262,21 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             f"requests {adjudication.get('open_request_count', 0)})"
         ),
     ]
+
+    if evaluation_signals:
+        lines.extend(["", "## Evaluation Signals", ""])
+        for signal in EVALUATION_SIGNAL_ORDER:
+            payload = _mapping(evaluation_signals.get(signal))
+            if not payload:
+                continue
+            gap = payload.get("gap")
+            gap_text = f" | {gap}" if isinstance(gap, str) and gap else ""
+            lines.append(
+                f"- {signal.replace('_', ' ').title()}: "
+                f"{payload.get('status', 'unknown')} "
+                f"({payload.get('evidence_count', 0)} evidence)"
+                f"{gap_text}"
+            )
 
     if gaps:
         lines.extend(["", "## Coverage Gaps", ""])
@@ -632,6 +683,8 @@ def _coverage_gaps(
         gaps.append("recall quality needs labeled recall_samples input")
     elif recall_eval.get("need_status") != "measured":
         gaps.append("missed recall needs recall_needed labels")
+    elif _int(recall_eval.get("surfaced_count")) == 0:
+        gaps.append("false recall needs labeled surfaced packet counts")
     if _int(recall.get("total_analyses")) == 0:
         gaps.append("recall gate needs runtime analyses")
     elif _float(analyzer_latency.get("p95_ms")) <= 0:
@@ -652,6 +705,124 @@ def _coverage_gaps(
     ):
         gaps.append("consolidation calibration quality needs labeled decision outcomes")
     return gaps
+
+
+def _evaluation_signals(
+    *,
+    cue: Mapping[str, Any],
+    project: Mapping[str, Any],
+    recall: Mapping[str, Any],
+    consolidate: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    recall_eval = _mapping(recall.get("evaluation"))
+    calibration = _mapping(consolidate.get("calibration"))
+    calibration_phases = _mapping(calibration.get("phase_totals"))
+    triage_calibration = _mapping(calibration_phases.get("triage"))
+
+    cue_count = _int(cue.get("cue_count"))
+    cue_surfaced = _int(cue.get("surfaced_count"))
+    projected_count = _int(project.get("projected_count"))
+    recall_samples = _int(recall_eval.get("sample_count"))
+    recall_surfaced = _int(recall_eval.get("surfaced_count"))
+    triage_labels = _int(triage_calibration.get("labeled_examples"))
+    cycle_count = _int(consolidate.get("cycle_count"))
+    consolidation_processed = _int(consolidate.get("items_processed"))
+
+    return {
+        "cue_usefulness": _signal_readiness(
+            status=(
+                "measured"
+                if cue_surfaced > 0
+                else "needs_feedback"
+                if cue_count
+                else "needs_data"
+            ),
+            evidence_count=cue_surfaced,
+            metric=cue.get("used_rate"),
+            gap=None
+            if cue_surfaced > 0
+            else "cue usefulness needs surfaced cue feedback"
+            if cue_count
+            else "cue usefulness cannot be measured until episodes have cues",
+        ),
+        "projection_yield": _signal_readiness(
+            status="measured" if projected_count > 0 else "needs_data",
+            evidence_count=projected_count,
+            metric=_get(
+                _mapping(project.get("yield")),
+                "avg_linked_entities_per_projected_episode",
+                "avgLinkedEntitiesPerProjectedEpisode",
+            ),
+            gap=None
+            if projected_count > 0
+            else "projection yield cannot be measured until episodes are projected",
+        ),
+        "recall_quality": _signal_readiness(
+            status="measured" if recall_eval.get("status") == "measured" else "needs_labels",
+            evidence_count=recall_samples,
+            metric=recall_eval.get("memory_need_precision"),
+            gap=None
+            if recall_eval.get("status") == "measured"
+            else "recall quality needs labeled recall_samples input",
+        ),
+        "false_recall": _signal_readiness(
+            status="measured"
+            if recall_eval.get("status") == "measured" and recall_surfaced > 0
+            else "needs_labels"
+            if recall_samples == 0
+            else "needs_surfaced_packets",
+            evidence_count=recall_surfaced,
+            metric=recall_eval.get("false_recall_rate"),
+            gap=None
+            if recall_eval.get("status") == "measured" and recall_surfaced > 0
+            else "recall quality needs labeled recall_samples input"
+            if recall_samples == 0
+            else "false recall needs labeled surfaced packet counts",
+        ),
+        "triage_calibration": _signal_readiness(
+            status="measured"
+            if _calibration_phase_quality_measured(triage_calibration)
+            else "needs_snapshots"
+            if _int(calibration.get("snapshot_count")) == 0
+            else "needs_quality",
+            evidence_count=triage_labels,
+            metric=triage_calibration.get("expected_calibration_error"),
+            gap=None
+            if _calibration_phase_quality_measured(triage_calibration)
+            else "consolidation calibration needs saved calibration snapshots"
+            if _int(calibration.get("snapshot_count")) == 0
+            else "consolidation calibration quality needs labeled decision outcomes",
+        ),
+        "consolidation_effect": _signal_readiness(
+            status="measured"
+            if cycle_count > 0 and consolidation_processed > 0
+            else "needs_cycles"
+            if cycle_count == 0
+            else "needs_processed_items",
+            evidence_count=cycle_count,
+            metric=consolidate.get("effect_rate"),
+            gap=None
+            if cycle_count > 0 and consolidation_processed > 0
+            else "consolidation effects need at least one recent cycle"
+            if cycle_count == 0
+            else "consolidation effects need processed cycle items",
+        ),
+    }
+
+
+def _signal_readiness(
+    *,
+    status: str,
+    evidence_count: int,
+    metric: Any,
+    gap: str | None,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "evidence_count": evidence_count,
+        "metric": _optional_float(metric),
+        "gap": gap,
+    }
 
 
 def _recall_runtime_score(metrics: Mapping[str, Any]) -> tuple[int, float, int]:
@@ -828,16 +999,18 @@ def _status_count_summary(
 def _calibration_quality_measured(calibration: Mapping[str, Any]) -> bool:
     phase_totals = _mapping(_get(calibration, "phase_totals", "phaseTotals"))
     for totals in phase_totals.values():
-        data = _mapping(totals)
-        has_labels = _int(_get(data, "labeled_examples", "labeledExamples")) > 0
-        has_quality = (
-            _get(data, "accuracy") is not None
-            or _get(data, "expected_calibration_error", "expectedCalibrationError")
-            is not None
-        )
-        if has_labels and has_quality:
+        if _calibration_phase_quality_measured(_mapping(totals)):
             return True
     return False
+
+
+def _calibration_phase_quality_measured(totals: Mapping[str, Any]) -> bool:
+    has_labels = _int(_get(totals, "labeled_examples", "labeledExamples")) > 0
+    has_quality = (
+        _get(totals, "accuracy") is not None
+        or _get(totals, "expected_calibration_error", "expectedCalibrationError") is not None
+    )
+    return has_labels and has_quality
 
 
 def _calibration_markdown_detail(calibration: Mapping[str, Any]) -> str:
@@ -982,6 +1155,15 @@ def _float(value: Any) -> float:
         return round(float(value or 0.0), 4)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ratio(numerator: int, denominator: int) -> float:

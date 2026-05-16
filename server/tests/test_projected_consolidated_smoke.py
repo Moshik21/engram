@@ -7,7 +7,11 @@ import json
 import pytest
 
 from engram.evaluation.cli import build_report_from_args, configure_evaluate_parser
-from engram.evaluation.smoke import format_smoke_report, run_projected_consolidated_smoke
+from engram.evaluation.smoke import (
+    assert_smoke_report,
+    format_smoke_report,
+    run_projected_consolidated_smoke,
+)
 from engram.evaluation.store import SQLiteEvaluationStore, StoredRecallRuntimeMetricsSnapshot
 from engram.storage.resolver import EngineMode
 
@@ -35,6 +39,10 @@ async def test_projected_consolidated_smoke_produces_full_report(tmp_path) -> No
     assert report["smoke"]["cycle_count"] == 1
     assert report["smoke"]["cue_feedback_checks"] == 1
     assert report["smoke"]["gate_recall_checks"] == 1
+    assert {
+        signal["status"]
+        for signal in report["evaluation_signals"].values()
+    } == {"measured"}
     assert "cue_checks=1" in format_smoke_report(report)
     assert "gate_checks=1" in format_smoke_report(report)
 
@@ -104,6 +112,71 @@ async def test_evaluate_cli_smoke_uses_configured_default_group(
 
     assert report["group_id"] == "operator_brain"
     assert calls[0]["group_id"] == "operator_brain"
+
+
+def test_smoke_verifier_rejects_unmeasured_evaluation_signals() -> None:
+    report = {
+        "coverage_gaps": [],
+        "project": {
+            "projected_count": 1,
+            "yield": {"linked_entity_count": 1},
+        },
+        "cue": {"surfaced_count": 1},
+        "consolidate": {
+            "cycle_count": 1,
+            "calibration": {"status": "measured"},
+        },
+        "recall": {
+            "evaluation": {"status": "measured"},
+            "continuity": {"status": "measured"},
+            "total_analyses": 1,
+            "trigger_count": 1,
+            "latency": {"analyzer_ms": {"p95_ms": 1.0}},
+            "control": {"surfaced_count": 1},
+        },
+        "evaluation_signals": {
+            "cue_usefulness": {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 1.0,
+                "gap": None,
+            },
+            "projection_yield": {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 1.0,
+                "gap": None,
+            },
+            "recall_quality": {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 1.0,
+                "gap": None,
+            },
+            "false_recall": {
+                "status": "needs_surfaced_packets",
+                "evidence_count": 0,
+                "metric": 0.0,
+                "gap": "false recall needs labeled surfaced packet counts",
+            },
+            "triage_calibration": {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 0.0,
+                "gap": None,
+            },
+            "consolidation_effect": {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 1.0,
+                "gap": None,
+            },
+        },
+        "smoke": {"gate_recall_checks": 1},
+    }
+
+    with pytest.raises(SystemExit, match="unmeasured evaluation signals"):
+        assert_smoke_report(report)
 
 
 @pytest.mark.asyncio

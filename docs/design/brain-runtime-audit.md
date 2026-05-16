@@ -312,6 +312,27 @@ labels, and the dashboard Evaluate form. Reports expose memory-need recall,
 missed-recall rate, need-label counts, needed count, and missed count so Engram
 can measure recall omissions, not only precision for triggered recall.
 
+The evaluation report now has an explicit signal-readiness contract for the
+goal's production-quality checks. `server/engram/evaluation/brain_loop_report.py`
+returns `evaluation_signals` for cue usefulness, projection yield, recall
+quality, false recall, triage calibration, and consolidation effect. Each signal
+reports status, evidence count, current metric, and a concrete gap when it is not
+measured. The Markdown report prints the same readiness map, REST exposes it
+through `/api/evaluation/brain-loop/report`, MCP returns it through
+`get_evaluation_report`, and the dashboard Evaluate panel renders it as Signal
+Readiness so operators can see which evidence is still missing instead of
+inferring from raw metric cards. Fast MCP tests and populated native PyO3 MCP
+parity now assert the six-signal map is measured when the report has matching
+cue/project/recall/calibration/consolidation evidence.
+The projected/consolidated smoke verifier now treats those readiness records as
+real gates too: `assert_smoke_report()` fails if any required signal is missing,
+unmeasured, evidence-free, or metric-free. This keeps smoke success tied to the
+same six evaluation signals named by the goal.
+The no-bind native dashboard smoke fixture now mirrors that contract. Its
+native-shaped evaluation payload includes measured `evaluation_signals`, cue
+feedback evidence, calibration quality, and consolidation effect data; the smoke
+asserts the dashboard Signal Readiness panel renders `6/6 measured`.
+
 The projected/consolidated P3 smoke is now repeatable and first-class.
 `engram evaluate --smoke` boots local stores against disposable storage, seeds
 queued episodes, runs the real triage consolidation phase, stores
@@ -1499,7 +1520,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3200 tests, 43 skips, and 236 external-service
+   gate currently passes with 3202 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -2943,7 +2964,7 @@ routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
 shows `_app_state` only in `server/engram/api/deps.py`, and the broad
-non-Docker/non-Helix gate now passes with 3200 tests, 43 skips, and 236
+non-Docker/non-Helix gate now passes with 3202 tests, 43 skips, and 236
 external-service deselections.
 
 The REST evaluation report no longer reaches into consolidation engine private
@@ -2956,7 +2977,7 @@ and then calls the shared report builder with REST snapshot labeling.
 payload. The public-surface guard rejects route-local `engine._*` access
 alongside `manager._*` access and now statically rejects direct REST API
 `engine.*` dispatch. Focused evaluation/consolidation/static checks and Ruff
-passed; a later route-orchestration broad gate now passes with 3200 tests, 43
+passed; a later route-orchestration broad gate now passes with 3202 tests, 43
 skips, and 236 external-service deselections.
 
 The same public-surface guard now covers direct REST route store/service method
@@ -3058,7 +3079,7 @@ client construction, SSE wrapping, and persistence scheduler invocation. Focused
 chat-runtime/feedback/tool, full knowledge API, chat-event, public-surface,
 Ruff, and `git diff --check` gates passed. The latest response-turn
 orchestration check passed with 174 focused tests. A later broad
-non-Docker/non-Helix gate now passes with 3200
+non-Docker/non-Helix gate now passes with 3202
 tests, 43 skips, and 236 external-service deselections.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
@@ -3291,7 +3312,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3200 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3202 tests, 43 skips, and 236 external-service deselections.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
@@ -3349,7 +3370,7 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3200 tests, 43 skips, and 236 external-service
+broad gate passes with 3202 tests, 43 skips, and 236 external-service
 deselections.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.

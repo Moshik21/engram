@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useEngramStore } from "../store";
+import type { BrainLoopEvaluationSignalKey } from "../store/types";
 
 function pct(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "n/a";
@@ -30,6 +31,23 @@ function formatAge(iso: string | null | undefined) {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+const EVALUATION_SIGNAL_LABELS: Array<[BrainLoopEvaluationSignalKey, string]> = [
+  ["cueUsefulness", "Cue usefulness"],
+  ["projectionYield", "Projection yield"],
+  ["recallQuality", "Recall quality"],
+  ["falseRecall", "False recall"],
+  ["triageCalibration", "Triage calibration"],
+  ["consolidationEffect", "Consolidation effect"],
+];
+
+function formatSignalMetric(
+  key: BrainLoopEvaluationSignalKey,
+  metric: number | null | undefined,
+) {
+  if (key === "projectionYield" || key === "triageCalibration") return num(metric, 3);
+  return pct(metric);
 }
 
 function Metric({
@@ -311,6 +329,15 @@ export function EvaluationPanel() {
     const phaseIssue = report?.consolidate.latestCycle?.phase_issue;
     return typeof phaseIssue === "string" && phaseIssue.trim() ? phaseIssue : null;
   }, [report]);
+  const evaluationSignalRows = useMemo(
+    () =>
+      EVALUATION_SIGNAL_LABELS.map(([key, label]) => ({
+        key,
+        label,
+        signal: report?.evaluationSignals[key],
+      })),
+    [report],
+  );
 
   const submitRecallLabel = async (event: FormEvent) => {
     event.preventDefault();
@@ -540,6 +567,79 @@ export function EvaluationPanel() {
           ) : null}
         </Section>
       </div>
+
+      <section className="card" style={{ padding: 16, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
+          <div className="label">Signal Readiness</div>
+          <span className="label" style={{ color: "var(--text-muted)" }}>
+            {evaluationSignalRows.filter(({ signal }) => signal?.status === "measured").length}/
+            {evaluationSignalRows.length} measured
+          </span>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 8,
+          }}
+        >
+          {evaluationSignalRows.map(({ key, label, signal }) => (
+            <div
+              key={key}
+              style={{
+                minWidth: 0,
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-sm)",
+                padding: 10,
+                background: "rgba(255,255,255,0.025)",
+              }}
+            >
+              <div className="label" style={{ fontSize: 8, marginBottom: 6 }}>
+                {label}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  alignItems: "baseline",
+                }}
+              >
+                <span style={{ color: "var(--text-primary)", fontSize: 13 }}>
+                  {signal?.status ?? "needs_data"}
+                </span>
+                <span className="mono tabular-nums" style={{ color: "var(--accent)", fontSize: 13 }}>
+                  {formatSignalMetric(key, signal?.metric)}
+                </span>
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 6 }}>
+                {(signal?.evidenceCount ?? 0).toLocaleString()} evidence
+              </div>
+              {signal?.gap ? (
+                <div
+                  style={{
+                    color: "#fb7185",
+                    fontSize: 11,
+                    lineHeight: 1.3,
+                    marginTop: 6,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {signal.gap}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </section>
 
       <div
         style={{

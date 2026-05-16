@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3200 tests, 43 skips, and 236 external-service tests deselected after
+  with 3202 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -1618,6 +1618,25 @@ What changed in this pass:
   runtime analyses` when labels exist but no gate analyses were captured, and
   flag `recall gate latency needs analyzer samples` when gate analysis exists
   without analyzer latency.
+- Added structured P3 evaluation signal readiness to the shared report contract.
+  `evaluation_signals` now records status, evidence count, current metric, and
+  a gap for cue usefulness, projection yield, recall quality, false recall,
+  triage calibration, and consolidation effect. REST exposes the map through the
+  brain-loop report, MCP returns it through `get_evaluation_report`, the
+  Markdown report prints it, and the dashboard Evaluate panel renders a Signal
+  Readiness section so missing evidence is visible before any production-grade
+  evaluation claim. Fast MCP coverage and populated native PyO3 MCP parity now
+  assert the six-signal map is measured when matching evidence is present.
+- Tightened the projected/consolidated smoke verifier around that readiness map.
+  `assert_smoke_report()` now fails if any required evaluation signal is missing,
+  not measured, evidence-free, or metric-free, so smoke success is tied to the
+  same cue/projection/recall/calibration/consolidation evidence that the
+  operator report displays.
+- Updated the no-bind native dashboard smoke fixture to carry measured
+  `evaluation_signals` and cue/calibration/consolidation effect evidence. The
+  fixture now asserts the dashboard Evaluate panel renders Signal Readiness as
+  `6/6 measured` instead of silently defaulting missing native-shaped fields to
+  `needs_data`.
 - Persisted the latest Recall Gate runtime metrics snapshot through the local
   evaluation store and taught CLI/REST/MCP reports to merge that snapshot only
   when current in-memory stats are weaker. The PyO3 native smoke still proves
@@ -6386,7 +6405,7 @@ What changed in this pass:
   - Result: passed.
 - Broad backend non-Docker/non-external-Helix gate after MCP read-tool, chat-loop, response-turn, REST capture, REST evaluation-report extraction, native manifest evidence verifier, REST store/service dispatch guard, REST awaited-helper guard, chat rate-limit execution helper, chat persistence scheduler helper, MCP public surface store/session guard, and MCP awaited-helper guard:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  - Result: 3200 passed, 43 skipped, 236 deselected in 137.68s.
+  - Result: 3202 passed, 43 skipped, 236 deselected in 138.12s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.
@@ -6514,8 +6533,8 @@ visibility work treated as done:
    websocket-auth-config-dependency-boundary/
    knowledge-chat-rate-limiter-dependency-boundary/rest-health-dependency-boundary/
    generated-api-route-app-state-guard.
-6. Keep the P3 evaluation loop focused on missing signal types, not duplicate
-   display work. Cue usefulness, projection yield, projection backlog,
+6. Keep the P3 evaluation loop focused on real evidence and persistence paths,
+   not duplicate display work. Cue usefulness, projection yield, projection backlog,
    projection freshness/latency, recall gate latency, recall gate-control
    posture, false recall, memory-need recall / missed-recall rate, continuity,
    consolidation cycles, consolidation effect-rate, adjudication phase pressure,
@@ -6523,10 +6542,14 @@ visibility work treated as done:
    calibration accuracy, and calibration ECE are now visible in
    REST/CLI/dashboard contracts. The Recall gate fields are also covered by the
    projected/consolidated smoke, native PyO3 smoke, smoke verifier, and no-bind
-   native dashboard fixture, and report coverage gaps now distinguish label-only
-   recall evidence from actual runtime gate analysis. Evaluation reports now
-   persist and reload the latest runtime gate metrics snapshot, so reopened
-   native live reports do not lose the in-process smoke proof. Benchmark and
+   native dashboard fixture. The shared report now also exposes
+   `evaluation_signals` readiness for cue usefulness, projection yield, recall
+   quality, false recall, triage calibration, and consolidation effect, and the
+   projected/consolidated smoke verifier now requires each of those signals to be
+   measured. Report coverage gaps now distinguish label-only recall evidence from
+   actual runtime gate analysis. Evaluation reports now persist and reload the
+   latest runtime gate metrics snapshot, so reopened native live reports do not
+   lose the in-process smoke proof. Benchmark and
    evaluation defaults now use explicit non-default groups for showcase,
    LoCoMo, memory-need fixtures, and the
    echo-chamber simulation, and explicit recall packet analysis uses the active

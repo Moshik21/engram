@@ -2270,6 +2270,10 @@ async def test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces(
         assert mcp_report["recall"]["evaluation"]["status"] == "measured"
         assert mcp_report["recall"]["evaluation"]["sample_count"] >= 3
         assert mcp_report["recall"]["continuity"]["sample_count"] >= 3
+        assert {
+            signal["status"]
+            for signal in mcp_report["evaluation_signals"].values()
+        } == {"measured"}
 
         mcp_recall = json.loads(await mcp_server.recall("Engram brain loop", limit=5))
         assert mcp_recall["total_candidates"] > 0

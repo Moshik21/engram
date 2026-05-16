@@ -16,6 +16,7 @@ from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     format_brain_loop_report_markdown,
     has_recall_runtime_metrics,
+    unmeasured_evaluation_signals,
 )
 from engram.evaluation.store import (
     SQLiteEvaluationStore,
@@ -69,7 +70,6 @@ REQUIRED_ABSENT_GAPS = {
     "consolidation effects need at least one recent cycle",
     "consolidation calibration needs saved calibration snapshots",
 }
-
 
 async def run_projected_consolidated_smoke(
     sqlite_path: Path,
@@ -422,6 +422,12 @@ def assert_smoke_report(report: dict[str, Any], *, expected_projected: int = 1) 
     control = recall.get("control") or {}
     if int(control.get("surfaced_count") or 0) <= 0:
         raise SystemExit("Projected/consolidated smoke did not record surfaced recall feedback")
+    unmeasured_signals = unmeasured_evaluation_signals(report)
+    if unmeasured_signals:
+        raise SystemExit(
+            "Projected/consolidated smoke has unmeasured evaluation signals: "
+            f"{unmeasured_signals}"
+        )
     smoke = report.get("smoke") or {}
     if int(smoke.get("gate_recall_checks") or 0) <= 0:
         raise SystemExit("Projected/consolidated smoke did not run a recall gate check")

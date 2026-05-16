@@ -341,6 +341,44 @@ describe("api.getEvaluationReport", () => {
           effect_rate: 0.5,
           error_count: 0,
         },
+        evaluation_signals: {
+          cue_usefulness: {
+            status: "measured",
+            evidence_count: 6,
+            metric: 0.3333,
+            gap: null,
+          },
+          projection_yield: {
+            status: "measured",
+            evidence_count: 2,
+            metric: 3,
+            gap: null,
+          },
+          recall_quality: {
+            status: "measured",
+            evidence_count: 2,
+            metric: 0.5,
+            gap: null,
+          },
+          false_recall: {
+            status: "measured",
+            evidence_count: 5,
+            metric: 0.2,
+            gap: null,
+          },
+          triage_calibration: {
+            status: "measured",
+            evidence_count: 3,
+            metric: 0.12,
+            gap: null,
+          },
+          consolidation_effect: {
+            status: "measured",
+            evidence_count: 1,
+            metric: 0.5,
+            gap: null,
+          },
+        },
         coverage_gaps: [],
       }),
     });
@@ -377,6 +415,13 @@ describe("api.getEvaluationReport", () => {
     expect(report.consolidate.status).toBe("attention");
     expect(report.consolidate.effectRate).toBe(0.5);
     expect(report.consolidate.calibration.phaseTotals.triage.expectedCalibrationError).toBe(0.12);
+    expect(report.evaluationSignals.falseRecall).toEqual({
+      status: "measured",
+      evidenceCount: 5,
+      metric: 0.2,
+      gap: null,
+    });
+    expect(report.evaluationSignals.triageCalibration.metric).toBe(0.12);
     expect(report.consolidate.latestCycle).toMatchObject({
       error: "calibration failed",
       phase_issue: "calibrate: no teacher labels",
@@ -417,6 +462,7 @@ describe("api.getEvaluationReport", () => {
 
     expect(report.consolidate.status).toBe("attention");
     expect(report.consolidate.calibration.status).toBe("needs_quality");
+    expect(report.evaluationSignals.falseRecall.status).toBe("needs_data");
     expect(report.consolidate.calibration.phaseTotals.triage.labeledExamples).toBe(0);
     expect(report.coverageGaps).toContain(
       "consolidation calibration quality needs labeled decision outcomes",

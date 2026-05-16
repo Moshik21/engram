@@ -796,6 +796,13 @@ class TestEvaluation:
             1 / 3,
             abs=1e-4,
         )
+        assert report["evaluation_signals"]["false_recall"] == {
+            "status": "measured",
+            "evidence_count": 3,
+            "metric": pytest.approx(1 / 3, abs=1e-4),
+            "gap": None,
+        }
+        assert report["evaluation_signals"]["recall_quality"]["status"] == "measured"
         assert report["recall"]["latency"]["analyzer_ms"] == {"avg_ms": 0.0, "p95_ms": 0.0}
         assert report["recall"]["latency"]["probe_ms"] == {"avg_ms": 0.0, "p95_ms": 0.0}
         assert report["recall"]["control"]["graph_override_count"] == 0
@@ -813,6 +820,8 @@ class TestEvaluation:
 
         assert report["capture"]["status"] == "empty"
         assert report["recall"]["evaluation"]["status"] == "needs_samples"
+        assert report["evaluation_signals"]["recall_quality"]["status"] == "needs_labels"
+        assert report["evaluation_signals"]["false_recall"]["status"] == "needs_labels"
         assert "recall quality needs labeled recall_samples input" in report["coverage_gaps"]
 
     @pytest.mark.asyncio

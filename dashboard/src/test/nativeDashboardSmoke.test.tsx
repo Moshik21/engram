@@ -251,12 +251,12 @@ const nativeEvaluationPayload = {
     hit_count: 0,
     hit_episode_count: 0,
     hit_episode_rate: 0,
-    surfaced_count: 0,
-    selected_count: 0,
-    used_count: 0,
+    surfaced_count: 1,
+    selected_count: 1,
+    used_count: 1,
     near_miss_count: 0,
-    selected_rate: 0,
-    used_rate: 0,
+    selected_rate: 1,
+    used_rate: 1,
     near_miss_rate: 0,
     avg_policy_score: 0,
     projection_conversion_rate: 1,
@@ -334,11 +334,58 @@ const nativeEvaluationPayload = {
     calibration: {
       status: "measured",
       snapshot_count: 1,
-      phase_totals: { triage: { snapshots: 1, total_traces: 3, labeled_examples: 3 } },
+      phase_totals: {
+        triage: {
+          snapshots: 1,
+          total_traces: 3,
+          labeled_examples: 3,
+          accuracy: 1,
+          expected_calibration_error: 0,
+        },
+      },
     },
     items_processed: 3,
     items_affected: 3,
+    effect_rate: 1,
     error_count: 1,
+  },
+  evaluation_signals: {
+    cue_usefulness: {
+      status: "measured",
+      evidence_count: 1,
+      metric: 1,
+      gap: null,
+    },
+    projection_yield: {
+      status: "measured",
+      evidence_count: 3,
+      metric: 1,
+      gap: null,
+    },
+    recall_quality: {
+      status: "measured",
+      evidence_count: 1,
+      metric: 1,
+      gap: null,
+    },
+    false_recall: {
+      status: "measured",
+      evidence_count: 3,
+      metric: 0,
+      gap: null,
+    },
+    triage_calibration: {
+      status: "measured",
+      evidence_count: 3,
+      metric: 0,
+      gap: null,
+    },
+    consolidation_effect: {
+      status: "measured",
+      evidence_count: 1,
+      metric: 1,
+      gap: null,
+    },
   },
   coverage_gaps: [],
 };
@@ -378,6 +425,8 @@ function resetDashboardState() {
       lifecycleDrilldownStage: null,
       lifecycleSummary: null,
       isLoadingLifecycleSummary: false,
+      evaluationReport: null,
+      isLoadingEvaluationReport: false,
       stats: null,
       isLoadingStats: false,
       episodes: [],
@@ -460,6 +509,17 @@ describe("native PyO3 dashboard fixture smoke", () => {
     expect(report.recall.latency.analyzerMs.p95Ms).toBe(1.2666);
     expect(report.recall.control.surfacedCount).toBe(1);
     expect(report.recall.control.thresholds.resonance).toBe(0.45);
+    expect(
+      Object.values(report.evaluationSignals).map((signal) => signal.status),
+    ).toEqual([
+      "measured",
+      "measured",
+      "measured",
+      "measured",
+      "measured",
+      "measured",
+    ]);
+    expect(report.evaluationSignals.cueUsefulness.evidenceCount).toBe(1);
     expect(recall.items.length).toBe(1);
     expect(consolidationStatus.latest_cycle?.id).toBe("cyc_native_1");
     expect(consolidationStatus.latest_cycle?.phases[0].phase).toBe("triage");
@@ -500,6 +560,8 @@ describe("native PyO3 dashboard fixture smoke", () => {
 
     expect(await screen.findByText("Runtime quality signals")).toBeInTheDocument();
     expect(screen.getByText("Recall Gate")).toBeInTheDocument();
+    expect(screen.getByText("Signal Readiness")).toBeInTheDocument();
+    expect(screen.getByText("6/6 measured")).toBeInTheDocument();
     expect(screen.getByText("analysis p95")).toBeInTheDocument();
     expect(screen.getByText("runtime used")).toBeInTheDocument();
     expect(screen.getByText("resonance")).toBeInTheDocument();
@@ -572,6 +634,11 @@ describeNativeSmoke("native PyO3 dashboard smoke", () => {
     expect(report.project.yield.linkedEntityCount).toBeGreaterThan(0);
     expect(report.recall.evaluation.status).toBe("measured");
     expect(report.recall.continuity.status).toBe("measured");
+    expect(
+      Object.values(report.evaluationSignals).every(
+        (signal) => signal.status === "measured",
+      ),
+    ).toBe(true);
 
     expect(recall.items.length).toBeGreaterThan(0);
     expect(consolidationStatus.latest_cycle?.id).toBeTruthy();

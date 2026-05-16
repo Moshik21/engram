@@ -664,6 +664,17 @@ describe("StatsPanel", () => {
 });
 
 describe("EvaluationPanel", () => {
+  function makeEvaluationSignalsFixture(): BrainLoopEvaluationReport["evaluationSignals"] {
+    return {
+      cueUsefulness: { status: "measured", evidenceCount: 8, metric: 0.375, gap: null },
+      projectionYield: { status: "measured", evidenceCount: 5, metric: 2.4, gap: null },
+      recallQuality: { status: "measured", evidenceCount: 2, metric: 0.5, gap: null },
+      falseRecall: { status: "measured", evidenceCount: 5, metric: 0.2, gap: null },
+      triageCalibration: { status: "measured", evidenceCount: 3, metric: 0.12, gap: null },
+      consolidationEffect: { status: "measured", evidenceCount: 1, metric: 0.5, gap: null },
+    };
+  }
+
   function makeEvaluationReportFixture(): BrainLoopEvaluationReport {
     return {
       groupId: "default",
@@ -815,6 +826,7 @@ describe("EvaluationPanel", () => {
         effectRate: 0.5,
         errorCount: 1,
       },
+      evaluationSignals: makeEvaluationSignalsFixture(),
       coverageGaps: [],
     };
   }
@@ -970,6 +982,7 @@ describe("EvaluationPanel", () => {
         effectRate: 0.5,
         errorCount: 1,
       },
+      evaluationSignals: makeEvaluationSignalsFixture(),
       coverageGaps: [],
     });
 
@@ -993,6 +1006,10 @@ describe("EvaluationPanel", () => {
     expect(screen.getByText("31ms")).toBeInTheDocument();
     expect(screen.getByText("19ms")).toBeInTheDocument();
     expect(screen.getByText("Recall Gate")).toBeInTheDocument();
+    expect(screen.getByText("Signal Readiness")).toBeInTheDocument();
+    expect(screen.getByText("6/6 measured")).toBeInTheDocument();
+    expect(screen.getByText("Cue usefulness")).toBeInTheDocument();
+    expect(screen.getByText("False recall")).toBeInTheDocument();
     expect(screen.getByText("runtime used")).toBeInTheDocument();
     expect(screen.getByText("graph override")).toBeInTheDocument();
     expect(screen.getByText("resonance")).toBeInTheDocument();

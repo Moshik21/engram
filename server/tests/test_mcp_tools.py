@@ -1065,6 +1065,20 @@ class TestJSONResponses:
                         "episodes": 1,
                         "entities": 2,
                         "relationships": 1,
+                        "cue_metrics": {
+                            "cue_count": 1,
+                            "cue_surfaced_count": 1,
+                            "cue_used_count": 1,
+                            "cue_to_projection_conversion_rate": 1.0,
+                        },
+                        "projection_metrics": {
+                            "state_counts": {"projected": 1},
+                            "yield": {
+                                "linked_entity_count": 2,
+                                "relationship_count": 1,
+                                "avg_linked_entities_per_projected_episode": 2.0,
+                            },
+                        },
                         "recall_metrics": {
                             "total_analyses": 1,
                             "trigger_count": 1,
@@ -1093,10 +1107,35 @@ class TestJSONResponses:
         monkeypatch.setattr(mcp_server, "_manager", manager)
         monkeypatch.setattr(mcp_server, "_evaluation_store", store)
         monkeypatch.setattr(mcp_server, "_group_id", "default")
+        cycle = SimpleNamespace(
+            id="cyc_mcp_eval",
+            status="completed",
+            phase_results=[
+                SimpleNamespace(
+                    phase="triage",
+                    status="success",
+                    items_processed=2,
+                    items_affected=1,
+                )
+            ],
+        )
+        calibration = SimpleNamespace(
+            phase="triage",
+            total_traces=3,
+            labeled_examples=2,
+            oracle_examples=0,
+            abstain_count=0,
+            accuracy=1.0,
+            mean_confidence=0.8,
+            expected_calibration_error=0.0,
+        )
         monkeypatch.setattr(
             mcp_server,
             "_consolidation_store",
-            SimpleNamespace(get_recent_cycles=AsyncMock(return_value=[])),
+            SimpleNamespace(
+                get_recent_cycles=AsyncMock(return_value=[cycle]),
+                get_calibration_snapshots=AsyncMock(return_value=[calibration]),
+            ),
         )
 
         raw = await mcp_server.get_evaluation_report(sample_limit=50)
@@ -1122,6 +1161,15 @@ class TestJSONResponses:
         assert data["recall"]["control"]["graph_override_count"] == 1
         assert data["recall"]["control"]["thresholds"]["resonance"] == 0.52
         assert data["recall"]["continuity"]["session_continuity_lift"] == 0.5
+        assert {
+            signal["status"]
+            for signal in data["evaluation_signals"].values()
+        } == {"measured"}
+        assert data["evaluation_signals"]["cue_usefulness"]["evidence_count"] == 1
+        assert data["evaluation_signals"]["projection_yield"]["metric"] == 2.0
+        assert data["evaluation_signals"]["false_recall"]["metric"] == 0.3333
+        assert data["evaluation_signals"]["triage_calibration"]["metric"] == 0.0
+        assert data["evaluation_signals"]["consolidation_effect"]["metric"] == 0.5
 
     @pytest.mark.asyncio
     async def test_mcp_get_evaluation_report_uses_saved_recall_runtime_snapshot(

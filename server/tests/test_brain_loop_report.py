@@ -242,6 +242,42 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
         "expected_calibration_error": 0.1,
     }
     assert report["consolidate"]["error_count"] == 1
+    assert report["evaluation_signals"]["cue_usefulness"] == {
+        "status": "measured",
+        "evidence_count": 10,
+        "metric": 0.3,
+        "gap": None,
+    }
+    assert report["evaluation_signals"]["projection_yield"] == {
+        "status": "measured",
+        "evidence_count": 2,
+        "metric": 3.0,
+        "gap": None,
+    }
+    assert report["evaluation_signals"]["recall_quality"] == {
+        "status": "measured",
+        "evidence_count": 3,
+        "metric": 0.5,
+        "gap": None,
+    }
+    assert report["evaluation_signals"]["false_recall"] == {
+        "status": "measured",
+        "evidence_count": 7,
+        "metric": 0.2857,
+        "gap": None,
+    }
+    assert report["evaluation_signals"]["triage_calibration"] == {
+        "status": "measured",
+        "evidence_count": 8,
+        "metric": 0.1,
+        "gap": None,
+    }
+    assert report["evaluation_signals"]["consolidation_effect"] == {
+        "status": "measured",
+        "evidence_count": 1,
+        "metric": 0.4286,
+        "gap": None,
+    }
     assert report["coverage_gaps"] == []
 
     markdown = format_brain_loop_report_markdown(report)
@@ -260,6 +296,8 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert "Phase issue: edge_adjudication: judge unavailable" in markdown
     assert "Adjudication: 1 runs, effect 0.0%, unaffected 2, errors 1" in markdown
     assert "open work 4 (evidence 2, requests 2)" in markdown
+    assert "Evaluation Signals" in markdown
+    assert "False Recall: measured (7 evidence)" in markdown
 
 
 def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
@@ -270,6 +308,13 @@ def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
     assert report["project"]["projected_count"] == 0
     assert report["recall"]["evaluation"]["status"] == "needs_samples"
     assert report["consolidate"]["status"] == "needs_cycles"
+    assert report["evaluation_signals"]["false_recall"] == {
+        "status": "needs_labels",
+        "evidence_count": 0,
+        "metric": None,
+        "gap": "recall quality needs labeled recall_samples input",
+    }
+    assert report["evaluation_signals"]["triage_calibration"]["status"] == "needs_snapshots"
     assert "capture has no stored episodes yet" in report["coverage_gaps"]
     assert "recall quality needs labeled recall_samples input" in report["coverage_gaps"]
     assert "recall gate needs runtime analyses" in report["coverage_gaps"]
@@ -355,6 +400,72 @@ def test_brain_loop_report_flags_missing_recall_gate_runtime_coverage() -> None:
     assert (
         "recall gate latency needs analyzer samples"
         in missing_latency_report["coverage_gaps"]
+    )
+
+
+def test_brain_loop_report_flags_false_recall_without_surfaced_packets() -> None:
+    report = build_brain_loop_report(
+        {
+            "episodes": 1,
+            "cue_metrics": {"cue_count": 1, "cue_surfaced_count": 1},
+            "projection_metrics": {"state_counts": {"projected": 1}},
+            "recall_metrics": {
+                "total_analyses": 1,
+                "trigger_count": 1,
+                "analyzer_latency_ms": {"avg": 3.0, "p95": 5.0},
+            },
+        },
+        recent_cycles=[
+            ConsolidationCycle(
+                group_id="default",
+                status="completed",
+                phase_results=[
+                    PhaseResult(
+                        phase="triage",
+                        status="success",
+                        items_processed=1,
+                        items_affected=1,
+                    )
+                ],
+            )
+        ],
+        calibration_snapshots=[
+            CalibrationSnapshot(
+                cycle_id="cyc_false_recall_gap",
+                group_id="default",
+                phase="triage",
+                window_cycles=1,
+                total_traces=1,
+                labeled_examples=1,
+                oracle_examples=0,
+                abstain_count=0,
+                accuracy=1.0,
+                mean_confidence=0.9,
+                expected_calibration_error=0.0,
+            )
+        ],
+        recall_samples=[
+            RecallEvalSample(
+                recall_triggered=True,
+                recall_helped=True,
+                recall_needed=True,
+                packets_surfaced=0,
+                packets_used=0,
+                false_recalls=0,
+            )
+        ],
+        session_samples=[SessionContinuitySample(baseline_score=0.2, memory_score=0.8)],
+    )
+
+    assert report["evaluation_signals"]["false_recall"] == {
+        "status": "needs_surfaced_packets",
+        "evidence_count": 0,
+        "metric": 0.0,
+        "gap": "false recall needs labeled surfaced packet counts",
+    }
+    assert (
+        "false recall needs labeled surfaced packet counts"
+        in report["coverage_gaps"]
     )
 
 
