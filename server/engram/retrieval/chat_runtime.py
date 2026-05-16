@@ -7,13 +7,28 @@ from dataclasses import dataclass
 from typing import Any
 
 from engram.models.recall import MemoryNeed
+from engram.retrieval.chat_events import build_chat_tool_stream_events
+from engram.retrieval.chat_feedback import (
+    apply_chat_recall_feedback,
+    should_retry_chat_response,
+)
+from engram.retrieval.chat_tools import (
+    CHAT_TOOLS,
+    extract_message_text,
+    retry_memory_grounded_response,
+    run_chat_tool_use_loop,
+)
 from engram.retrieval.context import (
     ingest_manager_conversation_turn,
     manager_conversation_context,
     manager_conversation_turn_count,
 )
-from engram.retrieval.control import resolve_manager_recall_need_thresholds
+from engram.retrieval.control import (
+    record_manager_memory_need_analysis,
+    resolve_manager_recall_need_thresholds,
+)
 from engram.retrieval.epistemic import render_epistemic_summary
+from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.need import analyze_memory_need
 
 DEFAULT_MAX_HISTORY_MESSAGES = 10
@@ -27,12 +42,189 @@ class ApiChatRateLimitSurface:
     payload: dict
 
 
+@dataclass(frozen=True)
+class ChatResponseTurnResult:
+    """Route-neutral result for a completed knowledge-chat memory turn."""
+
+    stream_events: list[dict[str, Any]]
+    final_text: str
+    recall_results: list[dict[str, Any]]
+
+
 def build_api_chat_rate_limit_surface(remaining: int) -> ApiChatRateLimitSurface:
     """Return the REST chat rate-limit response surface."""
     return ApiChatRateLimitSurface(
         status_code=429,
         payload={"detail": "Rate limit exceeded for chat", "remaining": remaining},
     )
+
+
+async def check_api_chat_rate_limit(
+    rate_limiter: Any | None,
+    *,
+    group_id: str,
+    action: str = "chat",
+) -> ApiChatRateLimitSurface | None:
+    """Return a REST rate-limit surface when chat is not allowed."""
+    if rate_limiter is None:
+        return None
+
+    allowed, remaining = await rate_limiter.check(group_id, action)
+    if allowed:
+        return None
+    return build_api_chat_rate_limit_surface(remaining)
+
+
+async def run_chat_response_turn(
+    client: Any,
+    manager: Any,
+    *,
+    group_id: str,
+    message: str,
+    history: Sequence[Any] | None,
+    event_bus: Any | None = None,
+    session_entity_names: list[str] | None = None,
+    max_history_messages: int = DEFAULT_MAX_HISTORY_MESSAGES,
+    max_tool_turns: int = 3,
+    context_max_tokens: int = 1000,
+    text_part_id: str = "text_0",
+    text_chunk_size: int = 20,
+) -> ChatResponseTurnResult:
+    """Run a full REST knowledge-chat memory turn outside the transport route."""
+    chat_policy = build_chat_runtime_policy(manager)
+    await hydrate_chat_context(
+        manager,
+        history,
+        message,
+        max_history_messages=max_history_messages,
+    )
+
+    chat_need: MemoryNeed | None = None
+    epistemic_bundle = None
+    topic_hint: str | None = message
+    entity_names = session_entity_names or []
+
+    if chat_policy.recall_need_analyzer_enabled:
+        chat_need = await analyze_chat_memory_need(
+            message,
+            manager,
+            history,
+            session_entity_names=entity_names,
+            group_id=group_id,
+        )
+        await record_manager_memory_need_analysis(manager, group_id, chat_need)
+        if chat_policy.recall_telemetry_enabled and event_bus is not None:
+            publish_memory_need_analysis(
+                event_bus,
+                group_id,
+                chat_need,
+                source="knowledge_chat",
+                mode="chat",
+                turn_text=message,
+            )
+        topic_hint = chat_need.query_hint if chat_need.should_recall else None
+
+    if chat_policy.epistemic_routing_enabled:
+        epistemic_bundle = await gather_chat_epistemic_evidence(
+            manager,
+            message=message,
+            group_id=group_id,
+            history=history,
+            session_entity_names=entity_names,
+            memory_need=chat_need,
+        )
+
+    context_result = await build_chat_context_surface(
+        manager,
+        group_id=group_id,
+        max_tokens=context_max_tokens,
+        topic_hint=topic_hint,
+    )
+    system_prompt = build_chat_system_prompt_surface(
+        context=context_result["context"],
+        memory_need=chat_need,
+        epistemic_bundle=epistemic_bundle,
+    )
+    messages = build_chat_messages(
+        history,
+        message,
+        max_history_messages=max_history_messages,
+    )
+
+    tool_loop = await run_chat_tool_use_loop(
+        client,
+        manager=manager,
+        group_id=group_id,
+        system_prompt=system_prompt,
+        messages=messages,
+        tools=CHAT_TOOLS,
+        initial_recall_results=list(getattr(epistemic_bundle, "memory_results", []) or []),
+        max_tool_turns=max_tool_turns,
+    )
+    final_text = extract_message_text(tool_loop.response.content)
+
+    if final_text and should_retry_chat_response(
+        manager,
+        chat_need=chat_need,
+        response_text=final_text,
+        recall_results=tool_loop.recall_results,
+    ):
+        if chat_need is None:
+            raise RuntimeError("chat_need missing during retry path")
+        final_text = await retry_memory_grounded_response(
+            client,
+            system_prompt=system_prompt,
+            loop_messages=tool_loop.loop_messages,
+            chat_need=chat_need,
+            prior_response=final_text,
+        )
+
+    if final_text:
+        await apply_chat_recall_feedback(
+            manager,
+            group_id=group_id,
+            query=message,
+            response_text=final_text,
+            recall_results=tool_loop.recall_results,
+        )
+        await record_chat_assistant_turn(manager, final_text)
+
+    stream_events = [
+        *build_chat_tool_stream_events(tool_loop.recall_results, tool_loop.facts),
+        *build_chat_text_stream_events(
+            final_text,
+            text_part_id=text_part_id,
+            chunk_size=text_chunk_size,
+        ),
+    ]
+    return ChatResponseTurnResult(
+        stream_events=stream_events,
+        final_text=final_text,
+        recall_results=tool_loop.recall_results,
+    )
+
+
+def build_chat_text_stream_events(
+    text: str,
+    *,
+    text_part_id: str = "text_0",
+    chunk_size: int = 20,
+) -> list[dict[str, Any]]:
+    """Build AI SDK v6 text events for a completed chat response."""
+    if not text:
+        return []
+    return [
+        {"type": "text-start", "id": text_part_id},
+        *[
+            {
+                "type": "text-delta",
+                "id": text_part_id,
+                "delta": text[index : index + chunk_size],
+            }
+            for index in range(0, len(text), chunk_size)
+        ],
+        {"type": "text-end", "id": text_part_id},
+    ]
 
 
 def build_chat_runtime_policy(manager: Any) -> Any:

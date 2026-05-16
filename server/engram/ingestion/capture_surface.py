@@ -8,7 +8,12 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.ingestion.adjudication_surface import load_client_enabled_episode_adjudication_requests
-from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
+from engram.ingestion.presenter import (
+    memory_write_contract,
+    present_api_memory_write,
+    present_api_observe_skip,
+    present_mcp_memory_write,
+)
 from engram.models.episode import Attachment
 from engram.utils.dates import utc_now
 
@@ -95,6 +100,133 @@ async def ingest_projecting_memory(
     if attachments is not None or pass_attachments:
         kwargs["attachments"] = attachments
     return await manager.ingest_episode(**kwargs)
+
+
+async def build_api_auto_observe_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    source: str,
+    session_id: str | None = None,
+    conversation_date: str | None = None,
+    auto_observe_enabled: bool = True,
+    dedup_check: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    """Run the REST auto-observe Capture policy behind an ingestion boundary."""
+    if not auto_observe_enabled:
+        return present_api_observe_skip("skipped", reason="disabled")
+
+    if not content or len(content.strip()) < 10:
+        return present_api_observe_skip("skipped", reason="too_short")
+
+    if dedup_check is not None and dedup_check(content):
+        return present_api_observe_skip("dedup_skipped")
+
+    episode_id = await store_observation(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        session_id=session_id,
+        conversation_date=parse_conversation_date(conversation_date),
+        pass_conversation_date=True,
+    )
+    return present_api_memory_write(
+        memory_write_contract("observe", episode_id),
+        status="observed",
+    )
+
+
+async def build_api_observe_write_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    source: str,
+    conversation_date: str | None = None,
+) -> dict[str, Any]:
+    """Run the REST observe write path behind a Capture-stage surface boundary."""
+    episode_id = await store_observation(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        conversation_date=parse_conversation_date(conversation_date),
+        pass_conversation_date=True,
+    )
+    return present_api_memory_write(
+        memory_write_contract("observe", episode_id),
+        status="observed",
+    )
+
+
+async def build_api_attachment_observe_write_surface(
+    manager: Any,
+    *,
+    data_url: str,
+    mime_type: str,
+    attachment_kind: str,
+    fallback_content: str,
+    group_id: str,
+    description: str = "",
+    source: str = "api",
+) -> dict[str, Any]:
+    """Run a REST image/file observe write behind a Capture-stage boundary."""
+    attachment = build_observation_attachment(
+        mime_type=mime_type,
+        data_url=data_url,
+        description=description,
+    )
+    episode_id = await store_observation(
+        manager,
+        content=description or fallback_content,
+        group_id=group_id,
+        source=source,
+        attachments=[attachment],
+    )
+    return present_api_memory_write(
+        memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
+        status="stored",
+        include_legacy_episode_id=True,
+    )
+
+
+async def build_api_remember_write_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    source: str,
+    conversation_date: str | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
+    model_tier: str = "default",
+) -> dict[str, Any]:
+    """Run the REST remember write path behind a Capture -> Project boundary."""
+    episode_id = await ingest_projecting_memory(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        conversation_date=parse_conversation_date(conversation_date),
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
+        model_tier=model_tier,
+    )
+    adjudications = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+    )
+    return present_api_memory_write(
+        memory_write_contract(
+            "remember",
+            episode_id,
+            adjudication_requests=adjudications,
+        ),
+        status="remembered",
+    )
 
 
 def record_mcp_memory_write_activity(session: Any) -> None:

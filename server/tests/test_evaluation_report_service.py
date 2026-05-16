@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from engram.evaluation.report_service import (
+    build_api_brain_loop_evaluation_surface,
     build_brain_loop_evaluation_surface,
     build_mcp_evaluation_report_surface,
     load_consolidation_evaluation_inputs,
@@ -103,6 +104,45 @@ async def test_load_consolidation_evaluation_inputs_reads_cycle_snapshots() -> N
     assert snapshots == ["snapshot"]
     store.get_recent_cycles.assert_awaited_once_with("brain_a", limit=1)
     store.get_calibration_snapshots.assert_awaited_once_with("cyc_1", "brain_a")
+
+
+@pytest.mark.asyncio
+async def test_api_evaluation_report_surface_loads_engine_context() -> None:
+    manager = AsyncMock()
+    manager.get_graph_state.return_value = {
+        "stats": {
+            "episodes": {"total": 1},
+            "entities": {"total": 2, "active": 1},
+            "relationships": {"total": 3},
+            "recall_metrics": {},
+        }
+    }
+    evaluation_store = AsyncMock()
+    evaluation_store.get_latest_recall_metrics_snapshot.return_value = {}
+    evaluation_store.get_recall_samples.return_value = []
+    evaluation_store.get_session_samples.return_value = []
+    engine = AsyncMock()
+    engine.get_recent_evaluation_context.return_value = (
+        [SimpleNamespace(id="cyc_1", phase_results=[])],
+        ["snapshot"],
+    )
+
+    report = await build_api_brain_loop_evaluation_surface(
+        manager,
+        evaluation_store,
+        engine,
+        group_id="brain_a",
+        cycle_limit=0,
+        sample_limit=0,
+    )
+
+    assert report["group_id"] == "brain_a"
+    engine.get_recent_evaluation_context.assert_awaited_once_with(
+        "brain_a",
+        cycle_limit=1,
+    )
+    evaluation_store.get_recall_samples.assert_awaited_once_with("brain_a", limit=1)
+    evaluation_store.get_session_samples.assert_awaited_once_with("brain_a", limit=1)
 
 
 @pytest.mark.asyncio

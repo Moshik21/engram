@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ from engram.api.knowledge import _DEDUP_CACHE, _dedup_check
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
+from engram.ingestion.capture_surface import build_api_auto_observe_surface
 from engram.ingestion.worker_batching import PendingEpisode
 from engram.models.episode import EpisodeProjectionState
 from engram.storage.memory.activation import MemoryActivationStore
@@ -73,6 +75,62 @@ class TestDedupCache:
 
 
 # ── Auto-Observe Endpoint Tests ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_auto_observe_surface_stores_capture_with_route_policy():
+    manager = SimpleNamespace(store_episode=AsyncMock(return_value="ep_auto_1"))
+
+    payload = await build_api_auto_observe_surface(
+        manager,
+        content="[user|Engram] capture this prompt for latent memory",
+        group_id="tenant_brain",
+        source="auto:prompt",
+        session_id="sess-123",
+        conversation_date="2026-05-15T12:00:00",
+        auto_observe_enabled=True,
+        dedup_check=lambda _content: False,
+    )
+
+    assert payload["status"] == "observed"
+    assert payload["episodeId"] == "ep_auto_1"
+    kwargs = manager.store_episode.await_args.kwargs
+    assert kwargs["group_id"] == "tenant_brain"
+    assert kwargs["session_id"] == "sess-123"
+    assert kwargs["conversation_date"].isoformat() == "2026-05-15T12:00:00"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("enabled", "content", "is_duplicate", "reason", "status"),
+    [
+        (False, "[user|Engram] long enough", False, "disabled", "skipped"),
+        (True, "short", False, "too_short", "skipped"),
+        (True, "[user|Engram] duplicate prompt body", True, None, "dedup_skipped"),
+    ],
+)
+async def test_auto_observe_surface_skips_before_store(
+    enabled,
+    content,
+    is_duplicate,
+    reason,
+    status,
+):
+    manager = SimpleNamespace(store_episode=AsyncMock())
+
+    payload = await build_api_auto_observe_surface(
+        manager,
+        content=content,
+        group_id="tenant_brain",
+        source="auto:prompt",
+        auto_observe_enabled=enabled,
+        dedup_check=lambda _content: is_duplicate,
+    )
+
+    assert payload["status"] == status
+    if reason is not None:
+        assert payload["reason"] == reason
+    manager.store_episode.assert_not_awaited()
 
 
 @pytest_asyncio.fixture

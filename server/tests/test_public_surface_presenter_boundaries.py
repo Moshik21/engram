@@ -9,25 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 PRESENTER_BOUNDARIES = {
     ("engram/api/knowledge.py", "observe"): {
-        "memory_write_contract",
-        "present_api_memory_write",
+        "build_api_observe_write_surface",
     },
     ("engram/api/knowledge.py", "auto_observe"): {
-        "memory_write_contract",
-        "present_api_memory_write",
-        "present_api_observe_skip",
+        "build_api_auto_observe_surface",
     },
     ("engram/api/knowledge.py", "observe_image"): {
-        "memory_write_contract",
-        "present_api_memory_write",
+        "build_api_attachment_observe_write_surface",
     },
     ("engram/api/knowledge.py", "observe_file"): {
-        "memory_write_contract",
-        "present_api_memory_write",
+        "build_api_attachment_observe_write_surface",
     },
     ("engram/api/knowledge.py", "remember"): {
-        "memory_write_contract",
-        "present_api_memory_write",
+        "build_api_remember_write_surface",
     },
     ("engram/api/knowledge.py", "recall"): {
         "build_api_recall_surface",
@@ -60,30 +54,23 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "manager_conversation_top_entity_names",
     },
     ("engram/api/knowledge.py", "observe"): {
-        "parse_conversation_date",
-        "store_observation",
+        "build_api_observe_write_surface",
     },
     ("engram/api/knowledge.py", "auto_observe"): {
-        "parse_conversation_date",
-        "store_observation",
+        "build_api_auto_observe_surface",
+        "get_config",
     },
     ("engram/api/knowledge.py", "observe_image"): {
-        "build_observation_attachment",
-        "store_observation",
+        "build_api_attachment_observe_write_surface",
     },
     ("engram/api/knowledge.py", "observe_file"): {
-        "build_observation_attachment",
-        "store_observation",
+        "build_api_attachment_observe_write_surface",
     },
     ("engram/api/knowledge.py", "replay_queue"): {
         "build_api_manager_offline_replay_surface",
     },
     ("engram/api/knowledge.py", "remember"): {
-        "ingest_projecting_memory",
-        "load_client_enabled_episode_adjudication_requests",
-        "memory_write_contract",
-        "parse_conversation_date",
-        "present_api_memory_write",
+        "build_api_remember_write_surface",
     },
     ("engram/api/knowledge.py", "adjudicate"): {
         "build_api_adjudication_resolution_surface",
@@ -108,26 +95,14 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_recall_surface",
     },
     ("engram/api/knowledge.py", "chat"): {
-        "apply_chat_recall_feedback",
-        "build_api_chat_rate_limit_surface",
-        "build_chat_runtime_policy",
-        "build_chat_tool_stream_events",
-        "CHAT_TOOLS",
-        "build_chat_messages",
-        "extract_message_text",
-        "build_chat_system_prompt_surface",
-        "get_rate_limiter",
-        "analyze_chat_memory_need",
-        "build_chat_context_surface",
+        "check_api_chat_rate_limit",
         "chat_conversation_not_found_payload",
-        "gather_chat_epistemic_evidence",
-        "hydrate_chat_context",
-        "persist_chat_turn",
-        "record_chat_assistant_turn",
+        "get_event_bus",
+        "get_rate_limiter",
+        "_get_conv_top_entity_names",
         "resolve_chat_conversation",
-        "retry_memory_grounded_response",
-        "run_chat_tool_use_loop",
-        "should_retry_chat_response",
+        "run_chat_response_turn",
+        "schedule_chat_turn_persistence",
     },
     ("engram/api/health.py", "health_check"): {
         "build_api_health_surface",
@@ -170,8 +145,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_entity_search_surface",
     },
     ("engram/api/evaluation.py", "brain_loop_evaluation_report"): {
-        "build_brain_loop_evaluation_surface",
-        "get_recent_evaluation_context",
+        "build_api_brain_loop_evaluation_surface",
     },
     ("engram/api/evaluation.py", "create_recall_sample"): {
         "build_recall_evaluation_write_surface",
@@ -415,21 +389,71 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
         "get_activation_curve",
         "HTTPException",
     },
+    ("engram/api/evaluation.py", "brain_loop_evaluation_report"): {
+        "build_brain_loop_evaluation_surface",
+        "get_recent_evaluation_context",
+    },
     ("engram/api/lifecycle.py", "lifecycle_summary"): {
         "get_lifecycle_summary",
     },
     ("engram/api/knowledge.py", "chat"): {
+        "analyze_chat_memory_need",
+        "apply_chat_recall_feedback",
+        "build_chat_context_surface",
+        "build_chat_messages",
+        "build_chat_runtime_policy",
+        "build_chat_system_prompt_surface",
+        "build_chat_tool_stream_events",
+        "CHAT_TOOLS",
+        "create_task",
+        "extract_message_text",
         "gather_epistemic_evidence",
         "get_context",
         "get_chat_runtime_policy",
+        "hydrate_chat_context",
+        "record_chat_assistant_turn",
+        "persist_chat_turn",
+        "retry_memory_grounded_response",
+        "run_chat_tool_use_loop",
+        "should_retry_chat_response",
     },
     ("engram/api/knowledge.py", "replay_queue"): {
         "build_api_offline_replay_surface",
         "store_episode",
     },
+    ("engram/api/knowledge.py", "auto_observe"): {
+        "memory_write_contract",
+        "parse_conversation_date",
+        "present_api_memory_write",
+        "present_api_observe_skip",
+        "store_observation",
+    },
     ("engram/api/knowledge.py", "remember"): {
         "edge_adjudication_client_enabled",
+        "ingest_projecting_memory",
+        "load_client_enabled_episode_adjudication_requests",
         "load_episode_adjudication_requests",
+        "memory_write_contract",
+        "parse_conversation_date",
+        "present_api_memory_write",
+    },
+    ("engram/api/knowledge.py", "observe"): {
+        "memory_write_contract",
+        "parse_conversation_date",
+        "present_api_memory_write",
+        "store_observation",
+    },
+    ("engram/api/knowledge.py", "observe_image"): {
+        "build_observation_attachment",
+        "memory_write_contract",
+        "present_api_memory_write",
+        "store_observation",
+    },
+    ("engram/api/knowledge.py", "observe_file"): {
+        "build_observation_attachment",
+        "memory_write_contract",
+        "present_api_memory_write",
+        "store_observation",
     },
     ("engram/mcp/server.py", "remember"): {
         "edge_adjudication_client_enabled",
@@ -565,6 +589,86 @@ def _functions_directly_awaiting(relative_path: str, call_name: str) -> set[str]
     return callers
 
 
+def _direct_runtime_method_calls(
+    relative_paths: list[str],
+    *,
+    owner_names: set[str],
+) -> set[tuple[str, str, str, str]]:
+    calls: set[tuple[str, str, str, str]] = set()
+    for relative_path in relative_paths:
+        tree = ast.parse((ROOT / relative_path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                owner = node.func.value
+                if not isinstance(owner, ast.Name):
+                    continue
+                if owner.id not in owner_names:
+                    continue
+                calls.add((relative_path, function.name, owner.id, node.func.attr))
+    return calls
+
+
+def _decorated_mcp_function_names(relative_path: str) -> set[str]:
+    tree = ast.parse((ROOT / relative_path).read_text())
+    function_names: set[str] = set()
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+            continue
+        for decorator in function.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            func = decorator.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "mcp"
+                and func.attr in {"tool", "resource", "prompt"}
+            ):
+                function_names.add(function.name)
+    return function_names
+
+
+def _direct_runtime_method_calls_in_functions(
+    relative_path: str,
+    *,
+    function_names: set[str],
+    owner_names: set[str],
+) -> set[tuple[str, str, str, str]]:
+    return {
+        call
+        for call in _direct_runtime_method_calls([relative_path], owner_names=owner_names)
+        if call[1] in function_names
+    }
+
+
+def _direct_awaited_name_calls(relative_paths: list[str]) -> set[tuple[str, str, str]]:
+    calls: set[tuple[str, str, str]] = set()
+    for relative_path in relative_paths:
+        tree = ast.parse((ROOT / relative_path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+                    continue
+                func = node.value.func
+                if isinstance(func, ast.Name):
+                    calls.add((relative_path, function.name, func.id))
+    return calls
+
+
+def _public_api_route_paths() -> list[str]:
+    return [
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "engram/api").glob("*.py")
+        if path.name not in {"__init__.py", "deps.py"} and "APIRouter" in path.read_text()
+    ]
+
+
 def _manager_private_attrs_used(relative_path: str, function_name: str) -> set[str]:
     return _private_attrs_used(relative_path, function_name, "manager")
 
@@ -620,3 +724,96 @@ def test_public_surface_routes_do_not_read_app_state_directly(relative_path: str
 
 def test_mcp_tool_handlers_do_not_directly_await_recall_middleware() -> None:
     assert _functions_directly_awaiting("engram/mcp/server.py", "_recall_middleware") == set()
+
+
+def test_public_routes_do_not_dispatch_manager_methods_directly() -> None:
+    allowed = {
+        ("engram/mcp/server.py", "_shutdown", "_manager", "close_runtime_resources"),
+    }
+    assert (
+        _direct_runtime_method_calls(
+            [*_public_api_route_paths(), "engram/mcp/server.py"],
+            owner_names={"manager", "_manager"},
+        )
+        == allowed
+    )
+
+
+def test_public_routes_do_not_dispatch_engine_methods_directly() -> None:
+    assert _direct_runtime_method_calls(_public_api_route_paths(), owner_names={"engine"}) == set()
+
+
+def test_public_routes_do_not_dispatch_store_or_service_methods_directly() -> None:
+    assert (
+        _direct_runtime_method_calls(
+            _public_api_route_paths(),
+            owner_names={
+                "atlas_service",
+                "conv_store",
+                "conversation_store",
+                "evaluation_store",
+                "graph_store",
+                "notification_surface",
+                "rate_limiter",
+                "service",
+                "store",
+            },
+        )
+        == set()
+    )
+
+
+def test_public_api_routes_only_await_route_facing_helpers() -> None:
+    allowed_names = {
+        "check_api_chat_rate_limit",
+        "resolve_chat_conversation",
+        "resolve_tenant_from_scope",
+        "run_api_consolidation_cycle",
+        "run_chat_response_turn",
+    }
+    allowed_prefixes = (
+        "build_",
+        "dismiss_",
+    )
+    violations = {
+        call
+        for call in _direct_awaited_name_calls(_public_api_route_paths())
+        if call[2] not in allowed_names and not call[2].startswith(allowed_prefixes)
+    }
+    assert violations == set()
+
+
+def test_mcp_public_surfaces_do_not_dispatch_store_or_session_methods_directly() -> None:
+    assert (
+        _direct_runtime_method_calls_in_functions(
+            "engram/mcp/server.py",
+            function_names=_decorated_mcp_function_names("engram/mcp/server.py"),
+            owner_names={
+                "_consolidation_store",
+                "_evaluation_store",
+                "_session",
+                "consolidation_store",
+                "evaluation_store",
+                "session",
+                "store",
+            },
+        )
+        == set()
+    )
+
+
+def test_mcp_public_surfaces_only_await_route_facing_helpers() -> None:
+    allowed_names = {
+        "resolve_mcp_consolidation_trigger_store",
+    }
+    allowed_prefixes = (
+        "build_",
+    )
+    violations = {
+        call
+        for call in _direct_awaited_name_calls(["engram/mcp/server.py"])
+        if call[1] in _decorated_mcp_function_names("engram/mcp/server.py")
+        and call[2] not in allowed_names
+        and not call[2].startswith(allowed_prefixes)
+    }
+    assert violations == set()

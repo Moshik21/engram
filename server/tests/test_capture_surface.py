@@ -8,6 +8,9 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.ingestion.capture_surface import (
+    build_api_attachment_observe_write_surface,
+    build_api_observe_write_surface,
+    build_api_remember_write_surface,
     build_mcp_attachment_observe_write_surface,
     build_mcp_observe_write_surface,
     build_mcp_remember_write_surface,
@@ -100,6 +103,88 @@ async def test_ingest_projecting_memory_can_preserve_empty_attachment_arg() -> N
         session_id="sess_1",
         attachments=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_build_api_observe_write_surface_presents_observed_payload() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+
+    response = await build_api_observe_write_surface(
+        manager,
+        content="Observed operator preference.",
+        group_id="native_brain",
+        source="dashboard",
+        conversation_date="2026-05-15T12:34:56",
+    )
+
+    manager.store_episode.assert_awaited_once_with(
+        content="Observed operator preference.",
+        group_id="native_brain",
+        source="dashboard",
+        conversation_date=parse_conversation_date("2026-05-15T12:34:56"),
+    )
+    assert response["status"] == "observed"
+    assert response["operation"] == "observe"
+    assert response["episodeId"] == "ep_observe"
+    assert response["lifecycle"]["stage"] == "cue"
+
+
+@pytest.mark.asyncio
+async def test_build_api_attachment_observe_write_surface_presents_legacy_episode_id() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_image")
+
+    response = await build_api_attachment_observe_write_surface(
+        manager,
+        data_url="data:image/png;base64,abc",
+        mime_type="image/png",
+        attachment_kind="image",
+        fallback_content="[image: image/png]",
+        group_id="native_brain",
+        description="control panel sketch",
+        source="api",
+    )
+
+    manager.store_episode.assert_awaited_once()
+    call_kwargs = manager.store_episode.await_args.kwargs
+    assert call_kwargs["content"] == "control panel sketch"
+    assert call_kwargs["attachments"][0].mime_type == "image/png"
+    assert response["status"] == "stored"
+    assert response["operation"] == "observe"
+    assert response["episode_id"] == "ep_image"
+    assert response["lifecycle"]["attachmentKind"] == "image"
+
+
+@pytest.mark.asyncio
+async def test_build_api_remember_write_surface_loads_client_adjudications() -> None:
+    manager = MagicMock()
+    manager.ingest_episode = AsyncMock(return_value="ep_remember")
+    manager.edge_adjudication_client_enabled = MagicMock(return_value=True)
+    manager.get_episode_adjudications = AsyncMock(
+        return_value=[{"request_id": "adj_1", "candidate_evidence": []}]
+    )
+
+    response = await build_api_remember_write_surface(
+        manager,
+        content="Alice works at Engram.",
+        group_id="native_brain",
+        source="dashboard",
+        conversation_date="2026-05-15T12:34:56",
+        proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+        model_tier="opus",
+    )
+
+    manager.ingest_episode.assert_awaited_once()
+    call_kwargs = manager.ingest_episode.await_args.kwargs
+    assert call_kwargs["conversation_date"] == parse_conversation_date(
+        "2026-05-15T12:34:56"
+    )
+    assert call_kwargs["proposed_entities"] == [{"name": "Alice", "entity_type": "Person"}]
+    assert call_kwargs["model_tier"] == "opus"
+    assert response["status"] == "remembered"
+    assert response["operation"] == "remember"
+    assert response["adjudicationRequests"][0]["requestId"] == "adj_1"
 
 
 @pytest.mark.asyncio

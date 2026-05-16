@@ -44,6 +44,7 @@ from engram.models.relationship import Relationship
 from engram.models.tenant import TenantContext
 from engram.notifications.models import MemoryNotification
 from engram.notifications.store import NotificationStore
+from engram.notifications.surface import NotificationSurfaceService
 from engram.public_surface_policy import PublicSurfacePolicyService
 from engram.retrieval.chat_feedback import apply_chat_recall_feedback
 from engram.retrieval.chat_runtime import (
@@ -54,9 +55,12 @@ from engram.retrieval.chat_runtime import (
     build_chat_messages,
     build_chat_runtime_policy,
     build_chat_system_prompt_surface,
+    build_chat_text_stream_events,
+    check_api_chat_rate_limit,
     gather_chat_epistemic_evidence,
     hydrate_chat_context,
     record_chat_assistant_turn,
+    run_chat_response_turn,
 )
 from engram.retrieval.chat_tools import execute_chat_tool_json
 from engram.retrieval.context import ConversationContext, ConversationRuntimeService
@@ -204,6 +208,7 @@ class TestNotifications:
         store.add(active)
         store.add(other)
         _app_state["notification_store"] = store
+        _app_state["notification_surface_service"] = NotificationSurfaceService(store)
         request = SimpleNamespace(
             state=SimpleNamespace(
                 tenant=TenantContext(group_id="tenant_brain", auth_method="test"),
@@ -217,6 +222,7 @@ class TestNotifications:
             )
         finally:
             _app_state.pop("notification_store", None)
+            _app_state.pop("notification_surface_service", None)
 
         assert response.status_code == 200
         assert json.loads(response.body) == {"dismissed": 1}
@@ -971,6 +977,74 @@ class TestChatMemoryNeedHelpers:
         assert "Route: reconcile (project, current)" in prompt[2]["text"]
         assert "Use memory before answering." in prompt[2]["text"]
 
+    async def test_build_chat_text_stream_events_chunks_final_text(self):
+        events = build_chat_text_stream_events(
+            "Engram remembers",
+            text_part_id="text_test",
+            chunk_size=6,
+        )
+
+        assert events == [
+            {"type": "text-start", "id": "text_test"},
+            {"type": "text-delta", "id": "text_test", "delta": "Engram"},
+            {"type": "text-delta", "id": "text_test", "delta": " remem"},
+            {"type": "text-delta", "id": "text_test", "delta": "bers"},
+            {"type": "text-end", "id": "text_test"},
+        ]
+
+    async def test_run_chat_response_turn_owns_memory_runtime_orchestration(self):
+        manager = MagicMock()
+        _attach_public_surface_policy(manager, ActivationConfig())
+        manager.get_context = AsyncMock(return_value={"context": "baseline context"})
+
+        response = SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(text="Engram uses the memory graph.")],
+        )
+        client = SimpleNamespace(
+            messages=SimpleNamespace(create=AsyncMock(return_value=response))
+        )
+        history = [
+            ChatMessage(role="user", content="Earlier question"),
+            ChatMessage(role="assistant", content="Earlier answer"),
+        ]
+
+        result = await run_chat_response_turn(
+            client,
+            manager,
+            group_id="tenant_brain",
+            message="What does Engram use?",
+            history=history,
+            session_entity_names=["Engram"],
+            max_history_messages=1,
+            text_chunk_size=12,
+        )
+
+        assert result.final_text == "Engram uses the memory graph."
+        assert result.recall_results == []
+        assert [event["type"] for event in result.stream_events] == [
+            "text-start",
+            "text-delta",
+            "text-delta",
+            "text-delta",
+            "text-end",
+        ]
+        manager.get_context.assert_awaited_once_with(
+            group_id="tenant_brain",
+            max_tokens=1000,
+            topic_hint="What does Engram use?",
+        )
+        call_kwargs = client.messages.create.await_args.kwargs
+        assert call_kwargs["messages"] == [
+            {"role": "assistant", "content": "Earlier answer"},
+            {"role": "user", "content": "What does Engram use?"},
+        ]
+        assert [tool["name"] for tool in call_kwargs["tools"]] == [
+            "recall",
+            "search_entities",
+            "search_facts",
+        ]
+
 
 @pytest.mark.asyncio
 class TestChatContextHelpers:
@@ -1320,6 +1394,24 @@ class TestChat:
             "detail": "Rate limit exceeded for chat",
             "remaining": 2,
         }
+
+    @pytest.mark.asyncio
+    async def test_check_api_chat_rate_limit_returns_none_when_allowed(self):
+        rate_limiter = SimpleNamespace(check=AsyncMock(return_value=(True, 5)))
+
+        result = await check_api_chat_rate_limit(rate_limiter, group_id="brain_a")
+
+        assert result is None
+        rate_limiter.check.assert_awaited_once_with("brain_a", "chat")
+
+    @pytest.mark.asyncio
+    async def test_check_api_chat_rate_limit_returns_shared_surface_when_blocked(self):
+        rate_limiter = SimpleNamespace(check=AsyncMock(return_value=(False, 2)))
+
+        result = await check_api_chat_rate_limit(rate_limiter, group_id="brain_a")
+
+        assert result == build_api_chat_rate_limit_surface(remaining=2)
+        rate_limiter.check.assert_awaited_once_with("brain_a", "chat")
 
     @pytest.mark.asyncio
     async def test_chat_rate_limit_returns_shared_surface(self, knowledge_client, monkeypatch):

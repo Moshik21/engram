@@ -53,6 +53,45 @@ async def build_mcp_evaluation_report_surface(
     )
 
 
+async def build_api_brain_loop_evaluation_surface(
+    manager: Any,
+    evaluation_store: Any,
+    consolidation_engine: Any,
+    *,
+    group_id: str,
+    cycle_limit: int,
+    sample_limit: int,
+) -> dict[str, Any]:
+    """Build the REST brain-loop report from active runtime services."""
+    recent_cycles, calibration_snapshots = await load_engine_evaluation_context(
+        consolidation_engine,
+        group_id=group_id,
+        cycle_limit=cycle_limit,
+    )
+    return await build_brain_loop_evaluation_surface(
+        manager,
+        evaluation_store,
+        group_id=group_id,
+        recent_cycles=recent_cycles,
+        calibration_snapshots=calibration_snapshots,
+        sample_limit=max(1, sample_limit),
+        snapshot_source="rest_report",
+    )
+
+
+async def load_engine_evaluation_context(
+    consolidation_engine: Any,
+    *,
+    group_id: str,
+    cycle_limit: int,
+) -> tuple[list[Any], list[Any]]:
+    """Read evaluation context through the consolidation engine facade."""
+    return await consolidation_engine.get_recent_evaluation_context(
+        group_id,
+        cycle_limit=max(1, cycle_limit),
+    )
+
+
 async def build_brain_loop_evaluation_surface(
     manager: Any,
     evaluation_store: Any,

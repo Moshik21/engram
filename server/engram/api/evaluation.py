@@ -15,7 +15,7 @@ from engram.evaluation.label_service import (
     build_recall_evaluation_write_surface,
     build_session_continuity_evaluation_write_surface,
 )
-from engram.evaluation.report_service import build_brain_loop_evaluation_surface
+from engram.evaluation.report_service import build_api_brain_loop_evaluation_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/evaluation", tags=["evaluation"])
@@ -116,17 +116,12 @@ async def brain_loop_evaluation_report(
     evaluation_store = get_evaluation_store()
     engine = get_consolidation_engine()
 
-    recent_cycles, calibration_snapshots = await engine.get_recent_evaluation_context(
-        group_id,
-        cycle_limit=cycle_limit,
-    )
-    report = await build_brain_loop_evaluation_surface(
+    report = await build_api_brain_loop_evaluation_surface(
         manager,
         evaluation_store,
+        engine,
         group_id=group_id,
-        recent_cycles=recent_cycles,
-        calibration_snapshots=calibration_snapshots,
+        cycle_limit=cycle_limit,
         sample_limit=sample_limit,
-        snapshot_source="rest_report",
     )
     return JSONResponse(content=report)

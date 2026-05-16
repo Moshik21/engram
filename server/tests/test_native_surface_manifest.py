@@ -14,6 +14,7 @@ from engram.quality.native_surface_manifest import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = ROOT.parent
 MCP_SERVER = ROOT / "engram" / "mcp" / "server.py"
 NATIVE_PARITY_TEST = ROOT / "tests" / "test_native_surface_parity.py"
 
@@ -73,6 +74,15 @@ def _decorated_mcp_surfaces() -> dict[str, set[str]]:
     return surfaces
 
 
+def _python_function_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text())
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+    }
+
+
 def test_native_surface_manifest_classifies_every_rest_route() -> None:
     assert _public_rest_routes() == identifiers_by_kind("rest")
 
@@ -90,11 +100,21 @@ def test_native_surface_manifest_classifies_mcp_surfaces() -> None:
 
 
 def test_native_runtime_evidence_points_to_existing_parity_helpers() -> None:
-    parity_source = NATIVE_PARITY_TEST.read_text()
+    parity_helpers = _python_function_names(NATIVE_PARITY_TEST)
     missing: list[str] = []
     for surface in NATIVE_SURFACE_MANIFEST:
         if surface.coverage != "native_runtime_parity":
             continue
-        if surface.evidence not in parity_source:
+        if surface.evidence not in parity_helpers:
+            missing.append(f"{surface.identifier}: {surface.evidence}")
+    assert missing == []
+
+
+def test_native_non_runtime_evidence_points_to_existing_artifacts() -> None:
+    missing: list[str] = []
+    for surface in NATIVE_SURFACE_MANIFEST:
+        if surface.coverage == "native_runtime_parity":
+            continue
+        if not (REPO_ROOT / surface.evidence).exists():
             missing.append(f"{surface.identifier}: {surface.evidence}")
     assert missing == []

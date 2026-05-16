@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import asyncio
+import logging
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from engram.retrieval.conversation_persistence import CONVERSATION_NOT_FOUND_ERRORS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,37 @@ async def persist_chat_turn(
             entity_id,
             group_id=group_id,
         )
+
+
+def schedule_chat_turn_persistence(
+    conversation_store: Any | None,
+    *,
+    conversation_id: str | None,
+    group_id: str,
+    user_message: str,
+    assistant_message: str | None,
+    recall_results: Sequence[Mapping[str, Any]],
+    create_task: Callable[[Any], Any] = asyncio.create_task,
+) -> bool:
+    """Schedule best-effort persistence for a completed chat turn."""
+    if conversation_store is None or not conversation_id or not assistant_message:
+        return False
+
+    async def _persist() -> None:
+        try:
+            await persist_chat_turn(
+                conversation_store,
+                conversation_id=conversation_id,
+                group_id=group_id,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                recall_results=recall_results,
+            )
+        except Exception:
+            logger.warning("Failed to persist chat messages", exc_info=True)
+
+    create_task(_persist())
+    return True
 
 
 def _entity_ids_from_recall_results(

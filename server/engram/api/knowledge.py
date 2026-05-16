@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-from typing import Any, cast
 
 import anthropic
 from fastapi import APIRouter, Query, Request
@@ -20,68 +18,39 @@ from engram.api.deps import (
     get_rate_limiter,
 )
 from engram.events.bus import get_event_bus
-from engram.ingestion.adjudication_surface import (
-    build_api_adjudication_resolution_surface,
-    load_client_enabled_episode_adjudication_requests,
-)
+from engram.ingestion.adjudication_surface import build_api_adjudication_resolution_surface
 from engram.ingestion.capture_surface import (
-    build_observation_attachment,
-    ingest_projecting_memory,
-    parse_conversation_date,
-    store_observation,
+    build_api_attachment_observe_write_surface,
+    build_api_auto_observe_surface,
+    build_api_observe_write_surface,
+    build_api_remember_write_surface,
 )
 from engram.ingestion.dedup import CaptureDedupCache
 from engram.ingestion.offline_replay import build_api_manager_offline_replay_surface
-from engram.ingestion.presenter import (
-    memory_write_contract,
-    present_api_memory_write,
-    present_api_observe_skip,
-)
 from engram.ingestion.project_bootstrap import (
     build_project_bootstrap_surface,
     project_bootstrap_http_status,
 )
-from engram.models.recall import MemoryNeed
 from engram.notifications.surface import (
     build_api_notification_dismiss_surface,
     build_api_notifications_surface,
 )
 from engram.retrieval.artifacts import build_api_artifact_search_surface
-from engram.retrieval.chat_events import build_chat_tool_stream_events
-from engram.retrieval.chat_feedback import (
-    apply_chat_recall_feedback,
-    should_retry_chat_response,
-)
 from engram.retrieval.chat_persistence import (
     chat_conversation_not_found_payload,
-    persist_chat_turn,
     resolve_chat_conversation,
+    schedule_chat_turn_persistence,
 )
 from engram.retrieval.chat_runtime import (
     DEFAULT_MAX_HISTORY_MESSAGES,
-    analyze_chat_memory_need,
-    build_api_chat_rate_limit_surface,
-    build_chat_context_surface,
-    build_chat_messages,
-    build_chat_runtime_policy,
-    build_chat_system_prompt_surface,
-    gather_chat_epistemic_evidence,
-    hydrate_chat_context,
-    record_chat_assistant_turn,
-)
-from engram.retrieval.chat_tools import (
-    CHAT_TOOLS,
-    extract_message_text,
-    retry_memory_grounded_response,
-    run_chat_tool_use_loop,
+    check_api_chat_rate_limit,
+    run_chat_response_turn,
 )
 from engram.retrieval.context import (
     manager_conversation_top_entity_names,
 )
 from engram.retrieval.context_builder import build_api_context_surface
-from engram.retrieval.control import record_manager_memory_need_analysis
 from engram.retrieval.epistemic_route import build_question_route_surface
-from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.forgetting import build_api_forget_response_surface
 from engram.retrieval.lookup import build_api_fact_search_surface
 from engram.retrieval.preference_feedback import (
@@ -271,21 +240,14 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    episode_id = await store_observation(
+    payload = await build_api_observe_write_surface(
         manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
-        conversation_date=parse_conversation_date(body.conversation_date),
-        pass_conversation_date=True,
+        conversation_date=body.conversation_date,
     )
-
-    return JSONResponse(
-        content=present_api_memory_write(
-            memory_write_contract("observe", episode_id),
-            status="observed",
-        ),
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/auto-observe")
@@ -293,38 +255,19 @@ async def auto_observe(request: Request, body: AutoObserveBody) -> JSONResponse:
     """Auto-capture endpoint with dedup. Used by Claude Code hooks."""
     tenant = get_tenant(request)
     group_id = tenant.group_id
-
-    if not get_config().server.auto_observe_enabled:
-        return JSONResponse(
-            content=present_api_observe_skip("skipped", reason="disabled"),
-        )
-
-    if not body.content or len(body.content.strip()) < 10:
-        return JSONResponse(
-            content=present_api_observe_skip("skipped", reason="too_short"),
-        )
-
-    if _dedup_check(body.content):
-        return JSONResponse(content=present_api_observe_skip("dedup_skipped"))
-
     manager = get_manager()
 
-    episode_id = await store_observation(
+    payload = await build_api_auto_observe_surface(
         manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
         session_id=body.session_id,
-        conversation_date=parse_conversation_date(body.conversation_date),
-        pass_conversation_date=True,
+        conversation_date=body.conversation_date,
+        auto_observe_enabled=get_config().server.auto_observe_enabled,
+        dedup_check=_dedup_check,
     )
-
-    return JSONResponse(
-        content=present_api_memory_write(
-            memory_write_contract("observe", episode_id),
-            status="observed",
-        ),
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/observe-image")
@@ -334,26 +277,17 @@ async def observe_image(request: Request, body: ObserveImageRequest) -> JSONResp
     group_id = tenant.group_id
     manager = get_manager()
 
-    attachment = build_observation_attachment(
-        mime_type=body.mime_type,
-        data_url=body.image_data,
-        description=body.description,
-    )
-    episode_id = await store_observation(
+    payload = await build_api_attachment_observe_write_surface(
         manager,
-        content=body.description or f"[image: {body.mime_type}]",
+        data_url=body.image_data,
+        mime_type=body.mime_type,
+        attachment_kind="image",
+        fallback_content=f"[image: {body.mime_type}]",
         group_id=group_id,
+        description=body.description,
         source=body.source,
-        attachments=[attachment],
     )
-
-    return JSONResponse(
-        content=present_api_memory_write(
-            memory_write_contract("observe", episode_id, attachment_kind="image"),
-            status="stored",
-            include_legacy_episode_id=True,
-        ),
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/observe-file")
@@ -363,26 +297,17 @@ async def observe_file(request: Request, body: ObserveFileRequest) -> JSONRespon
     group_id = tenant.group_id
     manager = get_manager()
 
-    attachment = build_observation_attachment(
-        mime_type=body.mime_type,
-        data_url=body.file_data,
-        description=body.description,
-    )
-    episode_id = await store_observation(
+    payload = await build_api_attachment_observe_write_surface(
         manager,
-        content=body.description or f"[file: {body.mime_type}]",
+        data_url=body.file_data,
+        mime_type=body.mime_type,
+        attachment_kind="file",
+        fallback_content=f"[file: {body.mime_type}]",
         group_id=group_id,
+        description=body.description,
         source=body.source,
-        attachments=[attachment],
     )
-
-    return JSONResponse(
-        content=present_api_memory_write(
-            memory_write_contract("observe", episode_id, attachment_kind="file"),
-            status="stored",
-            include_legacy_episode_id=True,
-        ),
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/replay-queue")
@@ -412,31 +337,17 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    episode_id = await ingest_projecting_memory(
+    payload = await build_api_remember_write_surface(
         manager,
         content=body.content,
         group_id=group_id,
         source=body.source,
-        conversation_date=parse_conversation_date(body.conversation_date),
+        conversation_date=body.conversation_date,
         proposed_entities=body.proposed_entities,
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,
     )
-    adjudications = await load_client_enabled_episode_adjudication_requests(
-        manager,
-        episode_id=episode_id,
-        group_id=group_id,
-    )
-    return JSONResponse(
-        content=present_api_memory_write(
-            memory_write_contract(
-                "remember",
-                episode_id,
-                adjudication_requests=adjudications,
-            ),
-            status="remembered",
-        ),
-    )
+    return JSONResponse(content=payload)
 
 
 @router.post("/adjudicate")
@@ -724,18 +635,17 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     group_id = tenant.group_id
 
     # Rate limit chat endpoint (guards against runaway API costs)
-    rate_limiter = get_rate_limiter()
-    if rate_limiter:
-        allowed, remaining = await rate_limiter.check(group_id, "chat")
-        if not allowed:
-            result = build_api_chat_rate_limit_surface(remaining)
-            return JSONResponse(
-                status_code=result.status_code,
-                content=result.payload,
-            )
+    rate_limit_result = await check_api_chat_rate_limit(
+        get_rate_limiter(),
+        group_id=group_id,
+    )
+    if rate_limit_result:
+        return JSONResponse(
+            status_code=rate_limit_result.status_code,
+            content=rate_limit_result.payload,
+        )
 
     manager = get_manager()
-    chat_policy = build_chat_runtime_policy(manager)
 
     conversation_id = body.conversation_id
     try:
@@ -754,63 +664,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         return JSONResponse(status_code=404, content=chat_conversation_not_found_payload())
     conversation_id = conversation.conversation_id
 
-    await hydrate_chat_context(manager, body.history, body.message)
-
-    chat_need: MemoryNeed | None = None
-    epistemic_bundle = None
-    topic_hint: str | None = body.message
     session_entity_names = _get_conv_top_entity_names(manager)
-
-    if chat_policy.recall_need_analyzer_enabled:
-        chat_need = await analyze_chat_memory_need(
-            body.message,
-            manager,
-            body.history,
-            session_entity_names=session_entity_names,
-            group_id=group_id,
-        )
-        await record_manager_memory_need_analysis(manager, group_id, chat_need)
-        if chat_policy.recall_telemetry_enabled:
-            publish_memory_need_analysis(
-                get_event_bus(),
-                group_id,
-                chat_need,
-                source="knowledge_chat",
-                mode="chat",
-                turn_text=body.message,
-            )
-        topic_hint = chat_need.query_hint if chat_need.should_recall else None
-
-    if chat_policy.epistemic_routing_enabled:
-        epistemic_bundle = await gather_chat_epistemic_evidence(
-            manager,
-            message=body.message,
-            group_id=group_id,
-            history=body.history,
-            session_entity_names=session_entity_names,
-            memory_need=chat_need,
-        )
-
-    # Baseline context for the system prompt (1000 token budget to control costs)
-    context_result = await build_chat_context_surface(
-        manager,
-        group_id=group_id,
-        max_tokens=1000,
-        topic_hint=topic_hint,
-    )
-
-    system_prompt = build_chat_system_prompt_surface(
-        context=context_result["context"],
-        memory_need=chat_need,
-        epistemic_bundle=epistemic_bundle,
-    )
-    messages = build_chat_messages(
-        body.history,
-        body.message,
-        max_history_messages=MAX_HISTORY_MESSAGES,
-    )
-
-    text_part_id = "text_0"
 
     async def event_stream():
         try:
@@ -818,65 +672,20 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             yield _sse({"type": "start-step"})
 
             client = anthropic.AsyncAnthropic()
-
-            tool_loop = await run_chat_tool_use_loop(
+            turn = await run_chat_response_turn(
                 client,
                 manager=manager,
                 group_id=group_id,
-                system_prompt=cast(Any, system_prompt),
-                messages=cast(Any, messages),
-                tools=cast(Any, CHAT_TOOLS),
-                initial_recall_results=list(getattr(epistemic_bundle, "memory_results", []) or []),
+                message=body.message,
+                history=body.history,
+                event_bus=get_event_bus(),
+                session_entity_names=session_entity_names,
+                max_history_messages=MAX_HISTORY_MESSAGES,
                 max_tool_turns=MAX_TOOL_TURNS,
             )
-            response = tool_loop.response
-            loop_messages = tool_loop.loop_messages
-            all_recall_results = tool_loop.recall_results
-            all_facts = tool_loop.facts
 
-            # Emit synthetic tool events for UI components
-            for tool_event in build_chat_tool_stream_events(all_recall_results, all_facts):
-                yield _sse(tool_event)
-
-            # Stream the final text response
-            final_text = extract_message_text(response.content)
-
-            if final_text:
-                if should_retry_chat_response(
-                    manager,
-                    chat_need=chat_need,
-                    response_text=final_text,
-                    recall_results=all_recall_results,
-                ):
-                    if chat_need is None:
-                        raise RuntimeError("chat_need missing during retry path")
-                    final_text = await retry_memory_grounded_response(
-                        client,
-                        system_prompt=system_prompt,
-                        loop_messages=loop_messages,
-                        chat_need=chat_need,
-                        prior_response=final_text,
-                    )
-                await apply_chat_recall_feedback(
-                    manager,
-                    group_id=group_id,
-                    query=body.message,
-                    response_text=final_text,
-                    recall_results=all_recall_results,
-                )
-                await record_chat_assistant_turn(manager, final_text)
-                yield _sse({"type": "text-start", "id": text_part_id})
-                # Emit in chunks for streaming feel
-                chunk_size = 20
-                for i in range(0, len(final_text), chunk_size):
-                    yield _sse(
-                        {
-                            "type": "text-delta",
-                            "id": text_part_id,
-                            "delta": final_text[i : i + chunk_size],
-                        }
-                    )
-                yield _sse({"type": "text-end", "id": text_part_id})
+            for stream_event in turn.stream_events:
+                yield _sse(stream_event)
 
             yield _sse({"type": "finish-step"})
             yield _sse(
@@ -888,22 +697,14 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             )
 
             # Fire-and-forget: persist messages + tag entities
-            if conv_store and conversation_id and final_text:
-
-                async def _persist():
-                    try:
-                        await persist_chat_turn(
-                            conv_store,
-                            conversation_id=conversation_id,
-                            group_id=group_id,
-                            user_message=body.message,
-                            assistant_message=final_text,
-                            recall_results=all_recall_results,
-                        )
-                    except Exception:
-                        logger.warning("Failed to persist chat messages", exc_info=True)
-
-                asyncio.create_task(_persist())
+            schedule_chat_turn_persistence(
+                conv_store,
+                conversation_id=conversation_id,
+                group_id=group_id,
+                user_message=body.message,
+                assistant_message=turn.final_text,
+                recall_results=turn.recall_results,
+            )
 
         except Exception as e:
             logger.exception("Chat stream error")

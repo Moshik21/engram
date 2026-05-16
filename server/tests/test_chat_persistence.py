@@ -8,6 +8,7 @@ from engram.retrieval.chat_persistence import (
     chat_conversation_not_found_payload,
     persist_chat_turn,
     resolve_chat_conversation,
+    schedule_chat_turn_persistence,
 )
 from engram.storage.sqlite.conversations import ConversationNotFoundError
 
@@ -150,3 +151,95 @@ async def test_persist_chat_turn_noops_without_store_conversation_or_assistant()
 
     store.add_messages_bulk.assert_not_called()
     store.tag_entity.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_schedule_chat_turn_persistence_schedules_completed_turn() -> None:
+    store = AsyncMock()
+    scheduled = []
+
+    scheduled_result = schedule_chat_turn_persistence(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        user_message="What changed?",
+        assistant_message="The recall path changed.",
+        recall_results=[{"result_type": "entity", "entity": {"id": "ent_a"}}],
+        create_task=scheduled.append,
+    )
+
+    assert scheduled_result is True
+    assert len(scheduled) == 1
+    await scheduled[0]
+    store.add_messages_bulk.assert_awaited_once_with(
+        "conv_1",
+        [
+            {"role": "user", "content": "What changed?"},
+            {"role": "assistant", "content": "The recall path changed."},
+        ],
+        group_id="brain_a",
+    )
+    store.tag_entity.assert_awaited_once_with("conv_1", "ent_a", group_id="brain_a")
+
+
+def test_schedule_chat_turn_persistence_noops_without_persistable_turn() -> None:
+    store = AsyncMock()
+    scheduled = []
+
+    assert (
+        schedule_chat_turn_persistence(
+            None,
+            conversation_id="conv_1",
+            group_id="brain_a",
+            user_message="hello",
+            assistant_message="hi",
+            recall_results=[],
+            create_task=scheduled.append,
+        )
+        is False
+    )
+    assert (
+        schedule_chat_turn_persistence(
+            store,
+            conversation_id=None,
+            group_id="brain_a",
+            user_message="hello",
+            assistant_message="hi",
+            recall_results=[],
+            create_task=scheduled.append,
+        )
+        is False
+    )
+    assert (
+        schedule_chat_turn_persistence(
+            store,
+            conversation_id="conv_1",
+            group_id="brain_a",
+            user_message="hello",
+            assistant_message="",
+            recall_results=[],
+            create_task=scheduled.append,
+        )
+        is False
+    )
+    assert scheduled == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_chat_turn_persistence_logs_and_swallows_failure(caplog) -> None:
+    store = AsyncMock()
+    store.add_messages_bulk.side_effect = RuntimeError("write failed")
+    scheduled = []
+
+    assert schedule_chat_turn_persistence(
+        store,
+        conversation_id="conv_1",
+        group_id="brain_a",
+        user_message="hello",
+        assistant_message="hi",
+        recall_results=[],
+        create_task=scheduled.append,
+    )
+
+    await scheduled[0]
+    assert "Failed to persist chat messages" in caplog.text
