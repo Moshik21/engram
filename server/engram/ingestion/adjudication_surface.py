@@ -22,6 +22,35 @@ async def load_episode_adjudication_requests(
     return result if isinstance(result, list) else []
 
 
+async def load_client_enabled_episode_adjudication_requests(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+    client_enabled: bool | None = None,
+    activation_cfg: Any | None = None,
+) -> list[dict]:
+    """Return episode adjudication work only when client surfacing is enabled."""
+    enabled = client_enabled
+    if enabled is None and activation_cfg is not None:
+        enabled = bool(getattr(activation_cfg, "edge_adjudication_client_enabled", False))
+    if enabled is None:
+        resolver = getattr(manager, "edge_adjudication_client_enabled", None)
+        if resolver is None:
+            return []
+        result = resolver()
+        if inspect.isawaitable(result):
+            result = await result
+        enabled = bool(result)
+    if not enabled:
+        return []
+    return await load_episode_adjudication_requests(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+    )
+
+
 async def build_api_adjudication_resolution_surface(
     manager: Any,
     *,

@@ -21,6 +21,7 @@ from engram.notifications.surface import (
     NotificationSurfaceService,
     build_api_notification_dismiss_surface,
     build_api_notifications_surface,
+    build_mcp_notifications_surface_from_state,
 )
 
 # ─── Helpers ──────────────────────────────────────────────────────
@@ -198,6 +199,24 @@ class TestNotificationSurfaceService:
             }
         ]
         assert service.mcp_notifications(cfg=enabled, group_id="brain") is None
+
+    def test_build_mcp_notifications_surface_from_state_uses_surface_service(self):
+        store = NotificationStore()
+        service = NotificationSurfaceService(store)
+        store.add(_make_notification(group_id="brain", title="MCP note", body="Use this."))
+        cfg = ActivationConfig(notification_surfacing_enabled=True)
+
+        with patch("engram.main._app_state", {"notification_surface_service": service}):
+            payload = build_mcp_notifications_surface_from_state(cfg=cfg, group_id="brain")
+
+        assert payload == [
+            {
+                "type": "dream_association",
+                "title": "MCP note",
+                "body": "Use this.",
+                "priority": "normal",
+            }
+        ]
 
 
 class TestNotificationStore:

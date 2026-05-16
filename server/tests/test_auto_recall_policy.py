@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -8,13 +8,17 @@ from engram.config import ActivationConfig
 from engram.retrieval.auto_recall import (
     RecallCooldown,
     apply_mcp_recall_enrichment,
+    build_full_auto_recall_surface,
     build_lite_auto_recall_surface,
+    build_session_prime_surface,
     compact_auto_recall_surface,
     compact_lite_auto_recall_surface,
+    drain_mcp_triggered_intentions,
     extract_recall_query,
     plan_mcp_recall_middleware,
     plan_session_prime,
     should_recall_for_tool,
+    store_mcp_auto_observe_turn,
 )
 
 
@@ -280,6 +284,175 @@ async def test_build_lite_auto_recall_surface_dispatches_medium() -> None:
 
     assert result == {"source": "recall_medium", "entities": [{"name": "React"}]}
     manager.recall_medium.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
+    manager = AsyncMock()
+    manager.recall.return_value = [
+        {
+            "result_type": "entity",
+            "entity": {"name": "Engram", "type": "Project", "summary": "Memory runtime"},
+            "relationships": [{"predicate": "USES"}],
+            "score": 0.9,
+        }
+    ]
+    cfg = ActivationConfig(auto_recall_enabled=True)
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Working on Engram native Helix recall surfaces",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result == {
+        "source": "auto_recall",
+        "query_used": "Working Engram Helix",
+        "packets": [],
+        "entities": [
+            {
+                "name": "Engram",
+                "type": "Project",
+                "summary": "Memory runtime",
+                "top_facts": ["USES"],
+            }
+        ],
+    }
+    manager.recall.assert_awaited_once()
+    assert manager.recall.call_args.kwargs["group_id"] == "native_brain"
+    assert manager.recall.call_args.kwargs["interaction_source"] == "auto_recall"
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_skips_recent_explicit_recall() -> None:
+    manager = AsyncMock()
+    cfg = ActivationConfig(auto_recall_enabled=True)
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Working on Engram native Helix recall surfaces",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=90.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is None
+    manager.recall.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_build_session_prime_surface_fetches_context_and_marks_primed() -> None:
+    manager = AsyncMock()
+    manager.get_context.return_value = {"context": "native Helix"}
+    cfg = ActivationConfig(
+        auto_recall_session_prime=True,
+        auto_recall_session_prime_max_tokens=256,
+    )
+
+    surface = await build_session_prime_surface(
+        manager,
+        content="Planning Engram native Helix parity",
+        group_id="native_brain",
+        cfg=cfg,
+        already_primed=False,
+    )
+
+    assert surface.context == {"context": "native Helix"}
+    assert surface.should_mark_primed is True
+    manager.get_context.assert_awaited_once_with(
+        group_id="native_brain",
+        max_tokens=256,
+        topic_hint="Planning Engram Helix",
+        format="structured",
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_session_prime_surface_skips_when_already_primed() -> None:
+    manager = AsyncMock()
+    cfg = ActivationConfig(auto_recall_session_prime=True)
+
+    surface = await build_session_prime_surface(
+        manager,
+        content="Planning Engram native Helix parity",
+        group_id="native_brain",
+        cfg=cfg,
+        already_primed=True,
+    )
+
+    assert surface.context is None
+    assert surface.should_mark_primed is False
+    manager.get_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_store_mcp_auto_observe_turn_uses_manager_store_episode() -> None:
+    manager = AsyncMock()
+
+    await store_mcp_auto_observe_turn(
+        manager,
+        content="Long route question that should become latent context",
+        group_id="native_brain",
+    )
+
+    manager.store_episode.assert_awaited_once_with(
+        "Long route question that should become latent context",
+        "native_brain",
+        source="tool_piggyback",
+    )
+
+
+@pytest.mark.asyncio
+async def test_store_mcp_auto_observe_turn_swallows_store_errors() -> None:
+    manager = AsyncMock()
+    manager.store_episode.side_effect = RuntimeError("store failed")
+
+    await store_mcp_auto_observe_turn(
+        manager,
+        content="Long route question that should become latent context",
+        group_id="native_brain",
+    )
+
+    manager.store_episode.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_drain_mcp_triggered_intentions_supports_sync_manager_facade() -> None:
+    manager = Mock()
+    manager.drain_triggered_intention_views.return_value = [{"trigger": "meeting"}]
+
+    result = await drain_mcp_triggered_intentions(manager)
+
+    assert result == [{"trigger": "meeting"}]
+    manager.drain_triggered_intention_views.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_drain_mcp_triggered_intentions_supports_async_manager_facade() -> None:
+    manager = Mock()
+    manager.drain_triggered_intention_views = AsyncMock(
+        return_value=[{"trigger": "meeting"}]
+    )
+
+    result = await drain_mcp_triggered_intentions(manager)
+
+    assert result == [{"trigger": "meeting"}]
+    manager.drain_triggered_intention_views.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_drain_mcp_triggered_intentions_returns_none_for_empty_or_missing_facade() -> None:
+    assert await drain_mcp_triggered_intentions(object()) is None
+
+    manager = Mock()
+    manager.drain_triggered_intention_views.return_value = []
+    assert await drain_mcp_triggered_intentions(manager) is None
 
 
 def test_apply_mcp_recall_enrichment_attaches_only_non_empty_values() -> None:

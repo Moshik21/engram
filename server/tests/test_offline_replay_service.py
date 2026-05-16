@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from engram.ingestion.offline_replay import (
     OfflineReplayService,
+    build_api_manager_offline_replay_surface,
     build_api_offline_replay_surface,
 )
 
@@ -90,6 +92,38 @@ async def test_build_api_offline_replay_surface_returns_route_payload():
         "total": 2,
     }
     store_episode.assert_awaited_once_with(
+        content="offline replay content long enough",
+        group_id="tenant_brain",
+        source="offline:test",
+        session_id="session_1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_api_manager_offline_replay_surface_uses_manager_facade():
+    entries = [
+        {
+            "content": "offline replay content long enough",
+            "source": "offline:test",
+            "session_id": "session_1",
+        }
+    ]
+    manager = SimpleNamespace(store_episode=AsyncMock(return_value="ep_queued"))
+
+    payload = await build_api_manager_offline_replay_surface(
+        manager,
+        drain_queue=lambda: entries,
+        dedup_check=lambda _content: False,
+        group_id="tenant_brain",
+    )
+
+    assert payload == {
+        "status": "replayed",
+        "replayed": 1,
+        "skipped": 0,
+        "total": 1,
+    }
+    manager.store_episode.assert_awaited_once_with(
         content="offline replay content long enough",
         group_id="tenant_brain",
         source="offline:test",

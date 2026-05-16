@@ -32,11 +32,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Extract project runtime boundaries | `server/engram/ingestion/projection_service.py`, `projection_execution.py`, `projection_state.py` | Strong |
 | Extract recall runtime boundaries | `server/engram/retrieval/service.py`, `presenter.py`, `context_builder.py`, `entity_probe.py`, `graph_state.py` | Strong |
 | Extract consolidation orchestration boundaries | `server/engram/consolidation/lifecycle.py`, `phase_runner.py`, `events.py`, `completion.py`, `phase_catalog.py` | Strong |
-| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions; consolidation audit reads now use `ConsolidationAuditReader`, and MCP auto-recall lite/full shaping plus enrichment now use retrieval helpers instead of route-local response construction | Strong for `GraphManager`; route-local orchestration audit remains ongoing |
+| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions; consolidation audit reads now use `ConsolidationAuditReader`; MCP auto-recall lite/full dispatch, session prime, auto-observe piggybacking, shaping, and enrichment now use retrieval helpers; the direct manager-dispatch scan across REST API routes and `mcp/server.py` returns no matches | Strong for `GraphManager`; broader route-local orchestration audit remains ongoing |
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3076 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3115 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -47,7 +47,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 2933 tests, 43 skips, and 236 deselections.
+  currently passes with 3115 tests, 43 skips, and 236 deselections.
 - GraphManager facade evidence:
   `tests/test_graph_manager_facade_boundaries.py` now has 61 static delegate
   checks for core lifecycle APIs and service-backed compatibility adapters.
@@ -193,7 +193,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    The REST evaluation report also reads consolidation cycles/calibration
    snapshots through `ConsolidationEngine.get_recent_evaluation_context()`
    instead of `engine._store`; focused evaluation/consolidation/static checks
-   passed, with a later route-orchestration broad gate now passing 2933 tests.
+   passed, with a later route-orchestration broad gate now passing 3115 tests.
    The follow-up moved REST consolidation status/history/detail reads through
    public `ConsolidationEngine` reader facades backed by
    `ConsolidationAuditReader`, moved detail payload assembly into
@@ -453,7 +453,8 @@ bootstrap/runtime-state calls have surface helpers, REST/MCP public entity/fact
 lookup has surface helpers, REST/MCP public agent-context response assembly has
 surface helpers, REST/MCP
 adjudication resolution has ingestion-surface helpers, REST/MCP
-Capture write dispatch has capture-surface helpers, REST entity detail/mutation
+Capture write dispatch and offline replay manager dispatch have capture-surface
+helpers, REST entity detail/mutation
 response/status assembly has a public-surface helper, REST/MCP graph-state resources
 plus REST dashboard read and graph route payloads have public-surface helpers, REST atlas
 snapshot/history/region payloads have a public-surface helper, REST and MCP consolidation controls/read payloads have
@@ -463,7 +464,7 @@ deterministic question routing has retrieval helpers, REST/MCP
 prospective-memory intentions have retrieval helpers, REST/MCP
 forget target dispatch has retrieval helpers, REST/MCP explicit preference
 feedback has retrieval helpers, REST/MCP
-post-write adjudication request loading has an ingestion helper, REST/MCP
+post-write adjudication request loading and client-enabled surfacing gates have an ingestion helper, REST/MCP
 live conversation manager-facade access uses retrieval helpers, REST/MCP
 evaluation report assembly shares a service, MCP evaluation report audit-store
 input loading shares that report service, REST/MCP evaluation label writes share
@@ -471,7 +472,9 @@ write-surface helpers, and MCP auto-recall policy helpers have been extracted,
 including first-call session-prime planning and middleware side-effect
 planning. Auto-recall result compaction and additive MCP response enrichment
 have also been extracted for both lite/medium entity-probe and full recall
-surfaces, with lite/medium manager dispatch now owned by the retrieval helper
-instead of the MCP route wrapper. The next likely area is any remaining REST/MCP route-local
+surfaces, with lite/medium manager dispatch, full recall dispatch, session
+prime context dispatch, triggered-intention drain, middleware auto-observe
+storage, and MCP notification state lookup now owned by helper modules instead
+of the MCP route wrapper. The next likely area is any remaining REST/MCP route-local
 orchestration that still hides lifecycle behavior rather than surface transport
 details.

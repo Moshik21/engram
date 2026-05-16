@@ -92,6 +92,18 @@ def build_api_notification_dismiss_surface(
     return {"dismissed": service.dismiss_notifications(group_id=group_id, ids=ids)}
 
 
+def build_mcp_notifications_surface_from_state(
+    *,
+    cfg: ActivationConfig,
+    group_id: str,
+) -> list[dict[str, Any]] | None:
+    """Return MCP piggyback notification payloads from app notification state."""
+    service = get_notification_surface_service_from_state()
+    if service is None:
+        return None
+    return service.mcp_notifications(cfg=cfg, group_id=group_id)
+
+
 def get_notification_surface_service_from_state() -> NotificationSurfaceService | None:
     """Return the app notification surface service if notification storage exists."""
     from engram.main import _app_state

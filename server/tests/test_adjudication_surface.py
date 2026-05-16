@@ -8,6 +8,7 @@ import pytest
 from engram.ingestion.adjudication_surface import (
     build_api_adjudication_resolution_surface,
     build_mcp_adjudication_resolution_surface,
+    load_client_enabled_episode_adjudication_requests,
     load_episode_adjudication_requests,
 )
 
@@ -68,6 +69,79 @@ async def test_load_episode_adjudication_requests_returns_empty_for_unexpected_s
         )
         == []
     )
+
+
+@pytest.mark.asyncio
+async def test_load_client_enabled_episode_adjudication_requests_uses_manager_gate() -> None:
+    manager = SimpleNamespace(
+        edge_adjudication_client_enabled=Mock(return_value=True),
+        get_episode_adjudications=AsyncMock(return_value=[{"request_id": "adj_1"}]),
+    )
+
+    result = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id="ep_1",
+        group_id="brain_a",
+    )
+
+    assert result == [{"request_id": "adj_1"}]
+    manager.edge_adjudication_client_enabled.assert_called_once_with()
+    manager.get_episode_adjudications.assert_awaited_once_with("ep_1", "brain_a")
+
+
+@pytest.mark.asyncio
+async def test_load_client_enabled_episode_adjudication_requests_skips_when_disabled() -> None:
+    manager = SimpleNamespace(
+        edge_adjudication_client_enabled=Mock(return_value=False),
+        get_episode_adjudications=AsyncMock(return_value=[{"request_id": "adj_1"}]),
+    )
+
+    result = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id="ep_1",
+        group_id="brain_a",
+    )
+
+    assert result == []
+    manager.get_episode_adjudications.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_load_client_enabled_episode_adjudication_requests_allows_transport_gate() -> None:
+    manager = SimpleNamespace(
+        edge_adjudication_client_enabled=Mock(return_value=False),
+        get_episode_adjudications=AsyncMock(return_value=[{"request_id": "adj_1"}]),
+    )
+
+    result = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id="ep_1",
+        group_id="brain_a",
+        client_enabled=True,
+    )
+
+    assert result == [{"request_id": "adj_1"}]
+    manager.edge_adjudication_client_enabled.assert_not_called()
+    manager.get_episode_adjudications.assert_awaited_once_with("ep_1", "brain_a")
+
+
+@pytest.mark.asyncio
+async def test_load_client_enabled_episode_adjudication_requests_uses_config_gate() -> None:
+    manager = SimpleNamespace(
+        edge_adjudication_client_enabled=Mock(return_value=False),
+        get_episode_adjudications=AsyncMock(return_value=[{"request_id": "adj_1"}]),
+    )
+
+    result = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id="ep_1",
+        group_id="brain_a",
+        activation_cfg=SimpleNamespace(edge_adjudication_client_enabled=True),
+    )
+
+    assert result == [{"request_id": "adj_1"}]
+    manager.edge_adjudication_client_enabled.assert_not_called()
+    manager.get_episode_adjudications.assert_awaited_once_with("ep_1", "brain_a")
 
 
 @pytest.mark.asyncio

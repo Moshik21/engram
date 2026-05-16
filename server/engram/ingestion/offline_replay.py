@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 DrainQueue = Callable[[], list[dict]]
 DedupCheck = Callable[[str], bool]
@@ -93,3 +94,19 @@ async def build_api_offline_replay_surface(
         "status": "replayed",
         **result.as_payload(),
     }
+
+
+async def build_api_manager_offline_replay_surface(
+    manager: Any,
+    *,
+    drain_queue: DrainQueue,
+    dedup_check: DedupCheck,
+    group_id: str,
+) -> dict[str, int | str]:
+    """Replay queued offline captures using the active manager facade."""
+    return await build_api_offline_replay_surface(
+        drain_queue=drain_queue,
+        dedup_check=dedup_check,
+        store_episode=manager.store_episode,
+        group_id=group_id,
+    )

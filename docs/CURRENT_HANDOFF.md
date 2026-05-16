@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 2933 tests, 43 skips, and 236 external-service tests deselected after
+  with 3115 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -5186,6 +5186,59 @@ What changed in this pass:
   - Result: no REST API matches remain; remaining MCP matches are the
     recall-need graph probe, full auto-recall, session prime, and live-turn
     piggyback compatibility paths.
+- MCP auto-recall/session-prime/middleware dispatch helper boundary:
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_autorecall.py
+  tests/test_piggyback_context.py tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 245 passed.
+  `uv run ruff check engram/mcp/server.py engram/retrieval/auto_recall.py
+  tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_mcp_tools.py -k "observe or remember or
+  route_question or recall" -q`
+  - Result: 6 passed, 2 skipped, 58 deselected.
+  `uv run pytest tests/test_recall_lite.py::TestAutoRecallLiteWiring -q`
+  - Result: 4 passed.
+  `/Applications/Xcode.app/Contents/Developer/usr/bin/git diff --check`
+  - Result: passed.
+  Latest direct manager-dispatch scan:
+  `rg -n "await manager\\.|manager\\.get_|manager\\.list_|return await manager|= await manager"
+  server/engram/api/*.py server/engram/mcp/server.py`
+  - Result: no matches. REST API routes and `server/engram/mcp/server.py` no
+    longer directly dispatch the scanned manager read/write calls.
+- REST/MCP post-write adjudication gate and REST offline replay route-helper boundary:
+  `uv run pytest tests/test_adjudication_surface.py tests/test_offline_replay_service.py
+  tests/test_knowledge_api.py::TestRemember::test_remember_returns_adjudication_requests
+  tests/test_knowledge_api.py::TestReplayQueue::test_replay_queue_uses_current_tenant_group
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_remember_surfaces_adjudication_requests
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 171 passed.
+  `uv run ruff check engram/api/knowledge.py engram/mcp/server.py
+  engram/ingestion/adjudication_surface.py engram/ingestion/offline_replay.py
+  tests/test_adjudication_surface.py tests/test_offline_replay_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `/Applications/Xcode.app/Contents/Developer/usr/bin/git diff --check`
+  - Result: passed.
+  Latest broad route manager-attribute scan:
+  `rg -n "\\bmanager\\." server/engram/api/*.py server/engram/mcp/server.py`
+  - Result: no route-body manager attribute access remains; remaining hits are
+    docstrings only.
+- MCP triggered-intention and notification enrichment helper boundary:
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_piggyback_context.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 206 passed.
+  `uv run pytest tests/test_notifications.py::TestNotificationSurfaceService::test_build_mcp_notifications_surface_from_state_uses_surface_service
+  tests/test_piggyback_context.py::TestRecallMiddleware::test_adds_memory_notifications
+  tests/test_piggyback_context.py::TestRecallMiddleware::test_get_context_notification_fallback
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 158 passed.
+  `uv run ruff check engram/mcp/server.py engram/retrieval/auto_recall.py
+  engram/notifications/surface.py tests/test_auto_recall_policy.py
+  tests/test_notifications.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+- Broad backend non-Docker/non-external-Helix gate after the route-boundary dirty slice:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3115 passed, 43 skipped, 236 deselected in 130.30s.
 - MCP lifecycle-summary public-surface boundary:
   `uv run pytest
   tests/test_lifecycle_cli.py::test_mcp_lifecycle_summary_surface_forwards_store_reader_and_clamped_limits
@@ -5324,7 +5377,7 @@ What changed in this pass:
     `engine._store` read remains.
   - Note: the broad non-Docker/non-Helix rerun was interrupted while still
     running when the commit checkpoint was requested; the latest
-    route-orchestration broad gate now passes with 3076 passed, 43 skipped, and
+    route-orchestration broad gate now passes with 3115 passed, 43 skipped, and
     236 deselected.
 - Consolidation audit reader and REST/MCP consolidation route cleanup:
   `uv run pytest tests/test_lifecycle_cli.py
@@ -6081,9 +6134,11 @@ visibility work treated as done:
    conversation CRUD has group-scoped persistence and response-envelope/status helpers,
    and SSE framing plus the Anthropic tool-use loop/retry call remain in the
    route as intentional transport concerns. REST/MCP episode adjudication
-   request loading now shares an ingestion helper, and REST/MCP adjudication
+   request loading plus client-enabled surfacing gates now share an ingestion
+   helper, and REST/MCP adjudication
    resolution now shares the same adjudication surface module. REST/MCP public
-   Capture write dispatch now shares an ingestion capture-surface helper. REST
+   Capture write dispatch and REST offline replay manager dispatch now share
+   ingestion helpers. REST
    entity detail/mutation response/status
    assembly now shares a retrieval entity-surface helper. MCP graph-state and
    graph/entity resource response assembly now shares retrieval graph-state
@@ -6102,9 +6157,14 @@ visibility work treated as done:
    in the recall surface helper. MCP auto-recall cooldown, query extraction,
    per-tool gating,
    first-call session-prime planning, and middleware side-effect planning are
-   also now in retrieval policy code, and lite/medium dispatch, lite/full
-   auto-recall result compaction, plus additive response enrichment now live
-   there too. The next
+   also now in retrieval policy code, and lite/medium dispatch, full
+   auto-recall dispatch, first-call context-prime dispatch, triggered-intention
+   draining, middleware auto-observe storage, lite/full auto-recall result
+   compaction, plus additive response enrichment now live there too. MCP
+   notification state lookup for piggyback `memory_notifications` is now in
+   `notifications.surface`. The direct manager-dispatch scan
+   across REST API routes and `server/engram/mcp/server.py` now returns no
+   matches. The next
    high-leverage slice is a continued REST/MCP route orchestration audit for
    any remaining lifecycle logic still hidden in transport code.
 8. Keep quest mode as a drilldown or alternate presentation, not the primary

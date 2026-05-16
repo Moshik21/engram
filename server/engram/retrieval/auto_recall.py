@@ -2,13 +2,30 @@
 
 from __future__ import annotations
 
+import inspect
+import logging
 import re
+import time
 from collections import deque
 from collections.abc import Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.retrieval.context import (
+    manager_conversation_context,
+    manager_conversation_recent_turns,
+    manager_conversation_top_entity_names,
+)
+from engram.retrieval.control import (
+    record_manager_memory_need_analysis,
+    resolve_manager_recall_need_thresholds,
+)
+from engram.retrieval.feedback import publish_memory_need_analysis
+from engram.retrieval.need import analyze_memory_need
+from engram.retrieval.packets import assemble_memory_packets
+
+logger = logging.getLogger(__name__)
 
 RECALL_TOOLS = frozenset(
     {
@@ -31,6 +48,14 @@ class SessionPrimePlan:
 
     topic_hint: str | None
     max_tokens: int
+
+
+@dataclass(frozen=True)
+class SessionPrimeSurface:
+    """Context-prime result plus session-state mutation intent."""
+
+    context: dict[str, Any] | None
+    should_mark_primed: bool
 
 
 @dataclass(frozen=True)
@@ -252,6 +277,185 @@ async def build_lite_auto_recall_surface(
         return None
 
     return compact_lite_auto_recall_surface(results, level=level)
+
+
+async def build_full_auto_recall_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    cfg: ActivationConfig,
+    session_last_recall_time: float | None,
+    cooldown: RecallCooldown | None,
+    event_bus: Any = None,
+    now: float | None = None,
+) -> dict[str, Any] | None:
+    """Run full MCP auto-recall and compact the additive recall surface."""
+    if not cfg.auto_recall_enabled:
+        return None
+
+    need = None
+    query = ""
+    conv_context = manager_conversation_context(manager)
+    if cfg.recall_need_analyzer_enabled:
+        recent_turns = (
+            manager_conversation_recent_turns(manager, cfg.conv_multi_query_turns)
+            if conv_context is not None
+            else []
+        )
+        session_entity_names = manager_conversation_top_entity_names(manager)
+        graph_probe = (
+            manager.get_recall_need_graph_probe()
+            if cfg.recall_need_graph_probe_enabled
+            else None
+        )
+        need = await analyze_memory_need(
+            content,
+            recent_turns=recent_turns,
+            session_entity_names=session_entity_names,
+            mode="auto_recall",
+            graph_probe=graph_probe,
+            group_id=group_id,
+            conv_context=conv_context,
+            cfg=cfg,
+            thresholds=await resolve_manager_recall_need_thresholds(manager, group_id),
+        )
+        await record_manager_memory_need_analysis(manager, group_id, need)
+        if cfg.recall_telemetry_enabled:
+            publish_memory_need_analysis(
+                event_bus,
+                group_id,
+                need,
+                source="auto_recall",
+                mode="auto_recall",
+                turn_text=content,
+            )
+        if not need.should_recall:
+            return None
+        query = need.query_hint or extract_recall_query(content)
+    else:
+        query = extract_recall_query(content)
+
+    if not query:
+        return None
+
+    current_time = time.time() if now is None else now
+    if cooldown and cooldown.is_throttled(query, current_time):
+        return None
+
+    if session_last_recall_time and (current_time - session_last_recall_time) < 30.0:
+        return None
+
+    recall_limit = cfg.auto_recall_limit
+    if (
+        cfg.conv_topic_shift_enabled
+        and conv_context is not None
+        and conv_context.detect_topic_shift()
+    ):
+        recall_limit = cfg.conv_topic_shift_recall_boost
+        conv_context.acknowledge_shift()
+
+    try:
+        interaction_type = None
+        record_access = True
+        if cfg.recall_telemetry_enabled or cfg.recall_usage_feedback_enabled:
+            interaction_type = "surfaced"
+        if cfg.recall_usage_feedback_enabled:
+            record_access = False
+        results = await manager.recall(
+            query=query,
+            group_id=group_id,
+            limit=recall_limit,
+            record_access=record_access,
+            interaction_type=interaction_type,
+            interaction_source="auto_recall",
+            memory_need=need,
+        )
+    except Exception:
+        logger.debug("auto_recall failed", exc_info=True)
+        return None
+
+    packets = []
+    if cfg.recall_packets_enabled:
+        packets = [
+            packet.to_dict()
+            for packet in await assemble_memory_packets(
+                results,
+                query,
+                mode="auto_surface",
+                memory_need=need,
+                max_packets=cfg.recall_packet_auto_limit,
+                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                    entity_id,
+                    group_id,
+                ),
+            )
+        ]
+
+    response = compact_auto_recall_surface(
+        results,
+        query=query,
+        packets=packets,
+        min_score=cfg.auto_recall_min_score,
+    )
+    if response is None:
+        return None
+
+    if cooldown:
+        cooldown.record(query, current_time)
+
+    return response
+
+
+async def build_session_prime_surface(
+    manager: Any,
+    *,
+    content: str | None,
+    group_id: str,
+    cfg: ActivationConfig,
+    already_primed: bool,
+) -> SessionPrimeSurface:
+    """Fetch first-call MCP session context through a route-neutral helper."""
+    plan = plan_session_prime(content, cfg, already_primed=already_primed)
+    if plan is None:
+        return SessionPrimeSurface(context=None, should_mark_primed=False)
+
+    try:
+        result = await manager.get_context(
+            group_id=group_id,
+            max_tokens=plan.max_tokens,
+            topic_hint=plan.topic_hint,
+            format="structured",
+        )
+        return SessionPrimeSurface(context=result, should_mark_primed=True)
+    except Exception:
+        logger.debug("session_prime failed", exc_info=True)
+        return SessionPrimeSurface(context=None, should_mark_primed=True)
+
+
+async def store_mcp_auto_observe_turn(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    source: str = "tool_piggyback",
+) -> None:
+    """Store MCP auto-observed content through the runtime helper boundary."""
+    try:
+        await manager.store_episode(content, group_id, source=source)
+    except Exception:
+        logger.debug("middleware auto-observe failed", exc_info=True)
+
+
+async def drain_mcp_triggered_intentions(manager: Any) -> list[dict] | None:
+    """Drain triggered prospective-memory intentions for MCP recall enrichment."""
+    drain = getattr(manager, "drain_triggered_intention_views", None)
+    if not callable(drain):
+        return None
+    result = drain()
+    if inspect.isawaitable(result):
+        result = await result
+    return result if isinstance(result, list) and result else None
 
 
 def apply_mcp_recall_enrichment(

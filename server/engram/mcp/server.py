@@ -36,7 +36,7 @@ from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.ingestion.adjudication_surface import (
     build_mcp_adjudication_resolution_surface,
-    load_episode_adjudication_requests,
+    load_client_enabled_episode_adjudication_requests,
 )
 from engram.ingestion.capture_surface import (
     build_observation_attachment,
@@ -48,34 +48,29 @@ from engram.ingestion.presenter import memory_write_contract, present_mcp_memory
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
-from engram.notifications.surface import get_notification_surface_service_from_state
+from engram.notifications.surface import build_mcp_notifications_surface_from_state
 from engram.retrieval.artifacts import build_mcp_artifact_search_surface
 from engram.retrieval.auto_recall import (
     RECALL_TOOLS,
     WRITE_TOOLS,
     RecallCooldown,
     apply_mcp_recall_enrichment,
+    build_full_auto_recall_surface,
     build_lite_auto_recall_surface,
-    compact_auto_recall_surface,
+    build_session_prime_surface,
+    drain_mcp_triggered_intentions,
     extract_recall_query,
     plan_mcp_recall_middleware,
-    plan_session_prime,
     should_recall_for_tool,
+    store_mcp_auto_observe_turn,
 )
 from engram.retrieval.context import (
     ingest_manager_conversation_turn,
     manager_conversation_context,
-    manager_conversation_embed_fn,
-    manager_conversation_recent_turns,
     manager_conversation_top_entity_names,
 )
 from engram.retrieval.context_builder import build_mcp_context_surface
-from engram.retrieval.control import (
-    record_manager_memory_need_analysis,
-    resolve_manager_recall_need_thresholds,
-)
 from engram.retrieval.epistemic_route import build_question_route_surface
-from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.forgetting import build_mcp_forget_surface
 from engram.retrieval.graph_state import (
     build_mcp_entity_neighbors_resource_surface,
@@ -88,8 +83,6 @@ from engram.retrieval.lookup import (
     build_mcp_entity_search_surface,
     build_mcp_fact_search_surface,
 )
-from engram.retrieval.need import analyze_memory_need
-from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.preference_feedback import (
     build_mcp_explicit_feedback_surface,
 )
@@ -313,21 +306,8 @@ def _get_conv_context(manager: GraphManager):
     return manager_conversation_context(manager)
 
 
-def _get_conv_embed_fn(manager: GraphManager):
-    """Return the embedding function used for live conversation turns, if available."""
-    return manager_conversation_embed_fn(manager)
-
-
 def _get_conv_top_entity_names(manager: GraphManager) -> list[str]:
     return manager_conversation_top_entity_names(manager)
-
-
-def _get_conv_recent_turns(manager: GraphManager, limit: int) -> list[str]:
-    return manager_conversation_recent_turns(manager, limit)
-
-
-def _get_graph_probe(manager: GraphManager):
-    return manager.get_recall_need_graph_probe()
 
 
 async def _ingest_live_turn(
@@ -386,118 +366,19 @@ async def _auto_recall_full(
     """
     if not cfg.auto_recall_enabled:
         return None
-
-    need = None
-    query = ""
-    if cfg.recall_need_analyzer_enabled:
-        recent_turns: list[str] = []
-        conv_context = _get_conv_context(manager)
-        if conv_context is not None:
-            recent_turns = _get_conv_recent_turns(manager, cfg.conv_multi_query_turns)
-        session_entity_names = _get_conv_top_entity_names(manager)
-        need = await analyze_memory_need(
-            content,
-            recent_turns=recent_turns,
-            session_entity_names=session_entity_names,
-            mode="auto_recall",
-            graph_probe=_get_graph_probe(manager) if cfg.recall_need_graph_probe_enabled else None,
-            group_id=_group_id,
-            conv_context=conv_context,
-            cfg=cfg,
-            thresholds=await resolve_manager_recall_need_thresholds(manager, _group_id),
-        )
-        await record_manager_memory_need_analysis(manager, _group_id, need)
-        if cfg.recall_telemetry_enabled:
-            publish_memory_need_analysis(
-                get_event_bus(),
-                _group_id,
-                need,
-                source="auto_recall",
-                mode="auto_recall",
-                turn_text=content,
-            )
-        if not need.should_recall:
-            return None
-        query = need.query_hint or _extract_recall_query(content)
-    else:
-        query = _extract_recall_query(content)
-
-    if not query:
+    if not cfg.recall_need_analyzer_enabled and not _extract_recall_query(content):
         return None
 
     session = _get_session()
-    cooldown = _recall_cooldown
-
-    # Cooldown check
-    now = time.time()
-    if cooldown and cooldown.is_throttled(query, now):
-        return None
-
-    # Skip if explicit recall was recent (within 30s)
-    if session.last_recall_time and (now - session.last_recall_time) < 30.0:
-        return None
-
-    # Topic-shift-aware recall limit (Wave 3)
-    recall_limit = cfg.auto_recall_limit
-    conv_context = _get_conv_context(manager)
-    if (
-        cfg.conv_topic_shift_enabled
-        and conv_context is not None
-        and conv_context.detect_topic_shift()
-    ):
-        recall_limit = cfg.conv_topic_shift_recall_boost
-        conv_context.acknowledge_shift()
-
-    try:
-        interaction_type = None
-        record_access = True
-        if cfg.recall_telemetry_enabled or cfg.recall_usage_feedback_enabled:
-            interaction_type = "surfaced"
-        if cfg.recall_usage_feedback_enabled:
-            record_access = False
-        results = await manager.recall(
-            query=query,
-            group_id=_group_id,
-            limit=recall_limit,
-            record_access=record_access,
-            interaction_type=interaction_type,
-            interaction_source="auto_recall",
-            memory_need=need,
-        )
-    except Exception:
-        logger.debug("auto_recall failed", exc_info=True)
-        return None
-
-    packets = []
-    if cfg.recall_packets_enabled:
-        packets = [
-            packet.to_dict()
-            for packet in await assemble_memory_packets(
-                results,
-                query,
-                mode="auto_surface",
-                memory_need=need,
-                max_packets=cfg.recall_packet_auto_limit,
-                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
-                    entity_id,
-                    _group_id,
-                ),
-            )
-        ]
-
-    response = compact_auto_recall_surface(
-        results,
-        query=query,
-        packets=packets,
-        min_score=cfg.auto_recall_min_score,
+    return await build_full_auto_recall_surface(
+        manager,
+        content=content,
+        group_id=_group_id,
+        cfg=cfg,
+        session_last_recall_time=session.last_recall_time,
+        cooldown=_recall_cooldown,
+        event_bus=get_event_bus(),
     )
-    if response is None:
-        return None
-
-    if cooldown:
-        cooldown.record(query, now)
-
-    return response
 
 
 async def _session_prime(
@@ -508,27 +389,18 @@ async def _session_prime(
     """Auto-prime context on first tool call in a session."""
     if not cfg.auto_recall_session_prime:
         return None
+
     session = _get_session()
-    plan = plan_session_prime(
-        content,
-        cfg,
+    surface = await build_session_prime_surface(
+        manager,
+        content=content,
+        group_id=_group_id,
+        cfg=cfg,
         already_primed=session.auto_recall_primed,
     )
-    if plan is None:
-        return None
-    session.auto_recall_primed = True
-
-    try:
-        result = await manager.get_context(
-            group_id=_group_id,
-            max_tokens=plan.max_tokens,
-            topic_hint=plan.topic_hint,
-            format="structured",
-        )
-        return result
-    except Exception:
-        logger.debug("session_prime failed", exc_info=True)
-        return None
+    if surface.should_mark_primed:
+        session.auto_recall_primed = True
+    return surface.context
 
 
 # ─── Recall Middleware ───────────────────────────────────────────────
@@ -542,27 +414,9 @@ def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
     return should_recall_for_tool(tool_name, cfg)
 
 
-async def _serialize_intentions(manager: GraphManager) -> list[dict] | None:
-    """Serialize and drain triggered intentions from manager."""
-    drain_triggered_intention_views = getattr(
-        manager,
-        "drain_triggered_intention_views",
-        None,
-    )
-    if not callable(drain_triggered_intention_views):
-        return None
-    result = drain_triggered_intention_views()
-    if inspect.isawaitable(result):
-        result = await result
-    return result if isinstance(result, list) and result else None
-
-
 def _serialize_notifications(cfg: ActivationConfig, group_id: str) -> list[dict] | None:
     """Serialize proactive memory notifications."""
-    service = get_notification_surface_service_from_state()
-    if service is None:
-        return None
-    return service.mcp_notifications(cfg=cfg, group_id=group_id)
+    return build_mcp_notifications_surface_from_state(cfg=cfg, group_id=group_id)
 
 
 async def _recall_middleware(
@@ -597,10 +451,11 @@ async def _recall_middleware(
 
     # Auto-observe long content (e.g. route_question questions)
     if plan.auto_observe_content:
-        try:
-            await manager.store_episode(content, _group_id, source="tool_piggyback")
-        except Exception:
-            logger.debug("middleware auto-observe failed", exc_info=True)
+        await store_mcp_auto_observe_turn(
+            manager,
+            content=content,
+            group_id=_group_id,
+        )
 
     # Update conversation fingerprint (read tools only; write tools do it inline)
     if plan.ingest_live_turn:
@@ -613,7 +468,7 @@ async def _recall_middleware(
     recalled = await _auto_recall_lite(content, manager, cfg)
 
     # Triggered intentions
-    intentions = await _serialize_intentions(manager)
+    intentions = await drain_mcp_triggered_intentions(manager)
 
     # Memory notifications
     notifs = _serialize_notifications(cfg, _group_id)
@@ -693,12 +548,12 @@ async def remember(
     # Add remember_outcome for v2 pipeline
     if cfg and cfg.evidence_extraction_enabled:
         message = "Memory received. Evidence extracted and evaluated."
-        if cfg.edge_adjudication_client_enabled:
-            adjudications = await load_episode_adjudication_requests(
-                manager,
-                episode_id=episode_id,
-                group_id=_group_id,
-            )
+        adjudications = await load_client_enabled_episode_adjudication_requests(
+            manager,
+            episode_id=episode_id,
+            group_id=_group_id,
+            activation_cfg=cfg,
+        )
     response = present_mcp_memory_write(
         memory_write_contract(
             "remember",

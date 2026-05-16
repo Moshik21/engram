@@ -22,7 +22,7 @@ from engram.api.deps import (
 from engram.events.bus import get_event_bus
 from engram.ingestion.adjudication_surface import (
     build_api_adjudication_resolution_surface,
-    load_episode_adjudication_requests,
+    load_client_enabled_episode_adjudication_requests,
 )
 from engram.ingestion.capture_surface import (
     build_observation_attachment,
@@ -31,7 +31,7 @@ from engram.ingestion.capture_surface import (
     store_observation,
 )
 from engram.ingestion.dedup import CaptureDedupCache
-from engram.ingestion.offline_replay import build_api_offline_replay_surface
+from engram.ingestion.offline_replay import build_api_manager_offline_replay_surface
 from engram.ingestion.presenter import (
     memory_write_contract,
     present_api_memory_write,
@@ -404,10 +404,10 @@ async def replay_queue(request: Request) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    payload = await build_api_offline_replay_surface(
+    payload = await build_api_manager_offline_replay_surface(
+        manager,
         drain_queue=drain_queue,
         dedup_check=_dedup_check,
-        store_episode=manager.store_episode,
         group_id=group_id,
     )
     return JSONResponse(content=payload)
@@ -430,13 +430,11 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,
     )
-    adjudications: list[dict] = []
-    if manager.edge_adjudication_client_enabled():
-        adjudications = await load_episode_adjudication_requests(
-            manager,
-            episode_id=episode_id,
-            group_id=group_id,
-        )
+    adjudications = await load_client_enabled_episode_adjudication_requests(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+    )
     return JSONResponse(
         content=present_api_memory_write(
             memory_write_contract(

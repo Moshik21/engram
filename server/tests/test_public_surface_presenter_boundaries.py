@@ -79,12 +79,11 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "store_observation",
     },
     ("engram/api/knowledge.py", "replay_queue"): {
-        "build_api_offline_replay_surface",
+        "build_api_manager_offline_replay_surface",
     },
     ("engram/api/knowledge.py", "remember"): {
-        "edge_adjudication_client_enabled",
         "ingest_projecting_memory",
-        "load_episode_adjudication_requests",
+        "load_client_enabled_episode_adjudication_requests",
         "memory_write_contract",
         "parse_conversation_date",
         "present_api_memory_write",
@@ -240,35 +239,31 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/activation.py", "get_activation_curve"): {
         "build_api_activation_curve_surface",
     },
-    ("engram/mcp/server.py", "_serialize_intentions"): {"drain_triggered_intention_views"},
     ("engram/mcp/server.py", "_serialize_notifications"): {
-        "get_notification_surface_service_from_state",
+        "build_mcp_notifications_surface_from_state",
     },
     ("engram/mcp/server.py", "_should_recall"): {"should_recall_for_tool"},
     ("engram/mcp/server.py", "_auto_recall_lite"): {
         "build_lite_auto_recall_surface",
     },
     ("engram/mcp/server.py", "_auto_recall_full"): {
-        "compact_auto_recall_surface",
+        "build_full_auto_recall_surface",
     },
     ("engram/mcp/server.py", "_session_prime"): {
-        "plan_session_prime",
+        "build_session_prime_surface",
     },
     ("engram/mcp/server.py", "_recall_middleware"): {
         "apply_mcp_recall_enrichment",
+        "drain_mcp_triggered_intentions",
         "plan_mcp_recall_middleware",
+        "store_mcp_auto_observe_turn",
     },
     ("engram/mcp/server.py", "recall"): {
         "build_mcp_recall_surface",
     },
-    ("engram/mcp/server.py", "_get_graph_probe"): {"get_recall_need_graph_probe"},
     ("engram/mcp/server.py", "_get_conv_context"): {"manager_conversation_context"},
-    ("engram/mcp/server.py", "_get_conv_embed_fn"): {"manager_conversation_embed_fn"},
     ("engram/mcp/server.py", "_get_conv_top_entity_names"): {
         "manager_conversation_top_entity_names",
-    },
-    ("engram/mcp/server.py", "_get_conv_recent_turns"): {
-        "manager_conversation_recent_turns",
     },
     ("engram/mcp/server.py", "_ingest_live_turn"): {
         "_get_conv_context",
@@ -292,7 +287,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "remember"): {
         "build_observation_attachment",
         "ingest_projecting_memory",
-        "load_episode_adjudication_requests",
+        "load_client_enabled_episode_adjudication_requests",
         "memory_write_contract",
         "parse_conversation_date",
         "present_mcp_memory_write",
@@ -436,6 +431,18 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
         "get_context",
         "get_chat_runtime_policy",
     },
+    ("engram/api/knowledge.py", "replay_queue"): {
+        "build_api_offline_replay_surface",
+        "store_episode",
+    },
+    ("engram/api/knowledge.py", "remember"): {
+        "edge_adjudication_client_enabled",
+        "load_episode_adjudication_requests",
+    },
+    ("engram/mcp/server.py", "remember"): {
+        "edge_adjudication_client_enabled",
+        "load_episode_adjudication_requests",
+    },
     ("engram/api/knowledge.py", "create_intention"): {
         "api_intention_validation_error_payload",
         "build_api_create_intention_surface",
@@ -462,6 +469,25 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
     ("engram/mcp/server.py", "_auto_recall_lite"): {
         "recall_lite",
         "recall_medium",
+    },
+    ("engram/mcp/server.py", "_auto_recall_full"): {
+        "analyze_memory_need",
+        "assemble_memory_packets",
+        "recall",
+        "record_manager_memory_need_analysis",
+        "resolve_manager_recall_need_thresholds",
+    },
+    ("engram/mcp/server.py", "_session_prime"): {
+        "get_context",
+        "plan_session_prime",
+    },
+    ("engram/mcp/server.py", "_recall_middleware"): {
+        "drain_triggered_intention_views",
+        "store_episode",
+    },
+    ("engram/mcp/server.py", "_serialize_notifications"): {
+        "get_notification_surface_service_from_state",
+        "mcp_notifications",
     },
     ("engram/api/graph.py", "get_atlas"): {
         "get_snapshot",

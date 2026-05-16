@@ -1496,7 +1496,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 2933 tests, 43 skips, and 236 external-service
+   gate currently passes with 3115 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -2955,7 +2955,11 @@ chat-event, public-surface, Ruff, and `git diff --check` gates passed. The
 latest chat route-facing runtime helper check passed with 161 tests.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
-and live-turn piggyback compatibility paths.
+and live-turn piggyback compatibility paths. A later MCP auto-recall helper
+slice moved those remaining full auto-recall, session-prime, and middleware
+auto-observe dispatches into retrieval runtime helpers too, so the same scan
+across `server/engram/api/*.py` and `server/engram/mcp/server.py` now returns
+no matches.
 
 REST/MCP explicit recall result and packet assembly now share a retrieval
 boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
@@ -3061,6 +3065,12 @@ memory-write presenters. Focused capture-surface, memory-write presenter, REST
 remember/adjudication, MCP remember/adjudication, public-surface, and Ruff
 checks passed.
 
+REST offline replay also has a manager-facing route helper now.
+`server/engram/ingestion/offline_replay.py` owns the route-to-manager store
+facade for replaying queued Capture entries, so `/api/knowledge/replay-queue`
+no longer passes `manager.store_episode` through the REST handler body. Focused
+offline replay, REST replay queue, public-surface, and Ruff checks passed.
+
 REST entity detail/update/delete now has a route-facing public-surface helper.
 `server/engram/retrieval/entity_surface.py` owns entity detail manager dispatch,
 sparse update payload construction, delete dispatch, 404 status mapping, and
@@ -3120,9 +3130,10 @@ passed. The latest conversation response-surface check passed with 157 tests.
 REST/MCP post-write adjudication request loading now has one helper.
 `server/engram/ingestion/adjudication_surface.py` owns the compatibility lookup
 for episode adjudication work items after remember writes, including sync/async
-manager facades and missing/malformed responses. REST and MCP remember surfaces
-still own their transport response shapes, but the adjudication request loading
-contract is shared before the common memory-write presenters run. Focused
+manager facades, client-enabled surfacing gates, and missing/malformed
+responses. REST and MCP remember surfaces still own their transport response
+shapes, but the adjudication request loading contract is shared before the
+common memory-write presenters run. Focused
 adjudication-surface, REST remember, MCP JSON-response, public-surface, and
 Ruff checks passed.
 
@@ -3153,7 +3164,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 2933 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3115 tests, 43 skips, and 236 external-service deselections.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication
@@ -3163,14 +3174,20 @@ side-effect plan for auto-observe, live-turn ingestion, and notification
 fallbacks when recall is disabled. It now also owns
 `build_lite_auto_recall_surface()`, the lite/medium dispatch plus
 entity-probe surface compaction that `_auto_recall_lite()` attaches as
-`recalled_context`, `compact_auto_recall_surface()`, the score-filtered
-entity/cue/packet surface that `_auto_recall_full()` attaches as `recalled_context`,
-and
+`recalled_context`, `build_full_auto_recall_surface()`, the full recall
+need-analysis/cooldown/topic-shift/packet dispatch plus score-filtered
+entity/cue/packet surface that `_auto_recall_full()` attaches as
+`recalled_context`, `build_session_prime_surface()`, the first-call context
+prime dispatch used by `_session_prime()`, `store_mcp_auto_observe_turn()`, the
+middleware auto-observe storage boundary, `drain_mcp_triggered_intentions()`,
+the triggered-intention manager-facade drain for MCP recall enrichment, and
 `apply_mcp_recall_enrichment()`, the additive response attachment contract for
 session context, recalled context, triggered intentions, and memory
-notifications. `server/engram/mcp/server.py` keeps compatibility wrappers for
-existing tool tests and still owns tool-specific fetching and transport
-behavior. Focused autorecall, piggyback, recall-lite/MCP recall-selection, MCP
+notifications. MCP piggyback notification state lookup now uses
+`build_mcp_notifications_surface_from_state()` from `server/engram/notifications/surface.py`.
+`server/engram/mcp/server.py` keeps compatibility wrappers for existing tool
+tests and still owns tool-specific fetching and transport behavior. Focused
+autorecall, piggyback, notification, recall-lite/MCP recall-selection, MCP
 response-enrichment, public-surface, and Ruff checks passed.
 
 Not covered in this pass:
