@@ -17,7 +17,6 @@ from engram.api.knowledge import (
     ChatMessage,
     DismissBody,
     RememberBody,
-    _execute_tool,
     dismiss_notifications,
     replay_queue,
 )
@@ -59,6 +58,7 @@ from engram.retrieval.chat_runtime import (
     hydrate_chat_context,
     record_chat_assistant_turn,
 )
+from engram.retrieval.chat_tools import execute_chat_tool_json
 from engram.retrieval.context import ConversationContext, ConversationRuntimeService
 
 
@@ -753,7 +753,12 @@ class TestChatRecallHelpers:
             ]
         )
 
-        raw = await _execute_tool(manager, "default", "recall", {"query": "recall", "limit": 3})
+        raw = await execute_chat_tool_json(
+            manager,
+            group_id="default",
+            tool_name="recall",
+            tool_input={"query": "recall", "limit": 3},
+        )
         payload = json.loads(raw)
         assert payload["results"][0]["type"] == "cue_episode"
         assert payload["results"][0]["cueText"] == "Recall redesign note"
@@ -773,11 +778,11 @@ class TestChatRecallHelpers:
                 AsyncMock(return_value=[]),
             ),
         ):
-            raw = await _execute_tool(
+            raw = await execute_chat_tool_json(
                 manager,
-                "chat_tool_brain",
-                "recall",
-                {"query": "Engram packet routing", "limit": 3},
+                group_id="chat_tool_brain",
+                tool_name="recall",
+                tool_input={"query": "Engram packet routing", "limit": 3},
             )
 
         payload = json.loads(raw)
@@ -1071,11 +1076,11 @@ class TestChatRecallFeedbackHelpers:
             ]
         )
 
-        payload = await _execute_tool(
+        payload = await execute_chat_tool_json(
             manager,
-            "default",
-            "recall",
-            {"query": "React", "limit": 5},
+            group_id="default",
+            tool_name="recall",
+            tool_input={"query": "React", "limit": 5},
         )
 
         call_kwargs = manager.recall.await_args.kwargs

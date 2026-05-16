@@ -2974,26 +2974,30 @@ route-neutral chat tool events and converts summarized chat recall output back
 into the raw recall shape used by post-response feedback and UI event
 selection. It also owns Anthropic tool-result message shaping and accumulation
 of recall/fact tool JSON outputs for later rich-memory UI events, so the REST
-route no longer parses tool JSON to rebuild memory result state. `server/engram/api/knowledge.py`
-still owns the AI SDK SSE framing through `_emit_tool()`, which is an
-intentional transport concern. Focused chat event, recall presenter,
-public-surface, full knowledge API, and Ruff checks passed; the latest
-tool-result accumulation check passed with 173 focused tests and 62
-knowledge/chat-event tests.
+route no longer parses tool JSON to rebuild memory result state. The same
+presenter now also owns AI SDK synthetic tool payload-pair construction, while
+`server/engram/api/knowledge.py` keeps only SSE wrapping for those payloads.
+Focused chat event, recall presenter, public-surface, full knowledge API, and
+Ruff checks passed; the latest chat event/route/static check passed with 172
+focused tests.
 
 Knowledge-chat tool execution payloads now live outside the REST route too.
 `server/engram/retrieval/chat_tools.py` owns recall/search_entities/search_facts
 tool dispatch payloads for the Anthropic chat loop, including chat recall packet
-shaping, entity/fact LLM payloads, fact deduplication, and unknown-tool
-responses. `server/engram/api/knowledge.py` keeps the Anthropic tool-use loop
-and JSON-string compatibility wrapper. Focused chat-tool, chat-recall-helper,
-chat-event, public-surface, and Ruff checks passed.
+shaping, entity/fact LLM payloads, fact deduplication, unknown-tool responses,
+and the non-streaming Anthropic tool-use loop/result accumulation.
+`server/engram/api/knowledge.py` keeps Anthropic client construction, SSE
+framing, while the chat tool schema, Anthropic text-block extraction, and
+JSON-string compatibility wrapper used by legacy tests now live in
+`server/engram/retrieval/chat_tools.py` too.
+Focused chat-tool, chat API, chat-event, public-surface, and Ruff checks passed.
 
 Knowledge-chat recall feedback and retry policy now live outside the REST route
 too. `server/engram/retrieval/chat_feedback.py` owns used/dismissed memory
 interaction application, generic memory-free response detection, retry gating,
-and retry system-prompt construction. `server/engram/api/knowledge.py` keeps the
-actual Anthropic retry call and stream framing as transport/client behavior.
+and retry system-prompt construction, while `server/engram/retrieval/chat_tools.py`
+owns retry provider execution. `server/engram/api/knowledge.py` keeps client
+construction and stream framing as transport/client behavior.
 Focused chat-feedback, chat-tool, full knowledge API, chat-event,
 public-surface, Ruff, and `git diff --check` gates passed.
 
@@ -3004,12 +3008,13 @@ assistant-turn recording, recent-turn extraction, chat runtime policy lookup,
 chat epistemic-evidence dispatch, baseline context dispatch, system-prompt
 assembly, sliding-window message assembly, and the chat rate-limit response
 payload. `server/engram/api/knowledge.py` keeps rate-limiter dependency lookup,
-conversation resolution, Anthropic tool-loop streaming, and final SSE framing.
+conversation resolution, Anthropic client construction, and final SSE framing.
 Focused chat-runtime/feedback/tool, full knowledge API, chat-event,
 public-surface, Ruff, and `git diff --check` gates passed. The latest chat
 prompt/message surface check passed with 170 focused tests, and the full
-knowledge API file passed with 57 tests. The broad non-Docker/non-Helix gate
-now passes with 3155 tests, 43 skips, and 236 external-service deselections.
+knowledge API file passed with 57 tests. A later broad non-Docker/non-Helix
+gate now passes with 3173 tests, 43 skips, and 236 external-service
+deselections.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
 and live-turn piggyback compatibility paths. A later MCP auto-recall helper
@@ -3041,15 +3046,19 @@ API, MCP JSON-response, autorecall, chat, public-surface, Ruff, and
 REST/MCP artifact search now shares retrieval-side result assembly.
 `server/engram/retrieval/artifacts.py` owns artifact hit loading and item
 serialization for both public surfaces. REST keeps the existing `projectPath`
-response key; MCP keeps `project_path` and recall middleware enrichment.
-Focused artifact-search, artifact service, REST artifact endpoint, MCP artifact,
+response key; MCP keeps `project_path`. The MCP artifact-search tool-surface
+helper now also owns recall middleware invocation, leaving the MCP transport
+with manager lookup, callback injection, and JSON wrapping. Focused
+artifact-search, artifact service, REST artifact endpoint, MCP artifact,
 public-surface, Ruff, and `git diff --check` gates passed.
 
 REST/MCP deterministic question routing now shares retrieval-side route surface
 assembly. `server/engram/retrieval/epistemic_route.py` owns route history
 normalization and the manager `route_question` call. REST keeps HTTP response
-wrapping; MCP keeps recall middleware enrichment. Focused route-surface, REST
-epistemic endpoint, MCP JSON-response, public-surface, Ruff, and
+wrapping. The MCP question-route tool-surface helper now owns recall middleware
+invocation with `auto_observe=True`, leaving the MCP transport with session
+entity lookup, callback injection, and JSON wrapping. Focused route-surface,
+REST epistemic endpoint, MCP JSON-response, public-surface, Ruff, and
 `git diff --check` gates passed.
 
 REST/MCP prospective-memory intention surfaces now share retrieval-side
@@ -3095,17 +3104,21 @@ REST/MCP public entity/fact lookup now shares route-facing lookup helpers too.
 `server/engram/retrieval/lookup.py` still owns the deeper
 `EntityFactLookupService`, and now also owns REST entity/fact search payload
 shaping plus MCP entity/fact search payload shaping and missing-query
-validation. REST keeps camelCase `items`; MCP keeps raw lookup results and
-recall middleware enrichment. Focused lookup-surface, REST facts, MCP entity/fact
-search, MCP middleware, public-surface, and Ruff checks passed.
+validation. REST keeps camelCase `items`; MCP keeps raw lookup results. The MCP
+entity/fact lookup tool-surface helpers now own recall middleware invocation for
+those read tools, leaving the MCP transport with manager lookup, callback
+injection, and JSON wrapping. Focused lookup-surface, REST facts, MCP
+entity/fact search, MCP middleware, public-surface, and Ruff checks passed.
 
 REST/MCP public agent-context assembly now shares route-facing context helpers.
 `server/engram/retrieval/context_builder.py` still owns the deeper
 `MemoryContextBuilder`, and now also owns REST context payload shaping and MCP
 raw context manager access. REST keeps camelCase count/token fields; MCP keeps
-the raw `get_context` shape and its recall/notification middleware. Focused
-context-surface, tiered context, REST context/runtime, MCP context middleware,
-public-surface, and Ruff checks passed.
+the raw `get_context` shape. The MCP context tool-surface helper now owns
+recall/notification middleware invocation, leaving the MCP transport with
+manager lookup, callback injection, and JSON wrapping. Focused context-surface,
+tiered context, REST context/runtime, MCP context middleware, public-surface,
+and Ruff checks passed.
 
 REST/MCP adjudication resolution now shares ingestion-side surface helpers.
 `server/engram/ingestion/adjudication_surface.py` owns the public
@@ -3225,7 +3238,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3155 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3173 tests, 43 skips, and 236 external-service deselections.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store

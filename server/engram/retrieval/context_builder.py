@@ -63,6 +63,29 @@ async def build_mcp_context_surface(
     )
 
 
+async def build_mcp_context_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    max_tokens: int = 2000,
+    topic_hint: str | None = None,
+    project_path: str | None = None,
+    format: str = "structured",
+    recall_middleware: Callable[..., Awaitable[None]],
+) -> dict:
+    """Build the MCP context tool payload and run read-tool middleware."""
+    result = await build_mcp_context_surface(
+        manager,
+        group_id=group_id,
+        max_tokens=max_tokens,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        format=format,
+    )
+    await recall_middleware(topic_hint or project_path or "", result, tool_name="get_context")
+    return result
+
+
 class MemoryContextBuilder:
     """Assemble the active memory context exposed through REST and MCP."""
 

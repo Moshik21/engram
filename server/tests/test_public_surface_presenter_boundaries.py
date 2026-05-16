@@ -107,21 +107,14 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "recall"): {
         "build_api_recall_surface",
     },
-    ("engram/api/knowledge.py", "_execute_tool"): {
-        "execute_chat_tool",
-    },
-    ("engram/api/knowledge.py", "_build_tool_events"): {
-        "_emit_tool",
-        "build_chat_tool_events",
-    },
-    ("engram/api/knowledge.py", "_retry_memory_grounded_response"): {
-        "build_memory_grounding_retry_system_prompt",
-    },
     ("engram/api/knowledge.py", "chat"): {
         "apply_chat_recall_feedback",
         "build_api_chat_rate_limit_surface",
         "build_chat_runtime_policy",
+        "build_chat_tool_stream_events",
+        "CHAT_TOOLS",
         "build_chat_messages",
+        "extract_message_text",
         "build_chat_system_prompt_surface",
         "get_rate_limiter",
         "analyze_chat_memory_need",
@@ -130,10 +123,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "gather_chat_epistemic_evidence",
         "hydrate_chat_context",
         "persist_chat_turn",
-        "accumulate_chat_tool_result",
-        "build_chat_tool_result_message",
         "record_chat_assistant_turn",
         "resolve_chat_conversation",
+        "retry_memory_grounded_response",
+        "run_chat_tool_use_loop",
         "should_retry_chat_response",
     },
     ("engram/api/health.py", "health_check"): {
@@ -308,13 +301,13 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_mcp_explicit_feedback_surface",
     },
     ("engram/mcp/server.py", "search_entities"): {
-        "build_mcp_entity_search_surface",
+        "build_mcp_entity_search_tool_surface",
     },
     ("engram/mcp/server.py", "search_facts"): {
-        "build_mcp_fact_search_surface",
+        "build_mcp_fact_search_tool_surface",
     },
     ("engram/mcp/server.py", "get_context"): {
-        "build_mcp_context_surface",
+        "build_mcp_context_tool_surface",
     },
     ("engram/mcp/server.py", "bootstrap_project"): {
         "build_project_bootstrap_surface",
@@ -355,10 +348,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "route_question"): {
         "_get_conv_top_entity_names",
-        "build_question_route_surface",
+        "build_mcp_question_route_tool_surface",
     },
     ("engram/mcp/server.py", "search_artifacts"): {
-        "build_mcp_artifact_search_surface",
+        "build_mcp_artifact_search_tool_surface",
     },
 }
 
@@ -557,6 +550,21 @@ def _private_attrs_used(relative_path: str, function_name: str, object_name: str
     raise AssertionError(f"Function not found: {relative_path}:{function_name}")
 
 
+def _functions_directly_awaiting(relative_path: str, call_name: str) -> set[str]:
+    tree = ast.parse((ROOT / relative_path).read_text())
+    callers: set[str] = set()
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+            continue
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Await) or not isinstance(node.value, ast.Call):
+                continue
+            func = node.value.func
+            if isinstance(func, ast.Name) and func.id == call_name:
+                callers.add(function.name)
+    return callers
+
+
 def _manager_private_attrs_used(relative_path: str, function_name: str) -> set[str]:
     return _private_attrs_used(relative_path, function_name, "manager")
 
@@ -608,3 +616,7 @@ def test_public_routes_do_not_reassemble_delegated_payloads(
 def test_public_surface_routes_do_not_read_app_state_directly(relative_path: str) -> None:
     source = (ROOT / relative_path).read_text()
     assert "_app_state" not in source
+
+
+def test_mcp_tool_handlers_do_not_directly_await_recall_middleware() -> None:
+    assert _functions_directly_awaiting("engram/mcp/server.py", "_recall_middleware") == set()

@@ -8,7 +8,9 @@ from engram.retrieval.lookup import (
     build_api_entity_search_surface,
     build_api_fact_search_surface,
     build_mcp_entity_search_surface,
+    build_mcp_entity_search_tool_surface,
     build_mcp_fact_search_surface,
+    build_mcp_fact_search_tool_surface,
 )
 
 ENTITY_RESULT = {
@@ -91,6 +93,36 @@ async def test_mcp_entity_search_surface_preserves_validation_and_raw_items() ->
 
 
 @pytest.mark.asyncio
+async def test_mcp_entity_search_tool_surface_runs_middleware_after_valid_lookup() -> None:
+    manager = MagicMock()
+    manager.search_entities = AsyncMock(return_value=[ENTITY_RESULT])
+    recall_middleware = AsyncMock()
+
+    missing = await build_mcp_entity_search_tool_surface(
+        manager,
+        group_id="native_brain",
+        recall_middleware=recall_middleware,
+    )
+    assert missing["status"] == "error"
+    recall_middleware.assert_not_awaited()
+
+    payload = await build_mcp_entity_search_tool_surface(
+        manager,
+        group_id="native_brain",
+        name="Alice",
+        limit=3,
+        recall_middleware=recall_middleware,
+    )
+
+    assert payload == {"entities": [ENTITY_RESULT], "total": 1}
+    recall_middleware.assert_awaited_once_with(
+        "Alice",
+        payload,
+        tool_name="search_entities",
+    )
+
+
+@pytest.mark.asyncio
 async def test_fact_search_surfaces_share_manager_call_with_surface_shapes() -> None:
     manager = MagicMock()
     manager.search_facts = AsyncMock(return_value=[FACT_RESULT])
@@ -129,3 +161,29 @@ async def test_fact_search_surfaces_share_manager_call_with_surface_shapes() -> 
     assert api["items"][0]["validFrom"] == "2026-05-01"
     assert api["items"][0]["sourceEpisode"] == "ep_123"
     assert mcp == {"facts": [FACT_RESULT], "total": 1}
+
+
+@pytest.mark.asyncio
+async def test_mcp_fact_search_tool_surface_runs_middleware() -> None:
+    manager = MagicMock()
+    manager.search_facts = AsyncMock(return_value=[FACT_RESULT])
+    recall_middleware = AsyncMock()
+
+    payload = await build_mcp_fact_search_tool_surface(
+        manager,
+        group_id="native_brain",
+        query="Alice",
+        subject="Alice",
+        predicate="works at",
+        include_expired=True,
+        include_epistemic=True,
+        limit=7,
+        recall_middleware=recall_middleware,
+    )
+
+    assert payload == {"facts": [FACT_RESULT], "total": 1}
+    recall_middleware.assert_awaited_once_with(
+        "Alice",
+        payload,
+        tool_name="search_facts",
+    )

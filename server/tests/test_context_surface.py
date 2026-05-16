@@ -7,6 +7,7 @@ import pytest
 from engram.retrieval.context_builder import (
     build_api_context_surface,
     build_mcp_context_surface,
+    build_mcp_context_tool_surface,
 )
 
 CONTEXT_RESULT = {
@@ -66,4 +67,28 @@ async def test_mcp_context_surface_preserves_raw_manager_shape() -> None:
         topic_hint="Alice",
         project_path=None,
         format="structured",
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_context_tool_surface_runs_middleware_with_context_hint() -> None:
+    manager = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    recall_middleware = AsyncMock()
+
+    payload = await build_mcp_context_tool_surface(
+        manager,
+        group_id="native_brain",
+        max_tokens=900,
+        topic_hint=None,
+        project_path="/tmp/engram",
+        format="briefing",
+        recall_middleware=recall_middleware,
+    )
+
+    assert payload == CONTEXT_RESULT
+    recall_middleware.assert_awaited_once_with(
+        "/tmp/engram",
+        payload,
+        tool_name="get_context",
     )

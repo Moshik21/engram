@@ -32,11 +32,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Extract project runtime boundaries | `server/engram/ingestion/projection_service.py`, `projection_execution.py`, `projection_state.py` | Strong |
 | Extract recall runtime boundaries | `server/engram/retrieval/service.py`, `presenter.py`, `context_builder.py`, `entity_probe.py`, `graph_state.py` | Strong |
 | Extract consolidation orchestration boundaries | `server/engram/consolidation/lifecycle.py`, `phase_runner.py`, `events.py`, `completion.py`, `phase_catalog.py` | Strong |
-| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions; consolidation audit reads now use `ConsolidationAuditReader`; MCP auto-recall lite/full dispatch, session prime, auto-observe piggybacking, shaping, enrichment, and middleware execution now use retrieval helpers; the direct manager-dispatch scan across REST API routes and `mcp/server.py` returns no matches | Strong for `GraphManager`; broader route-local orchestration audit remains ongoing |
+| Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions; consolidation audit reads now use `ConsolidationAuditReader`; MCP auto-recall lite/full dispatch, session prime, auto-observe piggybacking, shaping, enrichment, middleware execution, and entity/fact/artifact/context/question-route tool middleware now use retrieval helpers; the direct manager-dispatch scan across REST API routes and `mcp/server.py` returns no matches | Strong for `GraphManager`; broader route-local orchestration audit remains ongoing |
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3165 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3173 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest` | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier | Strong, needs more real labeled evidence before production claim |
@@ -47,7 +47,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3165 tests, 43 skips, and 236 deselections.
+  currently passes with 3173 tests, 43 skips, and 236 deselections.
 - Shared lite storage bootstrap evidence:
   `server/engram/storage/bootstrap.py` centralizes companion-store
   initialization against the active graph store. REST startup, MCP startup,
@@ -254,22 +254,25 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    The knowledge-chat rich event selection is now in
    `server/engram/retrieval/chat_events.py`, including rich memory UI event
    selection, chat recall round-tripping, Anthropic tool-result message shaping,
-   and recall/fact tool JSON accumulation, with the REST route retaining only
-   tool execution, AI SDK loop control, and SSE framing. Focused chat-event,
-   recall-presenter, public-surface, and full knowledge API checks passed.
+   recall/fact tool JSON accumulation, and AI SDK synthetic tool payload-pair
+   construction, with the REST route retaining only SSE wrapping for those
+   payloads. Focused chat-event, recall-presenter, public-surface, and full
+   knowledge API checks passed.
    Knowledge-chat tool execution payloads are now in
    `server/engram/retrieval/chat_tools.py`, covering recall/search_entities/
    search_facts LLM payloads, chat recall packet shaping, fact deduplication,
-   and unknown-tool responses while the REST route keeps the Anthropic tool-use
-   loop and JSON-string compatibility wrapper. Focused chat-tool,
-   chat-recall-helper, chat-event, public-surface, and Ruff checks passed.
+   unknown-tool responses, and the non-streaming Anthropic tool-use loop/result
+   accumulation plus the chat tool schema, Anthropic text-block extraction, and
+   JSON-string compatibility wrapper used by legacy tests, while the REST route
+   keeps Anthropic client construction and SSE framing. Focused chat-tool, chat API, chat-event,
+   public-surface, and Ruff checks passed.
    Knowledge-chat recall feedback and retry policy are now in
    `server/engram/retrieval/chat_feedback.py`, covering used/dismissed memory
    interaction application, generic memory-free response detection, retry
-   gating, and retry system-prompt construction while the REST route keeps the
-   actual Anthropic retry call and stream framing. Focused chat-feedback,
-   chat-tool, full knowledge API, chat-event, public-surface, Ruff, and
-   `git diff --check` gates passed.
+   gating, and retry system-prompt construction, while
+   `server/engram/retrieval/chat_tools.py` owns retry provider execution.
+   Focused chat-feedback, chat-tool, full knowledge API, chat-event,
+   public-surface, Ruff, and `git diff --check` gates passed.
    Knowledge-chat memory-need and live-context runtime helpers are now in
    `server/engram/retrieval/chat_runtime.py`, covering chat memory-need
    analysis, memory-guidance text, live conversation hydration, assistant-turn
@@ -277,9 +280,10 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    epistemic-evidence dispatch, baseline context dispatch, system-prompt
    assembly, sliding-window message assembly, and chat rate-limit response
    payloads while the REST route keeps rate-limiter dependency lookup,
-   conversation resolution, Anthropic tool-loop streaming, and final SSE
-   framing. Focused chat-runtime/feedback/tool, prompt/message, full knowledge
-   API, chat-event, public-surface, Ruff, and `git diff --check` gates passed.
+   conversation resolution, Anthropic client construction, and final SSE
+   framing. Focused chat-runtime/feedback/tool, prompt/message,
+   full knowledge API, chat-event, public-surface, Ruff, and `git diff --check`
+   gates passed.
    REST/MCP explicit recall result and packet assembly are now in
    `server/engram/retrieval/recall_surface.py`, covering the explicit
    Recall-stage manager call, recall packet analysis, memory packet assembly,
@@ -298,15 +302,19 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    REST/MCP artifact search result assembly now shares
    `server/engram/retrieval/artifacts.py` helpers, covering artifact hit loading
    and item serialization while REST keeps `projectPath` and MCP keeps
-   `project_path` plus recall middleware enrichment. Focused artifact-search,
-   artifact service, REST artifact endpoint, MCP artifact, public-surface, Ruff,
-   and `git diff --check` gates passed.
+   `project_path`. MCP artifact-search tool-surface helpers now also own recall
+   middleware invocation for that read tool, so `server/engram/mcp/server.py`
+   keeps manager lookup, callback injection, and JSON wrapping. Focused
+   artifact-search, artifact service, REST artifact endpoint, MCP artifact,
+   public-surface, Ruff, and `git diff --check` gates passed.
    REST/MCP deterministic question routing now shares
    `server/engram/retrieval/epistemic_route.py` helpers, covering route history
    normalization and the manager `route_question` call while REST keeps HTTP
-   response wrapping and MCP keeps recall middleware enrichment. Focused
-   route-surface, REST epistemic endpoint, MCP JSON-response, public-surface,
-   Ruff, and `git diff --check` gates passed.
+   response wrapping. MCP question-route tool-surface helpers now also own
+   recall middleware invocation with `auto_observe=True`, so
+   `server/engram/mcp/server.py` keeps session entity lookup, callback
+   injection, and JSON wrapping. Focused route-surface, REST epistemic endpoint,
+   MCP JSON-response, public-surface, Ruff, and `git diff --check` gates passed.
    REST/MCP prospective-memory intention surfaces now share
    `server/engram/retrieval/prospective.py` helpers, covering intention create,
    list, and dismiss manager calls plus API/MCP acknowledgement shapes while
@@ -339,16 +347,21 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    `server/engram/retrieval/lookup.py` still owns the deeper
    `EntityFactLookupService`, and now also owns REST entity/fact search payload
    shaping plus MCP entity/fact search payload shaping and missing-query
-   validation. REST keeps camelCase `items`; MCP keeps raw lookup results and
-   recall middleware enrichment. Focused lookup-surface, REST facts, MCP
-   entity/fact search, MCP middleware, public-surface, and Ruff checks passed.
+   validation. REST keeps camelCase `items`; MCP keeps raw lookup results.
+   MCP entity/fact lookup tool-surface helpers now also own the recall
+   middleware invocation for those read tools, so `server/engram/mcp/server.py`
+   keeps manager lookup, callback injection, and JSON wrapping. Focused
+   lookup-surface, REST facts, MCP entity/fact search, MCP middleware,
+   public-surface, and Ruff checks passed.
    REST/MCP public agent-context assembly now shares route-facing context
    helpers. `server/engram/retrieval/context_builder.py` still owns the deeper
    `MemoryContextBuilder`, and now also owns REST context payload shaping and MCP
    raw context manager access. REST keeps camelCase count/token fields; MCP keeps
-   the raw `get_context` shape and its recall/notification middleware. Focused
-   context-surface, tiered context, REST context/runtime, MCP context middleware,
-   public-surface, and Ruff checks passed.
+   the raw `get_context` shape. MCP context tool-surface helpers now also own
+   recall/notification middleware invocation for that read tool, so
+   `server/engram/mcp/server.py` keeps manager lookup, callback injection, and
+   JSON wrapping. Focused context-surface, tiered context, REST context/runtime,
+   MCP context middleware, public-surface, and Ruff checks passed.
    REST/MCP adjudication resolution now shares ingestion-side surface helpers.
    `server/engram/ingestion/adjudication_surface.py` owns the public
    client-adjudication manager dispatch and API/MCP outcome shaping for resolved
@@ -492,6 +505,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 Continue the REST/MCP route orchestration audit against the service boundaries
 already extracted. The consolidation audit-store and knowledge-chat event
 presenter slices are complete, knowledge-chat tool execution payloads have a
+retrieval helper, the knowledge-chat tool-use loop/result accumulation has a
 retrieval helper, chat recall feedback/retry policy has a retrieval helper,
 chat memory-need/live-context runtime has a retrieval helper, chat conversation
 persistence and not-found payloads have a helper boundary, REST/MCP explicit recall result/packet

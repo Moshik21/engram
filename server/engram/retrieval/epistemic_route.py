@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -35,6 +35,30 @@ async def build_question_route_surface(
         session_entity_names=session_entity_names or [],
         surface=surface,
     )
+
+
+async def build_mcp_question_route_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    question: str,
+    project_path: str | None,
+    history: list[Any] | None,
+    session_entity_names: list[str] | None,
+    recall_middleware: Callable[..., Awaitable[None]],
+) -> dict:
+    """Build the MCP question-route tool payload and run read-tool middleware."""
+    result = await build_question_route_surface(
+        manager,
+        group_id=group_id,
+        question=question,
+        project_path=project_path,
+        history=history,
+        session_entity_names=session_entity_names,
+        surface="mcp",
+    )
+    await recall_middleware(question, result, tool_name="route_question", auto_observe=True)
+    return result
 
 
 def recent_route_turn_contents(history: list[Any] | None, *, limit: int) -> list[str]:

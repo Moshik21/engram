@@ -64,6 +64,27 @@ async def build_mcp_artifact_search_surface(
     }
 
 
+async def build_mcp_artifact_search_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str | None,
+    limit: int,
+    recall_middleware: Callable[..., Awaitable[None]],
+) -> dict[str, Any]:
+    """Build the MCP artifact-search tool payload and run read-tool middleware."""
+    result = await build_mcp_artifact_search_surface(
+        manager,
+        group_id=group_id,
+        query=query,
+        project_path=project_path,
+        limit=limit,
+    )
+    await recall_middleware(query, result, tool_name="search_artifacts")
+    return result
+
+
 async def _search_artifact_hits(
     manager: Any,
     *,

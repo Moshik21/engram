@@ -45,7 +45,7 @@ from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.notifications.surface import build_mcp_notifications_surface_from_state
-from engram.retrieval.artifacts import build_mcp_artifact_search_surface
+from engram.retrieval.artifacts import build_mcp_artifact_search_tool_surface
 from engram.retrieval.auto_recall import (
     RecallCooldown,
     build_full_auto_recall_surface,
@@ -60,8 +60,8 @@ from engram.retrieval.context import (
     manager_conversation_context,
     manager_conversation_top_entity_names,
 )
-from engram.retrieval.context_builder import build_mcp_context_surface
-from engram.retrieval.epistemic_route import build_question_route_surface
+from engram.retrieval.context_builder import build_mcp_context_tool_surface
+from engram.retrieval.epistemic_route import build_mcp_question_route_tool_surface
 from engram.retrieval.forgetting import build_mcp_forget_surface
 from engram.retrieval.graph_state import (
     build_mcp_entity_neighbors_resource_surface,
@@ -71,8 +71,8 @@ from engram.retrieval.graph_state import (
 )
 from engram.retrieval.identity_core import build_mcp_identity_core_surface
 from engram.retrieval.lookup import (
-    build_mcp_entity_search_surface,
-    build_mcp_fact_search_surface,
+    build_mcp_entity_search_tool_surface,
+    build_mcp_fact_search_tool_surface,
 )
 from engram.retrieval.preference_feedback import (
     build_mcp_explicit_feedback_surface,
@@ -688,16 +688,14 @@ async def search_entities(
         JSON with entities array and total count.
     """
     manager = _get_manager()
-    result = await build_mcp_entity_search_surface(
+    result = await build_mcp_entity_search_tool_surface(
         manager,
         group_id=_group_id,
         name=name,
         entity_type=entity_type,
         limit=limit,
+        recall_middleware=_recall_middleware,
     )
-    if result.get("status") == "error":
-        return json.dumps(result)
-    await _recall_middleware(name or entity_type or "", result, tool_name="search_entities")
     return json.dumps(result)
 
 
@@ -724,7 +722,7 @@ async def search_facts(
         JSON with facts array and total count.
     """
     manager = _get_manager()
-    result = await build_mcp_fact_search_surface(
+    result = await build_mcp_fact_search_tool_surface(
         manager,
         group_id=_group_id,
         query=query,
@@ -733,8 +731,8 @@ async def search_facts(
         include_expired=include_expired,
         include_epistemic=include_epistemic,
         limit=limit,
+        recall_middleware=_recall_middleware,
     )
-    await _recall_middleware(query, result, tool_name="search_facts")
     return json.dumps(result)
 
 
@@ -786,16 +784,15 @@ async def get_context(
         JSON with context markdown, entity_count, fact_count, token_estimate.
     """
     manager = _get_manager()
-    result = await build_mcp_context_surface(
+    result = await build_mcp_context_tool_surface(
         manager,
         group_id=_group_id,
         max_tokens=max_tokens,
         topic_hint=topic_hint,
         project_path=project_path,
         format=format,
+        recall_middleware=_recall_middleware,
     )
-    # Middleware handles recall + notifications; fallback for get_context built in
-    await _recall_middleware(topic_hint or project_path or "", result, tool_name="get_context")
     return json.dumps(result)
 
 
@@ -838,16 +835,15 @@ async def route_question(
     """Classify a question as remember, inspect, or reconcile."""
     manager = _get_manager()
     session_entity_names = _get_conv_top_entity_names(manager)
-    result = await build_question_route_surface(
+    result = await build_mcp_question_route_tool_surface(
         manager,
         group_id=_group_id,
         question=question,
         project_path=project_path,
         history=history,
         session_entity_names=session_entity_names,
-        surface="mcp",
+        recall_middleware=_recall_middleware,
     )
-    await _recall_middleware(question, result, tool_name="route_question", auto_observe=True)
     return json.dumps(result)
 
 
@@ -859,14 +855,14 @@ async def search_artifacts(
 ) -> str:
     """Search the bootstrapped artifact substrate."""
     manager = _get_manager()
-    result = await build_mcp_artifact_search_surface(
+    result = await build_mcp_artifact_search_tool_surface(
         manager,
         group_id=_group_id,
         query=query,
         project_path=project_path,
         limit=limit,
+        recall_middleware=_recall_middleware,
     )
-    await _recall_middleware(query, result, tool_name="search_artifacts")
     return json.dumps(result)
 
 

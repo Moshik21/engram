@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.retrieval.epistemic_route import (
+    build_mcp_question_route_tool_surface,
     build_question_route_surface,
     recent_route_turn_contents,
 )
@@ -48,3 +49,29 @@ async def test_build_question_route_surface_normalizes_route_contract() -> None:
         "session_entity_names": ["OpenClaw"],
         "surface": "rest",
     }
+
+
+@pytest.mark.asyncio
+async def test_mcp_question_route_tool_surface_runs_auto_observe_middleware() -> None:
+    manager = MagicMock()
+    manager.route_question = AsyncMock(return_value={"questionFrame": {"mode": "inspect"}})
+    recall_middleware = AsyncMock()
+
+    result = await build_mcp_question_route_tool_surface(
+        manager,
+        group_id="native_brain",
+        question="How do I deploy?",
+        project_path="/tmp/project",
+        history=["Need release notes."],
+        session_entity_names=["Engram"],
+        recall_middleware=recall_middleware,
+    )
+
+    assert result == {"questionFrame": {"mode": "inspect"}}
+    assert manager.route_question.await_args.kwargs["surface"] == "mcp"
+    recall_middleware.assert_awaited_once_with(
+        "How do I deploy?",
+        result,
+        tool_name="route_question",
+        auto_observe=True,
+    )

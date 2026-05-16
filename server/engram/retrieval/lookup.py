@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from engram.activation.engine import compute_activation
@@ -61,6 +62,28 @@ async def build_mcp_entity_search_surface(
     return {"entities": entities, "total": len(entities)}
 
 
+async def build_mcp_entity_search_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    name: str | None = None,
+    entity_type: str | None = None,
+    limit: int = 10,
+    recall_middleware: Callable[..., Awaitable[None]],
+) -> dict:
+    """Build the MCP entity-search tool payload and run read-tool middleware."""
+    result = await build_mcp_entity_search_surface(
+        manager,
+        group_id=group_id,
+        name=name,
+        entity_type=entity_type,
+        limit=limit,
+    )
+    if result.get("status") != "error":
+        await recall_middleware(name or entity_type or "", result, tool_name="search_entities")
+    return result
+
+
 async def build_api_fact_search_surface(
     manager: Any,
     *,
@@ -109,6 +132,33 @@ async def build_mcp_fact_search_surface(
         limit=limit,
     )
     return {"facts": facts, "total": len(facts)}
+
+
+async def build_mcp_fact_search_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str = "",
+    subject: str | None = None,
+    predicate: str | None = None,
+    include_expired: bool = False,
+    include_epistemic: bool = False,
+    limit: int = 10,
+    recall_middleware: Callable[..., Awaitable[None]],
+) -> dict:
+    """Build the MCP fact-search tool payload and run read-tool middleware."""
+    result = await build_mcp_fact_search_surface(
+        manager,
+        group_id=group_id,
+        query=query,
+        subject=subject,
+        predicate=predicate,
+        include_expired=include_expired,
+        include_epistemic=include_epistemic,
+        limit=limit,
+    )
+    await recall_middleware(query, result, tool_name="search_facts")
+    return result
 
 
 async def _search_facts(

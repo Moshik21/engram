@@ -95,6 +95,34 @@ def build_chat_tool_events(
     return events
 
 
+def build_chat_tool_stream_events(
+    recall_results: Sequence[Mapping[str, Any]],
+    facts: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build AI SDK v6 synthetic tool event payloads for rich chat components."""
+    payloads: list[dict[str, Any]] = []
+    for idx, event in enumerate(build_chat_tool_events(recall_results, facts), start=1):
+        tool_call_id = f"tc_{idx}"
+        payloads.extend(
+            [
+                {
+                    "type": "tool-input-available",
+                    "toolCallId": tool_call_id,
+                    "toolName": event.name,
+                    "input": event.input,
+                    "dynamic": True,
+                },
+                {
+                    "type": "tool-output-available",
+                    "toolCallId": tool_call_id,
+                    "output": "displayed",
+                    "dynamic": True,
+                },
+            ]
+        )
+    return payloads
+
+
 def build_chat_tool_result_message(tool_use_id: str, result: str) -> dict[str, str]:
     """Build the Anthropic tool_result message for a chat tool call."""
     return {

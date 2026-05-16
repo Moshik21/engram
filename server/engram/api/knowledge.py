@@ -47,14 +47,9 @@ from engram.notifications.surface import (
     build_api_notifications_surface,
 )
 from engram.retrieval.artifacts import build_api_artifact_search_surface
-from engram.retrieval.chat_events import (
-    accumulate_chat_tool_result,
-    build_chat_tool_events,
-    build_chat_tool_result_message,
-)
+from engram.retrieval.chat_events import build_chat_tool_stream_events
 from engram.retrieval.chat_feedback import (
     apply_chat_recall_feedback,
-    build_memory_grounding_retry_system_prompt,
     should_retry_chat_response,
 )
 from engram.retrieval.chat_persistence import (
@@ -74,7 +69,12 @@ from engram.retrieval.chat_runtime import (
     hydrate_chat_context,
     record_chat_assistant_turn,
 )
-from engram.retrieval.chat_tools import execute_chat_tool
+from engram.retrieval.chat_tools import (
+    CHAT_TOOLS,
+    extract_message_text,
+    retry_memory_grounded_response,
+    run_chat_tool_use_loop,
+)
 from engram.retrieval.context import (
     manager_conversation_top_entity_names,
 )
@@ -147,18 +147,6 @@ async def dismiss_notifications(request: Request, body: DismissBody) -> JSONResp
 _DEDUP = CaptureDedupCache(ttl_seconds=300.0, max_entries=1000)
 _DEDUP_CACHE = _DEDUP.cache  # compatibility handle for existing tests
 _DEDUP_TTL = _DEDUP.ttl_seconds
-
-
-def _extract_message_text(blocks: object) -> str:
-    """Join text-bearing Anthropic blocks without assuming concrete block types."""
-    if not isinstance(blocks, list):
-        return ""
-    parts: list[str] = []
-    for block in blocks:
-        text = getattr(block, "text", None)
-        if isinstance(text, str) and text:
-            parts.append(text)
-    return "".join(parts)
 
 
 def _dedup_check(content: str) -> bool:
@@ -722,158 +710,8 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-def _emit_tool(tool_call_id: str, tool_name: str, input_data: dict) -> str:
-    """Emit AI SDK v6 synthetic tool call (input-available + output-available)."""
-    inp = _sse(
-        {
-            "type": "tool-input-available",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "input": input_data,
-            "dynamic": True,
-        }
-    )
-    out = _sse(
-        {
-            "type": "tool-output-available",
-            "toolCallId": tool_call_id,
-            "output": "displayed",
-            "dynamic": True,
-        }
-    )
-    return inp + out
-
-
 MAX_TOOL_TURNS = 3  # Cap agentic loop iterations
 MAX_HISTORY_MESSAGES = DEFAULT_MAX_HISTORY_MESSAGES  # Sliding window for cost control
-
-CHAT_TOOLS = [
-    {
-        "name": "recall",
-        "description": (
-            "Search memories by semantic similarity + activation. "
-            "Returns scored entities with summaries and relationships."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query"},
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results (1-20)",
-                    "default": 5,
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "search_entities",
-        "description": (
-            "Find specific entities by name (fuzzy match) or type. "
-            "Use when you know or suspect the name of an entity."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Entity name to search for"},
-                "entity_type": {
-                    "type": "string",
-                    "description": "Filter by type (Person, Technology, etc.)",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results",
-                    "default": 10,
-                },
-            },
-        },
-    },
-    {
-        "name": "search_facts",
-        "description": (
-            "Search for relationships/facts in the knowledge graph. "
-            "Can filter by subject entity name and/or predicate type "
-            "(e.g., PARENT_OF, WORKS_AT, LIVES_IN). Internal epistemic "
-            "decision/artifact edges stay hidden unless include_epistemic=true."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query",
-                    "default": "",
-                },
-                "subject": {
-                    "type": "string",
-                    "description": "Filter by subject entity name",
-                },
-                "predicate": {
-                    "type": "string",
-                    "description": "Filter by relationship type",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max results",
-                    "default": 10,
-                },
-                "include_epistemic": {
-                    "type": "boolean",
-                    "description": (
-                        "Debug-only: include decision/artifact graph facts. "
-                        "Do not use this as the primary path for project reconcile answers."
-                    ),
-                    "default": False,
-                },
-            },
-        },
-    },
-]
-
-
-async def _execute_tool(manager, group_id: str, tool_name: str, tool_input: dict) -> str:
-    """Execute a chat tool call against the manager. Returns JSON string."""
-    payload = await execute_chat_tool(
-        manager,
-        group_id=group_id,
-        tool_name=tool_name,
-        tool_input=tool_input,
-    )
-    return json.dumps(payload)
-
-
-async def _retry_memory_grounded_response(
-    client,
-    *,
-    system_prompt: list[dict],
-    loop_messages: list[dict],
-    chat_need: MemoryNeed,
-    prior_response: str,
-) -> str:
-    """Retry once with a stronger memory-grounding instruction."""
-    retry_system = build_memory_grounding_retry_system_prompt(
-        system_prompt,
-        chat_need=chat_need,
-        prior_response=prior_response,
-    )
-    retry_response = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=cast(Any, retry_system),
-        messages=cast(Any, loop_messages),
-    )
-    retry_text = _extract_message_text(retry_response.content)
-    return retry_text or prior_response
-
-
-def _build_tool_events(recall_results: list, facts: list) -> str:
-    """Analyze recall results and emit synthetic tool events for rich components."""
-    return "".join(
-        _emit_tool(f"tc_{idx}", event.name, event.input)
-        for idx, event in enumerate(build_chat_tool_events(recall_results, facts), start=1)
-    )
-
 
 @router.post("/chat", response_model=None)
 async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResponse:
@@ -981,76 +819,27 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
 
             client = anthropic.AsyncAnthropic()
 
-            # Accumulate tool results for UI components
-            all_recall_results: list[dict] = list(
-                getattr(epistemic_bundle, "memory_results", []) or []
+            tool_loop = await run_chat_tool_use_loop(
+                client,
+                manager=manager,
+                group_id=group_id,
+                system_prompt=cast(Any, system_prompt),
+                messages=cast(Any, messages),
+                tools=cast(Any, CHAT_TOOLS),
+                initial_recall_results=list(getattr(epistemic_bundle, "memory_results", []) or []),
+                max_tool_turns=MAX_TOOL_TURNS,
             )
-            all_facts: list[dict] = []
-
-            # --- Agentic tool-use loop (non-streaming) ---
-            loop_messages = list(messages)
-            for _turn in range(MAX_TOOL_TURNS):
-                response = await client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=1024,
-                    system=cast(Any, system_prompt),
-                    messages=cast(Any, loop_messages),
-                    tools=cast(Any, CHAT_TOOLS),
-                )
-
-                if response.stop_reason != "tool_use":
-                    # Final response — extract text and stream it
-                    break
-
-                # Process tool calls
-                assistant_content = response.content
-                tool_results = []
-                for block in assistant_content:
-                    if block.type != "tool_use":
-                        continue
-
-                    tool_name = block.name
-                    tool_input = block.input
-
-                    # Execute tool
-                    try:
-                        result_str = await _execute_tool(
-                            manager,
-                            group_id,
-                            tool_name,
-                            tool_input,
-                        )
-                    except Exception as e:
-                        logger.warning("Chat tool %s failed: %s", tool_name, e)
-                        result_str = json.dumps({"error": str(e)})
-
-                    tool_results.append(build_chat_tool_result_message(block.id, result_str))
-                    accumulate_chat_tool_result(
-                        tool_name=tool_name,
-                        result=result_str,
-                        recall_results=all_recall_results,
-                        facts=all_facts,
-                    )
-
-                # Append assistant + tool results for next turn
-                loop_messages.append({"role": "assistant", "content": assistant_content})
-                loop_messages.append({"role": "user", "content": tool_results})
-            else:
-                # Exhausted turns — do one final call without tools
-                response = await client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=1024,
-                    system=cast(Any, system_prompt),
-                    messages=cast(Any, loop_messages),
-                )
+            response = tool_loop.response
+            loop_messages = tool_loop.loop_messages
+            all_recall_results = tool_loop.recall_results
+            all_facts = tool_loop.facts
 
             # Emit synthetic tool events for UI components
-            tool_events = _build_tool_events(all_recall_results, all_facts)
-            if tool_events:
-                yield tool_events
+            for tool_event in build_chat_tool_stream_events(all_recall_results, all_facts):
+                yield _sse(tool_event)
 
             # Stream the final text response
-            final_text = _extract_message_text(response.content)
+            final_text = extract_message_text(response.content)
 
             if final_text:
                 if should_retry_chat_response(
@@ -1061,7 +850,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
                 ):
                     if chat_need is None:
                         raise RuntimeError("chat_need missing during retry path")
-                    final_text = await _retry_memory_grounded_response(
+                    final_text = await retry_memory_grounded_response(
                         client,
                         system_prompt=system_prompt,
                         loop_messages=loop_messages,

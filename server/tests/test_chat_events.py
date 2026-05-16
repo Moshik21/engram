@@ -6,6 +6,7 @@ from engram.retrieval.chat_events import (
     accumulate_chat_tool_result,
     build_chat_tool_events,
     build_chat_tool_result_message,
+    build_chat_tool_stream_events,
     raw_recall_from_chat_item,
 )
 
@@ -112,6 +113,45 @@ def test_build_chat_tool_events_from_recall_and_facts() -> None:
         "score": 0.49,
         "latent": True,
     }
+
+
+def test_build_chat_tool_stream_events_pairs_input_and_output_payloads() -> None:
+    payloads = build_chat_tool_stream_events(
+        [],
+        [
+            {
+                "subject": "Alice",
+                "predicate": "WORKS_ON",
+                "object": "Engram",
+                "confidence": 0.92,
+            }
+        ],
+    )
+
+    assert payloads == [
+        {
+            "type": "tool-input-available",
+            "toolCallId": "tc_1",
+            "toolName": "show_facts",
+            "input": {
+                "facts": [
+                    {
+                        "subject": "Alice",
+                        "predicate": "WORKS_ON",
+                        "object": "Engram",
+                        "confidence": 0.92,
+                    }
+                ]
+            },
+            "dynamic": True,
+        },
+        {
+            "type": "tool-output-available",
+            "toolCallId": "tc_1",
+            "output": "displayed",
+            "dynamic": True,
+        },
+    ]
 
 
 def test_raw_recall_from_chat_item_round_trips_chat_shapes() -> None:
