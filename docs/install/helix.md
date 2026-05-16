@@ -52,6 +52,7 @@ cd server
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram lifecycle --mode helix
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram doctor --skip-server --no-smoke
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
 ```
 
 When you want to inspect a specific native data directory, pass it explicitly:
@@ -78,6 +79,11 @@ The native smoke creates a disposable PyO3 Helix brain, captures three
 episodes, projects them through triage, persists a consolidation cycle and
 calibration snapshot, stores local recall/continuity labels, and returns a
 brain-loop report with no coverage gaps.
+Use `engram evaluate --mode helix --require-evaluation-signals` as the hard
+operator gate for a live or reusable native data directory. It exits non-zero
+unless cue usefulness, projection yield, recall quality, false recall, triage
+calibration, and consolidation effect are all measured with evidence and a
+metric.
 
 ## Quick Start with Docker Compose
 

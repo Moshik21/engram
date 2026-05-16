@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3202 tests, 43 skips, and 236 external-service tests deselected after
+  with 3213 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -47,7 +47,9 @@ What changed in this pass:
   orchestration boundary, the MCP explicit recall tool surface boundary, and
   the MCP entity/fact lookup, artifact-search, context, and question-route tool
   middleware boundaries plus the knowledge-chat tool-use loop and response-turn
-  orchestration extractions plus the REST evaluation-report runtime-boundary
+  orchestration extractions plus the REST evaluation-report runtime-boundary,
+  evaluation-signal CLI hard gate, and Python 3.13 event-loop test harness
+  cleanup.
   helper, direct REST engine-dispatch/store-service guard, stricter native
   manifest evidence verifier, the chat rate-limit execution helper, and the
   chat persistence scheduler helper.
@@ -1632,6 +1634,41 @@ What changed in this pass:
   not measured, evidence-free, or metric-free, so smoke success is tied to the
   same cue/projection/recall/calibration/consolidation evidence that the
   operator report displays.
+- Added an operator CLI hard gate for the same readiness map. `engram evaluate
+  --require-evaluation-signals` now exits non-zero for normal JSON/live reports
+  when any required signal is missing, unmeasured, evidence-free, or metric-free,
+  so benchmark-labeled exports and reopened native reports can be promoted to
+  blocking checks without running the deterministic smoke harness.
+  `--from-json` also recognizes already-rendered brain-loop report artifacts, so
+  saved JSON reports can be verified directly instead of being misread as raw
+  graph stats. Partial report-shaped JSON now fails fast with the missing
+  required report sections instead of being silently rebuilt as an empty raw
+  stats report. The report-artifact shape helpers now live in
+  `engram.evaluation.brain_loop_report`, not in the CLI, so future REST/MCP or
+  benchmark tooling can share the same artifact contract. The partial-report
+  helper returns false for complete report artifacts, so future callers can use
+  it directly without depending on CLI check ordering. The shared verifier,
+  report-artifact helpers, and failure formatter are also exported from
+  `engram.evaluation` for package-level reuse.
+- Registered `engram evaluate --mode helix --require-evaluation-signals` in the
+  native surface manifest as an operator hard gate, with manifest coverage
+  proving the gate remains tracked beside the native smoke and doctor paths.
+- Updated the Helix native install guide with the same hard gate so the
+  preferred PyO3 operator path documents smoke, lifecycle/doctor, and measured
+  evaluation-readiness verification together.
+- Updated the lite install guide with the same `engram evaluate` report path and
+  a warning that `--require-evaluation-signals` is only appropriate after a lite
+  brain has cue feedback, projection yield, recall labels, triage calibration,
+  and consolidation history. This keeps SQLite/lite viable as the dev/demo path
+  without implying a fresh disposable brain can satisfy production-readiness
+  gates.
+- Tightened the shared signal verifier itself. `unmeasured_evaluation_signals()`
+  now reports missing signals in the same lifecycle order as
+  `EVALUATION_SIGNAL_ORDER`, and direct report-helper tests cover measured,
+  missing, not-measured, no-evidence, and no-metric outcomes instead of relying
+  only on smoke/CLI coverage. Smoke and CLI now share
+  `evaluation_signal_failure_message()` so their hard-gate failure formatting
+  cannot drift independently.
 - Updated the no-bind native dashboard smoke fixture to carry measured
   `evaluation_signals` and cue/calibration/consolidation effect evidence. The
   fixture now asserts the dashboard Evaluate panel renders Signal Readiness as
@@ -6403,9 +6440,43 @@ What changed in this pass:
   - Result: passed.
   `git diff --check`
   - Result: passed.
+- Evaluation signal CLI hard gate:
+  `uv run ruff check engram/__main__.py engram/evaluation/cli.py tests/test_projected_consolidated_smoke.py tests/test_cli_main.py`
+  - Result: passed.
+  `uv run python -m engram --help`
+  - Result: passed; top-level examples include
+    `engram evaluate --require-evaluation-signals`.
+  `uv run python -m engram evaluate --help`
+  - Result: passed; evaluate options include `--require-evaluation-signals`,
+    and `--from-json` documents saved brain-loop report artifacts.
+  `uv run pytest tests/test_cli_main.py tests/test_projected_consolidated_smoke.py -q`
+  - Result: 20 passed.
+  This includes subprocess coverage for
+  `python -m engram evaluate --from-json <saved-report>
+  --require-evaluation-signals --format json` accepting measured report
+  artifacts, exiting non-zero for unmeasured report artifacts, and rejecting
+  partial report-shaped JSON with a clear missing-section error.
+  `uv run ruff check engram/quality/native_surface_manifest.py tests/test_native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_native_surface_manifest.py -q`
+  - Result: 6 passed.
+  Combined focused gate:
+  `uv run ruff check engram/evaluation/brain_loop_report.py engram/evaluation/cli.py engram/evaluation/smoke.py engram/__main__.py engram/quality/native_surface_manifest.py tests/test_brain_loop_report.py tests/test_projected_consolidated_smoke.py tests/test_cli_main.py tests/test_native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_brain_loop_report.py tests/test_cli_main.py tests/test_projected_consolidated_smoke.py tests/test_native_surface_manifest.py tests/test_decomposer.py::TestDecomposeQuery tests/test_emotional_salience.py::TestTriageFormula::test_async_score_uses_new_weights tests/test_emotional_salience.py::TestTriageFormula::test_personal_floor_kicks_in tests/test_emotional_salience.py::TestTriageFormula::test_emotional_disabled_no_floor tests/test_emotional_salience.py::TestPruneResistance::test_emotional_entity_survives_pruning -q`
+  - Result: 53 passed.
+  `git diff --check`
+  - Result: passed.
+- Python 3.13 event-loop test harness cleanup:
+  `uv run ruff check tests/test_decomposer.py tests/test_emotional_salience.py`
+  - Result: passed.
+  `uv run pytest tests/test_decomposer.py::TestDecomposeQuery tests/test_emotional_salience.py::TestTriageFormula::test_async_score_uses_new_weights tests/test_emotional_salience.py::TestTriageFormula::test_personal_floor_kicks_in tests/test_emotional_salience.py::TestTriageFormula::test_emotional_disabled_no_floor tests/test_emotional_salience.py::TestPruneResistance::test_emotional_entity_survives_pruning -q`
+  - Result: 10 passed. These tests now use `asyncio.run()` instead of
+    `asyncio.get_event_loop().run_until_complete(...)`, which Python 3.13 no
+    longer tolerates when no loop is set in the main thread.
 - Broad backend non-Docker/non-external-Helix gate after MCP read-tool, chat-loop, response-turn, REST capture, REST evaluation-report extraction, native manifest evidence verifier, REST store/service dispatch guard, REST awaited-helper guard, chat rate-limit execution helper, chat persistence scheduler helper, MCP public surface store/session guard, and MCP awaited-helper guard:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  - Result: 3202 passed, 43 skipped, 236 deselected in 138.12s.
+  - Result: 3213 passed, 43 skipped, 236 deselected in 133.58s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.

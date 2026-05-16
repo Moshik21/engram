@@ -99,6 +99,14 @@ def test_native_surface_manifest_classifies_mcp_surfaces() -> None:
     assert decorated["mcp_prompt"] == identifiers_by_kind("mcp_prompt")
 
 
+def test_native_surface_manifest_tracks_operator_gates() -> None:
+    operator_surfaces = identifiers_by_kind("operator")
+
+    assert "engram evaluate --smoke --mode helix" in operator_surfaces
+    assert "engram evaluate --mode helix --require-evaluation-signals" in operator_surfaces
+    assert "engram doctor --mode helix" in operator_surfaces
+
+
 def test_native_runtime_evidence_points_to_existing_parity_helpers() -> None:
     parity_helpers = _python_function_names(NATIVE_PARITY_TEST)
     missing: list[str] = []

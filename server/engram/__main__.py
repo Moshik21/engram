@@ -34,6 +34,8 @@ def main():
         "                            Start MCP server (HTTP on :8200)\n"
         "  engram lifecycle         Print local brain-loop lifecycle snapshot\n"
         "  engram evaluate          Print brain-loop evaluation report\n"
+        "  engram evaluate --require-evaluation-signals\n"
+        "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
         "                            Verify the native Helix brain loop end to end\n"
         "  engram doctor            Run diagnostics and the brain-loop smoke\n"

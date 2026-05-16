@@ -3,10 +3,17 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
-from engram.evaluation.cli import build_report_from_args, configure_evaluate_parser
+from engram.evaluation.cli import (
+    build_report_from_args,
+    configure_evaluate_parser,
+    run_evaluate_command,
+)
 from engram.evaluation.smoke import (
     assert_smoke_report,
     format_smoke_report,
@@ -14,6 +21,8 @@ from engram.evaluation.smoke import (
 )
 from engram.evaluation.store import SQLiteEvaluationStore, StoredRecallRuntimeMetricsSnapshot
 from engram.storage.resolver import EngineMode
+
+SERVER_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.asyncio
@@ -537,3 +546,340 @@ async def test_evaluate_cli_from_json_uses_configured_default_group(
     report = await build_report_from_args(args)
 
     assert report["group_id"] == "operator_brain"
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_require_evaluation_signals_accepts_measured_from_json(
+    capsys,
+    tmp_path,
+) -> None:
+    payload_path = tmp_path / "measured-report-source.json"
+    payload_path.write_text(json.dumps(_measured_evaluation_payload()))
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(payload_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["coverage_gaps"] == []
+    assert {
+        signal["status"]
+        for signal in report["evaluation_signals"].values()
+    } == {"measured"}
+    assert report["evaluation_signals"]["cue_usefulness"]["evidence_count"] == 2
+    assert report["evaluation_signals"]["false_recall"]["metric"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_require_evaluation_signals_accepts_saved_report_artifact(
+    capsys,
+    tmp_path,
+) -> None:
+    raw_payload_path = tmp_path / "measured-report-source.json"
+    raw_payload_path.write_text(json.dumps(_measured_evaluation_payload()))
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    raw_args = parser.parse_args(
+        [
+            "--from-json",
+            str(raw_payload_path),
+            "--format",
+            "json",
+        ]
+    )
+    report_artifact = await build_report_from_args(raw_args)
+    report_path = tmp_path / "brain-loop-report.json"
+    report_path.write_text(json.dumps(report_artifact))
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["group_id"] == "operator_brain"
+    assert report["totals"]["episodes"] == 2
+    assert report["evaluation_signals"]["projection_yield"]["metric"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_evaluate_command_accepts_saved_report_artifact(tmp_path) -> None:
+    raw_payload_path = tmp_path / "measured-report-source.json"
+    raw_payload_path.write_text(json.dumps(_measured_evaluation_payload()))
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    raw_args = parser.parse_args(
+        [
+            "--from-json",
+            str(raw_payload_path),
+            "--format",
+            "json",
+        ]
+    )
+    report_artifact = await build_report_from_args(raw_args)
+    report_path = tmp_path / "brain-loop-report.json"
+    report_path.write_text(json.dumps(report_artifact))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "engram",
+            "evaluate",
+            "--from-json",
+            str(report_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ],
+        cwd=SERVER_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    report = json.loads(result.stdout)
+    assert result.stderr == ""
+    assert report["group_id"] == "operator_brain"
+    assert report["evaluation_signals"]["triage_calibration"]["status"] == "measured"
+
+
+def test_evaluate_command_rejects_unmeasured_report_artifact(tmp_path) -> None:
+    report_path = tmp_path / "unmeasured-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "group_id": "operator_brain",
+                "totals": {"episodes": 0},
+                "capture": {"status": "empty"},
+                "cue": {"status": "attention"},
+                "project": {"status": "ready"},
+                "recall": {"status": "ready"},
+                "consolidate": {"status": "needs_cycles"},
+                "evaluation_signals": {
+                    "cue_usefulness": {
+                        "status": "needs_data",
+                        "evidence_count": 0,
+                        "metric": None,
+                        "gap": "cue usefulness cannot be measured until episodes have cues",
+                    }
+                },
+                "coverage_gaps": ["capture has no stored episodes yet"],
+            }
+        )
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "engram",
+            "evaluate",
+            "--from-json",
+            str(report_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ],
+        cwd=SERVER_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "Brain-loop evaluation has unmeasured evaluation signals" in result.stderr
+    assert "cue_usefulness:needs_data" in result.stderr
+    assert "false_recall:missing" in result.stderr
+
+
+def test_evaluate_command_rejects_partial_report_artifact(tmp_path) -> None:
+    report_path = tmp_path / "partial-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "group_id": "operator_brain",
+                "loop": ["capture", "cue", "project", "recall", "consolidate"],
+                "totals": {"episodes": 1},
+                "capture": {"status": "ready"},
+                "evaluation_signals": {},
+            }
+        )
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "engram",
+            "evaluate",
+            "--from-json",
+            str(report_path),
+            "--format",
+            "json",
+        ],
+        cwd=SERVER_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "--from-json looks like a brain-loop report" in result.stderr
+    assert "required report sections" in result.stderr
+    assert "consolidate" in result.stderr
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_from_json_rejects_partial_report_artifact(tmp_path) -> None:
+    report_path = tmp_path / "partial-report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "group_id": "operator_brain",
+                "loop": ["capture", "cue", "project", "recall", "consolidate"],
+                "totals": {"episodes": 1},
+                "capture": {"status": "ready"},
+                "evaluation_signals": {},
+            }
+        )
+    )
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await build_report_from_args(args)
+
+    message = str(exc_info.value)
+    assert "--from-json looks like a brain-loop report" in message
+    assert "cue" in message
+    assert "consolidate" in message
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_require_evaluation_signals_rejects_gaps(tmp_path) -> None:
+    payload_path = tmp_path / "empty-report-source.json"
+    payload_path.write_text(json.dumps({"stats": {"episodes": 0}}))
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(payload_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    message = str(exc_info.value)
+    assert "Brain-loop evaluation has unmeasured evaluation signals" in message
+    assert "cue_usefulness:needs_data" in message
+    assert "triage_calibration:needs_snapshots" in message
+
+
+def _measured_evaluation_payload() -> dict:
+    return {
+        "group_id": "operator_brain",
+        "stats": {
+            "episodes": 2,
+            "entities": 3,
+            "relationships": 1,
+            "active_entities": 1,
+            "cue_metrics": {
+                "cue_count": 2,
+                "cue_coverage": 1.0,
+                "cue_surfaced_count": 2,
+                "cue_selected_count": 1,
+                "cue_used_count": 1,
+            },
+            "projection_metrics": {
+                "state_counts": {"projected": 2},
+                "yield": {
+                    "linked_entity_count": 3,
+                    "relationship_count": 1,
+                    "avg_linked_entities_per_projected_episode": 1.5,
+                    "avg_relationships_per_projected_episode": 0.5,
+                },
+            },
+            "recall_metrics": {
+                "total_analyses": 1,
+                "trigger_count": 1,
+                "surfaced_count": 1,
+                "used_count": 1,
+                "analyzer_latency_ms": {"avg": 4.0, "p95": 7.0},
+            },
+        },
+        "recent_cycles": [
+            {
+                "id": "cyc_cli",
+                "status": "completed",
+                "phases": [
+                    {
+                        "phase": "triage",
+                        "status": "success",
+                        "itemsProcessed": 2,
+                        "itemsAffected": 1,
+                    }
+                ],
+            }
+        ],
+        "calibration_snapshots": [
+            {
+                "cycle_id": "cyc_cli",
+                "phase": "triage",
+                "totalTraces": 4,
+                "labeledExamples": 2,
+                "accuracy": 0.75,
+                "expectedCalibrationError": 0.05,
+            }
+        ],
+        "recall_samples": [
+            {
+                "recallTriggered": True,
+                "recallHelped": True,
+                "recallNeeded": True,
+                "packetsSurfaced": 1,
+                "packetsUsed": 1,
+                "falseRecalls": 0,
+            }
+        ],
+        "session_samples": [
+            {
+                "baselineScore": 0.2,
+                "memoryScore": 0.8,
+                "openLoopExpected": True,
+                "openLoopRecovered": True,
+                "temporalExpected": True,
+                "temporalCorrect": True,
+            }
+        ],
+    }

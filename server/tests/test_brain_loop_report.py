@@ -4,11 +4,31 @@ from datetime import datetime, timezone
 
 from engram.benchmark.metrics import RecallEvalSample, SessionContinuitySample
 from engram.evaluation.brain_loop_report import (
+    EVALUATION_SIGNAL_ORDER,
     build_brain_loop_report,
+    evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
+    is_brain_loop_report_payload,
+    looks_like_partial_brain_loop_report,
     merge_recall_runtime_metrics,
+    missing_brain_loop_report_sections,
+    unmeasured_evaluation_signals,
 )
 from engram.models.consolidation import CalibrationSnapshot, ConsolidationCycle, PhaseResult
+
+
+def test_evaluation_package_exports_report_artifact_helpers() -> None:
+    import engram.evaluation as evaluation
+
+    for name in (
+        "evaluation_signal_failure_message",
+        "is_brain_loop_report_payload",
+        "looks_like_partial_brain_loop_report",
+        "missing_brain_loop_report_sections",
+        "unmeasured_evaluation_signals",
+    ):
+        assert name in evaluation.__all__
+        assert getattr(evaluation, name) is not None
 
 
 def test_brain_loop_report_summarizes_full_loop() -> None:
@@ -323,6 +343,78 @@ def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
 
     assert "Engram Brain Loop Report" in markdown
     assert "Coverage Gaps" in markdown
+
+
+def test_unmeasured_evaluation_signals_accepts_measured_report() -> None:
+    assert unmeasured_evaluation_signals(_measured_signal_report()) == []
+
+
+def test_unmeasured_evaluation_signals_reports_ordered_missing_signals() -> None:
+    report = _measured_signal_report()
+    report["evaluation_signals"].pop("projection_yield")
+    report["evaluation_signals"].pop("false_recall")
+
+    assert unmeasured_evaluation_signals(report) == [
+        "projection_yield:missing",
+        "false_recall:missing",
+    ]
+
+
+def test_unmeasured_evaluation_signals_reports_signal_quality_failures() -> None:
+    report = _measured_signal_report()
+    report["evaluation_signals"]["cue_usefulness"]["status"] = "needs_feedback"
+    report["evaluation_signals"]["recall_quality"]["evidence_count"] = 0
+    report["evaluation_signals"]["triage_calibration"]["metric"] = None
+
+    assert unmeasured_evaluation_signals(report) == [
+        "cue_usefulness:needs_feedback",
+        "recall_quality:no_evidence",
+        "triage_calibration:no_metric",
+    ]
+
+
+def test_evaluation_signal_failure_message_formats_failures() -> None:
+    report = _measured_signal_report()
+    report["evaluation_signals"].pop("projection_yield")
+
+    assert evaluation_signal_failure_message(report, prefix="Operator gate") == (
+        "Operator gate: ['projection_yield:missing']"
+    )
+    assert (
+        evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate")
+        is None
+    )
+
+
+def test_brain_loop_report_artifact_shape_helpers() -> None:
+    complete = {
+        "totals": {},
+        "capture": {},
+        "cue": {},
+        "project": {},
+        "recall": {},
+        "consolidate": {},
+        "evaluation_signals": {},
+    }
+    partial = {
+        "loop": ["capture", "cue", "project", "recall", "consolidate"],
+        "totals": {},
+        "capture": {},
+        "evaluation_signals": {},
+    }
+
+    assert is_brain_loop_report_payload(complete) is True
+    assert looks_like_partial_brain_loop_report(complete) is False
+    assert missing_brain_loop_report_sections(complete) == []
+    assert is_brain_loop_report_payload(partial) is False
+    assert looks_like_partial_brain_loop_report(partial) is True
+    assert missing_brain_loop_report_sections(partial) == [
+        "cue",
+        "project",
+        "recall",
+        "consolidate",
+    ]
+    assert looks_like_partial_brain_loop_report({"stats": {"episodes": 1}}) is False
 
 
 def test_brain_loop_report_flags_cues_without_feedback() -> None:
@@ -652,3 +744,17 @@ def test_brain_loop_report_accepts_graph_state_and_lifecycle_cycle_shape() -> No
 
     markdown = format_brain_loop_report_markdown(report)
     assert "Error: calibration failed" in markdown
+
+
+def _measured_signal_report() -> dict:
+    return {
+        "evaluation_signals": {
+            signal: {
+                "status": "measured",
+                "evidence_count": 1,
+                "metric": 1.0,
+                "gap": None,
+            }
+            for signal in EVALUATION_SIGNAL_ORDER
+        }
+    }

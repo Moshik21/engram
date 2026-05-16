@@ -92,3 +92,50 @@ def test_mcp_native_data_dir_sets_runtime_env(monkeypatch, tmp_path) -> None:
     assert os.environ["ENGRAM_MODE"] == "helix"
     assert os.environ["ENGRAM_HELIX__TRANSPORT"] == "native"
     assert os.environ["ENGRAM_HELIX__DATA_DIR"] == str(native_dir)
+
+
+def test_evaluate_require_evaluation_signals_dispatches_to_command(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    cli = importlib.import_module("engram.__main__")
+    calls: list[dict] = []
+    report_path = tmp_path / "brain-loop-report.json"
+
+    async def fake_run_evaluate_command(args) -> None:
+        calls.append(
+            {
+                "command": args.command,
+                "from_json": args.from_json,
+                "require_evaluation_signals": args.require_evaluation_signals,
+                "format": args.format,
+            }
+        )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "engram",
+            "evaluate",
+            "--from-json",
+            str(report_path),
+            "--require-evaluation-signals",
+            "--format",
+            "json",
+        ],
+    )
+    monkeypatch.setattr(
+        "engram.evaluation.cli.run_evaluate_command",
+        fake_run_evaluate_command,
+    )
+
+    cli.main()
+
+    assert calls == [
+        {
+            "command": "evaluate",
+            "from_json": report_path,
+            "require_evaluation_signals": True,
+            "format": "json",
+        }
+    ]

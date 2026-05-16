@@ -328,6 +328,15 @@ The projected/consolidated smoke verifier now treats those readiness records as
 real gates too: `assert_smoke_report()` fails if any required signal is missing,
 unmeasured, evidence-free, or metric-free. This keeps smoke success tied to the
 same six evaluation signals named by the goal.
+The normal evaluation CLI can now enforce the same readiness contract outside
+the deterministic smoke harness. `engram evaluate --require-evaluation-signals`
+exits non-zero when a JSON export, live lite report, or native PyO3 report is
+missing any required measured signal, evidence count, or metric. `--from-json`
+accepts raw stats/sample exports and already-rendered brain-loop report JSON, so
+saved benchmark or native report artifacts can be verified directly.
+The native surface manifest also tracks
+`engram evaluate --mode helix --require-evaluation-signals` as an operator hard
+gate beside the native smoke and doctor commands.
 The no-bind native dashboard smoke fixture now mirrors that contract. Its
 native-shaped evaluation payload includes measured `evaluation_signals`, cue
 feedback evidence, calibration quality, and consolidation effect data; the smoke
@@ -1520,7 +1529,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3202 tests, 43 skips, and 236 external-service
+   gate currently passes with 3213 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -1539,6 +1548,11 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    reports keep the in-process smoke proof. Coverage gaps also distinguish
    saved calibration snapshots from quality-scored calibration evidence, so
    unscored calibration history cannot satisfy the Consolidate quality gate.
+   `engram evaluate --require-evaluation-signals` now makes the six-signal
+   readiness map a hard CLI gate for JSON/live/native reports outside smoke,
+   including saved brain-loop report artifacts passed back through
+   `--from-json`. The native surface manifest now tracks the Helix variant as
+   an operator hard gate.
    LongMemEval/benchmark artifacts remain deeper benchmark evidence, not yet
    the everyday operator gate.
 
@@ -2963,9 +2977,10 @@ That app-state guard now covers every API route module, not just the three
 routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
-shows `_app_state` only in `server/engram/api/deps.py`, and the broad
-non-Docker/non-Helix gate now passes with 3202 tests, 43 skips, and 236
-external-service deselections.
+shows `_app_state` only in `server/engram/api/deps.py`. The latest broad
+non-Docker/non-Helix gate now passes with 3213 tests, 43 skips, and 236
+external-service deselections after the evaluation-signal CLI gate and Python
+3.13 event-loop test harness cleanup.
 
 The REST evaluation report no longer reaches into consolidation engine private
 store state or dispatches engine methods directly from the route.
@@ -2977,7 +2992,7 @@ and then calls the shared report builder with REST snapshot labeling.
 payload. The public-surface guard rejects route-local `engine._*` access
 alongside `manager._*` access and now statically rejects direct REST API
 `engine.*` dispatch. Focused evaluation/consolidation/static checks and Ruff
-passed; a later route-orchestration broad gate now passes with 3202 tests, 43
+passed; a later route-orchestration broad gate now passes with 3213 tests, 43
 skips, and 236 external-service deselections.
 
 The same public-surface guard now covers direct REST route store/service method
@@ -3079,7 +3094,7 @@ client construction, SSE wrapping, and persistence scheduler invocation. Focused
 chat-runtime/feedback/tool, full knowledge API, chat-event, public-surface,
 Ruff, and `git diff --check` gates passed. The latest response-turn
 orchestration check passed with 174 focused tests. A later broad
-non-Docker/non-Helix gate now passes with 3202
+non-Docker/non-Helix gate now passes with 3213
 tests, 43 skips, and 236 external-service deselections.
 After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
 is clean; the remaining direct matches are MCP auto-recall, recall middleware,
@@ -3312,7 +3327,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3202 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3213 tests, 43 skips, and 236 external-service deselections.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
@@ -3370,7 +3385,7 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3202 tests, 43 skips, and 236 external-service
+broad gate passes with 3213 tests, 43 skips, and 236 external-service
 deselections.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.

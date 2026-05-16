@@ -77,6 +77,21 @@ engram lifecycle
 engram lifecycle --format json
 ```
 
+To inspect evaluation readiness for the current lite brain, print the same
+Capture -> Cue -> Project -> Recall -> Consolidate report used by REST, MCP,
+and native Helix:
+
+```bash
+engram evaluate --mode lite
+engram evaluate --mode lite --format json
+engram evaluate --mode lite --require-evaluation-signals --format json
+```
+
+Use `--require-evaluation-signals` only when the lite brain has enough cue
+feedback, projection yield, recall labels, triage calibration, and consolidation
+history to be treated as a gate. Fresh disposable demo brains usually need the
+doctor/smoke path first.
+
 For clean local dashboard or demo smokes, disable hook-driven auto-capture so
 external `/api/knowledge/auto-observe` traffic cannot write unrelated episodes
 into the demo brain:

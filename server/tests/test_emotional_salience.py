@@ -200,7 +200,7 @@ class TestTriageFormula:
 
         cfg = ActivationConfig()
         ep = SimpleNamespace(content="Hello world " * 50, id="ep1")
-        score = asyncio.get_event_loop().run_until_complete(
+        score = asyncio.run(
             TriagePhase._score_episode_async(ep, cfg),
         )
         # Score should be > 0 (length + keyword + novelty fallback + emotional)
@@ -224,7 +224,7 @@ class TestTriageFormula:
             "My dad is extremely devastated and we're not sure what to do.",
             id="ep_personal",
         )
-        score = asyncio.get_event_loop().run_until_complete(
+        score = asyncio.run(
             TriagePhase._score_episode_async(ep, cfg),
         )
         assert score >= cfg.triage_personal_floor
@@ -237,7 +237,7 @@ class TestTriageFormula:
             content="My mom was diagnosed with cancer.",
             id="ep_disabled",
         )
-        score = asyncio.get_event_loop().run_until_complete(
+        score = asyncio.run(
             TriagePhase._score_episode_async(ep, cfg),
         )
         # Without emotional salience, score should be lower (no floor)
@@ -402,7 +402,7 @@ class TestPruneResistance:
         search_index = AsyncMock()
 
         phase = PrunePhase()
-        result, records = asyncio.get_event_loop().run_until_complete(
+        result, records = asyncio.run(
             phase.execute(
                 group_id="default",
                 graph_store=graph_store,

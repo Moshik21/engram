@@ -237,13 +237,11 @@ class TestNounPhraseExtraction:
 
 class TestDecomposeQuery:
     def test_simple_query_returns_original(self):
-        result = asyncio.get_event_loop().run_until_complete(
-            decompose_query("What is my favorite color?")
-        )
+        result = asyncio.run(decompose_query("What is my favorite color?"))
         assert result == ["What is my favorite color?"]
 
     def test_complex_query_decomposed(self):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             decompose_query("How many days between starting Python and starting Rust?")
         )
         assert len(result) == 2
@@ -253,15 +251,11 @@ class TestDecomposeQuery:
         query = "How many days between event A and event B?"
 
         # First call populates cache
-        result1 = asyncio.get_event_loop().run_until_complete(
-            decompose_query(query, cache=cache)
-        )
+        result1 = asyncio.run(decompose_query(query, cache=cache))
         assert query in cache
 
         # Second call hits cache
-        result2 = asyncio.get_event_loop().run_until_complete(
-            decompose_query(query, cache=cache)
-        )
+        result2 = asyncio.run(decompose_query(query, cache=cache))
         assert result1 == result2
 
     def test_cache_eviction(self):
@@ -271,14 +265,12 @@ class TestDecomposeQuery:
         # Fill cache beyond limit
         for i in range(DECOMPOSE_CACHE_SIZE + 5):
             q = f"How many days between event {i} and event {i + 1}?"
-            asyncio.get_event_loop().run_until_complete(
-                decompose_query(q, cache=cache)
-            )
+            asyncio.run(decompose_query(q, cache=cache))
         assert len(cache) <= DECOMPOSE_CACHE_SIZE
 
     def test_model_param_ignored(self):
         """model= is accepted for backward compatibility but ignored."""
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             decompose_query(
                 "How many days between X and Y?",
                 model="some-model-that-doesnt-exist",

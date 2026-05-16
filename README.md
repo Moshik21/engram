@@ -1325,6 +1325,8 @@ cd server
 uv run engram evaluate
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
+uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
 uv run python scripts/brain_loop_report.py
 uv run python scripts/brain_loop_report.py --format json
@@ -1336,6 +1338,12 @@ consolidation phase yield, adjudication pressure, and calibration snapshots.
 Labeled recall and session-continuity samples are read from the local SQLite
 evaluation-label store by default, or from JSON files via `--recall-samples`
 and `--session-samples`.
+
+Add `--require-evaluation-signals` when the report should be a hard gate: the
+command exits non-zero unless cue usefulness, projection yield, recall quality,
+false recall, triage calibration, and consolidation effect are all measured with
+evidence and a metric. `--from-json` accepts raw stats/sample exports and saved
+brain-loop report JSON artifacts.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,

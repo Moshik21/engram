@@ -14,9 +14,9 @@ from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
+    evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
     has_recall_runtime_metrics,
-    unmeasured_evaluation_signals,
 )
 from engram.evaluation.store import (
     SQLiteEvaluationStore,
@@ -422,12 +422,12 @@ def assert_smoke_report(report: dict[str, Any], *, expected_projected: int = 1) 
     control = recall.get("control") or {}
     if int(control.get("surfaced_count") or 0) <= 0:
         raise SystemExit("Projected/consolidated smoke did not record surfaced recall feedback")
-    unmeasured_signals = unmeasured_evaluation_signals(report)
-    if unmeasured_signals:
-        raise SystemExit(
-            "Projected/consolidated smoke has unmeasured evaluation signals: "
-            f"{unmeasured_signals}"
-        )
+    failure_message = evaluation_signal_failure_message(
+        report,
+        prefix="Projected/consolidated smoke has unmeasured evaluation signals",
+    )
+    if failure_message:
+        raise SystemExit(failure_message)
     smoke = report.get("smoke") or {}
     if int(smoke.get("gate_recall_checks") or 0) <= 0:
         raise SystemExit("Projected/consolidated smoke did not run a recall gate check")

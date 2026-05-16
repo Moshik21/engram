@@ -11,8 +11,12 @@ from engram.config import EngramConfig
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
+    evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
+    is_brain_loop_report_payload,
+    looks_like_partial_brain_loop_report,
     merge_recall_runtime_metrics,
+    missing_brain_loop_report_sections,
 )
 from engram.evaluation.store import SQLiteEvaluationStore
 from engram.storage.resolver import EngineMode, resolve_mode
@@ -34,7 +38,10 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--from-json",
         type=Path,
-        help="Read stats/cycles/samples from a JSON export instead of the local SQLite DB.",
+        help=(
+            "Read stats/cycles/samples or a saved brain-loop report from JSON "
+            "instead of the local SQLite DB."
+        ),
     )
     parser.add_argument(
         "--mode",
@@ -85,6 +92,14 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         "--no-saved-samples",
         action="store_true",
         help="Do not read persisted evaluation samples from the SQLite DB.",
+    )
+    parser.add_argument(
+        "--require-evaluation-signals",
+        action="store_true",
+        help=(
+            "Exit non-zero unless all required evaluation_signals are present, "
+            "measured, backed by evidence, and have a metric."
+        ),
     )
     parser.add_argument(
         "--replace",
@@ -156,8 +171,22 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
     saved_session_samples: list[Any] = []
 
     if args.from_json:
-        stats, recent_cycles, calibration_snapshots, group_id = _extract_json_inputs(args)
         source_payload = _load_json(args.from_json)
+        if is_brain_loop_report_payload(source_payload):
+            report = dict(source_payload)
+            if args.group_id:
+                report["group_id"] = args.group_id
+            return report
+        if looks_like_partial_brain_loop_report(source_payload):
+            raise SystemExit(
+                "--from-json looks like a brain-loop report but is missing "
+                "required report sections: "
+                f"{missing_brain_loop_report_sections(source_payload)}"
+            )
+        stats, recent_cycles, calibration_snapshots, group_id = _extract_json_inputs(
+            args,
+            source_payload,
+        )
     else:
         (
             stats,
@@ -198,6 +227,13 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
 async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
     report = await build_report_from_args(args)
+    if getattr(args, "require_evaluation_signals", False):
+        failure_message = evaluation_signal_failure_message(
+            report,
+            prefix="Brain-loop evaluation has unmeasured evaluation signals",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
     if args.format == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
         return
@@ -361,8 +397,10 @@ def _extract_list(payload: dict[str, Any], *keys: str) -> list[Any]:
 
 def _extract_json_inputs(
     args: argparse.Namespace,
+    payload: Any | None = None,
 ) -> tuple[dict[str, Any], list[Any], list[Any], str]:
-    payload = _load_json(args.from_json)
+    if payload is None:
+        payload = _load_json(args.from_json)
     if not isinstance(payload, dict):
         raise SystemExit("--from-json must point to a JSON object")
 

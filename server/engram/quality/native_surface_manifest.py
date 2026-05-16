@@ -23,6 +23,7 @@ SurfaceKind = Literal[
 CoverageKind = Literal[
     "native_runtime_parity",
     "native_fixture_parity",
+    "native_operator_gate",
     "native_operator_smoke",
     "static_not_data_bound",
 ]
@@ -275,6 +276,13 @@ NATIVE_SURFACE_MANIFEST: tuple[NativeSurface, ...] = (
         identifier="engram evaluate --smoke --mode helix",
         coverage="native_operator_smoke",
         evidence="server/engram/evaluation/smoke.py",
+    ),
+    NativeSurface(
+        kind="operator",
+        identifier="engram evaluate --mode helix --require-evaluation-signals",
+        coverage="native_operator_gate",
+        evidence="server/engram/evaluation/cli.py",
+        note="Hard gate for measured evaluation signals on live or saved native reports.",
     ),
     NativeSurface(
         kind="operator",

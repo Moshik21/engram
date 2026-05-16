@@ -24,6 +24,19 @@ from engram.benchmark.metrics import (
 LOOP = ["capture", "cue", "project", "recall", "consolidate"]
 PROJECT_ACTIVE_STATES = {"queued", "cued", "scheduled", "projecting"}
 ADJUDICATION_PHASES = {"evidence_adjudication", "edge_adjudication"}
+BRAIN_LOOP_REPORT_SECTION_KEYS = (
+    "totals",
+    "capture",
+    "cue",
+    "project",
+    "recall",
+    "consolidate",
+)
+BRAIN_LOOP_REPORT_MARKER_KEYS = BRAIN_LOOP_REPORT_SECTION_KEYS + (
+    "loop",
+    "evaluation_signals",
+    "coverage_gaps",
+)
 EVALUATION_SIGNAL_ORDER = (
     "cue_usefulness",
     "projection_yield",
@@ -46,7 +59,9 @@ def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
 def unmeasured_evaluation_signals(report: Mapping[str, Any]) -> list[str]:
     """Return required evaluation signals that are missing or not measured."""
     evaluation_signals = _mapping(report.get("evaluation_signals"))
-    missing_signals = sorted(REQUIRED_EVALUATION_SIGNALS - set(evaluation_signals))
+    missing_signals = [
+        name for name in EVALUATION_SIGNAL_ORDER if name not in evaluation_signals
+    ]
     failures = [f"{name}:missing" for name in missing_signals]
     for name in EVALUATION_SIGNAL_ORDER:
         if name in missing_signals:
@@ -60,6 +75,48 @@ def unmeasured_evaluation_signals(report: Mapping[str, Any]) -> list[str]:
         elif signal.get("metric") is None:
             failures.append(f"{name}:no_metric")
     return failures
+
+
+def evaluation_signal_failure_message(
+    report: Mapping[str, Any],
+    *,
+    prefix: str,
+) -> str | None:
+    """Return a human-readable failure message for unmeasured evaluation signals."""
+    failures = unmeasured_evaluation_signals(report)
+    if not failures:
+        return None
+    return f"{prefix}: {failures}"
+
+
+def is_brain_loop_report_payload(payload: Any) -> bool:
+    """Return whether a JSON payload is a complete brain-loop report artifact."""
+    if not isinstance(payload, Mapping):
+        return False
+    return all(
+        isinstance(payload.get(section), Mapping)
+        for section in BRAIN_LOOP_REPORT_SECTION_KEYS
+    )
+
+
+def looks_like_partial_brain_loop_report(payload: Any) -> bool:
+    """Return whether a payload looks report-shaped but is incomplete."""
+    if not isinstance(payload, Mapping):
+        return False
+    if is_brain_loop_report_payload(payload):
+        return False
+    if any(key in payload for key in ("stats", "graph_state", "graphState")):
+        return False
+    return any(key in payload for key in BRAIN_LOOP_REPORT_MARKER_KEYS)
+
+
+def missing_brain_loop_report_sections(payload: Mapping[str, Any]) -> list[str]:
+    """Return required report sections missing from a report-shaped payload."""
+    return [
+        section
+        for section in BRAIN_LOOP_REPORT_SECTION_KEYS
+        if not isinstance(payload.get(section), Mapping)
+    ]
 
 
 def merge_recall_runtime_metrics(
