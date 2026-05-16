@@ -179,6 +179,25 @@ async def build_mcp_consolidation_trigger_surface(
     return result
 
 
+async def resolve_mcp_consolidation_trigger_store(
+    manager: Any,
+    active_store: Any | None,
+) -> Any | None:
+    """Return the active MCP audit store, with a lite shared-DB fallback."""
+    if active_store is not None:
+        return active_store
+
+    db = manager.get_consolidation_shared_db()
+    if db is None:
+        return None
+
+    from engram.consolidation.store import SQLiteConsolidationStore
+
+    store = SQLiteConsolidationStore(":memory:")
+    await store.initialize(db=db)
+    return store
+
+
 @dataclass(frozen=True)
 class ConsolidationTriggerResult:
     """Result of a public consolidation trigger."""

@@ -218,6 +218,42 @@ def compact_lite_auto_recall_surface(
     }
 
 
+async def build_lite_auto_recall_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    session_cache: MutableMapping[str, Any],
+    cfg: ActivationConfig,
+) -> dict[str, Any] | None:
+    """Dispatch lite/medium MCP auto-recall and compact the additive surface."""
+    if len(content) < 20:
+        return None
+
+    level = getattr(cfg, "auto_recall_level", "lite")
+    try:
+        if level == "medium" and hasattr(manager, "recall_medium"):
+            results = await manager.recall_medium(
+                text=content,
+                group_id=group_id,
+                session_cache=session_cache,
+                token_budget=cfg.auto_recall_token_budget,
+                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+            )
+        else:
+            results = await manager.recall_lite(
+                text=content,
+                group_id=group_id,
+                session_cache=session_cache,
+                token_budget=cfg.auto_recall_token_budget,
+                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+            )
+    except Exception:
+        return None
+
+    return compact_lite_auto_recall_surface(results, level=level)
+
+
 def apply_mcp_recall_enrichment(
     response: MutableMapping[str, Any],
     *,

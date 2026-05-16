@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from engram.benchmark_loader import BenchmarkLoadService
+from engram.benchmark_loader import BenchmarkLoadService, build_api_benchmark_load_surface
+
+
+@pytest.mark.asyncio
+async def test_api_benchmark_load_surface_forwards_route_options() -> None:
+    manager = SimpleNamespace(
+        load_benchmark_corpus=AsyncMock(return_value={"loaded": True, "seed": 11})
+    )
+
+    result = await build_api_benchmark_load_surface(
+        manager,
+        group_id="native_brain",
+        seed=11,
+        structure_aware=True,
+    )
+
+    assert result == {"loaded": True, "seed": 11}
+    manager.load_benchmark_corpus.assert_awaited_once_with(
+        group_id="native_brain",
+        seed=11,
+        structure_aware=True,
+    )
 
 
 @pytest.mark.asyncio

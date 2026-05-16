@@ -5,6 +5,21 @@ from __future__ import annotations
 from typing import Any
 
 
+async def build_api_benchmark_load_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    seed: int,
+    structure_aware: bool = False,
+) -> dict:
+    """Build the REST benchmark-load payload through the manager facade."""
+    return await manager.load_benchmark_corpus(
+        group_id=group_id,
+        seed=seed,
+        structure_aware=structure_aware,
+    )
+
+
 class BenchmarkLoadService:
     """Load generated benchmark corpora into the active runtime stores."""
 

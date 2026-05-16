@@ -67,8 +67,9 @@ What changed in this pass:
   reads now call `GraphManager.get_lifecycle_summary()` backed by
   `LifecycleSummaryService`, so transport layers no longer assemble the
   brain-loop summary directly. Dashboard WebSocket activation-monitor snapshots
-  now call `GraphManager.get_activation_snapshot()` instead of recomputing
-  activation from app-state graph/activation stores in the socket loop. REST
+  now call a route-facing graph-state helper instead of calling the manager
+  directly or recomputing activation from app-state graph/activation stores in
+  the socket loop. REST
   notification reads/dismissal and MCP `memory_notifications` piggybacking now
   share `NotificationSurfaceService` instead of formatting or surfacing
   notifications directly from route/tool code, and the dashboard WebSocket
@@ -114,9 +115,9 @@ What changed in this pass:
 - Moved MCP identity-core and consolidation-control response assembly behind
   route-facing helpers. `server/engram/retrieval/identity_core.py` now owns MCP
   identity-core dispatch, and `server/engram/consolidation_trigger.py` now owns
-  MCP trigger dispatch, consolidation status reads, and cycle-summary shaping
-  while the MCP transport keeps JSON wrapping and active consolidation-store
-  selection.
+  MCP trigger dispatch, active-store/shared-DB fallback resolution,
+  consolidation status reads, and cycle-summary shaping while the MCP transport
+  keeps JSON wrapping and session-state store references.
 - Extracted MCP entity graph resources out of route-local graph/activation
   reads. `GraphStateService` now owns entity profile and one-hop neighbor
   resource views, `GraphManager.get_entity_profile()` and
@@ -167,7 +168,9 @@ What changed in this pass:
 - Moved REST admin benchmark loading behind `BenchmarkLoadService`.
   `GraphManager.load_benchmark_corpus()` now owns the generated corpus group
   scoping and active-store load path, so `/api/admin/load-benchmark` no longer
-  reaches into `manager._graph`, `_activation`, or `_search`.
+  reaches into `manager._graph`, `_activation`, or `_search`. The route now
+  uses `build_api_benchmark_load_surface()` instead of calling the manager
+  method directly.
 - Moved REST graph neighborhood and temporal graph reads behind
   `GraphStateService`. `GraphManager.get_graph_neighborhood()` and
   `get_temporal_graph()` now own the dashboard graph payload construction, so
@@ -189,19 +192,25 @@ What changed in this pass:
 - Moved REST dashboard stats behind `GraphStateService`.
   `GraphManager.get_dashboard_stats()` now owns `/api/stats` top-activated
   formatting plus top-connected and growth timeline reads, so the stats route
-  no longer reaches into the graph store directly.
+  no longer reaches into the graph store directly. The stats route now also
+  uses a route-facing graph-state helper instead of calling the manager method
+  directly.
 - Moved REST activation monitor reads behind `GraphStateService`.
   `GraphManager.get_activation_snapshot()` and `get_activation_curve()` now own
   `/api/activation/snapshot` and `/api/activation/{entity_id}/curve`, so the
   activation route no longer reads active graph, activation, or config stores
   directly from app state. The curve route now also uses the graph-state
   route-facing response helper for missing-entity 404 payloads instead of
-  raising a route-local `HTTPException`.
+  raising a route-local `HTTPException`, and the snapshot route uses a
+  route-facing graph-state helper instead of calling the manager method
+  directly.
 - Moved REST episode dashboard reads behind `GraphStateService`.
   `GraphManager.list_episode_summaries()` now owns `/api/episodes` paginated
   episode/cue payload construction, so the route no longer reads the graph store
   or formats episode/cue state locally while preserving status/source filters,
   cursor pagination, projection fields, cue counters, and timestamp formatting.
+  The episode route now also uses a route-facing graph-state helper instead of
+  calling the manager method directly.
 - Moved REST/MCP lifecycle summary reads behind `LifecycleSummaryService`.
   `GraphManager.get_lifecycle_summary()` now owns the shared
   `Capture -> Cue -> Project -> Recall -> Consolidate` summary call for
@@ -214,10 +223,10 @@ What changed in this pass:
   limit clamping to a route-facing helper while keeping JSON wrapping in the
   tool handler.
 - Moved the dashboard WebSocket activation-monitor snapshot behind the existing
-  graph-state activation facade. `subscribe.activation_monitor` now sends
-  `GraphManager.get_activation_snapshot()` payloads instead of reading
-  `_app_state` graph/activation/config stores and running activation math inside
-  the socket loop.
+  graph-state activation surface helper. `subscribe.activation_monitor` now
+  sends `build_api_activation_snapshot_surface()` payloads instead of calling
+  the manager directly, reading `_app_state` graph/activation/config stores, or
+  running activation math inside the socket loop.
 - Moved REST/MCP notification surfacing behind `NotificationSurfaceService`.
   REST `/api/knowledge/notifications`, REST dismiss, and MCP
   `memory_notifications` piggybacking now share one group-scoped presentation
@@ -287,14 +296,16 @@ What changed in this pass:
 - Moved knowledge-chat memory-need and live-context runtime helpers behind
   `server/engram/retrieval/chat_runtime.py`. The REST route now delegates chat
   memory-need analysis, memory-guidance text, live conversation hydration,
-  assistant-turn recording, recent-turn extraction, and chat rate-limit response
-  payload shaping to retrieval code.
+  assistant-turn recording, recent-turn extraction, chat runtime policy lookup,
+  epistemic-evidence dispatch, baseline context dispatch, and chat rate-limit
+  response payload shaping to retrieval code.
 - Moved REST/MCP explicit recall result and packet assembly behind
   `server/engram/retrieval/recall_surface.py`. REST and MCP still keep their
   transport-specific metadata, middleware, and response field names, but the
   Recall-stage manager call, packet analysis, packet assembly, API/MCP recall
-  item presentation, and MCP near-miss/surprise side-channel enrichment now
-  share one retrieval-side boundary.
+  item presentation, MCP entity-name/access-count resolution, and MCP
+  near-miss/surprise side-channel enrichment now share one retrieval-side
+  boundary.
 - Moved sync/async recall-need threshold resolution and memory-need analysis
   recording behind helpers in `server/engram/retrieval/control.py`. REST, MCP,
   chat runtime, chat tool execution, and explicit recall surface code now share
@@ -517,6 +528,17 @@ What changed in this pass:
   tool payloads, graph stats resource payloads, entity profile resources, and
   entity neighbor resources to retrieval-side surface helpers while
   `GraphStateService` remains the deeper read-model owner.
+- Moved the REST entity-neighbor convenience route onto the same graph-state
+  helper. `/api/entities/{entity_id}/neighbors` now calls
+  `build_api_graph_neighborhood_surface()` directly instead of importing and
+  invoking the `/api/graph/neighborhood` route function, and the public-surface
+  guard forbids that route-to-route coupling from returning.
+  - Verification: `uv run pytest
+    tests/test_api_endpoints.py::TestEntityDetail::test_get_entity_neighbors
+    tests/test_mcp_graph_state_surfaces.py
+    tests/test_public_surface_presenter_boundaries.py -q` passed with 149
+    tests; `uv run ruff check engram/api/entities.py
+    tests/test_public_surface_presenter_boundaries.py` passed.
 - Extracted epistemic question routing into
   `server/engram/retrieval/epistemic_route.py`. `GraphManager.route_question()`
   and `_build_epistemic_route()` remain compatibility APIs for REST, MCP, and
@@ -4781,6 +4803,17 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2735 passed, 43 skipped, 236 deselected in 199.69s.
+  Latest MCP trigger store-resolution helper check:
+  `uv run pytest tests/test_consolidation_trigger_service.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_includes_failure_errors
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_uses_active_audit_store_for_native_graph
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_reports_completed_phase_warnings
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 165 passed.
+  `uv run ruff check engram/consolidation_trigger.py engram/mcp/server.py
+  tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - MCP identity-core/consolidation control public-surface boundary:
   `uv run pytest tests/test_identity_core_service.py
   tests/test_consolidation_trigger_service.py tests/test_mcp_tools.py -k
@@ -4936,6 +4969,14 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2812 passed, 43 skipped, 236 deselected in 1000.84s.
+  Latest route-facing helper check:
+  `uv run pytest tests/test_benchmark_loader.py
+  tests/test_graph_manager_facade_boundaries.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 238 passed.
+  `uv run ruff check engram/api/admin.py engram/benchmark_loader.py
+  tests/test_benchmark_loader.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - REST graph route service boundary:
   `uv run pytest tests/test_graph_state_resource_views.py
   tests/test_api_endpoints.py -k "GraphNeighborhood or GraphAt"
@@ -5026,6 +5067,18 @@ What changed in this pass:
   tests/test_api_endpoints.py::TestActivation
   tests/test_public_surface_presenter_boundaries.py -q`
   - Result: 150 passed.
+- REST dashboard graph-state read route-facing helpers:
+  `uv run pytest tests/test_mcp_graph_state_surfaces.py
+  tests/test_api_endpoints.py::TestStats
+  tests/test_api_endpoints.py::TestActivation
+  tests/test_api_endpoints.py::TestEpisodes tests/test_activation_api.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 173 passed.
+  `uv run ruff check engram/api/activation.py engram/api/episodes.py
+  engram/api/stats.py engram/retrieval/graph_state.py
+  tests/test_mcp_graph_state_surfaces.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - REST episode dashboard read service boundary:
   `uv run pytest tests/test_graph_state_resource_views.py
   tests/test_api_endpoints.py -k "Episodes or episode_summary"
@@ -5057,6 +5110,82 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2851 passed, 43 skipped, 236 deselected in 338.44s.
+  Latest route-facing REST lifecycle helper check:
+  `uv run pytest tests/test_lifecycle_cli.py::test_api_lifecycle_summary_surface_forwards_runtime_context
+  tests/test_api_endpoints.py::TestLifecycleSummary
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 146 passed.
+  `uv run ruff check engram/api/lifecycle.py engram/lifecycle_summary.py
+  tests/test_lifecycle_cli.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  Combined dirty route-helper gate:
+  `uv run pytest tests/test_mcp_graph_state_surfaces.py
+  tests/test_lifecycle_cli.py::test_api_lifecycle_summary_surface_forwards_runtime_context
+  tests/test_api_endpoints.py::TestStats
+  tests/test_api_endpoints.py::TestActivation
+  tests/test_api_endpoints.py::TestEpisodes
+  tests/test_api_endpoints.py::TestEntityDetail::test_get_entity_neighbors
+  tests/test_api_endpoints.py::TestLifecycleSummary tests/test_activation_api.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 177 passed.
+  `uv run ruff check engram/api/activation.py engram/api/entities.py
+  engram/api/episodes.py engram/api/lifecycle.py engram/api/stats.py
+  engram/lifecycle_summary.py engram/retrieval/graph_state.py
+  tests/test_lifecycle_cli.py tests/test_mcp_graph_state_surfaces.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `/Applications/Xcode.app/Contents/Developer/usr/bin/git diff --check`
+  - Result: passed.
+  Combined dirty route-helper gate after the admin/WebSocket/chat/MCP helper updates:
+  `uv run pytest tests/test_benchmark_loader.py tests/test_consolidation_trigger_service.py
+  tests/test_recall_surface.py
+  tests/test_mcp_graph_state_surfaces.py
+  tests/test_lifecycle_cli.py::test_api_lifecycle_summary_surface_forwards_runtime_context
+  tests/test_api_endpoints.py::TestStats
+  tests/test_api_endpoints.py::TestActivation
+  tests/test_api_endpoints.py::TestEpisodes
+  tests/test_api_endpoints.py::TestEntityDetail::test_get_entity_neighbors
+  tests/test_api_endpoints.py::TestLifecycleSummary tests/test_activation_api.py
+  tests/test_websocket.py tests/security/test_websocket_auth.py
+  tests/test_knowledge_api.py::TestChatMemoryNeedHelpers
+  tests/test_knowledge_api.py::TestChat
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_recall_packet_analysis_uses_active_group
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_includes_failure_errors
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_uses_active_audit_store_for_native_graph
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_trigger_consolidation_reports_completed_phase_warnings
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 226 passed.
+  `uv run ruff check engram/api/admin.py engram/api/activation.py
+  engram/api/entities.py engram/api/episodes.py engram/api/knowledge.py
+  engram/api/lifecycle.py engram/api/stats.py engram/api/websocket.py
+  engram/benchmark_loader.py engram/consolidation_trigger.py
+  engram/lifecycle_summary.py engram/mcp/server.py
+  engram/retrieval/chat_runtime.py engram/retrieval/graph_state.py
+  engram/retrieval/recall_surface.py tests/test_benchmark_loader.py
+  tests/test_consolidation_trigger_service.py tests/test_knowledge_api.py
+  tests/test_lifecycle_cli.py tests/test_recall_surface.py
+  tests/test_mcp_graph_state_surfaces.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `rg -n "await manager\\.|manager\\.get_|manager\\.list_|return await manager|= await manager"
+  server/engram/api/*.py server/engram/mcp/server.py`
+  - Result: no REST API matches remain; remaining matches are MCP recall-need
+    graph probe, full auto-recall, session prime, and live-turn piggyback
+    compatibility paths.
+- MCP lite/medium auto-recall route-helper boundary:
+  `uv run pytest tests/test_auto_recall_policy.py
+  tests/test_recall_lite.py::TestAutoRecallLiteWiring
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 173 passed.
+  `uv run ruff check engram/mcp/server.py engram/retrieval/auto_recall.py
+  tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  Latest direct manager-dispatch scan:
+  `rg -n "await manager\\.|manager\\.get_|manager\\.list_|return await manager|= await manager"
+  server/engram/api/*.py server/engram/mcp/server.py`
+  - Result: no REST API matches remain; remaining MCP matches are the
+    recall-need graph probe, full auto-recall, session prime, and live-turn
+    piggyback compatibility paths.
 - MCP lifecycle-summary public-surface boundary:
   `uv run pytest
   tests/test_lifecycle_cli.py::test_mcp_lifecycle_summary_surface_forwards_store_reader_and_clamped_limits
@@ -5078,6 +5207,13 @@ What changed in this pass:
   - Result: 69 passed.
   `uv run ruff check engram/api/websocket.py tests/test_websocket.py
   tests/security/test_websocket_auth.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  Latest route-facing helper check:
+  `uv run pytest tests/test_websocket.py tests/security/test_websocket_auth.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 160 passed.
+  `uv run ruff check engram/api/websocket.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
@@ -5275,6 +5411,14 @@ What changed in this pass:
   - Result: passed.
   `git diff --check`
   - Result: passed.
+  Latest route-facing chat runtime helper check:
+  `uv run pytest tests/test_knowledge_api.py::TestChatMemoryNeedHelpers
+  tests/test_knowledge_api.py::TestChat
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 161 passed.
+  `uv run ruff check engram/api/knowledge.py engram/retrieval/chat_runtime.py
+  tests/test_knowledge_api.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
 - REST/MCP explicit recall surface boundary:
   `uv run pytest tests/test_chat_feedback.py tests/test_chat_tools.py
   tests/test_knowledge_api.py tests/test_chat_events.py
@@ -5297,6 +5441,14 @@ What changed in this pass:
   `uv run ruff check engram/retrieval/recall_surface.py engram/mcp/server.py
   tests/test_recall_surface.py tests/test_mcp_tools.py
   tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  Latest MCP route-local resolver check:
+  `uv run pytest tests/test_recall_surface.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_recall_packet_analysis_uses_active_group
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 153 passed.
+  `uv run ruff check engram/mcp/server.py engram/retrieval/recall_surface.py
+  tests/test_recall_surface.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
 - Shared recall-control manager compatibility helpers:
   `uv run pytest tests/test_recall_control_helpers.py tests/test_chat_feedback.py
@@ -5867,10 +6019,13 @@ visibility work treated as done:
    `retrieval.graph_state` surface helpers, so keep graph tool dispatch, graph
    stats shaping, entity profile resource dispatch, and entity-neighbor resource
    dispatch out of `mcp/server.py`.
-   REST graph neighborhood and temporal graph routes also share
+   REST dashboard stats, activation snapshot, and episode list reads now share
+   `retrieval.graph_state` surface helpers too, so keep those manager dispatch
+   calls out of public API routes.
+   REST graph neighborhood, entity-neighbor, and temporal graph routes also share
    `retrieval.graph_state` surface helpers, so keep manager dispatch,
    missing-entity payloads, temporal timestamp parsing, and invalid-timestamp
-   payloads out of `server/engram/api/graph.py`.
+   payloads out of public route handlers.
    REST atlas snapshot/history/region routes now share
    `retrieval.atlas_surface` helpers, so keep representation metadata,
    snapshot/history serialization, atlas service dispatch, and region/snapshot
@@ -5878,11 +6033,15 @@ visibility work treated as done:
    REST and MCP consolidation controls/read payloads now share route-facing
    helpers in `consolidation_trigger.py`, so keep REST trigger/status/history/
    detail payload shaping and MCP consolidation-status/trigger cycle-summary
-   shaping out of public transport code. MCP still owns JSON wrapping and
-   active consolidation-store selection.
-   MCP lifecycle summary now shares a route-facing lifecycle helper, so keep
-   audit-store reader construction, inactive-engine placeholder wiring, and
-   limit clamping out of `mcp/server.py`.
+   shaping plus MCP trigger-store fallback resolution out of public transport
+   code. MCP still owns JSON wrapping and session-state store references.
+   REST/MCP lifecycle summary now shares route-facing lifecycle helpers, so keep
+   API runtime-context manager call wiring, audit-store reader construction,
+   inactive-engine placeholder wiring, and limit clamping out of public
+   transport handlers.
+   Dashboard WebSocket activation monitor snapshots now share the graph-state
+   activation snapshot helper, so keep activation snapshot manager dispatch out
+   of the socket loop.
    MCP explicit recall near-miss/surprise enrichment now shares
    `retrieval.recall_surface`, so keep those side-channel response fields out
    of `mcp/server.py`; the tool still owns query timing, session flags, JSON
@@ -5928,13 +6087,14 @@ visibility work treated as done:
    entity detail/mutation response/status
    assembly now shares a retrieval entity-surface helper. MCP graph-state and
    graph/entity resource response assembly now shares retrieval graph-state
-   surface helpers, and REST graph neighborhood/temporal route response assembly
-   now uses the same graph-state surface module. REST and MCP consolidation
+   surface helpers, and REST dashboard stats/activation snapshot/episode-list
+   reads plus graph neighborhood/entity-neighbor/temporal route response
+   assembly now use the same graph-state surface module. REST and MCP consolidation
    control/read response assembly now share route-facing helpers, and MCP
    identity-core response assembly has a route-facing helper. REST/MCP live
    conversation manager-facade helpers are centralized in `retrieval.context`.
-   MCP lifecycle summary audit-store/limit wiring now shares a lifecycle helper.
-   REST/MCP
+   REST/MCP lifecycle summary runtime-context/audit-store/limit wiring now
+   shares lifecycle helpers. REST/MCP
    brain-loop evaluation report assembly now shares a service boundary too, and
    MCP evaluation report audit-store/cycle-snapshot loading now lives in that
    report service. REST/MCP evaluation label writes now share label write
@@ -5942,8 +6102,9 @@ visibility work treated as done:
    in the recall surface helper. MCP auto-recall cooldown, query extraction,
    per-tool gating,
    first-call session-prime planning, and middleware side-effect planning are
-   also now in retrieval policy code, and lite/full auto-recall result
-   compaction plus additive response enrichment now live there too. The next
+   also now in retrieval policy code, and lite/medium dispatch, lite/full
+   auto-recall result compaction, plus additive response enrichment now live
+   there too. The next
    high-leverage slice is a continued REST/MCP route orchestration audit for
    any remaining lifecycle logic still hidden in transport code.
 8. Keep quest mode as a drilldown or alternate presentation, not the primary

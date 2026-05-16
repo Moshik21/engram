@@ -34,6 +34,47 @@ def build_api_chat_rate_limit_surface(remaining: int) -> ApiChatRateLimitSurface
     )
 
 
+def build_chat_runtime_policy(manager: Any) -> Any:
+    """Return the route-facing knowledge-chat runtime policy."""
+    return manager.get_chat_runtime_policy()
+
+
+async def gather_chat_epistemic_evidence(
+    manager: Any,
+    *,
+    message: str,
+    group_id: str,
+    history: Sequence[Any] | None,
+    session_entity_names: list[str],
+    memory_need: MemoryNeed | None,
+) -> Any:
+    """Gather epistemic evidence for a REST chat turn through the manager facade."""
+    return await manager.gather_epistemic_evidence(
+        message,
+        group_id=group_id,
+        project_path=None,
+        recent_turns=recent_chat_turn_contents(history, limit=6),
+        session_entity_names=session_entity_names,
+        surface="rest",
+        memory_need=memory_need,
+    )
+
+
+async def build_chat_context_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    max_tokens: int = 1000,
+) -> dict:
+    """Build the baseline REST chat context through the manager facade."""
+    return await manager.get_context(
+        group_id=group_id,
+        max_tokens=max_tokens,
+        topic_hint=topic_hint,
+    )
+
+
 async def analyze_chat_memory_need(
     message: str,
     manager: Any,

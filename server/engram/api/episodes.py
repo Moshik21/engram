@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_manager
+from engram.retrieval.graph_state import build_api_episode_list_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/episodes", tags=["episodes"])
@@ -22,7 +23,8 @@ async def list_episodes(
     """List episodes with cursor-based pagination."""
     tenant = get_tenant(request)
     manager = get_manager()
-    payload = await manager.list_episode_summaries(
+    payload = await build_api_episode_list_surface(
+        manager,
         group_id=tenant.group_id,
         cursor=cursor,
         limit=limit,

@@ -50,7 +50,10 @@ from engram.retrieval.chat_feedback import apply_chat_recall_feedback
 from engram.retrieval.chat_runtime import (
     analyze_chat_memory_need,
     build_api_chat_rate_limit_surface,
+    build_chat_context_surface,
     build_chat_memory_guidance,
+    build_chat_runtime_policy,
+    gather_chat_epistemic_evidence,
     hydrate_chat_context,
     record_chat_assistant_turn,
 )
@@ -801,6 +804,52 @@ class TestFacts:
 
 @pytest.mark.asyncio
 class TestChatMemoryNeedHelpers:
+    async def test_chat_runtime_surfaces_forward_manager_calls(self):
+        policy = SimpleNamespace(epistemic_routing_enabled=True)
+        bundle = object()
+        manager = MagicMock()
+        manager.get_chat_runtime_policy.return_value = policy
+        manager.gather_epistemic_evidence = AsyncMock(return_value=bundle)
+        manager.get_context = AsyncMock(return_value={"context": "baseline"})
+
+        history = [
+            ChatMessage(role="user", content="We were discussing Redis."),
+            ChatMessage(role="assistant", content="The cache was still undecided."),
+        ]
+
+        assert build_chat_runtime_policy(manager) is policy
+        evidence = await gather_chat_epistemic_evidence(
+            manager,
+            message="Did we decide on Redis?",
+            group_id="tenant_brain",
+            history=history,
+            session_entity_names=["Redis"],
+            memory_need=None,
+        )
+        context = await build_chat_context_surface(
+            manager,
+            group_id="tenant_brain",
+            topic_hint="Redis decision",
+            max_tokens=512,
+        )
+
+        assert evidence is bundle
+        assert context == {"context": "baseline"}
+        manager.gather_epistemic_evidence.assert_awaited_once_with(
+            "Did we decide on Redis?",
+            group_id="tenant_brain",
+            project_path=None,
+            recent_turns=["We were discussing Redis.", "The cache was still undecided."],
+            session_entity_names=["Redis"],
+            surface="rest",
+            memory_need=None,
+        )
+        manager.get_context.assert_awaited_once_with(
+            group_id="tenant_brain",
+            max_tokens=512,
+            topic_hint="Redis decision",
+        )
+
     async def test_analyze_chat_memory_need_uses_history(self):
         manager = MagicMock()
         _attach_public_surface_policy(manager, ActivationConfig())

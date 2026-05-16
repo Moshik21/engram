@@ -2651,10 +2651,13 @@ The next REST/MCP route-orchestration cleanup moved MCP
 top-level `engram.consolidation_trigger.ConsolidationTriggerService` owns ad
 hoc `ConsolidationEngine` construction/execution and graph-stats capture,
 `GraphManager.trigger_consolidation_cycle()` is the compatibility facade, and
-the MCP tool now only resolves the audit store and presents the returned cycle.
-Focused service, MCP trigger, presenter-boundary, and public-surface checks
-passed, and the broad non-Docker/non-Helix gate now passes with 2735 tests,
-43 skips, and 236 external-service deselections.
+the consolidation trigger helper now owns active audit-store resolution plus the
+lite shared-DB fallback. The MCP tool keeps JSON wrapping and session-state
+lookup, then presents the returned cycle. Focused service, MCP trigger,
+presenter-boundary, and public-surface checks passed, and the broad
+non-Docker/non-Helix gate now passes with 2735 tests, 43 skips, and 236
+external-service deselections. The latest route-facing store-resolution check
+passed with 165 tests.
 
 The following route-orchestration cleanup moved MCP entity graph resources out
 of direct graph/activation reads. `GraphStateService` now owns entity profile
@@ -2724,11 +2727,14 @@ external-service deselections.
 The REST admin benchmark-loader route now has a service boundary as well.
 `engram.benchmark_loader.BenchmarkLoadService` owns benchmark corpus generation,
 active `group_id` rewriting, and loading into the active graph, activation, and
-search stores. `GraphManager.load_benchmark_corpus()` is the compatibility
-facade, so `/api/admin/load-benchmark` preserves its payload without reading
-`manager._graph`, `_activation`, or `_search`. Focused service/facade/public
-surface checks passed, and the broad non-Docker/non-Helix gate now passes with
-2812 tests, 43 skips, and 236 external-service deselections.
+search stores. `GraphManager.load_benchmark_corpus()` is the manager
+compatibility facade, and `build_api_benchmark_load_surface()` is now the
+route-facing helper, so `/api/admin/load-benchmark` preserves its payload
+without calling the manager directly or reading `manager._graph`, `_activation`,
+or `_search`. Focused service/facade/public-surface checks passed, and the
+broad non-Docker/non-Helix gate now passes with 2812 tests, 43 skips, and 236
+external-service deselections. The latest route-facing benchmark helper check
+passed with 238 tests.
 
 REST graph neighborhood and temporal graph endpoints now use the same
 graph-state boundary. `GraphStateService` owns dashboard node/edge formatting,
@@ -2743,6 +2749,11 @@ and invalid-timestamp payloads for those REST routes. Focused graph-state/API/
 facade/public-surface checks passed, and the broad non-Docker/non-Helix gate now
 passes with 2821 tests, 43 skips, and 236 external-service deselections. The
 latest route-facing graph-state surface check passed with 126 tests.
+The entity-neighbor convenience route now uses that same route-facing helper
+directly instead of importing and calling the graph route function, so
+`/api/entities/{entity_id}/neighbors` no longer couples one public route to
+another transport handler. Focused entity-neighbor, graph-state surface, and
+public-surface checks passed with 149 tests.
 
 REST atlas snapshot/history/region routes now have a route-facing atlas surface
 boundary. `server/engram/retrieval/atlas_surface.py` owns atlas representation
@@ -2767,35 +2778,39 @@ clean, and the broad non-Docker/non-Helix gate now passes with 2832 tests,
 REST dashboard stats now has the same graph-state boundary. `GraphStateService`
 owns `/api/stats` top-activated camel-case formatting plus top-connected and
 growth timeline reads, and `GraphManager.get_dashboard_stats()` is the
-route-facing compatibility facade. The stats route preserves its dashboard JSON
-shape without reaching into the graph store directly. Focused graph-state/API/
-facade/public-surface checks passed, and the broad non-Docker/non-Helix gate
-now passes with 2835 tests, 43 skips, and 236 external-service deselections.
+manager compatibility facade. The route-facing graph-state helper now owns the
+REST dispatch shape, so the stats route preserves its dashboard JSON without
+calling the manager method or reaching into the graph store directly. Focused
+graph-state/API/facade/public-surface checks passed, and the broad
+non-Docker/non-Helix gate now passes with 2835 tests, 43 skips, and 236
+external-service deselections.
 
 REST activation monitor reads now use the same graph-state boundary.
 `GraphStateService` owns top-activation snapshot formatting and ACT-R decay
 curve payload construction, and `GraphManager.get_activation_snapshot()` plus
-`get_activation_curve()` are the route-facing compatibility facades. The
-activation route preserves snapshot/curve JSON and missing-entity 404 behavior
-without reading app state, graph store, activation store, config, or
-`compute_activation` directly in the transport layer. The activation curve route
-now also delegates missing-entity 404 payload/status mapping to the graph-state
-route-facing helper instead of raising a route-local `HTTPException`. Focused
-graph-state/API/facade/public-surface checks passed, the latest activation
-response-surface gate passed with 150 tests, and the broad non-Docker/non-Helix
-gate now passes with 2845 tests, 43 skips, and 236 external-service
-deselections.
+`get_activation_curve()` are the manager compatibility facades. Route-facing
+graph-state helpers now own the REST dispatch shape for snapshot reads and
+curve missing-entity 404 payload/status mapping, so the activation route
+preserves snapshot/curve JSON without reading app state, graph store,
+activation store, config, or `compute_activation` directly in the transport
+layer. Focused graph-state/API/facade/public-surface checks passed, the latest
+activation response-surface gate passed with 150 tests, and the broad
+non-Docker/non-Helix gate now passes with 2845 tests, 43 skips, and 236
+external-service deselections.
 
 REST episode dashboard reads now use `GraphStateService` too.
 `GraphStateService.list_episode_summaries()` owns `/api/episodes` paginated
 episode/cue payload construction, and `GraphManager.list_episode_summaries()`
-is the route-facing compatibility facade. The route preserves source/status
-filters, cursor pagination, projection fields, cue counters, timestamp
-formatting, and item totals without reading the graph store or formatting
-episode/cue state in the transport layer. Focused graph-state/API/facade/
-public-surface checks passed, the route-local store/formatting scan is clean,
-and the broad non-Docker/non-Helix gate now passes with 2848 tests, 43 skips,
-and 236 external-service deselections.
+is the manager compatibility facade. The route-facing graph-state helper now
+owns the REST dispatch shape, so the route preserves source/status filters,
+cursor pagination, projection fields, cue counters, timestamp formatting, and
+item totals without calling the manager method, reading the graph store, or
+formatting episode/cue state in the transport layer. Focused graph-state/API/
+facade/public-surface checks passed, the route-local store/formatting scan is
+clean, and the broad non-Docker/non-Helix gate now passes with 2848 tests, 43
+skips, and 236 external-service deselections. The latest route-facing dashboard
+read helper check covered stats, activation snapshot, activation curve, episode
+list, and public-surface guards with 173 tests.
 
 REST and MCP lifecycle summary reads now use a route-facing lifecycle service.
 `LifecycleSummaryService` owns the call into the shared
@@ -2809,13 +2824,15 @@ non-Docker/non-Helix gate now passes with 2851 tests, 43 skips, and 236
 external-service deselections.
 
 Dashboard WebSocket activation-monitor snapshots now use the existing
-graph-state activation facade. The `subscribe.activation_monitor` loop calls
-`GraphManager.get_activation_snapshot()` and forwards its `topActivated`
-payload instead of reading app-state graph/activation/config stores and
-recomputing activation in `server/engram/api/websocket.py`. Focused WebSocket/
-auth/public-surface checks passed, the socket-local activation-store scan is
-clean, and the broad non-Docker/non-Helix gate now passes with 2853 tests,
-43 skips, and 236 external-service deselections.
+graph-state activation surface helper. The `subscribe.activation_monitor` loop
+calls `build_api_activation_snapshot_surface()` and forwards its `topActivated`
+payload instead of calling the manager directly, reading app-state
+graph/activation/config stores, or recomputing activation in
+`server/engram/api/websocket.py`. Focused WebSocket/auth/public-surface checks
+passed, the socket-local activation-store scan is clean, and the broad
+non-Docker/non-Helix gate now passes with 2853 tests, 43 skips, and 236
+external-service deselections. The latest WebSocket helper guard passed with
+160 tests.
 
 REST and MCP notification surfacing now share a notification surface boundary.
 `NotificationSurfaceService` owns REST notification list/dismiss payloads and
@@ -2929,22 +2946,27 @@ public-surface, Ruff, and `git diff --check` gates passed.
 Knowledge-chat memory-need and live-context runtime helpers now live outside the
 REST route as well. `server/engram/retrieval/chat_runtime.py` owns chat
 memory-need analysis, memory-guidance text, live conversation hydration,
-assistant-turn recording, recent-turn extraction, and the chat rate-limit
-response payload. `server/engram/api/knowledge.py` keeps rate-limiter dependency
-lookup, conversation resolution, context fetch, Anthropic tool-loop streaming,
-and final SSE framing. Focused chat-runtime/feedback/tool, full knowledge API,
+assistant-turn recording, recent-turn extraction, chat runtime policy lookup,
+chat epistemic-evidence dispatch, baseline context dispatch, and the chat
+rate-limit response payload. `server/engram/api/knowledge.py` keeps rate-limiter
+dependency lookup, conversation resolution, Anthropic tool-loop streaming, and
+final SSE framing. Focused chat-runtime/feedback/tool, full knowledge API,
 chat-event, public-surface, Ruff, and `git diff --check` gates passed. The
-latest chat rate-limit response-surface check passed with 130 tests.
+latest chat route-facing runtime helper check passed with 161 tests.
+After this slice, the direct manager-dispatch scan across `server/engram/api/*.py`
+is clean; the remaining direct matches are MCP auto-recall, recall middleware,
+and live-turn piggyback compatibility paths.
 
 REST/MCP explicit recall result and packet assembly now share a retrieval
 boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
 Recall-stage manager call, recall packet analysis, memory packet assembly, and
-API/MCP recall item presentation. It also owns MCP near-miss/surprise
-side-channel enrichment for explicit recall. REST still returns `items`,
-camelCase packets, and `query`; MCP still adds query timing, session flags, JSON
-wrapping, and recall middleware enrichment. Focused knowledge API, MCP
-JSON-response, autorecall, chat, public-surface, Ruff, and `git diff --check`
-gates passed.
+API/MCP recall item presentation. It also owns MCP entity-name/access-count
+resolution plus near-miss/surprise side-channel enrichment for explicit recall.
+REST still returns `items`, camelCase packets, and `query`; MCP still adds query
+timing, session flags, JSON wrapping, and recall middleware enrichment. Focused
+knowledge API, MCP JSON-response, autorecall, chat, public-surface, Ruff, and
+`git diff --check` gates passed. The latest MCP recall route-local resolver
+check passed with 153 tests.
 
 Recall-control manager compatibility helpers now have one home.
 `server/engram/retrieval/control.py` owns sync/async recall-need threshold
@@ -3052,9 +3074,9 @@ surface helpers. `server/engram/retrieval/graph_state.py` now owns MCP graph
 tool dispatch, graph stats resource shaping, entity profile resource dispatch,
 and entity-neighbor resource dispatch on top of the existing `GraphStateService`
 read model. The same module now owns REST graph neighborhood/temporal route
-dispatch, not-found payloads, and timestamp validation payloads. Focused MCP
-graph-state surface, graph-state service/resource, MCP graph-state,
-public-surface, and Ruff checks passed.
+dispatch, entity-neighbor route dispatch, not-found payloads, and timestamp
+validation payloads. Focused MCP graph-state surface, graph-state
+service/resource, MCP graph-state, public-surface, and Ruff checks passed.
 
 MCP identity-core and consolidation controls now have route-facing public surface
 helpers too. `server/engram/retrieval/identity_core.py` owns MCP identity-core
@@ -3064,11 +3086,14 @@ transport keeps JSON wrapping and active consolidation-store selection. Focused
 identity-core, consolidation trigger/status, MCP control, public-surface,
 consolidation-presenter, and Ruff checks passed.
 
-MCP lifecycle summary now has a route-facing public surface helper as well.
-`server/engram/lifecycle_summary.py` owns active audit-store reader construction,
+Lifecycle summary route-facing helpers now cover both REST and MCP.
+`server/engram/lifecycle_summary.py` owns the REST runtime-context manager call
+shape for `/api/lifecycle/summary`, plus active audit-store reader construction,
 inactive-engine placeholder wiring, and limit clamping for MCP lifecycle reads.
-The MCP tool keeps JSON wrapping and session state lookup. Focused lifecycle
-summary, MCP lifecycle, public-surface, and Ruff checks passed.
+The REST route keeps dependency lookup and JSON wrapping; the MCP tool keeps
+JSON wrapping and session state lookup. Focused API lifecycle, lifecycle
+summary, public-surface, and Ruff checks passed, including 146 tests for the
+latest REST helper slice.
 
 Knowledge-chat conversation persistence now has its own helper boundary too.
 `server/engram/retrieval/chat_persistence.py` validates existing conversation
@@ -3136,9 +3161,11 @@ class, compact recall-query extraction, per-tool recall gating, and first-call
 session-prime planning used by MCP. It also owns the MCP recall middleware
 side-effect plan for auto-observe, live-turn ingestion, and notification
 fallbacks when recall is disabled. It now also owns
-`compact_lite_auto_recall_surface()`, the lite/medium entity-probe surface,
-`compact_auto_recall_surface()`, the score-filtered entity/cue/packet surface
-that `_auto_recall_full()` attaches as `recalled_context`, and
+`build_lite_auto_recall_surface()`, the lite/medium dispatch plus
+entity-probe surface compaction that `_auto_recall_lite()` attaches as
+`recalled_context`, `compact_auto_recall_surface()`, the score-filtered
+entity/cue/packet surface that `_auto_recall_full()` attaches as `recalled_context`,
+and
 `apply_mcp_recall_enrichment()`, the additive response attachment contract for
 session context, recalled context, triggered intentions, and memory
 notifications. `server/engram/mcp/server.py` keeps compatibility wrappers for

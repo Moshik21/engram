@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
+
 from engram.config import ActivationConfig
 from engram.retrieval.auto_recall import (
     RecallCooldown,
     apply_mcp_recall_enrichment,
+    build_lite_auto_recall_surface,
     compact_auto_recall_surface,
     compact_lite_auto_recall_surface,
     extract_recall_query,
@@ -231,6 +236,50 @@ def test_compact_lite_auto_recall_surface_shapes_entity_probe_results() -> None:
 
 def test_compact_lite_auto_recall_surface_returns_none_for_empty_results() -> None:
     assert compact_lite_auto_recall_surface([], level="lite") is None
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_dispatches_lite() -> None:
+    manager = AsyncMock()
+    manager.recall_lite.return_value = [{"name": "React"}]
+    cache: dict = {}
+    cfg = ActivationConfig()
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Working on the React migration today",
+        group_id="native_brain",
+        session_cache=cache,
+        cfg=cfg,
+    )
+
+    assert result == {"source": "recall_lite", "entities": [{"name": "React"}]}
+    manager.recall_lite.assert_awaited_once_with(
+        text="Working on the React migration today",
+        group_id="native_brain",
+        session_cache=cache,
+        token_budget=cfg.auto_recall_token_budget,
+        cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_dispatches_medium() -> None:
+    manager = AsyncMock()
+    manager.recall_medium.return_value = [{"name": "React"}]
+    cache: dict = {}
+    cfg = ActivationConfig(auto_recall_level="medium")
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Working on the React migration today",
+        group_id="native_brain",
+        session_cache=cache,
+        cfg=cfg,
+    )
+
+    assert result == {"source": "recall_medium", "entities": [{"name": "React"}]}
+    manager.recall_medium.assert_awaited_once()
 
 
 def test_apply_mcp_recall_enrichment_attaches_only_non_empty_values() -> None:

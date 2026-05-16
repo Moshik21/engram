@@ -11,6 +11,7 @@ from engram.api.deps import (
     get_manager,
     get_pressure_accumulator,
 )
+from engram.lifecycle_summary import build_api_lifecycle_summary_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api/lifecycle", tags=["lifecycle"])
@@ -24,7 +25,8 @@ async def lifecycle_summary(request: Request) -> JSONResponse:
     manager = get_manager()
     engine = get_consolidation_engine()
     scheduler = get_consolidation_scheduler()
-    summary = await manager.get_lifecycle_summary(
+    summary = await build_api_lifecycle_summary_surface(
+        manager,
         group_id=group_id,
         consolidation_engine=engine,
         consolidation_scheduler=scheduler,

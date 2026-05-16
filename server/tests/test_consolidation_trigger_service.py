@@ -17,6 +17,7 @@ from engram.consolidation_trigger import (
     build_api_consolidation_trigger_surface,
     build_mcp_consolidation_status_surface,
     build_mcp_consolidation_trigger_surface,
+    resolve_mcp_consolidation_trigger_store,
     run_api_consolidation_cycle,
 )
 from engram.models.consolidation import ConsolidationCycle, PhaseResult
@@ -319,3 +320,42 @@ async def test_mcp_consolidation_trigger_surface_formats_cycle_payload() -> None
         dry_run=True,
         consolidation_store=store,
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_mcp_consolidation_trigger_store_prefers_active_store() -> None:
+    manager = MagicMock()
+    manager.get_consolidation_shared_db.return_value = object()
+    active_store = SimpleNamespace(name="active")
+
+    result = await resolve_mcp_consolidation_trigger_store(manager, active_store)
+
+    assert result is active_store
+    manager.get_consolidation_shared_db.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_mcp_consolidation_trigger_store_uses_shared_db(monkeypatch) -> None:
+    initialized: dict[str, object] = {}
+
+    class FakeSQLiteConsolidationStore:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+        async def initialize(self, *, db) -> None:
+            initialized["db"] = db
+
+    monkeypatch.setattr(
+        "engram.consolidation.store.SQLiteConsolidationStore",
+        FakeSQLiteConsolidationStore,
+    )
+    db = object()
+    manager = MagicMock()
+    manager.get_consolidation_shared_db.return_value = db
+
+    result = await resolve_mcp_consolidation_trigger_store(manager, None)
+
+    assert isinstance(result, FakeSQLiteConsolidationStore)
+    assert result.path == ":memory:"
+    assert initialized["db"] is db
+    manager.get_consolidation_shared_db.assert_called_once_with()

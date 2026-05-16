@@ -15,7 +15,11 @@ from engram.lifecycle_cli import (
     configure_lifecycle_parser,
     format_lifecycle_summary_markdown,
 )
-from engram.lifecycle_summary import build_lifecycle_summary, build_mcp_lifecycle_summary_surface
+from engram.lifecycle_summary import (
+    build_api_lifecycle_summary_surface,
+    build_lifecycle_summary,
+    build_mcp_lifecycle_summary_surface,
+)
 from engram.models.consolidation import ConsolidationCycle, PhaseResult
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
@@ -27,6 +31,37 @@ def _parse_lifecycle_args(*args: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     configure_lifecycle_parser(parser)
     return parser.parse_args(list(args))
+
+
+@pytest.mark.asyncio
+async def test_api_lifecycle_summary_surface_forwards_runtime_context() -> None:
+    engine = SimpleNamespace(is_running=False)
+    scheduler = SimpleNamespace(current_tier="daily")
+    pressure_accumulator = SimpleNamespace(open_pressure=3)
+    manager = SimpleNamespace(
+        get_lifecycle_summary=AsyncMock(
+            return_value={
+                "groupId": "api_brain",
+                "loop": ["capture", "cue", "project", "recall", "consolidate"],
+            }
+        )
+    )
+
+    result = await build_api_lifecycle_summary_surface(
+        manager,
+        group_id="api_brain",
+        consolidation_engine=engine,
+        consolidation_scheduler=scheduler,
+        pressure_accumulator=pressure_accumulator,
+    )
+
+    assert result["groupId"] == "api_brain"
+    manager.get_lifecycle_summary.assert_awaited_once_with(
+        group_id="api_brain",
+        consolidation_engine=engine,
+        consolidation_scheduler=scheduler,
+        pressure_accumulator=pressure_accumulator,
+    )
 
 
 @pytest.mark.asyncio

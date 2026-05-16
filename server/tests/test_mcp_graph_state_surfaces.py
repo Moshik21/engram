@@ -7,6 +7,9 @@ import pytest
 from engram.retrieval.graph_state import (
     activation_curve_entity_not_found_payload,
     build_api_activation_curve_surface,
+    build_api_activation_snapshot_surface,
+    build_api_dashboard_stats_surface,
+    build_api_episode_list_surface,
     build_api_graph_neighborhood_surface,
     build_api_temporal_graph_surface,
     build_mcp_entity_neighbors_resource_surface,
@@ -14,6 +17,52 @@ from engram.retrieval.graph_state import (
     build_mcp_graph_state_surface,
     build_mcp_graph_stats_resource_surface,
 )
+
+
+@pytest.mark.asyncio
+async def test_api_dashboard_read_surfaces_forward_options() -> None:
+    manager = MagicMock()
+    manager.get_dashboard_stats = AsyncMock(return_value={"stats": {"entities": 3}})
+    manager.list_episode_summaries = AsyncMock(return_value={"items": []})
+    manager.get_activation_snapshot = AsyncMock(return_value={"topActivated": []})
+
+    stats = await build_api_dashboard_stats_surface(
+        manager,
+        group_id="native_brain",
+        days=14,
+    )
+    episodes = await build_api_episode_list_surface(
+        manager,
+        group_id="native_brain",
+        cursor="2026-05-15T12:00:00Z",
+        limit=7,
+        source="mcp",
+        status="queued",
+    )
+    snapshot = await build_api_activation_snapshot_surface(
+        manager,
+        group_id="native_brain",
+        limit=9,
+    )
+
+    assert stats == {"stats": {"entities": 3}}
+    assert episodes == {"items": []}
+    assert snapshot == {"topActivated": []}
+    manager.get_dashboard_stats.assert_awaited_once_with(
+        group_id="native_brain",
+        days=14,
+    )
+    manager.list_episode_summaries.assert_awaited_once_with(
+        group_id="native_brain",
+        cursor="2026-05-15T12:00:00Z",
+        limit=7,
+        source="mcp",
+        status="queued",
+    )
+    manager.get_activation_snapshot.assert_awaited_once_with(
+        group_id="native_brain",
+        limit=9,
+    )
 
 
 @pytest.mark.asyncio

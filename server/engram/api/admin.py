@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_manager
+from engram.benchmark_loader import build_api_benchmark_load_surface
 from engram.security.middleware import get_tenant
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ async def load_benchmark(
     group_id = tenant.group_id
     manager = get_manager()
 
-    payload = await manager.load_benchmark_corpus(
+    payload = await build_api_benchmark_load_surface(
+        manager,
         group_id=group_id,
         seed=seed,
         structure_aware=structure_aware,

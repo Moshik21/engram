@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_manager
+from engram.retrieval.graph_state import build_api_dashboard_stats_surface
 from engram.security.middleware import get_tenant
 
 router = APIRouter(prefix="/api", tags=["stats"])
@@ -20,5 +21,5 @@ async def get_stats(
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()
-    payload = await manager.get_dashboard_stats(group_id=group_id, days=days)
+    payload = await build_api_dashboard_stats_surface(manager, group_id=group_id, days=days)
     return JSONResponse(content=payload)

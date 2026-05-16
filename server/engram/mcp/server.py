@@ -21,6 +21,7 @@ from engram.config import ActivationConfig, EngramConfig
 from engram.consolidation_trigger import (
     build_mcp_consolidation_status_surface,
     build_mcp_consolidation_trigger_surface,
+    resolve_mcp_consolidation_trigger_store,
 )
 from engram.evaluation.label_service import (
     build_recall_evaluation_write_surface,
@@ -54,8 +55,8 @@ from engram.retrieval.auto_recall import (
     WRITE_TOOLS,
     RecallCooldown,
     apply_mcp_recall_enrichment,
+    build_lite_auto_recall_surface,
     compact_auto_recall_surface,
-    compact_lite_auto_recall_surface,
     extract_recall_query,
     plan_mcp_recall_middleware,
     plan_session_prime,
@@ -364,30 +365,13 @@ async def _auto_recall_lite(
         return None
 
     session = _get_session()
-    level = getattr(cfg, "auto_recall_level", "lite")
-
-    try:
-        if level == "medium" and hasattr(manager, "recall_medium"):
-            results = await manager.recall_medium(
-                text=content,
-                group_id=_group_id,
-                session_cache=session.recall_cache,
-                token_budget=cfg.auto_recall_token_budget,
-                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
-            )
-        else:
-            results = await manager.recall_lite(
-                text=content,
-                group_id=_group_id,
-                session_cache=session.recall_cache,
-                token_budget=cfg.auto_recall_token_budget,
-                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
-            )
-    except Exception:
-        logger.debug("auto_recall failed", exc_info=True)
-        return None
-
-    return compact_lite_auto_recall_surface(results, level=level)
+    return await build_lite_auto_recall_surface(
+        manager,
+        content=content,
+        group_id=_group_id,
+        session_cache=session.recall_cache,
+        cfg=cfg,
+    )
 
 
 async def _auto_recall_full(
@@ -931,14 +915,6 @@ async def recall(query: str, limit: int = 5) -> str:
     session = _get_session()
     cfg = _activation_cfg or ActivationConfig()
     t0 = time.perf_counter()
-    async def _resolve_entity_name(entity_id: str) -> str:
-        return await manager.resolve_entity_name(entity_id, _group_id)
-
-    async def _get_access_count(entity_id: str) -> int:
-        if not entity_id:
-            return 0
-        value = await manager.get_recall_item_access_count(entity_id)
-        return value if isinstance(value, int) else 0
 
     response_dict = await build_mcp_recall_surface(
         manager,
@@ -946,8 +922,6 @@ async def recall(query: str, limit: int = 5) -> str:
         query=query,
         limit=limit,
         cfg=cfg,
-        resolve_entity_name=_resolve_entity_name,
-        get_access_count=_get_access_count,
     )
     query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
     session.last_recall_time = time.time()
@@ -1368,7 +1342,7 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     """
     manager = _get_manager()
 
-    store = await _get_mcp_consolidation_trigger_store(manager)
+    store = await resolve_mcp_consolidation_trigger_store(manager, _consolidation_store)
 
     result = await build_mcp_consolidation_trigger_surface(
         manager,
@@ -1378,22 +1352,6 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     )
 
     return json.dumps(result)
-
-
-async def _get_mcp_consolidation_trigger_store(manager: GraphManager) -> Any | None:
-    """Return the active MCP audit store, with a lite shared-DB fallback."""
-    if _consolidation_store is not None:
-        return _consolidation_store
-
-    db = manager.get_consolidation_shared_db()
-    if db is None:
-        return None
-
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    store = SQLiteConsolidationStore(":memory:")
-    await store.initialize(db=db)
-    return store
 
 
 @mcp.tool()

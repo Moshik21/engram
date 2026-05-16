@@ -10,6 +10,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from engram.api.deps import get_config, get_manager, get_notification_surface_service
 from engram.events.bus import get_event_bus
+from engram.retrieval.graph_state import build_api_activation_snapshot_surface
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,8 @@ async def dashboard_ws(websocket: WebSocket) -> None:
             while True:
                 await asyncio.sleep(interval_s)
                 try:
-                    snapshot = await manager.get_activation_snapshot(
+                    snapshot = await build_api_activation_snapshot_surface(
+                        manager,
                         group_id=group_id,
                         limit=20,
                     )

@@ -69,6 +69,45 @@ async def build_api_graph_neighborhood_surface(
     return ApiGraphSurface(status_code=200, payload=payload)
 
 
+async def build_api_dashboard_stats_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    days: int,
+) -> dict:
+    """Build the REST dashboard stats payload through the manager facade."""
+    return await manager.get_dashboard_stats(group_id=group_id, days=days)
+
+
+async def build_api_episode_list_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    cursor: str | None,
+    limit: int,
+    source: str | None,
+    status: str | None,
+) -> dict:
+    """Build the REST episode dashboard list payload through the manager facade."""
+    return await manager.list_episode_summaries(
+        group_id=group_id,
+        cursor=cursor,
+        limit=limit,
+        source=source,
+        status=status,
+    )
+
+
+async def build_api_activation_snapshot_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    limit: int,
+) -> dict:
+    """Build the REST activation snapshot payload through the manager facade."""
+    return await manager.get_activation_snapshot(group_id=group_id, limit=limit)
+
+
 async def build_api_activation_curve_surface(
     manager: Any,
     *,

@@ -76,14 +76,18 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   REST entity detail/PATCH/DELETE now call graph-state and entity-mutation
   manager facades instead of reading private graph, activation, or config
   fields in `server/engram/api/entities.py`.
-  REST admin benchmark loading now calls `GraphManager.load_benchmark_corpus()`
-  backed by `BenchmarkLoadService` instead of reading private graph,
-  activation, or search stores in `server/engram/api/admin.py`.
+  REST admin benchmark loading now calls a route-facing helper backed by
+  `GraphManager.load_benchmark_corpus()` and `BenchmarkLoadService` instead of
+  calling the manager directly or reading private graph, activation, or search
+  stores in `server/engram/api/admin.py`.
   REST graph neighborhood and temporal graph routes now call
   `GraphManager.get_graph_neighborhood()` and `get_temporal_graph()` backed by
   `GraphStateService` instead of reading private graph, activation, or config
   fields in `server/engram/api/graph.py`; route-facing graph-state helpers now
   also own REST missing-entity and invalid-timestamp payloads for those routes.
+  The REST entity-neighbor convenience route now calls the same graph-state
+  surface helper directly instead of importing the graph route handler, with
+  focused entity-neighbor/graph-state/public-surface coverage.
   REST atlas snapshot/history/region routes now use
   `server/engram/retrieval/atlas_surface.py` for atlas service dispatch,
   representation metadata, snapshot/history serialization, and region/snapshot
@@ -96,27 +100,30 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
   also delegates to `apply_mcp_recall_enrichment()` so the additive
   `session_context`, `recalled_context`, `triggered_intentions`, and
   `memory_notifications` keys share one retrieval-side contract.
-  REST dashboard stats now calls `GraphManager.get_dashboard_stats()` backed by
-  `GraphStateService` instead of reading the graph store directly in
+  REST dashboard stats now calls a route-facing graph-state helper backed by
+  `GraphManager.get_dashboard_stats()` and `GraphStateService` instead of
+  reading the graph store or calling the manager directly in
   `server/engram/api/stats.py`.
   REST activation monitor reads now call
-  `GraphManager.get_activation_snapshot()` and `get_activation_curve()` backed
-  by `GraphStateService` instead of reading app state, graph store, activation
-  store, config, or `compute_activation` directly in
-  `server/engram/api/activation.py`; activation curve 404 payload/status mapping
-  now also lives in the graph-state route-facing helper.
-  REST episode dashboard reads now call
-  `GraphManager.list_episode_summaries()` backed by `GraphStateService` instead
-  of reading the graph store and formatting paginated episode/cue payloads in
-  `server/engram/api/episodes.py`.
+  route-facing graph-state helpers backed by `GraphManager.get_activation_snapshot()`,
+  `get_activation_curve()`, and `GraphStateService` instead of reading app
+  state, graph store, activation store, config, `compute_activation`, or
+  route-local curve 404 status/payloads directly in
+  `server/engram/api/activation.py`.
+  REST episode dashboard reads now call a route-facing graph-state helper backed
+  by `GraphManager.list_episode_summaries()` and `GraphStateService` instead of
+  calling the manager directly, reading the graph store, or formatting paginated
+  episode/cue payloads in `server/engram/api/episodes.py`.
   REST/MCP lifecycle summary reads now call
   `GraphManager.get_lifecycle_summary()` backed by `LifecycleSummaryService`
   instead of calling `build_lifecycle_summary` and passing graph/config facades
-  from `server/engram/api/lifecycle.py` or `server/engram/mcp/server.py`.
+  from `server/engram/api/lifecycle.py` or `server/engram/mcp/server.py`, and
+  both transports now have route-facing lifecycle helper coverage.
   Dashboard WebSocket activation-monitor snapshots now call
-  `GraphManager.get_activation_snapshot()` instead of reading app-state
-  graph/activation/config stores and computing activation inside
-  `server/engram/api/websocket.py`.
+  a route-facing graph-state helper backed by
+  `GraphManager.get_activation_snapshot()` instead of calling the manager
+  directly, reading app-state graph/activation/config stores, or computing
+  activation inside `server/engram/api/websocket.py`.
   REST notification reads/dismissal and MCP `memory_notifications`
   piggybacking now call `NotificationSurfaceService` instead of reading and
   formatting the notification store directly in `server/engram/api/knowledge.py`
@@ -221,19 +228,20 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    Knowledge-chat memory-need and live-context runtime helpers are now in
    `server/engram/retrieval/chat_runtime.py`, covering chat memory-need
    analysis, memory-guidance text, live conversation hydration, assistant-turn
-   recording, recent-turn extraction, and chat rate-limit response payloads
-   while the REST route keeps rate-limiter dependency lookup, conversation
-   resolution, context fetch, Anthropic tool-loop
-   streaming, and final SSE framing. Focused chat-runtime/feedback/tool, full
-   knowledge API, chat-event, public-surface, Ruff, and `git diff --check`
-   gates passed.
+   recording, recent-turn extraction, chat runtime policy lookup, chat
+   epistemic-evidence dispatch, baseline context dispatch, and chat rate-limit
+   response payloads while the REST route keeps rate-limiter dependency lookup,
+   conversation resolution, Anthropic tool-loop streaming, and final SSE
+   framing. Focused chat-runtime/feedback/tool, full knowledge API, chat-event,
+   public-surface, Ruff, and `git diff --check` gates passed.
    REST/MCP explicit recall result and packet assembly are now in
    `server/engram/retrieval/recall_surface.py`, covering the explicit
    Recall-stage manager call, recall packet analysis, memory packet assembly,
-   API/MCP recall item presentation, and MCP near-miss/surprise side-channel
-   enrichment while REST and MCP keep their transport-specific metadata and
-   response shapes. Focused knowledge API, MCP JSON-response, autorecall, chat,
-   public-surface, Ruff, and `git diff --check` gates passed.
+   API/MCP recall item presentation, MCP entity-name/access-count resolution,
+   and MCP near-miss/surprise side-channel enrichment while REST and MCP keep
+   their transport-specific metadata and response shapes. Focused knowledge API,
+   MCP JSON-response, autorecall, chat, public-surface, Ruff, and
+   `git diff --check` gates passed.
    Recall-need threshold resolution and memory-need analysis recording now share
    `server/engram/retrieval/control.py` helpers, covering sync/async manager
    facade compatibility for REST, MCP, chat runtime, chat tool execution, and
@@ -323,7 +331,8 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    service/resource, MCP graph-state, public-surface, and Ruff checks passed.
    REST graph neighborhood/temporal route response assembly now also uses
    `server/engram/retrieval/graph_state.py` helpers for manager dispatch,
-   not-found payloads, timestamp parsing, and invalid-timestamp payloads.
+   not-found payloads, timestamp parsing, invalid-timestamp payloads, and the
+   entity-neighbor convenience route.
    REST atlas snapshot/history/region response assembly now uses
    `server/engram/retrieval/atlas_surface.py` helpers for atlas service
    dispatch, representation metadata, snapshot/history serialization,
@@ -332,17 +341,17 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    MCP identity-core and consolidation controls now have route-facing public
    surface helpers. `server/engram/retrieval/identity_core.py` owns MCP
    identity-core manager dispatch, and `server/engram/consolidation_trigger.py`
-   owns MCP trigger dispatch, consolidation status reads, and cycle-summary
-   shaping. The MCP transport still owns JSON wrapping and active
-   consolidation-store selection. Focused identity-core, consolidation controls,
-   MCP trigger/status, public-surface,
+   owns MCP trigger dispatch, active-store/shared-DB fallback resolution,
+   consolidation status reads, and cycle-summary shaping. The MCP transport
+   still owns JSON wrapping and session-state store references. Focused
+   identity-core, consolidation controls, MCP trigger/status, public-surface,
    consolidation-presenter, and Ruff checks passed.
-   MCP lifecycle summary now has a route-facing public surface helper.
-   `server/engram/lifecycle_summary.py` owns active audit-store reader
-   construction, inactive-engine placeholder wiring, and limit clamping for MCP
-   lifecycle reads. The MCP transport still owns JSON wrapping and session state
-   lookup. Focused lifecycle summary, MCP lifecycle, public-surface, and Ruff
-   checks passed.
+   REST and MCP lifecycle summary now have route-facing public surface helpers.
+   `server/engram/lifecycle_summary.py` owns the REST runtime-context manager
+   call shape plus MCP active audit-store reader construction, inactive-engine
+   placeholder wiring, and limit clamping. The routes keep JSON wrapping and
+   transport-local dependency/session lookup. Focused lifecycle summary,
+   API lifecycle, public-surface, and Ruff checks passed.
    Knowledge-chat conversation persistence is now in
    `server/engram/retrieval/chat_persistence.py`, covering conversation
    validation/creation, active-`group_id` not-found handling, completed-turn
@@ -446,7 +455,7 @@ surface helpers, REST/MCP
 adjudication resolution has ingestion-surface helpers, REST/MCP
 Capture write dispatch has capture-surface helpers, REST entity detail/mutation
 response/status assembly has a public-surface helper, REST/MCP graph-state resources
-and graph route payloads have public-surface helpers, REST atlas
+plus REST dashboard read and graph route payloads have public-surface helpers, REST atlas
 snapshot/history/region payloads have a public-surface helper, REST and MCP consolidation controls/read payloads have
 public-surface helpers, MCP identity-core has a public-surface helper, MCP
 lifecycle summary has a public-surface helper, REST/MCP
@@ -462,6 +471,7 @@ write-surface helpers, and MCP auto-recall policy helpers have been extracted,
 including first-call session-prime planning and middleware side-effect
 planning. Auto-recall result compaction and additive MCP response enrichment
 have also been extracted for both lite/medium entity-probe and full recall
-surfaces. The next likely area is any remaining REST/MCP route-local
+surfaces, with lite/medium manager dispatch now owned by the retrieval helper
+instead of the MCP route wrapper. The next likely area is any remaining REST/MCP route-local
 orchestration that still hides lifecycle behavior rather than surface transport
 details.

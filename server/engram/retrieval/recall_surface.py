@@ -61,8 +61,8 @@ async def build_mcp_recall_surface(
     query: str,
     limit: int,
     cfg: Any,
-    resolve_entity_name: ResolveNameFn,
-    get_access_count: AccessCountFn,
+    resolve_entity_name: ResolveNameFn | None = None,
+    get_access_count: AccessCountFn | None = None,
 ) -> dict[str, Any]:
     """Build the MCP explicit-recall payload without transport-only metadata."""
     results = await manager.recall(
@@ -72,6 +72,11 @@ async def build_mcp_recall_surface(
         interaction_type="used",
         interaction_source="mcp_recall",
     )
+    if resolve_entity_name is None:
+        resolve_entity_name = _mcp_recall_entity_name_resolver(manager, group_id)
+    if get_access_count is None:
+        get_access_count = _mcp_recall_access_count_resolver(manager)
+
     formatted = await present_mcp_recall_items(
         results,
         resolve_entity_name=resolve_entity_name,
@@ -98,6 +103,27 @@ async def build_mcp_recall_surface(
         group_id=group_id,
     )
     return response
+
+
+def _mcp_recall_entity_name_resolver(manager: Any, group_id: str) -> ResolveNameFn:
+    """Return the MCP recall entity-name resolver through the manager facade."""
+
+    async def resolve_entity_name(entity_id: str) -> str:
+        return await manager.resolve_entity_name(entity_id, group_id)
+
+    return resolve_entity_name
+
+
+def _mcp_recall_access_count_resolver(manager: Any) -> AccessCountFn:
+    """Return the MCP recall access-count resolver through the manager facade."""
+
+    async def get_access_count(entity_id: str) -> int:
+        if not entity_id:
+            return 0
+        value = await manager.get_recall_item_access_count(entity_id)
+        return value if isinstance(value, int) else 0
+
+    return get_access_count
 
 
 async def attach_mcp_explicit_recall_enrichment(

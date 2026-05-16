@@ -124,12 +124,13 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "chat"): {
         "apply_chat_recall_feedback",
         "build_api_chat_rate_limit_surface",
-        "get_chat_runtime_policy",
-        "get_context",
+        "build_chat_runtime_policy",
         "get_rate_limiter",
         "analyze_chat_memory_need",
+        "build_chat_context_surface",
         "build_chat_memory_guidance",
         "chat_conversation_not_found_payload",
+        "gather_chat_epistemic_evidence",
         "hydrate_chat_context",
         "persist_chat_turn",
         "raw_recall_from_chat_item",
@@ -207,13 +208,16 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/entities.py", "get_entity"): {
         "build_api_entity_detail_response_surface",
     },
+    ("engram/api/entities.py", "get_entity_neighbors"): {
+        "build_api_graph_neighborhood_surface",
+    },
     ("engram/api/entities.py", "patch_entity"): {
         "build_api_entity_update_response_surface",
     },
     ("engram/api/entities.py", "delete_entity"): {
         "build_api_entity_delete_response_surface",
     },
-    ("engram/api/admin.py", "load_benchmark"): {"load_benchmark_corpus"},
+    ("engram/api/admin.py", "load_benchmark"): {"build_api_benchmark_load_surface"},
     ("engram/api/graph.py", "get_atlas"): {"build_api_atlas_surface"},
     ("engram/api/graph.py", "get_atlas_history"): {
         "build_api_atlas_history_surface",
@@ -221,12 +225,18 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/graph.py", "get_region"): {"build_api_atlas_region_surface"},
     ("engram/api/graph.py", "get_neighborhood"): {"build_api_graph_neighborhood_surface"},
     ("engram/api/graph.py", "get_graph_at"): {"build_api_temporal_graph_surface"},
-    ("engram/api/stats.py", "get_stats"): {"get_dashboard_stats"},
-    ("engram/api/episodes.py", "list_episodes"): {"list_episode_summaries"},
-    ("engram/api/lifecycle.py", "lifecycle_summary"): {"get_lifecycle_summary"},
-    ("engram/api/websocket.py", "activation_snapshot_loop"): {"get_activation_snapshot"},
+    ("engram/api/stats.py", "get_stats"): {"build_api_dashboard_stats_surface"},
+    ("engram/api/episodes.py", "list_episodes"): {"build_api_episode_list_surface"},
+    ("engram/api/lifecycle.py", "lifecycle_summary"): {
+        "build_api_lifecycle_summary_surface"
+    },
+    ("engram/api/websocket.py", "activation_snapshot_loop"): {
+        "build_api_activation_snapshot_surface"
+    },
     ("engram/api/websocket.py", "receive_commands"): {"dismiss_notifications"},
-    ("engram/api/activation.py", "get_activation_snapshot"): {"get_activation_snapshot"},
+    ("engram/api/activation.py", "get_activation_snapshot"): {
+        "build_api_activation_snapshot_surface",
+    },
     ("engram/api/activation.py", "get_activation_curve"): {
         "build_api_activation_curve_surface",
     },
@@ -236,7 +246,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "_should_recall"): {"should_recall_for_tool"},
     ("engram/mcp/server.py", "_auto_recall_lite"): {
-        "compact_lite_auto_recall_surface",
+        "build_lite_auto_recall_surface",
     },
     ("engram/mcp/server.py", "_auto_recall_full"): {
         "compact_auto_recall_surface",
@@ -329,6 +339,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "mark_identity_core"): {"build_mcp_identity_core_surface"},
     ("engram/mcp/server.py", "trigger_consolidation"): {
         "build_mcp_consolidation_trigger_surface",
+        "resolve_mcp_consolidation_trigger_store",
     },
     ("engram/mcp/server.py", "graph_stats_resource"): {
         "build_mcp_graph_stats_resource_surface",
@@ -395,9 +406,35 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
         "build_api_conversation_delete_surface",
         "conversation_not_found_payload",
     },
+    ("engram/api/entities.py", "get_entity_neighbors"): {
+        "get_neighborhood",
+    },
+    ("engram/api/admin.py", "load_benchmark"): {
+        "load_benchmark_corpus",
+    },
+    ("engram/api/stats.py", "get_stats"): {
+        "get_dashboard_stats",
+    },
+    ("engram/api/episodes.py", "list_episodes"): {
+        "list_episode_summaries",
+    },
+    ("engram/api/activation.py", "get_activation_snapshot"): {
+        "get_activation_snapshot",
+    },
+    ("engram/api/websocket.py", "activation_snapshot_loop"): {
+        "get_activation_snapshot",
+    },
     ("engram/api/activation.py", "get_activation_curve"): {
         "get_activation_curve",
         "HTTPException",
+    },
+    ("engram/api/lifecycle.py", "lifecycle_summary"): {
+        "get_lifecycle_summary",
+    },
+    ("engram/api/knowledge.py", "chat"): {
+        "gather_epistemic_evidence",
+        "get_context",
+        "get_chat_runtime_policy",
     },
     ("engram/api/knowledge.py", "create_intention"): {
         "api_intention_validation_error_payload",
@@ -414,6 +451,17 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
     ("engram/mcp/server.py", "dismiss_intention"): {
         "build_mcp_dismiss_intention_surface",
         "mcp_intention_error_payload",
+    },
+    ("engram/mcp/server.py", "recall"): {
+        "get_recall_item_access_count",
+        "resolve_entity_name",
+    },
+    ("engram/mcp/server.py", "trigger_consolidation"): {
+        "get_consolidation_shared_db",
+    },
+    ("engram/mcp/server.py", "_auto_recall_lite"): {
+        "recall_lite",
+        "recall_medium",
     },
     ("engram/api/graph.py", "get_atlas"): {
         "get_snapshot",

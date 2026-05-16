@@ -39,3 +39,48 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
     manager.get_surprise_connection_views.assert_called_once()
     assert manager.get_surprise_connection_views.call_args.args == ("native_brain",)
     assert manager.get_surprise_connection_views.call_args.kwargs["limit"] == 3
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_owns_entity_name_and_access_count_resolution() -> None:
+    manager = SimpleNamespace(
+        recall=AsyncMock(
+            return_value=[
+                {
+                    "result_type": "entity",
+                    "entity": {"id": "ent_1", "name": "Entity"},
+                    "relationships": [
+                        {
+                            "source_id": "ent_src",
+                            "predicate": "RELATED_TO",
+                            "target_id": "ent_dst",
+                        }
+                    ],
+                    "score": 0.9,
+                }
+            ]
+        ),
+        resolve_entity_name=AsyncMock(side_effect=lambda entity_id, _group_id: entity_id.upper()),
+        get_recall_item_access_count=AsyncMock(return_value=4),
+        get_last_near_miss_views=AsyncMock(return_value=[]),
+        get_surprise_connection_views=AsyncMock(return_value=[]),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram recall",
+        limit=3,
+        cfg=SimpleNamespace(recall_packets_enabled=False),
+    )
+
+    assert result["results"][0]["access_count"] == 4
+    assert result["results"][0]["related_facts"][0] == {
+        "subject": "ENT_SRC",
+        "predicate": "RELATED_TO",
+        "object": "ENT_DST",
+        "polarity": "positive",
+    }
+    manager.resolve_entity_name.assert_any_await("ent_src", "native_brain")
+    manager.resolve_entity_name.assert_any_await("ent_dst", "native_brain")
+    manager.get_recall_item_access_count.assert_awaited_once_with("ent_1")

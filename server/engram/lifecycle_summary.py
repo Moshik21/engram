@@ -24,6 +24,23 @@ EMPTY_INTENTION_SUMMARY = {
 }
 
 
+async def build_api_lifecycle_summary_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    consolidation_engine: Any | None = None,
+    consolidation_scheduler: Any | None = None,
+    pressure_accumulator: Any | None = None,
+) -> dict[str, Any]:
+    """Build the REST lifecycle summary payload with API-local runtime context."""
+    return await manager.get_lifecycle_summary(
+        group_id=group_id,
+        consolidation_engine=consolidation_engine,
+        consolidation_scheduler=consolidation_scheduler,
+        pressure_accumulator=pressure_accumulator,
+    )
+
+
 async def build_mcp_lifecycle_summary_surface(
     manager: Any,
     *,

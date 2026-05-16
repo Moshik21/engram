@@ -12,6 +12,7 @@ from engram.retrieval.entity_surface import (
     build_api_entity_detail_response_surface,
     build_api_entity_update_response_surface,
 )
+from engram.retrieval.graph_state import build_api_graph_neighborhood_surface
 from engram.retrieval.lookup import build_api_entity_search_surface
 from engram.security.middleware import get_tenant
 
@@ -70,16 +71,18 @@ async def get_entity_neighbors(
     min_activation: float = Query(0.0, ge=0.0, le=1.0),
 ) -> JSONResponse:
     """Get neighborhood subgraph centered on this entity."""
-    from engram.api.graph import get_neighborhood
-
-    # Delegate to the graph neighborhood endpoint with this entity as center
-    return await get_neighborhood(
-        request=request,
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    result = await build_api_graph_neighborhood_surface(
+        manager,
+        group_id=group_id,
         center=entity_id,
         depth=depth,
         max_nodes=max_nodes,
         min_activation=min_activation,
     )
+    return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
 @router.patch("/{entity_id}")

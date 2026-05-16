@@ -62,9 +62,11 @@ from engram.retrieval.chat_runtime import (
     DEFAULT_MAX_HISTORY_MESSAGES,
     analyze_chat_memory_need,
     build_api_chat_rate_limit_surface,
+    build_chat_context_surface,
     build_chat_memory_guidance,
+    build_chat_runtime_policy,
+    gather_chat_epistemic_evidence,
     hydrate_chat_context,
-    recent_chat_turn_contents,
     record_chat_assistant_turn,
 )
 from engram.retrieval.chat_tools import execute_chat_tool
@@ -893,7 +895,7 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
             )
 
     manager = get_manager()
-    chat_policy = manager.get_chat_runtime_policy()
+    chat_policy = build_chat_runtime_policy(manager)
 
     conversation_id = body.conversation_id
     try:
@@ -940,18 +942,18 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
         topic_hint = chat_need.query_hint if chat_need.should_recall else None
 
     if chat_policy.epistemic_routing_enabled:
-        epistemic_bundle = await manager.gather_epistemic_evidence(
-            body.message,
+        epistemic_bundle = await gather_chat_epistemic_evidence(
+            manager,
+            message=body.message,
             group_id=group_id,
-            project_path=None,
-            recent_turns=recent_chat_turn_contents(body.history, limit=6),
+            history=body.history,
             session_entity_names=session_entity_names,
-            surface="rest",
             memory_need=chat_need,
         )
 
     # Baseline context for the system prompt (1000 token budget to control costs)
-    context_result = await manager.get_context(
+    context_result = await build_chat_context_surface(
+        manager,
         group_id=group_id,
         max_tokens=1000,
         topic_hint=topic_hint,
