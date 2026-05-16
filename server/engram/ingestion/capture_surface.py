@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from engram.config import ActivationConfig
+from engram.ingestion.adjudication_surface import load_client_enabled_episode_adjudication_requests
+from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
 from engram.models.episode import Attachment
+from engram.utils.dates import utc_now
 
 
 def parse_conversation_date(value: str | None) -> datetime | None:
@@ -90,3 +95,144 @@ async def ingest_projecting_memory(
     if attachments is not None or pass_attachments:
         kwargs["attachments"] = attachments
     return await manager.ingest_episode(**kwargs)
+
+
+def record_mcp_memory_write_activity(session: Any) -> None:
+    """Update MCP session activity after a successful Capture write."""
+    session.episode_count += 1
+    session.last_activity = utc_now()
+
+
+async def build_mcp_remember_write_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    session: Any,
+    source: str = "mcp",
+    conversation_date: str | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
+    model_tier: str = "default",
+    image_data: str | None = None,
+    image_mime: str = "image/png",
+    activation_cfg: ActivationConfig | None = None,
+    ingest_live_turn: Callable[..., Any],
+    recall_middleware: Callable[..., Any],
+) -> dict[str, Any]:
+    """Run the MCP remember write path behind a Capture-stage surface boundary."""
+    attachments = []
+    if image_data:
+        attachments.append(
+            build_observation_attachment(
+                mime_type=image_mime,
+                data_url=image_data,
+                description=content[:200] if content else "",
+            )
+        )
+
+    episode_id = await ingest_projecting_memory(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        session_id=session.session_id,
+        conversation_date=parse_conversation_date(conversation_date),
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
+        model_tier=model_tier,
+        attachments=attachments or None,
+        pass_session_id=True,
+        pass_attachments=True,
+    )
+    record_mcp_memory_write_activity(session)
+    await ingest_live_turn(manager, content, source="remember")
+
+    message = "Memory received. Entities and relationships extracted."
+    adjudications: list[dict] = []
+    if activation_cfg and activation_cfg.evidence_extraction_enabled:
+        message = "Memory received. Evidence extracted and evaluated."
+        adjudications = await load_client_enabled_episode_adjudication_requests(
+            manager,
+            episode_id=episode_id,
+            group_id=group_id,
+            activation_cfg=activation_cfg,
+        )
+
+    response = present_mcp_memory_write(
+        memory_write_contract(
+            "remember",
+            episode_id,
+            adjudication_requests=adjudications,
+        ),
+        message=message,
+    )
+    await recall_middleware(content, response, tool_name="remember")
+    return response
+
+
+async def build_mcp_observe_write_surface(
+    manager: Any,
+    *,
+    content: str,
+    group_id: str,
+    session: Any,
+    source: str = "mcp",
+    conversation_date: str | None = None,
+    ingest_live_turn: Callable[..., Any],
+    recall_middleware: Callable[..., Any],
+) -> dict[str, Any]:
+    """Run the MCP observe write path behind a Capture-stage surface boundary."""
+    episode_id = await store_observation(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        session_id=session.session_id,
+        conversation_date=parse_conversation_date(conversation_date),
+        pass_session_id=True,
+        pass_conversation_date=True,
+    )
+    record_mcp_memory_write_activity(session)
+    await ingest_live_turn(manager, content, source="observe")
+    response = present_mcp_memory_write(
+        memory_write_contract("observe", episode_id),
+        message="Stored for background processing.",
+    )
+    await recall_middleware(content, response, tool_name="observe")
+    return response
+
+
+async def build_mcp_attachment_observe_write_surface(
+    manager: Any,
+    *,
+    data_url: str,
+    mime_type: str,
+    attachment_kind: str,
+    fallback_content: str,
+    group_id: str,
+    session: Any,
+    description: str = "",
+    source: str = "mcp",
+) -> dict[str, Any]:
+    """Run the MCP image/file observe path behind a Capture-stage boundary."""
+    content = description or fallback_content
+    attachment = build_observation_attachment(
+        mime_type=mime_type,
+        data_url=data_url,
+        description=description,
+    )
+    episode_id = await store_observation(
+        manager,
+        content=content,
+        group_id=group_id,
+        source=source,
+        session_id=session.session_id,
+        attachments=[attachment],
+        pass_session_id=True,
+    )
+    record_mcp_memory_write_activity(session)
+    return present_mcp_memory_write(
+        memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
+        message=f"{attachment_kind.title()} stored for background processing.",
+    )

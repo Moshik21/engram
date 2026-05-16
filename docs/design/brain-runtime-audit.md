@@ -1496,7 +1496,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3160 tests, 43 skips, and 236 external-service
+   gate currently passes with 3165 tests, 43 skips, and 236 external-service
    tests deselected, and PyO3 native has focused parity plus a one-hour
    operator Recall soak. Docker/full-mode and multi-hour native endurance
    remain separate explicit gates, not assumptions.
@@ -3023,11 +3023,12 @@ boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
 Recall-stage manager call, recall packet analysis, memory packet assembly, and
 API/MCP recall item presentation. It also owns MCP entity-name/access-count
 resolution plus near-miss/surprise side-channel enrichment for explicit recall.
-REST still returns `items`, camelCase packets, and `query`; MCP still adds query
-timing, session flags, JSON wrapping, and recall middleware enrichment. Focused
-knowledge API, MCP JSON-response, autorecall, chat, public-surface, Ruff, and
-`git diff --check` gates passed. The latest MCP recall route-local resolver
-check passed with 153 tests.
+MCP explicit recall query timing, recall-session flags, and recall middleware
+invocation now live there too. REST still returns `items`, camelCase packets,
+and `query`; MCP keeps manager/session lookup, config fallback, tool signature,
+and JSON wrapping. Focused knowledge API, MCP JSON-response, autorecall, chat,
+public-surface, Ruff, and `git diff --check` gates passed. The latest MCP
+explicit recall tool-surface check passed with 168 tests.
 
 Recall-control manager compatibility helpers now have one home.
 `server/engram/retrieval/control.py` owns sync/async recall-need threshold
@@ -3116,11 +3117,14 @@ and Ruff checks passed.
 REST/MCP public Capture writes now share route-facing capture helpers.
 `server/engram/ingestion/capture_surface.py` owns public conversation-date
 parsing, attachment construction, raw observation storage dispatch, and
-Capture -> Project ingest dispatch. REST and MCP still keep transport-specific
-session accounting, live-turn ingestion, recall middleware, skip handling, and
-memory-write presenters. Focused capture-surface, memory-write presenter, REST
-remember/adjudication, MCP remember/adjudication, public-surface, and Ruff
-checks passed.
+Capture -> Project ingest dispatch. MCP write tools now route through the same
+module for session activity updates, live-turn recording, adjudication-request
+loading, memory-write presentation, and recall middleware invocation as well,
+while `server/engram/mcp/server.py` keeps manager/session lookup, JSON wrapping,
+and tool signatures. REST still keeps route-specific skip handling and HTTP
+response envelopes. Focused capture-surface, memory-write presenter, REST
+remember/adjudication, MCP write/adjudication, public-surface, and Ruff checks
+passed.
 
 REST offline replay also has a manager-facing route helper now.
 `server/engram/ingestion/offline_replay.py` owns the route-to-manager store
@@ -3279,7 +3283,7 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3160 tests, 43 skips, and 236 external-service
+broad gate passes with 3165 tests, 43 skips, and 236 external-service
 deselections.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
@@ -3301,10 +3305,15 @@ the triggered-intention manager-facade drain for MCP recall enrichment, and
 session context, recalled context, triggered intentions, and memory
 notifications. MCP piggyback notification state lookup now uses
 `build_mcp_notifications_surface_from_state()` from `server/engram/notifications/surface.py`.
+`run_mcp_recall_middleware()` now owns the middleware plan execution too,
+including middleware auto-observe, read-tool live-turn ingestion, first-call
+session prime, lite auto-recall, triggered-intention draining, notification
+lookup, and additive response enrichment.
 `server/engram/mcp/server.py` keeps compatibility wrappers for existing tool
-tests and still owns tool-specific fetching and transport behavior. Focused
-autorecall, piggyback, notification, recall-lite/MCP recall-selection, MCP
-response-enrichment, public-surface, and Ruff checks passed.
+tests and still owns tool-specific fetching, session/global dependency lookup,
+JSON wrapping, and transport behavior. Focused autorecall, piggyback,
+notification, recall-lite/MCP recall-selection, MCP response-enrichment,
+public-surface, and Ruff checks passed.
 
 Not covered in this pass:
 

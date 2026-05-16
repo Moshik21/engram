@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from collections import deque
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -456,6 +456,65 @@ async def drain_mcp_triggered_intentions(manager: Any) -> list[dict] | None:
     if inspect.isawaitable(result):
         result = await result
     return result if isinstance(result, list) and result else None
+
+
+async def run_mcp_recall_middleware(
+    response: MutableMapping[str, Any],
+    *,
+    content: str,
+    tool_name: str,
+    cfg: ActivationConfig | None,
+    group_id: str,
+    get_manager: Callable[[], Any],
+    load_notifications: Callable[[ActivationConfig, str], Sequence[Mapping[str, Any]] | None],
+    auto_recall_lite: Callable[[str, Any, ActivationConfig], Awaitable[Mapping[str, Any] | None]],
+    session_prime: Callable[
+        [str | None, Any, ActivationConfig],
+        Awaitable[Mapping[str, Any] | None],
+    ],
+    ingest_live_turn: Callable[[Any, str], Awaitable[None]],
+    auto_observe: bool = False,
+) -> None:
+    """Execute MCP recall middleware side effects behind a retrieval boundary."""
+    plan = plan_mcp_recall_middleware(
+        content,
+        tool_name=tool_name,
+        cfg=cfg,
+        auto_observe=auto_observe,
+    )
+    if not plan.should_recall:
+        if plan.surface_notifications_when_recall_disabled and cfg:
+            apply_mcp_recall_enrichment(
+                response,
+                memory_notifications=load_notifications(cfg, group_id),
+            )
+        return
+
+    assert cfg is not None
+    manager = get_manager()
+
+    if plan.auto_observe_content:
+        await store_mcp_auto_observe_turn(
+            manager,
+            content=content,
+            group_id=group_id,
+        )
+
+    if plan.ingest_live_turn:
+        await ingest_live_turn(manager, content)
+
+    prime = await session_prime(content, manager, cfg)
+    recalled = await auto_recall_lite(content, manager, cfg)
+    intentions = await drain_mcp_triggered_intentions(manager)
+    notifications = load_notifications(cfg, group_id)
+
+    apply_mcp_recall_enrichment(
+        response,
+        session_context=prime,
+        recalled_context=recalled,
+        triggered_intentions=intentions,
+        memory_notifications=notifications,
+    )
 
 
 def apply_mcp_recall_enrichment(

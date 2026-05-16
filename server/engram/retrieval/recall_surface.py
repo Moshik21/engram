@@ -105,6 +105,34 @@ async def build_mcp_recall_surface(
     return response
 
 
+async def build_mcp_explicit_recall_tool_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    cfg: Any,
+    session: Any,
+    recall_middleware: Callable[..., Awaitable[None]],
+    perf_counter: Callable[[], float] = time.perf_counter,
+    time_source: Callable[[], float] = time.time,
+) -> dict[str, Any]:
+    """Build the MCP recall tool payload and update recall session state."""
+    started = perf_counter()
+    response = await build_mcp_recall_surface(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        cfg=cfg,
+    )
+    response["query_time_ms"] = round((perf_counter() - started) * 1000, 1)
+    session.last_recall_time = time_source()
+    session.auto_recall_primed = True
+    await recall_middleware(query, response, tool_name="recall")
+    return response
+
+
 def _mcp_recall_entity_name_resolver(manager: Any, group_id: str) -> ResolveNameFn:
     """Return the MCP recall entity-name resolver through the manager facade."""
 

@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import sys
-import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -36,33 +35,25 @@ from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.ingestion.adjudication_surface import (
     build_mcp_adjudication_resolution_surface,
-    load_client_enabled_episode_adjudication_requests,
 )
 from engram.ingestion.capture_surface import (
-    build_observation_attachment,
-    ingest_projecting_memory,
-    parse_conversation_date,
-    store_observation,
+    build_mcp_attachment_observe_write_surface,
+    build_mcp_observe_write_surface,
+    build_mcp_remember_write_surface,
 )
-from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.notifications.surface import build_mcp_notifications_surface_from_state
 from engram.retrieval.artifacts import build_mcp_artifact_search_surface
 from engram.retrieval.auto_recall import (
-    RECALL_TOOLS,
-    WRITE_TOOLS,
     RecallCooldown,
-    apply_mcp_recall_enrichment,
     build_full_auto_recall_surface,
     build_lite_auto_recall_surface,
     build_session_prime_surface,
-    drain_mcp_triggered_intentions,
     extract_recall_query,
-    plan_mcp_recall_middleware,
+    run_mcp_recall_middleware,
     should_recall_for_tool,
-    store_mcp_auto_observe_turn,
 )
 from engram.retrieval.context import (
     ingest_manager_conversation_turn,
@@ -91,7 +82,7 @@ from engram.retrieval.prospective import (
     build_mcp_create_intention_response_surface,
     build_mcp_dismiss_intention_response_surface,
 )
-from engram.retrieval.recall_surface import build_mcp_recall_surface
+from engram.retrieval.recall_surface import build_mcp_explicit_recall_tool_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
 from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
 from engram.storage.factory import create_stores
@@ -409,12 +400,6 @@ async def _session_prime(
     return surface.context
 
 
-# ─── Recall Middleware ───────────────────────────────────────────────
-
-_RECALL_TOOLS = RECALL_TOOLS
-_WRITE_TOOLS = WRITE_TOOLS
-
-
 def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
     """Unified gate: should this tool get recall context?"""
     return should_recall_for_tool(tool_name, cfg)
@@ -437,53 +422,21 @@ async def _recall_middleware(
     Attaches recalled_context, session_context, triggered_intentions,
     and memory_notifications to any tool response.
     """
-    cfg = _activation_cfg
-    plan = plan_mcp_recall_middleware(
-        content,
-        tool_name=tool_name,
-        cfg=cfg,
-        auto_observe=auto_observe,
-    )
-    if not plan.should_recall:
-        # Even when recall is disabled, surface notifications for get_context
-        if plan.surface_notifications_when_recall_disabled and cfg:
-            apply_mcp_recall_enrichment(
-                response,
-                memory_notifications=_serialize_notifications(cfg, _group_id),
-            )
-        return
-    assert cfg is not None
-    manager = _get_manager()
+    async def ingest_tool_turn(manager: GraphManager, text: str) -> None:
+        await _ingest_live_turn(manager, text, source="tool_piggyback")
 
-    # Auto-observe long content (e.g. route_question questions)
-    if plan.auto_observe_content:
-        await store_mcp_auto_observe_turn(
-            manager,
-            content=content,
-            group_id=_group_id,
-        )
-
-    # Update conversation fingerprint (read tools only; write tools do it inline)
-    if plan.ingest_live_turn:
-        await _ingest_live_turn(manager, content, source="tool_piggyback")
-
-    # Session prime (first call only)
-    prime = await _session_prime(content, manager, cfg)
-
-    # Recall
-    recalled = await _auto_recall_lite(content, manager, cfg)
-
-    # Triggered intentions
-    intentions = await drain_mcp_triggered_intentions(manager)
-
-    # Memory notifications
-    notifs = _serialize_notifications(cfg, _group_id)
-    apply_mcp_recall_enrichment(
+    await run_mcp_recall_middleware(
         response,
-        session_context=prime,
-        recalled_context=recalled,
-        triggered_intentions=intentions,
-        memory_notifications=notifs,
+        content=content,
+        tool_name=tool_name,
+        cfg=_activation_cfg,
+        group_id=_group_id,
+        get_manager=_get_manager,
+        load_notifications=_serialize_notifications,
+        auto_recall_lite=_auto_recall_lite,
+        session_prime=_session_prime,
+        ingest_live_turn=ingest_tool_turn,
+        auto_observe=auto_observe,
     )
 
 
@@ -520,55 +473,22 @@ async def remember(
         JSON with status, episode_id, and message.
     """
     manager = _get_manager()
-    session = _get_session()
-    cfg = _activation_cfg
-    attachments = []
-    if image_data:
-        attachments.append(
-            build_observation_attachment(
-                mime_type=image_mime,
-                data_url=image_data,
-                description=content[:200] if content else "",
-            )
-        )
-    episode_id = await ingest_projecting_memory(
+    response = await build_mcp_remember_write_surface(
         manager,
         content=content,
         group_id=_group_id,
+        session=_get_session(),
         source=source,
-        session_id=session.session_id,
-        conversation_date=parse_conversation_date(conversation_date),
+        conversation_date=conversation_date,
         proposed_entities=proposed_entities,
         proposed_relationships=proposed_relationships,
         model_tier=model_tier,
-        attachments=attachments or None,
-        pass_session_id=True,
-        pass_attachments=True,
+        image_data=image_data,
+        image_mime=image_mime,
+        activation_cfg=_activation_cfg,
+        ingest_live_turn=_ingest_live_turn,
+        recall_middleware=_recall_middleware,
     )
-    session.episode_count += 1
-    session.last_activity = utc_now()
-    # Update conversation context (Wave 2)
-    await _ingest_live_turn(manager, content, source="remember")
-    message = "Memory received. Entities and relationships extracted."
-    adjudications: list[dict] = []
-    # Add remember_outcome for v2 pipeline
-    if cfg and cfg.evidence_extraction_enabled:
-        message = "Memory received. Evidence extracted and evaluated."
-        adjudications = await load_client_enabled_episode_adjudication_requests(
-            manager,
-            episode_id=episode_id,
-            group_id=_group_id,
-            activation_cfg=cfg,
-        )
-    response = present_mcp_memory_write(
-        memory_write_contract(
-            "remember",
-            episode_id,
-            adjudication_requests=adjudications,
-        ),
-        message=message,
-    )
-    await _recall_middleware(content, response, tool_name="remember")
     return json.dumps(response)
 
 
@@ -648,26 +568,16 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
         JSON with status, episode_id, and message.
     """
     manager = _get_manager()
-    session = _get_session()
-    episode_id = await store_observation(
+    response = await build_mcp_observe_write_surface(
         manager,
         content=content,
         group_id=_group_id,
+        session=_get_session(),
         source=source,
-        session_id=session.session_id,
-        conversation_date=parse_conversation_date(conversation_date),
-        pass_session_id=True,
-        pass_conversation_date=True,
+        conversation_date=conversation_date,
+        ingest_live_turn=_ingest_live_turn,
+        recall_middleware=_recall_middleware,
     )
-    session.episode_count += 1
-    session.last_activity = utc_now()
-    # Update conversation context (Wave 2)
-    await _ingest_live_turn(manager, content, source="observe")
-    response = present_mcp_memory_write(
-        memory_write_contract("observe", episode_id),
-        message="Stored for background processing.",
-    )
-    await _recall_middleware(content, response, tool_name="observe")
     return json.dumps(response)
 
 
@@ -690,30 +600,18 @@ async def observe_image(
         JSON with status, episode_id, and message.
     """
     manager = _get_manager()
-    session = _get_session()
-    content = description or "Image observation"
-    attachment = build_observation_attachment(
-        mime_type=mime_type,
-        data_url=image_data,
-        description=description,
-    )
-    episode_id = await store_observation(
+    response = await build_mcp_attachment_observe_write_surface(
         manager,
-        content=content,
+        data_url=image_data,
+        mime_type=mime_type,
+        attachment_kind="image",
+        fallback_content="Image observation",
         group_id=_group_id,
+        session=_get_session(),
+        description=description,
         source=source,
-        session_id=session.session_id,
-        attachments=[attachment],
-        pass_session_id=True,
     )
-    session.episode_count += 1
-    session.last_activity = utc_now()
-    return json.dumps(
-        present_mcp_memory_write(
-            memory_write_contract("observe", episode_id, attachment_kind="image"),
-            message="Image stored for background processing.",
-        ),
-    )
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -735,30 +633,18 @@ async def observe_file(
         JSON with status, episode_id, and message.
     """
     manager = _get_manager()
-    session = _get_session()
-    content = description or "File observation"
-    attachment = build_observation_attachment(
-        mime_type=mime_type,
-        data_url=file_data,
-        description=description,
-    )
-    episode_id = await store_observation(
+    response = await build_mcp_attachment_observe_write_surface(
         manager,
-        content=content,
+        data_url=file_data,
+        mime_type=mime_type,
+        attachment_kind="file",
+        fallback_content="File observation",
         group_id=_group_id,
+        session=_get_session(),
+        description=description,
         source=source,
-        session_id=session.session_id,
-        attachments=[attachment],
-        pass_session_id=True,
     )
-    session.episode_count += 1
-    session.last_activity = utc_now()
-    return json.dumps(
-        present_mcp_memory_write(
-            memory_write_contract("observe", episode_id, attachment_kind="file"),
-            message="File stored for background processing.",
-        ),
-    )
+    return json.dumps(response)
 
 
 @mcp.tool()
@@ -773,24 +659,16 @@ async def recall(query: str, limit: int = 5) -> str:
         JSON with results array, total_candidates, and query_time_ms.
     """
     manager = _get_manager()
-    session = _get_session()
-    cfg = _activation_cfg or ActivationConfig()
-    t0 = time.perf_counter()
-
-    response_dict = await build_mcp_recall_surface(
+    response = await build_mcp_explicit_recall_tool_surface(
         manager,
         group_id=_group_id,
         query=query,
         limit=limit,
-        cfg=cfg,
+        cfg=_activation_cfg or ActivationConfig(),
+        session=_get_session(),
+        recall_middleware=_recall_middleware,
     )
-    query_time_ms = round((time.perf_counter() - t0) * 1000, 1)
-    session.last_recall_time = time.time()
-    session.auto_recall_primed = True
-    response_dict["query_time_ms"] = query_time_ms
-
-    await _recall_middleware(query, response_dict, tool_name="recall")
-    return json.dumps(response_dict)
+    return json.dumps(response)
 
 
 @mcp.tool()

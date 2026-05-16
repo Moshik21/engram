@@ -33,23 +33,19 @@ PRESENTER_BOUNDARIES = {
         "build_api_recall_surface",
     },
     ("engram/mcp/server.py", "remember"): {
-        "memory_write_contract",
-        "present_mcp_memory_write",
+        "build_mcp_remember_write_surface",
     },
     ("engram/mcp/server.py", "observe"): {
-        "memory_write_contract",
-        "present_mcp_memory_write",
+        "build_mcp_observe_write_surface",
     },
     ("engram/mcp/server.py", "observe_image"): {
-        "memory_write_contract",
-        "present_mcp_memory_write",
+        "build_mcp_attachment_observe_write_surface",
     },
     ("engram/mcp/server.py", "observe_file"): {
-        "memory_write_contract",
-        "present_mcp_memory_write",
+        "build_mcp_attachment_observe_write_surface",
     },
     ("engram/mcp/server.py", "recall"): {
-        "build_mcp_recall_surface",
+        "build_mcp_explicit_recall_tool_surface",
     },
 }
 
@@ -262,13 +258,10 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_session_prime_surface",
     },
     ("engram/mcp/server.py", "_recall_middleware"): {
-        "apply_mcp_recall_enrichment",
-        "drain_mcp_triggered_intentions",
-        "plan_mcp_recall_middleware",
-        "store_mcp_auto_observe_turn",
+        "run_mcp_recall_middleware",
     },
     ("engram/mcp/server.py", "recall"): {
-        "build_mcp_recall_surface",
+        "build_mcp_explicit_recall_tool_surface",
     },
     ("engram/mcp/server.py", "_get_conv_context"): {"manager_conversation_context"},
     ("engram/mcp/server.py", "_get_conv_top_entity_names"): {
@@ -294,24 +287,16 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_session_continuity_evaluation_write_surface",
     },
     ("engram/mcp/server.py", "remember"): {
-        "build_observation_attachment",
-        "ingest_projecting_memory",
-        "load_client_enabled_episode_adjudication_requests",
-        "memory_write_contract",
-        "parse_conversation_date",
-        "present_mcp_memory_write",
+        "build_mcp_remember_write_surface",
     },
     ("engram/mcp/server.py", "observe"): {
-        "parse_conversation_date",
-        "store_observation",
+        "build_mcp_observe_write_surface",
     },
     ("engram/mcp/server.py", "observe_image"): {
-        "build_observation_attachment",
-        "store_observation",
+        "build_mcp_attachment_observe_write_surface",
     },
     ("engram/mcp/server.py", "observe_file"): {
-        "build_observation_attachment",
-        "store_observation",
+        "build_mcp_attachment_observe_write_surface",
     },
     ("engram/mcp/server.py", "adjudicate_evidence"): {
         "build_mcp_adjudication_resolution_surface",
@@ -494,10 +479,6 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
     ("engram/mcp/server.py", "_session_prime"): {
         "get_context",
         "plan_session_prime",
-    },
-    ("engram/mcp/server.py", "_recall_middleware"): {
-        "drain_triggered_intention_views",
-        "store_episode",
     },
     ("engram/mcp/server.py", "_serialize_notifications"): {
         "get_notification_surface_service_from_state",

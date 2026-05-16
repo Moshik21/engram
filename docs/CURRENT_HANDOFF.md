@@ -36,14 +36,16 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3160 tests, 43 skips, and 236 external-service tests deselected after
+  with 3165 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
   presenter-boundary guards, native evidence-update normalization, the native
-  default-group config inheritance contract, and the episode-worker
-  runtime-store, batching, scoring, routing, and event parsing boundaries. The
-  GraphManager guard now
+  default-group config inheritance contract, the episode-worker runtime-store,
+  batching, scoring, routing, and event parsing boundaries, and the MCP
+  auto-recall middleware execution boundary, the MCP Capture write
+  orchestration boundary, and the MCP explicit recall tool surface boundary.
+  The GraphManager guard now
   covers the remaining service-backed compatibility adapters too, and the MCP
   identity-core mutation, MCP consolidation trigger, and MCP entity graph
   resources now route through service-backed manager facades. REST/MCP
@@ -314,12 +316,14 @@ What changed in this pass:
   assembly, sliding-window message assembly, and chat rate-limit response
   payload shaping to retrieval code.
 - Moved REST/MCP explicit recall result and packet assembly behind
-  `server/engram/retrieval/recall_surface.py`. REST and MCP still keep their
-  transport-specific metadata, middleware, and response field names, but the
-  Recall-stage manager call, packet analysis, packet assembly, API/MCP recall
-  item presentation, MCP entity-name/access-count resolution, and MCP
-  near-miss/surprise side-channel enrichment now share one retrieval-side
-  boundary.
+  `server/engram/retrieval/recall_surface.py`. REST still keeps its HTTP
+  response shape, but the Recall-stage manager call, packet analysis, packet
+  assembly, API/MCP recall item presentation, MCP entity-name/access-count
+  resolution, MCP near-miss/surprise side-channel enrichment, MCP query timing,
+  MCP recall-session flags, and MCP recall middleware invocation now share one
+  retrieval-side boundary. `server/engram/mcp/server.py` keeps only manager/
+  session lookup, config fallback, tool signature, and JSON wrapping for
+  explicit recall.
 - Moved sync/async recall-need threshold resolution and memory-need analysis
   recording behind helpers in `server/engram/retrieval/control.py`. REST, MCP,
   chat runtime, chat tool execution, and explicit recall surface code now share
@@ -415,13 +419,25 @@ What changed in this pass:
   observation storage, and Capture -> Project ingest dispatch while preserving
   their transport-specific session accounting, live-turn ingestion, recall
   middleware, and memory-write presenters.
+- Moved MCP Capture write orchestration behind the same capture surface module.
+  `build_mcp_remember_write_surface()`, `build_mcp_observe_write_surface()`,
+  and `build_mcp_attachment_observe_write_surface()` now own MCP session
+  activity updates, live-turn recording, adjudication-request loading, memory
+  write presentation, and recall middleware invocation for the public write
+  tools. `server/engram/mcp/server.py` keeps manager/session lookup, JSON
+  wrapping, and tool signatures.
 - Moved reusable MCP auto-recall policy helpers behind
   `server/engram/retrieval/auto_recall.py`. Cooldown/topic deduplication,
   compact recall-query extraction, per-tool recall gating, first-call session
   prime planning, middleware side-effect planning, lite/medium entity-probe
   response shaping, and additive MCP response enrichment now live outside
-  `server/engram/mcp/server.py`, while the MCP middleware still owns
-  tool-specific fetching and transport behavior.
+  `server/engram/mcp/server.py`.
+- Moved MCP recall middleware execution behind the same retrieval helper module.
+  `run_mcp_recall_middleware()` now owns plan execution for middleware
+  auto-observe, read-tool live-turn ingestion, first-call session prime, lite
+  auto-recall, triggered-intention draining, notification lookup, and additive
+  response enrichment. `server/engram/mcp/server.py` keeps only the compatibility
+  wrapper that supplies MCP session/global dependencies and JSON tool wiring.
 - Moved MCP auto-recall result compaction into the same retrieval helper module.
   `compact_auto_recall_surface()` now owns the score filter, compact entity
   summary, top-fact truncation, cue-episode payload, packet attachment, and
@@ -430,8 +446,7 @@ What changed in this pass:
 - Moved MCP recall enrichment attachment into the same retrieval helper module.
   `apply_mcp_recall_enrichment()` now owns the additive response keys for
   session context, recalled context, triggered intentions, and memory
-  notifications; `_recall_middleware()` still decides what to fetch and when to
-  surface it.
+  notifications.
 - Added `server/tests/test_public_surface_presenter_boundaries.py` so REST and
   MCP observe/remember/recall/chat recall surfaces stay tied to the shared
   ingestion and retrieval presenters instead of drifting back to local response
@@ -5703,6 +5718,18 @@ What changed in this pass:
   `uv run ruff check engram/mcp/server.py engram/retrieval/recall_surface.py
   tests/test_recall_surface.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+- MCP explicit recall tool surface:
+  `uv run pytest tests/test_recall_surface.py tests/test_autorecall.py::TestRecallSetsLastTime
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_recall_packet_analysis_uses_active_group
+  tests/test_piggyback_context.py::TestToolMiddlewareIntegration::test_recall_includes_recalled_context
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 168 passed.
+  `uv run ruff check engram/retrieval/recall_surface.py engram/mcp/server.py
+  tests/test_recall_surface.py tests/test_autorecall.py tests/test_mcp_tools.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3165 passed, 43 skipped, 236 deselected in 132.45s.
 - Shared recall-control manager compatibility helpers:
   `uv run pytest tests/test_recall_control_helpers.py tests/test_chat_feedback.py
   tests/test_chat_tools.py tests/test_knowledge_api.py tests/test_chat_events.py
@@ -5897,6 +5924,26 @@ What changed in this pass:
   tests/test_knowledge_api.py tests/test_mcp_tools.py
   tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+- MCP Capture write orchestration surface:
+  `uv run pytest tests/test_capture_surface.py
+  tests/test_mcp_tools.py::TestJSONResponses tests/test_autorecall.py
+  tests/test_piggyback_context.py tests/test_auto_recall_policy.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 275 passed, 2 skipped.
+  `uv run pytest tests/test_auto_observe.py::test_observe_response_message
+  tests/test_capture_surface.py tests/test_mcp_tools.py::TestJSONResponses
+  tests/test_autorecall.py tests/test_piggyback_context.py
+  tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 276 passed, 2 skipped.
+  `uv run pytest tests/test_mcp_tools.py -q`
+  - Result: 64 passed, 2 skipped.
+  `uv run ruff check engram/ingestion/capture_surface.py engram/mcp/server.py
+  engram/retrieval/auto_recall.py tests/test_capture_surface.py
+  tests/test_auto_observe.py tests/test_mcp_tools.py tests/test_autorecall.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3164 passed, 43 skipped, 236 deselected in 121.46s.
 - Combined REST/MCP route-surface extraction gate:
   `uv run pytest tests/test_mcp_graph_state_surfaces.py
   tests/test_entity_surface.py tests/test_capture_surface.py
@@ -6055,6 +6102,21 @@ What changed in this pass:
   `uv run ruff check engram/retrieval/auto_recall.py engram/mcp/server.py
   tests/test_auto_recall_policy.py tests/test_public_surface_presenter_boundaries.py`
   - Result: passed.
+- MCP auto-recall middleware execution boundary:
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_piggyback_context.py
+  tests/test_mcp_tools.py::TestJSONResponses
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 230 passed, 2 skipped.
+  `uv run pytest tests/test_auto_recall_policy.py tests/test_piggyback_context.py
+  tests/test_mcp_tools.py::TestJSONResponses tests/test_autorecall.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 268 passed, 2 skipped.
+  `uv run ruff check engram/retrieval/auto_recall.py engram/mcp/server.py
+  tests/test_auto_recall_policy.py tests/test_piggyback_context.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3161 passed, 43 skipped, 236 deselected in 125.14s.
 - REST/MCP project bootstrap/runtime-state surface boundary:
   `uv run pytest tests/test_project_runtime_surfaces.py
   tests/test_project_bootstrap.py tests/test_knowledge_api.py::TestEpistemicEndpoints
@@ -6263,8 +6325,9 @@ visibility work treated as done:
    of public transport code.
    REST/MCP public Capture writes now share `ingestion.capture_surface` helpers,
    so keep conversation-date parsing, attachment construction, raw observe
-   storage dispatch, and Capture -> Project ingest dispatch out of public
-   transport code.
+   storage dispatch, Capture -> Project ingest dispatch, MCP write session
+   activity, MCP live-turn recording, MCP adjudication loading, MCP write
+   presentation, and MCP write recall middleware out of public transport code.
    REST entity detail/update/delete now shares `retrieval.entity_surface`
    helpers, so keep manager dispatch, sparse update payload construction, and
    not-found payload/status shaping out of the REST route.
@@ -6296,9 +6359,10 @@ visibility work treated as done:
    activation snapshot helper, so keep activation snapshot manager dispatch out
    of the socket loop.
    MCP explicit recall near-miss/surprise enrichment now shares
-   `retrieval.recall_surface`, so keep those side-channel response fields out
-   of `mcp/server.py`; the tool still owns query timing, session flags, JSON
-   wrapping, and recall middleware.
+   `retrieval.recall_surface`, and explicit MCP recall query timing, recall
+   session flags, and recall middleware invocation now live there too. Keep
+   those side-channel fields and recall-session side effects out of
+   `mcp/server.py`; the tool wrapper still owns JSON wrapping.
    REST/MCP deterministic question routing now shares
    `retrieval.epistemic_route` helpers, so keep route history normalization and
    the manager route call out of public transport code.
@@ -6337,8 +6401,8 @@ visibility work treated as done:
    request loading plus client-enabled surfacing gates now share an ingestion
    helper, and REST/MCP adjudication
    resolution now shares the same adjudication surface module. REST/MCP public
-   Capture write dispatch and REST offline replay manager dispatch now share
-   ingestion helpers. REST
+   Capture write dispatch, MCP write orchestration, and REST offline replay
+   manager dispatch now share ingestion helpers. REST
    entity detail/mutation response/status
    assembly now shares a retrieval entity-surface helper. MCP graph-state and
    graph/entity resource response assembly now shares retrieval graph-state
@@ -6356,12 +6420,13 @@ visibility work treated as done:
    surface helpers. MCP explicit recall near-miss/surprise enrichment now lives
    in the recall surface helper. MCP auto-recall cooldown, query extraction,
    per-tool gating,
-   first-call session-prime planning, and middleware side-effect planning are
-   also now in retrieval policy code, and lite/medium dispatch, full
-   auto-recall dispatch, first-call context-prime dispatch, triggered-intention
-   draining, middleware auto-observe storage, lite/full auto-recall result
-   compaction, plus additive response enrichment now live there too. MCP
-   notification state lookup for piggyback `memory_notifications` is now in
+   first-call session-prime planning, middleware side-effect planning, and
+   middleware plan execution are also now in retrieval policy code, and
+   lite/medium dispatch, full auto-recall dispatch, first-call context-prime
+   dispatch, triggered-intention draining, middleware auto-observe storage,
+   read-tool live-turn ingestion, lite/full auto-recall result compaction, plus
+   additive response enrichment now live there too. MCP notification state
+   lookup for piggyback `memory_notifications` is now in
    `notifications.surface`. The direct manager-dispatch scan
    across REST API routes and `server/engram/mcp/server.py` now returns no
    matches. `EpisodeWorker` runtime store access now uses explicit

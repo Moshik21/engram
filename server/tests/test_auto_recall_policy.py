@@ -17,6 +17,7 @@ from engram.retrieval.auto_recall import (
     extract_recall_query,
     plan_mcp_recall_middleware,
     plan_session_prime,
+    run_mcp_recall_middleware,
     should_recall_for_tool,
     store_mcp_auto_observe_turn,
 )
@@ -491,3 +492,70 @@ def test_apply_mcp_recall_enrichment_preserves_payload_and_normalizes_sequences(
         "triggered_intentions": [{"id": "intent_1", "action": "follow_up"}],
         "memory_notifications": [{"id": "notif_1", "kind": "surface"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
+    cfg = ActivationConfig(
+        auto_recall_on_tool_call=True,
+        auto_recall_session_prime=True,
+        notification_surfacing_enabled=True,
+    )
+    content = "What is the deployment strategy for the Engram native Helix route plan?"
+    manager = Mock()
+    manager.store_episode = AsyncMock(return_value="ep_1")
+    manager.drain_triggered_intention_views = Mock(
+        return_value=[{"trigger": "deployment", "action": "review rollout"}]
+    )
+    response: dict = {"status": "ok"}
+
+    await run_mcp_recall_middleware(
+        response,
+        content=content,
+        tool_name="route_question",
+        cfg=cfg,
+        group_id="brain",
+        get_manager=Mock(return_value=manager),
+        load_notifications=Mock(return_value=[{"title": "Found link"}]),
+        auto_recall_lite=AsyncMock(return_value={"source": "recall_lite", "entities": []}),
+        session_prime=AsyncMock(return_value={"context": "briefing"}),
+        ingest_live_turn=AsyncMock(),
+        auto_observe=True,
+    )
+
+    manager.store_episode.assert_awaited_once_with(
+        content,
+        "brain",
+        source="tool_piggyback",
+    )
+    assert response == {
+        "status": "ok",
+        "session_context": {"context": "briefing"},
+        "recalled_context": {"source": "recall_lite", "entities": []},
+        "triggered_intentions": [{"trigger": "deployment", "action": "review rollout"}],
+        "memory_notifications": [{"title": "Found link"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_mcp_recall_middleware_notification_fallback_without_manager() -> None:
+    cfg = ActivationConfig(
+        auto_recall_on_tool_call=False,
+        notification_surfacing_enabled=True,
+    )
+    response: dict = {}
+
+    await run_mcp_recall_middleware(
+        response,
+        content="",
+        tool_name="get_context",
+        cfg=cfg,
+        group_id="brain",
+        get_manager=Mock(side_effect=AssertionError("manager should not be loaded")),
+        load_notifications=Mock(return_value=[{"title": "Found link"}]),
+        auto_recall_lite=AsyncMock(),
+        session_prime=AsyncMock(),
+        ingest_live_turn=AsyncMock(),
+    )
+
+    assert response == {"memory_notifications": [{"title": "Found link"}]}

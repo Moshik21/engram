@@ -507,8 +507,12 @@ class TestInstallHooks:
 
 def test_observe_response_message():
     """Observe tool response should use the simplified message."""
+    from engram.ingestion.capture_surface import build_mcp_observe_write_surface
     from engram.mcp.server import observe
 
-    src = inspect.getsource(observe)
-    assert "Stored for background processing" in src
-    assert "Use trigger_consolidation" not in src
+    observe_src = inspect.getsource(observe)
+    surface_src = inspect.getsource(build_mcp_observe_write_surface)
+    assert "build_mcp_observe_write_surface" in observe_src
+    assert "Stored for background processing" in surface_src
+    assert "Use trigger_consolidation" not in observe_src
+    assert "Use trigger_consolidation" not in surface_src
