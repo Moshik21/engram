@@ -167,6 +167,7 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     assert bundle["group_id"] == "operator_brain"
     assert bundle["sources"]["report_json"] == str(report_path)
     assert bundle["sources"]["benchmark_artifact"] == str(benchmark_path)
+    assert bundle["sources"]["human_label_artifact"] is None
     assert bundle["gates"] == {
         "require_evaluation_signals": True,
         "min_evaluation_signal_evidence": 1,
@@ -174,6 +175,9 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
         "benchmark_baseline": "engram_full",
         "min_benchmark_scenarios": 3,
         "min_benchmark_pass_rate": 0.9,
+        "require_human_label_evidence": False,
+        "min_human_recall_samples": 1,
+        "min_human_session_samples": 1,
     }
     assert bundle["report"]["benchmark_evidence"] == report["benchmark_evidence"]
 

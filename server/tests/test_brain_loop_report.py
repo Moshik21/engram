@@ -801,6 +801,39 @@ def test_markdown_includes_benchmark_evidence() -> None:
     assert "Fairness: baseline contract present, 6 transcript hashes" in markdown
 
 
+def test_markdown_includes_human_label_evidence() -> None:
+    report = {
+        "group_id": "operator_brain",
+        "generated_at": "2026-05-18T23:10:00Z",
+        "totals": {},
+        "capture": {},
+        "cue": {},
+        "project": {},
+        "recall": {},
+        "consolidate": {},
+        "human_label_evidence": {
+            "status": "measured",
+            "source": "staging_harness",
+            "client": "Cursor",
+            "captured_at": "2026-05-18T23:00:00Z",
+            "labeler": "operator",
+            "human_labeled": True,
+            "recall_sample_count": 5,
+            "session_sample_count": 2,
+            "min_recall_samples": 5,
+            "min_session_samples": 2,
+            "failures": [],
+        },
+    }
+
+    markdown = format_brain_loop_report_markdown(report)
+
+    assert "## Human Label Evidence" in markdown
+    assert "Cursor from staging_harness: measured" in markdown
+    assert "Labels: 5 recall samples (minimum 5), 2 session samples (minimum 2)" in markdown
+    assert "Review: human labeled yes, labeler operator" in markdown
+
+
 def _measured_signal_report() -> dict:
     return {
         "evaluation_signals": {

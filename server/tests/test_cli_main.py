@@ -104,6 +104,7 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
     calls: list[dict] = []
     report_path = tmp_path / "brain-loop-report.json"
     benchmark_path = tmp_path / "showcase-results.json"
+    human_path = tmp_path / "human-labels.json"
     bundle_path = tmp_path / "brain-loop-evidence.json"
 
     async def fake_run_evaluate_command(args) -> None:
@@ -117,6 +118,10 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
                 "require_benchmark_evidence": args.require_benchmark_evidence,
                 "min_benchmark_scenarios": args.min_benchmark_scenarios,
                 "min_benchmark_pass_rate": args.min_benchmark_pass_rate,
+                "human_label_artifact": args.human_label_artifact,
+                "require_human_label_evidence": args.require_human_label_evidence,
+                "min_human_recall_samples": args.min_human_recall_samples,
+                "min_human_session_samples": args.min_human_session_samples,
                 "evidence_bundle": args.evidence_bundle,
                 "format": args.format,
             }
@@ -139,6 +144,13 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "6",
             "--min-benchmark-pass-rate",
             "0.8",
+            "--human-label-artifact",
+            str(human_path),
+            "--require-human-label-evidence",
+            "--min-human-recall-samples",
+            "5",
+            "--min-human-session-samples",
+            "2",
             "--evidence-bundle",
             str(bundle_path),
             "--format",
@@ -162,6 +174,10 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "require_benchmark_evidence": True,
             "min_benchmark_scenarios": 6,
             "min_benchmark_pass_rate": 0.8,
+            "human_label_artifact": human_path,
+            "require_human_label_evidence": True,
+            "min_human_recall_samples": 5,
+            "min_human_session_samples": 2,
             "evidence_bundle": bundle_path,
             "format": "json",
         }

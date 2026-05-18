@@ -82,6 +82,14 @@ Claude Code evidence. With `--require-live-evidence`, `--session-id` now also
 requires session evidence; a sessionless wrapper transcript cannot satisfy a
 session-filtered live gate.
 
+Evaluation release-gate note: `engram evaluate` now has a separate
+human-labeled harness evidence gate via `--human-label-artifact` and
+`--require-human-label-evidence`. The artifact is attached to JSON/Markdown
+reports and evidence bundles, but it explicitly rejects smoke, benchmark,
+showcase, fixture, deterministic, simulated, or synthetic sources. Deterministic
+benchmark bundles remain useful local proof; they no longer stand in for
+production/staging human-reviewed harness sessions.
+
 ## Current Milestone
 
 The audit milestone, P0 public-contract slices, and several P1 runtime-service
@@ -7684,12 +7692,15 @@ visibility work treated as done:
    artifact-search, context, and question-route tool recall-middleware
    invocation now live in retrieval-side tool-surface helpers too, so do not
    move those side effects back into `server/engram/mcp/server.py`. The next
-   high-leverage slices are live AI-harness adoption evidence and intentional
-   packaging of the current dirty worktree. The local benchmark-labeled
-   evaluation gate is now strong for this milestone: the full deterministic
-   showcase bundle passed 39/39 `engram_full` scenario runs with pass rate
-   `1.0`, false recall `0.0`, 13 transcript hashes, a fairness contract, and
-   all six evaluation signals measured.
+   high-leverage slice is real live-harness evidence: either a second MCP
+   client adoption transcript, or a staging/production `human-labels.json`
+   artifact that passes `engram evaluate --require-human-label-evidence`. The
+   CLI gate for human-labeled harness evidence now exists and is separate from
+   deterministic benchmark proof. The local benchmark-labeled evaluation gate
+   is strong for this milestone: the full deterministic showcase bundle passed
+   39/39 `engram_full` scenario runs with pass rate `1.0`, false recall `0.0`,
+   13 transcript hashes, a fairness contract, and all six evaluation signals
+   measured.
    Packaging plan: treat the current dirty scope as one cohesive milestone
    commit unless a reviewer asks for a split. If split, use route/runtime
    boundaries, MCP adoption authority/verifier/template, and evaluation

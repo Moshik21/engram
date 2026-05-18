@@ -22,6 +22,10 @@ from engram.evaluation.brain_loop_report import (
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
 )
+from engram.evaluation.human_label_evidence import (
+    human_label_evidence_failure_message,
+    load_human_label_evidence,
+)
 from engram.evaluation.store import SQLiteEvaluationStore
 from engram.storage.bootstrap import (
     create_consolidation_store_for_graph,
@@ -161,6 +165,38 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--human-label-artifact",
+        type=Path,
+        help=(
+            "JSON artifact containing real human-labeled harness recall/session "
+            "samples to attach to the report and optionally gate with "
+            "--require-human-label-evidence."
+        ),
+    )
+    parser.add_argument(
+        "--require-human-label-evidence",
+        action="store_true",
+        help=(
+            "Exit non-zero unless --human-label-artifact contains real "
+            "human-labeled harness evidence, not deterministic smoke/benchmark data."
+        ),
+    )
+    parser.add_argument(
+        "--min-human-recall-samples",
+        type=int,
+        default=1,
+        help="Minimum human-labeled recall samples required when gating evidence.",
+    )
+    parser.add_argument(
+        "--min-human-session-samples",
+        type=int,
+        default=1,
+        help=(
+            "Minimum human-labeled session-continuity samples required when "
+            "gating evidence."
+        ),
+    )
+    parser.add_argument(
         "--replace",
         action="store_true",
         help="When used with --smoke and --sqlite-path, replace an existing smoke DB.",
@@ -287,6 +323,7 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
     report = await build_report_from_args(args)
     report = _attach_benchmark_evidence_from_args(report, args)
+    report = _attach_human_label_evidence_from_args(report, args)
     if getattr(args, "require_evaluation_signals", False):
         failure_message = evaluation_signal_failure_message(
             report,
@@ -302,6 +339,13 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         failure_message = benchmark_evidence_failure_message(
             report.get("benchmark_evidence"),
             prefix="Benchmark evidence failed gates",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
+    if getattr(args, "require_human_label_evidence", False):
+        failure_message = human_label_evidence_failure_message(
+            report.get("human_label_evidence"),
+            prefix="Human label evidence failed gates",
         )
         if failure_message:
             raise SystemExit(failure_message)
@@ -342,6 +386,30 @@ def _attach_benchmark_evidence_from_args(
     return report
 
 
+def _attach_human_label_evidence_from_args(
+    report: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    artifact_path = getattr(args, "human_label_artifact", None)
+    require_evidence = getattr(args, "require_human_label_evidence", False)
+    if artifact_path is None:
+        if require_evidence:
+            report = dict(report)
+            report["human_label_evidence"] = None
+        return report
+    try:
+        evidence = load_human_label_evidence(
+            artifact_path,
+            min_recall_samples=max(0, getattr(args, "min_human_recall_samples", 1)),
+            min_session_samples=max(0, getattr(args, "min_human_session_samples", 1)),
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid human label artifact {artifact_path}: {exc}") from exc
+    report = dict(report)
+    report["human_label_evidence"] = evidence
+    return report
+
+
 def _write_evidence_bundle_from_args(report: dict[str, Any], args: argparse.Namespace) -> None:
     bundle_path = getattr(args, "evidence_bundle", None)
     if bundle_path is None:
@@ -369,6 +437,9 @@ def build_evidence_bundle(
         "sources": {
             "report_json": _optional_path_str(getattr(args, "from_json", None)),
             "benchmark_artifact": _optional_path_str(getattr(args, "benchmark_artifact", None)),
+            "human_label_artifact": _optional_path_str(
+                getattr(args, "human_label_artifact", None)
+            ),
             "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
             "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
             "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
@@ -393,6 +464,17 @@ def build_evidence_bundle(
             "min_benchmark_pass_rate": max(
                 0.0,
                 getattr(args, "min_benchmark_pass_rate", 0.0),
+            ),
+            "require_human_label_evidence": bool(
+                getattr(args, "require_human_label_evidence", False)
+            ),
+            "min_human_recall_samples": max(
+                0,
+                getattr(args, "min_human_recall_samples", 1),
+            ),
+            "min_human_session_samples": max(
+                0,
+                getattr(args, "min_human_session_samples", 1),
             ),
         },
         "report": report,

@@ -381,6 +381,41 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             ]
         )
 
+    human_label_evidence = _mapping(report.get("human_label_evidence"))
+    if human_label_evidence:
+        human_label_failures = list(human_label_evidence.get("failures") or [])
+        failure_text = (
+            f" | failures: {', '.join(str(failure) for failure in human_label_failures)}"
+            if human_label_failures
+            else ""
+        )
+        lines.extend(
+            [
+                "",
+                "## Human Label Evidence",
+                "",
+                (
+                    f"- {human_label_evidence.get('client') or 'unknown client'} from "
+                    f"{human_label_evidence.get('source') or 'unknown source'}: "
+                    f"{human_label_evidence.get('status', 'unknown')}{failure_text}"
+                ),
+                (
+                    f"- Labels: {human_label_evidence.get('recall_sample_count', 0)} "
+                    f"recall samples (minimum "
+                    f"{human_label_evidence.get('min_recall_samples', 0)}), "
+                    f"{human_label_evidence.get('session_sample_count', 0)} "
+                    f"session samples (minimum "
+                    f"{human_label_evidence.get('min_session_samples', 0)})"
+                ),
+                (
+                    f"- Review: human labeled "
+                    f"{'yes' if human_label_evidence.get('human_labeled') else 'no'}, "
+                    f"labeler {human_label_evidence.get('labeler') or 'unknown'}, "
+                    f"captured {human_label_evidence.get('captured_at') or 'unknown'}"
+                ),
+            ]
+        )
+
     if gaps:
         lines.extend(["", "## Coverage Gaps", ""])
         lines.extend(f"- {gap}" for gap in gaps)

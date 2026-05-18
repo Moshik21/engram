@@ -1469,6 +1469,7 @@ ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke 
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
+uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --human-label-artifact human-labels.json --require-human-label-evidence --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
 uv run python scripts/brain_loop_report.py
@@ -1499,6 +1500,14 @@ evidence is attached, both JSON and Markdown reports include a Benchmark
 Evidence section. Add `--evidence-bundle brain-loop-evidence.json` to archive
 the report, attached benchmark evidence, source paths, and gate thresholds as
 one reproducible JSON artifact after all requested gates pass.
+For production/staging release evidence, add
+`--human-label-artifact human-labels.json --require-human-label-evidence`.
+That artifact must declare `humanLabeled: true`, a real harness `source`, the
+client label, `capturedAt`, and the human reviewer; synthetic sources such as
+smoke, showcase, benchmark, fixture, deterministic, simulated, or synthetic
+data fail the gate. Use `--min-human-recall-samples` and
+`--min-human-session-samples` to keep deterministic benchmarks and real
+human-reviewed harness sessions from being treated as interchangeable.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,
