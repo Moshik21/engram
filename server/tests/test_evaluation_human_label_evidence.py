@@ -10,7 +10,9 @@ from engram.evaluation.brain_loop_report import EVALUATION_SIGNAL_ORDER
 from engram.evaluation.cli import configure_evaluate_parser, run_evaluate_command
 from engram.evaluation.human_label_evidence import (
     build_human_label_evidence,
+    build_human_label_evidence_template,
     human_label_evidence_failure_message,
+    render_human_label_evidence_template_markdown,
 )
 
 
@@ -64,6 +66,27 @@ def test_human_label_evidence_rejects_synthetic_or_unreviewed_artifact() -> None
     assert "missing_human_labeled_flag" in (
         human_label_evidence_failure_message(evidence, prefix="Human") or ""
     )
+
+
+def test_human_label_template_is_not_valid_evidence_until_filled() -> None:
+    template = build_human_label_evidence_template()
+
+    evidence = build_human_label_evidence(
+        template,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+    markdown = render_human_label_evidence_template_markdown(template)
+
+    assert evidence["status"] == "failed"
+    assert "placeholder_human_label_source" in evidence["failures"]
+    assert "placeholder_sample_sources(<same real harness source>)" in evidence["failures"]
+    assert "placeholder_harness_client" in evidence["failures"]
+    assert "placeholder_harness_captured_at" in evidence["failures"]
+    assert "placeholder_human_labeler" in evidence["failures"]
+    assert "## Validation" in markdown
+    assert "--require-human-label-evidence" in markdown
+    assert '"kind": "engram_human_label_evidence"' in markdown
 
 
 @pytest.mark.asyncio
@@ -139,6 +162,20 @@ async def test_evaluate_cli_rejects_missing_human_label_artifact_when_required(
     assert str(exc_info.value) == (
         "Human label evidence failed gates: ['missing_human_label_evidence']"
     )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_outputs_human_label_template(capsys) -> None:
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(["--human-label-template", "--format", "markdown"])
+
+    await run_evaluate_command(args)
+
+    output = capsys.readouterr().out
+    assert "# Engram Human Label Evidence Template" in output
+    assert "--human-label-artifact human-labels.json" in output
+    assert '"recallSamples"' in output
 
 
 def _human_label_artifact(*, recall_count: int, session_count: int) -> dict:

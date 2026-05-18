@@ -23,8 +23,10 @@ from engram.evaluation.brain_loop_report import (
     missing_brain_loop_report_sections,
 )
 from engram.evaluation.human_label_evidence import (
+    build_human_label_evidence_template,
     human_label_evidence_failure_message,
     load_human_label_evidence,
+    render_human_label_evidence_template_markdown,
 )
 from engram.evaluation.store import SQLiteEvaluationStore
 from engram.storage.bootstrap import (
@@ -171,6 +173,14 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
             "JSON artifact containing real human-labeled harness recall/session "
             "samples to attach to the report and optionally gate with "
             "--require-human-label-evidence."
+        ),
+    )
+    parser.add_argument(
+        "--human-label-template",
+        action="store_true",
+        help=(
+            "Print a JSON/Markdown template for collecting real human-labeled "
+            "harness evidence instead of building a report."
         ),
     )
     parser.add_argument(
@@ -321,6 +331,14 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
 
 async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
+    if getattr(args, "human_label_template", False):
+        template = build_human_label_evidence_template()
+        if args.format == "json":
+            print(json.dumps(template, indent=2, sort_keys=True))
+            return
+        print(render_human_label_evidence_template_markdown(template), end="")
+        return
+
     report = await build_report_from_args(args)
     report = _attach_benchmark_evidence_from_args(report, args)
     report = _attach_human_label_evidence_from_args(report, args)

@@ -18,6 +18,111 @@ _SYNTHETIC_SOURCE_TOKENS = {
 }
 
 
+def build_human_label_evidence_template() -> dict[str, Any]:
+    """Return the operator template for real human-reviewed harness evidence."""
+    return {
+        "kind": "engram_human_label_evidence",
+        "humanLabeled": True,
+        "source": "<staging_harness_or_production_harness_name>",
+        "client": "<Claude Code | Cursor | Windsurf | other MCP client>",
+        "capturedAt": "<ISO-8601 timestamp from live harness run>",
+        "labeler": "<human reviewer name or handle>",
+        "recallSamples": [
+            {
+                "source": "<same real harness source>",
+                "query": "<user turn or recall probe>",
+                "recallTriggered": True,
+                "recallHelped": True,
+                "recallNeeded": True,
+                "packetsSurfaced": 2,
+                "packetsUsed": 1,
+                "falseRecalls": 0,
+                "notes": "<why the recalled packet was useful or misleading>",
+            },
+            {
+                "source": "<same real harness source>",
+                "query": "<memory-needed turn where recall did not help>",
+                "recallTriggered": False,
+                "recallHelped": False,
+                "recallNeeded": True,
+                "packetsSurfaced": 0,
+                "packetsUsed": 0,
+                "falseRecalls": 0,
+                "notes": "<what was missing>",
+            },
+        ],
+        "sessionSamples": [
+            {
+                "source": "<same real harness source>",
+                "scenario": "<multi-turn task or open loop being evaluated>",
+                "baselineScore": 0.2,
+                "memoryScore": 0.8,
+                "openLoopExpected": True,
+                "openLoopRecovered": True,
+                "temporalExpected": True,
+                "temporalCorrect": True,
+                "notes": "<what Engram preserved across turns>",
+            }
+        ],
+        "validationCommand": (
+            "engram evaluate --from-json brain-loop-report.json "
+            "--require-evaluation-signals "
+            "--human-label-artifact human-labels.json "
+            "--require-human-label-evidence "
+            "--min-human-recall-samples 10 "
+            "--min-human-session-samples 3 "
+            "--evidence-bundle brain-loop-release-evidence.json "
+            "--format json"
+        ),
+        "instructions": [
+            "Collect this from a real staging or production harness run.",
+            "Keep source/client/capturedAt/labeler as observed metadata, not placeholders.",
+            (
+                "Do not use smoke, showcase, benchmark, fixture, deterministic, "
+                "simulated, or synthetic data for this release gate."
+            ),
+            "Add enough recallSamples and sessionSamples to satisfy the chosen gate thresholds.",
+        ],
+    }
+
+
+def render_human_label_evidence_template_markdown(template: Mapping[str, Any]) -> str:
+    """Render the human-label evidence template for operators."""
+    lines = [
+        "# Engram Human Label Evidence Template",
+        "",
+        "Use this for real staging or production harness review evidence.",
+        "",
+        "## Required Metadata",
+        "",
+        f"- Source: `{template.get('source')}`",
+        f"- Client: `{template.get('client')}`",
+        f"- Captured at: `{template.get('capturedAt')}`",
+        f"- Labeler: `{template.get('labeler')}`",
+        f"- Human labeled: `{template.get('humanLabeled')}`",
+        "",
+        "## Sample Counts In Template",
+        "",
+        f"- Recall samples: {len(_extract_samples(template, 'recallSamples'))}",
+        f"- Session samples: {len(_extract_samples(template, 'sessionSamples'))}",
+        "",
+        "## Validation",
+        "",
+        f"```bash\n{template.get('validationCommand')}\n```",
+        "",
+        "## JSON",
+        "",
+        "```json",
+        json.dumps(dict(template), indent=2, sort_keys=True),
+        "```",
+    ]
+    instructions = _list_payload(template.get("instructions"))
+    if instructions:
+        lines.extend(["", "## Instructions", ""])
+        lines.extend(f"- {instruction}" for instruction in instructions)
+    return "\n".join(lines).strip() + "\n"
+
+
 def load_human_label_evidence(
     artifact_path: Path,
     *,
@@ -68,21 +173,36 @@ def build_human_label_evidence(
         failures.append("missing_human_labeled_flag")
     if not source:
         failures.append("missing_human_label_source")
+    elif _looks_placeholder(source):
+        failures.append("placeholder_human_label_source")
     elif _looks_synthetic(source):
         failures.append(f"synthetic_human_label_source({source})")
     synthetic_sample_sources = [
         sample_source for sample_source in sample_sources if _looks_synthetic(sample_source)
     ]
+    placeholder_sample_sources = [
+        sample_source for sample_source in sample_sources if _looks_placeholder(sample_source)
+    ]
+    if placeholder_sample_sources:
+        failures.append(
+            "placeholder_sample_sources(" + ",".join(placeholder_sample_sources) + ")"
+        )
     if synthetic_sample_sources:
         failures.append(
             "synthetic_sample_sources(" + ",".join(synthetic_sample_sources) + ")"
         )
     if not client:
         failures.append("missing_harness_client")
+    elif _looks_placeholder(client):
+        failures.append("placeholder_harness_client")
     if not captured_at:
         failures.append("missing_harness_captured_at")
+    elif _looks_placeholder(captured_at):
+        failures.append("placeholder_harness_captured_at")
     if not labeler:
         failures.append("missing_human_labeler")
+    elif _looks_placeholder(labeler):
+        failures.append("placeholder_human_labeler")
     if len(recall_samples) < min_recall_samples:
         failures.append(
             f"insufficient_human_recall_samples({len(recall_samples)}<{min_recall_samples})"
@@ -183,3 +303,8 @@ def _looks_synthetic(source: str) -> bool:
         for token in source.replace("-", " ").replace("_", " ").split()
     }
     return bool(tokens & _SYNTHETIC_SOURCE_TOKENS)
+
+
+def _looks_placeholder(value: str) -> bool:
+    stripped = value.strip()
+    return stripped.startswith("<") and stripped.endswith(">")

@@ -19,8 +19,10 @@ from engram.evaluation.brain_loop_report import (
 from engram.evaluation.cli import build_evidence_bundle
 from engram.evaluation.human_label_evidence import (
     build_human_label_evidence,
+    build_human_label_evidence_template,
     human_label_evidence_failure_message,
     load_human_label_evidence,
+    render_human_label_evidence_template_markdown,
 )
 from engram.evaluation.presenter import (
     present_recall_sample,
@@ -50,6 +52,7 @@ __all__ = [
     "build_benchmark_evidence",
     "build_evidence_bundle",
     "build_human_label_evidence",
+    "build_human_label_evidence_template",
     "evaluation_signal_failure_message",
     "format_brain_loop_report_markdown",
     "format_smoke_report",
@@ -68,4 +71,5 @@ __all__ = [
     "run_projected_consolidated_smoke_for_args",
     "unmeasured_evaluation_signals",
     "human_label_evidence_failure_message",
+    "render_human_label_evidence_template_markdown",
 ]

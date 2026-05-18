@@ -345,12 +345,14 @@ saved report as benchmark-backed. The Markdown report renders the attached
 benchmark evidence too, so the operator artifact is readable without inspecting
 raw JSON. The CLI now also has a separate real harness gate:
 `--human-label-artifact human-labels.json --require-human-label-evidence`.
-That gate requires explicit `humanLabeled: true` metadata, a non-synthetic
-source, client label, capture timestamp, and human reviewer, and it rejects
-smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
-sources as release evidence. `--evidence-bundle` writes the same report plus
-source paths, benchmark evidence, human-label evidence, and gate thresholds as a
-single archiveable JSON artifact.
+`--human-label-template` prints the required artifact shape, starter examples,
+and validation command. The gate requires explicit `humanLabeled: true`
+metadata, a non-synthetic source, client label, capture timestamp, and human
+reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
+showcase, fixture, deterministic, simulated, or synthetic sources as release
+evidence. `--evidence-bundle` writes the same report plus source paths,
+benchmark evidence, human-label evidence, and gate thresholds as a single
+archiveable JSON artifact.
 The native surface manifest also tracks
 `engram evaluate --mode helix --require-evaluation-signals` as an operator hard
 gate beside the native smoke and doctor commands.
