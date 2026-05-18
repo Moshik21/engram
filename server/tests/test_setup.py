@@ -10,6 +10,7 @@ from engram.setup import (
     _render_menu,
     _welcome,
     config_editor,
+    install_hooks_interactive,
 )
 
 
@@ -187,6 +188,21 @@ def test_collect_config_helix_uses_native_transport(monkeypatch):
     assert config["ENGRAM_HELIX__TRANSPORT"] == "native"
     assert config["ENGRAM_FALKORDB__PASSWORD"] is None
     assert config["ENGRAM_REDIS__URL"] is None
+
+
+def test_hooks_interactive_prints_live_adoption_verifier_command(capsys, tmp_path):
+    """Hook installer output should tell operators how to verify live traces."""
+    install_hooks_interactive(
+        hooks_dir=tmp_path / "hooks",
+        settings_path=tmp_path / "settings.json",
+    )
+
+    out = capsys.readouterr().out
+    assert "Validate a live client run" in out
+    assert "engram adoption --authority claim-authority.json" in out
+    assert "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl" in out
+    assert "--session-id <client-session-id>" in out
+    assert "--require-live-evidence" in out
 
 
 # --- Config editor tests ---

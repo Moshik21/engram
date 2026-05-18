@@ -69,7 +69,9 @@ JSONL. `tests/test_mcp_adoption_cli.py` now also executes the generated
 `capture-prompt.sh` hook against a local auto-observe endpoint and validates the
 actual trace file with a matching Claude stream-json transcript, so hook
 generation, REST capture evidence, multi-file transcript merging, and
-session-filtered adoption validation are covered together.
+session-filtered adoption validation are covered together. The interactive
+`engram hooks` output now prints the matching live-evidence verifier command,
+including the default hook trace path and `--session-id` filter.
 
 ## Current Milestone
 

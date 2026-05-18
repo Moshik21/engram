@@ -1258,6 +1258,13 @@ def install_hooks_interactive(
         f"(default ~/.engram/adoption-trace.jsonl){_RESET}"
     )
     print()
+    print(f"  {_BOLD}Validate a live client run:{_RESET}")
+    print(
+        "    engram adoption --authority claim-authority.json "
+        "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
+        "--session-id <client-session-id> --require-live-evidence"
+    )
+    print()
     print(f"  {_GREEN}{_BOLD}AutoCapture installed!{_RESET}")
     print()
 
