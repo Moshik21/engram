@@ -11,7 +11,6 @@ from typing import Any
 
 from engram.config import EngramConfig
 from engram.consolidation.engine import ConsolidationEngine
-from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     evaluation_signal_failure_message,
@@ -19,7 +18,6 @@ from engram.evaluation.brain_loop_report import (
     has_recall_runtime_metrics,
 )
 from engram.evaluation.store import (
-    SQLiteEvaluationStore,
     StoredRecallEvalSample,
     StoredRecallRuntimeMetricsSnapshot,
     StoredSessionContinuitySample,
@@ -27,9 +25,12 @@ from engram.evaluation.store import (
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.retrieval.need import analyze_memory_need
-from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
+from engram.storage.bootstrap import (
+    create_consolidation_store_for_graph,
+    create_evaluation_store_for_graph,
+    initialize_search_index_for_graph,
+)
 from engram.storage.factory import create_stores
-from engram.storage.helix.consolidation import HelixConsolidationStore
 from engram.storage.resolver import EngineMode
 
 DEFAULT_GROUP_ID = "default"
@@ -131,24 +132,17 @@ async def run_projected_consolidated_smoke(
         mode=mode,
     )
 
-    if mode == EngineMode.HELIX:
-        consolidation_store = HelixConsolidationStore(
-            config.helix,
-            client=getattr(graph_store, "_helix_client", None),
-            owns_client=False,
-        )
-    else:
-        consolidation_store = SQLiteConsolidationStore(str(sqlite_path))
-    evaluation_store = SQLiteEvaluationStore(str(sqlite_path))
-    await initialize_store_for_graph(
-        consolidation_store,
+    consolidation_store = await create_consolidation_store_for_graph(
+        config,
         graph_store=graph_store,
         mode=mode,
+        sqlite_path=sqlite_path,
     )
-    await initialize_store_for_graph(
-        evaluation_store,
+    evaluation_store = await create_evaluation_store_for_graph(
+        config,
         graph_store=graph_store,
         mode=mode,
+        sqlite_path=sqlite_path,
     )
 
     try:
@@ -496,14 +490,22 @@ async def _run_smoke_cue_feedback_check(
 ) -> int:
     """Exercise cue feedback before projection so cue usefulness is measured."""
     query = "Engram brain loop creates cue summaries"
-    episode = await manager._graph.get_episode_by_id(episode_id, group_id)
-    if episode is None:
-        raise SystemExit("Projected/consolidated smoke could not reload a cue episode")
-    await manager._record_cue_hit(
-        episode,
-        0.72,
-        query,
+    cue_id = f"cue:{episode_id}"
+    await manager.apply_memory_interaction(
+        [cue_id],
+        group_id=group_id,
         interaction_type="surfaced",
+        source="evaluation_smoke",
+        query=query,
+        result_lookup={
+            cue_id: {
+                "lookup_id": cue_id,
+                "result_type": "cue_episode",
+                "episode_id": episode_id,
+                "score": 0.72,
+                "count_hit": True,
+            },
+        },
     )
     return 1
 

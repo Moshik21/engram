@@ -13,7 +13,10 @@ from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.lifecycle_summary import build_lifecycle_summary
-from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
+from engram.storage.bootstrap import (
+    create_consolidation_store_for_graph,
+    initialize_search_index_for_graph,
+)
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.storage.sqlite.graph import SQLiteGraphStore
@@ -163,32 +166,11 @@ async def _create_consolidation_store(
     graph_store: Any,
 ) -> Any:
     """Create the consolidation audit store that matches runtime startup."""
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.consolidation import HelixConsolidationStore
-
-        store = HelixConsolidationStore(
-            config.helix,
-            client=getattr(graph_store, "_helix_client", None),
-        )
-        await store.initialize()
-        return store
-
-    if config.postgres.dsn:
-        from engram.storage.postgres.consolidation import PostgresConsolidationStore
-
-        store = PostgresConsolidationStore(
-            config.postgres.dsn,
-            min_pool_size=config.postgres.min_pool_size,
-            max_pool_size=config.postgres.max_pool_size,
-        )
-        await store.initialize()
-        return store
-
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
-    return store
+    return await create_consolidation_store_for_graph(
+        config,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
 
 async def _maybe_close(resource: Any) -> None:

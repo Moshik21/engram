@@ -6,6 +6,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from engram.storage.bootstrap import (
+    borrowed_sqlite_db,
+    create_borrowed_sqlite_consolidation_store,
+)
+
 
 @dataclass(frozen=True)
 class ApiConsolidationTriggerSurface:
@@ -188,14 +193,7 @@ async def resolve_mcp_consolidation_trigger_store(
         return active_store
 
     db = manager.get_consolidation_shared_db()
-    if db is None:
-        return None
-
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    store = SQLiteConsolidationStore(":memory:")
-    await store.initialize(db=db)
-    return store
+    return await create_borrowed_sqlite_consolidation_store(db)
 
 
 @dataclass(frozen=True)
@@ -257,4 +255,4 @@ class ConsolidationTriggerService:
 
     def shared_sqlite_db(self) -> Any | None:
         """Return the shared sqlite handle used by lite graph stores, if any."""
-        return getattr(self._graph, "_db", None)
+        return borrowed_sqlite_db(self._graph)

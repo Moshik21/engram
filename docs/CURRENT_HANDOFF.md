@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3224 tests, 43 skips, and 236 external-service tests deselected after
+  with 3238 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -49,11 +49,12 @@ What changed in this pass:
   middleware boundaries plus the knowledge-chat tool-use loop and response-turn
   orchestration extractions plus the REST evaluation-report runtime-boundary,
   evaluation-signal CLI hard gate, doctor evaluation-signal readiness reporting,
-  Python 3.13 event-loop test harness cleanup, and the date-stable Helix
-  dashboard analytics unit fixture.
-  helper, direct REST engine-dispatch/store-service guard, stricter native
-  manifest evidence verifier, the chat rate-limit execution helper, and the
-  chat persistence scheduler helper.
+  Python 3.13 event-loop test harness cleanup, the date-stable Helix dashboard
+  analytics unit fixture, direct REST engine-dispatch/store-service guard,
+  stricter native manifest evidence verifier, the chat rate-limit execution
+  helper, the chat persistence scheduler helper, shared companion-store
+  bootstrap, explicit notification/scheduler dependencies, and the public
+  smoke cue-feedback facade.
   The GraphManager guard now
   covers the remaining service-backed compatibility adapters too, and the MCP
   identity-core mutation, MCP consolidation trigger, and MCP entity graph
@@ -125,6 +126,27 @@ What changed in this pass:
 - Updated the native surface manifest and completion audit to record that the
   Helix native doctor path reports evaluation-signal readiness, so future
   operator-readiness reviews do not treat this as a missing PyO3 path.
+- Centralized REST companion-store creation plus shared CLI/MCP evaluation
+  stores in `server/engram/storage/bootstrap.py`. REST startup now creates
+  atlas, consolidation, evaluation, and conversation stores through that module,
+  while MCP startup, lifecycle CLI, evaluation CLI, and projected/consolidated
+  smoke share the same consolidation/evaluation lite borrowed-DB and Helix
+  shared-client paths.
+- Moved the remaining route-facing borrowed SQLite consolidation fallback into
+  `server/engram/storage/bootstrap.py`. MCP consolidation trigger fallback,
+  lifecycle summary fallback, and graph-health metrics now call bootstrap
+  helpers instead of probing `_db` or constructing `SQLiteConsolidationStore`
+  locally.
+- Removed another hidden app-state path from notification presentation and
+  consolidation scheduling. MCP `memory_notifications` now calls the pure
+  `build_mcp_notifications_surface()` helper with an explicit
+  `NotificationSurfaceService` from `api/deps.py`; `notifications.surface`
+  no longer imports application state. `ConsolidationScheduler` receives the
+  active graph store from REST startup and passes it to the temporal scanner
+  instead of importing app state from `engram.main`.
+- Updated the projected/consolidated smoke cue-feedback check to use
+  `GraphManager.apply_memory_interaction()` and a public cue result lookup
+  instead of recording cue hits through manager private methods.
 - Added `server/tests/test_graph_manager_facade_boundaries.py` so the core
   lifecycle entrypoints on `GraphManager` are statically guarded as service
   delegates. The guard currently covers store, project, one-shot ingestion,
@@ -1717,10 +1739,29 @@ What changed in this pass:
   connection.
 - Added `server/engram/storage/bootstrap.py` as the shared runtime
   initialization contract for companion stores that can borrow the lite graph
-  DB connection. REST startup, MCP startup, lifecycle summary CLI, consolidation
-  CLI, and evaluation smoke now initialize search/evaluation/consolidation/
-  atlas/conversation stores through that helper instead of repeating
-  `graph_store._db` checks.
+  DB connection. It now also owns atlas, consolidation, evaluation, and
+  conversation store creation for REST startup plus consolidation/evaluation
+  store creation for MCP startup, lifecycle CLI, evaluation CLI, and
+  projected/consolidated smoke. Those entrypoints share the lite borrowed-DB and
+  Helix shared-client paths instead of repeating `graph_store._db` and
+  `graph_store._helix_client` checks.
+  The same module now owns borrowed in-memory consolidation-store creation for
+  fallback readers, so MCP trigger resolution, lifecycle summary fallback reads,
+  and graph-health SQLite metrics use one helper instead of local private DB
+  probes.
+- Removed app-state reads from shared runtime helpers outside the dependency
+  layer. `server/engram/notifications/surface.py` is now a pure presenter for
+  MCP notification piggybacking, `server/engram/api/deps.py` owns optional
+  notification-service construction from app state, and
+  `ConsolidationScheduler` receives its graph-store dependency explicitly for
+  temporal scans. Public-surface guards now reject the old
+  `build_mcp_notifications_surface_from_state()` path and assert
+  `notifications.surface` plus `consolidation/scheduler.py` do not read
+  `_app_state` directly.
+- Updated the projected/consolidated smoke's cue-feedback path to record
+  surfaced cue feedback through `GraphManager.apply_memory_interaction()`.
+  The smoke no longer uses private manager graph or cue-hit methods while
+  proving Recall feedback can be written back into the Cue stage.
 - Added the shared close helper and `GraphManager.close_runtime_resources()` so
   MCP shutdown closes owned search, activation, and graph resources through the
   manager facade instead of reaching into private manager fields.
@@ -5644,6 +5685,41 @@ What changed in this pass:
   engram/mcp/server.py engram/lifecycle_cli.py engram/evaluation/smoke.py
   engram/consolidation/cli.py tests/storage/test_storage_bootstrap.py`
   - Result: passed.
+  Latest companion-store creation follow-up:
+  `uv run ruff check engram/storage/bootstrap.py engram/main.py
+  engram/mcp/server.py engram/lifecycle_cli.py engram/evaluation/cli.py
+  engram/evaluation/smoke.py tests/storage/test_storage_bootstrap.py`
+  - Result: passed.
+  `uv run pytest tests/storage/test_storage_bootstrap.py -q`
+  - Result: 16 passed after the REST atlas/conversation creation helpers and
+    borrowed consolidation fallback helpers were added.
+  `uv run pytest tests/storage/test_sqlite_borrowed_connection_contract.py -q`
+  - Result: 7 passed.
+  `uv run pytest tests/test_lifecycle_cli.py
+  tests/test_projected_consolidated_smoke.py tests/test_doctor.py
+  tests/test_cli_main.py -q`
+  - Result: 50 passed.
+  `uv run pytest tests/test_mcp_tools.py -q`
+  - Result: 64 passed, 2 skipped.
+  `uv run pytest tests/test_api_endpoints.py tests/test_conversations_api.py
+  tests/test_activation_api.py tests/test_auto_observe.py
+  tests/test_native_surface_manifest.py -q`
+  - Result: 75 passed, 3 skipped after REST startup switched atlas and
+    conversation store creation to the shared bootstrap helper.
+  `uv run pytest tests/storage/test_storage_bootstrap.py
+  tests/test_consolidation_trigger_service.py tests/test_lifecycle_cli.py
+  tests/test_graph_health.py -q`
+  - Result: 41 passed, 5 skipped after route-facing borrowed consolidation
+    fallbacks moved to bootstrap.
+  `ENGRAM_SQLITE__PATH=/private/tmp/engram-bootstrap-shared-stores-20260518.db
+  uv run python -m engram lifecycle --mode lite --format json --episodes 1
+  --cycles 1`
+  - Result: passed and returned the shared lifecycle JSON loop.
+  `ENGRAM_SQLITE__PATH=/private/tmp/engram-bootstrap-shared-stores-20260518.db
+  uv run python -m engram evaluate --mode lite --no-saved-samples --format json
+  --cycles 1`
+  - Result: passed and returned the shared brain-loop evaluation JSON loop with
+    expected empty-DB coverage gaps.
 - Runtime resource shutdown facade:
   `uv run pytest tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
   tests/test_graph_manager_facade_boundaries.py tests/storage/test_storage_bootstrap.py -q`
@@ -6522,9 +6598,30 @@ What changed in this pass:
   - Result: 1 passed. The unscoped dashboard analytics fixture now freezes
     `utc_now()` so its fixed `2026-05-14` records remain inside the rolling
     growth window after the real calendar advances.
-- Broad backend non-Docker/non-external-Helix gate after doctor evaluation-signal readiness reporting, defensive doctor failure-path coverage, and Helix dashboard analytics date-stability fix:
+- Broad backend non-Docker/non-external-Helix gate after doctor evaluation-signal
+  readiness reporting, defensive doctor failure-path coverage, Helix dashboard
+  analytics date-stability, and the shared companion-store bootstrap follow-up:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  - Result: 3224 passed, 43 skipped, 236 deselected in 153.71s.
+  - Result: 3235 passed, 43 skipped, 236 deselected in 144.83s.
+- Focused explicit-dependency/public-smoke follow-up:
+  `uv run ruff check engram/evaluation/smoke.py engram/consolidation/scheduler.py
+  engram/main.py engram/notifications/surface.py engram/api/deps.py
+  engram/mcp/server.py engram/storage/bootstrap.py
+  tests/test_consolidation_scheduler.py tests/test_notifications.py
+  tests/test_public_surface_presenter_boundaries.py
+  tests/storage/test_storage_bootstrap.py`
+  - Result: passed.
+  `uv run pytest tests/test_projected_consolidated_smoke.py
+  tests/test_consolidation_scheduler.py tests/test_notifications.py
+  tests/test_public_surface_presenter_boundaries.py tests/test_piggyback_context.py
+  tests/storage/test_storage_bootstrap.py -q`
+  - Result: 291 passed in 5.19s.
+  `git diff --check`
+  - Result: passed.
+- Broad backend non-Docker/non-external-Helix gate after explicit notification/
+  scheduler dependencies and public smoke cue-feedback facade:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3238 passed, 43 skipped, 236 deselected in 169.82s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.

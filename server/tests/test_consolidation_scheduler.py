@@ -36,6 +36,11 @@ class _FakePressure:
         self.reset_called = True
 
 
+class _FakeTemporalScanner:
+    def __init__(self) -> None:
+        self.scan = AsyncMock()
+
+
 class TestConsolidationScheduler:
     @pytest.mark.asyncio
     async def test_start_creates_task(self):
@@ -216,6 +221,36 @@ class TestConsolidationScheduler:
                 pass
 
         assert engine.run_cycle.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_temporal_scanner_uses_explicit_graph_store(self):
+        """Temporal scans use scheduler dependencies instead of app state."""
+        engine = _FakeEngine()
+        scanner = _FakeTemporalScanner()
+        graph_store = object()
+        cfg = ActivationConfig(
+            consolidation_enabled=False,
+            consolidation_interval_seconds=60.0,
+            consolidation_tiered_enabled=False,
+        )
+        scheduler = ConsolidationScheduler(
+            engine,
+            cfg,
+            default_group_id="brain",
+            temporal_scanner=scanner,
+            graph_store=graph_store,
+        )
+
+        with patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep:
+            mock_sleep.side_effect = [None, asyncio.CancelledError()]
+            scheduler.start()
+            try:
+                await scheduler._task
+            except asyncio.CancelledError:
+                pass
+
+        scanner.scan.assert_awaited_once_with("brain", graph_store)
+        engine.run_cycle.assert_not_called()
 
 
 class TestPressureTriggering:

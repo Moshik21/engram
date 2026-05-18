@@ -30,8 +30,11 @@ from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.security.middleware import TenantContextMiddleware
 from engram.storage.bootstrap import (
+    create_atlas_store_for_graph,
+    create_consolidation_store_for_graph,
+    create_conversation_store_for_graph,
+    create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
-    initialize_store_for_graph,
 )
 from engram.storage.factory import create_stores
 from engram.storage.protocols import AtlasStore, ConsolidationStore
@@ -111,26 +114,16 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         runtime_mode=mode.value,
     )
 
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.atlas import HelixAtlasStore
-
-        # Share the async HelixClient across all Helix stores
-        helix_client = getattr(graph_store, "_helix_client", None)
-        atlas_store: AtlasStore = HelixAtlasStore(config.helix, client=helix_client)
-        await atlas_store.initialize()
-    elif mode == EngineMode.LITE:
-        from engram.storage.sqlite.atlas import SQLiteAtlasStore
-
-        atlas_store = SQLiteAtlasStore(str(config.get_sqlite_path()))
-        await initialize_store_for_graph(atlas_store, graph_store=graph_store, mode=mode)
-    else:
-        from engram.storage.redis.atlas import RedisAtlasStore
-
-        redis_client = getattr(search_index, "_redis", None)
-        if redis_client is None:
-            redis_client = getattr(activation_store, "_redis", None)
-        atlas_store = RedisAtlasStore(redis_client)
-        await atlas_store.initialize()
+    atlas_store = cast(
+        AtlasStore,
+        await create_atlas_store_for_graph(
+            config,
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            mode=mode,
+        ),
+    )
 
     from engram.atlas.builder import AtlasBuilder
     from engram.atlas.service import AtlasService
@@ -147,41 +140,16 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_store,
     )
 
-    # Consolidation engine + store
     from engram.consolidation.engine import ConsolidationEngine
 
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.consolidation import HelixConsolidationStore
-
-        consolidation_store: ConsolidationStore = cast(
-            ConsolidationStore,
-            HelixConsolidationStore(config.helix, client=helix_client),
-        )
-        await consolidation_store.initialize()
-    elif config.postgres.dsn:
-        from engram.storage.postgres.consolidation import PostgresConsolidationStore
-
-        consolidation_store: ConsolidationStore = cast(
-            ConsolidationStore,
-            PostgresConsolidationStore(
-                config.postgres.dsn,
-                min_pool_size=config.postgres.min_pool_size,
-                max_pool_size=config.postgres.max_pool_size,
-            ),
-        )
-        await consolidation_store.initialize()
-    else:
-        from engram.consolidation.store import SQLiteConsolidationStore
-
-        consolidation_store = cast(
-            ConsolidationStore,
-            SQLiteConsolidationStore(str(config.get_sqlite_path())),
-        )
-        await initialize_store_for_graph(
-            consolidation_store,
+    consolidation_store = cast(
+        ConsolidationStore,
+        await create_consolidation_store_for_graph(
+            config,
             graph_store=graph_store,
             mode=mode,
-        )
+        ),
+    )
 
     consolidation_engine = ConsolidationEngine(
         graph_store,
@@ -194,11 +162,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_manager=manager,
     )
 
-    from engram.evaluation.store import SQLiteEvaluationStore
-
-    evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
-    await initialize_store_for_graph(
-        evaluation_store,
+    evaluation_store = await create_evaluation_store_for_graph(
+        config,
         graph_store=graph_store,
         mode=mode,
     )
@@ -241,6 +206,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         default_group_id=config.default_group_id,
         pressure=pressure_accumulator,
         temporal_scanner=temporal_scanner,
+        graph_store=graph_store,
     )
     if config.activation.consolidation_enabled:
         consolidation_scheduler.start()
@@ -312,21 +278,11 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         if redis_subscriber:
             await redis_subscriber.start()
 
-    # Conversation store
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.conversations import HelixConversationStore
-
-        conversation_store = HelixConversationStore(config.helix, client=helix_client)
-        await conversation_store.initialize()
-    else:
-        from engram.storage.sqlite.conversations import SQLiteConversationStore
-
-        conversation_store = SQLiteConversationStore(str(config.get_sqlite_path()))
-        await initialize_store_for_graph(
-            conversation_store,
-            graph_store=graph_store,
-            mode=mode,
-        )
+    conversation_store = await create_conversation_store_for_graph(
+        config,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     _app_state.update(
         {

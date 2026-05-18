@@ -117,9 +117,16 @@ def get_mode() -> str:
 
 def get_notification_surface_service() -> NotificationSurfaceService | None:
     """Retrieve the optional notification surface service."""
-    from engram.notifications.surface import get_notification_surface_service_from_state
+    from engram.main import _app_state
 
-    return get_notification_surface_service_from_state()
+    existing = _app_state.get("notification_surface_service")
+    if isinstance(existing, NotificationSurfaceService):
+        return existing
+
+    store = _app_state.get("notification_store")
+    if store is None:
+        return None
+    return NotificationSurfaceService(store)
 
 
 def get_rate_limiter() -> RateLimiter | None:

@@ -16,6 +16,7 @@ from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
 
+from engram.api.deps import get_notification_surface_service
 from engram.config import ActivationConfig, EngramConfig
 from engram.consolidation_trigger import (
     build_mcp_consolidation_status_surface,
@@ -44,7 +45,7 @@ from engram.ingestion.capture_surface import (
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
-from engram.notifications.surface import build_mcp_notifications_surface_from_state
+from engram.notifications.surface import build_mcp_notifications_surface
 from engram.retrieval.artifacts import build_mcp_artifact_search_tool_surface
 from engram.retrieval.auto_recall import (
     RecallCooldown,
@@ -84,7 +85,11 @@ from engram.retrieval.prospective import (
 )
 from engram.retrieval.recall_surface import build_mcp_explicit_recall_tool_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
-from engram.storage.bootstrap import initialize_search_index_for_graph, initialize_store_for_graph
+from engram.storage.bootstrap import (
+    create_consolidation_store_for_graph,
+    create_evaluation_store_for_graph,
+    initialize_search_index_for_graph,
+)
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
@@ -169,13 +174,16 @@ async def _init() -> None:
         max_per_minute=config.activation.auto_recall_max_per_minute,
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
-    _evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
-    await initialize_store_for_graph(
-        _evaluation_store,
+    _evaluation_store = await create_evaluation_store_for_graph(
+        config,
         graph_store=graph_store,
         mode=mode,
     )
-    _consolidation_store = await _create_consolidation_store(mode, config, graph_store)
+    _consolidation_store = await create_consolidation_store_for_graph(
+        config,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
     # Background episode worker
     from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
@@ -244,40 +252,6 @@ async def _maybe_close(resource: Any) -> None:
     result = close()
     if inspect.isawaitable(result):
         await result
-
-
-async def _create_consolidation_store(
-    mode: EngineMode,
-    config: EngramConfig,
-    graph_store: Any,
-) -> Any:
-    """Create the consolidation audit store for MCP-side evaluation reports."""
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.consolidation import HelixConsolidationStore
-
-        store = HelixConsolidationStore(
-            config.helix,
-            client=getattr(graph_store, "_helix_client", None),
-        )
-        await store.initialize()
-        return store
-
-    if config.postgres.dsn:
-        from engram.storage.postgres.consolidation import PostgresConsolidationStore
-
-        store = PostgresConsolidationStore(
-            config.postgres.dsn,
-            min_pool_size=config.postgres.min_pool_size,
-            max_pool_size=config.postgres.max_pool_size,
-        )
-        await store.initialize()
-        return store
-
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
-    return store
 
 
 def _get_manager() -> GraphManager:
@@ -407,7 +381,11 @@ def _should_recall(tool_name: str, cfg: ActivationConfig | None) -> bool:
 
 def _serialize_notifications(cfg: ActivationConfig, group_id: str) -> list[dict] | None:
     """Serialize proactive memory notifications."""
-    return build_mcp_notifications_surface_from_state(cfg=cfg, group_id=group_id)
+    return build_mcp_notifications_surface(
+        get_notification_surface_service(),
+        cfg=cfg,
+        group_id=group_id,
+    )
 
 
 async def _recall_middleware(

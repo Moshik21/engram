@@ -212,7 +212,8 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_activation_curve_surface",
     },
     ("engram/mcp/server.py", "_serialize_notifications"): {
-        "build_mcp_notifications_surface_from_state",
+        "build_mcp_notifications_surface",
+        "get_notification_surface_service",
     },
     ("engram/mcp/server.py", "_should_recall"): {"should_recall_for_tool"},
     ("engram/mcp/server.py", "_auto_recall_lite"): {
@@ -536,6 +537,11 @@ PUBLIC_SURFACES_WITHOUT_APP_STATE_READS = tuple(
     )
 )
 
+SHARED_RUNTIME_MODULES_WITHOUT_APP_STATE_READS = (
+    "engram/consolidation/scheduler.py",
+    "engram/notifications/surface.py",
+)
+
 
 def _function_names_used(relative_path: str, function_name: str) -> set[str]:
     tree = ast.parse((ROOT / relative_path).read_text())
@@ -718,6 +724,12 @@ def test_public_routes_do_not_reassemble_delegated_payloads(
 
 @pytest.mark.parametrize("relative_path", PUBLIC_SURFACES_WITHOUT_APP_STATE_READS)
 def test_public_surface_routes_do_not_read_app_state_directly(relative_path: str) -> None:
+    source = (ROOT / relative_path).read_text()
+    assert "_app_state" not in source
+
+
+@pytest.mark.parametrize("relative_path", SHARED_RUNTIME_MODULES_WITHOUT_APP_STATE_READS)
+def test_shared_runtime_modules_do_not_read_app_state_directly(relative_path: str) -> None:
     source = (ROOT / relative_path).read_text()
     assert "_app_state" not in source
 

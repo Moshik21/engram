@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
-from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     evaluation_signal_failure_message,
@@ -19,6 +18,10 @@ from engram.evaluation.brain_loop_report import (
     missing_brain_loop_report_sections,
 )
 from engram.evaluation.store import SQLiteEvaluationStore
+from engram.storage.bootstrap import (
+    create_consolidation_store_for_graph,
+    create_evaluation_store_for_graph,
+)
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.storage.sqlite.graph import SQLiteGraphStore
 
@@ -278,11 +281,11 @@ async def _load_live_report(
         recall_samples: list[Any] = []
         session_samples: list[Any] = []
         if not args.no_saved_samples:
-            evaluation_store = SQLiteEvaluationStore(str(config.get_sqlite_path()))
-            if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-                await evaluation_store.initialize(db=graph_store._db)
-            else:
-                await evaluation_store.initialize()
+            evaluation_store = await create_evaluation_store_for_graph(
+                config,
+                graph_store=graph_store,
+                mode=mode,
+            )
             sample_limit = max(1, args.saved_sample_limit)
             stats = merge_recall_runtime_metrics(
                 stats,
@@ -319,33 +322,11 @@ async def _create_consolidation_store(
     config: EngramConfig,
     graph_store: Any,
 ) -> Any:
-    if mode == EngineMode.HELIX:
-        from engram.storage.helix.consolidation import HelixConsolidationStore
-
-        store = HelixConsolidationStore(
-            config.helix,
-            client=getattr(graph_store, "_helix_client", None),
-        )
-        await store.initialize()
-        return store
-
-    if config.postgres.dsn:
-        from engram.storage.postgres.consolidation import PostgresConsolidationStore
-
-        store = PostgresConsolidationStore(
-            config.postgres.dsn,
-            min_pool_size=config.postgres.min_pool_size,
-            max_pool_size=config.postgres.max_pool_size,
-        )
-        await store.initialize()
-        return store
-
-    store = SQLiteConsolidationStore(str(config.get_sqlite_path()))
-    if mode == EngineMode.LITE and hasattr(graph_store, "_db"):
-        await store.initialize(db=graph_store._db)
-    else:
-        await store.initialize()
-    return store
+    return await create_consolidation_store_for_graph(
+        config,
+        graph_store=graph_store,
+        mode=mode,
+    )
 
 
 async def _resolve_smoke_mode(requested_mode: str | None) -> EngineMode:

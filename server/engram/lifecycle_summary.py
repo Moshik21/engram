@@ -10,6 +10,7 @@ from typing import Any
 from engram.config import ActivationConfig
 from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.consolidation.presenter import serialize_cycle_summary
+from engram.storage.bootstrap import create_borrowed_consolidation_store_for_graph
 
 LOOP = ["capture", "cue", "project", "recall", "consolidate"]
 CAPTURE_ACTIVE_STATUSES = {"queued", "pending", "processing", "extracting"}
@@ -177,14 +178,9 @@ async def _recent_cycles(
     if callable(get_recent_cycles):
         return await get_recent_cycles(group_id, limit=limit)
 
-    db = getattr(graph_store, "_db", None)
-    if db is None:
+    store = await create_borrowed_consolidation_store_for_graph(graph_store)
+    if store is None:
         return []
-
-    from engram.consolidation.store import SQLiteConsolidationStore
-
-    store = SQLiteConsolidationStore(":memory:")
-    await store.initialize(db=db)
     return await store.get_recent_cycles(group_id, limit=limit)
 
 

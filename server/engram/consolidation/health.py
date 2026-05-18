@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
+from engram.storage.bootstrap import borrowed_sqlite_db
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,7 @@ async def compute_graph_health(
     store = cast(Any, graph_store)
     entity_count = await store.get_entity_count(group_id)
 
-    db = getattr(store, "_db", None)
+    db = borrowed_sqlite_db(store)
     if db is None:
         return GraphHealthMetrics(entity_count=entity_count)
 

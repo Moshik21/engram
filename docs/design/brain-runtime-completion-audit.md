@@ -26,7 +26,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Requirement | Current Evidence | Status |
 | --- | --- | --- |
 | Audit current architecture and drift | `docs/design/brain-runtime-audit.md`, `docs/CURRENT_HANDOFF.md` | Strong, ongoing |
-| Preserve useful dirty-worktree changes | Worktree remains dirty; new work is scoped to added manifest/tests/docs | Needs final packaging discipline |
+| Preserve useful dirty-worktree changes | Worktree remains dirty; current work is scoped to shared companion-store bootstrap, explicit dependency injection, public smoke feedback, tests, and docs | Needs final packaging discipline |
 | Make `Capture -> Cue -> Project -> Recall -> Consolidate` explicit | `server/engram/lifecycle_summary.py`, `dashboard/src/components/LifecyclePanel.tsx`, `server/engram/evaluation/brain_loop_report.py` | Strong |
 | Extract capture/observe/store runtime boundaries | `server/engram/ingestion/capture_service.py`, `episode_ingestion.py`, `offline_replay.py`, `dedup.py` | Strong |
 | Extract project runtime boundaries | `server/engram/ingestion/projection_service.py`, `projection_execution.py`, `projection_state.py` | Strong |
@@ -36,7 +36,7 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3224 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3238 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing or unmeasured | Strong, needs more real labeled evidence before production claim |
@@ -47,16 +47,34 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3224 tests, 43 skips, and 236 deselections after the
-  doctor readiness failure path was guarded and the Helix dashboard analytics
-  test fixture was made date-stable.
+  currently passes with 3238 tests, 43 skips, and 236 deselections after the
+  doctor readiness failure path was guarded, the Helix dashboard analytics test
+  fixture was made date-stable, and REST companion-store plus CLI/MCP
+  consolidation/evaluation store creation was centralized in the shared
+  bootstrap helper, the notification/scheduler dependencies were made explicit,
+  and the smoke cue-feedback path moved onto the public manager facade.
 - Shared lite storage bootstrap evidence:
   `server/engram/storage/bootstrap.py` centralizes companion-store
   initialization against the active graph store. REST startup, MCP startup,
-  lifecycle summary CLI, consolidation CLI, and evaluation smoke use it for
-  search/evaluation/consolidation/atlas/conversation initialization, and
-  `tests/storage/test_storage_bootstrap.py` plus the borrowed-connection
-  contract tests guard the behavior.
+  lifecycle CLI, evaluation CLI, and projected/consolidated smoke now share its
+  store factory path where applicable. REST startup creates atlas,
+  consolidation, evaluation, and conversation stores through that module; MCP
+  and CLI/operator paths share its consolidation/evaluation store factories.
+  Lite borrowed-DB, borrowed consolidation fallback, and Helix shared-client
+  behavior are guarded by `tests/storage/test_storage_bootstrap.py` plus the
+  borrowed-connection contract tests.
+- Public dependency-boundary evidence:
+  MCP notification piggybacking now uses the pure
+  `build_mcp_notifications_surface()` presenter with a
+  `NotificationSurfaceService` supplied by `api/deps.py`, and the consolidation
+  scheduler receives its graph store explicitly for temporal scans. Static
+  public-surface tests guard against reintroducing `_app_state` reads in
+  `notifications.surface` or `consolidation/scheduler.py`.
+- Public feedback-write evidence:
+  The projected/consolidated smoke writes surfaced cue feedback through
+  `GraphManager.apply_memory_interaction()` instead of manager private cue-hit
+  helpers, keeping the smoke verifier on the same public facade used by runtime
+  consumers.
 - Runtime resource shutdown evidence:
   `GraphManager.close_runtime_resources()` closes owned search, activation, and
   graph stores through `engram.storage.bootstrap.close_if_supported()`, and MCP
@@ -475,11 +493,13 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    persistence, and shared write acknowledgement payloads through route-facing
    helpers. Focused label service, REST
    evaluation, MCP JSON-response, public-surface, and Ruff checks passed.
-   The broad non-Docker/non-external-Helix backend gate now passes with 3224
+   The broad non-Docker/non-external-Helix backend gate now passes with 3238
    tests, 43 skips, and 236 deselections after these route-orchestration
    slices, the Python 3.13 event-loop test harness cleanup, the doctor
-   readiness failure-path guard, and the date-stable Helix dashboard analytics
-   fixture.
+   readiness failure-path guard, the date-stable Helix dashboard analytics
+   fixture, the shared companion-store bootstrap follow-up, explicit
+   notification/scheduler dependency cleanup, and the public smoke cue-feedback
+   facade.
    MCP auto-recall cooldown/topic deduplication, compact query extraction,
    per-tool recall gating, first-call session-prime planning, MCP middleware
    side-effect planning, middleware plan execution, middleware auto-observe,
@@ -534,11 +554,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    to meaningful evidence.
 
 5. Completion packaging:
-   The current dirty scope is intentionally bounded to the doctor
-   evaluation-readiness slice, audit/install/handoff docs, the native surface
-   manifest, and one date-stability test fixture. Before closure or a commit,
-   the intended files still need a final packaging/staging plan so the
-   completed work is reproducible and unrelated user changes stay out of scope.
+   The current dirty scope is intentionally bounded to the shared
+   companion-store bootstrap follow-up, its focused storage/CLI/MCP tests, and
+   audit/handoff docs. Before closure or a commit, the intended files still
+   need a final packaging/staging plan so the completed work is reproducible and
+   unrelated user changes stay out of scope.
 
 ## Next Concrete Work
 
@@ -576,8 +596,10 @@ evaluation report assembly shares a service, REST evaluation report
 engine-context loading and MCP audit-store input loading share that report
 service, REST/MCP evaluation label writes share
 write-surface helpers, dashboard WebSocket command/event payload shaping has a
-route-facing helper, shared storage bootstrap initialization has helper
-coverage, episode-worker runtime stores have an explicit dependency object,
+route-facing helper, shared storage bootstrap initialization plus REST
+companion-store, CLI/MCP consolidation/evaluation store creation, and borrowed
+consolidation fallback reads have helper coverage, episode-worker runtime
+stores have an explicit dependency object,
 auto-capture worker batching has a Cue-stage helper, worker deterministic
 scoring has an ingestion helper, worker projection routing has an ingestion
 helper, worker event parsing and compact auto-content loading have an ingestion
