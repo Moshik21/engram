@@ -43,6 +43,15 @@ reciprocal/duplicate relationship matches could leave unconsumed returned rows.
 That helper now consumes all returned rows before commit, with regression
 coverage in `tests/test_consolidation_graph_methods.py`.
 
+Auto-capture compatibility note: REST `/api/knowledge/auto-observe` now parses
+request JSON inside the route instead of letting FastAPI reject hook-shaped
+payloads before Engram can classify them. Installed hook payloads with explicit
+`content` still use the same Capture -> Cue path, while raw Claude
+`UserPromptSubmit` payloads, stream-json `message` records, and
+`last_assistant_message` stop records normalize into role/project-tagged
+captures. Malformed or unsupported async hook traffic returns a skipped capture
+contract instead of a pre-route `422`.
+
 ## Current Milestone
 
 The audit milestone, P0 public-contract slices, and several P1 runtime-service

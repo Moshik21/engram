@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +16,119 @@ from engram.ingestion.presenter import (
 )
 from engram.models.episode import Attachment
 from engram.utils.dates import utc_now
+
+
+def _string_value(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _text_value(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        return _text_value(value.get("content")) or _text_value(value.get("text"))
+    if isinstance(value, list | tuple):
+        parts = [part for item in value if (part := _text_value(item))]
+        return "\n".join(parts) if parts else None
+    return None
+
+
+def _project_from_cwd(cwd: str | None) -> str | None:
+    if not cwd:
+        return None
+    name = cwd.rstrip("/").rsplit("/", 1)[-1]
+    return name or None
+
+
+def _source_for_role(role: str | None) -> str:
+    if role == "assistant":
+        return "auto:response"
+    if role == "user":
+        return "auto:prompt"
+    return "auto:hook"
+
+
+def _tag_hook_content(role: str, project: str, content: str) -> str:
+    return f"[{role}|{project}] {content}"
+
+
+def normalize_auto_observe_payload(raw: Mapping[str, Any]) -> dict[str, str | None]:
+    """Normalize installed-hook and raw Claude-hook payloads for auto-observe."""
+    project = (
+        _string_value(raw.get("project"))
+        or _project_from_cwd(_string_value(raw.get("cwd")))
+        or "unknown"
+    )
+    raw_role = _string_value(raw.get("role"))
+    session_id = _string_value(raw.get("session_id"))
+    conversation_date = _string_value(raw.get("conversation_date"))
+
+    content = _text_value(raw.get("content"))
+    if content is not None:
+        role = raw_role or "user"
+        return {
+            "content": content,
+            "source": _string_value(raw.get("source")) or _source_for_role(role),
+            "project": project,
+            "role": role,
+            "session_id": session_id,
+            "conversation_date": conversation_date,
+        }
+
+    prompt = _text_value(raw.get("prompt"))
+    if prompt is not None:
+        return {
+            "content": _tag_hook_content("user", project, prompt),
+            "source": _string_value(raw.get("source")) or "auto:prompt",
+            "project": project,
+            "role": "user",
+            "session_id": session_id,
+            "conversation_date": conversation_date,
+        }
+
+    assistant_response = _text_value(raw.get("last_assistant_message"))
+    if assistant_response is not None:
+        return {
+            "content": _tag_hook_content("assistant", project, assistant_response),
+            "source": _string_value(raw.get("source")) or "auto:response",
+            "project": project,
+            "role": "assistant",
+            "session_id": session_id,
+            "conversation_date": conversation_date,
+        }
+
+    message = raw.get("message")
+    if isinstance(message, Mapping):
+        role = (
+            _string_value(message.get("role"))
+            or raw_role
+            or _string_value(raw.get("type"))
+            or "system"
+        )
+        message_content = _text_value(message.get("content"))
+        if message_content is not None:
+            return {
+                "content": _tag_hook_content(role, project, message_content),
+                "source": _string_value(raw.get("source")) or _source_for_role(role),
+                "project": project,
+                "role": role,
+                "session_id": session_id,
+                "conversation_date": conversation_date,
+            }
+
+    return {
+        "content": "",
+        "source": _string_value(raw.get("source")) or "auto:hook",
+        "project": project,
+        "role": raw_role or "system",
+        "session_id": session_id,
+        "conversation_date": conversation_date,
+    }
+
+
+def build_api_auto_observe_skip_surface(reason: str) -> dict[str, Any]:
+    """Return a non-throwing auto-observe skip response for hook compatibility."""
+    return present_api_observe_skip("skipped", reason=reason)
 
 
 def parse_conversation_date(value: str | None) -> datetime | None:

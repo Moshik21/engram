@@ -177,6 +177,71 @@ async def test_auto_observe_endpoint(api_client):
 
 
 @pytest.mark.asyncio
+async def test_auto_observe_endpoint_accepts_claude_prompt_hook_payload(api_client):
+    """Raw Claude UserPromptSubmit hook payloads normalize instead of 422ing."""
+    _DEDUP_CACHE.clear()
+
+    resp = await api_client.post(
+        "/api/knowledge/auto-observe",
+        json={
+            "prompt": "Please remember that Engram should be the cross-context brain.",
+            "cwd": "/Users/konnermoshier/Engram",
+            "session_id": "sess-hook-prompt",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "observed"
+    assert "episodeId" in data
+
+
+@pytest.mark.asyncio
+async def test_auto_observe_endpoint_accepts_claude_stream_message_payload(api_client):
+    """Claude stream-json assistant records normalize into response captures."""
+    _DEDUP_CACHE.clear()
+
+    resp = await api_client.post(
+        "/api/knowledge/auto-observe",
+        json={
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Engram should call claim_authority before relying on file memory.",
+                    }
+                ],
+            },
+            "cwd": "/Users/konnermoshier/Engram",
+            "session_id": "sess-hook-message",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "observed"
+    assert "episodeId" in data
+
+
+@pytest.mark.asyncio
+async def test_auto_observe_endpoint_skips_invalid_json(api_client):
+    """Malformed async hook traffic returns a capture skip, not a 422."""
+    _DEDUP_CACHE.clear()
+
+    resp = await api_client.post(
+        "/api/knowledge/auto-observe",
+        content="{",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "skipped"
+    assert resp.json()["reason"] == "invalid_json"
+
+
+@pytest.mark.asyncio
 async def test_auto_observe_dedup(api_client):
     """Same content within 5 minutes is skipped as dedup."""
     _DEDUP_CACHE.clear()
