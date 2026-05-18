@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -98,15 +99,38 @@ from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
+_lifespan_lock: asyncio.Lock | None = None
+_lifespan_lock_loop: asyncio.AbstractEventLoop | None = None
+_lifespan_refcount = 0
+
+
+def _get_lifespan_lock() -> asyncio.Lock:
+    global _lifespan_lock, _lifespan_lock_loop
+
+    loop = asyncio.get_running_loop()
+    if _lifespan_lock is None or _lifespan_lock_loop is not loop:
+        _lifespan_lock = asyncio.Lock()
+        _lifespan_lock_loop = loop
+    return _lifespan_lock
+
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     """Initialize storage on the same event loop as the MCP server."""
-    await _init()
+    global _lifespan_refcount
+
+    lock = _get_lifespan_lock()
+    async with lock:
+        if _lifespan_refcount == 0:
+            await _init()
+        _lifespan_refcount += 1
     try:
         yield
     finally:
-        await _shutdown()
+        async with lock:
+            _lifespan_refcount -= 1
+            if _lifespan_refcount == 0:
+                await _shutdown()
 
 
 mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT, lifespan=_lifespan)

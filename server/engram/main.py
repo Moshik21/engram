@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from engram import __version__
 from engram.api.activation import router as activation_router
@@ -375,7 +376,11 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         await _startup(app, config)
         try:
-            yield
+            async with AsyncExitStack() as stack:
+                mcp_session_manager = getattr(app.state, "mcp_session_manager", None)
+                if mcp_session_manager is not None:
+                    await stack.enter_async_context(mcp_session_manager.run())
+                yield
         finally:
             await _shutdown()
 
@@ -401,6 +406,23 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     # Tenant context middleware
     app.add_middleware(TenantContextMiddleware, config=config.auth)
 
+    @app.middleware("http")
+    async def mcp_http_health_probe(request, call_next):
+        accept = request.headers.get("accept", "")
+        if (
+            request.method == "GET"
+            and request.url.path == "/mcp"
+            and "text/event-stream" not in accept
+        ):
+            return JSONResponse(
+                {
+                    "status": "ok",
+                    "transport": "streamable-http",
+                    "path": "/mcp",
+                }
+            )
+        return await call_next(request)
+
     # Routes
     app.include_router(health_router)
     app.include_router(graph_router)
@@ -416,14 +438,20 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(conversations_router)
 
-    # Mount MCP streamable-http transport at /mcp
+    # FastMCP's streamable HTTP ASGI app already exposes its protocol route at
+    # /mcp. Mount it at the REST app root so the advertised URL stays /mcp.
     if os.environ.get("ENGRAM_MCP_ENABLED", "1") != "0":
         try:
             from engram.mcp.server import mcp as mcp_server
 
             mcp_server.settings.stateless_http = True
+            # FastMCP session managers are single-run lifecycle objects. The
+            # REST app factory may be called repeatedly in tests and operator
+            # restarts, so each app instance needs its own manager.
+            mcp_server._session_manager = None
             mcp_app = mcp_server.streamable_http_app()
-            app.mount("/mcp", mcp_app)
+            app.state.mcp_session_manager = mcp_server.session_manager
+            app.mount("/", mcp_app)
             logger.info("MCP streamable-http mounted at /mcp")
         except Exception:
             logger.warning(

@@ -22,6 +22,15 @@ memory authority even when project-local file memory exists, must treat an empty
 runtime as an onboarding/bootstrap state, and must provide verifier evidence
 that real clients followed the required recall/capture protocol.
 
+Latest live-client note: the REST-mounted HTTP MCP endpoint now serves the
+advertised `/mcp` URL directly, starts FastMCP's session manager from the parent
+REST lifespan, answers Claude Code's plain `GET /mcp` discovery probe, and
+refcounts overlapping MCP lifespans so stateless HTTP probes cannot close shared
+stores mid-initialization. `curl` initialize and escalated `claude mcp list`
+both verify `engram: http://127.0.0.1:8100/mcp (HTTP) - Connected`; full
+Claude prompt-run adoption is still blocked until a logged-in Claude Code run
+can produce a real tool-call transcript.
+
 ## Current Milestone
 
 The audit milestone, P0 public-contract slices, and several P1 runtime-service
