@@ -709,7 +709,9 @@ not yet doing its job.
    artifact must declare `humanLabeled: true`, a non-synthetic source, client
    label, capture time, and labeler, and it fails if an untouched placeholder
    template or smoke, benchmark, showcase, fixture, deterministic, simulated, or
-   synthetic data is presented as production evidence.
+   synthetic data is presented as production evidence. Loaded human-label
+   artifacts include a SHA-256 digest in the evidence summary and Markdown
+   report so archived bundles can be traced back to the exact reviewed file.
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached
    benchmark/human-label evidence, source paths, and gate thresholds as one
    reproducible JSON artifact after requested gates pass. The

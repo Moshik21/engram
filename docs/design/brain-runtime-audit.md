@@ -350,7 +350,9 @@ and validation command. The gate requires explicit `humanLabeled: true`
 metadata, a non-synthetic source, client label, capture timestamp, and human
 reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
 showcase, fixture, deterministic, simulated, or synthetic sources as release
-evidence. `--evidence-bundle` writes the same report plus source paths,
+evidence. Human-label artifacts loaded from disk are summarized with a SHA-256
+digest, so Markdown reports and evidence bundles can be tied to the exact
+reviewed file. `--evidence-bundle` writes the same report plus source paths,
 benchmark evidence, human-label evidence, and gate thresholds as a single
 archiveable JSON artifact.
 The native surface manifest also tracks

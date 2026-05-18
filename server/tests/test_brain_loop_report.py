@@ -822,6 +822,8 @@ def test_markdown_includes_human_label_evidence() -> None:
             "session_sample_count": 2,
             "min_recall_samples": 5,
             "min_session_samples": 2,
+            "artifact_path": "human-labels.json",
+            "artifact_sha256": "abc123",
             "failures": [],
         },
     }
@@ -832,6 +834,7 @@ def test_markdown_includes_human_label_evidence() -> None:
     assert "Cursor from staging_harness: measured" in markdown
     assert "Labels: 5 recall samples (minimum 5), 2 session samples (minimum 2)" in markdown
     assert "Review: human labeled yes, labeler operator" in markdown
+    assert "Artifact: human-labels.json | sha256 abc123" in markdown
 
 
 def _measured_signal_report() -> dict:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from engram.evaluation.human_label_evidence import (
     build_human_label_evidence,
     build_human_label_evidence_template,
     human_label_evidence_failure_message,
+    load_human_label_evidence,
     render_human_label_evidence_template_markdown,
 )
 
@@ -35,6 +37,26 @@ def test_human_label_evidence_accepts_real_harness_artifact() -> None:
     assert evidence["session_sample_count"] == 1
     assert evidence["sample_sources"] == ["staging_harness"]
     assert human_label_evidence_failure_message(evidence, prefix="Human") is None
+
+
+def test_load_human_label_evidence_records_artifact_hash(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "human-labels.json"
+    artifact_path.write_text(
+        json.dumps(_human_label_artifact(recall_count=2, session_count=1)),
+        encoding="utf-8",
+    )
+
+    evidence = load_human_label_evidence(
+        artifact_path,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "measured"
+    assert evidence["artifact_path"] == str(artifact_path)
+    assert evidence["artifact_sha256"] == hashlib.sha256(
+        artifact_path.read_bytes()
+    ).hexdigest()
 
 
 def test_human_label_evidence_rejects_synthetic_or_unreviewed_artifact() -> None:
@@ -126,8 +148,10 @@ async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
     await run_evaluate_command(args)
 
     report = json.loads(capsys.readouterr().out)
+    expected_hash = hashlib.sha256(human_path.read_bytes()).hexdigest()
     assert report["human_label_evidence"]["status"] == "measured"
     assert report["human_label_evidence"]["client"] == "Cursor"
+    assert report["human_label_evidence"]["artifact_sha256"] == expected_hash
     assert report["human_label_evidence"]["recall_sample_count"] == 2
     assert report["human_label_evidence"]["min_session_samples"] == 1
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))

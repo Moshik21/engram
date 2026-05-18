@@ -89,8 +89,10 @@ schema, starter examples, and validation command operators should fill from a
 real harness run. The artifact is attached to JSON/Markdown reports and
 evidence bundles, but it explicitly rejects untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
-sources. Deterministic benchmark bundles remain useful local proof; they no
-longer stand in for production/staging human-reviewed harness sessions.
+sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
+and Markdown report, so archived bundles point back to the exact reviewed
+`human-labels.json`. Deterministic benchmark bundles remain useful local proof;
+they no longer stand in for production/staging human-reviewed harness sessions.
 
 ## Current Milestone
 

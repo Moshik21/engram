@@ -1511,7 +1511,9 @@ must declare `humanLabeled: true`, a real harness `source`, the client label,
 showcase, benchmark, fixture, deterministic, simulated, or synthetic data fail
 the gate. Use `--min-human-recall-samples` and
 `--min-human-session-samples` to keep deterministic benchmarks and real
-human-reviewed harness sessions from being treated as interchangeable.
+human-reviewed harness sessions from being treated as interchangeable. When
+loaded from disk, the report records the `human-labels.json` SHA-256 digest so
+the archived evidence bundle points back to the exact reviewed artifact.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,

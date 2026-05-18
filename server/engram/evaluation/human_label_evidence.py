@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -130,12 +131,14 @@ def load_human_label_evidence(
     min_session_samples: int = 1,
 ) -> dict[str, Any]:
     """Load and summarize a human-labeled harness artifact."""
-    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    raw = artifact_path.read_bytes()
+    payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("human label artifact must be a JSON object")
     return build_human_label_evidence(
         payload,
         artifact_path=artifact_path,
+        artifact_sha256=hashlib.sha256(raw).hexdigest(),
         min_recall_samples=min_recall_samples,
         min_session_samples=min_session_samples,
     )
@@ -145,6 +148,7 @@ def build_human_label_evidence(
     payload: Mapping[str, Any],
     *,
     artifact_path: Path | None = None,
+    artifact_sha256: str | None = None,
     min_recall_samples: int = 1,
     min_session_samples: int = 1,
 ) -> dict[str, Any]:
@@ -215,6 +219,7 @@ def build_human_label_evidence(
     return {
         "status": "failed" if failures else "measured",
         "artifact_path": str(artifact_path) if artifact_path is not None else None,
+        "artifact_sha256": artifact_sha256,
         "kind": payload.get("kind"),
         "source": source,
         "client": client,

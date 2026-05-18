@@ -413,6 +413,10 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
                     f"labeler {human_label_evidence.get('labeler') or 'unknown'}, "
                     f"captured {human_label_evidence.get('captured_at') or 'unknown'}"
                 ),
+                (
+                    f"- Artifact: {human_label_evidence.get('artifact_path') or 'unknown'} "
+                    f"| sha256 {human_label_evidence.get('artifact_sha256') or 'unknown'}"
+                ),
             ]
         )
 
