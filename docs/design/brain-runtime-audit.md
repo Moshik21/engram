@@ -1563,13 +1563,16 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3316 tests, 43 skips, and 236 external-service
-   tests deselected after the Helix dashboard analytics unit fixture was made
-   date-stable, the doctor readiness failure path was guarded, and shared
-   companion-store bootstrap creation was centralized, notification/scheduler
-   dependencies were made explicit, and smoke cue feedback moved onto the public
-   manager facade. REST and MCP shutdown now use the same runtime-resource
-   stop/close boundary too, with shutdown consolidation orchestration behind a
+   gate currently passes with 3357 tests, 43 skips, and 236 external-service
+   tests deselected after REST auto-observe request parsing moved behind the
+   Capture-stage surface boundary and the native surface manifest learned to
+   classify the advertised FastMCP `/mcp` transport path from the root-mounted
+   app. Earlier broad-gate fixes made the Helix dashboard analytics unit
+   fixture date-stable, guarded the doctor readiness failure path, centralized
+   shared companion-store bootstrap creation, made notification/scheduler
+   dependencies explicit, and moved smoke cue feedback onto the public manager
+   facade. REST and MCP shutdown now use the same runtime-resource stop/close
+   boundary too, with shutdown consolidation orchestration behind a
    helper and static guards against local store-close or engine-cycle drift.
    REST knowledge-chat SSE orchestration is in chat runtime code instead of the
    route, and MCP instructions plus `claim_authority(project_path, user_message,
@@ -3518,7 +3521,7 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3316 tests, 43 skips, and 236 external-service
+broad gate passes with 3357 tests, 43 skips, and 236 external-service
 deselections after the Helix dashboard analytics fixture was made date-stable,
 the doctor readiness failure path was guarded, the shared companion-store
 bootstrap follow-up landed, notification/scheduler dependencies were made
@@ -3529,7 +3532,8 @@ authority/onboarding prompt contract, the `claim_authority()` callable
 contract, dashboard WebSocket auth route-boundary extraction, REST chat
 response-surface extraction, REST health route-boundary extraction, adoption
 transcript stdin validation, and self-reported file-memory bypass
-classification.
+classification, the REST auto-observe request-surface boundary, and FastMCP
+`/mcp` manifest classification through the root-mounted app.
 
 REST shutdown now shares the same runtime-resource boundary as MCP shutdown.
 `server/engram/main.py` stops subscriber/worker/pressure/scheduler resources

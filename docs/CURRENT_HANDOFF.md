@@ -35,6 +35,13 @@ client metadata from raw Claude stream records, and the raw
 `engram adoption --require-live-evidence` with observed `claim_authority`,
 `get_context`, `recall`, and `remember`.
 
+Latest broad backend gate: `uv run pytest -m "not requires_docker and not
+requires_helix"` now passes with `3357 passed, 43 skipped, 236 deselected`.
+The refreshed run first exposed two static contract drifts: FastMCP's root
+mount needed manifest classification by its nested advertised `/mcp` route, and
+REST `auto_observe` had JSON parsing/skip branching back in the route. Both are
+now fixed and covered by the broad rerun.
+
 SQLite/lite shutdown stability note: the live adoption run exposed a nonfatal
 shutdown-consolidation `cannot commit transaction - SQL statements in progress`
 warning during the dream phase. The root cause was SQLite
@@ -44,8 +51,9 @@ That helper now consumes all returned rows before commit, with regression
 coverage in `tests/test_consolidation_graph_methods.py`.
 
 Auto-capture compatibility note: REST `/api/knowledge/auto-observe` now parses
-request JSON inside the route instead of letting FastAPI reject hook-shaped
-payloads before Engram can classify them. Installed hook payloads with explicit
+request JSON behind the route-facing Capture surface helper instead of letting
+FastAPI reject hook-shaped payloads before Engram can classify them or putting
+that branching back in the public route. Installed hook payloads with explicit
 `content` still use the same Capture -> Cue path, while raw Claude
 `UserPromptSubmit` payloads, stream-json `message` records, and
 `last_assistant_message` stop records normalize into role/project-tagged

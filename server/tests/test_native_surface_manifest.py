@@ -39,7 +39,15 @@ def _public_non_rest_transports() -> set[str]:
         if isinstance(route, WebSocketRoute):
             transports.add(route.path)
         elif isinstance(route, Mount):
-            transports.add(route.path)
+            if route.path:
+                transports.add(route.path)
+                continue
+            nested_paths = {
+                nested.path
+                for nested in getattr(route.app, "routes", [])
+                if getattr(nested, "path", None)
+            }
+            transports.update(nested_paths)
     return transports
 
 

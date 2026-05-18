@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from json import JSONDecodeError
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -20,11 +19,9 @@ from engram.events.bus import get_event_bus
 from engram.ingestion.adjudication_surface import build_api_adjudication_resolution_surface
 from engram.ingestion.capture_surface import (
     build_api_attachment_observe_write_surface,
-    build_api_auto_observe_skip_surface,
-    build_api_auto_observe_surface,
+    build_api_auto_observe_request_surface,
     build_api_observe_write_surface,
     build_api_remember_write_surface,
-    normalize_auto_observe_payload,
 )
 from engram.ingestion.dedup import CaptureDedupCache
 from engram.ingestion.offline_replay import build_api_manager_offline_replay_surface
@@ -242,25 +239,10 @@ async def auto_observe(request: Request) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
 
-    try:
-        raw_body = await request.json()
-    except JSONDecodeError:
-        return JSONResponse(content=build_api_auto_observe_skip_surface("invalid_json"))
-
-    if not isinstance(raw_body, dict):
-        return JSONResponse(
-            content=build_api_auto_observe_skip_surface("unsupported_payload"),
-        )
-
-    body = normalize_auto_observe_payload(raw_body)
-
-    payload = await build_api_auto_observe_surface(
+    payload = await build_api_auto_observe_request_surface(
         manager,
-        content=body["content"] or "",
+        request=request,
         group_id=group_id,
-        source=body["source"] or "auto:hook",
-        session_id=body["session_id"],
-        conversation_date=body["conversation_date"],
         auto_observe_enabled=get_config().server.auto_observe_enabled,
         dedup_check=_dedup_check,
     )

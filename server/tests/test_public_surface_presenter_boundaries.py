@@ -13,7 +13,7 @@ PRESENTER_BOUNDARIES = {
         "build_api_observe_write_surface",
     },
     ("engram/api/knowledge.py", "auto_observe"): {
-        "build_api_auto_observe_surface",
+        "build_api_auto_observe_request_surface",
     },
     ("engram/api/knowledge.py", "observe_image"): {
         "build_api_attachment_observe_write_surface",
@@ -60,7 +60,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_observe_write_surface",
     },
     ("engram/api/knowledge.py", "auto_observe"): {
-        "build_api_auto_observe_surface",
+        "build_api_auto_observe_request_surface",
         "get_config",
     },
     ("engram/api/knowledge.py", "observe_image"): {

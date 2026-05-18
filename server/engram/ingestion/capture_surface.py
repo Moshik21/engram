@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from json import JSONDecodeError
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -248,6 +249,36 @@ async def build_api_auto_observe_surface(
     return present_api_memory_write(
         memory_write_contract("observe", episode_id),
         status="observed",
+    )
+
+
+async def build_api_auto_observe_request_surface(
+    manager: Any,
+    *,
+    request: Any,
+    group_id: str,
+    auto_observe_enabled: bool = True,
+    dedup_check: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
+    """Parse and run the REST auto-observe Capture policy behind one boundary."""
+    try:
+        raw_body = await request.json()
+    except JSONDecodeError:
+        return build_api_auto_observe_skip_surface("invalid_json")
+
+    if not isinstance(raw_body, Mapping):
+        return build_api_auto_observe_skip_surface("unsupported_payload")
+
+    body = normalize_auto_observe_payload(raw_body)
+    return await build_api_auto_observe_surface(
+        manager,
+        content=body["content"] or "",
+        group_id=group_id,
+        source=body["source"] or "auto:hook",
+        session_id=body["session_id"],
+        conversation_date=body["conversation_date"],
+        auto_observe_enabled=auto_observe_enabled,
+        dedup_check=dedup_check,
     )
 
 
