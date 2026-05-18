@@ -114,7 +114,11 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--session-id",
         default=None,
-        help="Optional live client session/thread id to place in --template metadata.",
+        help=(
+            "Optional live client session/thread id. In --template mode it is "
+            "placed in metadata; during validation it filters cumulative traces "
+            "to the requested session."
+        ),
     )
     parser.add_argument(
         "--source",
@@ -187,6 +191,7 @@ def run_adoption_command(args: argparse.Namespace) -> int:
         calls_path=calls_paths[0] if len(calls_paths) == 1 else calls_paths,
         calls_text=calls_text,
         require_live_evidence=getattr(args, "require_live_evidence", False),
+        session_id_filter=getattr(args, "session_id", None),
     )
     if output_format == "markdown":
         print(render_adoption_validation_markdown(report))
@@ -232,6 +237,7 @@ def build_adoption_validation_report(
     calls_path: Path | Sequence[Path],
     calls_text: str | None = None,
     require_live_evidence: bool = False,
+    session_id_filter: str | None = None,
 ) -> dict[str, Any]:
     """Build a validation report for a saved claim_authority payload and calls."""
     try:
@@ -247,9 +253,12 @@ def build_adoption_validation_report(
 
     try:
         calls, evidence = (
-            _load_calls_bundle_text(calls_text)
+            _load_calls_bundle_text(calls_text, session_id_filter=session_id_filter)
             if calls_text is not None
-            else _load_calls_bundles(_normalize_calls_paths(calls_path) or [])
+            else _load_calls_bundles(
+                _normalize_calls_paths(calls_path) or [],
+                session_id_filter=session_id_filter,
+            )
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return _build_adoption_error_report(
@@ -264,6 +273,8 @@ def build_adoption_validation_report(
         evidence,
         require_live_evidence=require_live_evidence,
     )
+    if session_id_filter:
+        evidence_report["session_filter"] = session_id_filter
     session_ids = _live_evidence_session_ids(evidence)
     if require_live_evidence and len(session_ids) > 1:
         validation = dict(validation)
@@ -492,21 +503,39 @@ def _load_calls_text(text: str) -> list[dict[str, Any]]:
     return calls
 
 
-def _load_calls_bundle(path: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    return _load_calls_bundle_text(path.read_text(encoding="utf-8"))
+def _load_calls_bundle(
+    path: Path,
+    *,
+    session_id_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    return _load_calls_bundle_text(
+        path.read_text(encoding="utf-8"),
+        session_id_filter=session_id_filter,
+    )
 
 
-def _load_calls_bundles(paths: Sequence[Path]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def _load_calls_bundles(
+    paths: Sequence[Path],
+    *,
+    session_id_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     calls: list[dict[str, Any]] = []
     evidence: dict[str, str] = {}
     for path in paths:
-        path_calls, path_evidence = _load_calls_bundle(path)
+        path_calls, path_evidence = _load_calls_bundle(
+            path,
+            session_id_filter=session_id_filter,
+        )
         calls.extend(path_calls)
         evidence = _merge_live_evidence(evidence, path_evidence)
     return calls, evidence
 
 
-def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def _load_calls_bundle_text(
+    text: str,
+    *,
+    session_id_filter: str | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     stripped = text.strip()
     if not stripped:
         return [], {}
@@ -516,10 +545,13 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
     except json.JSONDecodeError:
         try:
             calls = [json.loads(line) for line in text.splitlines() if line.strip()]
+            calls = _filter_records_for_session(calls, session_id_filter)
             evidence = _extract_record_live_evidence(calls)
         except json.JSONDecodeError:
             calls = _parse_plaintext_calls(text)
             evidence = _extract_plaintext_live_evidence(text)
+            if not _evidence_matches_session_filter(evidence, session_id_filter):
+                return [], {}
     else:
         if isinstance(payload, dict):
             evidence = _extract_json_live_evidence(payload)
@@ -532,7 +564,16 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
                 )
         else:
             calls = payload
-            evidence = _extract_record_live_evidence(calls)
+        if isinstance(calls, list):
+            calls = _filter_records_for_session(
+                calls,
+                session_id_filter,
+                file_evidence=evidence,
+            )
+            evidence = _merge_live_evidence(
+                evidence,
+                _extract_record_live_evidence(calls),
+            )
     if not isinstance(calls, list):
         raise ValueError("calls payload must be a JSON array or JSONL records")
     return _normalize_calls_payload(calls), evidence
@@ -554,6 +595,61 @@ def _looks_like_call_record(payload: dict[str, Any]) -> bool:
             "url",
         )
     )
+
+
+def _filter_records_for_session(
+    records: list[Any],
+    session_id_filter: str | None,
+    *,
+    file_evidence: dict[str, str] | None = None,
+) -> list[Any]:
+    if not session_id_filter:
+        return records
+    file_session_ids = _live_evidence_session_ids(file_evidence or {})
+    record_session_ids = _record_session_ids(records)
+    all_session_ids = file_session_ids + [
+        session_id for session_id in record_session_ids if session_id not in file_session_ids
+    ]
+    if all_session_ids and session_id_filter not in all_session_ids:
+        return []
+    if not record_session_ids:
+        return records
+    return [
+        record
+        for record in records
+        if not isinstance(record, dict)
+        or _record_matches_session(record, session_id_filter)
+    ]
+
+
+def _record_matches_session(record: dict[str, Any], session_id_filter: str) -> bool:
+    session_ids = _record_session_ids([record])
+    return not session_ids or session_id_filter in session_ids
+
+
+def _record_session_ids(records: Sequence[Any]) -> list[str]:
+    session_ids: list[str] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        evidence = _normalize_live_evidence(record)
+        session_id = evidence.get("session_id")
+        if session_id and session_id not in session_ids:
+            session_ids.append(session_id)
+        raw_session_id = record.get("session_id")
+        if isinstance(raw_session_id, str) and raw_session_id not in session_ids:
+            session_ids.append(raw_session_id)
+    return session_ids
+
+
+def _evidence_matches_session_filter(
+    evidence: dict[str, str],
+    session_id_filter: str | None,
+) -> bool:
+    if not session_id_filter:
+        return True
+    session_ids = _live_evidence_session_ids(evidence)
+    return not session_ids or session_id_filter in session_ids
 
 
 def _merge_live_evidence(

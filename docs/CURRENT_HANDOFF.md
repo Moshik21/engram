@@ -62,7 +62,10 @@ have machine-readable capture evidence for the adoption verifier. The verifier
 now accepts multiple `--calls` inputs, so a Claude stream-json log can be merged
 with the hook-generated adoption trace in one validation run. When live evidence
 is required, merged transcripts with conflicting session/thread IDs now fail, so
-a stale cumulative adoption trace cannot satisfy a current client run.
+a stale cumulative adoption trace cannot satisfy a current client run. Operators
+can pass `--session-id <client-session-id>` during validation to filter a
+cumulative hook trace to the current client session instead of manually trimming
+JSONL.
 
 ## Current Milestone
 
