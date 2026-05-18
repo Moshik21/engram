@@ -191,12 +191,24 @@ async def create_evaluation_store_for_graph(
 
 
 async def close_if_supported(resource: Any) -> None:
-    """Close a runtime resource if it exposes a sync or async close method."""
+    """Close a runtime resource if it exposes a sync or async close/aclose method."""
     if resource is None:
         return
-    close = getattr(resource, "close", None)
+    close = getattr(resource, "aclose", None) or getattr(resource, "close", None)
     if close is None:
         return
     result = close()
+    if inspect.isawaitable(result):
+        await result
+
+
+async def stop_if_supported(resource: Any) -> None:
+    """Stop a runtime resource if it exposes a sync or async stop method."""
+    if resource is None:
+        return
+    stop = getattr(resource, "stop", None)
+    if stop is None:
+        return
+    result = stop()
     if inspect.isawaitable(result):
         await result

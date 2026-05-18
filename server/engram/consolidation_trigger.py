@@ -68,6 +68,31 @@ async def run_api_consolidation_cycle(
             logger.exception("Background consolidation cycle failed")
 
 
+async def run_shutdown_consolidation(
+    engine: Any | None,
+    *,
+    config: Any | None,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Cancel or run the final REST shutdown consolidation cycle."""
+    if engine is None:
+        return
+    if engine.is_running:
+        engine.cancel()
+        return
+    if config is None or not config.activation.consolidation_enabled:
+        return
+    try:
+        await engine.run_cycle(
+            group_id=config.default_group_id,
+            trigger="shutdown",
+            dry_run=False,
+        )
+    except Exception:
+        if logger is not None:
+            logger.warning("Shutdown consolidation failed", exc_info=True)
+
+
 async def build_api_consolidation_status_surface(
     engine: Any,
     *,

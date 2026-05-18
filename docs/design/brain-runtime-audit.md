@@ -1529,13 +1529,15 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3238 tests, 43 skips, and 236 external-service
+   gate currently passes with 3251 tests, 43 skips, and 236 external-service
    tests deselected after the Helix dashboard analytics unit fixture was made
    date-stable, the doctor readiness failure path was guarded, and shared
    companion-store bootstrap creation was centralized, notification/scheduler
    dependencies were made explicit, and smoke cue feedback moved onto the public
-   manager facade. PyO3 native has focused parity plus a one-hour operator
-   Recall soak.
+   manager facade. REST and MCP shutdown now use the same runtime-resource
+   stop/close boundary too, with shutdown consolidation orchestration behind a
+   helper and static guards against local store-close or engine-cycle drift.
+   PyO3 native has focused parity plus a one-hour operator Recall soak.
    Docker/full-mode and multi-hour native endurance remain separate explicit
    gates, not assumptions.
 
@@ -1819,8 +1821,10 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   borrowed consolidation-store creation and private DB probing through the same
   bootstrap module.
   `GraphManager.close_runtime_resources()` now uses the same module's
-  `close_if_supported()` helper so MCP shutdown closes owned runtime stores
-  through the manager facade instead of reaching into private manager fields.
+  `close_if_supported()` helper so MCP and REST shutdown close owned runtime
+  stores through the manager facade instead of reaching into private manager
+  fields. The same bootstrap module now owns `stop_if_supported()` for worker,
+  scheduler, subscriber, and pressure-accumulator shutdown.
   Background worker startup now has the same explicit dependency shape:
   `server/engram/ingestion/worker_runtime.py` defines
   `EpisodeWorkerRuntimeStores`, REST/MCP startup pass graph, activation, and
@@ -2988,12 +2992,13 @@ routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
 shows `_app_state` only in `server/engram/api/deps.py`. The latest broad
-non-Docker/non-Helix gate now passes with 3238 tests, 43 skips, and 236
+non-Docker/non-Helix gate now passes with 3251 tests, 43 skips, and 236
 external-service deselections after the evaluation-signal CLI gate, doctor
 readiness reporting, Python 3.13 event-loop test harness cleanup, and Helix
 dashboard analytics date-stability fix, the shared companion-store bootstrap
-follow-up, explicit notification/scheduler dependency cleanup, and the public
-smoke cue-feedback facade.
+follow-up, explicit notification/scheduler dependency cleanup, the public smoke
+cue-feedback facade, and REST/MCP shutdown stop/close plus consolidation-helper
+cleanup with static guards.
 
 The REST evaluation report no longer reaches into consolidation engine private
 store state or dispatches engine methods directly from the route.
@@ -3007,9 +3012,9 @@ alongside `manager._*` access and now statically rejects direct REST API
 `engine.*` dispatch. Focused evaluation/consolidation/static checks and Ruff
 passed; a later route-orchestration broad gate now passes with 3213 tests, 43
 skips, and 236 external-service deselections. The current broader gate passes
-with 3238 tests after the doctor readiness, Helix analytics fixture,
-companion-store bootstrap, notification/scheduler dependency, and public smoke
-feedback updates.
+with 3251 tests after the doctor readiness, Helix analytics fixture,
+companion-store bootstrap, notification/scheduler dependency, public smoke
+feedback, and REST/MCP shutdown facade updates.
 
 The same public-surface guard now covers direct REST route store/service method
 dispatch. REST route modules may still resolve stores and services through the
@@ -3343,10 +3348,11 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3238 tests, 43 skips, and 236 external-service deselections
+gate passes with 3251 tests, 43 skips, and 236 external-service deselections
 after the shared companion-store bootstrap follow-up, explicit
 notification/scheduler dependency cleanup, and the public smoke cue-feedback
-facade.
+facade, plus REST/MCP shutdown stop/close and consolidation-helper cleanup with
+static guards.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
@@ -3412,11 +3418,39 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3238 tests, 43 skips, and 236 external-service
+broad gate passes with 3251 tests, 43 skips, and 236 external-service
 deselections after the Helix dashboard analytics fixture was made date-stable,
 the doctor readiness failure path was guarded, the shared companion-store
 bootstrap follow-up landed, notification/scheduler dependencies were made
-explicit, and smoke cue feedback moved onto the public manager facade.
+explicit, smoke cue feedback moved onto the public manager facade, and REST/MCP
+shutdown stop/close facade cleanup plus static guards landed.
+
+REST shutdown now shares the same runtime-resource boundary as MCP shutdown.
+`server/engram/main.py` stops subscriber/worker/pressure/scheduler resources
+through `stop_if_supported()`, closes consolidation/evaluation/atlas/conversation
+and aclose-only clients through `close_if_supported()`, then delegates owned
+search/activation/graph store cleanup to `GraphManager.close_runtime_resources()`
+when the manager is available. The direct store-close path remains only as a
+startup-failure fallback. MCP Redis publisher shutdown also uses
+`close_if_supported()` after removing the event-bus hook. `tests/test_public_surface_presenter_boundaries.py`
+now statically checks both shutdown paths use the shared stop/close boundary and
+rejects REST-local direct `stop`/`close`/`aclose` calls plus MCP direct
+`stop`/`close` calls. Focused
+shutdown/bootstrap/MCP/public-surface checks passed, the API/MCP
+startup-shutdown suite passed, and the broad non-Docker/non-Helix gate now
+includes the new REST shutdown regressions, stop-helper tests, and static
+guards.
+
+Shutdown consolidation orchestration is now out of `server/engram/main.py`.
+`run_shutdown_consolidation()` in `server/engram/consolidation_trigger.py`
+owns the shutdown decision to cancel a running engine, skip disabled
+consolidation, or run a final `trigger="shutdown"` cycle. `main._shutdown()`
+now passes the engine/config/logger into that helper, and the public-surface
+static guard rejects direct `is_running`, `cancel`, or `run_cycle` usage in the
+FastAPI shutdown function. Focused helper/main/static tests passed, including
+dynamic coverage that `main._shutdown()` passes the active engine/config/logger
+into the helper, and the broad non-Docker/non-Helix gate now includes helper
+coverage for run, skip, cancel, and logged-failure paths.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication

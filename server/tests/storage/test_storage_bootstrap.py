@@ -16,6 +16,7 @@ from engram.storage.bootstrap import (
     initialize_store_for_graph,
     shared_helix_client,
     shared_sqlite_db,
+    stop_if_supported,
 )
 from engram.storage.resolver import EngineMode
 
@@ -54,6 +55,30 @@ class AsyncClosable:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class AsyncAClosable:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class SyncStoppable:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class AsyncStoppable:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    async def stop(self) -> None:
+        self.stopped = True
 
 
 @pytest.mark.asyncio
@@ -358,9 +383,30 @@ async def test_close_if_supported_accepts_missing_close() -> None:
 async def test_close_if_supported_handles_sync_and_async_close() -> None:
     sync_resource = SyncClosable()
     async_resource = AsyncClosable()
+    async_aclose_resource = AsyncAClosable()
 
     await close_if_supported(sync_resource)
     await close_if_supported(async_resource)
+    await close_if_supported(async_aclose_resource)
 
     assert sync_resource.closed is True
     assert async_resource.closed is True
+    assert async_aclose_resource.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stop_if_supported_accepts_missing_stop() -> None:
+    await stop_if_supported(object())
+    await stop_if_supported(None)
+
+
+@pytest.mark.asyncio
+async def test_stop_if_supported_handles_sync_and_async_stop() -> None:
+    sync_resource = SyncStoppable()
+    async_resource = AsyncStoppable()
+
+    await stop_if_supported(sync_resource)
+    await stop_if_supported(async_resource)
+
+    assert sync_resource.stopped is True
+    assert async_resource.stopped is True

@@ -25,16 +25,19 @@ from engram.api.lifecycle import router as lifecycle_router
 from engram.api.stats import router as stats_router
 from engram.api.websocket import router as ws_router
 from engram.config import EngramConfig
+from engram.consolidation_trigger import run_shutdown_consolidation
 from engram.events.bus import get_event_bus
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.security.middleware import TenantContextMiddleware
 from engram.storage.bootstrap import (
+    close_if_supported,
     create_atlas_store_for_graph,
     create_consolidation_store_for_graph,
     create_conversation_store_for_graph,
     create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
+    stop_if_supported,
 )
 from engram.storage.factory import create_stores
 from engram.storage.protocols import AtlasStore, ConsolidationStore
@@ -324,87 +327,43 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 async def _shutdown() -> None:
     """Cleanup on shutdown."""
     # Stop Redis event subscriber
-    redis_sub = _app_state.get("redis_subscriber")
-    if redis_sub:
-        await redis_sub.stop()
+    await stop_if_supported(_app_state.get("redis_subscriber"))
 
     # Stop episode worker
-    worker = _app_state.get("episode_worker")
-    if worker:
-        await worker.stop()
+    await stop_if_supported(_app_state.get("episode_worker"))
 
     # Stop pressure accumulator
-    pressure = _app_state.get("pressure_accumulator")
-    if pressure:
-        await pressure.stop()
+    await stop_if_supported(_app_state.get("pressure_accumulator"))
 
     # Stop consolidation scheduler
-    scheduler = _app_state.get("consolidation_scheduler")
-    if scheduler:
-        await scheduler.stop()
+    await stop_if_supported(_app_state.get("consolidation_scheduler"))
 
-    # Run final consolidation cycle or cancel running one
-    engine = _app_state.get("consolidation_engine")
-    config = _app_state.get("config")
+    await run_shutdown_consolidation(
+        _app_state.get("consolidation_engine"),
+        config=_app_state.get("config"),
+        logger=logger,
+    )
 
-    if engine:
-        if engine.is_running:
-            engine.cancel()
-        elif config and config.activation.consolidation_enabled:
-            try:
-                await engine.run_cycle(
-                    group_id=config.default_group_id,
-                    trigger="shutdown",
-                    dry_run=False,
-                )
-            except Exception:
-                logger.warning("Shutdown consolidation failed", exc_info=True)
-
-    # Close metering Redis client
-    redis_metering = _app_state.get("redis_metering")
-    if redis_metering and hasattr(redis_metering, "aclose"):
-        await redis_metering.aclose()
-
-    # Close consolidation store (asyncpg pool in Postgres mode)
-    consolidation_store = _app_state.get("consolidation_store")
-    if consolidation_store and hasattr(consolidation_store, "close"):
-        await consolidation_store.close()
-
-    evaluation_store = _app_state.get("evaluation_store")
-    if evaluation_store and hasattr(evaluation_store, "close"):
-        await evaluation_store.close()
+    await close_if_supported(_app_state.get("redis_metering"))
+    await close_if_supported(_app_state.get("consolidation_store"))
+    await close_if_supported(_app_state.get("evaluation_store"))
 
     # Close OIDC validator (httpx client)
     from engram.security.middleware import _oidc_validator
 
-    if _oidc_validator and hasattr(_oidc_validator, "close"):
-        await _oidc_validator.close()
+    await close_if_supported(_oidc_validator)
 
-    # Close embedding provider
-    provider = _app_state.get("embedding_provider")
-    if provider and hasattr(provider, "close"):
-        await provider.close()
+    await close_if_supported(_app_state.get("embedding_provider"))
+    await close_if_supported(_app_state.get("atlas_store"))
+    await close_if_supported(_app_state.get("conversation_store"))
 
-    # Close activation store (Redis client in full mode)
-    activation_store = _app_state.get("activation_store")
-    if activation_store and hasattr(activation_store, "close"):
-        await activation_store.close()
-
-    search_index = _app_state.get("search_index")
-    if search_index and hasattr(search_index, "close"):
-        await search_index.close()
-
-    atlas_store = _app_state.get("atlas_store")
-    if atlas_store and hasattr(atlas_store, "close"):
-        await atlas_store.close()
-
-    conversation_store = _app_state.get("conversation_store")
-    if conversation_store and hasattr(conversation_store, "close"):
-        await conversation_store.close()
-
-    graph_store = _app_state.get("graph_store")
-    if graph_store and hasattr(graph_store, "close"):
-        await graph_store.close()
+    manager = _app_state.get("graph_manager")
+    if manager and hasattr(manager, "close_runtime_resources"):
+        await manager.close_runtime_resources()
+    else:
+        await close_if_supported(_app_state.get("search_index"))
+        await close_if_supported(_app_state.get("activation_store"))
+        await close_if_supported(_app_state.get("graph_store"))
 
 
 def create_app(config: EngramConfig | None = None) -> FastAPI:

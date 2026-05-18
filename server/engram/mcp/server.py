@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import os
@@ -86,9 +85,11 @@ from engram.retrieval.prospective import (
 from engram.retrieval.recall_surface import build_mcp_explicit_recall_tool_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
 from engram.storage.bootstrap import (
+    close_if_supported,
     create_consolidation_store_for_graph,
     create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
+    stop_if_supported,
 )
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
@@ -220,18 +221,17 @@ async def _shutdown() -> None:
     global _manager, _session, _recall_cooldown, _activation_cfg
     global _evaluation_store, _consolidation_store, _episode_worker, _redis_publisher
 
-    if _episode_worker is not None:
-        await _episode_worker.stop()
-        _episode_worker = None
+    await stop_if_supported(_episode_worker)
+    _episode_worker = None
 
     if _redis_publisher is not None:
         get_event_bus().remove_on_publish_hook(_redis_publisher)
-        await _redis_publisher.close()
+        await close_if_supported(_redis_publisher)
         _redis_publisher = None
 
-    await _maybe_close(_evaluation_store)
+    await close_if_supported(_evaluation_store)
     _evaluation_store = None
-    await _maybe_close(_consolidation_store)
+    await close_if_supported(_consolidation_store)
     _consolidation_store = None
 
     if _manager is not None:
@@ -241,17 +241,6 @@ async def _shutdown() -> None:
     _session = None
     _recall_cooldown = None
     _activation_cfg = None
-
-
-async def _maybe_close(resource: Any) -> None:
-    if resource is None:
-        return
-    close = getattr(resource, "close", None)
-    if close is None:
-        return
-    result = close()
-    if inspect.isawaitable(result):
-        await result
 
 
 def _get_manager() -> GraphManager:

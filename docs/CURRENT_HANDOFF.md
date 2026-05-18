@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3238 tests, 43 skips, and 236 external-service tests deselected after
+  with 3251 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -54,7 +54,8 @@ What changed in this pass:
   stricter native manifest evidence verifier, the chat rate-limit execution
   helper, the chat persistence scheduler helper, shared companion-store
   bootstrap, explicit notification/scheduler dependencies, and the public
-  smoke cue-feedback facade.
+  smoke cue-feedback facade, plus REST/MCP shutdown stop/close facade cleanup,
+  shutdown consolidation helper, and static guards.
   The GraphManager guard now
   covers the remaining service-backed compatibility adapters too, and the MCP
   identity-core mutation, MCP consolidation trigger, and MCP entity graph
@@ -1765,6 +1766,26 @@ What changed in this pass:
 - Added the shared close helper and `GraphManager.close_runtime_resources()` so
   MCP shutdown closes owned search, activation, and graph resources through the
   manager facade instead of reaching into private manager fields.
+- Extended that runtime shutdown boundary to REST startup-owned resources.
+  `server/engram/main.py` now stops subscriber/worker/pressure/scheduler
+  resources through `stop_if_supported()`, closes companion stores and
+  aclose-only clients through `close_if_supported()`, then closes search,
+  activation, and graph stores through `GraphManager.close_runtime_resources()`
+  when the manager is available. Direct store closes remain only as a
+  startup-failure fallback.
+  MCP shutdown now uses the same shared close helper for its Redis publisher,
+  evaluation store, and consolidation store, and the same stop helper for its
+  episode worker.
+  `tests/test_public_surface_presenter_boundaries.py` now statically guards
+  both shutdown paths against drifting away from the shared stop/close boundary.
+- Moved shutdown consolidation orchestration out of `server/engram/main.py`.
+  `run_shutdown_consolidation()` in `server/engram/consolidation_trigger.py`
+  now owns the cancel/running-engine, disabled-config, and final
+  `trigger="shutdown"` cycle decision. The static public-surface guard rejects
+  `is_running`, `cancel`, and `run_cycle` from `main._shutdown()`. Focused
+  helper coverage now also proves failed shutdown cycles are logged and do not
+  break shutdown, and `main._shutdown()` delegates the active engine/config/logger
+  into the helper.
 - Added `server/engram/ingestion/worker_runtime.py` so `EpisodeWorker` receives
   explicit graph, activation, and search stores from REST/MCP startup instead of
   reaching through `GraphManager` private fields. `GraphManager` keeps
@@ -6622,6 +6643,50 @@ What changed in this pass:
   scheduler dependencies and public smoke cue-feedback facade:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 3238 passed, 43 skipped, 236 deselected in 169.82s.
+- REST/MCP runtime shutdown facade follow-up:
+  `uv run ruff check engram/main.py engram/mcp/server.py engram/storage/bootstrap.py
+  tests/test_main_shutdown.py tests/storage/test_storage_bootstrap.py
+  tests/test_mcp_tools.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_main_shutdown.py tests/storage/test_storage_bootstrap.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 189 passed in 1.66s.
+  `uv run pytest tests/test_main_shutdown.py tests/storage/test_storage_bootstrap.py -q`
+  - Result after preferring `aclose()` in the shared close helper: 18 passed in
+    0.91s.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result after adding runtime shutdown static guards: 174 passed in 1.57s.
+  `uv run pytest tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result after moving MCP Redis publisher shutdown onto `close_if_supported()`:
+    175 passed in 1.55s.
+  `uv run pytest tests/test_main_shutdown.py
+  tests/test_consolidation_engine.py::TestShutdownTrigger
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result after adding shutdown-helper delegation coverage:
+    183 passed in 1.67s.
+  `uv run pytest tests/test_main_shutdown.py tests/storage/test_storage_bootstrap.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_consolidation_trigger_service.py -q`
+  - Result after extracting shutdown consolidation orchestration:
+    209 passed in 3.54s.
+  `uv run pytest tests/test_api_endpoints.py tests/test_conversations_api.py
+  tests/test_activation_api.py tests/test_auto_observe.py tests/test_mcp_tools.py -q`
+  - Result: 133 passed, 5 skipped in 68.52s.
+  `uv run pytest tests/test_main_shutdown.py tests/storage/test_storage_bootstrap.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_shutdown_closes_runtime_resources
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result after adding runtime shutdown stop/static guards: 195 passed in
+    2.46s.
+  `git diff --check`
+  - Result: passed.
+- Broad backend non-Docker/non-external-Helix gate after REST/MCP runtime
+  shutdown facade follow-up:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after shutdown-helper delegation coverage:
+    3251 passed, 43 skipped, 236 deselected in 190.15s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.
@@ -6748,7 +6813,9 @@ visibility work treated as done:
    websocket-notification-dismiss-surface-boundary/
    websocket-auth-config-dependency-boundary/
    knowledge-chat-rate-limiter-dependency-boundary/rest-health-dependency-boundary/
-   generated-api-route-app-state-guard.
+   generated-api-route-app-state-guard/
+   rest-mcp-runtime-shutdown-stop-close-boundary/
+   shutdown-consolidation-helper-boundary.
 6. Keep the P3 evaluation loop focused on real evidence and persistence paths,
    not duplicate display work. Cue usefulness, projection yield, projection backlog,
    projection freshness/latency, recall gate latency, recall gate-control

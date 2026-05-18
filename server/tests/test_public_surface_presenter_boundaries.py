@@ -542,6 +542,36 @@ SHARED_RUNTIME_MODULES_WITHOUT_APP_STATE_READS = (
     "engram/notifications/surface.py",
 )
 
+RUNTIME_SHUTDOWN_BOUNDARIES = {
+    ("engram/main.py", "_shutdown"): {
+        "close_if_supported",
+        "close_runtime_resources",
+        "run_shutdown_consolidation",
+        "stop_if_supported",
+    },
+    ("engram/mcp/server.py", "_shutdown"): {
+        "close_if_supported",
+        "close_runtime_resources",
+        "stop_if_supported",
+    },
+}
+
+RUNTIME_SHUTDOWN_FORBIDDEN_IDENTIFIERS = {
+    ("engram/main.py", "_shutdown"): {
+        "aclose",
+        "close",
+        "cancel",
+        "is_running",
+        "run_cycle",
+        "stop",
+    },
+    ("engram/mcp/server.py", "_shutdown"): {
+        "_maybe_close",
+        "close",
+        "stop",
+    },
+}
+
 
 def _function_names_used(relative_path: str, function_name: str) -> set[str]:
     tree = ast.parse((ROOT / relative_path).read_text())
@@ -732,6 +762,32 @@ def test_public_surface_routes_do_not_read_app_state_directly(relative_path: str
 def test_shared_runtime_modules_do_not_read_app_state_directly(relative_path: str) -> None:
     source = (ROOT / relative_path).read_text()
     assert "_app_state" not in source
+
+
+@pytest.mark.parametrize(
+    ("surface", "expected_names"),
+    RUNTIME_SHUTDOWN_BOUNDARIES.items(),
+)
+def test_runtime_shutdown_uses_shared_stop_close_boundaries(
+    surface: tuple[str, str],
+    expected_names: set[str],
+) -> None:
+    relative_path, function_name = surface
+    names_used = _function_identifiers_used(relative_path, function_name)
+    assert expected_names - names_used == set()
+
+
+@pytest.mark.parametrize(
+    ("surface", "forbidden_names"),
+    RUNTIME_SHUTDOWN_FORBIDDEN_IDENTIFIERS.items(),
+)
+def test_runtime_shutdown_does_not_reintroduce_local_shutdown_logic(
+    surface: tuple[str, str],
+    forbidden_names: set[str],
+) -> None:
+    relative_path, function_name = surface
+    names_used = _function_identifiers_used(relative_path, function_name)
+    assert names_used & forbidden_names == set()
 
 
 def test_mcp_tool_handlers_do_not_directly_await_recall_middleware() -> None:
