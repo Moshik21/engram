@@ -6,6 +6,7 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -84,9 +85,10 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--calls",
         type=Path,
+        nargs="+",
         required=False,
         help=(
-            "Path to tool-call transcript JSON/JSONL, or plaintext/Markdown "
+            "One or more paths to tool-call transcript JSON/JSONL, or plaintext/Markdown "
             "with explicit before_answer/capture phase and Engram tool lines; "
             "use '-' to read the transcript from stdin. Not required with --template."
         ),
@@ -165,18 +167,24 @@ def run_adoption_command(args: argparse.Namespace) -> int:
             print(json.dumps(template, indent=2, sort_keys=True))
         return 0
 
-    calls_path = getattr(args, "calls", None)
-    if calls_path is None:
+    calls_paths = _normalize_calls_paths(getattr(args, "calls", None))
+    if calls_paths is None:
         print(
             "engram adoption requires --calls unless --template is used",
             file=sys.stderr,
         )
         return 2
+    if Path("-") in calls_paths and len(calls_paths) > 1:
+        print(
+            "engram adoption accepts '-' only as the sole --calls input",
+            file=sys.stderr,
+        )
+        return 2
 
-    calls_text = sys.stdin.read() if calls_path == Path("-") else None
+    calls_text = sys.stdin.read() if calls_paths == [Path("-")] else None
     report = build_adoption_validation_report(
         authority_path=args.authority,
-        calls_path=calls_path,
+        calls_path=calls_paths[0] if len(calls_paths) == 1 else calls_paths,
         calls_text=calls_text,
         require_live_evidence=getattr(args, "require_live_evidence", False),
     )
@@ -221,7 +229,7 @@ def build_live_adoption_transcript_template(
 def build_adoption_validation_report(
     *,
     authority_path: Path,
-    calls_path: Path,
+    calls_path: Path | Sequence[Path],
     calls_text: str | None = None,
     require_live_evidence: bool = False,
 ) -> dict[str, Any]:
@@ -241,7 +249,7 @@ def build_adoption_validation_report(
         calls, evidence = (
             _load_calls_bundle_text(calls_text)
             if calls_text is not None
-            else _load_calls_bundle(calls_path)
+            else _load_calls_bundles(_normalize_calls_paths(calls_path) or [])
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return _build_adoption_error_report(
@@ -265,7 +273,7 @@ def build_adoption_validation_report(
     return {
         "status": validation["status"],
         "authorityPath": str(authority_path),
-        "callsPath": str(calls_path),
+        "callsPath": _calls_path_label(calls_path),
         "callCount": len(calls),
         "evidence": evidence_report,
         "validation": validation,
@@ -275,14 +283,14 @@ def build_adoption_validation_report(
 def _build_adoption_error_report(
     *,
     authority_path: Path,
-    calls_path: Path,
+    calls_path: Path | Sequence[Path],
     failure: str,
     error: str,
 ) -> dict[str, Any]:
     return {
         "status": "failed",
         "authorityPath": str(authority_path),
-        "callsPath": str(calls_path),
+        "callsPath": _calls_path_label(calls_path),
         "callCount": 0,
         "evidence": {
             "required": False,
@@ -440,6 +448,25 @@ def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _normalize_calls_paths(value: Any) -> list[Path] | None:
+    if value is None:
+        return None
+    if isinstance(value, Path):
+        return [value]
+    if isinstance(value, str):
+        return [Path(value)]
+    if isinstance(value, Sequence):
+        return [item if isinstance(item, Path) else Path(str(item)) for item in value]
+    return [Path(str(value))]
+
+
+def _calls_path_label(value: Path | Sequence[Path]) -> str | list[str]:
+    paths = _normalize_calls_paths(value) or []
+    if len(paths) == 1:
+        return str(paths[0])
+    return [str(path) for path in paths]
+
+
 def _load_calls(path: Path) -> list[dict[str, Any]]:
     return _load_calls_text(path.read_text(encoding="utf-8"))
 
@@ -451,6 +478,16 @@ def _load_calls_text(text: str) -> list[dict[str, Any]]:
 
 def _load_calls_bundle(path: Path) -> tuple[list[dict[str, Any]], dict[str, str]]:
     return _load_calls_bundle_text(path.read_text(encoding="utf-8"))
+
+
+def _load_calls_bundles(paths: Sequence[Path]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    calls: list[dict[str, Any]] = []
+    evidence: dict[str, str] = {}
+    for path in paths:
+        path_calls, path_evidence = _load_calls_bundle(path)
+        calls.extend(path_calls)
+        evidence = _merge_live_evidence(evidence, path_evidence)
+    return calls, evidence
 
 
 def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -471,12 +508,51 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
         if isinstance(payload, dict):
             evidence = _extract_json_live_evidence(payload)
             calls = payload.get("calls", payload.get("transcript"))
+            if calls is None and _looks_like_call_record(payload):
+                calls = [payload]
+                evidence = _merge_live_evidence(
+                    evidence,
+                    _extract_record_live_evidence(calls),
+                )
         else:
             calls = payload
             evidence = _extract_record_live_evidence(calls)
     if not isinstance(calls, list):
         raise ValueError("calls payload must be a JSON array or JSONL records")
     return _normalize_calls_payload(calls), evidence
+
+
+def _looks_like_call_record(payload: dict[str, Any]) -> bool:
+    return any(
+        key in payload
+        for key in (
+            "phase",
+            "stage",
+            "tool",
+            "name",
+            "tool_name",
+            "toolName",
+            "endpoint",
+            "path",
+            "route",
+            "url",
+        )
+    )
+
+
+def _merge_live_evidence(
+    current: dict[str, str],
+    incoming: dict[str, str],
+) -> dict[str, str]:
+    merged = dict(current)
+    for key, value in incoming.items():
+        if not value:
+            continue
+        if key == "source" and merged.get(key) and value not in merged[key].split(","):
+            merged[key] = f"{merged[key]},{value}"
+        elif not merged.get(key) or _looks_like_placeholder(merged.get(key)):
+            merged[key] = value
+    return merged
 
 
 def _normalize_calls_payload(calls: list[Any]) -> list[dict[str, Any]]:

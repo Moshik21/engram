@@ -214,7 +214,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
         {
             "command": "adoption",
             "authority": authority_path,
-            "calls": calls_path,
+            "calls": [calls_path],
             "template": False,
             "format": "markdown",
             "require_live_evidence": True,

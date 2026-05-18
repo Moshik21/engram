@@ -1123,6 +1123,16 @@ session, and timestamp metadata from the raw stream.
 engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence
 ```
 
+When evidence is split across client logs and REST hooks, pass multiple
+`--calls` files in order. For example, combine a Claude Code stream-json log
+with the hook-generated capture trace:
+
+```bash
+engram adoption --authority claim-authority.json \
+  --calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl \
+  --require-live-evidence
+```
+
 The command fails if the client skipped required pre-answer tools, used
 file-local memory as a substitute for Engram, missed required capture, or wrote
 to Engram when the protocol said the content was project-local scratch. It also

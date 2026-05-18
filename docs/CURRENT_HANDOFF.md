@@ -58,7 +58,9 @@ high-signal. Fresh `engram hooks` installs now generate first-party
 AutoCapture hook scripts when missing, preserve existing hook scripts, and write
 successful REST auto-observe capture records to
 `~/.engram/adoption-trace.jsonl` (or `ENGRAM_ADOPTION_TRACE_FILE`) so operators
-have machine-readable capture evidence for the adoption verifier.
+have machine-readable capture evidence for the adoption verifier. The verifier
+now accepts multiple `--calls` inputs, so a Claude stream-json log can be merged
+with the hook-generated adoption trace in one validation run.
 
 ## Current Milestone
 

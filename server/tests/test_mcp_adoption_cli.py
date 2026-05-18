@@ -425,6 +425,94 @@ def test_adoption_validation_accepts_plaintext_rest_auto_observe_capture(
     assert report["validation"]["capture"]["observed_tools"] == ["auto_observe"]
 
 
+def test_adoption_command_merges_stream_and_hook_trace_files(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    stream_path = tmp_path / "claude-stream.jsonl"
+    trace_path = tmp_path / "adoption-trace.jsonl"
+    protocol = _protocol()
+    protocol["capture"] = {"destination": "engram", "tool": "observe"}
+    authority_path.write_text(json.dumps({"agent_protocol": protocol}), encoding="utf-8")
+    stream_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "claude-session-merge",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__claim_authority",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__bootstrap_project",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__get_context",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__recall",
+                                    "input": {},
+                                },
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    trace_path.write_text(
+        json.dumps(
+            {
+                "phase": "capture",
+                "tool": "auto_observe",
+                "client": "Claude Code",
+                "capturedAt": "2026-05-18T23:18:00Z",
+                "session_id": "claude-session-merge",
+                "source": "rest_hook_prompt",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    code = run_adoption_command(
+        argparse.Namespace(
+            authority=authority_path,
+            calls=[stream_path, trace_path],
+            format="json",
+            require_live_evidence=True,
+        )
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "passed"
+    assert payload["callsPath"] == [str(stream_path), str(trace_path)]
+    assert payload["callCount"] == 5
+    assert payload["evidence"]["client"] == "Claude Code"
+    assert payload["evidence"]["captured_at"] == "2026-05-18T23:18:00Z"
+    assert payload["evidence"]["session_id"] == "claude-session-merge"
+    assert payload["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+
+
 def test_adoption_validation_report_accepts_live_evidence_metadata(
     tmp_path: Path,
 ) -> None:
