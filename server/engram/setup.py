@@ -687,6 +687,383 @@ _HOOK_SCRIPTS = {
     "session-end.sh": "session-end.sh",
 }
 
+
+_HOOK_SCRIPT_TEMPLATES = {
+    "capture-prompt.sh": r"""#!/usr/bin/env bash
+# Engram AutoCapture - UserPromptSubmit hook
+# Captures user prompts and records capture evidence for adoption validation.
+set -euo pipefail
+
+ENGRAM_URL="${ENGRAM_URL:-http://localhost:8100}"
+QUEUE_FILE="${ENGRAM_CAPTURE_QUEUE_FILE:-$HOME/.engram/capture-queue.jsonl}"
+TRACE_FILE="${ENGRAM_ADOPTION_TRACE_FILE:-$HOME/.engram/adoption-trace.jsonl}"
+
+write_trace() {
+    local phase="$1"
+    local tool="$2"
+    local source="$3"
+    local session_id="$4"
+    mkdir -p "$(dirname "$TRACE_FILE")"
+    /usr/bin/python3 - "$phase" "$tool" "$source" "$session_id" >> "$TRACE_FILE" <<'PY'
+import datetime
+import json
+import sys
+
+phase, tool, source, session_id = sys.argv[1:5]
+captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+print(json.dumps({
+    "phase": phase,
+    "tool": tool,
+    "source": source,
+    "client": "Claude Code",
+    "capturedAt": captured_at,
+    "session_id": session_id,
+}))
+PY
+}
+
+INPUT=$(cat)
+
+PROMPT=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('prompt', ''))
+" 2>/dev/null || echo "")
+
+SESSION_ID=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('session_id', 'unknown'))
+" 2>/dev/null || echo "unknown")
+
+CWD=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('cwd', ''))
+" 2>/dev/null || echo "")
+
+if [ ${#PROMPT} -lt 10 ]; then
+    exit 0
+fi
+
+PROJECT=$(basename "${CWD:-unknown}")
+CONTENT="[user|${PROJECT}] ${PROMPT}"
+
+PAYLOAD=$(/usr/bin/python3 -c "
+import json, sys
+print(json.dumps({
+    'content': sys.argv[1],
+    'source': 'auto:prompt',
+    'project': sys.argv[2],
+    'role': 'user',
+    'session_id': sys.argv[3]
+}))
+" "$CONTENT" "$PROJECT" "$SESSION_ID")
+
+if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    --connect-timeout 2 \
+    --max-time 4 \
+    > /dev/null 2>&1; then
+    write_trace "capture" "auto_observe" "rest_hook_prompt" "$SESSION_ID"
+else
+    mkdir -p "$(dirname "$QUEUE_FILE")"
+    TS=$(date +%s)
+    /usr/bin/python3 -c "
+import json, sys
+line = json.dumps({
+    'content': sys.argv[1],
+    'source': 'auto:prompt',
+    'project': sys.argv[2],
+    'session_id': sys.argv[3],
+    'ts': int(sys.argv[4])
+})
+print(line)
+" "$CONTENT" "$PROJECT" "$SESSION_ID" "$TS" >> "$QUEUE_FILE"
+fi
+""",
+    "capture-response.sh": r"""#!/usr/bin/env bash
+# Engram AutoCapture - Stop hook
+# Captures assistant responses and records capture evidence for adoption validation.
+set -euo pipefail
+
+ENGRAM_URL="${ENGRAM_URL:-http://localhost:8100}"
+QUEUE_FILE="${ENGRAM_CAPTURE_QUEUE_FILE:-$HOME/.engram/capture-queue.jsonl}"
+TRACE_FILE="${ENGRAM_ADOPTION_TRACE_FILE:-$HOME/.engram/adoption-trace.jsonl}"
+
+write_trace() {
+    local phase="$1"
+    local tool="$2"
+    local source="$3"
+    local session_id="$4"
+    mkdir -p "$(dirname "$TRACE_FILE")"
+    /usr/bin/python3 - "$phase" "$tool" "$source" "$session_id" >> "$TRACE_FILE" <<'PY'
+import datetime
+import json
+import sys
+
+phase, tool, source, session_id = sys.argv[1:5]
+captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+print(json.dumps({
+    "phase": phase,
+    "tool": tool,
+    "source": source,
+    "client": "Claude Code",
+    "capturedAt": captured_at,
+    "session_id": session_id,
+}))
+PY
+}
+
+INPUT=$(cat)
+
+RESPONSE=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('last_assistant_message', ''))
+" 2>/dev/null || echo "")
+
+SESSION_ID=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('session_id', 'unknown'))
+" 2>/dev/null || echo "unknown")
+
+CWD=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('cwd', ''))
+" 2>/dev/null || echo "")
+
+if [ ${#RESPONSE} -lt 20 ]; then
+    exit 0
+fi
+
+RESPONSE="${RESPONSE:0:2000}"
+PROJECT=$(basename "${CWD:-unknown}")
+CONTENT="[assistant|${PROJECT}] ${RESPONSE}"
+
+PAYLOAD=$(/usr/bin/python3 -c "
+import json, sys
+print(json.dumps({
+    'content': sys.argv[1],
+    'source': 'auto:response',
+    'project': sys.argv[2],
+    'role': 'assistant',
+    'session_id': sys.argv[3]
+}))
+" "$CONTENT" "$PROJECT" "$SESSION_ID")
+
+if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    --connect-timeout 2 \
+    --max-time 4 \
+    > /dev/null 2>&1; then
+    write_trace "capture" "auto_observe" "rest_hook_response" "$SESSION_ID"
+else
+    mkdir -p "$(dirname "$QUEUE_FILE")"
+    TS=$(date +%s)
+    /usr/bin/python3 -c "
+import json, sys
+line = json.dumps({
+    'content': sys.argv[1],
+    'source': 'auto:response',
+    'project': sys.argv[2],
+    'session_id': sys.argv[3],
+    'ts': int(sys.argv[4])
+})
+print(line)
+" "$CONTENT" "$PROJECT" "$SESSION_ID" "$TS" >> "$QUEUE_FILE"
+fi
+""",
+    "session-start.sh": r"""#!/usr/bin/env bash
+# Engram AutoCapture - SessionStart hook
+# Replays queued entries, posts a session marker, and bootstraps project artifacts.
+set -euo pipefail
+
+ENGRAM_URL="${ENGRAM_URL:-http://localhost:8100}"
+QUEUE_FILE="${ENGRAM_CAPTURE_QUEUE_FILE:-$HOME/.engram/capture-queue.jsonl}"
+TRACE_FILE="${ENGRAM_ADOPTION_TRACE_FILE:-$HOME/.engram/adoption-trace.jsonl}"
+
+write_trace() {
+    local phase="$1"
+    local tool="$2"
+    local source="$3"
+    local session_id="$4"
+    mkdir -p "$(dirname "$TRACE_FILE")"
+    /usr/bin/python3 - "$phase" "$tool" "$source" "$session_id" >> "$TRACE_FILE" <<'PY'
+import datetime
+import json
+import sys
+
+phase, tool, source, session_id = sys.argv[1:5]
+captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+print(json.dumps({
+    "phase": phase,
+    "tool": tool,
+    "source": source,
+    "client": "Claude Code",
+    "capturedAt": captured_at,
+    "session_id": session_id,
+}))
+PY
+}
+
+INPUT=$(cat)
+
+SESSION_ID=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('session_id', 'unknown'))
+" 2>/dev/null || echo "unknown")
+
+CWD=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('cwd', ''))
+" 2>/dev/null || echo "")
+
+PROJECT=$(basename "${CWD:-unknown}")
+
+if ! curl -sf "${ENGRAM_URL}/health" --connect-timeout 2 --max-time 3 > /dev/null 2>&1; then
+    exit 0
+fi
+
+if [ -f "$QUEUE_FILE" ] && [ -s "$QUEUE_FILE" ]; then
+    TEMP_QUEUE="${QUEUE_FILE}.replay"
+    mv "$QUEUE_FILE" "$TEMP_QUEUE"
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
+            -H "Content-Type: application/json" \
+            -d "$line" \
+            --connect-timeout 2 \
+            --max-time 4 \
+            > /dev/null 2>&1; then
+            write_trace "capture" "auto_observe" "rest_hook_replay" "$SESSION_ID"
+        else
+            echo "$line" >> "$QUEUE_FILE"
+        fi
+    done < "$TEMP_QUEUE"
+
+    rm -f "$TEMP_QUEUE"
+fi
+
+PAYLOAD=$(/usr/bin/python3 -c "
+import json, sys
+print(json.dumps({
+    'content': '[session-start|' + sys.argv[1] + '] New session started',
+    'source': 'auto:session',
+    'project': sys.argv[1],
+    'role': 'system',
+    'session_id': sys.argv[2]
+}))
+" "$PROJECT" "$SESSION_ID")
+
+if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    --connect-timeout 2 \
+    --max-time 4 \
+    > /dev/null 2>&1; then
+    write_trace "capture" "auto_observe" "rest_hook_session_start" "$SESSION_ID"
+fi
+
+if [ -n "$CWD" ] && [ "$CWD" != "$HOME" ] && [ "$CWD" != "/" ]; then
+    BOOTSTRAP_PAYLOAD=$(/usr/bin/python3 -c "
+import json, sys
+print(json.dumps({'project_path': sys.argv[1], 'session_id': sys.argv[2]}))
+" "$CWD" "$SESSION_ID")
+    curl -sf -X POST "${ENGRAM_URL}/api/knowledge/bootstrap" \
+        -H "Content-Type: application/json" \
+        -d "$BOOTSTRAP_PAYLOAD" \
+        --connect-timeout 2 --max-time 10 \
+        > /dev/null 2>&1 || true
+fi
+""",
+    "session-end.sh": r"""#!/usr/bin/env bash
+# Engram AutoCapture - SessionEnd hook
+# Posts a session end marker and triggers consolidation.
+set -euo pipefail
+
+ENGRAM_URL="${ENGRAM_URL:-http://localhost:8100}"
+TRACE_FILE="${ENGRAM_ADOPTION_TRACE_FILE:-$HOME/.engram/adoption-trace.jsonl}"
+
+write_trace() {
+    local phase="$1"
+    local tool="$2"
+    local source="$3"
+    local session_id="$4"
+    mkdir -p "$(dirname "$TRACE_FILE")"
+    /usr/bin/python3 - "$phase" "$tool" "$source" "$session_id" >> "$TRACE_FILE" <<'PY'
+import datetime
+import json
+import sys
+
+phase, tool, source, session_id = sys.argv[1:5]
+captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+print(json.dumps({
+    "phase": phase,
+    "tool": tool,
+    "source": source,
+    "client": "Claude Code",
+    "capturedAt": captured_at,
+    "session_id": session_id,
+}))
+PY
+}
+
+INPUT=$(cat)
+
+SESSION_ID=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('session_id', 'unknown'))
+" 2>/dev/null || echo "unknown")
+
+CWD=$(echo "$INPUT" | /usr/bin/python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('cwd', ''))
+" 2>/dev/null || echo "")
+
+PROJECT=$(basename "${CWD:-unknown}")
+
+if ! curl -sf "${ENGRAM_URL}/health" --connect-timeout 2 --max-time 3 > /dev/null 2>&1; then
+    exit 0
+fi
+
+PAYLOAD=$(/usr/bin/python3 -c "
+import json, sys
+print(json.dumps({
+    'content': '[session-end|' + sys.argv[1] + '] Session ended',
+    'source': 'auto:session',
+    'project': sys.argv[1],
+    'role': 'system',
+    'session_id': sys.argv[2]
+}))
+" "$PROJECT" "$SESSION_ID")
+
+if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" \
+    --connect-timeout 2 \
+    --max-time 4 \
+    > /dev/null 2>&1; then
+    write_trace "capture" "auto_observe" "rest_hook_session_end" "$SESSION_ID"
+fi
+
+curl -sf -X POST "${ENGRAM_URL}/api/consolidation/trigger" \
+    -H "Content-Type: application/json" \
+    --connect-timeout 2 \
+    --max-time 8 \
+    > /dev/null 2>&1 || true
+""",
+}
+
 _HOOKS_CONFIG = {
     "UserPromptSubmit": [
         {
@@ -772,13 +1149,17 @@ def install_hooks(
     for script_name in _HOOK_SCRIPTS:
         src = source_dir / script_name
         dst = hooks_dir / script_name
-        if src.exists() and src != dst:
+        if dst.exists():
+            dst.chmod(0o755)
+            result["scripts"].append(str(dst))
+        elif template := _HOOK_SCRIPT_TEMPLATES.get(script_name):
+            dst.write_text(template + "\n")
+            dst.chmod(0o755)
+            result["scripts"].append(str(dst))
+        elif src.exists() and src != dst:
             import shutil
 
             shutil.copy2(src, dst)
-            dst.chmod(0o755)
-            result["scripts"].append(str(dst))
-        elif dst.exists():
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
 
@@ -872,6 +1253,10 @@ def install_hooks_interactive(
     print()
     print(f"  {_DIM}Hooks are async and never block Claude.{_RESET}")
     print(f"  {_DIM}Server: $ENGRAM_URL (default http://localhost:8100){_RESET}")
+    print(
+        f"  {_DIM}Adoption trace: $ENGRAM_ADOPTION_TRACE_FILE "
+        f"(default ~/.engram/adoption-trace.jsonl){_RESET}"
+    )
     print()
     print(f"  {_GREEN}{_BOLD}AutoCapture installed!{_RESET}")
     print()

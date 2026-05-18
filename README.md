@@ -1042,6 +1042,12 @@ The replay endpoint deduplicates against recently seen content (5-min TTL, SHA-2
 
 No additional setup needed beyond the MCP server. The built-in system prompt instructs the AI to call `get_context()` at session start.
 
+For hook-driven capture, run `engram hooks`. Fresh installs generate
+`~/.engram/hooks/*.sh`, post prompts/responses to
+`/api/knowledge/auto-observe`, queue locally when REST is down, and append
+compact capture evidence to `~/.engram/adoption-trace.jsonl` (override with
+`ENGRAM_ADOPTION_TRACE_FILE`). Existing hook scripts are preserved.
+
 Optionally, add memory directives to your project's `.claude/CLAUDE.md` for stronger enforcement:
 
 ```markdown

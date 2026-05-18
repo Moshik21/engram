@@ -515,6 +515,41 @@ async def test_turn_batching_rebuilds_primary_cue_and_retires_secondary(worker_s
 class TestInstallHooks:
     """Tests for the hook installation function."""
 
+    def test_install_hooks_generates_default_scripts(self, tmp_path):
+        """install_hooks writes bundled hook scripts for a fresh install."""
+        from engram.setup import install_hooks
+
+        hooks_dir = tmp_path / "hooks"
+        settings_path = tmp_path / "settings.json"
+
+        result = install_hooks(
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
+        )
+
+        assert result["settings_updated"] is True
+        assert len(result["scripts"]) == 4
+
+        prompt_script = hooks_dir / "capture-prompt.sh"
+        response_script = hooks_dir / "capture-response.sh"
+        session_start_script = hooks_dir / "session-start.sh"
+        session_end_script = hooks_dir / "session-end.sh"
+        for script in (
+            prompt_script,
+            response_script,
+            session_start_script,
+            session_end_script,
+        ):
+            assert script.exists()
+            assert script.stat().st_mode & 0o111
+
+        assert "/api/knowledge/auto-observe" in prompt_script.read_text()
+        assert "ENGRAM_ADOPTION_TRACE_FILE" in prompt_script.read_text()
+        assert '"tool": tool' in prompt_script.read_text()
+        assert "rest_hook_response" in response_script.read_text()
+        assert "rest_hook_replay" in session_start_script.read_text()
+        assert "/api/consolidation/trigger" in session_end_script.read_text()
+
     def test_install_hooks_creates_scripts(self, tmp_path):
         """install_hooks creates the settings file with hook config."""
         from engram.setup import install_hooks
@@ -536,6 +571,7 @@ class TestInstallHooks:
         assert result["settings_updated"] is True
         assert len(result["scripts"]) == 4
         assert settings_path.exists()
+        assert (hooks_dir / "capture-prompt.sh").read_text() == "#!/bin/bash\nexit 0\n"
 
         settings = json.loads(settings_path.read_text())
         assert "hooks" in settings

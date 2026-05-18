@@ -54,7 +54,11 @@ contract instead of a pre-route `422`. The adoption verifier also recognizes
 REST `/api/knowledge/auto-observe` hook traces as `observe`-equivalent Capture
 evidence for cheap-capture protocols, while still requiring explicit
 `remember` evidence when `claim_authority()` classifies the message as
-high-signal.
+high-signal. Fresh `engram hooks` installs now generate first-party
+AutoCapture hook scripts when missing, preserve existing hook scripts, and write
+successful REST auto-observe capture records to
+`~/.engram/adoption-trace.jsonl` (or `ENGRAM_ADOPTION_TRACE_FILE`) so operators
+have machine-readable capture evidence for the adoption verifier.
 
 ## Current Milestone
 
