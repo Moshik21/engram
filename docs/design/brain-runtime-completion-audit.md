@@ -123,6 +123,13 @@ not yet doing its job.
   Lite borrowed-DB, borrowed consolidation fallback, and Helix shared-client
   behavior are guarded by `tests/storage/test_storage_bootstrap.py` plus the
   borrowed-connection contract tests.
+- SQLite relationship-weight update evidence:
+  `SQLiteGraphStore.update_relationship_weight()` now consumes all
+  `UPDATE ... RETURNING` rows before committing. This prevents dream-phase and
+  shutdown-consolidation failures when reciprocal or duplicate relationship
+  rows match one weight update. Guarded by
+  `tests/test_consolidation_graph_methods.py::test_update_relationship_weight_consumes_all_returning_rows`
+  plus the existing dream and shutdown consolidation tests.
 - Public dependency-boundary evidence:
   MCP notification piggybacking now uses the pure
   `build_mcp_notifications_surface()` presenter with a

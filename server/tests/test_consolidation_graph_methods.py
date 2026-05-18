@@ -52,6 +52,28 @@ def _rel(source_id, target_id, predicate="KNOWS", group_id="test"):
 
 
 @pytest.mark.asyncio
+async def test_update_relationship_weight_consumes_all_returning_rows(store):
+    e1 = _entity("Alice")
+    e2 = _entity("Bob")
+    await store.create_entity(e1)
+    await store.create_entity(e2)
+    await store.create_relationship(_rel(e1.id, e2.id, group_id="test"))
+    await store.create_relationship(_rel(e2.id, e1.id, group_id="test"))
+
+    new_weight = await store.update_relationship_weight(
+        e1.id,
+        e2.id,
+        0.1,
+        group_id="test",
+        predicate="KNOWS",
+    )
+
+    relationships = await store.get_relationships(e1.id, predicate="KNOWS", group_id="test")
+    assert new_weight == pytest.approx(1.1)
+    assert [rel.weight for rel in relationships] == pytest.approx([1.1, 1.1])
+
+
+@pytest.mark.asyncio
 async def test_get_episode_entities_filters_entity_group(store):
     ep = _episode(group_id="test")
     same_group = _entity("Same", group_id="test")

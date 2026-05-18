@@ -35,6 +35,14 @@ client metadata from raw Claude stream records, and the raw
 `engram adoption --require-live-evidence` with observed `claim_authority`,
 `get_context`, `recall`, and `remember`.
 
+SQLite/lite shutdown stability note: the live adoption run exposed a nonfatal
+shutdown-consolidation `cannot commit transaction - SQL statements in progress`
+warning during the dream phase. The root cause was SQLite
+`update_relationship_weight()` committing after `UPDATE ... RETURNING` while
+reciprocal/duplicate relationship matches could leave unconsumed returned rows.
+That helper now consumes all returned rows before commit, with regression
+coverage in `tests/test_consolidation_graph_methods.py`.
+
 ## Current Milestone
 
 The audit milestone, P0 public-contract slices, and several P1 runtime-service

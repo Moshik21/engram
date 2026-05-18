@@ -634,9 +634,9 @@ class SQLiteGraphStore:
                RETURNING weight""",
             params,
         )
-        row = await cursor.fetchone()
+        rows = await cursor.fetchall()
         await self.db.commit()
-        return row[0] if row else None
+        return rows[0][0] if rows else None
 
     async def find_conflicting_relationships(
         self,
