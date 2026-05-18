@@ -1359,7 +1359,9 @@ labels are missing. Use `--sqlite-path` for the local label store and
 the same smoke brain afterward with `engram evaluate --mode helix`,
 `engram lifecycle --mode helix`, or `engram doctor --mode helix`. Doctor uses
 `--helix-data-dir` for the lifecycle snapshot and keeps its smoke on disposable
-native storage. For longer native operator soaks, add `--smoke-load-count`,
+native storage. The doctor smoke report includes evaluation-signal readiness so
+Markdown and JSON output show whether the six operator gate signals are
+measured. For longer native operator soaks, add `--smoke-load-count`,
 `--smoke-recall-rounds`, and `--smoke-min-duration-seconds`; the duration loop
 keeps recall active against the populated PyO3 brain and records
 `smoke.duration_recall_checks` plus elapsed time in the JSON report.

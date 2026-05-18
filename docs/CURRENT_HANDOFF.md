@@ -1,6 +1,6 @@
 # Current Handoff
 
-Date: 2026-05-15
+Date: 2026-05-18
 
 ## Active Goal
 
@@ -36,7 +36,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3213 tests, 43 skips, and 236 external-service tests deselected after
+  with 3224 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -48,8 +48,9 @@ What changed in this pass:
   the MCP entity/fact lookup, artifact-search, context, and question-route tool
   middleware boundaries plus the knowledge-chat tool-use loop and response-turn
   orchestration extractions plus the REST evaluation-report runtime-boundary,
-  evaluation-signal CLI hard gate, and Python 3.13 event-loop test harness
-  cleanup.
+  evaluation-signal CLI hard gate, doctor evaluation-signal readiness reporting,
+  Python 3.13 event-loop test harness cleanup, and the date-stable Helix
+  dashboard analytics unit fixture.
   helper, direct REST engine-dispatch/store-service guard, stricter native
   manifest evidence verifier, the chat rate-limit execution helper, and the
   chat persistence scheduler helper.
@@ -117,6 +118,13 @@ What changed in this pass:
   goal-readiness checkpoint. It maps each explicit objective requirement to
   concrete repo evidence, keeps the verdict at not complete, and identifies the
   final blocking gaps before `update_goal` would be legitimate.
+- Added doctor evaluation-signal readiness output so `engram doctor` now carries
+  the smoke report's six-signal readiness summary in JSON metadata and Markdown,
+  alongside the existing Capture -> Cue -> Project -> Recall -> Consolidate
+  smoke totals and coverage gaps.
+- Updated the native surface manifest and completion audit to record that the
+  Helix native doctor path reports evaluation-signal readiness, so future
+  operator-readiness reviews do not treat this as a missing PyO3 path.
 - Added `server/tests/test_graph_manager_facade_boundaries.py` so the core
   lifecycle entrypoints on `GraphManager` are statically guarded as service
   delegates. The guard currently covers store, project, one-shot ingestion,
@@ -6467,6 +6475,39 @@ What changed in this pass:
   - Result: 53 passed.
   `git diff --check`
   - Result: passed.
+- Doctor evaluation-signal readiness output:
+  `uv run ruff check engram/doctor.py engram/quality/native_surface_manifest.py
+  engram/__main__.py engram/evaluation/cli.py engram/evaluation/smoke.py
+  tests/test_doctor.py tests/test_native_surface_manifest.py
+  tests/test_cli_main.py tests/test_projected_consolidated_smoke.py`
+  - Result: passed.
+  `uv run pytest tests/test_doctor.py tests/test_native_surface_manifest.py
+  tests/test_cli_main.py tests/test_projected_consolidated_smoke.py -q`
+  - Result: 38 passed. This includes direct JSON-output coverage for the doctor
+    smoke evaluation-signal metadata plus the existing evaluate hard-gate and
+    projected/consolidated smoke coverage.
+  `ENGRAM_SQLITE__PATH=/private/tmp/engram-doctor-eval-signals-20260518.db
+  uv run python -m engram doctor --mode lite --skip-server --format markdown`
+  - Result: passed; Markdown output includes `Evaluation signals: 6/6 measured`
+    in the Brain Loop Smoke section.
+  `ENGRAM_SQLITE__PATH=/private/tmp/engram-doctor-eval-signals-json-20260518.db
+  uv run python -m engram doctor --mode lite --skip-server --format json`
+  - Result: passed; JSON output includes
+    `brain_loop_smoke.metadata.evaluation_signals.ready: true`, `measured: 6`,
+    `required: 6`, and measured statuses for cue usefulness, projection yield,
+    recall quality, false recall, triage calibration, and consolidation effect.
+  `uv run python -m engram doctor --help`
+  - Result: passed; help output describes the doctor as a lifecycle snapshot and
+    brain-loop smoke with evaluation-signal readiness, and `--no-smoke`
+    explicitly says it skips the readiness summary.
+  `uv run ruff check engram/doctor.py engram/__main__.py tests/test_doctor.py
+  tests/test_cli_main.py`
+  - Result: passed.
+  `uv run pytest tests/test_doctor.py tests/test_cli_main.py -q`
+  - Result: 20 passed. This includes fully measured and partially measured
+    doctor smoke evaluation-signal metadata coverage, and verifies doctor marks
+    the smoke check failed and exits non-zero if the readiness summary is not
+    ready. It also covers top-level help and `doctor --help` readiness wording.
 - Python 3.13 event-loop test harness cleanup:
   `uv run ruff check tests/test_decomposer.py tests/test_emotional_salience.py`
   - Result: passed.
@@ -6474,9 +6515,16 @@ What changed in this pass:
   - Result: 10 passed. These tests now use `asyncio.run()` instead of
     `asyncio.get_event_loop().run_until_complete(...)`, which Python 3.13 no
     longer tolerates when no loop is set in the main thread.
-- Broad backend non-Docker/non-external-Helix gate after MCP read-tool, chat-loop, response-turn, REST capture, REST evaluation-report extraction, native manifest evidence verifier, REST store/service dispatch guard, REST awaited-helper guard, chat rate-limit execution helper, chat persistence scheduler helper, MCP public surface store/session guard, and MCP awaited-helper guard:
+- Helix dashboard analytics date-stability fix:
+  `uv run ruff check tests/test_helix_stats.py`
+  - Result: passed.
+  `uv run pytest tests/test_helix_stats.py::test_helix_dashboard_analytics_without_group_use_all_group_queries -q`
+  - Result: 1 passed. The unscoped dashboard analytics fixture now freezes
+    `utc_now()` so its fixed `2026-05-14` records remain inside the rolling
+    growth window after the real calendar advances.
+- Broad backend non-Docker/non-external-Helix gate after doctor evaluation-signal readiness reporting, defensive doctor failure-path coverage, and Helix dashboard analytics date-stability fix:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  - Result: 3213 passed, 43 skipped, 236 deselected in 133.58s.
+  - Result: 3224 passed, 43 skipped, 236 deselected in 153.71s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.

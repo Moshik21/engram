@@ -5,7 +5,13 @@ import json
 
 import pytest
 
-from engram.doctor import build_doctor_report, configure_doctor_parser, format_doctor_report
+from engram.doctor import (
+    build_doctor_report,
+    configure_doctor_parser,
+    format_doctor_report,
+    run_doctor_command,
+)
+from engram.evaluation.brain_loop_report import EVALUATION_SIGNAL_ORDER
 from engram.storage.resolver import EngineMode
 
 
@@ -13,6 +19,30 @@ def _parse_doctor_args(*args: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     configure_doctor_parser(parser)
     return parser.parse_args(list(args))
+
+
+def _measured_signal_payloads() -> dict[str, dict[str, object]]:
+    return {
+        signal: {
+            "status": "measured",
+            "evidence_count": 1,
+            "metric": 1.0,
+            "gap": None,
+        }
+        for signal in EVALUATION_SIGNAL_ORDER
+    }
+
+
+def test_doctor_help_mentions_evaluation_signal_readiness() -> None:
+    parser = argparse.ArgumentParser()
+    configure_doctor_parser(parser)
+
+    help_text = parser.format_help()
+
+    assert "evaluation-signal readiness" in help_text
+    assert "Skip the Capture -> Cue -> Project -> Recall ->" in help_text
+    assert "Consolidate smoke and evaluation-signal readiness" in help_text
+    assert "summary." in help_text
 
 
 @pytest.mark.asyncio
@@ -61,6 +91,11 @@ async def test_doctor_runs_brain_loop_smoke(tmp_path, monkeypatch) -> None:
     assert checks["brain_loop_smoke"]["metadata"]["group_id"] == "doctor_brain"
     assert checks["lifecycle_snapshot"]["status"] == "pass"
     assert checks["lifecycle_snapshot"]["metadata"]["group_id"] == "doctor_brain"
+    evaluation_signals = checks["brain_loop_smoke"]["metadata"]["evaluation_signals"]
+    assert evaluation_signals["ready"] is True
+    assert evaluation_signals["measured"] == len(EVALUATION_SIGNAL_ORDER)
+    assert evaluation_signals["required"] == len(EVALUATION_SIGNAL_ORDER)
+    assert evaluation_signals["unmeasured"] == []
     assert report["lifecycle_summary"]["groupId"] == "doctor_brain"
     assert report["smoke_report"]["group_id"] == "doctor_brain"
     assert report["smoke_report"]["coverage_gaps"] == []
@@ -126,6 +161,162 @@ async def test_doctor_smoke_uses_native_mode_when_resolved(monkeypatch, tmp_path
     assert lifecycle_kwargs["helix_data_dir"] == native_dir
     assert checks["brain_loop_smoke"]["metadata"]["mode"] == "helix"
     assert report["smoke_report"]["smoke"]["mode"] == "helix"
+
+
+@pytest.mark.asyncio
+async def test_doctor_smoke_metadata_reports_unmeasured_evaluation_signals(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+    signals = _measured_signal_payloads()
+    signals.pop("projection_yield")
+    signals["false_recall"] = {
+        "status": "needs_labels",
+        "evidence_count": 0,
+        "metric": None,
+        "gap": "recall quality needs labeled recall_samples input",
+    }
+
+    async def fake_lifecycle_summary(*args, **kwargs):
+        return {
+            "groupId": kwargs.get("group_id"),
+            "loop": ["capture", "cue", "project", "recall", "consolidate"],
+            "totals": {"episodes": 0, "cues": 0, "projected": 0, "cycles": 0},
+            "cue": {"coverage": 0.0},
+            "project": {"status": "ready"},
+            "consolidate": {"status": "ready"},
+        }
+
+    async def fake_smoke(**kwargs):
+        return {
+            "group_id": kwargs["group_id"],
+            "coverage_gaps": [],
+            "totals": {"episodes": 3},
+            "project": {"projected_count": 3},
+            "consolidate": {"cycle_count": 1},
+            "evaluation_signals": signals,
+        }
+
+    monkeypatch.setattr(
+        "engram.doctor.build_lifecycle_summary_for_config",
+        fake_lifecycle_summary,
+    )
+    monkeypatch.setattr("engram.doctor.run_projected_consolidated_smoke_for_args", fake_smoke)
+
+    report = await build_doctor_report(
+        _parse_doctor_args("--mode", "lite", "--skip-server")
+    )
+
+    checks = {check["name"]: check for check in report["checks"]}
+    assert report["status"] == "fail"
+    assert checks["brain_loop_smoke"]["status"] == "fail"
+    assert (
+        checks["brain_loop_smoke"]["detail"]
+        == "disposable lite Capture -> Cue -> Project -> Recall -> Consolidate "
+        "smoke has unmeasured evaluation signals"
+    )
+    evaluation = checks["brain_loop_smoke"]["metadata"]["evaluation_signals"]
+    assert evaluation["ready"] is False
+    assert evaluation["measured"] == len(EVALUATION_SIGNAL_ORDER) - 2
+    assert evaluation["unmeasured"] == [
+        "projection_yield:missing",
+        "false_recall:needs_labels",
+    ]
+    assert evaluation["statuses"]["projection_yield"] == "missing"
+    assert evaluation["statuses"]["false_recall"] == "needs_labels"
+
+
+@pytest.mark.asyncio
+async def test_doctor_json_output_includes_evaluation_signal_metadata(
+    monkeypatch,
+    capsys,
+) -> None:
+    async def fake_report(args):
+        assert args.format == "json"
+        return {
+            "status": "pass",
+            "checks": [
+                {
+                    "name": "brain_loop_smoke",
+                    "status": "pass",
+                    "detail": "brain-loop smoke passed",
+                    "metadata": {
+                        "evaluation_signals": {
+                            "required": len(EVALUATION_SIGNAL_ORDER),
+                            "measured": len(EVALUATION_SIGNAL_ORDER),
+                            "ready": True,
+                            "unmeasured": [],
+                            "statuses": {
+                                signal: "measured"
+                                for signal in EVALUATION_SIGNAL_ORDER
+                            },
+                        }
+                    },
+                }
+            ],
+            "lifecycle_summary": None,
+            "smoke_report": {
+                "group_id": "doctor_brain",
+                "evaluation_signals": _measured_signal_payloads(),
+            },
+        }
+
+    monkeypatch.setattr("engram.doctor.build_doctor_report", fake_report)
+
+    await run_doctor_command(argparse.Namespace(format="json"))
+
+    payload = json.loads(capsys.readouterr().out)
+    metadata = payload["checks"][0]["metadata"]["evaluation_signals"]
+    assert metadata["ready"] is True
+    assert metadata["measured"] == len(EVALUATION_SIGNAL_ORDER)
+    assert metadata["unmeasured"] == []
+
+
+@pytest.mark.asyncio
+async def test_doctor_command_exits_nonzero_for_failed_report(
+    monkeypatch,
+    capsys,
+) -> None:
+    async def fake_report(args):
+        assert args.format == "json"
+        return {
+            "status": "fail",
+            "checks": [
+                {
+                    "name": "brain_loop_smoke",
+                    "status": "fail",
+                    "detail": "brain-loop smoke has unmeasured evaluation signals",
+                    "metadata": {
+                        "evaluation_signals": {
+                            "required": len(EVALUATION_SIGNAL_ORDER),
+                            "measured": len(EVALUATION_SIGNAL_ORDER) - 1,
+                            "ready": False,
+                            "unmeasured": ["false_recall:needs_labels"],
+                            "statuses": {
+                                **{
+                                    signal: "measured"
+                                    for signal in EVALUATION_SIGNAL_ORDER
+                                },
+                                "false_recall": "needs_labels",
+                            },
+                        }
+                    },
+                }
+            ],
+            "lifecycle_summary": None,
+            "smoke_report": None,
+        }
+
+    monkeypatch.setattr("engram.doctor.build_doctor_report", fake_report)
+
+    with pytest.raises(SystemExit) as exc:
+        await run_doctor_command(argparse.Namespace(format="json"))
+
+    assert exc.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "fail"
+    assert payload["checks"][0]["metadata"]["evaluation_signals"]["ready"] is False
 
 
 @pytest.mark.asyncio
@@ -326,3 +517,31 @@ def test_doctor_markdown_lists_brain_loop_smoke_coverage_gaps() -> None:
         "  - consolidation calibration quality needs labeled decision outcomes"
         in rendered
     )
+
+
+def test_doctor_markdown_lists_brain_loop_smoke_evaluation_signal_summary() -> None:
+    signals = _measured_signal_payloads()
+    signals["false_recall"] = {
+        "status": "needs_labels",
+        "evidence_count": 0,
+        "metric": None,
+        "gap": "recall quality needs labeled recall_samples input",
+    }
+
+    rendered = format_doctor_report(
+        {
+            "status": "warn",
+            "checks": [],
+            "smoke_report": {
+                "group_id": "doctor_brain",
+                "totals": {"episodes": 1},
+                "project": {"projected_count": 1},
+                "consolidate": {"cycle_count": 1},
+                "coverage_gaps": [],
+                "evaluation_signals": signals,
+            },
+        }
+    )
+
+    assert "- Evaluation signals: 5/6 measured" in rendered
+    assert "  - false_recall:needs_labels" in rendered

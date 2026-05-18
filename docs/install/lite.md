@@ -57,7 +57,9 @@ engram doctor
 The doctor loads configuration, resolves the engine mode, checks the local API
 health endpoint when the server is running, includes the current local
 `Capture -> Cue -> Project -> Recall -> Consolidate` lifecycle snapshot, and
-runs the disposable projected/consolidated smoke. For a JSON gate:
+runs the disposable projected/consolidated smoke. The smoke section reports both
+coverage gaps and evaluation-signal readiness for the six hard-gate signals. For
+a JSON gate:
 
 ```bash
 engram doctor --mode lite --skip-server --format json

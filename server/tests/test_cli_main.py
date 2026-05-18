@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib
 import os
 
+import pytest
+
 
 def test_serve_mode_helix_sets_runtime_env(monkeypatch) -> None:
     cli = importlib.import_module("engram.__main__")
@@ -139,3 +141,29 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "format": "json",
         }
     ]
+
+
+def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> None:
+    cli = importlib.import_module("engram.__main__")
+    monkeypatch.setattr("sys.argv", ["engram", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "engram doctor" in output
+    assert "readiness smoke" in output
+
+
+def test_doctor_help_mentions_evaluation_signal_readiness(monkeypatch, capsys) -> None:
+    cli = importlib.import_module("engram.__main__")
+    monkeypatch.setattr("sys.argv", ["engram", "doctor", "--help"])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "Run local diagnostics, lifecycle snapshot, and brain-loop smoke" in output
+    assert "evaluation-signal readiness" in output

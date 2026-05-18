@@ -101,10 +101,17 @@ def test_native_surface_manifest_classifies_mcp_surfaces() -> None:
 
 def test_native_surface_manifest_tracks_operator_gates() -> None:
     operator_surfaces = identifiers_by_kind("operator")
+    doctor = next(
+        surface
+        for surface in NATIVE_SURFACE_MANIFEST
+        if surface.kind == "operator" and surface.identifier == "engram doctor --mode helix"
+    )
 
     assert "engram evaluate --smoke --mode helix" in operator_surfaces
     assert "engram evaluate --mode helix --require-evaluation-signals" in operator_surfaces
     assert "engram doctor --mode helix" in operator_surfaces
+    assert doctor.coverage == "native_operator_smoke"
+    assert "evaluation readiness" in doctor.note
 
 
 def test_native_runtime_evidence_points_to_existing_parity_helpers() -> None:

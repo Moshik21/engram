@@ -437,6 +437,10 @@ async def test_helix_dashboard_analytics_without_group_use_all_group_queries(
 ) -> None:
     store = HelixGraphStore(HelixDBConfig())
     calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "engram.storage.helix.graph.utc_now",
+        lambda: datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc),
+    )
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
         calls.append((endpoint, payload))

@@ -1529,10 +1529,12 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3213 tests, 43 skips, and 236 external-service
-   tests deselected, and PyO3 native has focused parity plus a one-hour
-   operator Recall soak. Docker/full-mode and multi-hour native endurance
-   remain separate explicit gates, not assumptions.
+   gate currently passes with 3224 tests, 43 skips, and 236 external-service
+   tests deselected after the Helix dashboard analytics unit fixture was made
+   date-stable and the doctor readiness failure path was guarded, and PyO3
+   native has focused parity plus a one-hour operator Recall soak.
+   Docker/full-mode and multi-hour native endurance remain separate explicit
+   gates, not assumptions.
 
 6. The operator-facing P3 evaluation loop now measures cue usefulness,
    projection yield/backlog/freshness, recall gate latency/control posture,
@@ -2978,9 +2980,10 @@ routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
 shows `_app_state` only in `server/engram/api/deps.py`. The latest broad
-non-Docker/non-Helix gate now passes with 3213 tests, 43 skips, and 236
-external-service deselections after the evaluation-signal CLI gate and Python
-3.13 event-loop test harness cleanup.
+non-Docker/non-Helix gate now passes with 3224 tests, 43 skips, and 236
+external-service deselections after the evaluation-signal CLI gate, doctor
+readiness reporting, Python 3.13 event-loop test harness cleanup, and Helix
+dashboard analytics date-stability fix.
 
 The REST evaluation report no longer reaches into consolidation engine private
 store state or dispatches engine methods directly from the route.
@@ -2993,7 +2996,8 @@ payload. The public-surface guard rejects route-local `engine._*` access
 alongside `manager._*` access and now statically rejects direct REST API
 `engine.*` dispatch. Focused evaluation/consolidation/static checks and Ruff
 passed; a later route-orchestration broad gate now passes with 3213 tests, 43
-skips, and 236 external-service deselections.
+skips, and 236 external-service deselections. The current broader gate passes
+with 3224 tests after the doctor readiness and Helix analytics fixture updates.
 
 The same public-surface guard now covers direct REST route store/service method
 dispatch. REST route modules may still resolve stores and services through the
@@ -3327,7 +3331,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3213 tests, 43 skips, and 236 external-service deselections.
+gate passes with 3224 tests, 43 skips, and 236 external-service deselections.
 
 Shared storage bootstrap initialization now has a named helper boundary.
 `server/engram/storage/bootstrap.py` owns the lite shared-DB lookup plus store
@@ -3385,8 +3389,8 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3213 tests, 43 skips, and 236 external-service
-deselections.
+broad gate passes with 3224 tests, 43 skips, and 236 external-service
+deselections after the Helix dashboard analytics fixture was made date-stable.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication

@@ -1,6 +1,6 @@
 # Brain Runtime Completion Audit
 
-Date: 2026-05-15
+Date: 2026-05-18
 
 This is a readiness audit for the active long-running goal, not a completion
 claim. The current verdict is **not complete**. Engram has strong implementation
@@ -36,10 +36,10 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests | Strong |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3213 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
-| Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, and native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3224 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
-| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, and `engram evaluate --require-evaluation-signals`; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing or unmeasured | Strong, needs more real labeled evidence before production claim |
+| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing or unmeasured | Strong, needs more real labeled evidence before production claim |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
 | Do not mark complete until implementation, tests, docs, UI are understandable | This audit says not complete | Blocking |
 
@@ -47,7 +47,9 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3213 tests, 43 skips, and 236 deselections.
+  currently passes with 3224 tests, 43 skips, and 236 deselections after the
+  doctor readiness failure path was guarded and the Helix dashboard analytics
+  test fixture was made date-stable.
 - Shared lite storage bootstrap evidence:
   `server/engram/storage/bootstrap.py` centralizes companion-store
   initialization against the active graph store. REST startup, MCP startup,
@@ -473,9 +475,11 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    persistence, and shared write acknowledgement payloads through route-facing
    helpers. Focused label service, REST
    evaluation, MCP JSON-response, public-surface, and Ruff checks passed.
-   The broad non-Docker/non-external-Helix backend gate now passes with 3213
+   The broad non-Docker/non-external-Helix backend gate now passes with 3224
    tests, 43 skips, and 236 deselections after these route-orchestration
-   slices and the Python 3.13 event-loop test harness cleanup.
+   slices, the Python 3.13 event-loop test harness cleanup, the doctor
+   readiness failure-path guard, and the date-stable Helix dashboard analytics
+   fixture.
    MCP auto-recall cooldown/topic deduplication, compact query extraction,
    per-tool recall gating, first-call session-prime planning, MCP middleware
    side-effect planning, middleware plan execution, middleware auto-observe,
@@ -521,15 +525,20 @@ the preferred full-backend local path; SQLite/lite remains the smoke/demo path.
    reports outside the smoke harness. `--from-json` also accepts
    already-rendered brain-loop report JSON so saved report artifacts can be
    verified directly, and the native surface manifest tracks the Helix variant
-   as an operator hard gate.
+   as an operator hard gate. `engram doctor` now surfaces the same
+   evaluation-signal readiness in its disposable smoke report, so the local
+   diagnostic path shows whether the six operator signals are measured instead
+   of only reporting smoke totals and coverage-gap counts.
    A production-grade claim still needs a final evaluation run with enough real
    or benchmark-labeled data to move those readiness records from smoke coverage
    to meaningful evidence.
 
 5. Completion packaging:
-   The repo has a large dirty worktree. Before closure, the intended files,
-   ignored docs, generated artifacts, and unrelated user changes need a final
-   packaging/staging plan so the completed work is reproducible.
+   The current dirty scope is intentionally bounded to the doctor
+   evaluation-readiness slice, audit/install/handoff docs, the native surface
+   manifest, and one date-stability test fixture. Before closure or a commit,
+   the intended files still need a final packaging/staging plan so the
+   completed work is reproducible and unrelated user changes stay out of scope.
 
 ## Next Concrete Work
 

@@ -289,6 +289,10 @@ NATIVE_SURFACE_MANIFEST: tuple[NativeSurface, ...] = (
         identifier="engram doctor --mode helix",
         coverage="native_operator_smoke",
         evidence="server/engram/doctor.py",
+        note=(
+            "Native diagnostic smoke reports coverage gaps and six-signal "
+            "evaluation readiness."
+        ),
     ),
     NativeSurface(
         kind="operator",

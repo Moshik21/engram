@@ -73,7 +73,9 @@ make mcp-native NATIVE_DATA_DIR=/path/to/native-data
 
 `serve`, `mcp`, and the Makefile shortcuts set native transport and run against that directory.
 Doctor reads that directory for the lifecycle snapshot, then runs its
-projected/consolidated smoke against disposable native storage.
+projected/consolidated smoke against disposable native storage. The doctor smoke
+section includes evaluation-signal readiness, so JSON and Markdown output show
+whether the six hard-gate signals are measured.
 
 The native smoke creates a disposable PyO3 Helix brain, captures three
 episodes, projects them through triage, persists a consolidation cycle and

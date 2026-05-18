@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib import error, request
 
 from engram.config import EngramConfig
+from engram.evaluation.brain_loop_report import (
+    EVALUATION_SIGNAL_ORDER,
+    unmeasured_evaluation_signals,
+)
 from engram.evaluation.smoke import run_projected_consolidated_smoke_for_args
 from engram.lifecycle_cli import build_lifecycle_summary_for_config, cycle_issue_text
 from engram.storage.resolver import EngineMode, resolve_mode
@@ -18,6 +23,10 @@ CHECK_ORDER = ("config", "sqlite", "mode", "lifecycle_snapshot", "server", "brai
 
 def configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
     """Attach `engram doctor` options to a parser."""
+    parser.description = (
+        "Run local diagnostics, lifecycle snapshot, and brain-loop smoke with "
+        "evaluation-signal readiness."
+    )
     parser.add_argument(
         "--format",
         choices=["markdown", "json"],
@@ -57,7 +66,10 @@ def configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-smoke",
         action="store_true",
-        help="Skip the Capture -> Cue -> Project -> Recall -> Consolidate smoke.",
+        help=(
+            "Skip the Capture -> Cue -> Project -> Recall -> Consolidate smoke "
+            "and evaluation-signal readiness summary."
+        ),
     )
     parser.add_argument(
         "--no-lifecycle",
@@ -200,6 +212,7 @@ def format_doctor_report(report: dict[str, Any]) -> str:
         project = smoke.get("project") or {}
         consolidate = smoke.get("consolidate") or {}
         coverage_gaps = list(smoke.get("coverage_gaps") or [])
+        evaluation_summary = _evaluation_signal_summary(smoke)
         lines.extend(
             [
                 "",
@@ -215,6 +228,16 @@ def format_doctor_report(report: dict[str, Any]) -> str:
             ]
         )
         lines.extend(f"  - {gap}" for gap in coverage_gaps)
+        if evaluation_summary is not None:
+            lines.append(
+                "- Evaluation signals: "
+                f"{evaluation_summary['measured']}/{evaluation_summary['required']} "
+                "measured"
+            )
+            lines.extend(
+                f"  - {failure}"
+                for failure in evaluation_summary["unmeasured"]
+            )
 
     return "\n".join(lines).strip() + "\n"
 
@@ -422,22 +445,34 @@ async def _check_brain_loop_smoke(
     totals = report.get("totals") or {}
     project = report.get("project") or {}
     consolidate = report.get("consolidate") or {}
+    evaluation_summary = _evaluation_signal_summary(report)
+    metadata = {
+        "group_id": report.get("group_id"),
+        "mode": smoke_mode.value,
+        "episodes": totals.get("episodes", 0),
+        "projected": project.get("projected_count", 0),
+        "cycles": consolidate.get("cycle_count", 0),
+        "coverage_gaps": report.get("coverage_gaps") or [],
+    }
+    check_status = "pass"
+    check_detail = (
+        f"disposable {smoke_mode.value} Capture -> Cue -> Project -> "
+        "Recall -> Consolidate smoke passed"
+    )
+    if evaluation_summary is not None:
+        metadata["evaluation_signals"] = evaluation_summary
+        if not evaluation_summary["ready"]:
+            check_status = "fail"
+            check_detail = (
+                f"disposable {smoke_mode.value} Capture -> Cue -> Project -> "
+                "Recall -> Consolidate smoke has unmeasured evaluation signals"
+            )
     _add_check(
         checks,
         "brain_loop_smoke",
-        "pass",
-        (
-            f"disposable {smoke_mode.value} Capture -> Cue -> Project -> "
-            "Recall -> Consolidate smoke passed"
-        ),
-        {
-            "group_id": report.get("group_id"),
-            "mode": smoke_mode.value,
-            "episodes": totals.get("episodes", 0),
-            "projected": project.get("projected_count", 0),
-            "cycles": consolidate.get("cycle_count", 0),
-            "coverage_gaps": report.get("coverage_gaps") or [],
-        },
+        check_status,
+        check_detail,
+        metadata,
     )
     return report
 
@@ -478,6 +513,29 @@ def _overall_status(checks: list[dict[str, Any]]) -> str:
     if "warn" in statuses:
         return "warn"
     return "pass"
+
+
+def _evaluation_signal_summary(
+    report: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    signals = report.get("evaluation_signals")
+    if not isinstance(signals, Mapping):
+        return None
+    unmeasured = unmeasured_evaluation_signals(report)
+    statuses: dict[str, str] = {}
+    for signal in EVALUATION_SIGNAL_ORDER:
+        payload = signals.get(signal)
+        if isinstance(payload, Mapping):
+            statuses[signal] = str(payload.get("status") or "missing")
+        else:
+            statuses[signal] = "missing"
+    return {
+        "required": len(EVALUATION_SIGNAL_ORDER),
+        "measured": len(EVALUATION_SIGNAL_ORDER) - len(unmeasured),
+        "ready": not unmeasured,
+        "unmeasured": unmeasured,
+        "statuses": statuses,
+    }
 
 
 def _percent(value: Any) -> str:

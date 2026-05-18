@@ -8,7 +8,7 @@ Usage:
     engram hooks          Install AutoCapture hooks
     engram lifecycle      Print local Capture -> Cue -> Project -> Recall -> Consolidate state
     engram evaluate       Print local brain-loop evaluation report
-    engram doctor         Run local diagnostics and brain-loop smoke
+    engram doctor         Run diagnostics and brain-loop readiness smoke
     engram health         Check if server is running
     engram update         Update Engram to latest version
     engram version        Show installed version
@@ -38,7 +38,7 @@ def main():
         "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
         "                            Verify the native Helix brain loop end to end\n"
-        "  engram doctor            Run diagnostics and the brain-loop smoke\n"
+        "  engram doctor            Run diagnostics and readiness smoke\n"
         "  engram health             Check if server is running\n",
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -148,7 +148,7 @@ def main():
     # --- doctor ---
     doctor_parser = subparsers.add_parser(
         "doctor",
-        help="Run local diagnostics and brain-loop smoke",
+        help="Run diagnostics and brain-loop readiness smoke",
     )
     from engram.doctor import configure_doctor_parser
 
