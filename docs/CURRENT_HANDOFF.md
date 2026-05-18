@@ -78,7 +78,9 @@ and one for Claude stream-json plus the AutoCapture trace; when `--client` is
 provided, both generated commands include `--require-client`. The adoption
 verifier also supports `--require-client <label>` directly so cross-harness
 gates can assert that a Cursor/Windsurf run is not accidentally satisfied by
-Claude Code evidence.
+Claude Code evidence. With `--require-live-evidence`, `--session-id` now also
+requires session evidence; a sessionless wrapper transcript cannot satisfy a
+session-filtered live gate.
 
 ## Current Milestone
 

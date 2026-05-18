@@ -334,6 +334,12 @@ def build_adoption_validation_report(
         validation["status"] = "failed"
         evidence_report["session_mismatch"] = True
         evidence_report["session_ids"] = session_ids
+    if require_live_evidence and session_id_filter and not session_ids:
+        validation = dict(validation)
+        failures = list(validation.get("failures") or [])
+        failures.append("missing_live_harness_session")
+        validation["failures"] = failures
+        validation["status"] = "failed"
     if evidence_report["required"] and evidence_report["missing"]:
         validation = dict(validation)
         failures = list(validation.get("failures") or [])
@@ -417,6 +423,7 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         f"- Required client: `{report.get('evidence', {}).get('required_client')}`",
         f"- Captured at: `{report.get('evidence', {}).get('captured_at')}`",
         f"- Session ID: `{report.get('evidence', {}).get('session_id')}`",
+        f"- Session filter: `{report.get('evidence', {}).get('session_filter')}`",
         f"- Source: `{report.get('evidence', {}).get('source')}`",
         f"- Missing: `{report.get('evidence', {}).get('missing', [])}`",
     ]

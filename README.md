@@ -1140,7 +1140,9 @@ fail validation so an older auto-capture trace cannot satisfy a newer client
 run.
 
 If you want to validate against the cumulative hook trace without trimming it,
-filter by the current client session:
+filter by the current client session. When combined with
+`--require-live-evidence`, `--session-id` also requires the evidence to name
+that live session instead of accepting a sessionless transcript:
 
 ```bash
 engram adoption --authority claim-authority.json \

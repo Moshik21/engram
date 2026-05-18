@@ -968,6 +968,46 @@ def test_adoption_validation_report_rejects_wrong_live_client(
     assert "Client mismatch: `True`" in markdown
 
 
+def test_adoption_validation_report_requires_session_when_session_filter_is_live_gate(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "sessionless-live-transcript.json"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Cursor",
+                    "capturedAt": "2026-05-18T21:42:00Z",
+                    "source": "copied_mcp_log",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {"phase": "capture", "tool": "mcp__engram__remember"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+        session_id_filter="cursor-thread-1",
+    )
+    markdown = render_adoption_validation_markdown(report)
+
+    assert report["status"] == "failed"
+    assert report["evidence"]["session_filter"] == "cursor-thread-1"
+    assert report["evidence"]["session_id"] is None
+    assert "missing_live_harness_session" in report["validation"]["failures"]
+    assert "Session filter: `cursor-thread-1`" in markdown
+
+
 def test_adoption_validation_report_rejects_live_evidence_placeholders(
     tmp_path: Path,
 ) -> None:
