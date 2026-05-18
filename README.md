@@ -1092,6 +1092,10 @@ sequence. Replace placeholders with observed live client metadata and actual
 tool calls; placeholder `client` or `capturedAt` values do not satisfy
 `--require-live-evidence`.
 
+Claude Code `--output-format stream-json` logs can also be passed directly as
+`--calls`; Engram extracts Engram MCP tool-use events and infers live client,
+session, and timestamp metadata from the raw stream.
+
 ```json
 {
   "metadata": {

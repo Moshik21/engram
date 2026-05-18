@@ -462,6 +462,7 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
     except json.JSONDecodeError:
         try:
             calls = [json.loads(line) for line in text.splitlines() if line.strip()]
+            evidence = _extract_record_live_evidence(calls)
         except json.JSONDecodeError:
             calls = _parse_plaintext_calls(text)
             evidence = _extract_plaintext_live_evidence(text)
@@ -471,6 +472,7 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
             calls = payload.get("calls", payload.get("transcript"))
         else:
             calls = payload
+            evidence = _extract_record_live_evidence(calls)
     if not isinstance(calls, list):
         raise ValueError("calls payload must be a JSON array or JSONL records")
     return _normalize_calls_payload(calls), evidence
@@ -677,6 +679,30 @@ def _extract_json_live_evidence(payload: dict[str, Any]) -> dict[str, str]:
         if isinstance(nested, dict):
             evidence.update(_normalize_live_evidence(nested))
     evidence.update(_normalize_live_evidence(payload))
+    return evidence
+
+
+def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
+    """Infer live client metadata from structured transcript records."""
+    evidence: dict[str, str] = {}
+    saw_claude_stream = False
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("type") in {"system", "assistant", "user", "result"}:
+            saw_claude_stream = True
+        evidence.update(_normalize_live_evidence(record))
+        if not evidence.get("session_id") and isinstance(record.get("session_id"), str):
+            evidence["session_id"] = str(record["session_id"])
+        if not evidence.get("captured_at") and isinstance(record.get("timestamp"), str):
+            evidence["captured_at"] = str(record["timestamp"])
+        if not evidence.get("captured_at") and isinstance(record.get("capturedAt"), str):
+            evidence["captured_at"] = str(record["capturedAt"])
+
+    if saw_claude_stream:
+        evidence.setdefault("client", "Claude Code")
+        evidence.setdefault("source", "claude_stream_json")
     return evidence
 
 

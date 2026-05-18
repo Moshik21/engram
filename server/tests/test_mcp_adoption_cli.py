@@ -200,6 +200,85 @@ def test_adoption_validation_report_accepts_claude_stream_json_tool_use(
     assert report["validation"]["capture"]["observed_tools"] == ["remember"]
 
 
+def test_adoption_validation_report_extracts_claude_stream_json_live_evidence(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "claude-stream.jsonl"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "claude-session-123",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__claim_authority",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__bootstrap_project",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__get_context",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__recall",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__remember",
+                                    "input": {},
+                                },
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "timestamp": "2026-05-18T21:58:47.456Z",
+                        "message": {"content": []},
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+    )
+
+    assert report["status"] == "passed"
+    assert report["evidence"] == {
+        "required": True,
+        "client": "Claude Code",
+        "captured_at": "2026-05-18T21:58:47.456Z",
+        "session_id": "claude-session-123",
+        "source": "claude_stream_json",
+        "missing": [],
+    }
+
+
 def test_adoption_validation_report_accepts_plaintext_harness_notes(
     tmp_path: Path,
 ) -> None:

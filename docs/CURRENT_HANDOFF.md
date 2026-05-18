@@ -28,8 +28,12 @@ REST lifespan, answers Claude Code's plain `GET /mcp` discovery probe, and
 refcounts overlapping MCP lifespans so stateless HTTP probes cannot close shared
 stores mid-initialization. `curl` initialize and escalated `claude mcp list`
 both verify `engram: http://127.0.0.1:8100/mcp (HTTP) - Connected`; full
-Claude prompt-run adoption is still blocked until a logged-in Claude Code run
-can produce a real tool-call transcript.
+Claude prompt-run adoption has now been validated with a raw Claude Code
+`--output-format stream-json` transcript. The adoption verifier infers live
+client metadata from raw Claude stream records, and the raw
+`/private/tmp/engram-claude-live-raw.jsonl` run passed
+`engram adoption --require-live-evidence` with observed `claim_authority`,
+`get_context`, `recall`, and `remember`.
 
 ## Current Milestone
 

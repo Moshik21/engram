@@ -89,7 +89,15 @@ not yet doing its job.
   The verifier also normalizes common real MCP log shapes such as
   `mcp__engram__recall`, nested `tool` / `function` / `tool_call` records,
   `stage` as an alias for `phase`, and Claude Code `--output-format
-  stream-json` tool-use events. `claim_authority()` also exposes
+  stream-json` tool-use events. Raw Claude Code stream-json logs now also
+  satisfy `--require-live-evidence` directly by inferring `client`, `session_id`,
+  and `captured_at` from the live stream. A live Claude Code Sonnet prompt run
+  against `http://127.0.0.1:8100/mcp` produced
+  `/private/tmp/engram-claude-live-raw.jsonl`, and
+  `engram adoption --authority /private/tmp/engram-live-claim-authority.json
+  --calls /private/tmp/engram-claude-live-raw.jsonl --require-live-evidence
+  --format markdown` passed with observed `claim_authority`, `get_context`,
+  `recall`, and `remember`. `claim_authority()` also exposes
   `capture_required`, and its example transcript omits capture records when the
   protocol routes content to project-local scratch. The helper also preserves the previous
   failure-swallowing shutdown behavior by logging failed shutdown cycles, and
