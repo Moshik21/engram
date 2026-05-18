@@ -9,7 +9,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from engram.retrieval.memory_authority import validate_agent_protocol_calls
+from engram.retrieval.memory_authority import (
+    ENGRAM_CAPTURE_TOOLS,
+    validate_agent_protocol_calls,
+)
 
 _PHASE_VALUES = frozenset({"before_answer", "capture"})
 _PHASE_ALIASES = {
@@ -470,7 +473,60 @@ def _load_calls_bundle_text(text: str) -> tuple[list[dict[str, Any]], dict[str, 
             calls = payload
     if not isinstance(calls, list):
         raise ValueError("calls payload must be a JSON array or JSONL records")
-    return [_normalize_call(call) for call in calls], evidence
+    return _normalize_calls_payload(calls), evidence
+
+
+def _normalize_calls_payload(calls: list[Any]) -> list[dict[str, Any]]:
+    try:
+        return [_normalize_call(call) for call in calls]
+    except ValueError as exc:
+        stream_calls = _parse_claude_stream_json_calls(calls)
+        if stream_calls:
+            return [_normalize_call(call) for call in stream_calls]
+        raise exc
+
+
+def _parse_claude_stream_json_calls(records: list[Any]) -> list[dict[str, Any]]:
+    """Extract Engram tool calls from Claude Code `--output-format stream-json`.
+
+    Claude stream JSON is an event log, not a compact call transcript. Tool-use
+    blocks do not include Engram's adoption phases, so capture tools are mapped
+    to `capture` and other Engram tools are mapped to `before_answer`.
+    """
+    calls: list[dict[str, Any]] = []
+    saw_claude_stream_shape = False
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("type") in {"system", "assistant", "user", "result"}:
+            saw_claude_stream_shape = True
+        message = record.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            tool_name = _extract_tool_name(block)
+            if not tool_name:
+                continue
+            normalized_tool = _normalize_tool_name(tool_name)
+            if not _is_engram_tool_name(tool_name, normalized_tool):
+                continue
+            calls.append(
+                {
+                    "phase": (
+                        "capture"
+                        if normalized_tool in ENGRAM_CAPTURE_TOOLS
+                        else "before_answer"
+                    ),
+                    "tool": normalized_tool,
+                    "source": "claude_stream_json",
+                }
+            )
+    return calls if saw_claude_stream_shape else []
 
 
 def _parse_plaintext_calls(text: str) -> list[dict[str, str]]:
@@ -712,6 +768,24 @@ def _normalize_tool_name(tool_name: str) -> str:
         if separator in normalized:
             normalized = normalized.split(separator)[-1]
     return normalized
+
+
+def _is_engram_tool_name(raw_tool_name: str, normalized_tool_name: str) -> bool:
+    raw = raw_tool_name.strip()
+    return (
+        raw.startswith("mcp__engram__")
+        or raw.startswith("engram.")
+        or raw.startswith("engram/")
+        or normalized_tool_name
+        in {
+            "claim_authority",
+            "bootstrap_project",
+            "get_context",
+            "recall",
+            "observe",
+            "remember",
+        }
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

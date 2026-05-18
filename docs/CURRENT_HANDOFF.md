@@ -1976,7 +1976,10 @@ What changed in this pass:
   normalizes prefixed tool names such as `mcp__engram__recall`, nested `tool`,
   `function`, `tool_call`, and `toolCall` records, and `stage` as an alias for
   `phase`, while keeping the actual required phase/tool contract unchanged. It
-  also accepts explicit plaintext/Markdown harness notes with
+  also accepts Claude Code `--output-format stream-json` logs directly by
+  extracting Engram `tool_use` blocks, mapping `observe`/`remember` to
+  `capture`, and mapping the other Engram tools to `before_answer`. It also
+  accepts explicit plaintext/Markdown harness notes with
   `before_answer`/`capture` headings plus common `Before answer`/`pre-answer`
   aliases and Engram tool lines, so copied Claude, Cursor, or Windsurf session
   notes can be checked without hand-converting them to JSON first. Malformed
@@ -7439,9 +7442,13 @@ visibility work treated as done:
    a current live Claude, Cursor, Windsurf, or similar harness transcript and
    use any failures to tighten harness-specific instructions. The verifier
    already handles common prefixed MCP tool names, nested log-record shapes,
-   explicit plaintext/Markdown notes, stdin transcript input, placeholder
-   metadata rejection, and copied chat admissions where the agent says it
-   ignored Engram in favor of file-local memory.
+   Claude Code stream-json tool-use logs, explicit plaintext/Markdown notes,
+   stdin transcript input, placeholder metadata rejection, and copied chat
+   admissions where the agent says it ignored Engram in favor of file-local
+   memory. A local Claude Code 2.1.143 print-mode attempt was made with a strict
+   disposable Engram stdio MCP config, but Claude returned `Not logged in -
+   Please run /login`; rerun after `claude /login` or with another authenticated
+   harness.
 7. Keep the P3 evaluation loop focused on real evidence and persistence paths,
    not duplicate display work. Cue usefulness, projection yield, projection backlog,
    projection freshness/latency, recall gate latency, recall gate-control

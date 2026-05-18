@@ -1118,8 +1118,11 @@ file-local memory as a substitute for Engram, missed required capture, or wrote
 to Engram when the protocol said the content was project-local scratch. It also
 normalizes common MCP log shapes, including prefixed tool names such as
 `mcp__engram__recall`, nested `tool` / `function` records, and `stage` as an
-alias for `phase`. For copied real-harness notes, the same verifier also accepts
-plain text or Markdown with explicit `before_answer` / `capture` headings
+alias for `phase`. Claude Code `--output-format stream-json` logs are accepted
+directly; Engram capture tools (`observe`, `remember`) are mapped to the
+`capture` phase and other Engram tool-use blocks are mapped to `before_answer`.
+For copied real-harness notes, the same verifier also accepts plain text or
+Markdown with explicit `before_answer` / `capture` headings
 (`Before answer` and `pre-answer` also normalize to `before_answer`) and Engram
 tool lines, such as:
 

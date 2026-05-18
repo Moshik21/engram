@@ -116,6 +116,90 @@ def test_adoption_validation_report_normalizes_real_mcp_log_shapes(
     assert report["validation"]["capture"]["observed_tools"] == ["remember"]
 
 
+def test_adoption_validation_report_accepts_claude_stream_json_tool_use(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "claude-stream.jsonl"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "claude-session-123",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__claim_authority",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__bootstrap_project",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__get_context",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__recall",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__remember",
+                                    "input": {},
+                                },
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "{\"adoption_protocol_followed\": true}",
+                                }
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+    )
+
+    assert report["status"] == "passed"
+    assert report["callCount"] == 5
+    assert report["validation"]["required_tools_before_answer"]["observed"] == [
+        "claim_authority",
+        "bootstrap_project",
+        "get_context",
+        "recall",
+    ]
+    assert report["validation"]["capture"]["observed_tools"] == ["remember"]
+
+
 def test_adoption_validation_report_accepts_plaintext_harness_notes(
     tmp_path: Path,
 ) -> None:

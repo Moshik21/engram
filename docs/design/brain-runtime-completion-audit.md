@@ -87,8 +87,9 @@ not yet doing its job.
   operators can collect actual Claude/Cursor/Windsurf logs without hand-shaping
   the transcript.
   The verifier also normalizes common real MCP log shapes such as
-  `mcp__engram__recall`, nested `tool` / `function` / `tool_call` records, and
-  `stage` as an alias for `phase`. `claim_authority()` also exposes
+  `mcp__engram__recall`, nested `tool` / `function` / `tool_call` records,
+  `stage` as an alias for `phase`, and Claude Code `--output-format
+  stream-json` tool-use events. `claim_authority()` also exposes
   `capture_required`, and its example transcript omits capture records when the
   protocol routes content to project-local scratch. The helper also preserves the previous
   failure-swallowing shutdown behavior by logging failed shutdown cycles, and
@@ -649,7 +650,9 @@ not yet doing its job.
    placeholder rejection, and copied Claude failure regression now cover the
    known file-memory bypass failure mode and prevent a bare handcrafted JSONL
    transcript or untouched template from standing in for live client evidence.
-   Completion still needs a current live Claude, Cursor,
+   A local Claude Code 2.1.143 print-mode attempt was blocked by auth
+   (`Not logged in - Please run /login`), so the next live check needs a logged-in
+   Claude session. Completion still needs a current live Claude, Cursor,
    Windsurf, or similar harness transcript that follows the protocol, or a
    concrete harness-specific failure with instructions tightened from that
    evidence.
