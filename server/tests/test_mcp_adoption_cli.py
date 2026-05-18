@@ -3,8 +3,13 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import pytest
 
 from engram.mcp.adoption_cli import (
     build_adoption_validation_report,
@@ -12,6 +17,7 @@ from engram.mcp.adoption_cli import (
     render_adoption_validation_markdown,
     run_adoption_command,
 )
+from engram.setup import install_hooks
 
 
 def test_adoption_validation_report_accepts_followed_jsonl_transcript(tmp_path: Path) -> None:
@@ -686,6 +692,155 @@ def test_adoption_command_filters_cumulative_trace_by_session(
     assert payload["evidence"]["session_filter"] == "current-session"
     assert payload["evidence"]["session_id"] == "current-session"
     assert payload["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+
+
+def test_generated_prompt_hook_trace_validates_with_session_filtered_stream(
+    tmp_path: Path,
+) -> None:
+    """Generated hooks should emit trace JSONL that adoption validation consumes."""
+
+    posted_payloads: list[dict[str, object]] = []
+
+    class AutoObserveHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length)
+            posted_payloads.append(
+                {
+                    "path": self.path,
+                    "body": json.loads(raw_body.decode("utf-8")),
+                }
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+
+        def log_message(self, _format: str, *args: object) -> None:
+            return
+
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), AutoObserveHandler)
+    except OSError as exc:
+        pytest.skip(f"local auto-observe test server unavailable: {exc}")
+
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        hooks_dir = tmp_path / "hooks"
+        settings_path = tmp_path / "settings.json"
+        trace_path = tmp_path / "adoption-trace.jsonl"
+        authority_path = tmp_path / "claim-authority.json"
+        stream_path = tmp_path / "claude-stream.jsonl"
+
+        install_hooks(hooks_dir=hooks_dir, settings_path=settings_path)
+        prompt_script = hooks_dir / "capture-prompt.sh"
+        protocol = _protocol()
+        protocol["capture"] = {"destination": "engram", "tool": "observe"}
+        authority_path.write_text(
+            json.dumps({"agent_protocol": protocol}),
+            encoding="utf-8",
+        )
+        stream_path.write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "type": "system",
+                            "subtype": "init",
+                            "session_id": "live-session-1",
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "type": "assistant",
+                            "message": {
+                                "content": [
+                                    {
+                                        "type": "tool_use",
+                                        "name": "mcp__engram__bootstrap_project",
+                                        "input": {},
+                                    },
+                                    {
+                                        "type": "tool_use",
+                                        "name": "mcp__engram__get_context",
+                                        "input": {},
+                                    },
+                                    {
+                                        "type": "tool_use",
+                                        "name": "mcp__engram__recall",
+                                        "input": {},
+                                    },
+                                ]
+                            },
+                        }
+                    ),
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        hook_input = {
+            "prompt": "Please remember that Engram should be cross-context memory.",
+            "cwd": "/Users/konnermoshier/Engram",
+            "session_id": "live-session-1",
+        }
+        result = subprocess.run(
+            [str(prompt_script)],
+            input=json.dumps(hook_input),
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                "ENGRAM_URL": f"http://127.0.0.1:{server.server_address[1]}",
+                "ENGRAM_ADOPTION_TRACE_FILE": str(trace_path),
+                "HOME": str(tmp_path),
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            },
+            timeout=10,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert posted_payloads == [
+            {
+                "path": "/api/knowledge/auto-observe",
+                "body": {
+                    "content": (
+                        "[user|Engram] Please remember that Engram should be "
+                        "cross-context memory."
+                    ),
+                    "source": "auto:prompt",
+                    "project": "Engram",
+                    "role": "user",
+                    "session_id": "live-session-1",
+                },
+            }
+        ]
+
+        trace_record = json.loads(trace_path.read_text(encoding="utf-8"))
+        assert trace_record["phase"] == "capture"
+        assert trace_record["tool"] == "auto_observe"
+        assert trace_record["source"] == "rest_hook_prompt"
+        assert trace_record["client"] == "Claude Code"
+        assert trace_record["session_id"] == "live-session-1"
+        assert trace_record["capturedAt"].endswith("Z")
+
+        report = build_adoption_validation_report(
+            authority_path=authority_path,
+            calls_path=[stream_path, trace_path],
+            require_live_evidence=True,
+            session_id_filter="live-session-1",
+        )
+
+        assert report["status"] == "passed"
+        assert report["callCount"] == 4
+        assert report["evidence"]["session_filter"] == "live-session-1"
+        assert report["evidence"]["session_id"] == "live-session-1"
+        assert report["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
 
 
 def test_adoption_validation_report_accepts_live_evidence_metadata(
