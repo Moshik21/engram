@@ -1133,6 +1133,10 @@ engram adoption --authority claim-authority.json \
   --require-live-evidence
 ```
 
+When live evidence is required, transcripts with conflicting session/thread IDs
+fail validation so an older auto-capture trace cannot satisfy a newer client
+run.
+
 The command fails if the client skipped required pre-answer tools, used
 file-local memory as a substitute for Engram, missed required capture, or wrote
 to Engram when the protocol said the content was project-local scratch. It also

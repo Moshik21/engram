@@ -264,6 +264,15 @@ def build_adoption_validation_report(
         evidence,
         require_live_evidence=require_live_evidence,
     )
+    session_ids = _live_evidence_session_ids(evidence)
+    if require_live_evidence and len(session_ids) > 1:
+        validation = dict(validation)
+        failures = list(validation.get("failures") or [])
+        failures.append("inconsistent_live_harness_session")
+        validation["failures"] = failures
+        validation["status"] = "failed"
+        evidence_report["session_mismatch"] = True
+        evidence_report["session_ids"] = session_ids
     if evidence_report["required"] and evidence_report["missing"]:
         validation = dict(validation)
         failures = list(validation.get("failures") or [])
@@ -342,24 +351,31 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         f"- Session ID: `{report.get('evidence', {}).get('session_id')}`",
         f"- Source: `{report.get('evidence', {}).get('source')}`",
         f"- Missing: `{report.get('evidence', {}).get('missing', [])}`",
-        "",
-        "## Required Before-Answer Tools",
-        f"- Expected: `{validation['required_tools_before_answer']['expected']}`",
-        f"- Observed: `{validation['required_tools_before_answer']['observed']}`",
-        f"- Missing: `{validation['required_tools_before_answer']['missing']}`",
-        f"- In order: `{validation['required_tools_before_answer']['in_order']}`",
-        "",
-        "## Capture",
-        f"- Destination: `{validation['capture']['destination']}`",
-        f"- Expected tool: `{validation['capture']['expected_tool']}`",
-        f"- Observed tools: `{validation['capture']['observed_tools']}`",
-        f"- Missing: `{validation['capture']['missing']}`",
-        "",
-        "## File Memory",
-        f"- Present: `{validation['file_memory']['present']}`",
-        f"- Observed tools: `{validation['file_memory']['observed_tools']}`",
-        f"- Substituted for Engram: `{validation['file_memory']['substituted_for_engram']}`",
     ]
+    if report.get("evidence", {}).get("session_mismatch"):
+        lines.append(f"- Session IDs: `{report.get('evidence', {}).get('session_ids', [])}`")
+        lines.append("- Session mismatch: `True`")
+    lines.extend(
+        [
+            "",
+            "## Required Before-Answer Tools",
+            f"- Expected: `{validation['required_tools_before_answer']['expected']}`",
+            f"- Observed: `{validation['required_tools_before_answer']['observed']}`",
+            f"- Missing: `{validation['required_tools_before_answer']['missing']}`",
+            f"- In order: `{validation['required_tools_before_answer']['in_order']}`",
+            "",
+            "## Capture",
+            f"- Destination: `{validation['capture']['destination']}`",
+            f"- Expected tool: `{validation['capture']['expected_tool']}`",
+            f"- Observed tools: `{validation['capture']['observed_tools']}`",
+            f"- Missing: `{validation['capture']['missing']}`",
+            "",
+            "## File Memory",
+            f"- Present: `{validation['file_memory']['present']}`",
+            f"- Observed tools: `{validation['file_memory']['observed_tools']}`",
+            f"- Substituted for Engram: `{validation['file_memory']['substituted_for_engram']}`",
+        ]
+    )
     if validation["failures"]:
         lines.extend(["", "## Failures"])
         lines.extend(f"- `{failure}`" for failure in validation["failures"])
@@ -548,8 +564,13 @@ def _merge_live_evidence(
     for key, value in incoming.items():
         if not value:
             continue
-        if key == "source" and merged.get(key) and value not in merged[key].split(","):
-            merged[key] = f"{merged[key]},{value}"
+        if key in {"source", "_session_ids"} and merged.get(key):
+            merged_values = [item for item in merged[key].split(",") if item]
+            incoming_values = [item for item in value.split(",") if item]
+            for item in incoming_values:
+                if item not in merged_values:
+                    merged_values.append(item)
+            merged[key] = ",".join(merged_values)
         elif not merged.get(key) or _looks_like_placeholder(merged.get(key)):
             merged[key] = value
     return merged
@@ -731,6 +752,22 @@ def _build_live_evidence_report(
     }
 
 
+def _live_evidence_session_ids(evidence: dict[str, str]) -> list[str]:
+    values: list[str] = []
+    for raw in (evidence.get("_session_ids"), evidence.get("session_id")):
+        if not raw:
+            continue
+        for value in raw.split(","):
+            session_id = value.strip()
+            if (
+                session_id
+                and not _looks_like_placeholder(session_id)
+                and session_id not in values
+            ):
+                values.append(session_id)
+    return values
+
+
 def _looks_like_placeholder(value: str | None) -> bool:
     if value is None:
         return True
@@ -758,12 +795,15 @@ def _extract_json_live_evidence(payload: dict[str, Any]) -> dict[str, str]:
         if isinstance(nested, dict):
             evidence.update(_normalize_live_evidence(nested))
     evidence.update(_normalize_live_evidence(payload))
+    if evidence.get("session_id"):
+        evidence["_session_ids"] = evidence["session_id"]
     return evidence
 
 
 def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
     """Infer live client metadata from structured transcript records."""
     evidence: dict[str, str] = {}
+    session_ids: list[str] = []
     saw_claude_stream = False
 
     for record in records:
@@ -771,9 +811,17 @@ def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
             continue
         if record.get("type") in {"system", "assistant", "user", "result"}:
             saw_claude_stream = True
-        evidence.update(_normalize_live_evidence(record))
+        record_evidence = _normalize_live_evidence(record)
+        record_session_id = record_evidence.get("session_id")
+        if record_session_id and record_session_id not in session_ids:
+            session_ids.append(record_session_id)
+        evidence = _merge_live_evidence(evidence, record_evidence)
         if not evidence.get("session_id") and isinstance(record.get("session_id"), str):
             evidence["session_id"] = str(record["session_id"])
+        if isinstance(record.get("session_id"), str):
+            session_id = str(record["session_id"])
+            if session_id not in session_ids:
+                session_ids.append(session_id)
         if not evidence.get("captured_at") and isinstance(record.get("timestamp"), str):
             evidence["captured_at"] = str(record["timestamp"])
         if not evidence.get("captured_at") and isinstance(record.get("capturedAt"), str):
@@ -782,6 +830,8 @@ def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
     if saw_claude_stream:
         evidence.setdefault("client", "Claude Code")
         evidence.setdefault("source", "claude_stream_json")
+    if session_ids:
+        evidence["_session_ids"] = ",".join(session_ids)
     return evidence
 
 
@@ -794,6 +844,8 @@ def _extract_plaintext_live_evidence(text: str) -> dict[str, str]:
         key = _normalize_live_evidence_key(match.group(1))
         if key:
             evidence[key] = match.group(2).strip().strip("`")
+    if evidence.get("session_id"):
+        evidence["_session_ids"] = evidence["session_id"]
     return evidence
 
 

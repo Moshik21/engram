@@ -513,6 +513,86 @@ def test_adoption_command_merges_stream_and_hook_trace_files(
     assert payload["validation"]["capture"]["observed_tools"] == ["auto_observe"]
 
 
+def test_adoption_command_rejects_mismatched_live_session_evidence(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    stream_path = tmp_path / "claude-stream.jsonl"
+    trace_path = tmp_path / "stale-adoption-trace.jsonl"
+    protocol = _protocol()
+    protocol["capture"] = {"destination": "engram", "tool": "observe"}
+    authority_path.write_text(json.dumps({"agent_protocol": protocol}), encoding="utf-8")
+    stream_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "current-session",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__bootstrap_project",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__get_context",
+                                    "input": {},
+                                },
+                                {
+                                    "type": "tool_use",
+                                    "name": "mcp__engram__recall",
+                                    "input": {},
+                                },
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    trace_path.write_text(
+        json.dumps(
+            {
+                "phase": "capture",
+                "tool": "auto_observe",
+                "client": "Claude Code",
+                "capturedAt": "2026-05-18T23:24:00Z",
+                "session_id": "stale-session",
+                "source": "rest_hook_prompt",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    code = run_adoption_command(
+        argparse.Namespace(
+            authority=authority_path,
+            calls=[stream_path, trace_path],
+            format="json",
+            require_live_evidence=True,
+        )
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "failed"
+    assert payload["evidence"]["session_mismatch"] is True
+    assert payload["evidence"]["session_ids"] == ["current-session", "stale-session"]
+    assert "inconsistent_live_harness_session" in payload["validation"]["failures"]
+
+
 def test_adoption_validation_report_accepts_live_evidence_metadata(
     tmp_path: Path,
 ) -> None:
