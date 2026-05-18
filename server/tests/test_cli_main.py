@@ -183,6 +183,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
                 "template": args.template,
                 "format": args.format,
                 "require_live_evidence": args.require_live_evidence,
+                "require_client": args.require_client,
             }
         )
         return 0
@@ -197,6 +198,8 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
             "--calls",
             str(calls_path),
             "--require-live-evidence",
+            "--require-client",
+            "Cursor",
             "--format",
             "markdown",
         ],
@@ -218,6 +221,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
             "template": False,
             "format": "markdown",
             "require_live_evidence": True,
+            "require_client": "Cursor",
         }
     ]
 

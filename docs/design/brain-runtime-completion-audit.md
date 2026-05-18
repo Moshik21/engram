@@ -679,10 +679,11 @@ not yet doing its job.
    HTTP MCP endpoint passed `engram adoption --require-live-evidence` with
    observed `claim_authority`, `get_context`, `recall`, and `remember`.
    AutoCapture hook generation now writes adoption traces that the verifier can
-   merge with Claude stream-json logs, filter by session id, and reject when
-   stale trace records conflict with the current client session. The remaining
-   adoption hardening is broader client diversity: repeat the same verifier
-   against Cursor, Windsurf, or another MCP harness before treating cross-harness
+   merge with Claude stream-json logs, filter by session id, reject when stale
+   trace records conflict with the current client session, and assert the
+   expected live client label with `--require-client`. The remaining adoption
+   hardening is broader client diversity: repeat the same verifier against
+   Cursor, Windsurf, or another MCP harness before treating cross-harness
    adoption as release-complete.
 
 5. Evaluation confidence (blocking):
@@ -741,10 +742,11 @@ treating it as the main completion blocker. The next goal-critical work is:
 
 1. If another live harness is available, run the same adoption verifier against
    Cursor, Windsurf, or a second MCP client using `claim_authority()` and
-   `engram adoption --require-live-evidence`. Capture whether the client
-   bootstraps empty Engram state, recalls before answering, routes durable
-   cross-context facts into Engram, and treats project-local files as
-   scratch/conventions instead of a reason to bypass Engram.
+   `engram adoption --require-live-evidence --require-client <client>`.
+   Capture whether the client bootstraps empty Engram state, recalls before
+   answering, routes durable cross-context facts into Engram, and treats
+   project-local files as scratch/conventions instead of a reason to bypass
+   Engram.
 2. If the project wants a release gate beyond the local deterministic milestone,
    add a separate real/labeled harness-data gate. The current local benchmark
    bundle is `/private/tmp/engram-brain-loop-evidence-full-20260518.json` and

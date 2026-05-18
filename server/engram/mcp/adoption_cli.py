@@ -139,6 +139,14 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
             "(client/harness and captured_at/timestamp)."
         ),
     )
+    parser.add_argument(
+        "--require-client",
+        default=None,
+        help=(
+            "Fail unless live evidence names this client label, case-insensitive. "
+            "Use with --require-live-evidence for cross-harness release gates."
+        ),
+    )
 
 
 def run_adoption_command(args: argparse.Namespace) -> int:
@@ -192,6 +200,7 @@ def run_adoption_command(args: argparse.Namespace) -> int:
         calls_text=calls_text,
         require_live_evidence=getattr(args, "require_live_evidence", False),
         session_id_filter=getattr(args, "session_id", None),
+        required_client=getattr(args, "require_client", None),
     )
     if output_format == "markdown":
         print(render_adoption_validation_markdown(report))
@@ -265,6 +274,7 @@ def build_adoption_validation_report(
     calls_text: str | None = None,
     require_live_evidence: bool = False,
     session_id_filter: str | None = None,
+    required_client: str | None = None,
 ) -> dict[str, Any]:
     """Build a validation report for a saved claim_authority payload and calls."""
     try:
@@ -299,6 +309,7 @@ def build_adoption_validation_report(
     evidence_report = _build_live_evidence_report(
         evidence,
         require_live_evidence=require_live_evidence,
+        required_client=required_client,
     )
     if session_id_filter:
         evidence_report["session_filter"] = session_id_filter
@@ -315,6 +326,12 @@ def build_adoption_validation_report(
         validation = dict(validation)
         failures = list(validation.get("failures") or [])
         failures.append("missing_live_harness_evidence")
+        validation["failures"] = failures
+        validation["status"] = "failed"
+    if evidence_report.get("client_mismatch"):
+        validation = dict(validation)
+        failures = list(validation.get("failures") or [])
+        failures.append("live_harness_client_mismatch")
         validation["failures"] = failures
         validation["status"] = "failed"
     return {
@@ -385,11 +402,14 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         "## Live Harness Evidence",
         f"- Required: `{report.get('evidence', {}).get('required', False)}`",
         f"- Client: `{report.get('evidence', {}).get('client')}`",
+        f"- Required client: `{report.get('evidence', {}).get('required_client')}`",
         f"- Captured at: `{report.get('evidence', {}).get('captured_at')}`",
         f"- Session ID: `{report.get('evidence', {}).get('session_id')}`",
         f"- Source: `{report.get('evidence', {}).get('source')}`",
         f"- Missing: `{report.get('evidence', {}).get('missing', [])}`",
     ]
+    if report.get("evidence", {}).get("client_mismatch"):
+        lines.append("- Client mismatch: `True`")
     if report.get("evidence", {}).get("session_mismatch"):
         lines.append(f"- Session IDs: `{report.get('evidence', {}).get('session_ids', [])}`")
         lines.append("- Session mismatch: `True`")
@@ -873,13 +893,14 @@ def _build_live_evidence_report(
     evidence: dict[str, str],
     *,
     require_live_evidence: bool,
+    required_client: str | None = None,
 ) -> dict[str, Any]:
     missing = [
         field
         for field in _LIVE_EVIDENCE_REQUIRED_FIELDS
         if not evidence.get(field) or _looks_like_placeholder(evidence.get(field))
     ]
-    return {
+    report: dict[str, Any] = {
         "required": require_live_evidence,
         "client": evidence.get("client"),
         "captured_at": evidence.get("captured_at"),
@@ -887,6 +908,25 @@ def _build_live_evidence_report(
         "source": evidence.get("source"),
         "missing": missing if require_live_evidence else [],
     }
+    if required_client:
+        report["required_client"] = required_client.strip()
+        report["client_mismatch"] = not _client_matches_required(
+            evidence.get("client"),
+            required_client,
+        )
+    return report
+
+
+def _client_matches_required(observed_client: str | None, required_client: str) -> bool:
+    if _looks_like_placeholder(observed_client):
+        return False
+    return _normalize_client_label(observed_client) == _normalize_client_label(
+        required_client
+    )
+
+
+def _normalize_client_label(value: str | None) -> str:
+    return " ".join((value or "").strip().lower().split())
 
 
 def _live_evidence_session_ids(evidence: dict[str, str]) -> list[str]:

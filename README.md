@@ -1148,6 +1148,10 @@ engram adoption --authority claim-authority.json \
   --require-live-evidence
 ```
 
+For cross-harness checks, add `--require-client Cursor` (or the expected
+client label) so a Claude Code trace cannot accidentally satisfy a Cursor or
+Windsurf gate.
+
 The command fails if the client skipped required pre-answer tools, used
 file-local memory as a substitute for Engram, missed required capture, or wrote
 to Engram when the protocol said the content was project-local scratch. It also

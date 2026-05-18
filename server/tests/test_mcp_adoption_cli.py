@@ -887,6 +887,87 @@ def test_adoption_validation_report_accepts_live_evidence_metadata(
     assert report["validation"]["failures"] == []
 
 
+def test_adoption_validation_report_accepts_required_client_case_insensitive(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "cursor-live-transcript.json"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Cursor",
+                    "capturedAt": "2026-05-18T21:42:00Z",
+                    "sessionId": "cursor-thread-1",
+                    "source": "copied_mcp_log",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {"phase": "capture", "tool": "mcp__engram__remember"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+        required_client="cursor",
+    )
+
+    assert report["status"] == "passed"
+    assert report["evidence"]["required_client"] == "cursor"
+    assert report["evidence"]["client_mismatch"] is False
+    assert report["validation"]["failures"] == []
+
+
+def test_adoption_validation_report_rejects_wrong_live_client(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "claude-live-transcript.json"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Claude Code",
+                    "capturedAt": "2026-05-18T21:42:00Z",
+                    "sessionId": "claude-session-123",
+                    "source": "copied_mcp_log",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {"phase": "capture", "tool": "mcp__engram__remember"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+        required_client="Cursor",
+    )
+    markdown = render_adoption_validation_markdown(report)
+
+    assert report["status"] == "failed"
+    assert report["evidence"]["required_client"] == "Cursor"
+    assert report["evidence"]["client_mismatch"] is True
+    assert "live_harness_client_mismatch" in report["validation"]["failures"]
+    assert "Required client: `Cursor`" in markdown
+    assert "Client mismatch: `True`" in markdown
+
+
 def test_adoption_validation_report_rejects_live_evidence_placeholders(
     tmp_path: Path,
 ) -> None:
