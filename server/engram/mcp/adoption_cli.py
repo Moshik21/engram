@@ -211,6 +211,7 @@ def build_live_adoption_transcript_template(
     """Build a live-harness transcript template from a claim_authority payload."""
     authority_payload = _load_json(authority_path)
     protocol = _extract_protocol(authority_payload)
+    validation_commands = _template_validation_commands(session_id=session_id)
     return {
         "metadata": {
             "client": client or "<Claude Code | Cursor | Windsurf | other MCP client>",
@@ -219,16 +220,42 @@ def build_live_adoption_transcript_template(
             "source": source or "copied_mcp_log",
         },
         "calls": _protocol_example_calls(protocol),
+        "validation_commands": validation_commands,
         "instructions": [
             "Run the real MCP client after saving the matching claim_authority response.",
             "Replace metadata placeholders with observed live client metadata.",
             "Replace or confirm calls with the actual Engram tool calls from the client log.",
             (
-                "Validate with engram adoption --authority claim-authority.json "
-                "--calls live-harness-transcript.json --require-live-evidence."
+                "Validate a single wrapper transcript with "
+                f"{validation_commands[0]['command']}."
+            ),
+            (
+                "Validate Claude stream-json plus AutoCapture hooks with "
+                f"{validation_commands[1]['command']}."
             ),
         ],
     }
+
+
+def _template_validation_commands(*, session_id: str | None) -> list[dict[str, str]]:
+    session = session_id or "<client-session-id>"
+    return [
+        {
+            "label": "single_transcript",
+            "command": (
+                "engram adoption --authority claim-authority.json "
+                "--calls live-harness-transcript.json --require-live-evidence"
+            ),
+        },
+        {
+            "label": "claude_stream_with_autocapture_trace",
+            "command": (
+                "engram adoption --authority claim-authority.json "
+                "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
+                f"--session-id {session} --require-live-evidence"
+            ),
+        },
+    ]
 
 
 def build_adoption_validation_report(
@@ -399,6 +426,7 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
     """Render a live-harness transcript template for operators."""
     metadata = template.get("metadata") or {}
     calls = template.get("calls") or []
+    validation_commands = template.get("validation_commands") or []
     lines = [
         "# Engram Live Adoption Transcript Template",
         "",
@@ -418,10 +446,23 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
         [
             "",
             "## Validate",
-            (
-                "`engram adoption --authority claim-authority.json --calls "
-                "live-harness-transcript.json --require-live-evidence`"
-            ),
+        ]
+    )
+    if validation_commands:
+        for command in validation_commands:
+            if not isinstance(command, dict):
+                continue
+            label = command.get("label") or "command"
+            value = command.get("command")
+            if value:
+                lines.append(f"- {label}: `{value}`")
+    else:
+        lines.append(
+            "`engram adoption --authority claim-authority.json --calls "
+            "live-harness-transcript.json --require-live-evidence`"
+        )
+    lines.extend(
+        [
             "",
             "Replace placeholders with observed live client metadata and actual tool calls.",
         ]

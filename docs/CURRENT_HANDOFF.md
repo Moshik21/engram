@@ -71,7 +71,10 @@ actual trace file with a matching Claude stream-json transcript, so hook
 generation, REST capture evidence, multi-file transcript merging, and
 session-filtered adoption validation are covered together. The interactive
 `engram hooks` output now prints the matching live-evidence verifier command,
-including the default hook trace path and `--session-id` filter.
+including the default hook trace path and `--session-id` filter. The
+`engram adoption --template` JSON/Markdown output now carries the same
+validation-command guidance: one command for a single live wrapper transcript
+and one for Claude stream-json plus the AutoCapture trace.
 
 ## Current Milestone
 

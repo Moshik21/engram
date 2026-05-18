@@ -1093,10 +1093,11 @@ actual `claim_authority()` protocol before running the client, use:
 engram adoption --authority claim-authority.json --template --format markdown
 ```
 
-The generated template includes placeholder metadata and the expected call
-sequence. Replace placeholders with observed live client metadata and actual
-tool calls; placeholder `client` or `capturedAt` values do not satisfy
-`--require-live-evidence`.
+The generated template includes placeholder metadata, the expected call
+sequence, and validation commands for both a single transcript wrapper and the
+Claude stream-json plus AutoCapture trace path. Replace placeholders with
+observed live client metadata and actual tool calls; placeholder `client` or
+`capturedAt` values do not satisfy `--require-live-evidence`.
 
 Claude Code `--output-format stream-json` logs can also be passed directly as
 `--calls`; Engram extracts Engram MCP tool-use events and infers live client,

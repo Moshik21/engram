@@ -1022,7 +1022,24 @@ def test_live_adoption_template_uses_authority_protocol_example(
         {"phase": "before_answer", "tool": "get_context"},
         {"phase": "capture", "tool": "remember"},
     ]
-    assert "require-live-evidence" in template["instructions"][-1]
+    assert template["validation_commands"] == [
+        {
+            "label": "single_transcript",
+            "command": (
+                "engram adoption --authority claim-authority.json "
+                "--calls live-harness-transcript.json --require-live-evidence"
+            ),
+        },
+        {
+            "label": "claude_stream_with_autocapture_trace",
+            "command": (
+                "engram adoption --authority claim-authority.json "
+                "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
+                "--session-id claude-thread-1 --require-live-evidence"
+            ),
+        },
+    ]
+    assert "AutoCapture hooks" in template["instructions"][-1]
 
 
 def test_adoption_template_command_outputs_markdown(
@@ -1051,7 +1068,9 @@ def test_adoption_template_command_outputs_markdown(
     assert "# Engram Live Adoption Transcript Template" in markdown
     assert "Client: `Cursor`" in markdown
     assert "`before_answer`: `bootstrap_project`" in markdown
-    assert "require-live-evidence" in markdown
+    assert "--calls live-harness-transcript.json --require-live-evidence" in markdown
+    assert "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl" in markdown
+    assert "--session-id cursor-thread-4 --require-live-evidence" in markdown
 
 
 def test_adoption_command_returns_nonzero_for_failed_validation(
