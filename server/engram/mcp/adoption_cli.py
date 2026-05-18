@@ -352,7 +352,7 @@ def build_adoption_validation_report(
         failures.append("live_harness_client_mismatch")
         validation["failures"] = failures
         validation["status"] = "failed"
-    return {
+    report = {
         "status": validation["status"],
         "authorityPath": str(authority_path),
         "callsPath": _calls_path_label(calls_path),
@@ -360,6 +360,8 @@ def build_adoption_validation_report(
         "evidence": evidence_report,
         "validation": validation,
     }
+    report["release_evidence"] = _build_release_evidence_guidance(report)
+    return report
 
 
 def _build_adoption_error_report(
@@ -458,6 +460,46 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         lines.extend(f"- `{failure}`" for failure in validation["failures"])
     if validation.get("error"):
         lines.extend(["", "## Error", validation["error"]])
+    release_evidence = report.get("release_evidence")
+    if isinstance(release_evidence, dict):
+        commands = release_evidence.get("commands")
+        notes = release_evidence.get("notes")
+        lines.extend(
+            [
+                "",
+                "## Release Evidence Next Steps",
+                f"- Status: `{release_evidence.get('status')}`",
+                (
+                    "- Adoption report path: "
+                    f"`{release_evidence.get('adoption_report_path')}`"
+                ),
+            ]
+        )
+        human_label_metadata = release_evidence.get("human_label_metadata")
+        if isinstance(human_label_metadata, dict):
+            lines.extend(
+                [
+                    (
+                        "- Human-label client: "
+                        f"`{human_label_metadata.get('client')}`"
+                    ),
+                    (
+                        "- Human-label captured at: "
+                        f"`{human_label_metadata.get('capturedAt')}`"
+                    ),
+                    (
+                        "- Human-label session: "
+                        f"`{human_label_metadata.get('sessionId')}`"
+                    ),
+                ]
+            )
+        if isinstance(commands, dict):
+            lines.extend(["", "### Commands"])
+            for label, command in commands.items():
+                lines.append(f"- {label}: `{command}`")
+        if isinstance(notes, list):
+            lines.extend(["", "### Notes"])
+            lines.extend(f"- {note}" for note in notes)
     return "\n".join(lines)
 
 
@@ -541,6 +583,69 @@ def _protocol_example_calls(protocol: dict[str, Any]) -> list[dict[str, str]]:
         if capture.get("destination") == "engram" and expected_tool:
             calls.append({"phase": "capture", "tool": str(expected_tool)})
     return calls
+
+
+def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
+    """Return the next commands that turn a live adoption report into release evidence."""
+    evidence = report.get("evidence") if isinstance(report.get("evidence"), dict) else {}
+    validation = (
+        report.get("validation") if isinstance(report.get("validation"), dict) else {}
+    )
+    validation_failures = [
+        str(failure) for failure in validation.get("failures") or []
+    ]
+    missing_evidence = [str(item) for item in evidence.get("missing") or []]
+    status = (
+        "ready_for_human_labels"
+        if report.get("status") == "passed" and not missing_evidence
+        else "blocked"
+    )
+    notes = [
+        (
+            "Save this adoption validation JSON as adoption-report.json before "
+            "running the evaluation commands."
+        ),
+        (
+            "Keep the human-label artifact client/capturedAt/sessionId aligned "
+            "with this adoption report; the release gate cross-checks them."
+        ),
+    ]
+    if status == "blocked":
+        notes.insert(
+            0,
+            "Resolve adoption validation failures before using this as release evidence.",
+        )
+    if validation_failures:
+        notes.append("Validation failures: " + ", ".join(validation_failures))
+    if missing_evidence:
+        notes.append("Missing live evidence: " + ", ".join(missing_evidence))
+
+    return {
+        "status": status,
+        "adoption_report_path": "adoption-report.json",
+        "human_label_metadata": {
+            "client": evidence.get("client"),
+            "capturedAt": evidence.get("captured_at"),
+            "sessionId": evidence.get("session_id"),
+        },
+        "commands": {
+            "human_label_template": (
+                "engram evaluate --human-label-template "
+                "--adoption-report adoption-report.json --format json"
+            ),
+            "release_gate": (
+                "engram evaluate --from-json brain-loop-report.json "
+                "--require-release-evidence "
+                "--human-label-artifact human-labels.json "
+                "--adoption-report adoption-report.json "
+                "--min-human-recall-samples 10 "
+                "--min-human-session-samples 3 "
+                "--evidence-bundle brain-loop-release-evidence.json "
+                "--format json"
+            ),
+        },
+        "notes": notes,
+    }
 
 
 def _normalize_template_call(call: Any) -> dict[str, str]:

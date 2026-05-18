@@ -3612,6 +3612,11 @@ real-client sessions can be scored without manually inspecting tool logs.
 `claim_authority()` also returns this verifier command and the JSONL transcript
 schema inside `agent_protocol.verification`, making the adoption contract
 self-describing for harnesses that want to prove compliance.
+Adoption validation reports also include a `release_evidence` handoff section
+with the prefilled human-label template command and final
+`engram evaluate --require-release-evidence` command, so a passed live-client
+artifact directly names the next release packaging step instead of leaving that
+sequence only in prose.
 For completion-grade live harness evidence, the same verification block now
 also returns a `live_evidence_command` and JSON wrapper schema requiring
 `client` plus `capturedAt` metadata. `engram adoption --require-live-evidence`

@@ -80,7 +80,10 @@ verifier also supports `--require-client <label>` directly so cross-harness
 gates can assert that a Cursor/Windsurf run is not accidentally satisfied by
 Claude Code evidence. With `--require-live-evidence`, `--session-id` now also
 requires session evidence; a sessionless wrapper transcript cannot satisfy a
-session-filtered live gate.
+session-filtered live gate. Adoption validation reports now include a
+`release_evidence` handoff section with the prefilled human-label template
+command and final `engram evaluate --require-release-evidence` command so the
+validated live-client artifact points directly at release packaging.
 
 Evaluation release-gate note: `engram evaluate` now has a separate
 human-labeled harness evidence gate via `--human-label-artifact` and

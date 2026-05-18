@@ -885,6 +885,16 @@ def test_adoption_validation_report_accepts_live_evidence_metadata(
         "missing": [],
     }
     assert report["validation"]["failures"] == []
+    assert report["release_evidence"]["status"] == "ready_for_human_labels"
+    assert report["release_evidence"]["human_label_metadata"] == {
+        "client": "Claude Code",
+        "capturedAt": "2026-05-18T21:42:00Z",
+        "sessionId": "claude-session-123",
+    }
+    assert report["release_evidence"]["commands"]["human_label_template"] == (
+        "engram evaluate --human-label-template "
+        "--adoption-report adoption-report.json --format json"
+    )
 
 
 def test_adoption_validation_report_accepts_required_client_case_insensitive(
@@ -966,6 +976,8 @@ def test_adoption_validation_report_rejects_wrong_live_client(
     assert "live_harness_client_mismatch" in report["validation"]["failures"]
     assert "Required client: `Cursor`" in markdown
     assert "Client mismatch: `True`" in markdown
+    assert "Release Evidence Next Steps" in markdown
+    assert "Status: `blocked`" in markdown
 
 
 def test_adoption_validation_report_requires_session_when_session_filter_is_live_gate(

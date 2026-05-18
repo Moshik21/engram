@@ -681,10 +681,13 @@ not yet doing its job.
    AutoCapture hook generation now writes adoption traces that the verifier can
    merge with Claude stream-json logs, filter by session id, reject when stale
    trace records conflict with the current client session, and assert the
-   expected live client label with `--require-client`. The remaining adoption
-   hardening is broader client diversity: repeat the same verifier against
-   Cursor, Windsurf, or another MCP harness before treating cross-harness
-   adoption as release-complete.
+   expected live client label with `--require-client`. Adoption reports now
+   include a `release_evidence` handoff section with the prefilled
+   human-label template command and final
+   `engram evaluate --require-release-evidence` command. The remaining
+   adoption hardening is broader client diversity: repeat the same verifier
+   against Cursor, Windsurf, or another MCP harness before treating
+   cross-harness adoption as release-complete.
 
 5. Evaluation confidence (blocking):
    The report and labels exist, and the report now exposes structured

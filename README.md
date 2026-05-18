@@ -1125,6 +1125,13 @@ session, and timestamp metadata from the raw stream.
 engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence
 ```
 
+The JSON/Markdown adoption report includes a `release_evidence` handoff section
+with the prefilled human-label template command and the final
+`engram evaluate --require-release-evidence` command. Save the JSON output as
+`adoption-report.json`, then use that path with
+`engram evaluate --human-label-template --adoption-report adoption-report.json`
+before collecting human labels.
+
 When evidence is split across client logs and REST hooks, pass multiple
 `--calls` files in order. For example, combine a Claude Code stream-json log
 with the hook-generated capture trace:
