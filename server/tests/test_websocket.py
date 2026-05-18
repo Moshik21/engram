@@ -65,6 +65,30 @@ class TestWebSocket:
                 assert data["hello"] == "tenant"
                 assert data["group_id"] == tenant_group
 
+    def test_auth_enabled_accepts_query_param_token(self, tmp_path):
+        """Browser WebSocket token fallback preserves the configured tenant group."""
+        tenant_group = "browser_ws_brain"
+        config = EngramConfig(
+            mode="lite",
+            default_group_id=tenant_group,
+            sqlite={"path": str(tmp_path / "ws_token_test.db")},
+            auth={
+                "enabled": True,
+                "bearer_token": "secret-token",
+                "default_group_id": tenant_group,
+            },
+        )
+        app = create_app(config)
+
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws/dashboard?token=secret-token") as ws:
+                bus = get_event_bus()
+                bus.publish(tenant_group, "browser.token.event", {"hello": "token"})
+                data = ws.receive_json()
+                assert data["type"] == "browser.token.event"
+                assert data["hello"] == "token"
+                assert data["group_id"] == tenant_group
+
     def test_resync_returns_missed_events(self, ws_app):
         """Resync command returns events missed since lastSeq."""
         app, config = ws_app

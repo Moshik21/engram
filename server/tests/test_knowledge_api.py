@@ -65,6 +65,8 @@ from engram.retrieval.chat_runtime import (
 from engram.retrieval.chat_tools import execute_chat_tool_json
 from engram.retrieval.context import ConversationContext, ConversationRuntimeService
 
+CHAT_RUNTIME_ANTHROPIC = "engram.retrieval.chat_runtime.anthropic.AsyncAnthropic"
+
 
 def _attach_public_surface_policy(manager, cfg: ActivationConfig) -> ActivationConfig:
     service = PublicSurfacePolicyService(cfg)
@@ -1438,7 +1440,7 @@ class TestChat:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={"message": "Tell me about Alice"},
@@ -1475,7 +1477,7 @@ class TestChat:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={
@@ -1499,7 +1501,7 @@ class TestChat:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(side_effect=Exception("API key invalid"))
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={"message": "test"},
@@ -1538,7 +1540,7 @@ class TestChat:
             side_effect=[tool_response, final_response],
         )
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={"message": "Where does Alice work?"},
@@ -1575,7 +1577,7 @@ class TestChat:
             side_effect=[generic_response, grounded_response],
         )
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={"message": "How's the Engram project going?"},
@@ -1638,7 +1640,7 @@ class TestChat:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
             resp = await knowledge_client.post(
                 "/api/knowledge/chat",
                 json={"message": "is full mode rework by default?"},

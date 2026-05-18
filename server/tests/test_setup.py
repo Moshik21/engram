@@ -132,6 +132,12 @@ def test_mcp_config_output(capsys):
     assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE" in out
     assert "Claude Desktop" in out
     assert "Claude Code" in out
+    assert "Agent adoption checklist" in out
+    assert "claim_authority(project_path, user_message, file_memory_present=True)" in out
+    assert "agent_protocol.required_tools_before_answer" in out
+    assert "bootstrap_project(project_path)" in out
+    assert "`remember` high-signal cross-context facts" in out
+    assert "engram adoption --authority claim-authority.json" in out
 
 
 def test_collect_config_defaults_are_recall_ready(monkeypatch):

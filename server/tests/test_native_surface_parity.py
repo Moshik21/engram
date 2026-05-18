@@ -573,6 +573,23 @@ async def _assert_native_mcp_runtime_surface(mcp_server, project_dir: Path) -> N
     _assert_native_runtime_state(payload, project_dir)
 
 
+async def _assert_native_mcp_memory_authority_surface(mcp_server, project_dir: Path) -> None:
+    payload = json.loads(
+        await mcp_server.claim_authority(
+            project_path=str(project_dir),
+            user_message="I am building Engram as cross-context AI memory.",
+            file_memory_present=True,
+        )
+    )
+    assert payload["authority"]["source_of_truth"] == "portable_cross_context_memory"
+    assert "cross-project user facts" in payload["authority"]["engram_owns"]
+    assert payload["runtime"]["artifactBootstrap"]["projectPath"] == str(project_dir)
+    assert payload["onboarding"]["state"] in {"fresh_runtime", "ready"}
+    assert payload["agent_protocol"]["file_memory_present"] is True
+    assert payload["agent_protocol"]["capture"]["tool"] == "remember"
+    assert payload["lifecycle"] == ["Capture", "Cue", "Project", "Recall", "Consolidate"]
+
+
 async def _assert_native_mcp_consolidation_control_surface(mcp_server) -> None:
     status = json.loads(await mcp_server.get_consolidation_status())
     assert status["is_running"] is False
@@ -1334,7 +1351,7 @@ async def _assert_native_chat_surface(client: httpx.AsyncClient) -> None:
         return_value=_make_chat_response("Native chat turn persisted in Helix.")
     )
 
-    with patch("engram.api.knowledge.anthropic.AsyncAnthropic", return_value=mock_client):
+    with patch("engram.retrieval.chat_runtime.anthropic.AsyncAnthropic", return_value=mock_client):
         chat_resp = await client.post(
             "/api/knowledge/chat",
             json={
@@ -2246,6 +2263,7 @@ async def test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces(
         await _assert_native_mcp_project_bootstrap_surface(mcp_server, project_dir)
         await _assert_native_mcp_project_artifact_surface(mcp_server, project_dir)
         await _assert_native_mcp_runtime_surface(mcp_server, project_dir)
+        await _assert_native_mcp_memory_authority_surface(mcp_server, project_dir)
         await _assert_native_mcp_consolidation_control_surface(mcp_server)
         await _assert_native_mcp_entity_fact_lookup_surface(mcp_server)
         await _assert_native_mcp_graph_stats_resource(mcp_server)

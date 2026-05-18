@@ -74,6 +74,7 @@ from engram.retrieval.lookup import (
     build_mcp_entity_search_tool_surface,
     build_mcp_fact_search_tool_surface,
 )
+from engram.retrieval.memory_authority import build_mcp_memory_authority_surface
 from engram.retrieval.preference_feedback import (
     build_mcp_explicit_feedback_surface,
 )
@@ -283,6 +284,11 @@ async def _ingest_live_turn(
     await ingest_manager_conversation_turn(manager, text, source=source)
 
 
+async def _ingest_live_tool_turn(manager: GraphManager, text: str) -> None:
+    """Record a read-tool piggyback turn through the live-turn helper."""
+    await _ingest_live_turn(manager, text, source="tool_piggyback")
+
+
 # ─── AutoRecall Helpers ──────────────────────────────────────────────
 
 
@@ -389,9 +395,6 @@ async def _recall_middleware(
     Attaches recalled_context, session_context, triggered_intentions,
     and memory_notifications to any tool response.
     """
-    async def ingest_tool_turn(manager: GraphManager, text: str) -> None:
-        await _ingest_live_turn(manager, text, source="tool_piggyback")
-
     await run_mcp_recall_middleware(
         response,
         content=content,
@@ -402,7 +405,7 @@ async def _recall_middleware(
         load_notifications=_serialize_notifications,
         auto_recall_lite=_auto_recall_lite,
         session_prime=_session_prime,
-        ingest_live_turn=ingest_tool_turn,
+        ingest_live_turn=_ingest_live_tool_turn,
         auto_observe=auto_observe,
     )
 
@@ -829,6 +832,33 @@ async def search_artifacts(
         project_path=project_path,
         limit=limit,
         recall_middleware=_recall_middleware,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def claim_authority(
+    project_path: str | None = None,
+    user_message: str | None = None,
+    file_memory_present: bool = False,
+) -> str:
+    """Return Engram's memory authority contract and onboarding guidance.
+
+    Use this when deciding whether Engram or a project-local/file-based memory
+    source should own a fact, and when Engram is connected but appears fresh or
+    empty. A fresh runtime should be bootstrapped, not ignored.
+
+    Args:
+        project_path: Optional current project path for bootstrap readiness.
+        user_message: Optional current user message for recall/capture routing.
+        file_memory_present: Whether another file/project-local memory source is visible.
+    """
+    result = await build_mcp_memory_authority_surface(
+        _get_manager(),
+        group_id=_group_id,
+        project_path=project_path,
+        user_message=user_message,
+        file_memory_present=file_memory_present,
     )
     return json.dumps(result)
 

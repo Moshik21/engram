@@ -870,6 +870,61 @@ class TestJSONResponses:
         assert analyze.await_args.kwargs["group_id"] == GROUP
 
     @pytest.mark.asyncio
+    async def test_mcp_claim_authority_returns_onboarding_contract(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        manager = SimpleNamespace(
+            get_runtime_state=AsyncMock(
+                return_value={
+                    "runtime": {"mode": "helix"},
+                    "artifactBootstrap": {
+                        "enabled": True,
+                        "projectPath": "/tmp/engram",
+                        "artifactCount": 0,
+                        "staleArtifactCount": 0,
+                        "lastObservedAt": None,
+                    },
+                    "stats": {"recallMetrics": {}, "epistemicMetrics": {}},
+                }
+            )
+        )
+        monkeypatch.setattr(mcp_server, "_manager", manager)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+
+        raw = await mcp_server.claim_authority(
+            project_path="/tmp/engram",
+            user_message="I am actively building Engram for cross-context AI memory.",
+            file_memory_present=True,
+        )
+
+        payload = json.loads(raw)
+        assert payload["authority"]["source_of_truth"] == "portable_cross_context_memory"
+        assert payload["onboarding"]["state"] == "fresh_runtime"
+        assert payload["onboarding"]["recommended_actions"][0]["tool"] == "bootstrap_project"
+        assert payload["agent_protocol"]["file_memory_present"] is True
+        assert payload["agent_protocol"]["capture"]["tool"] == "remember"
+        assert payload["agent_protocol"]["required_tools_before_answer"] == [
+            "bootstrap_project",
+            "get_context",
+            "recall",
+        ]
+        assert payload["agent_protocol"]["verification"]["command"] == (
+            "engram adoption --authority claim-authority.json --calls mcp-calls.jsonl"
+        )
+        assert payload["agent_protocol"]["verification"]["live_evidence_command"] == (
+            "engram adoption --authority claim-authority.json "
+            "--calls live-harness-transcript.json --require-live-evidence"
+        )
+        assert payload["agent_protocol"]["verification"]["live_evidence_schema"][
+            "required_metadata_fields"
+        ] == ["client", "capturedAt"]
+        assert payload["agent_protocol"]["verification"]["capture_required"] is True
+        manager.get_runtime_state.assert_awaited_once_with(
+            group_id=GROUP,
+            project_path="/tmp/engram",
+        )
+
+    @pytest.mark.asyncio
     async def test_mcp_remember_surfaces_adjudication_requests(self, monkeypatch):
         from engram.mcp import server as mcp_server
 

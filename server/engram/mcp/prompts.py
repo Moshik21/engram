@@ -13,6 +13,28 @@ knowledge. `recall` retrieves relevant context from cues, entities, episodes,
 and activation state. Consolidation later matures, cleans, reinforces,
 calibrates, and embeds the graph.
 
+## Memory Authority Contract
+
+Engram is the source of truth for portable, cross-context memory about the \
+user. Use it across coding agents, general chat, project work, and other AI \
+harnesses. Do not skip Engram just because another file-based or project-local \
+memory system is present.
+
+Engram owns: cross-project user facts, identity and preferences, corrections, \
+long-tail recall, durable decisions, personal/work relationships, ongoing \
+goals, commitments, and memories that should survive switching tools or \
+projects.
+
+Project-local files own: repo-specific coding conventions, current-task scratch \
+notes, and temporary implementation details that do not need to follow the user \
+outside that project. If information is both project-local and likely useful in \
+future contexts, store or recall it through Engram too.
+
+Human-curated memory and Engram should cooperate: use curated files as visible \
+local context, but use Engram for the portable long tail and for graph/activation \
+recall. If both sources conflict, prefer the user's latest statement and use \
+`forget`/`remember` to repair Engram.
+
 ## Pre-Response Protocol (Mandatory)
 
 Before generating ANY response:
@@ -39,6 +61,18 @@ a clear topic, or `project_path` to auto-derive it from the project directory \
 name. Use `format="structured"` by default; `format="briefing"` only when you \
 need a synthesized narrative.
 
+If the runtime appears fresh or empty (`artifactCount` is 0, `lastObservedAt` \
+is null, or recall/evaluation stats are all zero), do not conclude Engram is \
+not useful. In a project workspace, call `bootstrap_project(project_path)` once \
+when a project path is available, then use `get_context`, `route_question`, or \
+`recall` normally. A fresh graph is an onboarding state, not a reason to route \
+around Engram. If you are deciding between Engram and a file/project-local \
+memory source, call `claim_authority(project_path, user_message, \
+file_memory_present=True)` first. When `claim_authority` returns an \
+`agent_protocol`, follow `required_tools_before_answer` in order before \
+responding and use its `capture` decision for post-response `observe` or \
+`remember`.
+
 ## Memory Tools
 
 - **observe** — Store raw text for background processing. Default for most content.
@@ -53,6 +87,9 @@ default; internal graph facts only appear in debug mode.
 - **intend** — Create a graph-embedded intention or pinned context query.
 - **dismiss_intention** / **list_intentions** — Manage prospective memory.
 - **bootstrap_project** — Auto-observe key project files. Idempotent.
+- **claim_authority** — Explain what Engram owns vs project-local memory, \
+whether an empty runtime should be bootstrapped, and which tools to call before \
+answering the current message.
 - **route_question** — Epistemic routing: continuity vs artifact vs reconciliation.
 - **search_artifacts** — Search bootstrapped project artifacts.
 - **get_runtime_state** — Check mode, profiles, flags, bootstrap freshness.

@@ -373,6 +373,17 @@ def test_unmeasured_evaluation_signals_reports_signal_quality_failures() -> None
     ]
 
 
+def test_unmeasured_evaluation_signals_supports_minimum_evidence_gate() -> None:
+    report = _measured_signal_report()
+    for signal in report["evaluation_signals"].values():
+        signal["evidence_count"] = 3
+    report["evaluation_signals"]["cue_usefulness"]["evidence_count"] = 2
+
+    assert unmeasured_evaluation_signals(report, min_evidence_count=3) == [
+        "cue_usefulness:insufficient_evidence(2<3)"
+    ]
+
+
 def test_evaluation_signal_failure_message_formats_failures() -> None:
     report = _measured_signal_report()
     report["evaluation_signals"].pop("projection_yield")
@@ -380,6 +391,15 @@ def test_evaluation_signal_failure_message_formats_failures() -> None:
     assert evaluation_signal_failure_message(report, prefix="Operator gate") == (
         "Operator gate: ['projection_yield:missing']"
     )
+    threshold_report = _measured_signal_report()
+    for signal in threshold_report["evaluation_signals"].values():
+        signal["evidence_count"] = 2
+    threshold_report["evaluation_signals"]["recall_quality"]["evidence_count"] = 1
+    assert evaluation_signal_failure_message(
+        threshold_report,
+        prefix="Operator gate",
+        min_evidence_count=2,
+    ) == "Operator gate: ['recall_quality:insufficient_evidence(1<2)']"
     assert (
         evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate")
         is None
@@ -744,6 +764,41 @@ def test_brain_loop_report_accepts_graph_state_and_lifecycle_cycle_shape() -> No
 
     markdown = format_brain_loop_report_markdown(report)
     assert "Error: calibration failed" in markdown
+
+
+def test_markdown_includes_benchmark_evidence() -> None:
+    report = {
+        "group_id": "operator_brain",
+        "generated_at": "2026-05-18T22:00:00Z",
+        "totals": {},
+        "capture": {},
+        "cue": {},
+        "project": {},
+        "recall": {},
+        "consolidate": {},
+        "benchmark_evidence": {
+            "status": "measured",
+            "benchmark": "showcase",
+            "baseline": "engram_full",
+            "mode": "quick",
+            "scenario_count": 6,
+            "passed_count": 5,
+            "scenario_pass_rate": 5 / 6,
+            "min_pass_rate": 0.8,
+            "fairness": {
+                "baseline_contract_present": True,
+                "transcript_hash_count": 6,
+            },
+            "failures": [],
+        },
+    }
+
+    markdown = format_brain_loop_report_markdown(report)
+
+    assert "## Benchmark Evidence" in markdown
+    assert "engram_full on showcase (quick): measured" in markdown
+    assert "Scenarios: 6 available, 5 passed | pass rate 83.3% (minimum 80.0%)" in markdown
+    assert "Fairness: baseline contract present, 6 transcript hashes" in markdown
 
 
 def _measured_signal_report() -> dict:

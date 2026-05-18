@@ -103,6 +103,8 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
     cli = importlib.import_module("engram.__main__")
     calls: list[dict] = []
     report_path = tmp_path / "brain-loop-report.json"
+    benchmark_path = tmp_path / "showcase-results.json"
+    bundle_path = tmp_path / "brain-loop-evidence.json"
 
     async def fake_run_evaluate_command(args) -> None:
         calls.append(
@@ -110,6 +112,12 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
                 "command": args.command,
                 "from_json": args.from_json,
                 "require_evaluation_signals": args.require_evaluation_signals,
+                "min_evaluation_signal_evidence": args.min_evaluation_signal_evidence,
+                "benchmark_artifact": args.benchmark_artifact,
+                "require_benchmark_evidence": args.require_benchmark_evidence,
+                "min_benchmark_scenarios": args.min_benchmark_scenarios,
+                "min_benchmark_pass_rate": args.min_benchmark_pass_rate,
+                "evidence_bundle": args.evidence_bundle,
                 "format": args.format,
             }
         )
@@ -122,6 +130,17 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "--from-json",
             str(report_path),
             "--require-evaluation-signals",
+            "--min-evaluation-signal-evidence",
+            "4",
+            "--benchmark-artifact",
+            str(benchmark_path),
+            "--require-benchmark-evidence",
+            "--min-benchmark-scenarios",
+            "6",
+            "--min-benchmark-pass-rate",
+            "0.8",
+            "--evidence-bundle",
+            str(bundle_path),
             "--format",
             "json",
         ],
@@ -138,7 +157,124 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "command": "evaluate",
             "from_json": report_path,
             "require_evaluation_signals": True,
+            "min_evaluation_signal_evidence": 4,
+            "benchmark_artifact": benchmark_path,
+            "require_benchmark_evidence": True,
+            "min_benchmark_scenarios": 6,
+            "min_benchmark_pass_rate": 0.8,
+            "evidence_bundle": bundle_path,
             "format": "json",
+        }
+    ]
+
+
+def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> None:
+    cli = importlib.import_module("engram.__main__")
+    calls: list[dict] = []
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "mcp-calls.jsonl"
+
+    def fake_run_adoption_command(args) -> int:
+        calls.append(
+            {
+                "command": args.command,
+                "authority": args.authority,
+                "calls": args.calls,
+                "template": args.template,
+                "format": args.format,
+                "require_live_evidence": args.require_live_evidence,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "engram",
+            "adoption",
+            "--authority",
+            str(authority_path),
+            "--calls",
+            str(calls_path),
+            "--require-live-evidence",
+            "--format",
+            "markdown",
+        ],
+    )
+    monkeypatch.setattr(
+        "engram.mcp.adoption_cli.run_adoption_command",
+        fake_run_adoption_command,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    assert calls == [
+        {
+            "command": "adoption",
+            "authority": authority_path,
+            "calls": calls_path,
+            "template": False,
+            "format": "markdown",
+            "require_live_evidence": True,
+        }
+    ]
+
+
+def test_adoption_template_dispatches_to_command(monkeypatch, tmp_path) -> None:
+    cli = importlib.import_module("engram.__main__")
+    calls: list[dict] = []
+    authority_path = tmp_path / "claim-authority.json"
+
+    def fake_run_adoption_command(args) -> int:
+        calls.append(
+            {
+                "command": args.command,
+                "authority": args.authority,
+                "calls": args.calls,
+                "template": args.template,
+                "client": args.client,
+                "captured_at": args.captured_at,
+                "format": args.format,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "engram",
+            "adoption",
+            "--authority",
+            str(authority_path),
+            "--template",
+            "--client",
+            "Claude Code",
+            "--captured-at",
+            "2026-05-18T22:31:00Z",
+            "--format",
+            "markdown",
+        ],
+    )
+    monkeypatch.setattr(
+        "engram.mcp.adoption_cli.run_adoption_command",
+        fake_run_adoption_command,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    assert calls == [
+        {
+            "command": "adoption",
+            "authority": authority_path,
+            "calls": None,
+            "template": True,
+            "client": "Claude Code",
+            "captured_at": "2026-05-18T22:31:00Z",
+            "format": "markdown",
         }
     ]
 
@@ -153,6 +289,7 @@ def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> 
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert "engram doctor" in output
+    assert "engram adoption" in output
     assert "readiness smoke" in output
 
 

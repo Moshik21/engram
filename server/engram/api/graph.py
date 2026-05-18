@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from engram.api.deps import get_atlas_service, get_manager
 from engram.retrieval.atlas_surface import (
     build_api_atlas_history_surface,
+    build_api_atlas_json_response,
     build_api_atlas_region_surface,
     build_api_atlas_surface,
 )
@@ -41,9 +42,7 @@ async def get_atlas(
         refresh=refresh,
         snapshot_id=snapshot_id,
     )
-    if result.log_warning:
-        logger.warning(result.log_warning)
-    return JSONResponse(status_code=result.status_code, content=result.payload)
+    return build_api_atlas_json_response(result, logger)
 
 
 @router.get("/atlas/history")
@@ -80,9 +79,7 @@ async def get_region(
         refresh=refresh,
         snapshot_id=snapshot_id,
     )
-    if result.log_warning:
-        logger.warning(result.log_warning)
-    return JSONResponse(status_code=result.status_code, content=result.payload)
+    return build_api_atlas_json_response(result, logger)
 
 
 @router.get("/neighborhood")

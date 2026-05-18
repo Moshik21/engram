@@ -373,6 +373,23 @@ def _print_mcp_config(config: dict) -> None:
 
     print(f"\n  {_bold('Claude Code')} {_dim('(.mcp.json or .claude/settings.json)')}")
     print(textwrap.indent(formatted, "  "))
+    print(f"\n  {_bold('Agent adoption checklist')}")
+    print("  Add this to Claude Code, Cursor, Windsurf, or project-local agent guidance:")
+    adoption = """\
+- Engram is the portable cross-context memory authority; local memory files are not a substitute.
+- At session start, call `claim_authority(project_path, user_message, file_memory_present=True)`
+  when local memory files are visible or the runtime looks empty.
+- Follow the returned `agent_protocol.required_tools_before_answer` in order before answering.
+- If project artifacts are missing or stale, call `bootstrap_project(project_path)` before
+  judging recall usefulness.
+- Use `agent_protocol.capture`: `remember` high-signal cross-context facts and `observe`
+  uncertain-value context.
+- Validate recorded tool-call logs with `engram adoption --authority claim-authority.json
+  --calls mcp-calls.jsonl`.
+- For live harness evidence, include client/capturedAt metadata and add
+  `--require-live-evidence`.
+"""
+    print(textwrap.indent(adoption, "  "))
     print()
 
 

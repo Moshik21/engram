@@ -56,9 +56,14 @@ def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
     return total_analyses > 0
 
 
-def unmeasured_evaluation_signals(report: Mapping[str, Any]) -> list[str]:
+def unmeasured_evaluation_signals(
+    report: Mapping[str, Any],
+    *,
+    min_evidence_count: int = 1,
+) -> list[str]:
     """Return required evaluation signals that are missing or not measured."""
     evaluation_signals = _mapping(report.get("evaluation_signals"))
+    min_evidence_count = max(1, int(min_evidence_count))
     missing_signals = [
         name for name in EVALUATION_SIGNAL_ORDER if name not in evaluation_signals
     ]
@@ -70,8 +75,11 @@ def unmeasured_evaluation_signals(report: Mapping[str, Any]) -> list[str]:
         if signal.get("status") != "measured":
             failures.append(f"{name}:{signal.get('status', 'missing')}")
             continue
-        if _int(signal.get("evidence_count")) <= 0:
+        evidence_count = _int(signal.get("evidence_count"))
+        if evidence_count <= 0:
             failures.append(f"{name}:no_evidence")
+        elif evidence_count < min_evidence_count:
+            failures.append(f"{name}:insufficient_evidence({evidence_count}<{min_evidence_count})")
         elif signal.get("metric") is None:
             failures.append(f"{name}:no_metric")
     return failures
@@ -81,9 +89,13 @@ def evaluation_signal_failure_message(
     report: Mapping[str, Any],
     *,
     prefix: str,
+    min_evidence_count: int = 1,
 ) -> str | None:
     """Return a human-readable failure message for unmeasured evaluation signals."""
-    failures = unmeasured_evaluation_signals(report)
+    failures = unmeasured_evaluation_signals(
+        report,
+        min_evidence_count=min_evidence_count,
+    )
     if not failures:
         return None
     return f"{prefix}: {failures}"
@@ -334,6 +346,40 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
                 f"({payload.get('evidence_count', 0)} evidence)"
                 f"{gap_text}"
             )
+
+    benchmark_evidence = _mapping(report.get("benchmark_evidence"))
+    if benchmark_evidence:
+        benchmark_failures = list(benchmark_evidence.get("failures") or [])
+        failure_text = (
+            f" | failures: {', '.join(str(failure) for failure in benchmark_failures)}"
+            if benchmark_failures
+            else ""
+        )
+        fairness = _mapping(benchmark_evidence.get("fairness"))
+        lines.extend(
+            [
+                "",
+                "## Benchmark Evidence",
+                "",
+                (
+                    f"- {benchmark_evidence.get('baseline', 'unknown')} on "
+                    f"{benchmark_evidence.get('benchmark', 'unknown')} "
+                    f"({benchmark_evidence.get('mode') or 'unknown'}): "
+                    f"{benchmark_evidence.get('status', 'unknown')}{failure_text}"
+                ),
+                (
+                    f"- Scenarios: {benchmark_evidence.get('scenario_count', 0)} "
+                    f"available, {benchmark_evidence.get('passed_count', 0)} passed | "
+                    f"pass rate {_pct(benchmark_evidence.get('scenario_pass_rate'))} "
+                    f"(minimum {_pct(benchmark_evidence.get('min_pass_rate'))})"
+                ),
+                (
+                    f"- Fairness: baseline contract "
+                    f"{'present' if fairness.get('baseline_contract_present') else 'missing'}, "
+                    f"{fairness.get('transcript_hash_count', 0)} transcript hashes"
+                ),
+            ]
+        )
 
     if gaps:
         lines.extend(["", "## Coverage Gaps", ""])

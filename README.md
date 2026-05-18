@@ -188,7 +188,9 @@ make up                  # or: docker compose up -d --build
 
 This is the existing source-built compose flow for developers. The public
 installer does **not** use this path; it downloads a release bundle and pulls
-prebuilt images instead.
+prebuilt images instead. Native Helix is the preferred full-backend path for
+no-Docker local operator readiness; treat Docker full mode as an explicit
+compatibility/integration lane, not the default completion gate.
 
 ### Option 5: REST API Only
 
@@ -970,7 +972,7 @@ This means obvious high-value content is extracted within seconds, obvious noise
 
 ## MCP Integration
 
-Engram exposes 26 MCP tools for AI agents:
+Engram exposes 27 MCP tools for AI agents:
 
 | Tool | Purpose |
 |------|---------|
@@ -993,6 +995,7 @@ Engram exposes 26 MCP tools for AI agents:
 | `get_consolidation_status` | Check consolidation status |
 | `route_question` | Epistemic routing — decides whether a question needs memory, artifact inspection, or runtime state, and returns an answer contract |
 | `bootstrap_project` | Auto-observe key project files and create a Project entity (idempotent) |
+| `claim_authority` | Explain what Engram owns vs project-local memory and whether an empty runtime should be bootstrapped |
 | `adjudicate_evidence` | Resolve ambiguous entity or relationship evidence |
 | `search_artifacts` | Search bootstrapped project artifacts (README, design docs, config) |
 | `get_runtime_state` | Check effective mode, active profiles, and enabled flags |
@@ -1007,7 +1010,9 @@ Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://enti
 
 Engram ships with built-in MCP instructions that teach compatible AI agents (Claude, Cursor, Windsurf, etc.) to use memory proactively — no user prompting required:
 
+- **Memory authority**: Engram is the portable, cross-context source of truth for user facts, preferences, corrections, durable decisions, relationships, goals, commitments, and long-tail recall. Project-local files remain useful for repo-specific conventions and current-task scratch notes, but they are not a reason for an agent to skip Engram. Agents can call `claim_authority(project_path, user_message, file_memory_present)` when deciding which memory system owns a fact and which Engram tools to call before answering; client transcripts can be checked with `validate_agent_protocol_calls()` during harness or installer validation.
 - **Session start**: The agent calls `get_context()` before its first response to load relevant memories
+- **Fresh-runtime onboarding**: If Engram is connected but empty (`artifactCount: 0`, `lastObservedAt: null`, or zero recall/evaluation stats), the agent treats that as an onboarding state. In a project workspace it should call `bootstrap_project(project_path)` once before assuming no memories exist.
 - **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
 - **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (evidence-first extraction by default)
 - **Auto-recall**: With `wave1+`, piggyback recall runs on `observe`/`remember` and all read-oriented tools — memory context flows even when the LLM only calls `recall()` or `search_entities()`. The need analyzer gates firing, surfacing compact packets only when prior context is likely useful
@@ -1042,13 +1047,101 @@ Optionally, add memory directives to your project's `.claude/CLAUDE.md` for stro
 ```markdown
 ## Engram Memory
 
-- At conversation start, call `get_context()` to load relevant memory before your first response.
+- Engram is the portable cross-context memory authority; local memory files are not a substitute.
+- At conversation start, call `claim_authority(project_path, user_message, file_memory_present=True)` when local memory files are visible or the runtime looks empty.
+- Follow the returned `agent_protocol.required_tools_before_answer` in order before your first substantive response.
+- If project artifacts are missing or stale, call `bootstrap_project(project_path)` before judging recall usefulness.
+- Call `get_context()` to load relevant memory before your first response.
 - Default to `observe()` for general conversation context and uncertain-value content.
-- Use `remember()` only for high-signal items: identity facts, explicit preferences, key decisions, corrections.
+- Use `agent_protocol.capture`; use `remember()` for high-signal cross-context facts, identity facts, explicit preferences, key decisions, and corrections.
 - Use `recall()` when the user references past conversations or when context would help.
 - Use `search_facts()` for user-facing relationship lookups. Internal epistemic decision/artifact edges are hidden unless you explicitly opt into debug behavior.
 - When the user corrects a memory, call `forget()` on the old fact then `remember()` the correction.
 - Do not announce memory operations. Integrate recalled context naturally.
+```
+
+#### Adoption Transcript Validation
+
+To verify a real MCP client followed the authority contract, save the
+`claim_authority()` response and a compact tool-call transcript. JSONL is the
+most precise format:
+
+```jsonl
+{"phase":"before_answer","tool":"bootstrap_project"}
+{"phase":"before_answer","tool":"get_context"}
+{"phase":"before_answer","tool":"recall"}
+{"phase":"capture","tool":"remember"}
+```
+
+Then run:
+
+```bash
+engram adoption --authority claim-authority.json --calls mcp-calls.jsonl
+```
+
+For completion evidence from a real AI harness, use a JSON wrapper with live
+client metadata and require it during validation. To generate a wrapper from the
+actual `claim_authority()` protocol before running the client, use:
+
+```bash
+engram adoption --authority claim-authority.json --template --format markdown
+```
+
+The generated template includes placeholder metadata and the expected call
+sequence. Replace placeholders with observed live client metadata and actual
+tool calls; placeholder `client` or `capturedAt` values do not satisfy
+`--require-live-evidence`.
+
+```json
+{
+  "metadata": {
+    "client": "Claude Code",
+    "capturedAt": "2026-05-18T21:42:00Z",
+    "sessionId": "claude-session-123",
+    "source": "copied_mcp_log"
+  },
+  "calls": [
+    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+    {"phase": "capture", "tool": "mcp__engram__remember"}
+  ]
+}
+```
+
+```bash
+engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence
+```
+
+The command fails if the client skipped required pre-answer tools, used
+file-local memory as a substitute for Engram, missed required capture, or wrote
+to Engram when the protocol said the content was project-local scratch. It also
+normalizes common MCP log shapes, including prefixed tool names such as
+`mcp__engram__recall`, nested `tool` / `function` records, and `stage` as an
+alias for `phase`. For copied real-harness notes, the same verifier also accepts
+plain text or Markdown with explicit `before_answer` / `capture` headings
+(`Before answer` and `pre-answer` also normalize to `before_answer`) and Engram
+tool lines, such as:
+
+```markdown
+## Before answer
+- mcp__engram__bootstrap_project
+- mcp__engram__get_context
+- mcp__engram__recall
+## Capture
+- mcp__engram__remember
+```
+
+If copied notes mention Engram tools but omit a phase heading, the verifier
+returns a structured `invalid_calls_transcript` failure instead of a stack trace.
+If copied chat notes do not expose raw tool calls but the agent explicitly says
+it ignored Engram or used file-local memory as the primary memory path, the
+verifier classifies that as a failed adoption transcript instead of treating the
+notes as unusable.
+To validate copied notes directly from a pipe, pass `--calls -`:
+
+```bash
+cat copied-harness-notes.md | engram adoption --authority claim-authority.json --calls - --require-live-evidence
 ```
 
 #### Context Loading
@@ -1326,6 +1419,8 @@ uv run engram evaluate
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
+uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
 uv run python scripts/brain_loop_report.py
@@ -1344,6 +1439,18 @@ command exits non-zero unless cue usefulness, projection yield, recall quality,
 false recall, triage calibration, and consolidation effect are all measured with
 evidence and a metric. `--from-json` accepts raw stats/sample exports and saved
 brain-loop report JSON artifacts.
+For release or benchmark evidence, add `--min-evaluation-signal-evidence N` so
+one smoke-sized label cannot satisfy the gate; each measured signal must have at
+least that many evidence records.
+To tie the brain-loop report to a deterministic benchmark run, add
+`--benchmark-artifact path/to/results.json --require-benchmark-evidence`.
+The gate reads the showcase `results.json`, verifies the `engram_full` baseline
+has a fairness contract and transcript hashes, and enforces
+`--min-benchmark-scenarios` plus `--min-benchmark-pass-rate`. When benchmark
+evidence is attached, both JSON and Markdown reports include a Benchmark
+Evidence section. Add `--evidence-bundle brain-loop-evidence.json` to archive
+the report, attached benchmark evidence, source paths, and gate thresholds as
+one reproducible JSON artifact after all requested gates pass.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,
@@ -1599,7 +1706,7 @@ server/engram/
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
   ingestion/        # CQRS ingestion paths
-  mcp/              # MCP server (26 tools, 3 resources, 2 prompts)
+  mcp/              # MCP server (27 tools, 3 resources, 2 prompts)
   models/           # Pydantic data models
   retrieval/        # Pipeline, scorer, router, reranker, MMR
   security/         # Auth middleware, AES-256-GCM encryption, OIDC, rate limiting

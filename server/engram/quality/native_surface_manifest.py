@@ -212,6 +212,7 @@ NATIVE_SURFACE_MANIFEST: tuple[NativeSurface, ...] = (
     _mcp_tool("route_question", "_assert_native_mcp_route_surface"),
     _mcp_tool("search_artifacts", "_assert_native_mcp_project_artifact_surface"),
     _mcp_tool("get_runtime_state", "_assert_native_mcp_runtime_surface"),
+    _mcp_tool("claim_authority", "_assert_native_mcp_memory_authority_surface"),
     _mcp_tool("get_graph_state", "_assert_native_mcp_entity_fact_lookup_surface"),
     _mcp_tool(
         "get_lifecycle_summary",

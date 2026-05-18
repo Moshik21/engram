@@ -53,6 +53,31 @@ def build_api_consolidation_trigger_surface(
     )
 
 
+def build_api_consolidation_trigger_response_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    dry_run: bool,
+    background_tasks: Any,
+    logger: logging.Logger | None = None,
+) -> ApiConsolidationTriggerSurface:
+    """Return the REST trigger response and schedule the background cycle."""
+    result = build_api_consolidation_trigger_surface(
+        engine,
+        group_id=group_id,
+        dry_run=dry_run,
+    )
+    if result.should_run:
+        background_tasks.add_task(
+            run_api_consolidation_cycle,
+            engine,
+            group_id=group_id,
+            dry_run=dry_run,
+            logger=logger,
+        )
+    return result
+
+
 async def run_api_consolidation_cycle(
     engine: Any,
     *,
@@ -124,6 +149,25 @@ async def build_api_consolidation_status_surface(
     if latest_cycle is not None:
         result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
     return result
+
+
+async def build_api_consolidation_status_response_surface(
+    engine: Any,
+    *,
+    group_id: str,
+    scheduler: Any | None = None,
+    pressure: Any | None = None,
+    config: Any | None = None,
+) -> dict:
+    """Return the REST consolidation status payload from route dependencies."""
+    activation_cfg = config.activation if pressure is not None and config is not None else None
+    return await build_api_consolidation_status_surface(
+        engine,
+        group_id=group_id,
+        scheduler=scheduler,
+        pressure=pressure,
+        activation_cfg=activation_cfg,
+    )
 
 
 async def build_api_consolidation_history_surface(

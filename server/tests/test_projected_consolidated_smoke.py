@@ -806,6 +806,36 @@ async def test_evaluate_cli_require_evaluation_signals_rejects_gaps(tmp_path) ->
     assert "triage_calibration:needs_snapshots" in message
 
 
+@pytest.mark.asyncio
+async def test_evaluate_cli_require_evaluation_signals_rejects_low_evidence_count(
+    tmp_path,
+) -> None:
+    payload_path = tmp_path / "measured-report-source.json"
+    payload_path.write_text(json.dumps(_measured_evaluation_payload()))
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(payload_path),
+            "--require-evaluation-signals",
+            "--min-evaluation-signal-evidence",
+            "2",
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    message = str(exc_info.value)
+    assert "Brain-loop evaluation has unmeasured evaluation signals" in message
+    assert "recall_quality:insufficient_evidence(1<2)" in message
+    assert "false_recall:insufficient_evidence(1<2)" in message
+    assert "consolidation_effect:insufficient_evidence(1<2)" in message
+
+
 def _measured_evaluation_payload() -> dict:
     return {
         "group_id": "operator_brain",

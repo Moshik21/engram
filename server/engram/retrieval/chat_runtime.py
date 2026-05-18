@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+import anthropic
 
 from engram.models.recall import MemoryNeed
 from engram.retrieval.chat_events import build_chat_tool_stream_events
 from engram.retrieval.chat_feedback import (
     apply_chat_recall_feedback,
     should_retry_chat_response,
+)
+from engram.retrieval.chat_persistence import (
+    chat_conversation_not_found_payload,
+    resolve_chat_conversation,
+    schedule_chat_turn_persistence,
 )
 from engram.retrieval.chat_tools import (
     CHAT_TOOLS,
@@ -21,6 +30,7 @@ from engram.retrieval.chat_tools import (
 from engram.retrieval.context import (
     ingest_manager_conversation_turn,
     manager_conversation_context,
+    manager_conversation_top_entity_names,
     manager_conversation_turn_count,
 )
 from engram.retrieval.control import (
@@ -31,7 +41,10 @@ from engram.retrieval.epistemic import render_epistemic_summary
 from engram.retrieval.feedback import publish_memory_need_analysis
 from engram.retrieval.need import analyze_memory_need
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_MAX_HISTORY_MESSAGES = 10
+DEFAULT_MAX_TOOL_TURNS = 3
 
 
 @dataclass(frozen=True)
@@ -43,12 +56,27 @@ class ApiChatRateLimitSurface:
 
 
 @dataclass(frozen=True)
+class ApiChatStreamResponseSurface:
+    """REST chat response surface with either an error payload or SSE stream."""
+
+    status_code: int
+    payload: dict[str, Any] | None = None
+    stream: AsyncIterator[str] | None = None
+    media_type: str = "text/event-stream"
+
+
+@dataclass(frozen=True)
 class ChatResponseTurnResult:
     """Route-neutral result for a completed knowledge-chat memory turn."""
 
     stream_events: list[dict[str, Any]]
     final_text: str
     recall_results: list[dict[str, Any]]
+
+
+def build_chat_sse_event(data: Mapping[str, Any]) -> str:
+    """Format one AI SDK SSE event for the REST chat transport."""
+    return f"data: {json.dumps(dict(data))}\n\n"
 
 
 def build_api_chat_rate_limit_surface(remaining: int) -> ApiChatRateLimitSurface:
@@ -73,6 +101,59 @@ async def check_api_chat_rate_limit(
     if allowed:
         return None
     return build_api_chat_rate_limit_surface(remaining)
+
+
+async def build_api_chat_stream_response_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    message: str,
+    history: Sequence[Any] | None,
+    conversation_store: Any | None,
+    conversation_id: str | None,
+    session_date: str | None,
+    rate_limiter: Any | None,
+    event_bus: Any | None,
+    stream_logger: Any | None = None,
+) -> ApiChatStreamResponseSurface:
+    """Build the REST chat response surface outside the FastAPI route."""
+    rate_limit_result = await check_api_chat_rate_limit(
+        rate_limiter,
+        group_id=group_id,
+    )
+    if rate_limit_result is not None:
+        return ApiChatStreamResponseSurface(
+            status_code=rate_limit_result.status_code,
+            payload=rate_limit_result.payload,
+        )
+
+    conversation = await resolve_chat_conversation(
+        conversation_store,
+        group_id=group_id,
+        conversation_id=conversation_id,
+        message=message,
+        session_date=session_date,
+    )
+    if conversation.not_found:
+        return ApiChatStreamResponseSurface(
+            status_code=404,
+            payload=chat_conversation_not_found_payload(),
+        )
+
+    return ApiChatStreamResponseSurface(
+        status_code=200,
+        stream=stream_api_chat_sse_events(
+            manager=manager,
+            group_id=group_id,
+            message=message,
+            history=history,
+            conversation_store=conversation_store,
+            conversation_id=conversation.conversation_id,
+            event_bus=event_bus,
+            session_entity_names=manager_conversation_top_entity_names(manager),
+            stream_logger=stream_logger,
+        ),
+    )
 
 
 async def run_chat_response_turn(
@@ -202,6 +283,68 @@ async def run_chat_response_turn(
         final_text=final_text,
         recall_results=tool_loop.recall_results,
     )
+
+
+async def stream_api_chat_sse_events(
+    *,
+    manager: Any,
+    group_id: str,
+    message: str,
+    history: Sequence[Any] | None,
+    conversation_store: Any | None,
+    conversation_id: str | None,
+    event_bus: Any | None,
+    session_entity_names: list[str] | None = None,
+    client_factory: Any | None = None,
+    max_history_messages: int = DEFAULT_MAX_HISTORY_MESSAGES,
+    max_tool_turns: int = DEFAULT_MAX_TOOL_TURNS,
+    stream_logger: logging.Logger | None = None,
+) -> AsyncIterator[str]:
+    """Run the REST knowledge-chat turn and yield AI SDK SSE frames."""
+    log = stream_logger or logger
+    try:
+        yield build_chat_sse_event({"type": "start"})
+        yield build_chat_sse_event({"type": "start-step"})
+
+        client = (client_factory or anthropic.AsyncAnthropic)()
+        turn = await run_chat_response_turn(
+            client,
+            manager=manager,
+            group_id=group_id,
+            message=message,
+            history=history,
+            event_bus=event_bus,
+            session_entity_names=session_entity_names,
+            max_history_messages=max_history_messages,
+            max_tool_turns=max_tool_turns,
+        )
+
+        for stream_event in turn.stream_events:
+            yield build_chat_sse_event(stream_event)
+
+        yield build_chat_sse_event({"type": "finish-step"})
+        yield build_chat_sse_event(
+            {
+                "type": "finish",
+                "finishReason": "stop",
+                **({"conversationId": conversation_id} if conversation_id else {}),
+            }
+        )
+
+        schedule_chat_turn_persistence(
+            conversation_store,
+            conversation_id=conversation_id,
+            group_id=group_id,
+            user_message=message,
+            assistant_message=turn.final_text,
+            recall_results=turn.recall_results,
+        )
+    except Exception as exc:
+        log.exception("Chat stream error")
+        yield build_chat_sse_event({"type": "error", "errorText": str(exc)})
+        yield build_chat_sse_event({"type": "finish", "finishReason": "error"})
+
+    yield "data: [DONE]\n\n"
 
 
 def build_chat_text_stream_events(

@@ -13,7 +13,9 @@ from engram.consolidation_trigger import (
     ConsolidationTriggerService,
     build_api_consolidation_cycle_detail_surface,
     build_api_consolidation_history_surface,
+    build_api_consolidation_status_response_surface,
     build_api_consolidation_status_surface,
+    build_api_consolidation_trigger_response_surface,
     build_api_consolidation_trigger_surface,
     build_mcp_consolidation_status_surface,
     build_mcp_consolidation_trigger_surface,
@@ -145,6 +147,43 @@ def test_api_consolidation_trigger_surface_handles_running_and_triggered() -> No
     assert ready.should_run is True
 
 
+def test_api_consolidation_trigger_response_surface_schedules_background_cycle() -> None:
+    background_tasks = MagicMock()
+    logger = MagicMock()
+    engine = SimpleNamespace(is_running=False)
+
+    result = build_api_consolidation_trigger_response_surface(
+        engine,
+        group_id="native_brain",
+        dry_run=True,
+        background_tasks=background_tasks,
+        logger=logger,
+    )
+
+    assert result.status_code == 200
+    background_tasks.add_task.assert_called_once_with(
+        run_api_consolidation_cycle,
+        engine,
+        group_id="native_brain",
+        dry_run=True,
+        logger=logger,
+    )
+
+
+def test_api_consolidation_trigger_response_surface_skips_background_when_running() -> None:
+    background_tasks = MagicMock()
+
+    result = build_api_consolidation_trigger_response_surface(
+        SimpleNamespace(is_running=True),
+        group_id="native_brain",
+        dry_run=True,
+        background_tasks=background_tasks,
+    )
+
+    assert result.status_code == 409
+    background_tasks.add_task.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_run_api_consolidation_cycle_runs_manual_background_cycle() -> None:
     engine = SimpleNamespace(run_cycle=AsyncMock())
@@ -199,6 +238,53 @@ async def test_api_consolidation_status_surface_includes_scheduler_pressure_and_
     engine.get_latest_cycle.assert_awaited_once_with("native_brain")
     pressure.get_snapshot.assert_called_once_with("native_brain")
     pressure.get_pressure.assert_called_once_with("native_brain", cfg)
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_status_response_surface_uses_config_activation() -> None:
+    engine = SimpleNamespace(
+        is_running=False,
+        get_latest_cycle=AsyncMock(return_value=None),
+    )
+    scheduler = SimpleNamespace(is_active=False)
+    pressure = MagicMock()
+    pressure.get_snapshot.return_value = SimpleNamespace(
+        episodes_since_last=1,
+        entities_created=2,
+        last_cycle_time=3.0,
+    )
+    pressure.get_pressure.return_value = 7.0
+    cfg = SimpleNamespace(activation=ActivationConfig())
+
+    result = await build_api_consolidation_status_response_surface(
+        engine,
+        group_id="native_brain",
+        scheduler=scheduler,
+        pressure=pressure,
+        config=cfg,
+    )
+
+    assert result["pressure"]["threshold"] == cfg.activation.consolidation_pressure_threshold
+    pressure.get_pressure.assert_called_once_with("native_brain", cfg.activation)
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_status_response_surface_omits_pressure_without_config() -> None:
+    engine = SimpleNamespace(
+        is_running=False,
+        get_latest_cycle=AsyncMock(return_value=None),
+    )
+    pressure = MagicMock()
+
+    result = await build_api_consolidation_status_response_surface(
+        engine,
+        group_id="native_brain",
+        pressure=pressure,
+        config=None,
+    )
+
+    assert "pressure" not in result
+    pressure.get_snapshot.assert_not_called()
 
 
 @pytest.mark.asyncio

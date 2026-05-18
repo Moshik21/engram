@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from fastapi.responses import JSONResponse
+
 from engram.models.atlas import AtlasSnapshot, AtlasSnapshotSummary
 
 
@@ -30,6 +32,13 @@ def atlas_region_or_snapshot_not_found_payload() -> dict:
 def atlas_region_not_found_payload(region_id: str) -> dict:
     """Return the REST 404 payload for a missing atlas region."""
     return {"detail": f"Region '{region_id}' not found"}
+
+
+def build_api_atlas_json_response(surface: ApiAtlasSurface, logger: Any) -> JSONResponse:
+    """Return an atlas JSON response and log lookup warnings outside route bodies."""
+    if surface.log_warning:
+        logger.warning(surface.log_warning)
+    return JSONResponse(status_code=surface.status_code, content=surface.payload)
 
 
 def build_atlas_representation(

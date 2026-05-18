@@ -98,6 +98,14 @@ def get_conversation_store():
     return store
 
 
+def get_optional_conversation_store():
+    """Retrieve the ConversationStore when it has been initialized."""
+    try:
+        return get_conversation_store()
+    except RuntimeError:
+        return None
+
+
 def get_config() -> EngramConfig:
     """Retrieve the EngramConfig from app state."""
     from engram.main import _app_state

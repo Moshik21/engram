@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,10 +11,12 @@ from engram.models.atlas import (
     AtlasSnapshotSummary,
 )
 from engram.retrieval.atlas_surface import (
+    ApiAtlasSurface,
     atlas_region_not_found_payload,
     atlas_region_or_snapshot_not_found_payload,
     atlas_snapshot_not_found_payload,
     build_api_atlas_history_surface,
+    build_api_atlas_json_response,
     build_api_atlas_region_surface,
     build_api_atlas_surface,
     build_atlas_representation,
@@ -200,6 +202,32 @@ async def test_build_api_atlas_surface_returns_lookup_payload() -> None:
     assert result.status_code == 404
     assert result.payload == atlas_snapshot_not_found_payload()
     assert result.log_warning == "Atlas snapshot lookup failed: missing"
+
+
+def test_build_api_atlas_json_response_logs_warning_and_wraps_payload() -> None:
+    logger = Mock()
+    surface = ApiAtlasSurface(
+        status_code=404,
+        payload={"detail": "missing"},
+        log_warning="Atlas snapshot lookup failed: missing",
+    )
+
+    response = build_api_atlas_json_response(surface, logger)
+
+    assert response.status_code == 404
+    assert response.body == b'{"detail":"missing"}'
+    logger.warning.assert_called_once_with("Atlas snapshot lookup failed: missing")
+
+
+def test_build_api_atlas_json_response_skips_logging_without_warning() -> None:
+    logger = Mock()
+    surface = ApiAtlasSurface(status_code=200, payload={"ok": True})
+
+    response = build_api_atlas_json_response(surface, logger)
+
+    assert response.status_code == 200
+    assert response.body == b'{"ok":true}'
+    logger.warning.assert_not_called()
 
 
 @pytest.mark.asyncio

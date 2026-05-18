@@ -16,9 +16,8 @@ from engram.api.deps import (
 from engram.consolidation_trigger import (
     build_api_consolidation_cycle_detail_surface,
     build_api_consolidation_history_surface,
-    build_api_consolidation_status_surface,
-    build_api_consolidation_trigger_surface,
-    run_api_consolidation_cycle,
+    build_api_consolidation_status_response_surface,
+    build_api_consolidation_trigger_response_surface,
 )
 from engram.security.middleware import get_tenant
 
@@ -41,19 +40,13 @@ async def trigger_consolidation(
     group_id = tenant.group_id
     engine = get_consolidation_engine()
 
-    result = build_api_consolidation_trigger_surface(
+    result = build_api_consolidation_trigger_response_surface(
         engine,
         group_id=group_id,
         dry_run=dry_run,
+        background_tasks=background_tasks,
+        logger=logger,
     )
-    if result.should_run:
-        background_tasks.add_task(
-            run_api_consolidation_cycle,
-            engine,
-            group_id=group_id,
-            dry_run=dry_run,
-            logger=logger,
-        )
     return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
@@ -65,14 +58,12 @@ async def consolidation_status(request: Request) -> JSONResponse:
     engine = get_consolidation_engine()
     scheduler = get_consolidation_scheduler()
     pressure = get_pressure_accumulator()
-    activation_cfg = get_config().activation if pressure is not None else None
-
-    payload = await build_api_consolidation_status_surface(
+    payload = await build_api_consolidation_status_response_surface(
         engine,
         group_id=group_id,
         scheduler=scheduler,
         pressure=pressure,
-        activation_cfg=activation_cfg,
+        config=get_config(),
     )
     return JSONResponse(content=payload)
 

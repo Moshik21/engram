@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
+from engram.evaluation.benchmark_evidence import (
+    benchmark_evidence_failure_message,
+    load_benchmark_evidence,
+)
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     evaluation_signal_failure_message,
@@ -102,6 +107,57 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             "Exit non-zero unless all required evaluation_signals are present, "
             "measured, backed by evidence, and have a metric."
+        ),
+    )
+    parser.add_argument(
+        "--min-evaluation-signal-evidence",
+        type=int,
+        default=1,
+        help=(
+            "Minimum evidence_count required for each measured evaluation signal "
+            "when --require-evaluation-signals is set (default: 1). Raise this for "
+            "benchmark or release gates so one smoke label cannot satisfy the gate."
+        ),
+    )
+    parser.add_argument(
+        "--benchmark-artifact",
+        type=Path,
+        help=(
+            "Showcase benchmark results.json artifact to attach to the report "
+            "and optionally gate with --require-benchmark-evidence."
+        ),
+    )
+    parser.add_argument(
+        "--require-benchmark-evidence",
+        action="store_true",
+        help=(
+            "Exit non-zero unless --benchmark-artifact contains measured benchmark "
+            "evidence for the configured baseline."
+        ),
+    )
+    parser.add_argument(
+        "--benchmark-baseline",
+        default="engram_full",
+        help="Benchmark baseline to gate in --benchmark-artifact (default: engram_full).",
+    )
+    parser.add_argument(
+        "--min-benchmark-scenarios",
+        type=int,
+        default=1,
+        help="Minimum available scenarios required when gating benchmark evidence.",
+    )
+    parser.add_argument(
+        "--min-benchmark-pass-rate",
+        type=float,
+        default=0.0,
+        help="Minimum scenario pass rate required when gating benchmark evidence.",
+    )
+    parser.add_argument(
+        "--evidence-bundle",
+        type=Path,
+        help=(
+            "Write a JSON evidence bundle containing the report, attached benchmark "
+            "evidence, source paths, and gate thresholds after gates pass."
         ),
     )
     parser.add_argument(
@@ -230,13 +286,26 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
 async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
     report = await build_report_from_args(args)
+    report = _attach_benchmark_evidence_from_args(report, args)
     if getattr(args, "require_evaluation_signals", False):
         failure_message = evaluation_signal_failure_message(
             report,
             prefix="Brain-loop evaluation has unmeasured evaluation signals",
+            min_evidence_count=max(
+                1,
+                getattr(args, "min_evaluation_signal_evidence", 1),
+            ),
         )
         if failure_message:
             raise SystemExit(failure_message)
+    if getattr(args, "require_benchmark_evidence", False):
+        failure_message = benchmark_evidence_failure_message(
+            report.get("benchmark_evidence"),
+            prefix="Benchmark evidence failed gates",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
+    _write_evidence_bundle_from_args(report, args)
     if args.format == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
         return
@@ -246,6 +315,92 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         print(format_smoke_report(report), end="")
         return
     print(format_brain_loop_report_markdown(report))
+
+
+def _attach_benchmark_evidence_from_args(
+    report: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    artifact_path = getattr(args, "benchmark_artifact", None)
+    require_evidence = getattr(args, "require_benchmark_evidence", False)
+    if artifact_path is None:
+        if require_evidence:
+            report = dict(report)
+            report["benchmark_evidence"] = None
+        return report
+    try:
+        evidence = load_benchmark_evidence(
+            artifact_path,
+            baseline=getattr(args, "benchmark_baseline", "engram_full"),
+            min_scenarios=max(1, getattr(args, "min_benchmark_scenarios", 1)),
+            min_pass_rate=max(0.0, getattr(args, "min_benchmark_pass_rate", 0.0)),
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid benchmark artifact {artifact_path}: {exc}") from exc
+    report = dict(report)
+    report["benchmark_evidence"] = evidence
+    return report
+
+
+def _write_evidence_bundle_from_args(report: dict[str, Any], args: argparse.Namespace) -> None:
+    bundle_path = getattr(args, "evidence_bundle", None)
+    if bundle_path is None:
+        return
+    payload = build_evidence_bundle(report, args)
+    bundle_path = bundle_path.expanduser()
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bundle_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_evidence_bundle(
+    report: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    """Build the JSON artifact operators can archive for completion evidence."""
+    return {
+        "kind": "engram_brain_loop_evidence_bundle",
+        "version": 1,
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "status": "passed",
+        "group_id": report.get("group_id"),
+        "sources": {
+            "report_json": _optional_path_str(getattr(args, "from_json", None)),
+            "benchmark_artifact": _optional_path_str(getattr(args, "benchmark_artifact", None)),
+            "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
+            "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
+            "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
+            "helix_data_dir": _optional_path_str(getattr(args, "helix_data_dir", None)),
+        },
+        "gates": {
+            "require_evaluation_signals": bool(
+                getattr(args, "require_evaluation_signals", False)
+            ),
+            "min_evaluation_signal_evidence": max(
+                1,
+                getattr(args, "min_evaluation_signal_evidence", 1),
+            ),
+            "require_benchmark_evidence": bool(
+                getattr(args, "require_benchmark_evidence", False)
+            ),
+            "benchmark_baseline": getattr(args, "benchmark_baseline", "engram_full"),
+            "min_benchmark_scenarios": max(
+                1,
+                getattr(args, "min_benchmark_scenarios", 1),
+            ),
+            "min_benchmark_pass_rate": max(
+                0.0,
+                getattr(args, "min_benchmark_pass_rate", 0.0),
+            ),
+        },
+        "report": report,
+    }
+
+
+def _optional_path_str(path: Any) -> str | None:
+    return str(path) if path is not None else None
 
 
 async def _load_live_report(

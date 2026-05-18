@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
-import anthropic
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from engram.api.deps import (
     get_config,
-    get_conversation_store,
     get_manager,
     get_notification_surface_service,
+    get_optional_conversation_store,
     get_rate_limiter,
 )
 from engram.events.bus import get_event_bus
@@ -36,15 +34,8 @@ from engram.notifications.surface import (
     build_api_notifications_surface,
 )
 from engram.retrieval.artifacts import build_api_artifact_search_surface
-from engram.retrieval.chat_persistence import (
-    chat_conversation_not_found_payload,
-    resolve_chat_conversation,
-    schedule_chat_turn_persistence,
-)
 from engram.retrieval.chat_runtime import (
-    DEFAULT_MAX_HISTORY_MESSAGES,
-    check_api_chat_rate_limit,
-    run_chat_response_turn,
+    build_api_chat_stream_response_surface,
 )
 from engram.retrieval.context import (
     manager_conversation_top_entity_names,
@@ -616,14 +607,6 @@ async def dismiss_intention(
     return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
-def _sse(data: dict) -> str:
-    """Format a single SSE event line."""
-    return f"data: {json.dumps(data)}\n\n"
-
-
-MAX_TOOL_TURNS = 3  # Cap agentic loop iterations
-MAX_HISTORY_MESSAGES = DEFAULT_MAX_HISTORY_MESSAGES  # Sliding window for cost control
-
 @router.post("/chat", response_model=None)
 async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResponse:
     """Stream a chat response using AI SDK v6 UIMessageStream protocol.
@@ -633,87 +616,26 @@ async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResp
     """
     tenant = get_tenant(request)
     group_id = tenant.group_id
-
-    # Rate limit chat endpoint (guards against runaway API costs)
-    rate_limit_result = await check_api_chat_rate_limit(
-        get_rate_limiter(),
+    surface = await build_api_chat_stream_response_surface(
+        get_manager(),
         group_id=group_id,
+        message=body.message,
+        history=body.history,
+        conversation_store=get_optional_conversation_store(),
+        conversation_id=body.conversation_id,
+        session_date=body.session_date,
+        rate_limiter=get_rate_limiter(),
+        event_bus=get_event_bus(),
+        stream_logger=logger,
     )
-    if rate_limit_result:
+
+    if surface.payload is not None:
         return JSONResponse(
-            status_code=rate_limit_result.status_code,
-            content=rate_limit_result.payload,
+            status_code=surface.status_code,
+            content=surface.payload,
         )
 
-    manager = get_manager()
-
-    conversation_id = body.conversation_id
-    try:
-        conv_store = get_conversation_store()
-    except RuntimeError:
-        conv_store = None
-
-    conversation = await resolve_chat_conversation(
-        conv_store,
-        group_id=group_id,
-        conversation_id=conversation_id,
-        message=body.message,
-        session_date=body.session_date,
-    )
-    if conversation.not_found:
-        return JSONResponse(status_code=404, content=chat_conversation_not_found_payload())
-    conversation_id = conversation.conversation_id
-
-    session_entity_names = _get_conv_top_entity_names(manager)
-
-    async def event_stream():
-        try:
-            yield _sse({"type": "start"})
-            yield _sse({"type": "start-step"})
-
-            client = anthropic.AsyncAnthropic()
-            turn = await run_chat_response_turn(
-                client,
-                manager=manager,
-                group_id=group_id,
-                message=body.message,
-                history=body.history,
-                event_bus=get_event_bus(),
-                session_entity_names=session_entity_names,
-                max_history_messages=MAX_HISTORY_MESSAGES,
-                max_tool_turns=MAX_TOOL_TURNS,
-            )
-
-            for stream_event in turn.stream_events:
-                yield _sse(stream_event)
-
-            yield _sse({"type": "finish-step"})
-            yield _sse(
-                {
-                    "type": "finish",
-                    "finishReason": "stop",
-                    **({"conversationId": conversation_id} if conversation_id else {}),
-                }
-            )
-
-            # Fire-and-forget: persist messages + tag entities
-            schedule_chat_turn_persistence(
-                conv_store,
-                conversation_id=conversation_id,
-                group_id=group_id,
-                user_message=body.message,
-                assistant_message=turn.final_text,
-                recall_results=turn.recall_results,
-            )
-
-        except Exception as e:
-            logger.exception("Chat stream error")
-            yield _sse({"type": "error", "errorText": str(e)})
-            yield _sse({"type": "finish", "finishReason": "error"})
-
-        yield "data: [DONE]\n\n"
-
     return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
+        surface.stream,
+        media_type=surface.media_type,
     )

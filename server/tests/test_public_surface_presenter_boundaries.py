@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -45,11 +46,13 @@ PRESENTER_BOUNDARIES = {
 
 PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/websocket.py", "dashboard_ws"): {
-        "get_config",
+        "close_dashboard_websocket_auth_failure",
+        "get_event_bus",
         "get_manager",
         "get_notification_surface_service",
+        "resolve_dashboard_websocket_tenant",
+        "run_dashboard_websocket_session",
     },
-    ("engram/api/websocket.py", "forward_events"): {"flatten_dashboard_event"},
     ("engram/api/knowledge.py", "_get_conv_top_entity_names"): {
         "manager_conversation_top_entity_names",
     },
@@ -95,27 +98,23 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_recall_surface",
     },
     ("engram/api/knowledge.py", "chat"): {
-        "check_api_chat_rate_limit",
-        "chat_conversation_not_found_payload",
+        "build_api_chat_stream_response_surface",
         "get_event_bus",
         "get_rate_limiter",
-        "_get_conv_top_entity_names",
-        "resolve_chat_conversation",
-        "run_chat_response_turn",
-        "schedule_chat_turn_persistence",
+        "get_optional_conversation_store",
     },
     ("engram/api/health.py", "health_check"): {
-        "build_api_health_surface",
-        "get_config",
-        "get_graph_store",
-        "get_mode",
+        "build_api_health_response",
     },
     ("engram/api/consolidation.py", "trigger_consolidation"): {
-        "build_api_consolidation_trigger_surface",
-        "run_api_consolidation_cycle",
+        "build_api_consolidation_trigger_response_surface",
     },
     ("engram/api/consolidation.py", "consolidation_status"): {
-        "build_api_consolidation_status_surface",
+        "build_api_consolidation_status_response_surface",
+        "get_config",
+        "get_consolidation_engine",
+        "get_consolidation_scheduler",
+        "get_pressure_accumulator",
     },
     ("engram/api/consolidation.py", "consolidation_history"): {
         "build_api_consolidation_history_surface",
@@ -184,26 +183,23 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_api_entity_delete_response_surface",
     },
     ("engram/api/admin.py", "load_benchmark"): {"build_api_benchmark_load_surface"},
-    ("engram/api/graph.py", "get_atlas"): {"build_api_atlas_surface"},
+    ("engram/api/graph.py", "get_atlas"): {
+        "build_api_atlas_json_response",
+        "build_api_atlas_surface",
+    },
     ("engram/api/graph.py", "get_atlas_history"): {
         "build_api_atlas_history_surface",
     },
-    ("engram/api/graph.py", "get_region"): {"build_api_atlas_region_surface"},
+    ("engram/api/graph.py", "get_region"): {
+        "build_api_atlas_json_response",
+        "build_api_atlas_region_surface",
+    },
     ("engram/api/graph.py", "get_neighborhood"): {"build_api_graph_neighborhood_surface"},
     ("engram/api/graph.py", "get_graph_at"): {"build_api_temporal_graph_surface"},
     ("engram/api/stats.py", "get_stats"): {"build_api_dashboard_stats_surface"},
     ("engram/api/episodes.py", "list_episodes"): {"build_api_episode_list_surface"},
     ("engram/api/lifecycle.py", "lifecycle_summary"): {
         "build_api_lifecycle_summary_surface"
-    },
-    ("engram/api/websocket.py", "activation_snapshot_loop"): {
-        "build_api_activation_snapshot_surface",
-        "build_dashboard_activation_snapshot_message",
-    },
-    ("engram/api/websocket.py", "receive_commands"): {
-        "build_dashboard_pong_surface",
-        "build_dashboard_resync_surface",
-        "dismiss_dashboard_notification_command",
     },
     ("engram/api/activation.py", "get_activation_snapshot"): {
         "build_api_activation_snapshot_surface",
@@ -226,6 +222,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
         "build_session_prime_surface",
     },
     ("engram/mcp/server.py", "_recall_middleware"): {
+        "_ingest_live_tool_turn",
         "run_mcp_recall_middleware",
     },
     ("engram/mcp/server.py", "recall"): {
@@ -238,6 +235,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/mcp/server.py", "_ingest_live_turn"): {
         "_get_conv_context",
         "ingest_manager_conversation_turn",
+    },
+    ("engram/mcp/server.py", "_ingest_live_tool_turn"): {
+        "_ingest_live_turn",
     },
     ("engram/mcp/server.py", "get_lifecycle_summary"): {
         "build_mcp_lifecycle_summary_surface",
@@ -289,6 +289,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "get_runtime_state"): {
         "build_runtime_state_surface",
+    },
+    ("engram/mcp/server.py", "claim_authority"): {
+        "build_mcp_memory_authority_surface",
     },
     ("engram/mcp/server.py", "get_graph_state"): {
         "build_mcp_graph_state_surface",
@@ -378,27 +381,43 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
     ("engram/api/activation.py", "get_activation_snapshot"): {
         "get_activation_snapshot",
     },
-    ("engram/api/websocket.py", "activation_snapshot_loop"): {
-        "get_activation_snapshot",
+    ("engram/api/health.py", "health_check"): {
+        "build_api_health_surface",
+        "get_config",
+        "get_graph_store",
+        "get_mode",
+        "get_stats",
     },
-    ("engram/api/websocket.py", "receive_commands"): {
-        "dismiss_notifications",
-        "get_events_since",
-    },
-    ("engram/api/health.py", "health_check"): {"get_stats"},
     ("engram/api/activation.py", "get_activation_curve"): {
         "get_activation_curve",
         "HTTPException",
     },
+    ("engram/api/websocket.py", "dashboard_ws"): {
+        "AuthConfig",
+        "Headers",
+        "query_params",
+        "resolve_tenant_from_scope",
+    },
     ("engram/api/evaluation.py", "brain_loop_evaluation_report"): {
         "build_brain_loop_evaluation_surface",
         "get_recent_evaluation_context",
+    },
+    ("engram/api/consolidation.py", "trigger_consolidation"): {
+        "add_task",
+        "build_api_consolidation_trigger_surface",
+        "run_api_consolidation_cycle",
+    },
+    ("engram/api/consolidation.py", "consolidation_status"): {
+        "activation",
+        "build_api_consolidation_status_surface",
     },
     ("engram/api/lifecycle.py", "lifecycle_summary"): {
         "get_lifecycle_summary",
     },
     ("engram/api/knowledge.py", "chat"): {
         "analyze_chat_memory_need",
+        "anthropic",
+        "AsyncAnthropic",
         "apply_chat_recall_feedback",
         "build_chat_context_surface",
         "build_chat_messages",
@@ -406,17 +425,28 @@ PUBLIC_ROUTE_FORBIDDEN_IDENTIFIERS = {
         "build_chat_system_prompt_surface",
         "build_chat_tool_stream_events",
         "CHAT_TOOLS",
+        "check_api_chat_rate_limit",
+        "chat_conversation_not_found_payload",
         "create_task",
+        "event_stream",
         "extract_message_text",
         "gather_epistemic_evidence",
         "get_context",
         "get_chat_runtime_policy",
         "hydrate_chat_context",
+        "json",
+        "MAX_HISTORY_MESSAGES",
+        "MAX_TOOL_TURNS",
         "record_chat_assistant_turn",
         "persist_chat_turn",
         "retry_memory_grounded_response",
+        "resolve_chat_conversation",
+        "run_chat_response_turn",
         "run_chat_tool_use_loop",
+        "schedule_chat_turn_persistence",
         "should_retry_chat_response",
+        "stream_api_chat_sse_events",
+        "_sse",
     },
     ("engram/api/knowledge.py", "replay_queue"): {
         "build_api_offline_replay_surface",
@@ -538,6 +568,7 @@ PUBLIC_SURFACES_WITHOUT_APP_STATE_READS = tuple(
 )
 
 SHARED_RUNTIME_MODULES_WITHOUT_APP_STATE_READS = (
+    "engram/api/websocket_runtime.py",
     "engram/consolidation/scheduler.py",
     "engram/notifications/surface.py",
 )
@@ -571,6 +602,35 @@ RUNTIME_SHUTDOWN_FORBIDDEN_IDENTIFIERS = {
         "stop",
     },
 }
+
+DASHBOARD_WEBSOCKET_RUNTIME_BOUNDARIES = {
+    ("engram/api/websocket_runtime.py", "_forward_dashboard_events"): {
+        "flatten_dashboard_event",
+    },
+    ("engram/api/websocket_runtime.py", "_run_dashboard_activation_snapshots"): {
+        "build_api_activation_snapshot_surface",
+        "build_dashboard_activation_snapshot_message",
+    },
+    ("engram/api/websocket_runtime.py", "_receive_dashboard_commands"): {
+        "build_dashboard_pong_surface",
+        "build_dashboard_resync_surface",
+        "dismiss_dashboard_notification_command",
+    },
+    ("engram/api/websocket_runtime.py", "run_dashboard_websocket_session"): {
+        "_forward_dashboard_events",
+        "_receive_dashboard_commands",
+        "subscribe",
+        "unsubscribe",
+    },
+}
+
+PUBLIC_API_ROUTE_ALLOWED_CONTROL_FLOW = Counter(
+    {
+        ("engram/api/knowledge.py", "chat", "If"): 1,
+        ("engram/api/websocket.py", "dashboard_ws", "ExceptHandler"): 2,
+        ("engram/api/websocket.py", "dashboard_ws", "Try"): 2,
+    }
+)
 
 
 def _function_names_used(relative_path: str, function_name: str) -> set[str]:
@@ -705,6 +765,120 @@ def _public_api_route_paths() -> list[str]:
     ]
 
 
+def _decorated_api_route_surfaces() -> set[tuple[str, str]]:
+    surfaces: set[tuple[str, str]] = set()
+    for relative_path in _public_api_route_paths():
+        tree = ast.parse((ROOT / relative_path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for decorator in function.decorator_list:
+                func = decorator.func if isinstance(decorator, ast.Call) else decorator
+                if isinstance(func, ast.Attribute) and func.attr in {
+                    "delete",
+                    "get",
+                    "patch",
+                    "post",
+                    "websocket",
+                }:
+                    surfaces.add((relative_path, function.name))
+    return surfaces
+
+
+def _decorated_api_route_nested_functions() -> set[tuple[str, str, str]]:
+    nested: set[tuple[str, str, str]] = set()
+    for relative_path in _public_api_route_paths():
+        tree = ast.parse((ROOT / relative_path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            is_route = False
+            for decorator in function.decorator_list:
+                func = decorator.func if isinstance(decorator, ast.Call) else decorator
+                if isinstance(func, ast.Attribute) and func.attr in {
+                    "delete",
+                    "get",
+                    "patch",
+                    "post",
+                    "websocket",
+                }:
+                    is_route = True
+                    break
+            if not is_route:
+                continue
+            for node in ast.walk(function):
+                if node is function:
+                    continue
+                if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+                    nested.add((relative_path, function.name, node.name))
+    return nested
+
+
+def _decorated_api_route_control_flow() -> Counter[tuple[str, str, str]]:
+    control_flow_nodes = (
+        ast.AsyncFor,
+        ast.AsyncWith,
+        ast.BoolOp,
+        ast.ExceptHandler,
+        ast.For,
+        ast.If,
+        ast.IfExp,
+        ast.Match,
+        ast.Try,
+        ast.While,
+        ast.With,
+    )
+    counter: Counter[tuple[str, str, str]] = Counter()
+    for relative_path in _public_api_route_paths():
+        tree = ast.parse((ROOT / relative_path).read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            is_route = False
+            for decorator in function.decorator_list:
+                func = decorator.func if isinstance(decorator, ast.Call) else decorator
+                if isinstance(func, ast.Attribute) and func.attr in {
+                    "delete",
+                    "get",
+                    "patch",
+                    "post",
+                    "websocket",
+                }:
+                    is_route = True
+                    break
+            if not is_route:
+                continue
+            for node in ast.walk(function):
+                if isinstance(node, control_flow_nodes):
+                    counter[(relative_path, function.name, type(node).__name__)] += 1
+    return counter
+
+
+def _nested_functions_in(surface: tuple[str, str]) -> set[tuple[str, str, str]]:
+    relative_path, function_name = surface
+    tree = ast.parse((ROOT / relative_path).read_text())
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+            continue
+        if function.name != function_name:
+            continue
+        return {
+            (relative_path, function.name, node.name)
+            for node in ast.walk(function)
+            if node is not function
+            and isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+        }
+    raise AssertionError(f"Function not found: {relative_path}:{function_name}")
+
+
+def _decorated_mcp_nested_functions(relative_path: str) -> set[tuple[str, str, str]]:
+    return {
+        nested
+        for function_name in _decorated_mcp_function_names(relative_path)
+        for nested in _nested_functions_in((relative_path, function_name))
+    }
+
+
 def _manager_private_attrs_used(relative_path: str, function_name: str) -> set[str]:
     return _private_attrs_used(relative_path, function_name, "manager")
 
@@ -790,8 +964,42 @@ def test_runtime_shutdown_does_not_reintroduce_local_shutdown_logic(
     assert names_used & forbidden_names == set()
 
 
+@pytest.mark.parametrize(
+    ("surface", "expected_names"),
+    DASHBOARD_WEBSOCKET_RUNTIME_BOUNDARIES.items(),
+)
+def test_dashboard_websocket_runtime_uses_shared_boundaries(
+    surface: tuple[str, str],
+    expected_names: set[str],
+) -> None:
+    relative_path, function_name = surface
+    names_used = _function_identifiers_used(relative_path, function_name)
+    assert expected_names - names_used == set()
+
+
 def test_mcp_tool_handlers_do_not_directly_await_recall_middleware() -> None:
     assert _functions_directly_awaiting("engram/mcp/server.py", "_recall_middleware") == set()
+
+
+def test_mcp_recall_middleware_does_not_embed_nested_runtime_callbacks() -> None:
+    assert _nested_functions_in(("engram/mcp/server.py", "_recall_middleware")) == set()
+
+
+def test_mcp_public_surfaces_do_not_embed_nested_orchestration() -> None:
+    assert _decorated_mcp_nested_functions("engram/mcp/server.py") == set()
+
+
+def test_all_public_api_routes_have_orchestration_boundary_entries() -> None:
+    uncovered = _decorated_api_route_surfaces() - set(PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES)
+    assert uncovered == set()
+
+
+def test_public_api_route_handlers_do_not_embed_nested_orchestration() -> None:
+    assert _decorated_api_route_nested_functions() == set()
+
+
+def test_public_api_route_handlers_only_keep_known_transport_branching() -> None:
+    assert _decorated_api_route_control_flow() == PUBLIC_API_ROUTE_ALLOWED_CONTROL_FLOW
 
 
 def test_public_routes_do_not_dispatch_manager_methods_directly() -> None:
@@ -833,11 +1041,9 @@ def test_public_routes_do_not_dispatch_store_or_service_methods_directly() -> No
 
 def test_public_api_routes_only_await_route_facing_helpers() -> None:
     allowed_names = {
-        "check_api_chat_rate_limit",
-        "resolve_chat_conversation",
-        "resolve_tenant_from_scope",
-        "run_api_consolidation_cycle",
-        "run_chat_response_turn",
+        "close_dashboard_websocket_auth_failure",
+        "resolve_dashboard_websocket_tenant",
+        "run_dashboard_websocket_session",
     }
     allowed_prefixes = (
         "build_",

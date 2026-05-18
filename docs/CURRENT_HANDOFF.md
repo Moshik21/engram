@@ -16,6 +16,12 @@ Preferred local operator path: Helix native PyO3 (`ENGRAM_MODE=helix` with
 SQLite/lite remains the disposable smoke/demo fallback, not the strategic
 runtime target.
 
+AI-harness adoption addendum: Engram being connected over MCP is not enough.
+The runtime must make agents trust and use Engram as the portable cross-context
+memory authority even when project-local file memory exists, must treat an empty
+runtime as an onboarding/bootstrap state, and must provide verifier evidence
+that real clients followed the required recall/capture protocol.
+
 ## Current Milestone
 
 The audit milestone, P0 public-contract slices, and several P1 runtime-service
@@ -36,7 +42,7 @@ What changed in this pass:
   the latest native parity, lifecycle, consolidation phase-contract, and shared
   consolidation presenter/projection-plan/default-group/replay/projection-yield
   group-scope/static-guard/Recall-gate coverage/persistence work; it now passes
-  with 3251 tests, 43 skips, and 236 external-service tests deselected after
+  with 3320 tests, 43 skips, and 236 external-service tests deselected after
   the latest entity-probe recall, consolidation phase-catalog, episode
   ingestion, offline replay, capture dedup, and native surface manifest
   extractions plus the GraphManager, REST/MCP memory, and consolidation
@@ -55,7 +61,16 @@ What changed in this pass:
   helper, the chat persistence scheduler helper, shared companion-store
   bootstrap, explicit notification/scheduler dependencies, and the public
   smoke cue-feedback facade, plus REST/MCP shutdown stop/close facade cleanup,
-  shutdown consolidation helper, and static guards.
+  shutdown consolidation helper, REST chat SSE runtime extraction, REST chat
+  response-surface extraction, MCP memory authority/onboarding prompt contract,
+  dashboard WebSocket auth route-boundary extraction, REST health route-boundary
+  extraction, REST consolidation trigger scheduling extraction, static guards,
+  REST consolidation status pressure/config extraction, adoption transcript
+  stdin validation, self-reported file-memory bypass classification, the copied
+  Claude file-memory bypass transcript regression, the public REST route
+  control-flow guard, the atlas warning/response helper extraction, the
+  whole-runtime private GraphManager access guard, and the
+  `--min-evaluation-signal-evidence` evaluation gate.
   The GraphManager guard now
   covers the remaining service-backed compatibility adapters too, and the MCP
   identity-core mutation, MCP consolidation trigger, and MCP entity graph
@@ -154,7 +169,9 @@ What changed in this pass:
   bootstrap/runtime, epistemic route/evidence, recall, entity-probe recall,
   context, and graph-state facades, plus evidence adjudication, artifact search,
   decision materialization, lookup, forgetting, prospective memory, context,
-  graph-state, and related access/interaction compatibility adapters.
+  graph-state, and related access/interaction compatibility adapters. It now
+  also scans runtime modules for direct `manager._*`, `graph_manager._*`, or
+  `_manager._*` access outside `server/engram/graph_manager.py`.
 - Extracted MCP identity-core mutation out of route-local graph writes.
   `server/engram/retrieval/identity_core.py` owns mark/unmark behavior,
   `GraphManager.mark_identity_core()` is the compatibility facade, and
@@ -994,8 +1011,10 @@ What changed in this pass:
 - Refreshed the audit's Drift And Gaps section so it no longer describes the
   original P0/P2/P3 gaps as still open. The current remaining risks are
   GraphManager re-accumulation, future surface contract drift, phase-list drift,
-  quest-mode dominance, Docker/full-mode and longer native endurance gates, and
-  deeper benchmark integration.
+  quest-mode dominance, longer native endurance gates, live AI-harness adoption
+  evidence, and deeper benchmark integration. Docker Helix/full-mode is now
+  treated as a separate compatibility/integration lane because PyO3 native is the
+  full-backend completion path for no-Docker operator readiness.
 - Added `engram lifecycle` as a headless CLI snapshot for the same shared
   lifecycle summary. It resolves the configured engine mode, including Helix
   native PyO3, and prints Markdown or JSON without requiring REST, MCP, or the
@@ -1670,6 +1689,57 @@ What changed in this pass:
   when any required signal is missing, unmeasured, evidence-free, or metric-free,
   so benchmark-labeled exports and reopened native reports can be promoted to
   blocking checks without running the deterministic smoke harness.
+  `--min-evaluation-signal-evidence N` now lets release/benchmark gates require
+  more than one smoke-sized evidence record per measured signal.
+  `--benchmark-artifact results.json --require-benchmark-evidence` now attaches
+  deterministic showcase benchmark evidence to the report and fails if the
+  `engram_full` baseline lacks enough scenarios, pass rate, fairness contract,
+  or transcript hashes. The Markdown brain-loop report now includes a Benchmark
+  Evidence section when this artifact is attached.
+  `--evidence-bundle brain-loop-evidence.json` writes a single JSON artifact
+  with the report, attached benchmark evidence, source paths, and gate thresholds
+  after the requested gates pass.
+  Current disposable proof: generated
+  `/private/tmp/engram-evidence-showcase/results.json` with the deterministic
+  showcase benchmark for `temporal_override`, then ran `uv run engram evaluate
+  --smoke --require-evaluation-signals --benchmark-artifact
+  /private/tmp/engram-evidence-showcase/results.json
+  --require-benchmark-evidence --min-benchmark-scenarios 1
+  --min-benchmark-pass-rate 1.0 --evidence-bundle
+  /private/tmp/engram-brain-loop-evidence.json --format json`. It passed and
+  wrote an `engram_brain_loop_evidence_bundle` with all six evaluation signals
+  measured and benchmark evidence attached. Treat this as proof of the packaging
+  path, not as final production evidence.
+  Follow-up quick benchmark proof: generated
+  `/private/tmp/engram-evidence-showcase-quick-20260518/results.json` with
+  deterministic showcase `quick` mode, seed `7`, and only the `engram_full`
+  baseline, then ran `uv run engram evaluate --smoke
+  --require-evaluation-signals --benchmark-artifact
+  /private/tmp/engram-evidence-showcase-quick-20260518/results.json
+  --require-benchmark-evidence --min-benchmark-scenarios 4
+  --min-benchmark-pass-rate 1.0 --evidence-bundle
+  /private/tmp/engram-brain-loop-evidence-quick-20260518.json --format json`.
+  It passed with benchmark status `measured`, four available quick scenarios,
+  pass rate `1.0`, false recall `0.0`, four transcript hashes, an `engram_full`
+  fairness contract, and all six evaluation signals measured. Treat this as a
+  stronger local deterministic gate, not as final production evidence.
+  Full deterministic benchmark proof: generated
+  `/private/tmp/engram-evidence-showcase-full-20260518/results.json` with
+  deterministic showcase `full` mode, seeds `7, 19, 31`, and only the
+  `engram_full` baseline across all 13 scenario transcripts, then ran
+  `uv run engram evaluate --smoke --require-evaluation-signals
+  --benchmark-artifact /private/tmp/engram-evidence-showcase-full-20260518/results.json
+  --require-benchmark-evidence --min-benchmark-scenarios 39
+  --min-benchmark-pass-rate 1.0 --evidence-bundle
+  /private/tmp/engram-brain-loop-evidence-full-20260518.json --format json`.
+  It passed with benchmark status `measured`, 39 available scenario runs, 39
+  passed, pass rate `1.0`, false recall `0.0`, 13 transcript hashes, an
+  `engram_full` fairness contract, and all six evaluation signals measured.
+  Treat this as the strongest local benchmark-labeled gate so far, while live
+  AI-harness adoption remains the completion blocker.
+  Latest broad backend gate after the adoption-template and full-benchmark
+  evidence updates: `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  passed with 3320 tests, 43 skips, and 236 deselections in 192.79s.
   `--from-json` also recognizes already-rendered brain-loop report artifacts, so
   saved JSON reports can be verified directly instead of being misread as raw
   graph stats. Partial report-shaped JSON now fails fast with the missing
@@ -1786,6 +1856,170 @@ What changed in this pass:
   helper coverage now also proves failed shutdown cycles are logged and do not
   break shutdown, and `main._shutdown()` delegates the active engine/config/logger
   into the helper.
+- Moved REST knowledge-chat SSE stream orchestration out of
+  `server/engram/api/knowledge.py`. `stream_api_chat_sse_events()` in
+  `server/engram/retrieval/chat_runtime.py` now owns AI SDK SSE start/step/text/
+  finish/error framing, Anthropic client construction, response-turn execution,
+  and best-effort conversation persistence scheduling. The public-surface guard
+  rejects returning `_sse`, inline event-stream generators, direct Anthropic
+  construction, `run_chat_response_turn()`, and `schedule_chat_turn_persistence()`
+  to the REST route.
+- Moved the remaining REST knowledge-chat response setup out of the route body.
+  `build_api_chat_stream_response_surface()` in
+  `server/engram/retrieval/chat_runtime.py` now owns chat rate-limit handling,
+  optional conversation-store resolution, conversation not-found payloads,
+  session entity lookup, and SSE stream construction. `chat()` now keeps tenant
+  lookup, dependency lookup, and HTTP response wrapping, and the public-surface
+  guard forbids reintroducing direct chat rate-limit, conversation resolution,
+  not-found payload, or SSE stream assembly in the FastAPI route.
+- Moved `/health` dependency fallback out of the public handler.
+  `build_api_health_response()` in `server/engram/api/health_runtime.py` now owns
+  optional graph-store resolution plus the default-group fallback before calling
+  the shared health surface. `health_check()` is now a one-call route wrapper,
+  and the public-surface guard rejects direct `get_graph_store()`,
+  `get_config()`, `get_mode()`, `get_stats()`, or `build_api_health_surface()`
+  usage in the route.
+- Moved REST consolidation trigger background scheduling out of the route body.
+  `build_api_consolidation_trigger_response_surface()` now owns the running
+  check, public trigger payload, and `BackgroundTasks.add_task()` scheduling for
+  `run_api_consolidation_cycle()`. `trigger_consolidation()` keeps tenant and
+  engine lookup plus response wrapping, and the public-surface guard rejects
+  direct task scheduling or direct trigger/run helper usage in the route.
+- Moved REST consolidation status pressure/config selection out of the route
+  body. `build_api_consolidation_status_response_surface()` now owns the
+  activation-config selection for pressure reporting before calling the shared
+  status surface. `consolidation_status()` keeps tenant/dependency lookup plus
+  JSON wrapping, and the public-surface guard rejects direct activation-config
+  extraction or direct status-surface calls in the route.
+- Added a route-control-flow guard for the remaining public REST/WebSocket
+  handlers. Atlas warning logging and response wrapping now live in
+  `build_api_atlas_json_response()`, so the only allowed route branches now are
+  chat JSON-vs-stream response wrapping and WebSocket auth/session
+  try/excepts. Any new `if`/`try`/loop/match-style control flow inside a
+  decorated FastAPI route must be explicitly justified in the guard or moved
+  into a route-facing helper.
+- Tightened the MCP adoption contract after a live agent ignored Engram despite
+  the MCP server being connected. `ENGRAM_SYSTEM_PROMPT` now explicitly says
+  Engram is the portable, cross-context source of truth for user facts,
+  preferences, corrections, durable decisions, relationships, goals,
+  commitments, and long-tail recall; project-local files own only repo-specific
+  conventions and current-task scratch notes. It also tells agents that an empty
+  runtime (`artifactCount: 0`, `lastObservedAt: null`, zero recall/evaluation
+  stats) is an onboarding state and should trigger `bootstrap_project(project_path)`
+  when a project path is available, not a reason to route around Engram. README
+  automatic-memory behavior and prompt tests now cover that authority/onboarding
+  contract.
+- Added the explicit MCP `claim_authority(project_path)` surface for agents that
+  need a callable source-of-truth decision. It returns a machine-readable
+  authority contract, Engram-owned vs project-local memory responsibilities,
+  onboarding state, recommended `bootstrap_project`/`get_context`/`recall`
+  actions, the current runtime-state payload, and the brain-loop lifecycle. The
+  tool is registered in the native surface manifest, covered by focused
+  project-runtime/MCP-wrapper/prompt/static/native-manifest tests, and listed in
+  README as the 27th MCP tool.
+- Extended `claim_authority()` into a deterministic adoption harness. The tool
+  now accepts `user_message` and `file_memory_present`, then returns an
+  `agent_protocol` with `required_tools_before_answer` plus a capture routing
+  decision. The covered failure case is an agent with file memory visible and an
+  empty Engram runtime: the payload requires `bootstrap_project`, `get_context`,
+  and `recall` before answering, and routes high-signal cross-context facts to
+  Engram `remember` instead of treating file-local memory as a substitute.
+- Added `validate_agent_protocol_calls()` so real MCP client logs or thin
+  harnesses can prove they followed the returned `agent_protocol`. It validates
+  required pre-answer tool order, required Engram capture calls, unexpected
+  Engram writes for project-local scratch, and the specific failure where
+  visible file memory substitutes for Engram.
+- Added a real stdio MCP-client adoption check in
+  `tests/test_mcp_authority_client_adoption.py`. It starts `engram mcp` in
+  isolated lite/noop mode, calls `claim_authority(project_path, user_message,
+  file_memory_present=True)`, executes the returned bootstrap/context/recall
+  and capture tools, then scores the observed transcript with
+  `validate_agent_protocol_calls()`. That live path exposed a contract gap:
+  missing project artifacts were reported as `ready` when other runtime metrics
+  existed. `_build_onboarding()` now treats missing or stale project artifacts
+  as `needs_project_bootstrap` and requires `bootstrap_project` before judging
+  recall usefulness.
+- Strengthened the real-harness installation guidance. The MCP system prompt
+  now tells agents to follow `agent_protocol.required_tools_before_answer` in
+  order and use the returned `capture` decision after `claim_authority()`.
+  `engram setup` prints an "Agent adoption checklist" for Claude Code, Cursor,
+  Windsurf, and similar MCP clients, and README's Claude Code guidance now
+  includes the same authority/protocol/bootstrap/capture contract instead of
+  only saying to call `get_context()`.
+- Added a reproducible adoption transcript verifier. `engram adoption
+  --authority claim-authority.json --calls mcp-calls.jsonl` loads a saved
+  `claim_authority()` response plus JSON/JSONL tool-call records, runs
+  `validate_agent_protocol_calls()`, and exits nonzero when a real client skips
+  required pre-answer tools, substitutes file-local memory for Engram, misses
+  required capture, or writes to Engram for project-local scratch. README and
+  `engram setup` now point real harnesses to this command.
+- Made `claim_authority()` self-describing for real harness validation. Its
+  `agent_protocol` now includes a `verification` block with the `engram adoption`
+  command, required JSONL transcript fields (`phase`, `tool`), allowed phase
+  values, and an example transcript derived from the returned capture decision.
+  This lets Claude/Cursor/Windsurf-style harnesses record the right evidence
+  without reading README first.
+- Added a stricter live-harness evidence mode for the adoption verifier.
+  `claim_authority().agent_protocol.verification` now includes
+  `live_evidence_command` and a JSON wrapper schema with required `client` and
+  `capturedAt` metadata. `engram adoption --require-live-evidence` fails with
+  `missing_live_harness_evidence` if a passing tool-name transcript lacks that
+  metadata, or if those fields are still template placeholders, so handcrafted
+  JSONL or an untouched generated template cannot be mistaken for current
+  Claude/Cursor/Windsurf completion evidence.
+- Added a live-adoption transcript template mode. `engram adoption --authority
+  claim-authority.json --template` reads the saved authority payload, emits the
+  expected JSON wrapper and call sequence, and supports Markdown output for
+  operator copy/paste. This keeps real harness collection aligned with the
+  returned `agent_protocol` without making the template itself count as evidence.
+- Hardened `engram adoption` for common real MCP log shapes. The verifier now
+  normalizes prefixed tool names such as `mcp__engram__recall`, nested `tool`,
+  `function`, `tool_call`, and `toolCall` records, and `stage` as an alias for
+  `phase`, while keeping the actual required phase/tool contract unchanged. It
+  also accepts explicit plaintext/Markdown harness notes with
+  `before_answer`/`capture` headings plus common `Before answer`/`pre-answer`
+  aliases and Engram tool lines, so copied Claude, Cursor, or Windsurf session
+  notes can be checked without hand-converting them to JSON first. Malformed
+  copied notes now return a structured `invalid_calls_transcript` report instead
+  of surfacing a parser exception. The command also accepts `--calls -` to read
+  copied transcript notes from stdin. If copied chat notes do not expose raw
+  tool logs but the agent explicitly says it ignored Engram or used file-local
+  memory as the primary memory path, the verifier now classifies the notes as a
+  failed adoption transcript instead of rejecting them as unusable.
+- Fixed `claim_authority()` verifier metadata for project-local scratch. The
+  returned `agent_protocol.verification` now includes `capture_required`, and
+  the example transcript only includes a `capture` record when the protocol
+  actually requires an Engram `observe` or `remember` call. Project-local
+  scratch examples no longer emit a fake `"<none>"` capture tool.
+- Tightened the public route-local orchestration guard. The static
+  public-surface test now discovers every decorated REST API route and fails if
+  any route is missing from `PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES`, so new
+  transport handlers cannot bypass the named boundary map silently.
+- Moved dashboard WebSocket session orchestration out of route-local nested
+  functions. `run_dashboard_websocket_session()` in
+  `server/engram/api/websocket_runtime.py` now owns event forwarding, command
+  handling, activation-monitor task lifecycle, bus subscription cleanup, and
+  WebSocket disconnect cancellation cleanup. `dashboard_ws()` keeps auth,
+  accept, dependency lookup, and one route-facing runtime call. The
+  public-surface guard now also fails when decorated API route handlers define
+  nested functions, so new transport handlers cannot hide lifecycle loops inside
+  a route body.
+- Moved dashboard WebSocket tenant authentication out of the route body.
+  `resolve_dashboard_websocket_tenant()` in `server/engram/api/websocket_auth.py`
+  now owns the configured `AuthConfig()` fallback, header resolution, and browser
+  `?token=` bearer fallback before the socket is accepted. `dashboard_ws()` now
+  delegates auth and rejection to route-facing helpers, and the public-surface
+  guard forbids the route from reintroducing `resolve_tenant_from_scope`,
+  `Headers`, or query-param auth parsing directly.
+- Flattened the MCP recall middleware adapter. `_recall_middleware()` now passes
+  the named `_ingest_live_tool_turn()` helper into `run_mcp_recall_middleware()`
+  instead of defining a nested runtime callback in `mcp/server.py`. The static
+  boundary tests now assert that `_recall_middleware()` delegates through the
+  named helper and contains no nested runtime callbacks.
+- Added the MCP public-surface counterpart to the route nested-orchestration
+  guard. Decorated MCP tools/resources/prompts now fail the public-surface suite
+  if they define nested functions inside the public handler body, keeping MCP
+  handlers as lookup/JSON transport wrappers over named runtime surfaces.
 - Added `server/engram/ingestion/worker_runtime.py` so `EpisodeWorker` receives
   explicit graph, activation, and search stores from REST/MCP startup instead of
   reaching through `GraphManager` private fields. `GraphManager` keeps
@@ -4988,6 +5222,13 @@ What changed in this pass:
   - Result: passed.
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result: 2725 passed, 43 skipped, 236 deselected in 125.96s.
+- Whole-runtime GraphManager private-field access guard:
+  `uv run ruff check tests/test_graph_manager_facade_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_graph_manager_facade_boundaries.py -q`
+  - Result: 91 passed in 0.78s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3303 passed, 43 skipped, 236 deselected in 110.33s.
 - MCP identity-core service boundary:
   `uv run pytest tests/test_identity_core_service.py
   tests/test_graph_manager_facade_boundaries.py
@@ -6687,6 +6928,354 @@ What changed in this pass:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
   - Result after shutdown-helper delegation coverage:
     3251 passed, 43 skipped, 236 deselected in 190.15s.
+- Knowledge-chat SSE runtime and MCP authority prompt follow-up:
+  `uv run ruff check engram/mcp/prompts.py tests/test_mcp_prompts.py
+  engram/api/knowledge.py engram/retrieval/chat_runtime.py
+  tests/test_chat_runtime_stream.py tests/test_knowledge_api.py
+  tests/test_native_surface_parity.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_mcp_prompts.py tests/test_chat_runtime_stream.py
+  tests/test_knowledge_api.py::TestChat tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 199 passed in 23.97s.
+- Broad backend non-Docker/non-external-Helix gate after knowledge-chat SSE
+  runtime extraction and MCP authority/onboarding prompt contract:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3256 passed, 43 skipped, 236 deselected in 184.62s.
+- MCP claim-authority callable contract follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py engram/mcp/server.py
+  engram/mcp/prompts.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py
+  tests/test_public_surface_presenter_boundaries.py tests/test_native_surface_parity.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_public_surface_presenter_boundaries.py
+  tests/test_native_surface_manifest.py -q`
+  - Result: 199 passed in 5.18s.
+- Broad backend non-Docker/non-external-Helix gate after MCP
+  `claim_authority()` surfaced as a public tool:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3260 passed, 43 skipped, 236 deselected in 226.06s.
+- MCP claim-authority adoption harness follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py engram/mcp/server.py
+  engram/mcp/prompts.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_native_surface_parity.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 200 passed in 4.02s.
+- Broad backend non-Docker/non-external-Helix gate after adding
+  `claim_authority()` `agent_protocol` adoption routing:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3261 passed, 43 skipped, 236 deselected in 198.84s.
+- MCP authority protocol transcript validation follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py engram/mcp/server.py
+  engram/mcp/prompts.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 204 passed in 4.48s.
+- Broad backend non-Docker/non-external-Helix gate after MCP authority protocol
+  transcript validation:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3265 passed, 43 skipped, 236 deselected in 250.91s.
+- MCP stdio-client adoption validation follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py engram/mcp/server.py
+  engram/mcp/prompts.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_tools.py
+  tests/test_mcp_prompts.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 206 passed in 3.46s.
+- Broad backend non-Docker/non-external-Helix gate after MCP stdio-client
+  adoption validation:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3267 passed, 43 skipped, 236 deselected in 191.30s.
+- MCP adoption installer/prompt guidance follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py engram/mcp/server.py
+  engram/mcp/prompts.py engram/setup.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_tools.py
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 224 passed in 4.15s.
+- Broad backend non-Docker/non-external-Helix gate after MCP adoption guidance:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3267 passed, 43 skipped, 236 deselected in 154.77s.
+- MCP adoption transcript verifier CLI follow-up:
+  `uv run ruff check engram/mcp/adoption_cli.py engram/__main__.py
+  engram/setup.py tests/test_mcp_adoption_cli.py tests/test_cli_main.py
+  tests/test_setup.py`
+  - Result: passed.
+  `uv run pytest tests/test_mcp_adoption_cli.py tests/test_cli_main.py
+  tests/test_setup.py -q`
+  - Result: 29 passed in 0.47s.
+- Full MCP adoption/verifier focused gate:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  engram/mcp/adoption_cli.py engram/mcp/server.py engram/mcp/prompts.py
+  engram/setup.py engram/__main__.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_setup.py
+  tests/test_cli_main.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_cli_main.py
+  tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 235 passed in 3.85s.
+- Broad backend non-Docker/non-external-Helix gate after adoption verifier CLI:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3272 passed, 43 skipped, 236 deselected in 217.85s.
+- Self-describing `claim_authority()` verifier metadata follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  tests/test_project_runtime_surfaces.py tests/test_mcp_tools.py
+  tests/test_mcp_authority_client_adoption.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_authority_client_adoption.py -q`
+  - Result: 13 passed in 1.96s.
+- Full MCP adoption/verifier focused gate after self-describing protocol metadata:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  engram/mcp/adoption_cli.py engram/mcp/server.py engram/mcp/prompts.py
+  engram/setup.py engram/__main__.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_setup.py
+  tests/test_cli_main.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_cli_main.py
+  tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 235 passed in 2.92s.
+- Broad backend non-Docker/non-external-Helix gate after self-describing
+  `claim_authority()` verifier metadata:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3272 passed, 43 skipped, 236 deselected in 201.99s.
+- MCP adoption verifier real-log normalization follow-up:
+  `uv run ruff check engram/mcp/adoption_cli.py tests/test_mcp_adoption_cli.py`
+  - Result: passed.
+  `uv run pytest tests/test_mcp_adoption_cli.py -q`
+  - Result: 5 passed in 0.04s.
+- Full MCP adoption/verifier focused gate after real-log normalization:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  engram/mcp/adoption_cli.py engram/mcp/server.py engram/mcp/prompts.py
+  engram/setup.py engram/__main__.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_setup.py
+  tests/test_cli_main.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_cli_main.py
+  tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 236 passed in 3.69s.
+- Broad backend non-Docker/non-external-Helix gate after adoption verifier
+  real-log normalization:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3273 passed, 43 skipped, 236 deselected in 191.39s.
+- `claim_authority()` verifier metadata capture-required follow-up:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  tests/test_project_runtime_surfaces.py tests/test_mcp_tools.py
+  tests/test_mcp_authority_client_adoption.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_authority_client_adoption.py -q`
+  - Result: 13 passed in 1.30s.
+- Full MCP adoption/verifier focused gate after capture-required metadata:
+  `uv run ruff check engram/retrieval/memory_authority.py
+  engram/mcp/adoption_cli.py engram/mcp/server.py engram/mcp/prompts.py
+  engram/setup.py engram/__main__.py tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py tests/test_mcp_prompts.py tests/test_setup.py
+  tests/test_cli_main.py tests/test_native_surface_parity.py
+  tests/test_public_surface_presenter_boundaries.py
+  engram/quality/native_surface_manifest.py`
+  - Result: passed.
+  `uv run pytest tests/test_project_runtime_surfaces.py
+  tests/test_mcp_authority_client_adoption.py tests/test_mcp_adoption_cli.py
+  tests/test_mcp_tools.py::TestJSONResponses::test_mcp_claim_authority_returns_onboarding_contract
+  tests/test_mcp_prompts.py tests/test_setup.py tests/test_cli_main.py
+  tests/test_native_surface_manifest.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 236 passed in 2.53s.
+- Broad backend non-Docker/non-external-Helix gate after capture-required
+  verifier metadata:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3273 passed, 43 skipped, 236 deselected in 153.72s.
+- Public REST route boundary-map coverage guard:
+  `uv run ruff check tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 176 passed in 0.91s.
+- Broad backend non-Docker/non-external-Helix gate after the public REST route
+  boundary-map coverage guard:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3274 passed, 43 skipped, 236 deselected in 161.21s.
+- Dashboard WebSocket route-runtime extraction:
+  `uv run ruff check engram/api/websocket.py engram/api/websocket_runtime.py
+  tests/test_websocket.py tests/test_websocket_surface.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_websocket.py tests/test_websocket_surface.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 185 passed in 7.65s.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 178 passed in 2.68s.
+- Broad backend non-Docker/non-external-Helix gate after dashboard WebSocket
+  route-runtime extraction:
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3276 passed, 43 skipped, 236 deselected in 291.07s.
+- MCP recall middleware adapter flattening:
+  `uv run ruff check engram/mcp/server.py
+  tests/test_public_surface_presenter_boundaries.py
+  tests/test_piggyback_context.py tests/test_auto_recall_policy.py`
+  - Result: passed.
+  `uv run pytest tests/test_piggyback_context.py tests/test_auto_recall_policy.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 234 passed in 2.96s.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 180 passed in 1.82s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3278 passed, 43 skipped, 236 deselected in 186.20s.
+- MCP public nested-orchestration guard:
+  `uv run ruff check tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 181 passed in 1.07s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3279 passed, 43 skipped, 236 deselected in 182.60s.
+- Dashboard WebSocket auth route-boundary follow-up:
+  `uv run ruff check engram/api/websocket.py engram/api/websocket_auth.py
+  tests/test_websocket.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_websocket.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 191 passed in 7.78s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3287 passed, 43 skipped, 236 deselected in 155.06s.
+- REST knowledge-chat response-surface follow-up:
+  `uv run ruff check engram/api/deps.py engram/api/knowledge.py
+  engram/retrieval/chat_runtime.py tests/test_chat_runtime_stream.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_chat_runtime_stream.py
+  tests/test_knowledge_api.py::TestChat
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 198 passed in 12.18s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3289 passed, 43 skipped, 236 deselected in 138.95s.
+- REST health route-boundary follow-up:
+  `uv run ruff check engram/api/health.py engram/api/health_runtime.py
+  tests/test_health_runtime.py tests/test_api_endpoints.py
+  tests/test_health_surface.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_health_runtime.py
+  tests/test_api_endpoints.py::test_health_uses_configured_default_group
+  tests/test_health_surface.py tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 191 passed in 1.74s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3292 passed, 43 skipped, 236 deselected in 113.72s.
+- REST consolidation trigger route-boundary follow-up:
+  `uv run ruff check engram/api/consolidation.py
+  engram/consolidation_trigger.py tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 198 passed in 1.03s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3295 passed, 43 skipped, 236 deselected in 113.47s.
+- REST consolidation status route-boundary follow-up:
+  `uv run ruff check engram/api/consolidation.py
+  engram/consolidation_trigger.py tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_consolidation_trigger_service.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 201 passed in 1.06s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3298 passed, 43 skipped, 236 deselected in 110.88s.
+- Public REST route control-flow guard:
+  `uv run ruff check tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 187 passed in 0.98s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3299 passed, 43 skipped, 236 deselected in 111.04s.
+- REST atlas warning/response route-boundary follow-up:
+  `uv run ruff check engram/api/graph.py engram/retrieval/atlas_surface.py
+  tests/test_atlas_surface.py tests/test_public_surface_presenter_boundaries.py`
+  - Result: passed.
+  `uv run pytest tests/test_atlas_surface.py
+  tests/test_public_surface_presenter_boundaries.py -q`
+  - Result: 197 passed in 1.09s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result: 3302 passed, 43 skipped, 236 deselected in 113.60s.
+- Adoption verifier plaintext transcript support:
+  `uv run ruff check engram/mcp/adoption_cli.py tests/test_mcp_adoption_cli.py
+  tests/test_cli_main.py`
+  - Result: passed.
+  `uv run pytest tests/test_mcp_adoption_cli.py tests/test_cli_main.py -q`
+  - Result after adding stdin transcript support: 16 passed in 0.35s.
+  `uv run pytest tests/test_mcp_adoption_cli.py tests/test_cli_main.py -q`
+  - Result after adding self-reported file-memory bypass transcript support:
+    17 passed in 0.32s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after adding plaintext phase aliases:
+    3280 passed, 43 skipped, 236 deselected in 175.72s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after adding structured transcript parse failures:
+    3282 passed, 43 skipped, 236 deselected in 221.46s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after adding stdin transcript support:
+    3283 passed, 43 skipped, 236 deselected in 175.94s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after adding self-reported file-memory bypass transcript support:
+    3284 passed, 43 skipped, 236 deselected in 118.97s.
+  `uv run ruff check engram/mcp/adoption_cli.py tests/test_mcp_adoption_cli.py
+  tests/test_cli_main.py`
+  - Result after adding the copied Claude file-memory bypass transcript
+    regression: passed.
+  `uv run pytest tests/test_mcp_adoption_cli.py tests/test_cli_main.py -q`
+  - Result after adding the copied Claude file-memory bypass transcript
+    regression: 18 passed in 0.30s.
+  `uv run pytest -m "not requires_docker and not requires_helix" -q`
+  - Result after adding the copied Claude file-memory bypass transcript
+    regression: 3300 passed, 43 skipped, 236 deselected in 111.42s.
 - Dashboard calibration-quality UI contract:
   `pnpm test -- --run src/test/components.test.tsx`
   - Result: 45 passed, with existing canvas/act warnings.
@@ -6697,6 +7286,20 @@ What changed in this pass:
   - Result: passed, with existing large chunk warning.
   `pnpm test -- --run`
   - Result: 214 passed, 1 skipped, with existing canvas/act warnings.
+- Dashboard verification refresh after the current REST/MCP adoption and
+  route-boundary pass:
+  `pnpm test -- --run`
+  - Result: 214 passed, 1 skipped, with existing React `act(...)`, canvas, and
+    SVG/jsdom warning noise.
+  `pnpm build`
+  - Result: passed, with the existing Vite large chunk warning.
+- Dashboard verification refresh after adoption-template and full-benchmark
+  evidence updates:
+  `pnpm test -- --run`
+  - Result: 214 passed, 1 skipped, with the same existing React `act(...)`,
+    canvas, and SVG/jsdom warning noise.
+  `pnpm build`
+  - Result: passed, with the existing Vite large chunk warning.
 
 ## Next Best Task
 
@@ -6815,8 +7418,31 @@ visibility work treated as done:
    knowledge-chat-rate-limiter-dependency-boundary/rest-health-dependency-boundary/
    generated-api-route-app-state-guard/
    rest-mcp-runtime-shutdown-stop-close-boundary/
-   shutdown-consolidation-helper-boundary.
-6. Keep the P3 evaluation loop focused on real evidence and persistence paths,
+   shutdown-consolidation-helper-boundary/
+   knowledge-chat-sse-stream-runtime-boundary/
+   mcp-memory-authority-onboarding-contract/
+   mcp-claim-authority-tool-contract.
+6. Validate real AI-harness adoption behavior against the stdio
+   client contract. The known failure mode is an agent seeing Engram connected
+   but choosing file-local memory because Engram looked empty or overlapped in
+   responsibility. `claim_authority()` now returns the required
+   `agent_protocol`, `validate_agent_protocol_calls()` scores compact client
+   transcripts, and `tests/test_mcp_authority_client_adoption.py` proves a real
+   stdio MCP client can follow the protocol end to end. The setup wizard and
+   README now include the same adoption checklist, and `engram adoption` can
+   generate a live-harness transcript template or validate recorded real-client
+   transcripts. `claim_authority()` now returns the verifier command and
+   transcript schema inside `agent_protocol`. The copied Claude transcript that
+   triggered this slice is now a failing adoption regression: Engram was
+   reachable, the runtime looked empty, and the agent admitted file memory
+   stayed primary. The next adoption slice should run the same verifier against
+   a current live Claude, Cursor, Windsurf, or similar harness transcript and
+   use any failures to tighten harness-specific instructions. The verifier
+   already handles common prefixed MCP tool names, nested log-record shapes,
+   explicit plaintext/Markdown notes, stdin transcript input, placeholder
+   metadata rejection, and copied chat admissions where the agent says it
+   ignored Engram in favor of file-local memory.
+7. Keep the P3 evaluation loop focused on real evidence and persistence paths,
    not duplicate display work. Cue usefulness, projection yield, projection backlog,
    projection freshness/latency, recall gate latency, recall gate-control
    posture, false recall, memory-need recall / missed-recall rate, continuity,
@@ -6832,7 +7458,14 @@ visibility work treated as done:
    measured. Report coverage gaps now distinguish label-only recall evidence from
    actual runtime gate analysis. Evaluation reports now persist and reload the
    latest runtime gate metrics snapshot, so reopened native live reports do not
-   lose the in-process smoke proof. Benchmark and
+   lose the in-process smoke proof. The CLI hard gate now also supports
+   `--min-evaluation-signal-evidence N`, which is the next operator knob to use
+   when promoting real or benchmark-labeled evidence beyond smoke coverage.
+   `--require-benchmark-evidence` can pair that report with a showcase
+   `results.json` artifact, enforce scenario/pass-rate/fairness/hash gates, and
+   render the attached evidence in Markdown for operator review. Use
+   `--evidence-bundle` when the next slice needs a durable completion artifact.
+   Benchmark and
    evaluation defaults now use explicit non-default groups for showcase,
    LoCoMo, memory-need fixtures, and the
    echo-chamber simulation, and explicit recall packet analysis uses the active
@@ -6980,12 +7613,27 @@ visibility work treated as done:
    skip/defer projection-state sync now live in `ingestion.worker_routing`, so
    do not repeat worker routing extraction. Worker raw EventBus parsing and
    compact auto-capture content loading now live in `ingestion.worker_events`,
-   so do not repeat worker event-shape extraction. The next
-   high-leverage slice is a continued REST/MCP route orchestration audit for
-   any remaining lifecycle logic still hidden in transport code. MCP entity/fact
-   search, artifact-search, context, and question-route tool recall-middleware
+   so do not repeat worker event-shape extraction. MCP entity/fact search,
+   artifact-search, context, and question-route tool recall-middleware
    invocation now live in retrieval-side tool-surface helpers too, so do not
-   move those side effects back into `server/engram/mcp/server.py`.
+   move those side effects back into `server/engram/mcp/server.py`. The next
+   high-leverage slices are live AI-harness adoption evidence and intentional
+   packaging of the current dirty worktree. The local benchmark-labeled
+   evaluation gate is now strong for this milestone: the full deterministic
+   showcase bundle passed 39/39 `engram_full` scenario runs with pass rate
+   `1.0`, false recall `0.0`, 13 transcript hashes, a fairness contract, and
+   all six evaluation signals measured.
+   Packaging plan: treat the current dirty scope as one cohesive milestone
+   commit unless a reviewer asks for a split. If split, use route/runtime
+   boundaries, MCP adoption authority/verifier/template, and evaluation
+   gates/docs. Stage only `README.md`, `docs/CURRENT_HANDOFF.md`,
+   `docs/design/brain-runtime-audit.md`,
+   `docs/design/brain-runtime-completion-audit.md`, the touched/new
+   `server/engram/**` runtime/API/MCP/evaluation/setup/manifest files, and the
+   touched/new `server/tests/**` files. Do not stage `/private/tmp` evidence
+   artifacts. Current gates: `git diff --check`, focused adoption/evaluation
+   tests, and `uv run pytest -m "not requires_docker and not requires_helix" -q`
+   passing with 3320 tests, 43 skips, and 236 deselections.
 8. Keep quest mode as a drilldown or alternate presentation, not the primary
    explanation of the brain loop.
 

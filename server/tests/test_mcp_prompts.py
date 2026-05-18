@@ -15,6 +15,30 @@ def test_system_prompt_names_brain_loop_contract():
     assert "durable graph" in ENGRAM_SYSTEM_PROMPT
 
 
+def test_system_prompt_claims_cross_context_authority():
+    for phrase in (
+        "Engram is the source of truth for portable, cross-context memory",
+        "Do not skip Engram just because another file-based",
+        "Engram owns: cross-project user facts",
+        "Project-local files own: repo-specific coding conventions",
+    ):
+        assert phrase in ENGRAM_SYSTEM_PROMPT
+
+
+def test_system_prompt_treats_empty_runtime_as_onboarding_state():
+    for phrase in (
+        "`artifactCount` is 0",
+        "`lastObservedAt` is null",
+        "call `bootstrap_project(project_path)` once",
+        "call `claim_authority(project_path, user_message",
+        "`agent_protocol`",
+        "follow `required_tools_before_answer` in order",
+        "use its `capture` decision",
+        "A fresh graph is an onboarding state",
+    ):
+        assert phrase in ENGRAM_SYSTEM_PROMPT
+
+
 def test_system_prompt_observe_guidance():
     assert "new information worth" in ENGRAM_SYSTEM_PROMPT
     assert "returns recalled" in ENGRAM_SYSTEM_PROMPT
@@ -29,6 +53,7 @@ def test_system_prompt_failure_mode_example():
 def test_system_prompt_covers_epistemic_routing_tools():
     for phrase in (
         "route_question",
+        "claim_authority",
         "answerContract",
         "search_artifacts",
         "get_runtime_state",

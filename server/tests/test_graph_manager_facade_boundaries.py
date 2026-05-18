@@ -3,10 +3,13 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
+from pathlib import Path
 
 import pytest
 
 from engram.graph_manager import GraphManager
+
+ROOT = Path(__file__).resolve().parents[1]
 
 CORE_LIFECYCLE_DELEGATES = {
     "store_episode": ("_capture_service", "store_episode"),
@@ -211,6 +214,30 @@ def _method_calls_function_for_self_attrs(
     return tuple(seen_attrs) == expected_attrs
 
 
+def _runtime_private_manager_attr_accesses() -> set[tuple[str, str, str, str]]:
+    accesses: set[tuple[str, str, str, str]] = set()
+    owner_names = {"manager", "graph_manager", "_manager"}
+    for path in (ROOT / "engram").rglob("*.py"):
+        relative_path = path.relative_to(ROOT).as_posix()
+        if relative_path == "engram/graph_manager.py":
+            continue
+        tree = ast.parse(path.read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Attribute):
+                    continue
+                if not node.attr.startswith("_"):
+                    continue
+                if not isinstance(node.value, ast.Name):
+                    continue
+                if node.value.id not in owner_names:
+                    continue
+                accesses.add((relative_path, function.name, node.value.id, node.attr))
+    return accesses
+
+
 @pytest.mark.parametrize(
     ("method_name", "expected_delegate"),
     CORE_LIFECYCLE_DELEGATES.items(),
@@ -257,6 +284,10 @@ def test_episode_worker_runtime_stores_expose_owned_stores() -> None:
         "activation": "_activation",
         "search": "_search",
     }
+
+
+def test_runtime_code_does_not_reach_through_graph_manager_private_fields() -> None:
+    assert _runtime_private_manager_attr_accesses() == set()
 
 
 @pytest.mark.parametrize(

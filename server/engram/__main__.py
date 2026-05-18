@@ -8,6 +8,7 @@ Usage:
     engram hooks          Install AutoCapture hooks
     engram lifecycle      Print local Capture -> Cue -> Project -> Recall -> Consolidate state
     engram evaluate       Print local brain-loop evaluation report
+    engram adoption       Validate MCP client adoption transcript
     engram doctor         Run diagnostics and brain-loop readiness smoke
     engram health         Check if server is running
     engram update         Update Engram to latest version
@@ -38,6 +39,8 @@ def main():
         "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
         "                            Verify the native Helix brain loop end to end\n"
+        "  engram adoption --authority claim-authority.json --calls mcp-calls.jsonl\n"
+        "                            Validate an MCP client followed Engram authority\n"
         "  engram doctor            Run diagnostics and readiness smoke\n"
         "  engram health             Check if server is running\n",
     )
@@ -144,6 +147,15 @@ def main():
     from engram.evaluation.cli import configure_evaluate_parser
 
     configure_evaluate_parser(evaluate_parser)
+
+    # --- adoption ---
+    adoption_parser = subparsers.add_parser(
+        "adoption",
+        help="Validate MCP client adoption transcript",
+    )
+    from engram.mcp.adoption_cli import configure_adoption_parser
+
+    configure_adoption_parser(adoption_parser)
 
     # --- doctor ---
     doctor_parser = subparsers.add_parser(
@@ -267,6 +279,12 @@ def main():
 
         asyncio.run(run_evaluate_command(args))
         return
+
+    # --- adoption ---
+    if args.command == "adoption":
+        from engram.mcp.adoption_cli import run_adoption_command
+
+        sys.exit(run_adoption_command(args))
 
     # --- doctor ---
     if args.command == "doctor":

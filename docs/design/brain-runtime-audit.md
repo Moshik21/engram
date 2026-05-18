@@ -334,6 +334,17 @@ exits non-zero when a JSON export, live lite report, or native PyO3 report is
 missing any required measured signal, evidence count, or metric. `--from-json`
 accepts raw stats/sample exports and already-rendered brain-loop report JSON, so
 saved benchmark or native report artifacts can be verified directly.
+For release/benchmark gates, `--min-evaluation-signal-evidence N` raises the
+threshold so one smoke-sized evidence record per signal cannot satisfy the
+hard gate.
+The same command can now attach and gate a deterministic showcase benchmark
+artifact with `--benchmark-artifact results.json --require-benchmark-evidence`.
+That evidence check verifies the `engram_full` baseline summary, scenario count,
+pass-rate threshold, fairness contract, and transcript hashes before treating a
+saved report as benchmark-backed. The Markdown report renders the attached
+benchmark evidence too, so the operator artifact is readable without inspecting
+raw JSON. `--evidence-bundle` writes the same report plus source paths and gate
+thresholds as a single archiveable JSON artifact.
 The native surface manifest also tracks
 `engram evaluate --mode helix --require-evaluation-signals` as an operator hard
 gate beside the native smoke and doctor commands.
@@ -392,15 +403,19 @@ repo artifacts.
 
 A separate completion-readiness audit now exists at
 `docs/design/brain-runtime-completion-audit.md`. Its current verdict is not
-complete: the remaining blockers are a final facade audit, final dashboard
-verification, a Docker/full-mode scope decision, stronger evaluation confidence,
-and completion packaging for the dirty worktree.
-The default dashboard verification part of that list has been refreshed: full
-Vitest passes with existing warning noise, and the production build passes with
-the existing large-chunk warning. The bind-dependent live native dashboard smoke
-now passes too when REST is started with both `ENGRAM_DEFAULT_GROUP_ID` and
-`ENGRAM_AUTH__DEFAULT_GROUP_ID` set to `native_brain`. Starting the same seeded
-native brain without those defaults produced the expected failure shape:
+complete: the remaining blockers are stronger evaluation confidence, live
+AI-harness adoption evidence, and completion packaging for the dirty worktree.
+The final facade audit now has core delegate coverage plus a whole-runtime scan
+against direct private `GraphManager` field access. The Docker/full-mode boundary
+is now decided: PyO3 native is the full-backend completion path, while Docker
+Helix/full-mode remains a separate compatibility/integration lane.
+The default dashboard verification part of that list has been refreshed again
+after the current REST/MCP adoption and route-boundary work: `pnpm test -- --run`
+passes with 214 tests and 1 skipped live-native test, and `pnpm build` passes
+with the existing large-chunk warning. The bind-dependent live native dashboard
+smoke now passes too when REST is started with both `ENGRAM_DEFAULT_GROUP_ID`
+and `ENGRAM_AUTH__DEFAULT_GROUP_ID` set to `native_brain`. Starting the same
+seeded native brain without those defaults produced the expected failure shape:
 dashboard smoke reached REST but saw `groupId=default` instead of
 `native_brain`. The later default-group config slice makes top-level
 `ENGRAM_DEFAULT_GROUP_ID` flow into the auth fallback when the explicit auth
@@ -1529,7 +1544,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3251 tests, 43 skips, and 236 external-service
+   gate currently passes with 3316 tests, 43 skips, and 236 external-service
    tests deselected after the Helix dashboard analytics unit fixture was made
    date-stable, the doctor readiness failure path was guarded, and shared
    companion-store bootstrap creation was centralized, notification/scheduler
@@ -1537,9 +1552,13 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    manager facade. REST and MCP shutdown now use the same runtime-resource
    stop/close boundary too, with shutdown consolidation orchestration behind a
    helper and static guards against local store-close or engine-cycle drift.
-   PyO3 native has focused parity plus a one-hour operator Recall soak.
-   Docker/full-mode and multi-hour native endurance remain separate explicit
-   gates, not assumptions.
+   REST knowledge-chat SSE orchestration is in chat runtime code instead of the
+   route, and MCP instructions plus `claim_authority(project_path, user_message,
+   file_memory_present)` now claim Engram's portable-memory authority and tell
+   agents to bootstrap an empty project runtime instead of routing around it.
+   PyO3 native has focused parity plus a one-hour operator Recall soak. Docker
+   Helix/full-mode is a separate compatibility/integration lane, and multi-hour
+   native endurance remains an explicit optional gate, not an assumption.
 
 6. The operator-facing P3 evaluation loop now measures cue usefulness,
    projection yield/backlog/freshness, recall gate latency/control posture,
@@ -2074,7 +2093,9 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   or epistemic route/evidence orchestration. The guard now also covers the
   remaining service-backed compatibility adapters for evidence adjudication,
   artifact search, decision materialization, lookup, forgetting, prospective
-  memory, context, graph-state, and recall access/interaction updates.
+  memory, context, graph-state, and recall access/interaction updates. It now
+  also scans runtime modules for direct `manager._*`, `graph_manager._*`, or
+  `_manager._*` access outside `server/engram/graph_manager.py`.
 - REST/MCP presenter-boundary guard done:
   `tests/test_public_surface_presenter_boundaries.py` now statically verifies
   REST and MCP observe/remember/recall/chat recall surfaces use the shared
@@ -2987,12 +3008,45 @@ directly. Focused health-surface, health endpoint, public-surface, and Ruff
 checks passed with 165 tests, and the broad non-Docker/non-Helix gate now
 passes with 3155 tests, 43 skips, and 236 external-service deselections.
 
+The remaining `/health` dependency fallback is now out of the route too.
+`server/engram/api/health_runtime.py` owns optional graph-store resolution and
+default-group fallback before calling the shared health surface. `health_check()`
+is now a one-call route wrapper, and the public-surface guard rejects direct
+`get_graph_store()`, `get_config()`, `get_mode()`, `get_stats()`, or
+`build_api_health_surface()` usage in the route. Focused health/runtime/static
+checks passed with 191 tests.
+
+REST consolidation trigger scheduling is now behind the consolidation trigger
+boundary as well. `build_api_consolidation_trigger_response_surface()` owns the
+running-cycle check, public trigger payload, and `BackgroundTasks.add_task()`
+scheduling for `run_api_consolidation_cycle()`. `trigger_consolidation()` now
+keeps tenant and engine lookup plus JSON wrapping, and the public-surface guard
+rejects direct task scheduling or direct trigger/run helper usage in the route.
+Focused consolidation-trigger/static checks passed with 198 tests.
+
+REST consolidation status pressure/config selection now lives in the same
+boundary. `build_api_consolidation_status_response_surface()` chooses the
+activation config used for pressure reporting before delegating to the shared
+status surface. `consolidation_status()` keeps tenant/dependency lookup plus
+JSON wrapping, and the public-surface guard rejects direct activation-config
+extraction or direct status-surface calls in the route. Focused
+consolidation-trigger/static checks passed with 201 tests.
+
+The remaining public REST/WebSocket route control flow is now explicitly
+bounded. `tests/test_public_surface_presenter_boundaries.py` allows only chat
+JSON-vs-stream response wrapping and WebSocket auth/session try/excepts inside
+decorated FastAPI routes after atlas warning logging and response wrapping moved
+behind `build_api_atlas_json_response()`. Any new route-local `if`, `try`, loop,
+match, or expression branch must either be justified in the guard or moved to a
+route-facing helper. The focused public-surface plus atlas suite passes with 197
+tests after this guard.
+
 That app-state guard now covers every API route module, not just the three
 routes cleaned in this pass. `tests/test_public_surface_presenter_boundaries.py`
 discovers `server/engram/api/*.py`, excludes only `__init__.py` and `deps.py`,
 and fails if any route module imports `_app_state` directly. The route scan now
 shows `_app_state` only in `server/engram/api/deps.py`. The latest broad
-non-Docker/non-Helix gate now passes with 3251 tests, 43 skips, and 236
+non-Docker/non-Helix gate now passes with 3316 tests, 43 skips, and 236
 external-service deselections after the evaluation-signal CLI gate, doctor
 readiness reporting, Python 3.13 event-loop test harness cleanup, and Helix
 dashboard analytics date-stability fix, the shared companion-store bootstrap
@@ -3012,7 +3066,7 @@ alongside `manager._*` access and now statically rejects direct REST API
 `engine.*` dispatch. Focused evaluation/consolidation/static checks and Ruff
 passed; a later route-orchestration broad gate now passes with 3213 tests, 43
 skips, and 236 external-service deselections. The current broader gate passes
-with 3251 tests after the doctor readiness, Helix analytics fixture,
+with 3316 tests after the doctor readiness, Helix analytics fixture,
 companion-store bootstrap, notification/scheduler dependency, public smoke
 feedback, and REST/MCP shutdown facade updates.
 
@@ -3023,15 +3077,36 @@ helper instead of calling `store.*`, `evaluation_store.*`, `conv_store.*`,
 `graph_store.*`, `notification_surface.*`, or generic `service.*` methods
 directly. This keeps Capture, Recall, evaluation, notification, and conversation
 work inside named lifecycle helpers instead of drifting back into FastAPI
-handlers. The focused public-surface suite passes with 165 tests.
+handlers. The same static suite now discovers every decorated REST API route and
+requires a `PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES` entry for each one, so new
+public routes cannot bypass the named boundary map. The focused public-surface
+suite passes with 165 tests.
 
 REST route functions are now also guarded by direct-await shape. The public API
 routes may directly await route-facing helpers such as `build_*`,
 `check_api_chat_rate_limit()`, `resolve_chat_conversation()`,
-`resolve_tenant_from_scope()`, `run_api_consolidation_cycle()`, and
-`run_chat_response_turn()`, but direct awaits of arbitrary imported runtime
-functions will fail the public-surface suite. The focused public-surface suite
-passes with 167 tests.
+`resolve_dashboard_websocket_tenant()`,
+`close_dashboard_websocket_auth_failure()`, `run_dashboard_websocket_session()`,
+and `run_api_consolidation_cycle()`, but direct awaits of arbitrary imported
+runtime functions will fail the public-surface suite. The focused public-surface
+suite passes with 167 tests.
+
+Dashboard WebSocket session orchestration is now out of the route-local nested
+functions too. `run_dashboard_websocket_session()` owns event forwarding,
+command handling, activation-monitor task lifecycle, bus subscription cleanup,
+and WebSocket disconnect cancellation cleanup. `dashboard_ws()` keeps auth,
+accept, dependency lookup, and one route-facing runtime call. The static guard
+now also fails if a decorated API route handler defines nested functions, so new
+transport handlers cannot hide lifecycle loops inside the route body. Focused
+WebSocket, WebSocket-surface, and public-surface checks pass with 185 tests.
+
+Dashboard WebSocket auth is now behind a route-facing helper too.
+`server/engram/api/websocket_auth.py` owns auth config fallback, header tenant
+resolution, and browser query-token bearer fallback before socket acceptance.
+`dashboard_ws()` now delegates tenant resolution and auth failure close
+behavior, and the public-surface guard rejects direct `resolve_tenant_from_scope`,
+`Headers`, or query-param auth parsing in the route body. Focused
+WebSocket/static/Ruff checks passed.
 
 The public-surface guard now covers decorated MCP public surfaces too. MCP
 startup/shutdown and store construction are still allowed to initialize and
@@ -3040,6 +3115,12 @@ close runtime state, but MCP tools/resources/prompts cannot directly dispatch
 methods. They must keep session/global dependency lookup plus JSON wrapping in
 `mcp/server.py` and send lifecycle work through the named surface helpers. The
 focused public-surface suite passes with 166 tests.
+
+The same guard now rejects nested functions inside decorated MCP public
+surfaces. This gives MCP tools/resources/prompts the same handler-shape
+constraint as REST/WebSocket routes: public handlers stay as dependency lookup,
+route-specific validation, and JSON transport wrappers rather than hiding
+runtime callbacks in the decorated function body.
 
 Decorated MCP public surfaces are also guarded by direct-await shape. MCP
 tools/resources/prompts may directly await `build_*` helpers and
@@ -3348,7 +3429,7 @@ through route-facing helpers. Focused label service, REST evaluation, MCP
 JSON-response, public-surface, and Ruff checks passed.
 
 After these route-orchestration slices, the broad backend non-Docker/non-Helix
-gate passes with 3251 tests, 43 skips, and 236 external-service deselections
+gate passes with 3316 tests, 43 skips, and 236 external-service deselections
 after the shared companion-store bootstrap follow-up, explicit
 notification/scheduler dependency cleanup, and the public smoke cue-feedback
 facade, plus REST/MCP shutdown stop/close and consolidation-helper cleanup with
@@ -3418,12 +3499,18 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3251 tests, 43 skips, and 236 external-service
+broad gate passes with 3316 tests, 43 skips, and 236 external-service
 deselections after the Helix dashboard analytics fixture was made date-stable,
 the doctor readiness failure path was guarded, the shared companion-store
 bootstrap follow-up landed, notification/scheduler dependencies were made
 explicit, smoke cue feedback moved onto the public manager facade, and REST/MCP
-shutdown stop/close facade cleanup plus static guards landed.
+shutdown stop/close facade cleanup plus static guards landed. The latest gate
+also includes REST knowledge-chat SSE runtime extraction, the MCP
+authority/onboarding prompt contract, the `claim_authority()` callable
+contract, dashboard WebSocket auth route-boundary extraction, REST chat
+response-surface extraction, REST health route-boundary extraction, adoption
+transcript stdin validation, and self-reported file-memory bypass
+classification.
 
 REST shutdown now shares the same runtime-resource boundary as MCP shutdown.
 `server/engram/main.py` stops subscriber/worker/pressure/scheduler resources
@@ -3451,6 +3538,94 @@ FastAPI shutdown function. Focused helper/main/static tests passed, including
 dynamic coverage that `main._shutdown()` passes the active engine/config/logger
 into the helper, and the broad non-Docker/non-Helix gate now includes helper
 coverage for run, skip, cancel, and logged-failure paths.
+
+REST knowledge-chat SSE transport orchestration is now out of
+`server/engram/api/knowledge.py`. `stream_api_chat_sse_events()` in
+`server/engram/retrieval/chat_runtime.py` owns start/step/text/finish/error SSE
+framing, Anthropic client construction, response-turn execution, and best-effort
+conversation persistence scheduling. The remaining REST chat response setup now
+lives in `build_api_chat_stream_response_surface()`, which owns rate-limit
+responses, optional conversation-store handling, conversation not-found payloads,
+session entity lookup, and SSE stream construction. The route keeps tenant and
+dependency lookup plus JSON/streaming response wrapping. `tests/test_chat_runtime_stream.py`
+covers success/error stream envelopes plus rate-limit and not-found response
+surfaces, and the public-surface guard rejects inline `_sse`, nested
+event-stream generators, direct Anthropic construction, chat rate-limit helpers,
+conversation resolution, `run_chat_response_turn()`, and
+`schedule_chat_turn_persistence()` in the REST route.
+
+MCP adoption now has an explicit authority contract. `ENGRAM_SYSTEM_PROMPT` says
+Engram owns portable cross-context user facts, preferences, corrections, durable
+decisions, relationships, goals, commitments, and long-tail recall, while
+project-local files own repo conventions and current-task scratch notes. It also
+tells agents that an empty runtime (`artifactCount: 0`, `lastObservedAt: null`,
+or zero recall/evaluation stats) is an onboarding state and should trigger
+`bootstrap_project(project_path)` when a project path is available. README
+automatic-memory behavior and `tests/test_mcp_prompts.py` now cover that
+agent-adoption contract. The new MCP `claim_authority(project_path, user_message,
+file_memory_present)` tool makes that contract callable: it returns Engram-owned vs project-local memory
+responsibilities, onboarding state, recommended bootstrap/context/recall
+actions, the current runtime-state payload, and the shared brain-loop lifecycle.
+It now also accepts `user_message` and `file_memory_present` and returns an
+`agent_protocol` with required tools before answering plus capture routing. The
+deterministic covered failure mode is a connected-but-empty Engram runtime with
+file-local memory visible: the protocol requires bootstrap/context/recall before
+answering and routes high-signal cross-context facts to Engram `remember`.
+`validate_agent_protocol_calls()` now gives real MCP clients and thin harnesses a
+transcript validator for that contract, including missing/out-of-order
+pre-answer tools, missing Engram capture, unexpected Engram writes for
+project-local scratch, and visible file memory substituting for Engram.
+`tests/test_mcp_authority_client_adoption.py` runs an actual stdio MCP client
+against `engram mcp`, follows the `claim_authority()` protocol, and validates
+the resulting transcript. That live client path also found and closed an
+onboarding drift: missing or stale project artifacts now produce
+`needs_project_bootstrap` and require `bootstrap_project`, even if other runtime
+metrics make the graph itself look active.
+The MCP system prompt now explicitly says to follow
+`agent_protocol.required_tools_before_answer` and the returned `capture`
+decision, while `engram setup` and README print the same adoption checklist for
+Claude Code, Cursor, Windsurf, and similar clients. This moves the authority
+contract out of hidden internals and into the surfaces real agents and installers
+see.
+`engram adoption --authority claim-authority.json --calls mcp-calls.jsonl` now
+wraps the same validator as an operator-facing transcript check, so recorded
+real-client sessions can be scored without manually inspecting tool logs.
+`claim_authority()` also returns this verifier command and the JSONL transcript
+schema inside `agent_protocol.verification`, making the adoption contract
+self-describing for harnesses that want to prove compliance.
+For completion-grade live harness evidence, the same verification block now
+also returns a `live_evidence_command` and JSON wrapper schema requiring
+`client` plus `capturedAt` metadata. `engram adoption --require-live-evidence`
+adds a `missing_live_harness_evidence` failure when the tool-call transcript
+passes but lacks current client/session evidence, so a handcrafted JSONL sample
+cannot substitute for Claude/Cursor/Windsurf proof.
+The verifier accepts common real-log forms too: prefixed tool names such as
+`mcp__engram__recall`, nested `tool` / `function` / `tool_call` records, and
+`stage` as a phase alias. It also accepts explicit plaintext/Markdown harness
+notes with `before_answer`/`capture` headings plus common
+`Before answer`/`pre-answer` aliases and Engram tool lines, so copied
+Claude/Cursor/Windsurf session notes can be validated without manual JSON
+conversion. Malformed copied notes now return a structured
+`invalid_calls_transcript` report instead of surfacing a parser exception, and
+the CLI accepts `--calls -` to read copied transcript notes from stdin.
+Copied chat notes that do not expose raw tool calls but include the agent's own
+admission that it ignored Engram or treated file-local memory as primary now
+become failed adoption transcripts instead of parse failures. The copied Claude
+transcript that motivated this slice is now covered as a regression: Engram is
+reachable, reports an empty runtime, and the agent admits file memory stayed
+primary, so `engram adoption` classifies the transcript as a failed adoption.
+The returned protocol metadata also marks whether capture is required, and
+project-local scratch examples no longer show a fake capture tool.
+It is covered by `tests/test_project_runtime_surfaces.py`,
+`tests/test_mcp_tools.py`, `tests/test_public_surface_presenter_boundaries.py`,
+and the native surface manifest; README now lists 27 MCP tools.
+
+MCP recall middleware is now a thin named-adapter path too.
+`_recall_middleware()` passes `_ingest_live_tool_turn()` into
+`run_mcp_recall_middleware()` instead of defining a nested runtime callback in
+`mcp/server.py`. The static boundary suite asserts that the middleware delegates
+through the named helper and contains no nested runtime callbacks, keeping
+live-turn ingestion behind the retrieval middleware boundary.
 
 MCP auto-recall policy helpers now live in retrieval runtime code.
 `server/engram/retrieval/auto_recall.py` owns the cooldown/topic deduplication
@@ -3497,7 +3672,7 @@ Recall feedback verifier on the same facade that runtime consumers use.
 
 Not covered in this pass:
 
-- Docker/full-mode test execution.
+- Docker/full-mode compatibility/integration execution.
 - Multi-hour or overnight native stress execution. The one-hour PyO3 native
   Recall soak is now covered, but this pass did not attempt a longer endurance
   run.
