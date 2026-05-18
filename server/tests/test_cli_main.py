@@ -128,6 +128,7 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
                 "min_human_session_samples": args.min_human_session_samples,
                 "evidence_bundle": args.evidence_bundle,
                 "format": args.format,
+                "require_release_evidence": args.require_release_evidence,
             }
         )
 
@@ -138,7 +139,7 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "evaluate",
             "--from-json",
             str(report_path),
-            "--require-evaluation-signals",
+            "--require-release-evidence",
             "--min-evaluation-signal-evidence",
             "4",
             "--benchmark-artifact",
@@ -175,7 +176,8 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
         {
             "command": "evaluate",
             "from_json": report_path,
-            "require_evaluation_signals": True,
+            "require_evaluation_signals": False,
+            "require_release_evidence": True,
             "min_evaluation_signal_evidence": 4,
             "benchmark_artifact": benchmark_path,
             "require_benchmark_evidence": True,

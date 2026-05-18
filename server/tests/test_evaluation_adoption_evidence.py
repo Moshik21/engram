@@ -106,13 +106,11 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
         [
             "--from-json",
             str(report_path),
-            "--require-evaluation-signals",
+            "--require-release-evidence",
             "--adoption-report",
             str(adoption_path),
-            "--require-adoption-evidence",
             "--human-label-artifact",
             str(human_path),
-            "--require-human-label-evidence",
             "--evidence-bundle",
             str(bundle_path),
             "--format",
@@ -130,7 +128,9 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
         adoption_path.read_bytes()
     ).hexdigest()
     assert bundle["sources"]["adoption_report"] == str(adoption_path)
-    assert bundle["gates"]["require_adoption_evidence"] is True
+    assert bundle["gates"]["require_release_evidence"] is True
+    assert bundle["gates"]["require_adoption_evidence"] is False
+    assert bundle["gates"]["require_human_label_evidence"] is False
     assert bundle["report"]["adoption_evidence"] == report["adoption_evidence"]
 
 
@@ -157,6 +157,36 @@ async def test_evaluate_cli_rejects_missing_adoption_report_when_required(
 
     assert str(exc_info.value) == (
         "Adoption evidence failed gates: ['missing_adoption_evidence']"
+    )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_release_gate_rejects_missing_human_labels(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    adoption_path = tmp_path / "adoption-report.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    adoption_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-release-evidence",
+            "--adoption-report",
+            str(adoption_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "Human label evidence failed gates: ['missing_human_label_evidence']"
     )
 
 

@@ -121,6 +121,14 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--require-release-evidence",
+        action="store_true",
+        help=(
+            "Composite release gate: require measured evaluation signals, "
+            "real human-label evidence, and a passed live-client adoption report."
+        ),
+    )
+    parser.add_argument(
         "--min-evaluation-signal-evidence",
         type=int,
         default=1,
@@ -367,7 +375,8 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
     report = _attach_human_label_evidence_from_args(report, args)
     report = _attach_adoption_evidence_from_args(report, args)
     report = link_adoption_to_human_label_evidence(report)
-    if getattr(args, "require_evaluation_signals", False):
+    require_release = bool(getattr(args, "require_release_evidence", False))
+    if require_release or getattr(args, "require_evaluation_signals", False):
         failure_message = evaluation_signal_failure_message(
             report,
             prefix="Brain-loop evaluation has unmeasured evaluation signals",
@@ -385,14 +394,14 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         )
         if failure_message:
             raise SystemExit(failure_message)
-    if getattr(args, "require_human_label_evidence", False):
+    if require_release or getattr(args, "require_human_label_evidence", False):
         failure_message = human_label_evidence_failure_message(
             report.get("human_label_evidence"),
             prefix="Human label evidence failed gates",
         )
         if failure_message:
             raise SystemExit(failure_message)
-    if getattr(args, "require_adoption_evidence", False):
+    if require_release or getattr(args, "require_adoption_evidence", False):
         failure_message = adoption_evidence_failure_message(
             report.get("adoption_evidence"),
             prefix="Adoption evidence failed gates",
@@ -519,6 +528,9 @@ def build_evidence_bundle(
         "gates": {
             "require_evaluation_signals": bool(
                 getattr(args, "require_evaluation_signals", False)
+            ),
+            "require_release_evidence": bool(
+                getattr(args, "require_release_evidence", False)
             ),
             "min_evaluation_signal_evidence": max(
                 1,

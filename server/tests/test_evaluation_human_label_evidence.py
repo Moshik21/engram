@@ -107,7 +107,7 @@ def test_human_label_template_is_not_valid_evidence_until_filled() -> None:
     assert "placeholder_harness_captured_at" in evidence["failures"]
     assert "placeholder_human_labeler" in evidence["failures"]
     assert "## Validation" in markdown
-    assert "--require-human-label-evidence" in markdown
+    assert "--require-release-evidence" in markdown
     assert '"kind": "engram_human_label_evidence"' in markdown
 
 

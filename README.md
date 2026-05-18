@@ -1470,7 +1470,7 @@ ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode h
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
 uv run engram evaluate --human-label-template --format markdown
-uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --human-label-artifact human-labels.json --require-human-label-evidence --adoption-report adoption-report.json --require-adoption-evidence --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
+uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report adoption-report.json --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
 uv run python scripts/brain_loop_report.py
@@ -1518,7 +1518,9 @@ For release packaging, also attach the matching `engram adoption --format json`
 output with `--adoption-report adoption-report.json --require-adoption-evidence`.
 That gate requires a passed live-client adoption report and cross-checks the
 human-label client/session metadata against the adoption evidence when both are
-present.
+present. Use `--require-release-evidence` when all three release conditions
+should be enforced together: measured evaluation signals, real human labels, and
+passed adoption evidence.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,

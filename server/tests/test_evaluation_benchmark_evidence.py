@@ -171,6 +171,7 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     assert bundle["sources"]["adoption_report"] is None
     assert bundle["gates"] == {
         "require_evaluation_signals": True,
+        "require_release_evidence": False,
         "min_evaluation_signal_evidence": 1,
         "require_benchmark_evidence": True,
         "benchmark_baseline": "engram_full",

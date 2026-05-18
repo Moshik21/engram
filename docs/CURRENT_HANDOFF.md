@@ -95,6 +95,8 @@ and Markdown report, so archived bundles point back to the exact reviewed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are
 present, client/session metadata must point at the same live harness run.
+`--require-release-evidence` now enforces measured evaluation signals, real
+human-label evidence, and passed adoption evidence as one operator gate.
 Deterministic benchmark bundles remain useful local proof; they no longer stand
 in for production/staging human-reviewed harness sessions.
 
@@ -7703,13 +7705,13 @@ visibility work treated as done:
    high-leverage slice is real live-harness evidence: either a second MCP
    client adoption transcript, or a staging/production `human-labels.json`
    artifact plus matching adoption report that passes `engram evaluate
-   --require-human-label-evidence --require-adoption-evidence`. The CLI gate
-   and template for human-labeled harness evidence now exist and are separate
-   from deterministic benchmark proof. The local benchmark-labeled evaluation
-   gate is strong for this milestone: the full deterministic showcase bundle
-   passed 39/39 `engram_full` scenario runs with pass rate `1.0`, false recall
-   `0.0`, 13 transcript hashes, a fairness contract, and all six evaluation
-   signals measured.
+   --require-release-evidence`. The CLI gate and template for human-labeled
+   harness evidence now exist and are separate from deterministic benchmark
+   proof. The local benchmark-labeled evaluation gate is strong for this
+   milestone: the full deterministic showcase bundle passed 39/39
+   `engram_full` scenario runs with pass rate `1.0`, false recall `0.0`, 13
+   transcript hashes, a fairness contract, and all six evaluation signals
+   measured.
    Packaging plan: treat the current dirty scope as one cohesive milestone
    commit unless a reviewer asks for a split. If split, use route/runtime
    boundaries, MCP adoption authority/verifier/template, and evaluation

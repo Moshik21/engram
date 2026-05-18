@@ -68,11 +68,9 @@ def build_human_label_evidence_template() -> dict[str, Any]:
         ],
         "validationCommand": (
             "engram evaluate --from-json brain-loop-report.json "
-            "--require-evaluation-signals "
+            "--require-release-evidence "
             "--human-label-artifact human-labels.json "
-            "--require-human-label-evidence "
             "--adoption-report adoption-report.json "
-            "--require-adoption-evidence "
             "--min-human-recall-samples 10 "
             "--min-human-session-samples 3 "
             "--evidence-bundle brain-loop-release-evidence.json "
