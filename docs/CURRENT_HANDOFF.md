@@ -65,7 +65,11 @@ is required, merged transcripts with conflicting session/thread IDs now fail, so
 a stale cumulative adoption trace cannot satisfy a current client run. Operators
 can pass `--session-id <client-session-id>` during validation to filter a
 cumulative hook trace to the current client session instead of manually trimming
-JSONL.
+JSONL. `tests/test_mcp_adoption_cli.py` now also executes the generated
+`capture-prompt.sh` hook against a local auto-observe endpoint and validates the
+actual trace file with a matching Claude stream-json transcript, so hook
+generation, REST capture evidence, multi-file transcript merging, and
+session-filtered adoption validation are covered together.
 
 ## Current Milestone
 
