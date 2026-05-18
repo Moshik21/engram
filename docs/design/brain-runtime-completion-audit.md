@@ -43,7 +43,7 @@ not yet doing its job.
 | Keep SQLite/lite viable | Broad gate: `3320 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
-| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, or not paired with a real human-reviewed harness artifact when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for local deterministic milestone and gate mechanics; real/labeled production artifact remains future release evidence |
+| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for local deterministic milestone and gate mechanics; real/labeled production artifact remains future release evidence |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
 | Do not mark complete until implementation, tests, docs, UI are understandable | This audit says not complete | Blocking |
 
@@ -712,9 +712,13 @@ not yet doing its job.
    synthetic data is presented as production evidence. Loaded human-label
    artifacts include a SHA-256 digest in the evidence summary and Markdown
    report so archived bundles can be traced back to the exact reviewed file.
+   `--adoption-report adoption-report.json --require-adoption-evidence` attaches
+   the matching adoption validation JSON, requires it to be a passed live-client
+   report, and cross-checks client/session metadata against the human-label
+   artifact when both are present.
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached
-   benchmark/human-label evidence, source paths, and gate thresholds as one
-   reproducible JSON artifact after requested gates pass. The
+   benchmark/human-label/adoption evidence, source paths, and gate thresholds as
+   one reproducible JSON artifact after requested gates pass. The
    native surface manifest tracks the Helix variant as an operator hard gate.
    `engram doctor` now surfaces the same
    evaluation-signal readiness in its disposable smoke report, so the local
@@ -760,7 +764,9 @@ treating it as the main completion blocker. The next goal-critical work is:
    Engram.
 2. If the project wants a release gate beyond the local deterministic milestone,
    collect a real `human-labels.json` artifact from a staging or production
-   harness and run `engram evaluate --require-human-label-evidence` against it.
+   harness plus the matching `engram adoption --format json` report, then run
+   `engram evaluate --require-human-label-evidence
+   --require-adoption-evidence` against both.
    Start with `engram evaluate --human-label-template` so the artifact follows
    the expected schema.
    The current local benchmark bundle is

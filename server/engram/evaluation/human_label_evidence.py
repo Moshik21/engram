@@ -27,6 +27,7 @@ def build_human_label_evidence_template() -> dict[str, Any]:
         "source": "<staging_harness_or_production_harness_name>",
         "client": "<Claude Code | Cursor | Windsurf | other MCP client>",
         "capturedAt": "<ISO-8601 timestamp from live harness run>",
+        "sessionId": "<client session/thread id from adoption report if available>",
         "labeler": "<human reviewer name or handle>",
         "recallSamples": [
             {
@@ -70,6 +71,8 @@ def build_human_label_evidence_template() -> dict[str, Any]:
             "--require-evaluation-signals "
             "--human-label-artifact human-labels.json "
             "--require-human-label-evidence "
+            "--adoption-report adoption-report.json "
+            "--require-adoption-evidence "
             "--min-human-recall-samples 10 "
             "--min-human-session-samples 3 "
             "--evidence-bundle brain-loop-release-evidence.json "
@@ -162,6 +165,7 @@ def build_human_label_evidence(
     )
     client = _string(_first(payload, "client", "harness", "client_label", "clientLabel"))
     captured_at = _string(_first(payload, "captured_at", "capturedAt"))
+    session_id = _string(_first(payload, "session_id", "sessionId"))
     labeler = _string(_first(payload, "labeler", "reviewed_by", "reviewedBy"))
     human_labeled = _truthy(_first(payload, "human_labeled", "humanLabeled"))
     sample_sources = sorted(
@@ -224,6 +228,7 @@ def build_human_label_evidence(
         "source": source,
         "client": client,
         "captured_at": captured_at,
+        "session_id": session_id,
         "labeler": labeler,
         "human_labeled": human_labeled,
         "recall_sample_count": len(recall_samples),

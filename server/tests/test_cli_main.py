@@ -105,6 +105,7 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
     report_path = tmp_path / "brain-loop-report.json"
     benchmark_path = tmp_path / "showcase-results.json"
     human_path = tmp_path / "human-labels.json"
+    adoption_path = tmp_path / "adoption-report.json"
     bundle_path = tmp_path / "brain-loop-evidence.json"
 
     async def fake_run_evaluate_command(args) -> None:
@@ -121,6 +122,8 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
                 "human_label_artifact": args.human_label_artifact,
                 "human_label_template": args.human_label_template,
                 "require_human_label_evidence": args.require_human_label_evidence,
+                "adoption_report": args.adoption_report,
+                "require_adoption_evidence": args.require_adoption_evidence,
                 "min_human_recall_samples": args.min_human_recall_samples,
                 "min_human_session_samples": args.min_human_session_samples,
                 "evidence_bundle": args.evidence_bundle,
@@ -148,6 +151,9 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "--human-label-artifact",
             str(human_path),
             "--require-human-label-evidence",
+            "--adoption-report",
+            str(adoption_path),
+            "--require-adoption-evidence",
             "--min-human-recall-samples",
             "5",
             "--min-human-session-samples",
@@ -178,6 +184,8 @@ def test_evaluate_require_evaluation_signals_dispatches_to_command(
             "human_label_artifact": human_path,
             "human_label_template": False,
             "require_human_label_evidence": True,
+            "adoption_report": adoption_path,
+            "require_adoption_evidence": True,
             "min_human_recall_samples": 5,
             "min_human_session_samples": 2,
             "evidence_bundle": bundle_path,

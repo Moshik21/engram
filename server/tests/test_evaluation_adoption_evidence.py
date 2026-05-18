@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from engram.evaluation.adoption_evidence import (
+    adoption_evidence_failure_message,
+    build_adoption_evidence,
+    link_adoption_to_human_label_evidence,
+    load_adoption_evidence,
+)
+from engram.evaluation.brain_loop_report import (
+    EVALUATION_SIGNAL_ORDER,
+    format_brain_loop_report_markdown,
+)
+from engram.evaluation.cli import configure_evaluate_parser, run_evaluate_command
+
+
+def test_adoption_evidence_accepts_passed_live_report() -> None:
+    evidence = build_adoption_evidence(
+        _adoption_report(),
+        artifact_path=Path("adoption-report.json"),
+        artifact_sha256="abc123",
+    )
+
+    assert evidence["status"] == "measured"
+    assert evidence["artifact_path"] == "adoption-report.json"
+    assert evidence["artifact_sha256"] == "abc123"
+    assert evidence["client"] == "Cursor"
+    assert evidence["session_id"] == "cursor-thread-1"
+    assert evidence["call_count"] == 4
+    assert adoption_evidence_failure_message(evidence, prefix="Adoption") is None
+
+
+def test_adoption_evidence_rejects_failed_or_sessionless_report() -> None:
+    report = _adoption_report()
+    report["status"] = "failed"
+    report["evidence"]["client"] = None
+    report["validation"]["file_memory"]["substituted_for_engram"] = True
+    report["validation"]["failures"] = ["missing_before_answer_tool"]
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "adoption_status_not_passed",
+        "missing_adoption_client",
+        "file_memory_substituted_for_engram",
+        "adoption_validation_failures(missing_before_answer_tool)",
+    ]
+
+
+def test_load_adoption_evidence_records_report_hash(tmp_path: Path) -> None:
+    report_path = tmp_path / "adoption-report.json"
+    report_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
+
+    evidence = load_adoption_evidence(report_path)
+
+    assert evidence["status"] == "measured"
+    assert evidence["artifact_path"] == str(report_path)
+    assert evidence["artifact_sha256"] == hashlib.sha256(
+        report_path.read_bytes()
+    ).hexdigest()
+
+
+def test_adoption_human_label_link_rejects_different_client_or_session() -> None:
+    report = {
+        "adoption_evidence": build_adoption_evidence(_adoption_report()),
+        "human_label_evidence": {
+            "client": "Claude Code",
+            "captured_at": "2026-05-18T23:00:00Z",
+            "session_id": "claude-session-1",
+        },
+    }
+
+    linked = link_adoption_to_human_label_evidence(report)
+
+    assert linked["adoption_evidence"]["status"] == "failed"
+    assert "human_label_client_mismatch(Claude Code!=Cursor)" in linked[
+        "adoption_evidence"
+    ]["failures"]
+    assert "human_label_session_id_mismatch(claude-session-1!=cursor-thread-1)" in linked[
+        "adoption_evidence"
+    ]["failures"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_attaches_and_gates_adoption_report(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    adoption_path = tmp_path / "adoption-report.json"
+    human_path = tmp_path / "human-labels.json"
+    bundle_path = tmp_path / "brain-loop-release-evidence.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    adoption_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
+    human_path.write_text(json.dumps(_human_label_artifact()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-evaluation-signals",
+            "--adoption-report",
+            str(adoption_path),
+            "--require-adoption-evidence",
+            "--human-label-artifact",
+            str(human_path),
+            "--require-human-label-evidence",
+            "--evidence-bundle",
+            str(bundle_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    report = json.loads(capsys.readouterr().out)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    assert report["adoption_evidence"]["status"] == "measured"
+    assert report["adoption_evidence"]["client"] == "Cursor"
+    assert report["adoption_evidence"]["artifact_sha256"] == hashlib.sha256(
+        adoption_path.read_bytes()
+    ).hexdigest()
+    assert bundle["sources"]["adoption_report"] == str(adoption_path)
+    assert bundle["gates"]["require_adoption_evidence"] is True
+    assert bundle["report"]["adoption_evidence"] == report["adoption_evidence"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_rejects_missing_adoption_report_when_required(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-adoption-evidence",
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "Adoption evidence failed gates: ['missing_adoption_evidence']"
+    )
+
+
+def test_markdown_includes_adoption_evidence() -> None:
+    report = {
+        "group_id": "operator_brain",
+        "generated_at": "2026-05-18T23:10:00Z",
+        "totals": {},
+        "capture": {},
+        "cue": {},
+        "project": {},
+        "recall": {},
+        "consolidate": {},
+        "adoption_evidence": build_adoption_evidence(
+            _adoption_report(),
+            artifact_path=Path("adoption-report.json"),
+            artifact_sha256="abc123",
+        ),
+    }
+
+    markdown = format_brain_loop_report_markdown(report)
+
+    assert "## Adoption Evidence" in markdown
+    assert "Cursor: measured" in markdown
+    assert "Calls: 4 | captured 2026-05-18T23:00:00Z | session cursor-thread-1" in markdown
+    assert "Artifact: adoption-report.json | sha256 abc123" in markdown
+
+
+def _adoption_report() -> dict:
+    return {
+        "status": "passed",
+        "authorityPath": "claim-authority.json",
+        "callsPath": "live-harness-transcript.json",
+        "callCount": 4,
+        "evidence": {
+            "required": True,
+            "client": "Cursor",
+            "required_client": "Cursor",
+            "captured_at": "2026-05-18T23:00:00Z",
+            "session_id": "cursor-thread-1",
+            "session_filter": "cursor-thread-1",
+            "source": "copied_mcp_log",
+            "missing": [],
+        },
+        "validation": {
+            "required_tools_before_answer": {
+                "expected": ["claim_authority", "get_context", "recall"],
+                "observed": ["claim_authority", "get_context", "recall"],
+                "missing": [],
+                "in_order": True,
+            },
+            "capture": {
+                "destination": "engram",
+                "expected_tool": "remember",
+                "observed_tools": ["remember"],
+                "missing": False,
+            },
+            "file_memory": {
+                "present": True,
+                "observed_tools": [],
+                "substituted_for_engram": False,
+            },
+            "failures": [],
+        },
+    }
+
+
+def _human_label_artifact() -> dict:
+    return {
+        "kind": "engram_human_label_evidence",
+        "humanLabeled": True,
+        "source": "staging_harness",
+        "client": "Cursor",
+        "capturedAt": "2026-05-18T23:00:00Z",
+        "sessionId": "cursor-thread-1",
+        "labeler": "operator",
+        "recallSamples": [
+            {
+                "source": "staging_harness",
+                "recallTriggered": True,
+                "recallHelped": True,
+                "recallNeeded": True,
+                "packetsSurfaced": 2,
+                "packetsUsed": 1,
+                "falseRecalls": 0,
+            }
+        ],
+        "sessionSamples": [
+            {
+                "source": "staging_harness",
+                "baselineScore": 0.2,
+                "memoryScore": 0.8,
+                "openLoopExpected": True,
+                "openLoopRecovered": True,
+                "temporalExpected": True,
+                "temporalCorrect": True,
+            }
+        ],
+    }
+
+
+def _measured_report() -> dict:
+    return {
+        "group_id": "operator_brain",
+        "generated_at": "2026-05-18T23:01:00Z",
+        "totals": {},
+        "capture": {},
+        "cue": {},
+        "project": {},
+        "recall": {},
+        "consolidate": {},
+        "evaluation_signals": {
+            signal: {
+                "status": "measured",
+                "evidence_count": 2,
+                "metric": 1.0,
+                "gap": None,
+            }
+            for signal in EVALUATION_SIGNAL_ORDER
+        },
+        "coverage_gaps": [],
+    }

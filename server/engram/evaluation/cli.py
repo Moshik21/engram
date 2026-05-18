@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
+from engram.evaluation.adoption_evidence import (
+    adoption_evidence_failure_message,
+    link_adoption_to_human_label_evidence,
+    load_adoption_evidence,
+)
 from engram.evaluation.benchmark_evidence import (
     benchmark_evidence_failure_message,
     load_benchmark_evidence,
@@ -184,6 +189,24 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--adoption-report",
+        type=Path,
+        help=(
+            "JSON report from `engram adoption --format json` to attach to the "
+            "brain-loop evidence bundle and optionally gate with "
+            "--require-adoption-evidence."
+        ),
+    )
+    parser.add_argument(
+        "--require-adoption-evidence",
+        action="store_true",
+        help=(
+            "Exit non-zero unless --adoption-report is a passed live-client "
+            "Engram adoption validation report. When human-label evidence is "
+            "also attached, client/session metadata must point at the same run."
+        ),
+    )
+    parser.add_argument(
         "--require-human-label-evidence",
         action="store_true",
         help=(
@@ -342,6 +365,8 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
     report = await build_report_from_args(args)
     report = _attach_benchmark_evidence_from_args(report, args)
     report = _attach_human_label_evidence_from_args(report, args)
+    report = _attach_adoption_evidence_from_args(report, args)
+    report = link_adoption_to_human_label_evidence(report)
     if getattr(args, "require_evaluation_signals", False):
         failure_message = evaluation_signal_failure_message(
             report,
@@ -364,6 +389,13 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         failure_message = human_label_evidence_failure_message(
             report.get("human_label_evidence"),
             prefix="Human label evidence failed gates",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
+    if getattr(args, "require_adoption_evidence", False):
+        failure_message = adoption_evidence_failure_message(
+            report.get("adoption_evidence"),
+            prefix="Adoption evidence failed gates",
         )
         if failure_message:
             raise SystemExit(failure_message)
@@ -428,6 +460,26 @@ def _attach_human_label_evidence_from_args(
     return report
 
 
+def _attach_adoption_evidence_from_args(
+    report: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    artifact_path = getattr(args, "adoption_report", None)
+    require_evidence = getattr(args, "require_adoption_evidence", False)
+    if artifact_path is None:
+        if require_evidence:
+            report = dict(report)
+            report["adoption_evidence"] = None
+        return report
+    try:
+        evidence = load_adoption_evidence(artifact_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid adoption report {artifact_path}: {exc}") from exc
+    report = dict(report)
+    report["adoption_evidence"] = evidence
+    return report
+
+
 def _write_evidence_bundle_from_args(report: dict[str, Any], args: argparse.Namespace) -> None:
     bundle_path = getattr(args, "evidence_bundle", None)
     if bundle_path is None:
@@ -458,6 +510,7 @@ def build_evidence_bundle(
             "human_label_artifact": _optional_path_str(
                 getattr(args, "human_label_artifact", None)
             ),
+            "adoption_report": _optional_path_str(getattr(args, "adoption_report", None)),
             "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
             "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
             "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
@@ -485,6 +538,9 @@ def build_evidence_bundle(
             ),
             "require_human_label_evidence": bool(
                 getattr(args, "require_human_label_evidence", False)
+            ),
+            "require_adoption_evidence": bool(
+                getattr(args, "require_adoption_evidence", False)
             ),
             "min_human_recall_samples": max(
                 0,

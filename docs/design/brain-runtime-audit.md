@@ -352,9 +352,13 @@ reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
 showcase, fixture, deterministic, simulated, or synthetic sources as release
 evidence. Human-label artifacts loaded from disk are summarized with a SHA-256
 digest, so Markdown reports and evidence bundles can be tied to the exact
-reviewed file. `--evidence-bundle` writes the same report plus source paths,
-benchmark evidence, human-label evidence, and gate thresholds as a single
-archiveable JSON artifact.
+reviewed file. `--adoption-report adoption-report.json
+--require-adoption-evidence` attaches the matching `engram adoption --format
+json` report, requires the adoption report to pass with live-client metadata,
+and cross-checks client/session metadata against human-label evidence when both
+are attached. `--evidence-bundle` writes the same report plus source paths,
+benchmark evidence, human-label evidence, adoption evidence, and gate thresholds
+as a single archiveable JSON artifact.
 The native surface manifest also tracks
 `engram evaluate --mode helix --require-evaluation-signals` as an operator hard
 gate beside the native smoke and doctor commands.

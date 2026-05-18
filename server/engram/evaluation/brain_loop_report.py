@@ -420,6 +420,35 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             ]
         )
 
+    adoption_evidence = _mapping(report.get("adoption_evidence"))
+    if adoption_evidence:
+        adoption_failures = list(adoption_evidence.get("failures") or [])
+        failure_text = (
+            f" | failures: {', '.join(str(failure) for failure in adoption_failures)}"
+            if adoption_failures
+            else ""
+        )
+        lines.extend(
+            [
+                "",
+                "## Adoption Evidence",
+                "",
+                (
+                    f"- {adoption_evidence.get('client') or 'unknown client'}: "
+                    f"{adoption_evidence.get('status', 'unknown')}{failure_text}"
+                ),
+                (
+                    f"- Calls: {adoption_evidence.get('call_count', 0)} | "
+                    f"captured {adoption_evidence.get('captured_at') or 'unknown'} | "
+                    f"session {adoption_evidence.get('session_id') or 'unknown'}"
+                ),
+                (
+                    f"- Artifact: {adoption_evidence.get('artifact_path') or 'unknown'} "
+                    f"| sha256 {adoption_evidence.get('artifact_sha256') or 'unknown'}"
+                ),
+            ]
+        )
+
     if gaps:
         lines.extend(["", "## Coverage Gaps", ""])
         lines.extend(f"- {gap}" for gap in gaps)

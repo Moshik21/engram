@@ -1,5 +1,11 @@
 """Local evaluation helpers for Engram runtime health."""
 
+from engram.evaluation.adoption_evidence import (
+    adoption_evidence_failure_message,
+    build_adoption_evidence,
+    link_adoption_to_human_label_evidence,
+    load_adoption_evidence,
+)
 from engram.evaluation.benchmark_evidence import (
     benchmark_evidence_failure_message,
     build_benchmark_evidence,
@@ -47,6 +53,8 @@ __all__ = [
     "StoredRecallEvalSample",
     "StoredRecallRuntimeMetricsSnapshot",
     "StoredSessionContinuitySample",
+    "adoption_evidence_failure_message",
+    "build_adoption_evidence",
     "benchmark_evidence_failure_message",
     "build_brain_loop_report",
     "build_benchmark_evidence",
@@ -58,6 +66,8 @@ __all__ = [
     "format_smoke_report",
     "has_recall_runtime_metrics",
     "is_brain_loop_report_payload",
+    "link_adoption_to_human_label_evidence",
+    "load_adoption_evidence",
     "load_benchmark_evidence",
     "load_human_label_evidence",
     "looks_like_partial_brain_loop_report",

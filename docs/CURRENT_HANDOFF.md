@@ -91,8 +91,12 @@ evidence bundles, but it explicitly rejects untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed
-`human-labels.json`. Deterministic benchmark bundles remain useful local proof;
-they no longer stand in for production/staging human-reviewed harness sessions.
+`human-labels.json`. `engram evaluate` can also attach and require a passed
+`engram adoption --format json` report via `--adoption-report` and
+`--require-adoption-evidence`; when both adoption and human-label evidence are
+present, client/session metadata must point at the same live harness run.
+Deterministic benchmark bundles remain useful local proof; they no longer stand
+in for production/staging human-reviewed harness sessions.
 
 ## Current Milestone
 
@@ -7698,13 +7702,14 @@ visibility work treated as done:
    move those side effects back into `server/engram/mcp/server.py`. The next
    high-leverage slice is real live-harness evidence: either a second MCP
    client adoption transcript, or a staging/production `human-labels.json`
-   artifact that passes `engram evaluate --require-human-label-evidence`. The
-   CLI gate and template for human-labeled harness evidence now exist and are
-   separate from deterministic benchmark proof. The local benchmark-labeled
-   evaluation gate is strong for this milestone: the full deterministic
-   showcase bundle passed 39/39 `engram_full` scenario runs with pass rate
-   `1.0`, false recall `0.0`, 13 transcript hashes, a fairness contract, and
-   all six evaluation signals measured.
+   artifact plus matching adoption report that passes `engram evaluate
+   --require-human-label-evidence --require-adoption-evidence`. The CLI gate
+   and template for human-labeled harness evidence now exist and are separate
+   from deterministic benchmark proof. The local benchmark-labeled evaluation
+   gate is strong for this milestone: the full deterministic showcase bundle
+   passed 39/39 `engram_full` scenario runs with pass rate `1.0`, false recall
+   `0.0`, 13 transcript hashes, a fairness contract, and all six evaluation
+   signals measured.
    Packaging plan: treat the current dirty scope as one cohesive milestone
    commit unless a reviewer asks for a split. If split, use route/runtime
    boundaries, MCP adoption authority/verifier/template, and evaluation
