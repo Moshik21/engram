@@ -346,7 +346,10 @@ benchmark evidence too, so the operator artifact is readable without inspecting
 raw JSON. The CLI now also has a separate real harness gate:
 `--human-label-artifact human-labels.json --require-human-label-evidence`.
 `--human-label-template` prints the required artifact shape, starter examples,
-and validation command. The gate requires explicit `humanLabeled: true`
+and validation command. When an adoption report already exists,
+`--human-label-template --adoption-report adoption-report.json` pre-fills the
+client, capture timestamp, and session metadata that the release gate later
+cross-checks. The gate requires explicit `humanLabeled: true`
 metadata, a non-synthetic source, client label, capture timestamp, and human
 reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
 showcase, fixture, deterministic, simulated, or synthetic sources as release

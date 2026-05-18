@@ -161,6 +161,39 @@ async def test_evaluate_cli_rejects_missing_adoption_report_when_required(
 
 
 @pytest.mark.asyncio
+async def test_evaluate_cli_human_label_template_prefills_adoption_metadata(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    adoption_path = tmp_path / "adoption-report.json"
+    adoption_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--human-label-template",
+            "--adoption-report",
+            str(adoption_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    template = json.loads(capsys.readouterr().out)
+    assert template["client"] == "Cursor"
+    assert template["capturedAt"] == "2026-05-18T23:00:00Z"
+    assert template["sessionId"] == "cursor-thread-1"
+    assert template["adoptionReport"]["path"] == str(adoption_path)
+    assert template["adoptionReport"]["status"] == "measured"
+    assert template["adoptionReport"]["sha256"] == hashlib.sha256(
+        adoption_path.read_bytes()
+    ).hexdigest()
+    assert f"--adoption-report {adoption_path}" in template["validationCommand"]
+
+
+@pytest.mark.asyncio
 async def test_evaluate_cli_release_gate_rejects_missing_human_labels(
     tmp_path: Path,
 ) -> None:

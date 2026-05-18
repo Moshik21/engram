@@ -1504,8 +1504,12 @@ one reproducible JSON artifact after all requested gates pass.
 For production/staging release evidence, add
 `--human-label-artifact human-labels.json --require-human-label-evidence`.
 Use `--human-label-template` to print the JSON schema, starter examples, and
-validation command before collecting the labels. The untouched template fails
-the evidence gate because its metadata is placeholder text. A real artifact
+validation command before collecting the labels. If a live adoption report is
+already available, use
+`--human-label-template --adoption-report adoption-report.json` to prefill the
+client, `capturedAt`, and session metadata the release gate later
+cross-checks. The untouched template fails the evidence gate because its
+metadata is placeholder text. A real artifact
 must declare `humanLabeled: true`, a real harness `source`, the client label,
 `capturedAt`, and the human reviewer; synthetic sources such as smoke,
 showcase, benchmark, fixture, deterministic, simulated, or synthetic data fail

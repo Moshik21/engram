@@ -86,7 +86,9 @@ Evaluation release-gate note: `engram evaluate` now has a separate
 human-labeled harness evidence gate via `--human-label-artifact` and
 `--require-human-label-evidence`, plus `--human-label-template` to print the
 schema, starter examples, and validation command operators should fill from a
-real harness run. The artifact is attached to JSON/Markdown reports and
+real harness run. With `--adoption-report adoption-report.json`, the template
+pre-fills the client, capture timestamp, and session metadata that the release
+gate later cross-checks. The artifact is attached to JSON/Markdown reports and
 evidence bundles, but it explicitly rejects untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary

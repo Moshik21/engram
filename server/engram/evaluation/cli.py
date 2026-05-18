@@ -200,9 +200,9 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         "--adoption-report",
         type=Path,
         help=(
-            "JSON report from `engram adoption --format json` to attach to the "
-            "brain-loop evidence bundle and optionally gate with "
-            "--require-adoption-evidence."
+            "JSON report from `engram adoption --format json` to prefill "
+            "--human-label-template metadata, attach to the brain-loop evidence "
+            "bundle, and optionally gate with --require-adoption-evidence."
         ),
     )
     parser.add_argument(
@@ -363,7 +363,18 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
 async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
     if getattr(args, "human_label_template", False):
-        template = build_human_label_evidence_template()
+        adoption_evidence = None
+        if getattr(args, "adoption_report", None):
+            try:
+                adoption_evidence = load_adoption_evidence(args.adoption_report)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                raise SystemExit(
+                    f"Invalid adoption report {args.adoption_report}: {exc}"
+                ) from exc
+        template = build_human_label_evidence_template(
+            adoption_evidence=adoption_evidence,
+            adoption_report_path=getattr(args, "adoption_report", None),
+        )
         if args.format == "json":
             print(json.dumps(template, indent=2, sort_keys=True))
             return

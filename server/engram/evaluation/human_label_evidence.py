@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -19,15 +20,57 @@ _SYNTHETIC_SOURCE_TOKENS = {
 }
 
 
-def build_human_label_evidence_template() -> dict[str, Any]:
+def build_human_label_evidence_template(
+    *,
+    adoption_evidence: Mapping[str, Any] | None = None,
+    adoption_report_path: Path | str | None = None,
+) -> dict[str, Any]:
     """Return the operator template for real human-reviewed harness evidence."""
-    return {
+    adoption_report = _adoption_report_template_metadata(
+        adoption_evidence,
+        adoption_report_path=adoption_report_path,
+    )
+    client = (
+        adoption_report.get("client")
+        or "<Claude Code | Cursor | Windsurf | other MCP client>"
+    )
+    captured_at = (
+        adoption_report.get("capturedAt")
+        or "<ISO-8601 timestamp from live harness run>"
+    )
+    session_id = (
+        adoption_report.get("sessionId")
+        or "<client session/thread id from adoption report if available>"
+    )
+    adoption_report_arg = _shell_arg(
+        adoption_report_path
+        or adoption_report.get("path")
+        or "adoption-report.json"
+    )
+    instructions = [
+        "Collect this from a real staging or production harness run.",
+        "Keep source/client/capturedAt/labeler as observed metadata, not placeholders.",
+        (
+            "Do not use smoke, showcase, benchmark, fixture, deterministic, "
+            "simulated, or synthetic data for this release gate."
+        ),
+        "Add enough recallSamples and sessionSamples to satisfy the chosen gate thresholds.",
+    ]
+    if adoption_report:
+        instructions.insert(
+            1,
+            (
+                "Keep client/capturedAt/sessionId aligned with the attached "
+                "adoptionReport metadata; the release gate cross-checks them."
+            ),
+        )
+    template = {
         "kind": "engram_human_label_evidence",
         "humanLabeled": True,
         "source": "<staging_harness_or_production_harness_name>",
-        "client": "<Claude Code | Cursor | Windsurf | other MCP client>",
-        "capturedAt": "<ISO-8601 timestamp from live harness run>",
-        "sessionId": "<client session/thread id from adoption report if available>",
+        "client": client,
+        "capturedAt": captured_at,
+        "sessionId": session_id,
         "labeler": "<human reviewer name or handle>",
         "recallSamples": [
             {
@@ -70,22 +113,17 @@ def build_human_label_evidence_template() -> dict[str, Any]:
             "engram evaluate --from-json brain-loop-report.json "
             "--require-release-evidence "
             "--human-label-artifact human-labels.json "
-            "--adoption-report adoption-report.json "
+            f"--adoption-report {adoption_report_arg} "
             "--min-human-recall-samples 10 "
             "--min-human-session-samples 3 "
             "--evidence-bundle brain-loop-release-evidence.json "
             "--format json"
         ),
-        "instructions": [
-            "Collect this from a real staging or production harness run.",
-            "Keep source/client/capturedAt/labeler as observed metadata, not placeholders.",
-            (
-                "Do not use smoke, showcase, benchmark, fixture, deterministic, "
-                "simulated, or synthetic data for this release gate."
-            ),
-            "Add enough recallSamples and sessionSamples to satisfy the chosen gate thresholds.",
-        ],
+        "instructions": instructions,
     }
+    if adoption_report:
+        template["adoptionReport"] = adoption_report
+    return template
 
 
 def render_human_label_evidence_template_markdown(template: Mapping[str, Any]) -> str:
@@ -122,6 +160,23 @@ def render_human_label_evidence_template_markdown(template: Mapping[str, Any]) -
     if instructions:
         lines.extend(["", "## Instructions", ""])
         lines.extend(f"- {instruction}" for instruction in instructions)
+    adoption_report = _mapping(template.get("adoptionReport"))
+    if adoption_report:
+        failures = _list_payload(adoption_report.get("failures"))
+        failure_text = ", ".join(str(failure) for failure in failures) or "none"
+        lines.extend(
+            [
+                "",
+                "## Adoption Report Prefill",
+                "",
+                f"- Path: `{adoption_report.get('path')}`",
+                f"- Status: `{adoption_report.get('status')}`",
+                f"- Client: `{adoption_report.get('client')}`",
+                f"- Captured at: `{adoption_report.get('capturedAt')}`",
+                f"- Session: `{adoption_report.get('sessionId')}`",
+                f"- Failures: `{failure_text}`",
+            ]
+        )
     return "\n".join(lines).strip() + "\n"
 
 
@@ -278,6 +333,27 @@ def _list_payload(value: Any) -> list[Any]:
     return []
 
 
+def _adoption_report_template_metadata(
+    adoption_evidence: Mapping[str, Any] | None,
+    *,
+    adoption_report_path: Path | str | None,
+) -> dict[str, Any]:
+    evidence = _mapping(adoption_evidence)
+    if not evidence:
+        return {}
+    path = adoption_report_path or evidence.get("artifact_path")
+    return {
+        "path": str(path) if path is not None else None,
+        "sha256": evidence.get("artifact_sha256"),
+        "status": evidence.get("status"),
+        "client": evidence.get("client"),
+        "capturedAt": evidence.get("captured_at"),
+        "sessionId": evidence.get("session_id"),
+        "source": evidence.get("source"),
+        "failures": list(evidence.get("failures") or []),
+    }
+
+
 def _first(payload: Mapping[str, Any], *keys: str) -> Any:
     for key in keys:
         value = payload.get(key)
@@ -288,6 +364,10 @@ def _first(payload: Mapping[str, Any], *keys: str) -> Any:
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _shell_arg(value: Path | str) -> str:
+    return shlex.quote(str(value))
 
 
 def _string(value: Any) -> str | None:

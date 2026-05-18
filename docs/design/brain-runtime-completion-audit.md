@@ -705,7 +705,10 @@ not yet doing its job.
    `--human-label-artifact human-labels.json
    --require-human-label-evidence` adds a separate release/staging gate for
    real human-reviewed harness data. `--human-label-template` prints the
-   artifact schema, starter examples, and validation command. The filled
+   artifact schema, starter examples, and validation command; with
+   `--adoption-report adoption-report.json`, it pre-fills the client, capture
+   timestamp, and session metadata that the release gate later cross-checks.
+   The filled
    artifact must declare `humanLabeled: true`, a non-synthetic source, client
    label, capture time, and labeler, and it fails if an untouched placeholder
    template or smoke, benchmark, showcase, fixture, deterministic, simulated, or
