@@ -24,7 +24,11 @@ PROJECT_LOCAL_OWNS = [
     "temporary implementation details that should not follow the user",
 ]
 
-ENGRAM_CAPTURE_TOOLS = {"observe", "remember"}
+ENGRAM_CAPTURE_TOOLS = {"observe", "remember", "auto_observe"}
+ENGRAM_CAPTURE_TOOL_EQUIVALENTS = {
+    "observe": {"observe", "auto_observe"},
+    "remember": {"remember"},
+}
 FILE_MEMORY_TOOL_MARKERS = {
     "file_memory",
     "local_memory",
@@ -405,7 +409,11 @@ def _validate_capture(
     missing = False
 
     if destination == "engram" and expected_tool:
-        missing = str(expected_tool) not in capture_tools
+        acceptable_tools = ENGRAM_CAPTURE_TOOL_EQUIVALENTS.get(
+            str(expected_tool),
+            {str(expected_tool)},
+        )
+        missing = not any(tool in acceptable_tools for tool in capture_tools)
     elif destination in {"none", "project_local"}:
         unexpected_engram_capture_tools = [
             tool

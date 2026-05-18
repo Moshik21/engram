@@ -50,7 +50,11 @@ payloads before Engram can classify them. Installed hook payloads with explicit
 `UserPromptSubmit` payloads, stream-json `message` records, and
 `last_assistant_message` stop records normalize into role/project-tagged
 captures. Malformed or unsupported async hook traffic returns a skipped capture
-contract instead of a pre-route `422`.
+contract instead of a pre-route `422`. The adoption verifier also recognizes
+REST `/api/knowledge/auto-observe` hook traces as `observe`-equivalent Capture
+evidence for cheap-capture protocols, while still requiring explicit
+`remember` evidence when `claim_authority()` classifies the message as
+high-signal.
 
 ## Current Milestone
 

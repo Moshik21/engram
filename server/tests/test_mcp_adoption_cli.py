@@ -313,6 +313,118 @@ def test_adoption_validation_report_accepts_plaintext_harness_notes(
     assert report["validation"]["capture"]["observed_tools"] == ["remember"]
 
 
+def test_adoption_validation_accepts_rest_auto_observe_for_observe_capture(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "live-rest-hook-transcript.json"
+    protocol = _protocol()
+    protocol["capture"] = {"destination": "engram", "tool": "observe"}
+    authority_path.write_text(json.dumps({"agent_protocol": protocol}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Claude Code",
+                    "capturedAt": "2026-05-18T23:04:00Z",
+                    "source": "rest_hook_trace",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {
+                        "phase": "capture",
+                        "method": "POST",
+                        "path": "/api/knowledge/auto-observe",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+    )
+
+    assert report["status"] == "passed"
+    assert report["validation"]["capture"]["expected_tool"] == "observe"
+    assert report["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+    assert report["evidence"]["source"] == "rest_hook_trace"
+
+
+def test_adoption_validation_does_not_treat_rest_auto_observe_as_remember(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "rest-hook-only-transcript.jsonl"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"phase": "before_answer", "tool": "bootstrap_project"}),
+                json.dumps({"phase": "before_answer", "tool": "get_context"}),
+                json.dumps({"phase": "before_answer", "tool": "recall"}),
+                json.dumps(
+                    {
+                        "phase": "capture",
+                        "method": "POST",
+                        "path": "/api/knowledge/auto-observe",
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+    )
+
+    assert report["status"] == "failed"
+    assert report["validation"]["capture"]["expected_tool"] == "remember"
+    assert report["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+    assert "missing_required_capture_tool" in report["validation"]["failures"]
+
+
+def test_adoption_validation_accepts_plaintext_rest_auto_observe_capture(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "copied-rest-hook-notes.md"
+    protocol = _protocol()
+    protocol["capture"] = {"destination": "engram", "tool": "observe"}
+    authority_path.write_text(json.dumps({"agent_protocol": protocol}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                "Client: Claude Code",
+                "Captured at: 2026-05-18T23:06:00Z",
+                "## Before answer",
+                "- mcp__engram__bootstrap_project",
+                "- mcp__engram__get_context",
+                "- mcp__engram__recall",
+                "## Capture",
+                "- POST /api/knowledge/auto-observe",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+    )
+
+    assert report["status"] == "passed"
+    assert report["validation"]["capture"]["observed_tools"] == ["auto_observe"]
+
+
 def test_adoption_validation_report_accepts_live_evidence_metadata(
     tmp_path: Path,
 ) -> None:

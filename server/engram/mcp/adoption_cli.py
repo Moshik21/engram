@@ -38,6 +38,7 @@ _TOOL_FIELD_RE = re.compile(
 _ENGRAM_TOOL_RE = re.compile(
     r"\b(?:mcp__engram__|engram[./])([A-Za-z][A-Za-z0-9_]*)\b",
 )
+_ENGRAM_API_CAPTURE_RE = re.compile(r"/api/knowledge/auto-observe\b")
 _SELF_REPORTED_ENGRAM_IGNORED_RE = re.compile(
     r"\b(?:have not|haven't|had not|hadn't|did not|didn't)\s+"
     r"(?:touch|touched|use|used|call|called)\s+engram\b"
@@ -595,6 +596,8 @@ def _extract_plaintext_tool(line: str) -> str | None:
     tool_match = _ENGRAM_TOOL_RE.search(line)
     if tool_match:
         return _normalize_tool_name(tool_match.group(0))
+    if _ENGRAM_API_CAPTURE_RE.search(line):
+        return "auto_observe"
     return None
 
 
@@ -771,7 +774,7 @@ def _normalize_call(call: Any) -> dict[str, Any]:
 
 
 def _extract_tool_name(call: dict[str, Any]) -> str | None:
-    for key in ("tool", "name", "tool_name", "toolName"):
+    for key in ("tool", "name", "tool_name", "toolName", "endpoint", "path", "route", "url"):
         value = call.get(key)
         if isinstance(value, str):
             return value
@@ -793,6 +796,7 @@ def _normalize_tool_name(tool_name: str) -> str:
     for separator in ("__", ".", "/"):
         if separator in normalized:
             normalized = normalized.split(separator)[-1]
+    normalized = normalized.replace("-", "_")
     return normalized
 
 
@@ -810,6 +814,7 @@ def _is_engram_tool_name(raw_tool_name: str, normalized_tool_name: str) -> bool:
             "recall",
             "observe",
             "remember",
+            "auto_observe",
         }
     )
 

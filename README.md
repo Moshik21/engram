@@ -1125,6 +1125,9 @@ normalizes common MCP log shapes, including prefixed tool names such as
 alias for `phase`. Claude Code `--output-format stream-json` logs are accepted
 directly; Engram capture tools (`observe`, `remember`) are mapped to the
 `capture` phase and other Engram tool-use blocks are mapped to `before_answer`.
+REST hook traces can use `/api/knowledge/auto-observe` as capture evidence for
+protocols that require cheap `observe()` capture; it does not satisfy a
+high-signal `remember()` requirement.
 For copied real-harness notes, the same verifier also accepts plain text or
 Markdown with explicit `before_answer` / `capture` headings
 (`Before answer` and `pre-answer` also normalize to `before_answer`) and Engram
