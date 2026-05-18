@@ -74,10 +74,11 @@ session-filtered adoption validation are covered together. The interactive
 including the default hook trace path and `--session-id` filter. The
 `engram adoption --template` JSON/Markdown output now carries the same
 validation-command guidance: one command for a single live wrapper transcript
-and one for Claude stream-json plus the AutoCapture trace. The adoption
-verifier also supports `--require-client <label>` so cross-harness gates can
-assert that a Cursor/Windsurf run is not accidentally satisfied by Claude Code
-evidence.
+and one for Claude stream-json plus the AutoCapture trace; when `--client` is
+provided, both generated commands include `--require-client`. The adoption
+verifier also supports `--require-client <label>` directly so cross-harness
+gates can assert that a Cursor/Windsurf run is not accidentally satisfied by
+Claude Code evidence.
 
 ## Current Milestone
 

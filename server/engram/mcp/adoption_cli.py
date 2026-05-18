@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -220,7 +221,10 @@ def build_live_adoption_transcript_template(
     """Build a live-harness transcript template from a claim_authority payload."""
     authority_payload = _load_json(authority_path)
     protocol = _extract_protocol(authority_payload)
-    validation_commands = _template_validation_commands(session_id=session_id)
+    validation_commands = _template_validation_commands(
+        session_id=session_id,
+        client=client,
+    )
     return {
         "metadata": {
             "client": client or "<Claude Code | Cursor | Windsurf | other MCP client>",
@@ -246,14 +250,21 @@ def build_live_adoption_transcript_template(
     }
 
 
-def _template_validation_commands(*, session_id: str | None) -> list[dict[str, str]]:
+def _template_validation_commands(
+    *,
+    session_id: str | None,
+    client: str | None,
+) -> list[dict[str, str]]:
     session = session_id or "<client-session-id>"
+    required_client = client or "<client-label>"
+    required_client_flag = f"--require-client {shlex.quote(required_client)}"
     return [
         {
             "label": "single_transcript",
             "command": (
                 "engram adoption --authority claim-authority.json "
-                "--calls live-harness-transcript.json --require-live-evidence"
+                "--calls live-harness-transcript.json "
+                f"{required_client_flag} --require-live-evidence"
             ),
         },
         {
@@ -261,7 +272,8 @@ def _template_validation_commands(*, session_id: str | None) -> list[dict[str, s
             "command": (
                 "engram adoption --authority claim-authority.json "
                 "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
-                f"--session-id {session} --require-live-evidence"
+                f"--session-id {shlex.quote(session)} "
+                f"{required_client_flag} --require-live-evidence"
             ),
         },
     ]

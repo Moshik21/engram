@@ -1108,7 +1108,8 @@ def test_live_adoption_template_uses_authority_protocol_example(
             "label": "single_transcript",
             "command": (
                 "engram adoption --authority claim-authority.json "
-                "--calls live-harness-transcript.json --require-live-evidence"
+                "--calls live-harness-transcript.json "
+                "--require-client 'Claude Code' --require-live-evidence"
             ),
         },
         {
@@ -1116,7 +1117,8 @@ def test_live_adoption_template_uses_authority_protocol_example(
             "command": (
                 "engram adoption --authority claim-authority.json "
                 "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
-                "--session-id claude-thread-1 --require-live-evidence"
+                "--session-id claude-thread-1 "
+                "--require-client 'Claude Code' --require-live-evidence"
             ),
         },
     ]
@@ -1149,9 +1151,12 @@ def test_adoption_template_command_outputs_markdown(
     assert "# Engram Live Adoption Transcript Template" in markdown
     assert "Client: `Cursor`" in markdown
     assert "`before_answer`: `bootstrap_project`" in markdown
-    assert "--calls live-harness-transcript.json --require-live-evidence" in markdown
+    assert (
+        "--calls live-harness-transcript.json "
+        "--require-client Cursor --require-live-evidence"
+    ) in markdown
     assert "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl" in markdown
-    assert "--session-id cursor-thread-4 --require-live-evidence" in markdown
+    assert "--session-id cursor-thread-4 --require-client Cursor" in markdown
 
 
 def test_adoption_command_returns_nonzero_for_failed_validation(
