@@ -61,6 +61,10 @@ failures instead of an `invalid_calls_transcript` parse error.
 multi-client adoption summaries, Markdown reports, release evidence summaries,
 and the dashboard Evaluate release-evidence view, so auth/MCP setup blockers
 remain visible instead of collapsing into a generic failed gate.
+Adoption evidence release packaging now also rejects proxy summaries that do
+not prove real protocol execution: a report must carry a nonzero call count,
+nonempty expected and observed before-answer tools, observed `get_context` and
+`recall`, and an observed Capture tool before it can be measured.
 Current blocked live-client evidence refresh: `claude mcp list` verified the
 local REST/MCP server as connected, but a constrained Claude Code 2.1.144
 print-mode run still exited before tool execution with `Not logged in - Please

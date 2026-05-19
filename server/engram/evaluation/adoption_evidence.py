@@ -53,21 +53,45 @@ def build_adoption_evidence(
     mcp_server_failures = _string_list(
         evidence.get("mcp_server_failures") or evidence.get("mcpServerFailures")
     )
+    call_count = _int(payload.get("callCount"))
+    expected_before_answer = _string_list(required_tools.get("expected"))
+    observed_before_answer = _string_list(required_tools.get("observed"))
+    observed_capture_tools = _string_list(capture.get("observed_tools"))
     failures: list[str] = []
     if payload.get("status") != "passed":
         failures.append("adoption_status_not_passed")
+    if call_count <= 0:
+        failures.append("missing_adoption_calls")
     if not client:
         failures.append("missing_adoption_client")
     if not captured_at:
         failures.append("missing_adoption_captured_at")
     if evidence.get("required") is not True:
         failures.append("missing_required_live_evidence_gate")
+    if not expected_before_answer:
+        failures.append("missing_adoption_required_tool_expectations")
+    if not observed_before_answer:
+        failures.append("missing_adoption_observed_before_answer_tools")
+    else:
+        missing_core_tools = [
+            tool
+            for tool in ("get_context", "recall")
+            if tool not in observed_before_answer
+        ]
+        if missing_core_tools:
+            failures.append(
+                "missing_adoption_core_before_answer_tools("
+                + ",".join(missing_core_tools)
+                + ")"
+            )
     if required_tools.get("missing"):
         failures.append("missing_adoption_required_tools")
     if required_tools.get("in_order") is False:
         failures.append("adoption_required_tools_out_of_order")
     if capture.get("missing") is True:
         failures.append("missing_adoption_capture")
+    if not observed_capture_tools:
+        failures.append("missing_adoption_observed_capture_tools")
     if file_memory.get("substituted_for_engram") is True:
         failures.append("file_memory_substituted_for_engram")
     validation_failures = [str(failure) for failure in validation.get("failures") or []]
@@ -94,7 +118,7 @@ def build_adoption_evidence(
         "adoption_status": payload.get("status"),
         "authority_path": payload.get("authorityPath"),
         "calls_path": payload.get("callsPath"),
-        "call_count": _int(payload.get("callCount")),
+        "call_count": call_count,
         "client": client,
         "required_client": report_required_client,
         "gate_required_client": gate_required_client,
@@ -107,15 +131,15 @@ def build_adoption_evidence(
         "blocker_details": blocker_details,
         "mcp_server_failures": mcp_server_failures,
         "required_tools": {
-            "expected": list(required_tools.get("expected") or []),
-            "observed": list(required_tools.get("observed") or []),
+            "expected": expected_before_answer,
+            "observed": observed_before_answer,
             "missing": list(required_tools.get("missing") or []),
             "in_order": bool(required_tools.get("in_order")),
         },
         "capture": {
             "destination": capture.get("destination"),
             "expected_tool": capture.get("expected_tool"),
-            "observed_tools": list(capture.get("observed_tools") or []),
+            "observed_tools": observed_capture_tools,
             "missing": bool(capture.get("missing")),
         },
         "file_memory": {

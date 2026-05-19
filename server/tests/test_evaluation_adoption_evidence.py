@@ -72,6 +72,7 @@ def test_adoption_evidence_preserves_live_harness_blockers() -> None:
     assert evidence["mcp_server_failures"] == ["engram"]
     assert evidence["failures"] == [
         "adoption_status_not_passed",
+        "missing_adoption_calls",
         (
             "adoption_validation_failures("
             "live_harness_authentication_failed,live_harness_mcp_server_failed)"
@@ -115,6 +116,50 @@ def test_adoption_evidence_requires_live_evidence_gate() -> None:
     assert evidence["status"] == "failed"
     assert evidence["required_live_evidence"] is False
     assert evidence["failures"] == ["missing_required_live_evidence_gate"]
+
+
+def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
+    report = _adoption_report()
+    report["callCount"] = 0
+    report["validation"]["required_tools_before_answer"] = {
+        "expected": [],
+        "observed": [],
+        "missing": [],
+        "in_order": True,
+    }
+    report["validation"]["capture"] = {
+        "destination": "engram",
+        "expected_tool": "remember",
+        "observed_tools": [],
+        "missing": False,
+    }
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "missing_adoption_calls",
+        "missing_adoption_required_tool_expectations",
+        "missing_adoption_observed_before_answer_tools",
+        "missing_adoption_observed_capture_tools",
+    ]
+
+
+def test_adoption_evidence_requires_context_and_recall_observed() -> None:
+    report = _adoption_report()
+    report["validation"]["required_tools_before_answer"] = {
+        "expected": ["claim_authority", "get_context", "recall"],
+        "observed": ["claim_authority"],
+        "missing": [],
+        "in_order": True,
+    }
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "missing_adoption_core_before_answer_tools(get_context,recall)"
+    ]
 
 
 def test_adoption_evidence_requires_expected_client_gate() -> None:

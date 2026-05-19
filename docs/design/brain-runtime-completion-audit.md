@@ -828,7 +828,12 @@ evidence that agents actually trust and use the brain:
    not validated with `--require-live-evidence`, so a non-live transcript cannot
    satisfy release packaging; the adoption report's `release_evidence` handoff
    now reports `blocked` in that case instead of telling operators it is ready
-   for human labels. `--require-release-evidence` also uses production
+   for human labels. Adoption evidence also independently rejects malformed or
+   over-trimmed "passed" reports that have zero calls, no expected/observed
+   before-answer tool contract, missing observed `get_context`/`recall`, or no
+   observed Capture tool, so release packaging cannot treat a reachable MCP
+   server or proxy summary as adoption proof. `--require-release-evidence` also
+   uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the
    1/1 local-check defaults.
