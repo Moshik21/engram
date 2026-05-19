@@ -349,7 +349,9 @@ raw JSON. The CLI now also has a separate real harness gate:
 and validation command. When an adoption report already exists,
 `--human-label-template --adoption-report adoption-report.json` pre-fills the
 client, capture timestamp, and session metadata that the release gate later
-cross-checks. The gate requires explicit `humanLabeled: true`
+cross-checks, and it now rejects failed or non-live-gated adoption reports
+before generating that label-collection template. The gate requires explicit
+`humanLabeled: true`
 metadata, a non-synthetic source, client label, capture timestamp, and human
 reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
 showcase, fixture, deterministic, simulated, or synthetic sources as release

@@ -730,7 +730,9 @@ not yet doing its job.
    real human-reviewed harness data. `--human-label-template` prints the
    artifact schema, starter examples, and validation command; with
    `--adoption-report adoption-report.json`, it pre-fills the client, capture
-   timestamp, and session metadata that the release gate later cross-checks.
+   timestamp, and session metadata that the release gate later cross-checks,
+   but now rejects failed or non-live-gated adoption reports before label
+   collection starts.
    The filled
    artifact must declare `humanLabeled: true`, a non-synthetic source, client
    label, capture time, and labeler, and it fails if an untouched placeholder

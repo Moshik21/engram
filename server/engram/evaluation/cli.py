@@ -390,6 +390,12 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
                 raise SystemExit(
                     f"Invalid adoption report {args.adoption_report}: {exc}"
                 ) from exc
+            failure_message = adoption_evidence_failure_message(
+                adoption_evidence,
+                prefix="Adoption evidence failed gates",
+            )
+            if failure_message:
+                raise SystemExit(failure_message)
         template = build_human_label_evidence_template(
             adoption_evidence=adoption_evidence,
             adoption_report_path=getattr(args, "adoption_report", None),

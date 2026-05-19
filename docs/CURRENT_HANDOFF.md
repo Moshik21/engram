@@ -122,8 +122,10 @@ human-labeled harness evidence gate via `--human-label-artifact` and
 schema, starter examples, and validation command operators should fill from a
 real harness run. With `--adoption-report adoption-report.json`, the template
 pre-fills the client, capture timestamp, and session metadata that the release
-gate later cross-checks. The artifact is attached to JSON/Markdown reports and
-evidence bundles, but it explicitly rejects untouched placeholder templates and
+gate later cross-checks, but template prefill now rejects failed or non-live-
+gated adoption reports before labels are collected. The artifact is attached to
+JSON/Markdown reports and evidence bundles, but it explicitly rejects untouched
+placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed

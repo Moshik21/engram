@@ -252,6 +252,34 @@ async def test_evaluate_cli_human_label_template_prefills_adoption_metadata(
 
 
 @pytest.mark.asyncio
+async def test_evaluate_cli_human_label_template_rejects_blocked_adoption_report(
+    tmp_path: Path,
+) -> None:
+    adoption_path = tmp_path / "adoption-report.json"
+    adoption = _adoption_report()
+    adoption["evidence"]["required"] = False
+    adoption_path.write_text(json.dumps(adoption), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--human-label-template",
+            "--adoption-report",
+            str(adoption_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "Adoption evidence failed gates: ['missing_required_live_evidence_gate']"
+    )
+
+
+@pytest.mark.asyncio
 async def test_evaluate_cli_release_gate_rejects_missing_human_labels(
     tmp_path: Path,
 ) -> None:

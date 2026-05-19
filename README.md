@@ -1528,8 +1528,10 @@ draft for a reviewer to fill with real labels. If a live adoption report is
 already available, use
 `--human-label-template --adoption-report adoption-report.json` to prefill the
 client, `capturedAt`, and session metadata the release gate later
-cross-checks. The untouched template fails the evidence gate because its
-metadata is placeholder text. A real artifact
+cross-checks. Template prefill rejects failed or non-live-gated adoption
+reports, so release labels are not collected from a blocked adoption run. The
+untouched template fails the evidence gate because its metadata is placeholder
+text. A real artifact
 must declare `humanLabeled: true`, a real harness `source`, the client label,
 `capturedAt`, and the human reviewer; synthetic sources such as smoke,
 showcase, benchmark, fixture, deterministic, simulated, or synthetic data fail
