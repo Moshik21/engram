@@ -2,12 +2,12 @@
 
 Date: 2026-05-19
 
-This is a readiness audit for the active long-running goal, not a completion
-claim. The current verdict is **close, pending final closeout audit**. Engram has
-strong implementation and verification coverage for the brain-loop contract,
-especially on the preferred Helix native PyO3 path. Multi-client adoption
-transcripts and human-labeled production samples are useful release hardening,
-but they are not required to close the core brain-runtime goal.
+This is the completion audit for the long-running brain-runtime goal. The
+current verdict is **complete for the core goal**. Engram has strong
+implementation and verification coverage for the brain-loop contract, especially
+on the preferred Helix native PyO3 path. Multi-client adoption transcripts and
+human-labeled production samples remain useful release hardening, but they are
+not required to close the core brain-runtime goal.
 
 ## Objective Restated
 
@@ -73,7 +73,7 @@ agent use concrete:
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--require-release-evidence`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for core goal; real/labeled production artifacts are a later release-quality track |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
-| Do not mark complete until implementation, tests, docs, UI are understandable | Pending a final closeout audit against the PyO3 native-first path | Near complete |
+| Do not mark complete until implementation, tests, docs, UI are understandable | Final closeout audit passed against the PyO3 native-first path on 2026-05-19 | Complete |
 
 ## Current Verification Evidence
 
@@ -152,6 +152,31 @@ agent use concrete:
   failure-swallowing shutdown behavior by logging failed shutdown cycles, and
   `main._shutdown()` has dynamic coverage proving it delegates the active
   engine/config/logger.
+- Final closeout gate on 2026-05-19:
+  - `uv run python -c "import helix_native; print('helix_native import ok')"`
+    passed.
+  - `uv run pytest tests/test_native_surface_manifest.py
+    tests/test_graph_manager_facade_boundaries.py
+    tests/test_group_scope_static_contract.py tests/storage/test_storage_bootstrap.py
+    tests/test_brain_loop_report.py -q` passed with 142 tests.
+  - Focused REST/MCP observe, remember, recall, and lifecycle contract tests
+    passed with 4 passed and 1 existing skip, plus 2 lifecycle MCP tests.
+  - `uv run pytest tests/test_native_surface_parity.py::test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces
+    tests/test_native_surface_parity.py::test_native_helix_dashboard_websocket_uses_native_group -q`
+    passed with 2 tests.
+  - `uv run pytest tests/test_consolidation_engine.py
+    tests/test_consolidation_scheduler.py tests/test_consolidation_calibration.py
+    tests/test_consolidation_prune.py tests/test_consolidation_compact.py
+    tests/test_consolidation_dream.py tests/test_consolidation_reindex.py
+    tests/test_consolidation_replay.py tests/test_graph_embed_phase.py
+    tests/test_memory_maturation.py tests/test_schema_formation.py
+    tests/test_microglia.py tests/test_edge_adjudication.py -q` passed with
+    224 passed and 8 skipped, covering the explicit consolidation phase engine
+    requirements named in the goal.
+  - `pnpm test -- --run src/test/LifecyclePanel.test.tsx
+    src/test/nativeDashboardSmoke.test.tsx` passed with 4 passed and 1
+    opt-in live-native smoke skip; `pnpm build` passed with the existing
+    large-chunk warning.
 - Native PyO3 operator gate:
   `uv run engram evaluate --smoke --mode helix --helix-data-dir
   /private/tmp/engram-native-goal-20260519-data --sqlite-path
@@ -907,17 +932,10 @@ agent use concrete:
 
 ## Next Concrete Work
 
-The route-orchestration and facade-boundary audit is now guarded enough to stop
-treating it as the main completion blocker. The next goal-critical work is:
+The core brain-runtime goal is complete. Next work should be tracked as
+release-hardening or follow-on product work, not as a blocker for this goal:
 
-1. Run a final closeout audit against the PyO3 native-first path: confirm the
-   current native lifecycle/doctor/evaluation evidence, broad non-Docker backend
-   gate, dashboard contract, and docs all describe the same
-   Capture -> Cue -> Project -> Recall -> Consolidate runtime.
-2. If that closeout audit finds no core runtime gap, mark the long-running goal
-   complete. Do not keep the goal open solely for Cursor/Windsurf transcripts or
-   human-labeled production samples.
-3. Track broader live-client adoption and human-label artifacts as
+1. Track broader live-client adoption and human-label artifacts as
    release-hardening work. If another live harness is available, run the same
    adoption verifier against Cursor, Windsurf, or a second MCP client using
    `claim_authority()` and
@@ -929,6 +947,6 @@ treating it as the main completion blocker. The next goal-critical work is:
    benchmark bundle is
    `/private/tmp/engram-brain-loop-evidence-full-20260518.json` and already
    satisfies the deterministic 39-scenario milestone.
-4. Keep the repo packaging current: after each small slice, update
+2. Keep the repo packaging current: after each small slice, update
    `docs/CURRENT_HANDOFF.md` and this audit only when the real completion state
    changes, then commit/push the bounded scope.

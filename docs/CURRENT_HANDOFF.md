@@ -16,6 +16,14 @@ Preferred local operator path: Helix native PyO3 (`ENGRAM_MODE=helix` with
 SQLite/lite remains the disposable smoke/demo fallback, not the strategic
 runtime target.
 
+Completion status: the core brain-runtime goal passed its final closeout audit
+on 2026-05-19. The PyO3-native path, shared REST/MCP/dashboard lifecycle
+contracts, consolidation phase engine, group-scoping guardrails, broad
+non-Docker backend gate, and dashboard build/test gates all line up around the
+Capture -> Cue -> Project -> Recall -> Consolidate contract. Remaining
+multi-client adoption transcripts and human-labeled production samples are
+release-hardening work, not blockers for this goal.
+
 AI-harness adoption addendum: Engram being connected over MCP is not enough.
 The runtime must make agents trust and use Engram as the portable cross-context
 memory authority even when project-local file memory exists, must treat an empty
@@ -192,6 +200,10 @@ contract. The focused release-evidence slice also passed
 `pnpm test -- --run src/test/apiClient.test.ts src/test/components.test.tsx`
 with `55 passed` plus `pnpm exec tsc --noEmit`; the focused native dashboard
 smoke for the recall response type passed with `1 passed, 1 skipped`.
+Final closeout also ran `pnpm test -- --run src/test/LifecyclePanel.test.tsx
+src/test/nativeDashboardSmoke.test.tsx`, which passed with 4 passed and 1
+opt-in live-native smoke skip, followed by another successful `pnpm build` with
+the same large-chunk warning.
 
 Latest native PyO3 operator gate: `uv run engram evaluate --smoke --mode helix
 --helix-data-dir /private/tmp/engram-native-goal-20260519-data --sqlite-path
@@ -221,6 +233,13 @@ The populated native parity test now also asserts REST and MCP
 `get_runtime_state` include ready `agentAdoption` guidance for the bootstrapped
 PyO3 brain, proving the adoption contract is present on the preferred no-Docker
 full backend path.
+Final closeout reran the native import, native surface manifest, GraphManager
+facade boundary, group-scope, storage bootstrap, brain-loop report, native
+REST/MCP parity, native dashboard WebSocket, and explicit consolidation phase
+tests. Results: `helix_native import ok`, 142 focused backend tests passed, 4
+REST/MCP observe/remember/recall tests passed with 1 existing skip, 2 MCP
+lifecycle tests passed, 2 populated native parity tests passed, and the
+consolidation phase suite passed with 224 passed and 8 skipped.
 
 SQLite/lite shutdown stability note: the live adoption run exposed a nonfatal
 shutdown-consolidation `cannot commit transaction - SQL statements in progress`
