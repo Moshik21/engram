@@ -19,6 +19,7 @@ _SYNTHETIC_SOURCE_TOKENS = {
     "synthetic",
 }
 
+HUMAN_LABEL_EVIDENCE_KIND = "engram_human_label_evidence"
 DEFAULT_HUMAN_RECALL_SAMPLE_GATE = 1
 DEFAULT_HUMAN_SESSION_SAMPLE_GATE = 1
 DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE = 10
@@ -116,7 +117,7 @@ def build_human_label_evidence_template(
             ),
         )
     template = {
-        "kind": "engram_human_label_evidence",
+        "kind": HUMAN_LABEL_EVIDENCE_KIND,
         "humanLabeled": True,
         "source": "<staging_harness_or_production_harness_name>",
         "client": client,
@@ -292,6 +293,7 @@ def build_human_label_evidence(
     source = _string(
         _first(payload, "source", "label_source", "labelSource", "harness_source")
     )
+    kind = _string(payload.get("kind"))
     client = _string(_first(payload, "client", "harness", "client_label", "clientLabel"))
     captured_at = _string(_first(payload, "captured_at", "capturedAt"))
     session_id = _string(_first(payload, "session_id", "sessionId"))
@@ -311,6 +313,11 @@ def build_human_label_evidence(
     )
 
     failures: list[str] = []
+    if kind != HUMAN_LABEL_EVIDENCE_KIND:
+        failures.append(
+            "invalid_human_label_kind"
+            f"({kind or 'missing'}!={HUMAN_LABEL_EVIDENCE_KIND})"
+        )
     if not human_labeled:
         failures.append("missing_human_labeled_flag")
     if not source:
@@ -372,7 +379,7 @@ def build_human_label_evidence(
         "status": "failed" if failures else "measured",
         "artifact_path": str(artifact_path) if artifact_path is not None else None,
         "artifact_sha256": artifact_sha256,
-        "kind": payload.get("kind"),
+        "kind": kind,
         "source": source,
         "client": client,
         "captured_at": captured_at,

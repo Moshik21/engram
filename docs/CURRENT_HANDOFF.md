@@ -297,9 +297,11 @@ untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed
-`human-labels.json`. Human-label evidence now also requires recall/session
-samples to carry real per-sample `source` values that match the artifact-level
-source, so release labels cannot pass with untraceable or mixed-source samples.
+`human-labels.json`. Human-label evidence now also requires the
+`engram_human_label_evidence` artifact kind and requires recall/session samples
+to carry real per-sample `source` values that match the artifact-level source,
+so release labels cannot pass with generic, untraceable, or mixed-source
+samples.
 Evidence bundles now also include a top-level
 `source_sha256` map for report, benchmark, human-label, adoption, and sample
 files, plus package/git provenance (`engram_version`, commit, branch, dirty

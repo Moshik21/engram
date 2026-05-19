@@ -108,6 +108,24 @@ def test_human_label_evidence_requires_sample_source_traceability() -> None:
     ]
 
 
+def test_human_label_evidence_requires_expected_artifact_kind() -> None:
+    artifact = _human_label_artifact(recall_count=2, session_count=1)
+    artifact["kind"] = "generic_label_export"
+
+    evidence = build_human_label_evidence(
+        artifact,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "failed"
+    assert evidence["kind"] == "generic_label_export"
+    expected_failure = (
+        "invalid_human_label_kind(generic_label_export!=engram_human_label_evidence)"
+    )
+    assert expected_failure in evidence["failures"]
+
+
 def test_human_label_template_is_not_valid_evidence_until_filled() -> None:
     template = build_human_label_evidence_template()
 

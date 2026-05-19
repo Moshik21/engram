@@ -796,9 +796,10 @@ evidence that agents actually trust and use the brain:
    synthetic data is presented as production evidence. Loaded human-label
    artifacts include a SHA-256 digest in the evidence summary and Markdown
    report so archived bundles can be traced back to the exact reviewed file.
-   Human-label recall/session samples must also carry real per-sample `source`
-   values that match the artifact-level source, so release labels cannot pass
-   with untraceable or mixed-source samples.
+   Human-label artifacts must declare the `engram_human_label_evidence` kind,
+   and recall/session samples must carry real per-sample `source` values that
+   match the artifact-level source, so release labels cannot pass with generic,
+   untraceable, or mixed-source samples.
    The dashboard Evaluate panel now maps the same JSON evidence blocks and
    renders human-label sample counts, adoption calls/tool coverage, multi-client
    required-vs-observed state, and release-evidence failures beside the normal
