@@ -141,6 +141,7 @@ async def build_lifecycle_summary_for_config(
     finally:
         await close_if_supported(consolidation_store)
         await close_if_supported(search_index)
+        await close_if_supported(activation_store)
         await close_if_supported(graph_store)
 
 

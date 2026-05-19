@@ -25,6 +25,15 @@ from engram.storage.resolver import EngineMode
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 
 
+class _FakeClosable:
+    def __init__(self, name: str, closed: list[str]) -> None:
+        self.name = name
+        self.closed = closed
+
+    async def close(self) -> None:
+        self.closed.append(self.name)
+
+
 @pytest.mark.asyncio
 async def test_projected_consolidated_smoke_produces_full_report(tmp_path) -> None:
     report = await run_projected_consolidated_smoke(tmp_path / "smoke.db")
@@ -308,12 +317,10 @@ async def test_evaluate_cli_live_report_resolves_configured_mode(monkeypatch) ->
         ]
     )
     requested_modes: list[str] = []
+    closed: list[str] = []
 
-    class FakeGraphStore:
+    class FakeGraphStore(_FakeClosable):
         async def initialize(self) -> None:
-            pass
-
-        async def close(self) -> None:
             pass
 
         async def get_stats(self, group_id: str | None = None) -> dict:
@@ -330,10 +337,7 @@ async def test_evaluate_cli_live_report_resolves_configured_mode(monkeypatch) ->
                 "projection_metrics": {"state_counts": {"projected": 1}},
             }
 
-    class FakeConsolidationStore:
-        async def close(self) -> None:
-            pass
-
+    class FakeConsolidationStore(_FakeClosable):
         async def get_recent_cycles(self, group_id: str, limit: int = 10) -> list:
             assert group_id == "native_brain"
             assert limit == 10
@@ -348,13 +352,17 @@ async def test_evaluate_cli_live_report_resolves_configured_mode(monkeypatch) ->
 
     monkeypatch.setattr("engram.evaluation.cli.resolve_mode", fake_resolve_mode)
     monkeypatch.setattr(
-        "engram.evaluation.cli._create_graph_store",
-        lambda mode, config: FakeGraphStore(),
+        "engram.evaluation.cli.create_local_runtime_stores",
+        lambda mode, config: (
+            FakeGraphStore("graph", closed),
+            _FakeClosable("activation", closed),
+            _FakeClosable("search", closed),
+        ),
     )
 
     async def fake_consolidation_store(mode, config, graph_store):
         assert mode == EngineMode.HELIX
-        return FakeConsolidationStore()
+        return FakeConsolidationStore("consolidation", closed)
 
     monkeypatch.setattr(
         "engram.evaluation.cli._create_consolidation_store",
@@ -367,6 +375,7 @@ async def test_evaluate_cli_live_report_resolves_configured_mode(monkeypatch) ->
     assert report["group_id"] == "native_brain"
     assert report["totals"]["episodes"] == 1
     assert report["project"]["projected_count"] == 1
+    assert closed == ["consolidation", "search", "activation", "graph"]
 
 
 @pytest.mark.asyncio
@@ -446,8 +455,8 @@ async def test_evaluate_cli_live_report_uses_saved_recall_runtime_snapshot(
 
     monkeypatch.setattr("engram.evaluation.cli.resolve_mode", fake_resolve_mode)
     monkeypatch.setattr(
-        "engram.evaluation.cli._create_graph_store",
-        lambda mode, config: FakeGraphStore(),
+        "engram.evaluation.cli.create_local_runtime_stores",
+        lambda mode, config: (FakeGraphStore(), object(), object()),
     )
 
     async def fake_consolidation_store(mode, config, graph_store):

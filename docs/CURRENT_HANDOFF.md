@@ -102,6 +102,16 @@ leaving the existing evaluation graph-store construction seam intact.
 Focused Ruff, live-report tests, storage bootstrap tests, `git diff --check`,
 and a disposable lite `engram evaluate --no-saved-samples --format json` smoke
 passed for this follow-up.
+Runtime-store close coverage now includes all three stores returned by
+`create_local_runtime_stores()`: lifecycle, authority, and live evaluation
+reports close search, activation, and graph resources through
+`close_if_supported()`. The evaluation CLI now uses the shared runtime-store
+factory directly, closing the full-mode Redis activation resource instead of
+discarding it after creating only the graph handle.
+Focused Ruff, live evaluation report tests, lifecycle CLI tests, authority CLI
+tests, `git diff --check`, and disposable lite `engram evaluate`, `engram
+authority`, and `engram lifecycle` smoke commands passed after the runtime-triple
+close follow-up.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,

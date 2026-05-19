@@ -46,9 +46,9 @@ from engram.storage.bootstrap import (
     close_if_supported,
     create_consolidation_store_for_graph,
     create_evaluation_store_for_graph,
+    create_local_runtime_stores,
 )
 from engram.storage.resolver import EngineMode, resolve_mode
-from engram.storage.sqlite.graph import SQLiteGraphStore
 
 
 def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
@@ -846,7 +846,10 @@ async def _load_live_report(
 
     group_id = args.group_id or config.default_group_id
     mode = await resolve_mode(config.mode)
-    graph_store = _create_graph_store(mode, config)
+    graph_store, activation_store, search_index = create_local_runtime_stores(
+        mode,
+        config,
+    )
     consolidation_store: Any | None = None
     evaluation_store: SQLiteEvaluationStore | None = None
 
@@ -889,17 +892,9 @@ async def _load_live_report(
     finally:
         await close_if_supported(evaluation_store)
         await close_if_supported(consolidation_store)
+        await close_if_supported(search_index)
+        await close_if_supported(activation_store)
         await close_if_supported(graph_store)
-
-
-def _create_graph_store(mode: EngineMode, config: EngramConfig) -> Any:
-    if mode == EngineMode.LITE:
-        return SQLiteGraphStore(str(config.get_sqlite_path()))
-
-    from engram.storage.factory import create_stores
-
-    graph_store, _activation_store, _search_index = create_stores(mode, config)
-    return graph_store
 
 
 async def _create_consolidation_store(

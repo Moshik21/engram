@@ -106,6 +106,7 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
         )
     finally:
         await close_if_supported(search_index)
+        await close_if_supported(activation_store)
         await close_if_supported(graph_store)
 
 
