@@ -74,6 +74,8 @@ def build_adoption_evidence(
         failures.append("missing_adoption_calls")
     if not client:
         failures.append("missing_adoption_client")
+    elif _looks_placeholder(client):
+        failures.append("placeholder_adoption_client")
     if not captured_at:
         failures.append("missing_adoption_captured_at")
     elif not _is_iso_timestamp(captured_at):

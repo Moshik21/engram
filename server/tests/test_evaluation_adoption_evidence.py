@@ -159,6 +159,20 @@ def test_adoption_evidence_requires_traceable_transcript_source() -> None:
     assert evidence["failures"] == ["missing_adoption_source"]
 
 
+def test_adoption_evidence_rejects_placeholder_metadata() -> None:
+    report = _adoption_report()
+    report["evidence"]["client"] = "<Claude Code | Cursor | Windsurf>"
+    report["evidence"]["source"] = "<copied_mcp_log | client_trace>"
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "placeholder_adoption_client",
+        "placeholder_adoption_source",
+    ]
+
+
 def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
     report = _adoption_report()
     report["callCount"] = 0

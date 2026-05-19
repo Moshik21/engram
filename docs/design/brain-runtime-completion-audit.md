@@ -843,7 +843,8 @@ evidence that agents actually trust and use the brain:
    captured timestamps instead of arbitrary text, and live adoption evidence must
    name a transcript source. Adoption validation reports now carry `kind:
    engram_adoption_validation_report`, and release packaging rejects generic
-   hand-shaped adoption summaries. `--require-release-evidence` also
+   hand-shaped adoption summaries plus template placeholder client/source
+   metadata. `--require-release-evidence` also
    uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the
