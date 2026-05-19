@@ -24,6 +24,31 @@ Agent adoption is part of the runtime contract: an MCP-connected Engram that
 agents ignore because file-local memory is visible or the graph looks empty is
 not yet doing its job.
 
+## Adoption Addendum
+
+The adoption target is not "more storage than a memory file." The target is a
+portable memory authority that follows the user across coding agents, general
+chat, and project contexts. File-based memory can remain the transparent,
+human-readable layer for local conventions and current-task notes, but it cannot
+be the agent's reason to bypass Engram for user facts, preferences, durable
+decisions, relationships, goals, corrections, or long-tail recall.
+
+A connected MCP server is therefore only setup evidence. Completion requires
+evidence that agents actually trust and use the brain:
+
+- Fresh or empty Engram runtimes are treated as onboarding/bootstrap state, not
+  proof that memory is absent or low value.
+- `claim_authority()` gives agents a non-overlapping source-of-truth contract
+  between Engram and project-local files before the first substantive answer.
+- Bootstrap can seed existing curated sources, project audit docs, and other
+  operator-approved corpora so day-one recall is useful rather than blank.
+- Recall quality, stale-fact handling, and capture routing are observable enough
+  that agents do not learn to route around Engram as an opaque memory system.
+- Human-controlled core identity/preference markings stay available for
+  always-surface material while activation handles the long tail.
+- Release evidence includes real client transcripts proving the required
+  before-answer recall/context flow and the required capture flow happened.
+
 ## Prompt-To-Artifact Checklist
 
 | Requirement | Current Evidence | Status |

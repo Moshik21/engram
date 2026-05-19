@@ -21,6 +21,14 @@ The runtime must make agents trust and use Engram as the portable cross-context
 memory authority even when project-local file memory exists, must treat an empty
 runtime as an onboarding/bootstrap state, and must provide verifier evidence
 that real clients followed the required recall/capture protocol.
+The product edge is cross-harness continuity, not simply storing more than a
+file-based memory system. Project-local memory remains the readable layer for
+repo conventions and current-task scratch, while Engram owns user facts,
+preferences, durable decisions, corrections, relationships, goals, commitments,
+and long-tail recall. Release work should keep tightening day-one bootstrap from
+approved existing sources, stale/noisy recall visibility, human-controlled
+identity core, and client transcripts that prove agents did not route around
+Engram because the graph looked fresh or a local memory file was available.
 
 Latest live-client note: the REST-mounted HTTP MCP endpoint now serves the
 advertised `/mcp` URL directly, starts FastMCP's session manager from the parent
