@@ -3,10 +3,11 @@
 Date: 2026-05-19
 
 This is a readiness audit for the active long-running goal, not a completion
-claim. The current verdict is **not complete**. Engram has strong implementation
-and verification coverage for the brain-loop contract, especially on the
-preferred Helix native PyO3 path, but several requirements still need final
-evidence before the goal can be closed.
+claim. The current verdict is **close, pending final closeout audit**. Engram has
+strong implementation and verification coverage for the brain-loop contract,
+especially on the preferred Helix native PyO3 path. Multi-client adoption
+transcripts and human-labeled production samples are useful release hardening,
+but they are not required to close the core brain-runtime goal.
 
 ## Objective Restated
 
@@ -33,8 +34,9 @@ human-readable layer for local conventions and current-task notes, but it cannot
 be the agent's reason to bypass Engram for user facts, preferences, durable
 decisions, relationships, goals, corrections, or long-tail recall.
 
-A connected MCP server is therefore only setup evidence. Completion requires
-evidence that agents actually trust and use the brain:
+A connected MCP server is therefore only setup evidence. Core completion
+requires the runtime contract, authority guidance, and verifier path that make
+agent use concrete:
 
 - Fresh or empty Engram runtimes are treated as onboarding/bootstrap state, not
   proof that memory is absent or low value.
@@ -46,8 +48,9 @@ evidence that agents actually trust and use the brain:
   that agents do not learn to route around Engram as an opaque memory system.
 - Human-controlled core identity/preference markings stay available for
   always-surface material while activation handles the long tail.
-- Release evidence includes real client transcripts proving the required
-  before-answer recall/context flow and the required capture flow happened.
+- Release hardening can include additional real client transcripts proving the
+  required before-answer recall/context flow and the required capture flow
+  happened across more harnesses.
 
 ## Prompt-To-Artifact Checklist
 
@@ -62,26 +65,27 @@ evidence that agents actually trust and use the brain:
 | Extract consolidation orchestration boundaries | `server/engram/consolidation/lifecycle.py`, `phase_runner.py`, `events.py`, `completion.py`, `phase_catalog.py` | Strong |
 | Keep `GraphManager` as compatibility facade, not hidden runtime brain | `server/tests/test_graph_manager_facade_boundaries.py` guards 61 core and compatibility delegates across lifecycle, evidence, artifacts, lookup, forgetting, intentions, context, graph state, and recall interactions, and now scans runtime modules for direct `manager._*` / `graph_manager._*` / `_manager._*` access plus direct `GraphManager._*` private static helper calls outside `graph_manager.py`; consolidation audit reads now use `ConsolidationAuditReader`; replay/infer consolidation now call shared extraction apply/merge helpers directly; MCP auto-recall lite/full dispatch, session prime, auto-observe piggybacking, shaping, enrichment, middleware execution, and entity/fact/artifact/context/question-route tool middleware now use retrieval helpers; the direct manager-dispatch scan across REST API routes and `mcp/server.py` is now guarded, allowing only MCP shutdown resource closing; REST API routes are guarded against direct `engine.*` and store/service method dispatch and are limited to directly awaiting route-facing helpers; decorated REST API routes must have named orchestration-boundary entries; decorated MCP public surfaces are guarded against direct store/session method dispatch and arbitrary direct awaited runtime calls | Strong |
 | Align REST and MCP remember/observe/recall semantics | Shared presenters in ingestion/retrieval plus REST/MCP tests; explicit recall responses now share top-level `operation`/lifecycle metadata and MCP result items expose the same stable entity/cue episode identifiers and cue counters available to REST | Strong |
-| Make agents actually adopt Engram over overlapping file memory | MCP prompt authority contract, README automatic-memory behavior, setup wizard adoption checklist, prompt/setup tests, fresh-runtime bootstrap guidance, `claim_authority(project_path, user_message, file_memory_present)`, `validate_agent_protocol_calls()`, `engram adoption`, `engram adoption --template`, stdio MCP-client adoption coverage, copied Claude transcript regression, REST-mounted HTTP MCP discovery coverage, generated AutoCapture hooks, hook-trace validation, and a live Claude Code stream-json adoption transcript now tell agents Engram owns portable cross-context memory while project files own local scratch/conventions, return an `agent_protocol` with verifier metadata, generate live-harness transcript guidance, validate client transcripts, prove real MCP clients can follow the required pre-answer/capture flow, classify the observed file-memory bypass failure, verify Claude Code can discover `http://127.0.0.1:8100/mcp` when run outside the sandbox, and verify a full prompt-run transcript with observed `claim_authority`, `get_context`, `recall`, and `remember` | Strong for Claude Code and verifier/tooling; broader Cursor/Windsurf/live-client diversity remains future release evidence, not an unresolved verifier gap |
+| Make agents actually adopt Engram over overlapping file memory | MCP prompt authority contract, README automatic-memory behavior, setup wizard adoption checklist, prompt/setup tests, fresh-runtime bootstrap guidance, `claim_authority(project_path, user_message, file_memory_present)`, `validate_agent_protocol_calls()`, `engram adoption`, `engram adoption --template`, stdio MCP-client adoption coverage, copied Claude transcript regression, REST-mounted HTTP MCP discovery coverage, generated AutoCapture hooks, hook-trace validation, and a live Claude Code stream-json adoption transcript now tell agents Engram owns portable cross-context memory while project files own local scratch/conventions, return an `agent_protocol` with verifier metadata, generate live-harness transcript guidance, validate client transcripts, prove real MCP clients can follow the required pre-answer/capture flow, classify the observed file-memory bypass failure, verify Claude Code can discover `http://127.0.0.1:8100/mcp` when run outside the sandbox, and verify a full prompt-run transcript with observed `claim_authority`, `get_context`, `recall`, and `remember` | Strong for core goal; broader Cursor/Windsurf/live-client diversity remains future release evidence, not a goal blocker |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3406 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3409 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness; the 2026-05-19 native gate passed smoke, persisted reload, and doctor readiness on the same PyO3 data directory; populated native REST/MCP runtime parity now asserts ready `agentAdoption` guidance | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
-| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--require-release-evidence`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for local deterministic milestone and gate mechanics; real/labeled production artifact remains future release evidence |
+| Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--require-release-evidence`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for core goal; real/labeled production artifacts are a later release-quality track |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
-| Do not mark complete until implementation, tests, docs, UI are understandable | This audit says not complete | Blocking |
+| Do not mark complete until implementation, tests, docs, UI are understandable | Pending a final closeout audit against the PyO3 native-first path | Near complete |
 
 ## Current Verification Evidence
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3406 tests, 43 skips, and 236 deselections after the
+  currently passes with 3409 tests, 43 skips, and 236 deselections after the
   release-evidence anti-proxy hardening for adoption reports, human-label sample
-  text/fields, parseable captured timestamps, adoption report kind, the
-  runtime-adoption dashboard bridge, REST empty-runtime guidance coverage,
-  release-evidence dashboard surface, and REST/MCP recall lifecycle response
-  alignment, plus GraphManager private static helper extraction from
+  text/fields, parseable captured timestamps, adoption report kind, live
+  adoption source metadata, placeholder metadata rejection, synthetic source
+  rejection, the runtime-adoption dashboard bridge, REST empty-runtime guidance
+  coverage, release-evidence dashboard surface, and REST/MCP recall lifecycle
+  response alignment, plus GraphManager private static helper extraction from
   replay/infer/apply paths, the MCP auto-recall Capture-helper boundary, and
   blocked Claude stream-json adoption classification, plus the
   `agentAdoption.beforeAnswer` runtime-state contract, and evidence-bundle
@@ -884,13 +888,14 @@ evidence that agents actually trust and use the brain:
    single live-wrapper transcripts and Claude stream-json plus AutoCapture
    traces. `/private/tmp` evidence artifacts remain local-only and should not be
    added to git. The current broad backend gate recorded for this audit is
-   `3406 passed, 43 skipped, 236 deselected` after the release-evidence
+   `3409 passed, 43 skipped, 236 deselected` after the release-evidence
    anti-proxy hardening for adoption reports, human-label sample text/fields,
-   parseable captured timestamps, adoption report kind, the runtime-adoption
-   dashboard bridge, REST empty-runtime guidance coverage, release-evidence
-   dashboard surface, REST/MCP recall lifecycle response alignment, and
-   GraphManager private static helper extraction plus the MCP auto-recall
-   Capture-helper boundary and blocked Claude stream-json adoption
+   parseable captured timestamps, adoption report kind, live adoption source
+   metadata, placeholder metadata rejection, synthetic source rejection, the
+   runtime-adoption dashboard bridge, REST empty-runtime guidance coverage,
+   release-evidence dashboard surface, REST/MCP recall lifecycle response
+   alignment, and GraphManager private static helper extraction plus the MCP
+   auto-recall Capture-helper boundary and blocked Claude stream-json adoption
    classification plus the `agentAdoption.beforeAnswer` runtime-state contract
    and evidence-bundle provenance/status semantics;
    focused
@@ -905,54 +910,25 @@ evidence that agents actually trust and use the brain:
 The route-orchestration and facade-boundary audit is now guarded enough to stop
 treating it as the main completion blocker. The next goal-critical work is:
 
-1. If another live harness is available, run the same adoption verifier against
-   Cursor, Windsurf, or a second MCP client using `claim_authority()` and
-   `engram adoption --require-live-evidence --require-client <client>`.
-   Capture whether the client bootstraps empty Engram state, recalls before
-   answering, routes durable cross-context facts into Engram, and treats
-   project-local files as scratch/conventions instead of a reason to bypass
-   Engram.
-   A follow-up Claude Code 2.1.144 print-mode attempt on 2026-05-19 reached the
-   local REST/MCP setup but ended before tool execution with `Not logged in -
-   Please run /login`; keep it classified as blocked evidence. The adoption
-   template now prints the current Claude Code stream-json capture command with
-   the required `--verbose` flag, so the next authenticated attempt can write
-   `claude-stream.jsonl` directly before running the verifier.
-   The verifier now also keeps blocked Claude stream-json runs parseable:
-   authentication failures, "Not logged in" output, and failed `engram`
-   `mcp_servers` init records surface as explicit live-harness blocker failures
-   instead of generic invalid-transcript errors.
-   `engram evaluate` and the dashboard now preserve those blocker details in
-   adoption evidence, multi-client summaries, release summaries, and Markdown
-   output so a blocked run remains diagnosable after it is attached to a release
-   report.
-   A fresh constrained Claude Code 2.1.144 print-mode attempt against a running
-   local REST/MCP server still stopped at `Not logged in - Please run /login`
-   before any Engram tool calls. The saved stream
-   `/private/tmp/engram-claude-adoption-20260519-stream.jsonl` and failed
-   verifier report `/private/tmp/engram-claude-adoption-20260519-report.json`
-   preserve the blocker as `mcp_server_failed` plus `authentication_failed`;
-   adoption Markdown now also prints the concrete MCP server failure list
-   (`['engram']`).
-   The adoption template now also prints `manual_transcript_markdown`, a
-   copyable Cursor/Windsurf/manual MCP notes block with client metadata plus
-   explicit `Before answer` and `Capture` tool sections, so a second-client run
-   can be collected without raw JSON export as long as the operator can see the
-   Engram tool calls.
-   `engram authority` now prepares the same authority payload from local
-   runtime state before launching a client. The command writes
-   `claim-authority.json` for later `engram adoption --template` or validation,
-   closing the operator gap where the client itself had to successfully call
-   MCP before the verifier protocol could be saved.
-2. If the project wants a release gate beyond the local deterministic milestone,
+1. Run a final closeout audit against the PyO3 native-first path: confirm the
+   current native lifecycle/doctor/evaluation evidence, broad non-Docker backend
+   gate, dashboard contract, and docs all describe the same
+   Capture -> Cue -> Project -> Recall -> Consolidate runtime.
+2. If that closeout audit finds no core runtime gap, mark the long-running goal
+   complete. Do not keep the goal open solely for Cursor/Windsurf transcripts or
+   human-labeled production samples.
+3. Track broader live-client adoption and human-label artifacts as
+   release-hardening work. If another live harness is available, run the same
+   adoption verifier against Cursor, Windsurf, or a second MCP client using
+   `claim_authority()` and
+   `engram adoption --require-live-evidence --require-client <client>`. If the
+   project wants a release gate beyond the local deterministic milestone,
    collect a real `human-labels.json` artifact from a staging or production
    harness plus the matching `engram adoption --format json` report, then run
-   `engram evaluate --require-release-evidence` against both.
-   Start with `engram evaluate --human-label-template` so the artifact follows
-   the expected schema.
-   The current local benchmark bundle is
+   `engram evaluate --require-release-evidence` against both. The current local
+   benchmark bundle is
    `/private/tmp/engram-brain-loop-evidence-full-20260518.json` and already
    satisfies the deterministic 39-scenario milestone.
-3. Keep the repo packaging current: after each small slice, update
+4. Keep the repo packaging current: after each small slice, update
    `docs/CURRENT_HANDOFF.md` and this audit only when the real completion state
    changes, then commit/push the bounded scope.

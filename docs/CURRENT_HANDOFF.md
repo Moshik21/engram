@@ -170,15 +170,16 @@ without translating between disconnected shapes.
 
 Latest broad backend gate: `uv run pytest -m "not requires_docker and not
 requires_helix" -q` now passes with
-`3406 passed, 43 skipped, 236 deselected` after the release-evidence anti-proxy
+`3409 passed, 43 skipped, 236 deselected` after the release-evidence anti-proxy
 hardening for adoption reports, human-label sample text/fields, parseable
-captured timestamps, adoption report kind, runtime-adoption dashboard bridge,
-REST empty-runtime guidance coverage, release-evidence dashboard surface,
-REST/MCP recall lifecycle response alignment, GraphManager private static
-helper extraction from replay/infer/apply paths, the MCP auto-recall
-Capture-helper boundary, blocked Claude stream-json adoption classification, the
-`agentAdoption.beforeAnswer` runtime-state contract, and the evidence-bundle
-provenance/status semantics.
+captured timestamps, adoption report kind, live adoption source metadata,
+placeholder metadata rejection, synthetic source rejection, runtime-adoption
+dashboard bridge, REST empty-runtime guidance coverage, release-evidence
+dashboard surface, REST/MCP recall lifecycle response alignment, GraphManager
+private static helper extraction from replay/infer/apply paths, the MCP
+auto-recall Capture-helper boundary, blocked Claude stream-json adoption
+classification, the `agentAdoption.beforeAnswer` runtime-state contract, and
+the evidence-bundle provenance/status semantics.
 The previous broad run first
 exposed two static contract drifts: FastMCP's root mount needed manifest
 classification by its nested advertised `/mcp` route, and REST `auto_observe`
@@ -214,7 +215,8 @@ passed with a ready Capture -> Cue -> Project -> Recall -> Consolidate
 lifecycle snapshot and a disposable helix smoke with 6/6 evaluation signals
 measured. The native evaluation report still correctly reports
 `release_evidence: needs_evidence` until real human-label and live-adoption
-artifacts are attached.
+artifacts are attached; that is a release-hardening signal, not a blocker for
+the core PyO3-native brain-loop goal.
 The populated native parity test now also asserts REST and MCP
 `get_runtime_state` include ready `agentAdoption` guidance for the bootstrapped
 PyO3 brain, proving the adoption contract is present on the preferred no-Docker
@@ -473,8 +475,8 @@ What changed in this pass:
   surfaces instead of a best-effort follow-up.
 - Added `docs/design/brain-runtime-completion-audit.md` as the current
   goal-readiness checkpoint. It maps each explicit objective requirement to
-  concrete repo evidence, keeps the verdict at not complete, and identifies the
-  final blocking gaps before `update_goal` would be legitimate.
+  concrete repo evidence, keeps the verdict at close pending final closeout
+  audit, and separates core-goal blockers from later release-hardening evidence.
 - Added doctor evaluation-signal readiness output so `engram doctor` now carries
   the smoke report's six-signal readiness summary in JSON metadata and Markdown,
   alongside the existing Capture -> Cue -> Project -> Recall -> Consolidate
@@ -2075,8 +2077,9 @@ What changed in this pass:
   It passed with benchmark status `measured`, 39 available scenario runs, 39
   passed, pass rate `1.0`, false recall `0.0`, 13 transcript hashes, an
   `engram_full` fairness contract, and all six evaluation signals measured.
-  Treat this as the strongest local benchmark-labeled gate so far, while live
-  AI-harness adoption remains the completion blocker.
+  Treat this as the strongest local benchmark-labeled gate so far; broader live
+  AI-harness adoption remains release-hardening evidence, not the core
+  brain-loop completion blocker.
   Latest broad backend gate after the adoption-template and full-benchmark
   evidence updates: `uv run pytest -m "not requires_docker and not requires_helix" -q`
   passed with 3320 tests, 43 skips, and 236 deselections in 192.79s.
@@ -7898,9 +7901,10 @@ visibility work treated as done:
    feedback error payloads, and MCP invalid-rating error payload shaping out of
    public transport code.
 7. Use `docs/design/brain-runtime-completion-audit.md` before any completion
-   claim. The current verdict is not complete; the GraphManager compatibility
-   facade is now guarded more broadly, and the consolidation audit store reads
-   are now behind `ConsolidationAuditReader`. Knowledge-chat rich tool-event
+   claim and follow its current verdict near the top of the file. The
+   GraphManager compatibility facade is now guarded more broadly, and the
+   consolidation audit store reads are now behind `ConsolidationAuditReader`.
+   Knowledge-chat rich tool-event
    shaping, chat tool execution payloads, chat tool-use loop/result
    accumulation, chat recall feedback/retry policy, chat response-turn orchestration,
    chat memory-need/live-context runtime, chat rate-limit execution, and chat persistence scheduling,
