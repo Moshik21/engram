@@ -65,7 +65,7 @@ evidence that agents actually trust and use the brain:
 | Make agents actually adopt Engram over overlapping file memory | MCP prompt authority contract, README automatic-memory behavior, setup wizard adoption checklist, prompt/setup tests, fresh-runtime bootstrap guidance, `claim_authority(project_path, user_message, file_memory_present)`, `validate_agent_protocol_calls()`, `engram adoption`, `engram adoption --template`, stdio MCP-client adoption coverage, copied Claude transcript regression, REST-mounted HTTP MCP discovery coverage, generated AutoCapture hooks, hook-trace validation, and a live Claude Code stream-json adoption transcript now tell agents Engram owns portable cross-context memory while project files own local scratch/conventions, return an `agent_protocol` with verifier metadata, generate live-harness transcript guidance, validate client transcripts, prove real MCP clients can follow the required pre-answer/capture flow, classify the observed file-memory bypass failure, verify Claude Code can discover `http://127.0.0.1:8100/mcp` when run outside the sandbox, and verify a full prompt-run transcript with observed `claim_authority`, `get_context`, `recall`, and `remember` | Strong for Claude Code and verifier/tooling; broader Cursor/Windsurf/live-client diversity remains future release evidence, not an unresolved verifier gap |
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
-| Keep SQLite/lite viable | Broad gate: `3397 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
+| Keep SQLite/lite viable | Broad gate: `3406 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
 | Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness; the 2026-05-19 native gate passed smoke, persisted reload, and doctor readiness on the same PyO3 data directory; populated native REST/MCP runtime parity now asserts ready `agentAdoption` guidance | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--require-release-evidence`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for local deterministic milestone and gate mechanics; real/labeled production artifact remains future release evidence |
@@ -76,7 +76,9 @@ evidence that agents actually trust and use the brain:
 
 - Backend non-Docker/non-external-Helix gate:
   `uv run pytest -m "not requires_docker and not requires_helix" -q`
-  currently passes with 3397 tests, 43 skips, and 236 deselections after the
+  currently passes with 3406 tests, 43 skips, and 236 deselections after the
+  release-evidence anti-proxy hardening for adoption reports, human-label sample
+  text/fields, parseable captured timestamps, adoption report kind, the
   runtime-adoption dashboard bridge, REST empty-runtime guidance coverage,
   release-evidence dashboard surface, and REST/MCP recall lifecycle response
   alignment, plus GraphManager private static helper extraction from
@@ -880,7 +882,9 @@ evidence that agents actually trust and use the brain:
    single live-wrapper transcripts and Claude stream-json plus AutoCapture
    traces. `/private/tmp` evidence artifacts remain local-only and should not be
    added to git. The current broad backend gate recorded for this audit is
-   `3397 passed, 43 skipped, 236 deselected` after the runtime-adoption
+   `3406 passed, 43 skipped, 236 deselected` after the release-evidence
+   anti-proxy hardening for adoption reports, human-label sample text/fields,
+   parseable captured timestamps, adoption report kind, the runtime-adoption
    dashboard bridge, REST empty-runtime guidance coverage, release-evidence
    dashboard surface, REST/MCP recall lifecycle response alignment, and
    GraphManager private static helper extraction plus the MCP auto-recall
