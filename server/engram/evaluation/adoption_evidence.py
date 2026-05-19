@@ -50,6 +50,7 @@ def build_adoption_evidence(
     gate_required_client = _string(required_client)
     captured_at = _string(evidence.get("captured_at") or evidence.get("capturedAt"))
     session_id = _string(evidence.get("session_id") or evidence.get("sessionId"))
+    source = _string(evidence.get("source"))
     blockers = _string_list(evidence.get("blockers"))
     blocker_details = _string_list(
         evidence.get("blocker_details") or evidence.get("blockerDetails")
@@ -77,6 +78,10 @@ def build_adoption_evidence(
         failures.append("missing_adoption_captured_at")
     elif not _is_iso_timestamp(captured_at):
         failures.append(f"invalid_adoption_captured_at({captured_at})")
+    if not source:
+        failures.append("missing_adoption_source")
+    elif _looks_placeholder(source):
+        failures.append("placeholder_adoption_source")
     if evidence.get("required") is not True:
         failures.append("missing_required_live_evidence_gate")
     if not expected_before_answer:
@@ -137,7 +142,7 @@ def build_adoption_evidence(
         "captured_at": captured_at,
         "session_id": session_id,
         "session_filter": evidence.get("session_filter"),
-        "source": evidence.get("source"),
+        "source": source,
         "required_live_evidence": bool(evidence.get("required")),
         "blockers": blockers,
         "blocker_details": blocker_details,
@@ -362,6 +367,15 @@ def _is_iso_timestamp(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _looks_placeholder(value: str) -> bool:
+    stripped = value.strip()
+    return (
+        stripped.startswith("<")
+        and stripped.endswith(">")
+        or stripped.lower() in {"todo", "tbd", "replace me", "placeholder"}
+    )
 
 
 def _client_matches(observed_client: str | None, required_client: str) -> bool:

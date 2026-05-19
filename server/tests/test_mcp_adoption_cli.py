@@ -472,6 +472,7 @@ def test_adoption_validation_accepts_plaintext_rest_auto_observe_capture(
             [
                 "Client: Claude Code",
                 "Captured at: 2026-05-18T23:06:00Z",
+                "Source: copied_rest_hook_notes",
                 "## Before answer",
                 "- mcp__engram__bootstrap_project",
                 "- mcp__engram__get_context",
@@ -1264,7 +1265,7 @@ def test_adoption_validation_report_requires_live_evidence_metadata(
 
     assert report["status"] == "failed"
     assert report["evidence"]["required"] is True
-    assert report["evidence"]["missing"] == ["client", "captured_at"]
+    assert report["evidence"]["missing"] == ["client", "captured_at", "source"]
     assert "missing_live_harness_evidence" in report["validation"]["failures"]
 
 
@@ -1280,6 +1281,7 @@ def test_adoption_validation_report_extracts_plaintext_live_evidence(
                 "Client: Cursor",
                 "Captured at: 2026-05-18T22:03:00Z",
                 "Session ID: cursor-thread-9",
+                "Source: copied_harness_notes",
                 "## Before answer",
                 "- mcp__engram__bootstrap_project",
                 "- mcp__engram__get_context",

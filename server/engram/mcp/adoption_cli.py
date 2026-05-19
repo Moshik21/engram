@@ -73,7 +73,7 @@ _LIVE_EVIDENCE_FIELD_RE = re.compile(
     r"\s*[:=]\s*(.+?)\s*$",
     re.IGNORECASE,
 )
-_LIVE_EVIDENCE_REQUIRED_FIELDS = ("client", "captured_at")
+_LIVE_EVIDENCE_REQUIRED_FIELDS = ("client", "captured_at", "source")
 
 
 def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
@@ -147,7 +147,7 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Fail unless the transcript includes live harness evidence metadata "
-            "(client/harness and captured_at/timestamp)."
+            "(client/harness, captured_at/timestamp, and source)."
         ),
     )
     parser.add_argument(

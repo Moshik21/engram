@@ -921,7 +921,7 @@ class TestJSONResponses:
         )
         assert payload["agent_protocol"]["verification"]["live_evidence_schema"][
             "required_metadata_fields"
-        ] == ["client", "capturedAt"]
+        ] == ["client", "capturedAt", "source"]
         assert payload["agent_protocol"]["verification"]["capture_required"] is True
         manager.get_runtime_state.assert_awaited_once_with(
             group_id=GROUP,

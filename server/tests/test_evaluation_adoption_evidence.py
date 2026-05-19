@@ -148,6 +148,17 @@ def test_adoption_evidence_requires_parseable_capture_timestamp() -> None:
     ]
 
 
+def test_adoption_evidence_requires_traceable_transcript_source() -> None:
+    report = _adoption_report()
+    report["evidence"].pop("source")
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["source"] is None
+    assert evidence["failures"] == ["missing_adoption_source"]
+
+
 def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
     report = _adoption_report()
     report["callCount"] = 0

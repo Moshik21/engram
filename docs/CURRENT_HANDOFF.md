@@ -70,7 +70,8 @@ recall samples must include reviewable query text, notes, and recall-quality
 label fields; session samples must include reviewable scenario text, notes, and
 session-continuity label fields, so release evidence cannot pass with
 source-tagged but empty sample shells. Adoption and human-label artifacts also
-require parseable ISO-style captured timestamps instead of arbitrary text, and
+require parseable ISO-style captured timestamps instead of arbitrary text.
+Live adoption evidence must also name a transcript `source`, and
 adoption validation reports now carry `kind:
 engram_adoption_validation_report` so release packaging can reject generic
 hand-shaped adoption summaries.

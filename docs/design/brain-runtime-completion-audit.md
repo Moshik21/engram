@@ -840,9 +840,10 @@ evidence that agents actually trust and use the brain:
    samples must include reviewable scenario text, notes, and session-continuity
    label fields, so source-tagged empty sample shells cannot satisfy the release
    gate. Adoption and human-label artifacts now also require parseable ISO-style
-   captured timestamps instead of arbitrary text. Adoption validation reports now
-   carry `kind: engram_adoption_validation_report`, and release packaging rejects
-   generic hand-shaped adoption summaries. `--require-release-evidence` also
+   captured timestamps instead of arbitrary text, and live adoption evidence must
+   name a transcript source. Adoption validation reports now carry `kind:
+   engram_adoption_validation_report`, and release packaging rejects generic
+   hand-shaped adoption summaries. `--require-release-evidence` also
    uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the

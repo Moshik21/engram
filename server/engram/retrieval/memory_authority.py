@@ -242,8 +242,8 @@ def _build_protocol_verification(
         },
         "live_evidence_schema": {
             "format": "json",
-            "required_metadata_fields": ["client", "capturedAt"],
-            "optional_metadata_fields": ["sessionId", "source"],
+            "required_metadata_fields": ["client", "capturedAt", "source"],
+            "optional_metadata_fields": ["sessionId"],
             "example": {
                 "metadata": {
                     "client": "<Claude Code | Cursor | Windsurf | other MCP client>",
