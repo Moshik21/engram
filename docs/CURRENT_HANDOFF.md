@@ -155,12 +155,13 @@ without translating between disconnected shapes.
 
 Latest broad backend gate: `uv run pytest -m "not requires_docker and not
 requires_helix" -q` now passes with
-`3396 passed, 43 skipped, 236 deselected` after the runtime-adoption dashboard
+`3397 passed, 43 skipped, 236 deselected` after the runtime-adoption dashboard
 bridge, REST empty-runtime guidance coverage, release-evidence dashboard
 surface, REST/MCP recall lifecycle response alignment, and GraphManager private
 static helper extraction from replay/infer/apply paths, the MCP
 auto-recall Capture-helper boundary, blocked Claude stream-json adoption
-classification, and the `agentAdoption.beforeAnswer` runtime-state contract.
+classification, the `agentAdoption.beforeAnswer` runtime-state contract, and
+the evidence-bundle provenance/status semantics.
 The previous broad run first
 exposed two static contract drifts: FastMCP's root mount needed manifest
 classification by its nested advertised `/mcp` route, and REST `auto_observe`
