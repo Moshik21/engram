@@ -743,7 +743,9 @@ not yet doing its job.
    report, and cross-checks client/session metadata against the human-label
    artifact when both are present. Adoption evidence now fails if the report was
    not validated with `--require-live-evidence`, so a non-live transcript cannot
-   satisfy release packaging. `--require-release-evidence` also uses production
+   satisfy release packaging; the adoption report's `release_evidence` handoff
+   now reports `blocked` in that case instead of telling operators it is ready
+   for human labels. `--require-release-evidence` also uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the
    1/1 local-check defaults.

@@ -126,7 +126,9 @@ and Markdown report, so archived bundles point back to the exact reviewed
 `--require-adoption-evidence`; when both adoption and human-label evidence are
 present, client/session metadata must point at the same live harness run. The
 adoption report must have been validated with `--require-live-evidence`; a
-passing transcript without that live gate now fails release/adoption evidence.
+passing transcript without that live gate now fails release/adoption evidence,
+and the adoption report's own `release_evidence` handoff now stays blocked
+until that validation flag was used.
 `--require-release-evidence` now enforces measured evaluation signals, real
 human-label evidence, and passed adoption evidence as one operator gate. It
 also defaults human-label thresholds to 10 recall samples and 3 session samples

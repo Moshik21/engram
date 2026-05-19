@@ -595,9 +595,12 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         str(failure) for failure in validation.get("failures") or []
     ]
     missing_evidence = [str(item) for item in evidence.get("missing") or []]
+    requires_live_evidence = evidence.get("required") is True
     status = (
         "ready_for_human_labels"
-        if report.get("status") == "passed" and not missing_evidence
+        if report.get("status") == "passed"
+        and requires_live_evidence
+        and not missing_evidence
         else "blocked"
     )
     notes = [
@@ -617,6 +620,11 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         )
     if validation_failures:
         notes.append("Validation failures: " + ", ".join(validation_failures))
+    if not requires_live_evidence:
+        notes.append(
+            "Re-run adoption validation with --require-live-evidence before "
+            "using this report as release evidence."
+        )
     if missing_evidence:
         notes.append("Missing live evidence: " + ", ".join(missing_evidence))
 

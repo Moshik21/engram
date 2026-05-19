@@ -3651,7 +3651,9 @@ sequence only in prose.
 The release gate is now stricter by default: adoption evidence must come from a
 report validated with `--require-live-evidence`, and
 `--require-release-evidence` defaults to 10 human recall labels plus 3
-session-continuity labels instead of the 1/1 local-check threshold.
+session-continuity labels instead of the 1/1 local-check threshold. The
+adoption report handoff mirrors that gate by staying blocked until
+`--require-live-evidence` was used.
 For completion-grade live harness evidence, the same verification block now
 also returns a `live_evidence_command` and JSON wrapper schema requiring
 `client` plus `capturedAt` metadata. `engram adoption --require-live-evidence`

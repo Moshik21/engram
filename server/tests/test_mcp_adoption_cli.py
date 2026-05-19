@@ -897,6 +897,50 @@ def test_adoption_validation_report_accepts_live_evidence_metadata(
     )
 
 
+def test_adoption_release_handoff_requires_live_evidence_gate(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "live-client-transcript.json"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Claude Code",
+                    "capturedAt": "2026-05-18T21:42:00Z",
+                    "sessionId": "claude-session-123",
+                    "source": "copied_mcp_log",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {"phase": "capture", "tool": "mcp__engram__remember"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=False,
+    )
+    markdown = render_adoption_validation_markdown(report)
+
+    assert report["status"] == "passed"
+    assert report["evidence"]["required"] is False
+    assert report["release_evidence"]["status"] == "blocked"
+    assert (
+        "Re-run adoption validation with --require-live-evidence before using this "
+        "report as release evidence."
+    ) in report["release_evidence"]["notes"]
+    assert "Status: `blocked`" in markdown
+    assert "--require-live-evidence" in markdown
+
+
 def test_adoption_validation_report_accepts_required_client_case_insensitive(
     tmp_path: Path,
 ) -> None:

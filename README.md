@@ -1134,6 +1134,9 @@ before collecting human labels.
 Release gates reject adoption reports that were not validated with
 `--require-live-evidence`; this keeps wrapper transcripts, templates, and
 non-live smoke logs from being promoted into release evidence.
+The adoption report's `release_evidence` handoff mirrors that rule: reports
+validated without `--require-live-evidence` are marked blocked and tell the
+operator to rerun validation before collecting release labels.
 
 When evidence is split across client logs and REST hooks, pass multiple
 `--calls` files in order. For example, combine a Claude Code stream-json log
