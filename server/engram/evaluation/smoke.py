@@ -26,6 +26,7 @@ from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.retrieval.need import analyze_memory_need
 from engram.storage.bootstrap import (
+    close_if_supported,
     create_consolidation_store_for_graph,
     create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
@@ -310,10 +311,11 @@ async def run_projected_consolidated_smoke(
         assert_smoke_report(report, expected_projected=expected_projected)
         return report
     finally:
-        await _close_if_supported(evaluation_store)
-        await _close_if_supported(consolidation_store)
-        await _close_if_supported(search_index)
-        await _close_if_supported(graph_store)
+        await close_if_supported(evaluation_store)
+        await close_if_supported(consolidation_store)
+        await close_if_supported(search_index)
+        await close_if_supported(activation_store)
+        await close_if_supported(graph_store)
 
 
 async def run_projected_consolidated_smoke_for_args(
@@ -646,12 +648,3 @@ def _apply_smoke_activation_overrides(config: EngramConfig) -> None:
     cfg.graph_embedding_node2vec_enabled = False
     cfg.graph_embedding_transe_enabled = False
     cfg.graph_embedding_gnn_enabled = False
-
-
-async def _close_if_supported(resource: Any) -> None:
-    close = getattr(resource, "close", None)
-    if close is None:
-        return
-    result = close()
-    if hasattr(result, "__await__"):
-        await result

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import json
 import subprocess
 import sys
@@ -32,6 +33,15 @@ class _FakeClosable:
 
     async def close(self) -> None:
         self.closed.append(self.name)
+
+
+def test_projected_consolidated_smoke_closes_runtime_store_triple() -> None:
+    source = inspect.getsource(run_projected_consolidated_smoke)
+
+    assert "close_if_supported(search_index)" in source
+    assert "close_if_supported(activation_store)" in source
+    assert "close_if_supported(graph_store)" in source
+    assert "_close_if_supported" not in source
 
 
 @pytest.mark.asyncio

@@ -112,6 +112,15 @@ Focused Ruff, live evaluation report tests, lifecycle CLI tests, authority CLI
 tests, `git diff --check`, and disposable lite `engram evaluate`, `engram
 authority`, and `engram lifecycle` smoke commands passed after the runtime-triple
 close follow-up.
+Projected/consolidated smoke cleanup now follows the same rule: the smoke
+runner uses `close_if_supported()` from storage bootstrap and closes search,
+activation, and graph resources in its `finally` block. A focused regression
+keeps the runtime-store triple visible so full-mode smoke runs do not leak the
+activation resource while closing search and graph.
+Focused Ruff, focused smoke tests, `git diff --check`, and a disposable lite
+`engram evaluate --smoke --mode lite --replace --format json` operator run
+passed, with all six evaluation signals measured and release evidence still
+correctly reporting `needs_evidence`.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
