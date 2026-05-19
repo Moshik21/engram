@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from engram.evaluation.adoption_evidence import ADOPTION_VALIDATION_REPORT_KIND
 from engram.retrieval.memory_authority import (
     ENGRAM_CAPTURE_TOOLS,
     validate_agent_protocol_calls,
@@ -506,6 +507,7 @@ def build_adoption_validation_report(
         validation["failures"] = failures
         validation["status"] = "failed"
     report = {
+        "kind": ADOPTION_VALIDATION_REPORT_KIND,
         "status": validation["status"],
         "authorityPath": str(authority_path),
         "callsPath": _calls_path_label(calls_path),
@@ -525,6 +527,7 @@ def _build_adoption_error_report(
     error: str,
 ) -> dict[str, Any]:
     return {
+        "kind": ADOPTION_VALIDATION_REPORT_KIND,
         "status": "failed",
         "authorityPath": str(authority_path),
         "callsPath": _calls_path_label(calls_path),

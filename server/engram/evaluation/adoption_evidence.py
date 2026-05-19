@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+ADOPTION_VALIDATION_REPORT_KIND = "engram_adoption_validation_report"
+
 
 def load_adoption_evidence(
     artifact_path: Path,
@@ -42,6 +44,7 @@ def build_adoption_evidence(
     capture = _mapping(validation.get("capture"))
     file_memory = _mapping(validation.get("file_memory"))
 
+    kind = _string(payload.get("kind"))
     client = _string(evidence.get("client"))
     report_required_client = _string(evidence.get("required_client"))
     gate_required_client = _string(required_client)
@@ -59,6 +62,11 @@ def build_adoption_evidence(
     observed_before_answer = _string_list(required_tools.get("observed"))
     observed_capture_tools = _string_list(capture.get("observed_tools"))
     failures: list[str] = []
+    if kind != ADOPTION_VALIDATION_REPORT_KIND:
+        failures.append(
+            "invalid_adoption_report_kind"
+            f"({kind or 'missing'}!={ADOPTION_VALIDATION_REPORT_KIND})"
+        )
     if payload.get("status") != "passed":
         failures.append("adoption_status_not_passed")
     if call_count <= 0:
@@ -118,6 +126,7 @@ def build_adoption_evidence(
         "status": "failed" if failures else "measured",
         "artifact_path": str(artifact_path) if artifact_path is not None else None,
         "artifact_sha256": artifact_sha256,
+        "kind": kind,
         "adoption_status": payload.get("status"),
         "authority_path": payload.get("authorityPath"),
         "calls_path": payload.get("callsPath"),

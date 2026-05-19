@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from engram.evaluation.adoption_evidence import (
+    ADOPTION_VALIDATION_REPORT_KIND,
     adoption_client_set_failure_message,
     adoption_evidence_failure_message,
     build_adoption_client_set_evidence,
@@ -32,6 +33,7 @@ def test_adoption_evidence_accepts_passed_live_report() -> None:
     assert evidence["status"] == "measured"
     assert evidence["artifact_path"] == "adoption-report.json"
     assert evidence["artifact_sha256"] == "abc123"
+    assert evidence["kind"] == ADOPTION_VALIDATION_REPORT_KIND
     assert evidence["client"] == "Cursor"
     assert evidence["session_id"] == "cursor-thread-1"
     assert evidence["call_count"] == 4
@@ -116,6 +118,22 @@ def test_adoption_evidence_requires_live_evidence_gate() -> None:
     assert evidence["status"] == "failed"
     assert evidence["required_live_evidence"] is False
     assert evidence["failures"] == ["missing_required_live_evidence_gate"]
+
+
+def test_adoption_evidence_requires_expected_report_kind() -> None:
+    report = _adoption_report()
+    report["kind"] = "generic_adoption_report"
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["kind"] == "generic_adoption_report"
+    assert evidence["failures"] == [
+        (
+            "invalid_adoption_report_kind"
+            "(generic_adoption_report!=engram_adoption_validation_report)"
+        )
+    ]
 
 
 def test_adoption_evidence_requires_parseable_capture_timestamp() -> None:
@@ -892,6 +910,7 @@ def _adoption_report(
     normalized = "-".join(client.lower().split())
     session_id = session_id or f"{normalized}-thread-1"
     return {
+        "kind": ADOPTION_VALIDATION_REPORT_KIND,
         "status": "passed",
         "authorityPath": "claim-authority.json",
         "callsPath": "live-harness-transcript.json",

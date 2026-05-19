@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from engram.evaluation.adoption_evidence import ADOPTION_VALIDATION_REPORT_KIND
 from engram.mcp.adoption_cli import (
     build_adoption_validation_report,
     build_live_adoption_transcript_template,
@@ -42,6 +43,7 @@ def test_adoption_validation_report_accepts_followed_jsonl_transcript(tmp_path: 
     )
 
     assert report["status"] == "passed"
+    assert report["kind"] == ADOPTION_VALIDATION_REPORT_KIND
     assert report["callCount"] == 4
     assert report["evidence"]["required"] is False
     assert report["validation"]["failures"] == []
