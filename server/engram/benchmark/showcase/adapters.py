@@ -26,6 +26,7 @@ from engram.config import ActivationConfig
 from engram.embeddings.provider import EmbeddingProvider, FastEmbedProvider, VoyageProvider
 from engram.extraction.extractor import EntityExtractor, ExtractionResult
 from engram.graph_manager import GraphManager
+from engram.storage.bootstrap import close_if_supported
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.protocols import SearchIndex
 from engram.storage.sqlite.graph import SQLiteGraphStore
@@ -2027,12 +2028,18 @@ class EngramAdapter(BaselineAdapter):
         )
 
     async def close(self) -> None:
-        if self._embedding_provider is not None:
-            await self._embedding_provider.close()
-        if self._graph_store is not None:
-            await self._graph_store.close()
+        if self._search_index is not None:
+            await close_if_supported(self._search_index)
+        else:
+            await close_if_supported(self._embedding_provider)
+        await close_if_supported(self._graph_store)
         if self._temp_dir is not None and self._temp_dir.exists():
             shutil.rmtree(self._temp_dir, ignore_errors=True)
+        self._embedding_provider = None
+        self._graph_store = None
+        self._search_index = None
+        self._manager = None
+        self._temp_dir = None
 
 
 def create_primary_adapter(

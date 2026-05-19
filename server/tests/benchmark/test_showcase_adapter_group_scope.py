@@ -115,6 +115,15 @@ class _RecordingManager:
         return entity_id
 
 
+class _FakeClosable:
+    def __init__(self, name: str, closed: list[str]) -> None:
+        self.name = name
+        self._closed = closed
+
+    async def close(self) -> None:
+        self._closed.append(self.name)
+
+
 @pytest.mark.asyncio
 async def test_engram_showcase_adapter_uses_explicit_non_default_group() -> None:
     manager = _RecordingManager()
@@ -178,3 +187,27 @@ async def test_engram_showcase_adapter_uses_explicit_non_default_group() -> None
     scoped_calls = [call for call in manager.calls if call[0] in group_scoped_methods]
     assert scoped_calls
     assert all(call[1] == group_id for call in scoped_calls)
+
+
+@pytest.mark.asyncio
+async def test_engram_showcase_adapter_closes_search_before_graph(tmp_path) -> None:
+    closed: list[str] = []
+    adapter = EngramAdapter(
+        "engram full smoke",
+        ActivationConfig(integration_profile="rework"),
+        {"remembered": ExtractionSpec()},
+    )
+    temp_dir = tmp_path / "showcase"
+    temp_dir.mkdir()
+    adapter._temp_dir = temp_dir
+    adapter._search_index = _FakeClosable("search", closed)
+    adapter._graph_store = _FakeClosable("graph", closed)
+
+    await adapter.close()
+
+    assert closed == ["search", "graph"]
+    assert adapter._search_index is None
+    assert adapter._graph_store is None
+    assert adapter._manager is None
+    assert adapter._temp_dir is None
+    assert not temp_dir.exists()

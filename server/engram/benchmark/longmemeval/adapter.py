@@ -30,6 +30,7 @@ from engram.benchmark.longmemeval.dataset import (
 from engram.config import ActivationConfig, EngramConfig
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
+from engram.storage.bootstrap import close_if_supported
 from engram.storage.factory import create_stores
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 from engram.storage.resolver import resolve_mode
@@ -585,16 +586,17 @@ class EngramLongMemEvalAdapter:
                 stats.get("retries", 0),
                 stats.get("fallback_used", 0),
             )
-        if self._search_index is not None:
+        for name, resource in (
+            ("search", self._search_index),
+            ("activation", self._activation_store),
+            ("graph", self._graph_store),
+        ):
+            if resource is None:
+                continue
             try:
-                await self._search_index.close()
+                await close_if_supported(resource)
             except Exception:
-                pass
-        if self._graph_store is not None:
-            try:
-                await self._graph_store.close()
-            except Exception:
-                pass
+                logger.debug("Could not close LongMemEval %s store", name, exc_info=True)
         self._graph_store = None
         self._activation_store = None
         self._search_index = None

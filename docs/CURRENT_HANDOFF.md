@@ -128,6 +128,10 @@ activation, and graph resources through `close_if_supported()` even when phase
 validation exits early. This keeps the preferred native Helix path on a Helix
 consolidation store instead of silently writing a separate local SQLite audit
 file for Helix runs.
+Benchmark adapter cleanup follows the same ownership rule: LongMemEval closes
+search, activation, and graph resources via `close_if_supported()`, while the
+showcase adapter closes its search index before the graph store and then clears
+temporary state. Focused benchmark adapter regressions guard both paths.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
