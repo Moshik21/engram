@@ -870,6 +870,14 @@ treating it as the main completion blocker. The next goal-critical work is:
    adoption evidence, multi-client summaries, release summaries, and Markdown
    output so a blocked run remains diagnosable after it is attached to a release
    report.
+   A fresh constrained Claude Code 2.1.144 print-mode attempt against a running
+   local REST/MCP server still stopped at `Not logged in - Please run /login`
+   before any Engram tool calls. The saved stream
+   `/private/tmp/engram-claude-adoption-20260519-stream.jsonl` and failed
+   verifier report `/private/tmp/engram-claude-adoption-20260519-report.json`
+   preserve the blocker as `mcp_server_failed` plus `authentication_failed`;
+   adoption Markdown now also prints the concrete MCP server failure list
+   (`['engram']`).
    The adoption template now also prints `manual_transcript_markdown`, a
    copyable Cursor/Windsurf/manual MCP notes block with client metadata plus
    explicit `Before answer` and `Capture` tool sections, so a second-client run

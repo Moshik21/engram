@@ -589,6 +589,11 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         lines.append("- Session mismatch: `True`")
     if report.get("evidence", {}).get("blockers"):
         lines.append(f"- Blockers: `{report.get('evidence', {}).get('blockers')}`")
+    if report.get("evidence", {}).get("mcp_server_failures"):
+        lines.append(
+            "- MCP server failures: "
+            f"`{report.get('evidence', {}).get('mcp_server_failures')}`"
+        )
     if report.get("evidence", {}).get("blocker_details"):
         lines.append(
             f"- Blocker details: `{report.get('evidence', {}).get('blocker_details')}`"

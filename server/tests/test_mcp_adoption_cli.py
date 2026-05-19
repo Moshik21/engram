@@ -342,6 +342,7 @@ def test_adoption_validation_report_classifies_blocked_claude_stream(
     assert "live_harness_mcp_server_failed" in report["validation"]["failures"]
     assert "missing_required_before_answer_tools" in report["validation"]["failures"]
     assert "Blockers: `['mcp_server_failed', 'authentication_failed']`" in markdown
+    assert "MCP server failures: `['engram']`" in markdown
 
 
 def test_adoption_validation_report_accepts_plaintext_harness_notes(

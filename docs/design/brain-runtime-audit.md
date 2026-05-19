@@ -399,6 +399,12 @@ with explicit blocker failures, even when zero Engram tool calls were reached.
 Those blocker fields now survive `engram evaluate`, release evidence summaries,
 Markdown reports, and the dashboard Evaluate panel, so operators can tell auth
 or MCP initialization problems apart from actual Engram adoption behavior.
+A fresh blocked Claude Code stream on 2026-05-19 was saved at
+`/private/tmp/engram-claude-adoption-20260519-stream.jsonl` and validated into
+`/private/tmp/engram-claude-adoption-20260519-report.json`; it failed with
+zero calls, `mcp_server_failed`, `authentication_failed`, and missing
+`captured_at`. Adoption validation Markdown now includes the specific MCP
+server failure list (`['engram']`) alongside the blocker classes.
 `--evidence-bundle` writes the same report plus source paths, benchmark
 evidence, human-label evidence, adoption evidence, and gate thresholds as a
 single archiveable JSON artifact.

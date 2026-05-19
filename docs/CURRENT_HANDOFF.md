@@ -53,6 +53,20 @@ failures instead of an `invalid_calls_transcript` parse error.
 multi-client adoption summaries, Markdown reports, release evidence summaries,
 and the dashboard Evaluate release-evidence view, so auth/MCP setup blockers
 remain visible instead of collapsing into a generic failed gate.
+Current blocked live-client evidence refresh: `claude mcp list` verified the
+local REST/MCP server as connected, but a constrained Claude Code 2.1.144
+print-mode run still exited before tool execution with `Not logged in - Please
+run /login`. The raw stream is
+`/private/tmp/engram-claude-adoption-20260519-stream.jsonl`, and
+`uv run engram adoption --authority /private/tmp/engram-live-claim-authority.json
+--calls /private/tmp/engram-claude-adoption-20260519-stream.jsonl
+--require-live-evidence --require-client "Claude Code"
+--report-out /private/tmp/engram-claude-adoption-20260519-report.json
+--format markdown` correctly failed with 0 calls, blockers
+`mcp_server_failed` and `authentication_failed`, session
+`dd1cdf01-d4d1-47e2-8d48-4b1e3bccd578`, and missing `captured_at`. Adoption
+validation Markdown now also prints the specific failed MCP server list
+(`['engram']`) so blocked reports identify which server failed to initialize.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
