@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -556,24 +557,26 @@ def build_evidence_bundle(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     """Build the JSON artifact operators can archive for completion evidence."""
+    sources = {
+        "report_json": _optional_path_str(getattr(args, "from_json", None)),
+        "benchmark_artifact": _optional_path_str(getattr(args, "benchmark_artifact", None)),
+        "human_label_artifact": _optional_path_str(
+            getattr(args, "human_label_artifact", None)
+        ),
+        "adoption_report": _optional_path_str(getattr(args, "adoption_report", None)),
+        "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
+        "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
+        "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
+        "helix_data_dir": _optional_path_str(getattr(args, "helix_data_dir", None)),
+    }
     return {
         "kind": "engram_brain_loop_evidence_bundle",
         "version": 1,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": "passed",
         "group_id": report.get("group_id"),
-        "sources": {
-            "report_json": _optional_path_str(getattr(args, "from_json", None)),
-            "benchmark_artifact": _optional_path_str(getattr(args, "benchmark_artifact", None)),
-            "human_label_artifact": _optional_path_str(
-                getattr(args, "human_label_artifact", None)
-            ),
-            "adoption_report": _optional_path_str(getattr(args, "adoption_report", None)),
-            "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
-            "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
-            "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
-            "helix_data_dir": _optional_path_str(getattr(args, "helix_data_dir", None)),
-        },
+        "sources": sources,
+        "source_sha256": _source_sha256_map(sources),
         "gates": {
             "require_evaluation_signals": bool(
                 getattr(args, "require_evaluation_signals", False)
@@ -618,6 +621,20 @@ def build_evidence_bundle(
 
 def _optional_path_str(path: Any) -> str | None:
     return str(path) if path is not None else None
+
+
+def _source_sha256_map(sources: dict[str, str | None]) -> dict[str, str | None]:
+    return {
+        name: _file_sha256(path)
+        for name, path in sources.items()
+        if name not in {"sqlite_path", "helix_data_dir"}
+    }
+
+
+def _file_sha256(path: str | None) -> str | None:
+    if path is None:
+        return None
+    return hashlib.sha256(Path(path).expanduser().read_bytes()).hexdigest()
 
 
 def _effective_min_human_recall_samples(args: argparse.Namespace) -> int:

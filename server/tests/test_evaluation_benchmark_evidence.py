@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -169,6 +170,14 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     assert bundle["sources"]["benchmark_artifact"] == str(benchmark_path)
     assert bundle["sources"]["human_label_artifact"] is None
     assert bundle["sources"]["adoption_report"] is None
+    assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
+        report_path.read_bytes()
+    ).hexdigest()
+    assert bundle["source_sha256"]["benchmark_artifact"] == hashlib.sha256(
+        benchmark_path.read_bytes()
+    ).hexdigest()
+    assert bundle["source_sha256"]["human_label_artifact"] is None
+    assert bundle["source_sha256"]["adoption_report"] is None
     assert bundle["gates"] == {
         "require_evaluation_signals": True,
         "require_release_evidence": False,

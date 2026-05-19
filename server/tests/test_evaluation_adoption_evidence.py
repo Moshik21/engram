@@ -139,6 +139,12 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
         adoption_path.read_bytes()
     ).hexdigest()
     assert bundle["sources"]["adoption_report"] == str(adoption_path)
+    assert bundle["source_sha256"]["adoption_report"] == hashlib.sha256(
+        adoption_path.read_bytes()
+    ).hexdigest()
+    assert bundle["source_sha256"]["human_label_artifact"] == hashlib.sha256(
+        human_path.read_bytes()
+    ).hexdigest()
     assert bundle["gates"]["require_release_evidence"] is True
     assert bundle["gates"]["require_adoption_evidence"] is False
     assert bundle["gates"]["require_human_label_evidence"] is False

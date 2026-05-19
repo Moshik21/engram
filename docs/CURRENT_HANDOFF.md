@@ -127,7 +127,10 @@ evidence bundles, but it explicitly rejects untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed
-`human-labels.json`. `engram evaluate` can also attach and require a passed
+`human-labels.json`. Evidence bundles now also include a top-level
+`source_sha256` map for report, benchmark, human-label, adoption, and sample
+files, making release artifacts directly traceable to their input files.
+`engram evaluate` can also attach and require a passed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are
 present, client/session metadata must point at the same live harness run. The

@@ -758,8 +758,9 @@ not yet doing its job.
    `--require-release-evidence` composes measured evaluation signals,
    human-label evidence, and adoption evidence into one operator gate.
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached
-   benchmark/human-label/adoption evidence, source paths, and gate thresholds as
-   one reproducible JSON artifact after requested gates pass. The
+   benchmark/human-label/adoption evidence, source paths, source SHA-256
+   digests, and gate thresholds as one reproducible JSON artifact after
+   requested gates pass. The
    native surface manifest tracks the Helix variant as an operator hard gate.
    `engram doctor` now surfaces the same
    evaluation-signal readiness in its disposable smoke report, so the local

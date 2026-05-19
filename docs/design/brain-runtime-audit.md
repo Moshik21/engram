@@ -3652,7 +3652,10 @@ writes that JSON validation artifact directly for the release gate, and the
 generated live-harness templates include the same flag in their validation
 commands. `engram evaluate --human-label-template-out human-label-template.json`
 now writes the fillable JSON label template artifact while preserving the
-normal JSON/Markdown output.
+normal JSON/Markdown output. Evidence bundles now include a top-level
+`source_sha256` map for report, benchmark, human-label, adoption, and sample
+files, so archived release evidence can be traced back to exact source
+artifacts.
 The release gate is now stricter by default: adoption evidence must come from a
 report validated with `--require-live-evidence`, and
 `--require-release-evidence` defaults to 10 human recall labels plus 3

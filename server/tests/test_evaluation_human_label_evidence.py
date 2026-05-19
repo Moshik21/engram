@@ -156,6 +156,10 @@ async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
     assert report["human_label_evidence"]["min_session_samples"] == 1
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     assert bundle["sources"]["human_label_artifact"] == str(human_path)
+    assert bundle["source_sha256"]["human_label_artifact"] == expected_hash
+    assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
+        report_path.read_bytes()
+    ).hexdigest()
     assert bundle["gates"]["require_human_label_evidence"] is True
     assert bundle["gates"]["min_human_recall_samples"] == 2
     assert bundle["gates"]["min_human_session_samples"] == 1

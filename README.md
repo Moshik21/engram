@@ -1516,8 +1516,9 @@ has a fairness contract and transcript hashes, and enforces
 `--min-benchmark-scenarios` plus `--min-benchmark-pass-rate`. When benchmark
 evidence is attached, both JSON and Markdown reports include a Benchmark
 Evidence section. Add `--evidence-bundle brain-loop-evidence.json` to archive
-the report, attached benchmark evidence, source paths, and gate thresholds as
-one reproducible JSON artifact after all requested gates pass.
+the report, attached benchmark evidence, source paths, source SHA-256 digests,
+and gate thresholds as one reproducible JSON artifact after all requested gates
+pass.
 For production/staging release evidence, add
 `--human-label-artifact human-labels.json --require-human-label-evidence`.
 Use `--human-label-template` to print the JSON schema, starter examples, and
