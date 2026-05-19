@@ -832,7 +832,11 @@ evidence that agents actually trust and use the brain:
    over-trimmed "passed" reports that have zero calls, no expected/observed
    before-answer tool contract, missing observed `get_context`/`recall`, or no
    observed Capture tool, so release packaging cannot treat a reachable MCP
-   server or proxy summary as adoption proof. `--require-release-evidence` also
+   server or proxy summary as adoption proof. Human-label evidence applies the
+   same anti-proxy rule to the reviewer artifact: recall samples must include
+   reviewable query text and notes, and session samples must include reviewable
+   scenario text and notes, so source-tagged empty sample shells cannot satisfy
+   the release gate. `--require-release-evidence` also
    uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the

@@ -65,6 +65,10 @@ Adoption evidence release packaging now also rejects proxy summaries that do
 not prove real protocol execution: a report must carry a nonzero call count,
 nonempty expected and observed before-answer tools, observed `get_context` and
 `recall`, and an observed Capture tool before it can be measured.
+Human-label evidence now applies the same anti-proxy rule at the sample level:
+recall samples must include reviewable query text plus notes, and session
+samples must include reviewable scenario text plus notes, so release evidence
+cannot pass with source-tagged but empty sample shells.
 Current blocked live-client evidence refresh: `claude mcp list` verified the
 local REST/MCP server as connected, but a constrained Claude Code 2.1.144
 print-mode run still exited before tool execution with `Not logged in - Please

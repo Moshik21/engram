@@ -108,6 +108,24 @@ def test_human_label_evidence_requires_sample_source_traceability() -> None:
     ]
 
 
+def test_human_label_evidence_requires_reviewable_sample_text() -> None:
+    artifact = _human_label_artifact(recall_count=2, session_count=1)
+    artifact["recallSamples"][0].pop("query")
+    artifact["recallSamples"][1]["notes"] = "<why the recalled packet was useful>"
+    artifact["sessionSamples"][0].pop("scenario")
+
+    evidence = build_human_label_evidence(
+        artifact,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "failed"
+    assert "missing_recall_sample_queries(1)" in evidence["failures"]
+    assert "missing_recall_sample_notes(1)" in evidence["failures"]
+    assert "missing_session_sample_scenarios(1)" in evidence["failures"]
+
+
 def test_human_label_evidence_requires_expected_artifact_kind() -> None:
     artifact = _human_label_artifact(recall_count=2, session_count=1)
     artifact["kind"] = "generic_label_export"
@@ -328,24 +346,28 @@ def _human_label_artifact(*, recall_count: int, session_count: int) -> dict:
         "recallSamples": [
             {
                 "source": "staging_harness",
+                "query": f"operator recall probe {_index}",
                 "recallTriggered": True,
                 "recallHelped": True,
                 "recallNeeded": True,
                 "packetsSurfaced": 2,
                 "packetsUsed": 1,
                 "falseRecalls": 0,
+                "notes": f"recall helped on probe {_index}",
             }
             for _index in range(recall_count)
         ],
         "sessionSamples": [
             {
                 "source": "staging_harness",
+                "scenario": f"operator continuity task {_index}",
                 "baselineScore": 0.2,
                 "memoryScore": 0.8,
                 "openLoopExpected": True,
                 "openLoopRecovered": True,
                 "temporalExpected": True,
                 "temporalCorrect": True,
+                "notes": f"memory preserved task context {_index}",
             }
             for _index in range(session_count)
         ],

@@ -18,6 +18,14 @@ _SYNTHETIC_SOURCE_TOKENS = {
     "smoke",
     "synthetic",
 }
+_RECALL_SAMPLE_TEXT_REQUIREMENTS = {
+    "queries": ("query", "prompt", "turn", "userMessage", "user_message"),
+    "notes": ("notes", "reviewNotes", "review_notes", "labelNotes", "label_notes"),
+}
+_SESSION_SAMPLE_TEXT_REQUIREMENTS = {
+    "scenarios": ("scenario", "task", "prompt"),
+    "notes": ("notes", "reviewNotes", "review_notes", "labelNotes", "label_notes"),
+}
 
 HUMAN_LABEL_EVIDENCE_KIND = "engram_human_label_evidence"
 DEFAULT_HUMAN_RECALL_SAMPLE_GATE = 1
@@ -311,6 +319,14 @@ def build_human_label_evidence(
         for sample in recall_samples + session_samples
         if not _string(_mapping(sample).get("source"))
     )
+    missing_recall_text = _missing_sample_text_requirements(
+        recall_samples,
+        _RECALL_SAMPLE_TEXT_REQUIREMENTS,
+    )
+    missing_session_text = _missing_sample_text_requirements(
+        session_samples,
+        _SESSION_SAMPLE_TEXT_REQUIREMENTS,
+    )
 
     failures: list[str] = []
     if kind != HUMAN_LABEL_EVIDENCE_KIND:
@@ -342,6 +358,10 @@ def build_human_label_evidence(
         )
     if missing_sample_source_count:
         failures.append(f"missing_sample_sources({missing_sample_source_count})")
+    for field, count in missing_recall_text.items():
+        failures.append(f"missing_recall_sample_{field}({count})")
+    for field, count in missing_session_text.items():
+        failures.append(f"missing_session_sample_{field}({count})")
     if source and not _looks_placeholder(source):
         mismatched_sample_sources = [
             sample_source for sample_source in sample_sources if sample_source != source
@@ -423,6 +443,30 @@ def _extract_samples(payload: Mapping[str, Any], *keys: str) -> list[Any]:
             if value is not None:
                 return _list_payload(value)
     return []
+
+
+def _missing_sample_text_requirements(
+    samples: list[Any],
+    requirements: Mapping[str, tuple[str, ...]],
+) -> dict[str, int]:
+    missing: dict[str, int] = {}
+    for label, aliases in requirements.items():
+        count = sum(
+            1
+            for sample in samples
+            if _missing_sample_text(_mapping(sample), aliases)
+        )
+        if count:
+            missing[label] = count
+    return missing
+
+
+def _missing_sample_text(sample: Mapping[str, Any], aliases: tuple[str, ...]) -> bool:
+    return not any(
+        text and not _looks_placeholder(text)
+        for alias in aliases
+        if (text := _string(sample.get(alias)))
+    )
 
 
 def _list_payload(value: Any) -> list[Any]:

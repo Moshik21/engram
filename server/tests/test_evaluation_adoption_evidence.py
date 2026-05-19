@@ -929,24 +929,28 @@ def _human_label_artifact(*, recall_count: int = 10, session_count: int = 3) -> 
         "recallSamples": [
             {
                 "source": "staging_harness",
+                "query": f"operator recall probe {_index}",
                 "recallTriggered": True,
                 "recallHelped": True,
                 "recallNeeded": True,
                 "packetsSurfaced": 2,
                 "packetsUsed": 1,
                 "falseRecalls": 0,
+                "notes": f"recall helped on probe {_index}",
             }
             for _index in range(recall_count)
         ],
         "sessionSamples": [
             {
                 "source": "staging_harness",
+                "scenario": f"operator continuity task {_index}",
                 "baselineScore": 0.2,
                 "memoryScore": 0.8,
                 "openLoopExpected": True,
                 "openLoopRecovered": True,
                 "temporalExpected": True,
                 "temporalCorrect": True,
+                "notes": f"memory preserved task context {_index}",
             }
             for _index in range(session_count)
         ],
