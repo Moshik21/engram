@@ -744,7 +744,10 @@ not yet doing its job.
    artifact when both are present. `engram adoption --report-out
    adoption-report.json` writes that JSON validation artifact directly for the
    release gate, and generated live-harness templates include the same flag in
-   their validation commands. Adoption evidence now fails if the report was
+   their validation commands. `engram evaluate --human-label-template-out
+   human-label-template.json` now writes the fillable human-label template
+   artifact for reviewers while preserving normal JSON/Markdown output.
+   Adoption evidence now fails if the report was
    not validated with `--require-live-evidence`, so a non-live transcript cannot
    satisfy release packaging; the adoption report's `release_evidence` handoff
    now reports `blocked` in that case instead of telling operators it is ready

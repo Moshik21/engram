@@ -201,6 +201,14 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--human-label-template-out",
+        type=Path,
+        help=(
+            "When used with --human-label-template, write the JSON template to "
+            "this path for operators to fill with real labels."
+        ),
+    )
+    parser.add_argument(
         "--adoption-report",
         type=Path,
         help=(
@@ -385,11 +393,17 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
             adoption_evidence=adoption_evidence,
             adoption_report_path=getattr(args, "adoption_report", None),
         )
+        _write_human_label_template_output(
+            template,
+            getattr(args, "human_label_template_out", None),
+        )
         if args.format == "json":
             print(json.dumps(template, indent=2, sort_keys=True))
             return
         print(render_human_label_evidence_template_markdown(template), end="")
         return
+    if getattr(args, "human_label_template_out", None) is not None:
+        raise SystemExit("--human-label-template-out requires --human-label-template")
 
     report = await build_report_from_args(args)
     report = _attach_benchmark_evidence_from_args(report, args)
@@ -464,6 +478,20 @@ def _attach_benchmark_evidence_from_args(
     report = dict(report)
     report["benchmark_evidence"] = evidence
     return report
+
+
+def _write_human_label_template_output(
+    template: dict[str, Any],
+    output_path: Path | None,
+) -> None:
+    if output_path is None:
+        return
+    output_path = output_path.expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(template, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _attach_human_label_evidence_from_args(

@@ -3650,7 +3650,9 @@ artifact directly names the next release packaging step instead of leaving that
 sequence only in prose. `engram adoption --report-out adoption-report.json`
 writes that JSON validation artifact directly for the release gate, and the
 generated live-harness templates include the same flag in their validation
-commands.
+commands. `engram evaluate --human-label-template-out human-label-template.json`
+now writes the fillable JSON label template artifact while preserving the
+normal JSON/Markdown output.
 The release gate is now stricter by default: adoption evidence must come from a
 report validated with `--require-live-evidence`, and
 `--require-release-evidence` defaults to 10 human recall labels plus 3

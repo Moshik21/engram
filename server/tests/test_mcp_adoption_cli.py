@@ -893,7 +893,8 @@ def test_adoption_validation_report_accepts_live_evidence_metadata(
     }
     assert report["release_evidence"]["commands"]["human_label_template"] == (
         "engram evaluate --human-label-template "
-        "--adoption-report adoption-report.json --format json"
+        "--adoption-report adoption-report.json "
+        "--human-label-template-out human-label-template.json --format json"
     )
 
 
@@ -992,6 +993,10 @@ def test_adoption_command_writes_release_report_artifact(
     assert saved_report["release_evidence"]["adoption_report_path"] == str(report_path)
     assert (
         f"--adoption-report {report_path}"
+        in saved_report["release_evidence"]["commands"]["human_label_template"]
+    )
+    assert (
+        "--human-label-template-out human-label-template.json"
         in saved_report["release_evidence"]["commands"]["human_label_template"]
     )
     assert f"Adoption report path: `{report_path}`" in markdown

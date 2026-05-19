@@ -259,7 +259,9 @@ def _apply_report_output_path(
         updated_commands = dict(commands)
         updated_commands["human_label_template"] = (
             "engram evaluate --human-label-template "
-            f"--adoption-report {quoted_path} --format json"
+            f"--adoption-report {quoted_path} "
+            "--human-label-template-out human-label-template.json "
+            "--format json"
         )
         updated_commands["release_gate"] = (
             "engram evaluate --from-json brain-loop-report.json "
@@ -708,7 +710,9 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         "commands": {
             "human_label_template": (
                 "engram evaluate --human-label-template "
-                "--adoption-report adoption-report.json --format json"
+                "--adoption-report adoption-report.json "
+                "--human-label-template-out human-label-template.json "
+                "--format json"
             ),
             "release_gate": (
                 "engram evaluate --from-json brain-loop-report.json "

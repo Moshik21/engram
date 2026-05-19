@@ -1131,7 +1131,8 @@ with the prefilled human-label template command and the final
 `--report-out adoption-report.json` to archive the JSON report at the exact
 path the release gate consumes, then use that path with
 `engram evaluate --human-label-template --adoption-report adoption-report.json`
-before collecting human labels.
+or add `--human-label-template-out human-label-template.json` to write the
+fillable JSON template before collecting human labels.
 Release gates reject adoption reports that were not validated with
 `--require-live-evidence`; this keeps wrapper transcripts, templates, and
 non-live smoke logs from being promoted into release evidence.
@@ -1485,7 +1486,7 @@ ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke 
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
-uv run engram evaluate --human-label-template --format markdown
+uv run engram evaluate --human-label-template --human-label-template-out human-label-template.json --format markdown
 uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report adoption-report.json --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
@@ -1520,7 +1521,9 @@ one reproducible JSON artifact after all requested gates pass.
 For production/staging release evidence, add
 `--human-label-artifact human-labels.json --require-human-label-evidence`.
 Use `--human-label-template` to print the JSON schema, starter examples, and
-validation command before collecting the labels. If a live adoption report is
+validation command before collecting the labels. Add
+`--human-label-template-out human-label-template.json` to save the exact JSON
+draft for a reviewer to fill with real labels. If a live adoption report is
 already available, use
 `--human-label-template --adoption-report adoption-report.json` to prefill the
 client, `capturedAt`, and session metadata the release gate later

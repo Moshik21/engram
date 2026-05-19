@@ -108,7 +108,10 @@ Cursor/Windsurf run is not accidentally satisfied by Claude Code evidence. With
 sessionless wrapper transcript cannot satisfy a session-filtered live gate.
 `engram adoption --report-out adoption-report.json` writes the JSON validation
 artifact directly for release packaging while still printing the requested
-JSON/Markdown output. Adoption validation reports now include a
+JSON/Markdown output. The release handoff's human-label command now includes
+`--human-label-template-out human-label-template.json`, and `engram evaluate`
+writes that fillable JSON template while still printing JSON/Markdown.
+Adoption validation reports now include a
 `release_evidence` handoff section with the prefilled human-label template
 command and final `engram evaluate --require-release-evidence` command so the
 validated live-client artifact points directly at release packaging.

@@ -202,6 +202,64 @@ async def test_evaluate_cli_outputs_human_label_template(capsys) -> None:
     assert '"recallSamples"' in output
 
 
+@pytest.mark.asyncio
+async def test_evaluate_cli_writes_human_label_template_artifact(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    template_path = tmp_path / "human-label-template.json"
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--human-label-template",
+            "--human-label-template-out",
+            str(template_path),
+            "--format",
+            "markdown",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    output = capsys.readouterr().out
+    template = json.loads(template_path.read_text(encoding="utf-8"))
+    assert "# Engram Human Label Evidence Template" in output
+    assert template["kind"] == "engram_human_label_evidence"
+    assert template["humanLabeled"] is True
+    assert template["recallSamples"]
+    assert template["sessionSamples"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_rejects_template_out_without_template(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    template_path = tmp_path / "human-label-template.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--human-label-template-out",
+            str(template_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "--human-label-template-out requires --human-label-template"
+    )
+    assert not template_path.exists()
+
+
 def _human_label_artifact(*, recall_count: int, session_count: int) -> dict:
     return {
         "kind": "engram_human_label_evidence",
