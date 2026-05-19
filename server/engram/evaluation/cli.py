@@ -43,6 +43,7 @@ from engram.evaluation.human_label_evidence import (
 )
 from engram.evaluation.store import SQLiteEvaluationStore
 from engram.storage.bootstrap import (
+    close_if_supported,
     create_consolidation_store_for_graph,
     create_evaluation_store_for_graph,
 )
@@ -886,9 +887,9 @@ async def _load_live_report(
             group_id,
         )
     finally:
-        await _maybe_close(evaluation_store)
-        await _maybe_close(consolidation_store)
-        await _maybe_close(graph_store)
+        await close_if_supported(evaluation_store)
+        await close_if_supported(consolidation_store)
+        await close_if_supported(graph_store)
 
 
 def _create_graph_store(mode: EngineMode, config: EngramConfig) -> Any:
@@ -925,17 +926,6 @@ async def _resolve_smoke_mode(requested_mode: str | None) -> EngineMode:
             return mode
         raise SystemExit("Projected/consolidated smoke supports lite or helix native mode")
     raise SystemExit("Projected/consolidated smoke supports lite or helix native mode")
-
-
-async def _maybe_close(resource: Any) -> None:
-    if resource is None:
-        return
-    close = getattr(resource, "close", None)
-    if close is None:
-        return
-    result = close()
-    if hasattr(result, "__await__"):
-        await result
 
 
 def _load_json(path: Path) -> Any:

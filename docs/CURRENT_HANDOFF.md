@@ -94,6 +94,14 @@ from `lifecycle_cli.py`, keeping the authority-prep path on the same public
 bootstrap boundary used by other runtime entrypoints. Focused Ruff, storage,
 lifecycle, authority CLI tests, `git diff --check`, and a live lite
 `engram authority` Markdown smoke passed for this slice.
+Follow-up shared close cleanup: `engram evaluate` live-report loading now also
+uses `engram.storage.bootstrap.close_if_supported()` for graph, consolidation,
+and evaluation stores instead of carrying a local close helper. This keeps the
+CLI/operator cleanup path aligned with lifecycle and authority commands while
+leaving the existing evaluation graph-store construction seam intact.
+Focused Ruff, live-report tests, storage bootstrap tests, `git diff --check`,
+and a disposable lite `engram evaluate --no-saved-samples --format json` smoke
+passed for this follow-up.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
