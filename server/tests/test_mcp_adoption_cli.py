@@ -285,6 +285,65 @@ def test_adoption_validation_report_extracts_claude_stream_json_live_evidence(
     }
 
 
+def test_adoption_validation_report_classifies_blocked_claude_stream(
+    tmp_path: Path,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "claude-blocked.jsonl"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "claude-session-blocked",
+                        "mcp_servers": [{"name": "engram", "status": "failed"}],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": "claude-session-blocked",
+                        "error": "authentication_failed",
+                        "message": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Not logged in · Please run /login",
+                                }
+                            ]
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        require_live_evidence=True,
+    )
+    markdown = render_adoption_validation_markdown(report)
+
+    assert report["status"] == "failed"
+    assert report["callCount"] == 0
+    assert report["evidence"]["client"] == "Claude Code"
+    assert report["evidence"]["session_id"] == "claude-session-blocked"
+    assert report["evidence"]["blockers"] == [
+        "mcp_server_failed",
+        "authentication_failed",
+    ]
+    assert report["evidence"]["mcp_server_failures"] == ["engram"]
+    assert "live_harness_authentication_failed" in report["validation"]["failures"]
+    assert "live_harness_mcp_server_failed" in report["validation"]["failures"]
+    assert "missing_required_before_answer_tools" in report["validation"]["failures"]
+    assert "Blockers: `['mcp_server_failed', 'authentication_failed']`" in markdown
+
+
 def test_adoption_validation_report_accepts_plaintext_harness_notes(
     tmp_path: Path,
 ) -> None:
@@ -996,6 +1055,14 @@ def test_adoption_command_writes_release_report_artifact(
         in saved_report["release_evidence"]["commands"]["human_label_template"]
     )
     assert (
+        "--require-adoption-client Cursor"
+        in saved_report["release_evidence"]["commands"]["human_label_template"]
+    )
+    assert (
+        "--require-adoption-client Cursor"
+        in saved_report["release_evidence"]["commands"]["release_gate"]
+    )
+    assert (
         "--human-label-template-out human-label-template.json"
         in saved_report["release_evidence"]["commands"]["human_label_template"]
     )
@@ -1034,11 +1101,18 @@ def test_adoption_validation_report_accepts_required_client_case_insensitive(
         require_live_evidence=True,
         required_client="cursor",
     )
+    markdown = render_adoption_validation_markdown(report)
 
     assert report["status"] == "passed"
     assert report["evidence"]["required_client"] == "cursor"
     assert report["evidence"]["client_mismatch"] is False
     assert report["validation"]["failures"] == []
+    assert report["release_evidence"]["human_label_metadata"]["requiredClient"] == "cursor"
+    assert (
+        "--require-adoption-client cursor"
+        in report["release_evidence"]["commands"]["release_gate"]
+    )
+    assert "Required adoption client: `cursor`" in markdown
 
 
 def test_adoption_validation_report_rejects_wrong_live_client(
@@ -1260,6 +1334,21 @@ def test_live_adoption_template_uses_authority_protocol_example(
         {"phase": "before_answer", "tool": "get_context"},
         {"phase": "capture", "tool": "remember"},
     ]
+    assert template["capture_commands"] == [
+        {
+            "label": "claude_code_stream_json",
+            "command": (
+                "claude -p --verbose --output-format stream-json "
+                "--include-hook-events --mcp-config .mcp.json --strict-mcp-config "
+                "--allowedTools "
+                "mcp__engram__claim_authority,mcp__engram__bootstrap_project,"
+                "mcp__engram__get_context,mcp__engram__recall,"
+                "mcp__engram__remember "
+                "'<prompt instructing Claude to call claim_authority and follow "
+                "agent_protocol>' > claude-stream.jsonl"
+            ),
+        }
+    ]
     assert template["validation_commands"] == [
         {
             "label": "single_transcript",
@@ -1310,6 +1399,9 @@ def test_adoption_template_command_outputs_markdown(
     assert "# Engram Live Adoption Transcript Template" in markdown
     assert "Client: `Cursor`" in markdown
     assert "`before_answer`: `bootstrap_project`" in markdown
+    assert "## Capture" in markdown
+    assert "claude -p --verbose --output-format stream-json" in markdown
+    assert "mcp__engram__claim_authority,mcp__engram__bootstrap_project" in markdown
     assert (
         "--calls live-harness-transcript.json "
         "--require-client Cursor --require-live-evidence "

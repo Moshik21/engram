@@ -1,7 +1,9 @@
 """Local evaluation helpers for Engram runtime health."""
 
 from engram.evaluation.adoption_evidence import (
+    adoption_client_set_failure_message,
     adoption_evidence_failure_message,
+    build_adoption_client_set_evidence,
     build_adoption_evidence,
     link_adoption_to_human_label_evidence,
     load_adoption_evidence,
@@ -13,6 +15,7 @@ from engram.evaluation.benchmark_evidence import (
 )
 from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
+    build_release_evidence_summary,
     evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
     has_recall_runtime_metrics,
@@ -21,6 +24,7 @@ from engram.evaluation.brain_loop_report import (
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
     unmeasured_evaluation_signals,
+    with_release_evidence_summary,
 )
 from engram.evaluation.cli import build_evidence_bundle
 from engram.evaluation.human_label_evidence import (
@@ -53,7 +57,9 @@ __all__ = [
     "StoredRecallEvalSample",
     "StoredRecallRuntimeMetricsSnapshot",
     "StoredSessionContinuitySample",
+    "adoption_client_set_failure_message",
     "adoption_evidence_failure_message",
+    "build_adoption_client_set_evidence",
     "build_adoption_evidence",
     "benchmark_evidence_failure_message",
     "build_brain_loop_report",
@@ -61,6 +67,7 @@ __all__ = [
     "build_evidence_bundle",
     "build_human_label_evidence",
     "build_human_label_evidence_template",
+    "build_release_evidence_summary",
     "evaluation_signal_failure_message",
     "format_brain_loop_report_markdown",
     "format_smoke_report",
@@ -80,6 +87,7 @@ __all__ = [
     "run_projected_consolidated_smoke",
     "run_projected_consolidated_smoke_for_args",
     "unmeasured_evaluation_signals",
+    "with_release_evidence_summary",
     "human_label_evidence_failure_message",
     "render_human_label_evidence_template_markdown",
 ]

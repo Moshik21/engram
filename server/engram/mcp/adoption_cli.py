@@ -256,10 +256,12 @@ def _apply_report_output_path(
     commands = release.get("commands")
     if isinstance(commands, dict):
         quoted_path = shlex.quote(path)
+        required_client_flag = _release_required_client_flag(report)
         updated_commands = dict(commands)
         updated_commands["human_label_template"] = (
             "engram evaluate --human-label-template "
             f"--adoption-report {quoted_path} "
+            f"{required_client_flag}"
             "--human-label-template-out human-label-template.json "
             "--format json"
         )
@@ -268,6 +270,7 @@ def _apply_report_output_path(
             "--require-release-evidence "
             "--human-label-artifact human-labels.json "
             f"--adoption-report {quoted_path} "
+            f"{required_client_flag}"
             "--min-human-recall-samples 10 "
             "--min-human-session-samples 3 "
             "--evidence-bundle brain-loop-release-evidence.json "
@@ -290,6 +293,7 @@ def build_live_adoption_transcript_template(
     """Build a live-harness transcript template from a claim_authority payload."""
     authority_payload = _load_json(authority_path)
     protocol = _extract_protocol(authority_payload)
+    capture_commands = _template_capture_commands()
     validation_commands = _template_validation_commands(
         session_id=session_id,
         client=client,
@@ -302,9 +306,14 @@ def build_live_adoption_transcript_template(
             "source": source or "copied_mcp_log",
         },
         "calls": _protocol_example_calls(protocol),
+        "capture_commands": capture_commands,
         "validation_commands": validation_commands,
         "instructions": [
             "Run the real MCP client after saving the matching claim_authority response.",
+            (
+                "For Claude Code, capture raw stream-json with "
+                f"{capture_commands[0]['command']}."
+            ),
             "Replace metadata placeholders with observed live client metadata.",
             "Replace or confirm calls with the actual Engram tool calls from the client log.",
             (
@@ -317,6 +326,24 @@ def build_live_adoption_transcript_template(
             ),
         ],
     }
+
+
+def _template_capture_commands() -> list[dict[str, str]]:
+    return [
+        {
+            "label": "claude_code_stream_json",
+            "command": (
+                "claude -p --verbose --output-format stream-json "
+                "--include-hook-events --mcp-config .mcp.json --strict-mcp-config "
+                "--allowedTools "
+                "mcp__engram__claim_authority,mcp__engram__bootstrap_project,"
+                "mcp__engram__get_context,mcp__engram__recall,"
+                "mcp__engram__remember "
+                "'<prompt instructing Claude to call claim_authority and follow "
+                "agent_protocol>' > claude-stream.jsonl"
+            ),
+        },
+    ]
 
 
 def _template_validation_commands(
@@ -409,6 +436,16 @@ def build_adoption_validation_report(
         validation = dict(validation)
         failures = list(validation.get("failures") or [])
         failures.append("missing_live_harness_session")
+        validation["failures"] = failures
+        validation["status"] = "failed"
+    blockers = [str(blocker) for blocker in evidence_report.get("blockers") or []]
+    if blockers:
+        validation = dict(validation)
+        failures = list(validation.get("failures") or [])
+        for blocker in blockers:
+            failure = f"live_harness_{blocker}"
+            if failure not in failures:
+                failures.append(failure)
         validation["failures"] = failures
         validation["status"] = "failed"
     if evidence_report["required"] and evidence_report["missing"]:
@@ -505,6 +542,12 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
     if report.get("evidence", {}).get("session_mismatch"):
         lines.append(f"- Session IDs: `{report.get('evidence', {}).get('session_ids', [])}`")
         lines.append("- Session mismatch: `True`")
+    if report.get("evidence", {}).get("blockers"):
+        lines.append(f"- Blockers: `{report.get('evidence', {}).get('blockers')}`")
+    if report.get("evidence", {}).get("blocker_details"):
+        lines.append(
+            f"- Blocker details: `{report.get('evidence', {}).get('blocker_details')}`"
+        )
     lines.extend(
         [
             "",
@@ -564,6 +607,11 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
                     ),
                 ]
             )
+            if human_label_metadata.get("requiredClient"):
+                lines.append(
+                    "- Required adoption client: "
+                    f"`{human_label_metadata.get('requiredClient')}`"
+                )
         if isinstance(commands, dict):
             lines.extend(["", "### Commands"])
             for label, command in commands.items():
@@ -578,6 +626,7 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
     """Render a live-harness transcript template for operators."""
     metadata = template.get("metadata") or {}
     calls = template.get("calls") or []
+    capture_commands = template.get("capture_commands") or []
     validation_commands = template.get("validation_commands") or []
     lines = [
         "# Engram Live Adoption Transcript Template",
@@ -594,6 +643,20 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
         if not isinstance(call, dict):
             continue
         lines.append(f"- `{call.get('phase')}`: `{call.get('tool')}`")
+    if capture_commands:
+        lines.extend(
+            [
+                "",
+                "## Capture",
+            ]
+        )
+        for command in capture_commands:
+            if not isinstance(command, dict):
+                continue
+            label = command.get("label") or "command"
+            value = command.get("command")
+            if value:
+                lines.append(f"- {label}: `{value}`")
     lines.extend(
         [
             "",
@@ -691,6 +754,9 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         )
     if validation_failures:
         notes.append("Validation failures: " + ", ".join(validation_failures))
+    blockers = [str(item) for item in evidence.get("blockers") or []]
+    if blockers:
+        notes.append("Live harness blockers: " + ", ".join(blockers))
     if not requires_live_evidence:
         notes.append(
             "Re-run adoption validation with --require-live-evidence before "
@@ -698,19 +764,31 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         )
     if missing_evidence:
         notes.append("Missing live evidence: " + ", ".join(missing_evidence))
+    required_client_flag = _release_required_client_flag(report)
+    required_client = evidence.get("required_client")
+    if required_client:
+        notes.append(
+            "Release commands preserve the matching "
+            f"--require-adoption-client {required_client} gate."
+        )
+
+    human_label_metadata = {
+        "client": evidence.get("client"),
+        "capturedAt": evidence.get("captured_at"),
+        "sessionId": evidence.get("session_id"),
+    }
+    if required_client:
+        human_label_metadata["requiredClient"] = required_client
 
     return {
         "status": status,
         "adoption_report_path": "adoption-report.json",
-        "human_label_metadata": {
-            "client": evidence.get("client"),
-            "capturedAt": evidence.get("captured_at"),
-            "sessionId": evidence.get("session_id"),
-        },
+        "human_label_metadata": human_label_metadata,
         "commands": {
             "human_label_template": (
                 "engram evaluate --human-label-template "
                 "--adoption-report adoption-report.json "
+                f"{required_client_flag}"
                 "--human-label-template-out human-label-template.json "
                 "--format json"
             ),
@@ -719,6 +797,7 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
                 "--require-release-evidence "
                 "--human-label-artifact human-labels.json "
                 "--adoption-report adoption-report.json "
+                f"{required_client_flag}"
                 "--min-human-recall-samples 10 "
                 "--min-human-session-samples 3 "
                 "--evidence-bundle brain-loop-release-evidence.json "
@@ -727,6 +806,14 @@ def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
         },
         "notes": notes,
     }
+
+
+def _release_required_client_flag(report: dict[str, Any]) -> str:
+    evidence = report.get("evidence") if isinstance(report.get("evidence"), dict) else {}
+    required_client = evidence.get("required_client")
+    if not isinstance(required_client, str) or not required_client.strip():
+        return ""
+    return f"--require-adoption-client {shlex.quote(required_client.strip())} "
 
 
 def _normalize_template_call(call: Any) -> dict[str, str]:
@@ -926,7 +1013,13 @@ def _merge_live_evidence(
     for key, value in incoming.items():
         if not value:
             continue
-        if key in {"source", "_session_ids"} and merged.get(key):
+        if key in {
+            "source",
+            "_session_ids",
+            "blockers",
+            "blocker_details",
+            "mcp_server_failures",
+        } and merged.get(key):
             merged_values = [item for item in merged[key].split(",") if item]
             incoming_values = [item for item in value.split(",") if item]
             for item in incoming_values:
@@ -943,9 +1036,17 @@ def _normalize_calls_payload(calls: list[Any]) -> list[dict[str, Any]]:
         return [_normalize_call(call) for call in calls]
     except ValueError as exc:
         stream_calls = _parse_claude_stream_json_calls(calls)
-        if stream_calls:
+        if stream_calls or _is_claude_stream_json(calls):
             return [_normalize_call(call) for call in stream_calls]
         raise exc
+
+
+def _is_claude_stream_json(records: list[Any]) -> bool:
+    return any(
+        isinstance(record, dict)
+        and record.get("type") in {"system", "assistant", "user", "result"}
+        for record in records
+    )
 
 
 def _parse_claude_stream_json_calls(records: list[Any]) -> list[dict[str, Any]]:
@@ -1113,6 +1214,15 @@ def _build_live_evidence_report(
         "source": evidence.get("source"),
         "missing": missing if require_live_evidence else [],
     }
+    blockers = _split_evidence_list(evidence.get("blockers"))
+    if blockers:
+        report["blockers"] = blockers
+    blocker_details = _split_evidence_list(evidence.get("blocker_details"))
+    if blocker_details:
+        report["blocker_details"] = blocker_details
+    mcp_failures = _split_evidence_list(evidence.get("mcp_server_failures"))
+    if mcp_failures:
+        report["mcp_server_failures"] = mcp_failures
     if required_client:
         report["required_client"] = required_client.strip()
         report["client_mismatch"] = not _client_matches_required(
@@ -1186,6 +1296,9 @@ def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
     """Infer live client metadata from structured transcript records."""
     evidence: dict[str, str] = {}
     session_ids: list[str] = []
+    blockers: list[str] = []
+    blocker_details: list[str] = []
+    mcp_server_failures: list[str] = []
     saw_claude_stream = False
 
     for record in records:
@@ -1208,13 +1321,88 @@ def _extract_record_live_evidence(records: list[Any]) -> dict[str, str]:
             evidence["captured_at"] = str(record["timestamp"])
         if not evidence.get("captured_at") and isinstance(record.get("capturedAt"), str):
             evidence["captured_at"] = str(record["capturedAt"])
+        _collect_record_blockers(
+            record,
+            blockers=blockers,
+            blocker_details=blocker_details,
+            mcp_server_failures=mcp_server_failures,
+        )
 
     if saw_claude_stream:
         evidence.setdefault("client", "Claude Code")
         evidence.setdefault("source", "claude_stream_json")
     if session_ids:
         evidence["_session_ids"] = ",".join(session_ids)
+    if blockers:
+        evidence["blockers"] = ",".join(blockers)
+    if blocker_details:
+        evidence["blocker_details"] = ",".join(blocker_details)
+    if mcp_server_failures:
+        evidence["mcp_server_failures"] = ",".join(mcp_server_failures)
     return evidence
+
+
+def _collect_record_blockers(
+    record: dict[str, Any],
+    *,
+    blockers: list[str],
+    blocker_details: list[str],
+    mcp_server_failures: list[str],
+) -> None:
+    if record.get("error") == "authentication_failed" or _record_mentions(
+        record,
+        "not logged in",
+    ):
+        _append_unique(blockers, "authentication_failed")
+        _append_unique(blocker_details, _record_summary(record))
+
+    servers = record.get("mcp_servers")
+    if isinstance(servers, list):
+        for server in servers:
+            if not isinstance(server, dict):
+                continue
+            if server.get("name") != "engram" or server.get("status") != "failed":
+                continue
+            _append_unique(blockers, "mcp_server_failed")
+            _append_unique(mcp_server_failures, "engram")
+
+
+def _record_mentions(record: dict[str, Any], needle: str) -> bool:
+    return needle in _record_text(record).lower()
+
+
+def _record_summary(record: dict[str, Any]) -> str:
+    text = _record_text(record).strip()
+    return text[:200] if text else str(record.get("error") or "blocked")
+
+
+def _record_text(record: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("result", "output", "stdout", "stderr", "error"):
+        value = record.get(key)
+        if isinstance(value, str) and value:
+            parts.append(value)
+    message = record.get("message")
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    parts.append(block["text"])
+        elif isinstance(content, str):
+            parts.append(content)
+    return "\n".join(parts)
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value and value not in values:
+        values.append(value)
+
+
+def _split_evidence_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item for item in value.split(",") if item]
 
 
 def _extract_plaintext_live_evidence(text: str) -> dict[str, str]:

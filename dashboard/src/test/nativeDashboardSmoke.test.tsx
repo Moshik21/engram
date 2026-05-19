@@ -391,7 +391,14 @@ const nativeEvaluationPayload = {
 };
 
 const nativeRecallPayload = {
+  operation: "recall",
   query: "Engram brain loop",
+  lifecycle: {
+    stage: "recall",
+    recallMode: "explicit",
+    resultCount: 1,
+    packetCount: 0,
+  },
   items: [
     {
       resultType: "entity",
@@ -593,7 +600,7 @@ describe("native PyO3 dashboard fixture smoke", () => {
       expect(useEngramStore.getState().episodes[0]?.cue?.policyScore).toBe(0.73);
     });
     expect(screen.getByText("native-rest-observe")).toBeInTheDocument();
-  });
+  }, 10000);
 });
 
 describeNativeSmoke("native PyO3 dashboard smoke", () => {

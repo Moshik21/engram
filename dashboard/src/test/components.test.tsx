@@ -91,6 +91,43 @@ vi.mock("../api/client", () => ({
       mode: "lite",
       services: { graph_store: "unhealthy" },
     }),
+    getRuntimeState: vi.fn().mockResolvedValue({
+      projectName: "Engram",
+      runtime: { mode: "lite" },
+      activation: {},
+      features: {},
+      artifactBootstrap: {
+        enabled: true,
+        projectPath: null,
+        artifactCount: 1,
+        freshArtifactCount: 1,
+        staleArtifactCount: 0,
+        lastObservedAt: "2026-05-19T00:00:00Z",
+        staleAfterSeconds: 86400,
+      },
+      agentAdoption: {
+        status: "ready",
+        doNotTreatEmptyAsFailure: false,
+        requiredNextTools: ["get_context"],
+        claimAuthority: {
+          tool: "claim_authority",
+          args: {
+            project_path: "<current_project_path>",
+            file_memory_present: "<true if local/file memory is visible>",
+          },
+          reason: "Load portable memory authority.",
+        },
+        bootstrap: {
+          tool: "bootstrap_project",
+          required: false,
+          args: { project_path: "<current_project_path>" },
+          reason: "Project artifacts are current.",
+        },
+        reason: "Engram has runtime evidence available.",
+      },
+      stats: { recallMetrics: {}, epistemicMetrics: {} },
+      generatedAt: "2026-05-19T00:00:00Z",
+    }),
     getNeighborhood: vi.fn().mockResolvedValue({
       centerId: "n1",
       nodes: [],
@@ -392,6 +429,54 @@ describe("ConnectionStatus", () => {
     });
     render(<ConnectionStatus />);
     expect(await screen.findByText("Server OK")).toBeInTheDocument();
+  });
+
+  it("shows onboarding when runtime state says empty Engram needs adoption actions", async () => {
+    vi.mocked(api.getHealth).mockResolvedValueOnce({
+      status: "healthy",
+      version: "test",
+      mode: "helix",
+      services: { graph_store: "healthy" },
+    });
+    vi.mocked(api.getRuntimeState).mockResolvedValueOnce({
+      projectName: "Engram",
+      runtime: { mode: "helix" },
+      activation: {},
+      features: {},
+      artifactBootstrap: {
+        enabled: true,
+        projectPath: "/tmp/engram",
+        artifactCount: 0,
+        freshArtifactCount: 0,
+        staleArtifactCount: 0,
+        lastObservedAt: null,
+        staleAfterSeconds: 86400,
+      },
+      agentAdoption: {
+        status: "fresh_runtime",
+        doNotTreatEmptyAsFailure: true,
+        requiredNextTools: ["claim_authority", "bootstrap_project", "get_context"],
+        claimAuthority: {
+          tool: "claim_authority",
+          args: {
+            project_path: "/tmp/engram",
+            file_memory_present: "<true if local/file memory is visible>",
+          },
+          reason: "Ask Engram for the source-of-truth contract.",
+        },
+        bootstrap: {
+          tool: "bootstrap_project",
+          required: true,
+          args: { project_path: "/tmp/engram" },
+          reason: "Fresh runtime is onboarding state.",
+        },
+        reason: "Connected but empty/fresh Engram runtime.",
+      },
+      stats: { recallMetrics: {}, epistemicMetrics: {} },
+      generatedAt: "2026-05-19T00:00:00Z",
+    });
+    render(<ConnectionStatus />);
+    expect(await screen.findByText("Onboarding")).toBeInTheDocument();
   });
 });
 
@@ -1039,6 +1124,189 @@ describe("EvaluationPanel", () => {
 
     expect(await screen.findByText("latest issue")).toBeInTheDocument();
     expect(screen.getByText("edge_adjudication: judge unavailable")).toBeInTheDocument();
+  });
+
+  it("renders release evidence gate state", async () => {
+    const report = makeEvaluationReportFixture();
+    report.humanLabelEvidence = {
+      status: "measured",
+      artifactPath: "human-labels.json",
+      artifactSha256: "human123",
+      kind: "engram_human_label_evidence",
+      source: "staging_harness",
+      client: "Cursor",
+      capturedAt: "2026-05-18T23:00:00Z",
+      sessionId: "cursor-thread-1",
+      labeler: "operator",
+      humanLabeled: true,
+      recallSampleCount: 12,
+      sessionSampleCount: 4,
+      minRecallSamples: 10,
+      minSessionSamples: 3,
+      sampleSources: ["staging_harness"],
+      failures: [],
+    };
+    report.adoptionEvidence = {
+      status: "measured",
+      artifactPath: "cursor-adoption-report.json",
+      artifactSha256: "cursor123",
+      adoptionStatus: "passed",
+      authorityPath: "authority.json",
+      callsPath: "calls.jsonl",
+      callCount: 4,
+      client: "Cursor",
+      requiredClient: "Cursor",
+      gateRequiredClient: "Cursor",
+      capturedAt: "2026-05-18T23:00:00Z",
+      sessionId: "cursor-thread-1",
+      sessionFilter: "cursor-thread-1",
+      source: "live_harness",
+      requiredLiveEvidence: true,
+      blockers: ["mcp_server_failed", "authentication_failed"],
+      blockerDetails: ["system:error: Not logged in - Please run /login"],
+      mcpServerFailures: ["engram"],
+      requiredTools: {
+        expected: ["get_context", "recall", "observe"],
+        observed: ["get_context", "recall", "observe"],
+        missing: [],
+        inOrder: true,
+      },
+      capture: {
+        destination: "engram",
+        expectedTool: "observe",
+        observedTools: ["observe"],
+        missing: false,
+      },
+      fileMemory: { present: false, substitutedForEngram: false },
+      failures: [],
+    };
+    report.additionalAdoptionEvidence = [
+      {
+        ...report.adoptionEvidence,
+        client: "Windsurf",
+        artifactPath: "windsurf-adoption-report.json",
+        blockers: ["mcp_server_failed"],
+      },
+    ];
+    report.adoptionClientEvidence = {
+      status: "measured",
+      requiredClients: ["Cursor", "Windsurf"],
+      observedClients: ["Cursor", "Windsurf"],
+      reportCount: 2,
+      reports: [
+        {
+          client: "Cursor",
+          requiredClient: "Cursor",
+          status: "measured",
+          artifactPath: "cursor-adoption-report.json",
+          artifactSha256: "cursor123",
+          capturedAt: "2026-05-18T23:00:00Z",
+          sessionId: "cursor-thread-1",
+          failures: [],
+        },
+        {
+          client: "Windsurf",
+          requiredClient: "Windsurf",
+          status: "measured",
+          artifactPath: "windsurf-adoption-report.json",
+          artifactSha256: "windsurf123",
+          capturedAt: "2026-05-18T23:01:00Z",
+          sessionId: "windsurf-thread-1",
+          blockers: ["mcp_server_failed"],
+          blockerDetails: ["mcp server engram failed"],
+          mcpServerFailures: ["engram"],
+          failures: [],
+        },
+      ],
+      blockers: ["mcp_server_failed", "authentication_failed"],
+      mcpServerFailures: ["engram"],
+      failures: [],
+    };
+    report.releaseEvidence = {
+      status: "measured",
+      components: {
+        evaluationSignals: { status: "measured", missing: [], failures: [] },
+        humanLabels: { status: "measured", missing: [], failures: [] },
+        adoption: {
+          status: "measured",
+          missing: [],
+          failures: [],
+          blockers: ["mcp_server_failed", "authentication_failed"],
+          blockerDetails: ["system:error: Not logged in - Please run /login"],
+          mcpServerFailures: ["engram"],
+        },
+        adoptionClients: {
+          status: "measured",
+          missing: [],
+          failures: [],
+          requiredClients: ["Cursor", "Windsurf"],
+          observedClients: ["Cursor", "Windsurf"],
+          blockers: ["mcp_server_failed", "authentication_failed"],
+          mcpServerFailures: ["engram"],
+        },
+      },
+      missing: [],
+      failures: [],
+    };
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce(report);
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Release Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Readiness")).toBeInTheDocument();
+    expect(screen.getAllByText("measured").length).toBeGreaterThan(0);
+    expect(screen.getByText("Human labels")).toBeInTheDocument();
+    expect(screen.getByText("Adoption")).toBeInTheDocument();
+    expect(screen.getByText("Clients")).toBeInTheDocument();
+    expect(screen.getAllByText("Cursor").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("12/10").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("4/3").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Cursor, Windsurf").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Windsurf")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("mcp_server_failed, authentication_failed").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("engram").length).toBeGreaterThan(0);
+  });
+
+  it("renders release evidence readiness when artifacts are missing", async () => {
+    const report = makeEvaluationReportFixture();
+    report.releaseEvidence = {
+      status: "needs_evidence",
+      components: {
+        evaluationSignals: { status: "measured", missing: [], failures: [] },
+        humanLabels: {
+          status: "missing",
+          missing: ["human_label_evidence"],
+          failures: [],
+        },
+        adoption: {
+          status: "missing",
+          missing: ["adoption_evidence"],
+          failures: [],
+        },
+        adoptionClients: {
+          status: "not_required",
+          missing: [],
+          failures: [],
+          requiredClients: [],
+          observedClients: [],
+        },
+      },
+      missing: ["human_label_evidence", "adoption_evidence"],
+      failures: [],
+    };
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce(report);
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Release Evidence")).toBeInTheDocument();
+    expect(screen.getAllByText("needs_evidence").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("human_label_evidence, adoption_evidence"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("not_required")).toBeInTheDocument();
+    expect(screen.queryByText("No release evidence attached")).not.toBeInTheDocument();
   });
 
   it("shows calibration quality gaps without rendering unscored accuracy", async () => {

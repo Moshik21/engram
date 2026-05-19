@@ -101,6 +101,62 @@ def evaluation_signal_failure_message(
     return f"{prefix}: {failures}"
 
 
+def build_release_evidence_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the shared release-readiness contract for report consumers."""
+    evaluation_component = _release_evaluation_signal_component(report)
+    human_label_component = _release_evidence_component(
+        report.get("human_label_evidence"),
+        missing_key="human_label_evidence",
+    )
+    adoption_component = _release_evidence_component(
+        report.get("adoption_evidence"),
+        missing_key="adoption_evidence",
+    )
+    adoption_client_component = _release_adoption_client_component(
+        report.get("adoption_client_evidence")
+    )
+
+    components = {
+        "evaluation_signals": evaluation_component,
+        "human_labels": human_label_component,
+        "adoption": adoption_component,
+        "adoption_clients": adoption_client_component,
+    }
+    missing = [
+        missing_key
+        for component in components.values()
+        for missing_key in component.get("missing", [])
+    ]
+    failures = [
+        str(failure)
+        for component in components.values()
+        for failure in component.get("failures", [])
+    ]
+
+    if any(component.get("status") == "failed" for component in components.values()):
+        status = "failed"
+    elif evaluation_component.get("status") != "measured":
+        status = "needs_signals"
+    elif missing:
+        status = "needs_evidence"
+    else:
+        status = "measured"
+
+    return {
+        "status": status,
+        "components": components,
+        "missing": missing,
+        "failures": failures,
+    }
+
+
+def with_release_evidence_summary(report: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a report copy with a freshly computed release evidence summary."""
+    payload = dict(report)
+    payload["release_evidence"] = build_release_evidence_summary(payload)
+    return payload
+
+
 def is_brain_loop_report_payload(payload: Any) -> bool:
     """Return whether a JSON payload is a complete brain-loop report artifact."""
     if not isinstance(payload, Mapping):
@@ -198,7 +254,7 @@ def build_brain_loop_report(
         consolidate=consolidate,
     )
 
-    return {
+    report = {
         "group_id": group_id,
         "generated_at": _generated_at(generated_at),
         "loop": LOOP,
@@ -216,6 +272,7 @@ def build_brain_loop_report(
         "evaluation_signals": evaluation_signals,
         "coverage_gaps": coverage_gaps,
     }
+    return with_release_evidence_summary(report)
 
 
 def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
@@ -347,6 +404,43 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
                 f"{gap_text}"
             )
 
+    release_evidence = _mapping(report.get("release_evidence"))
+    if release_evidence:
+        release_missing = list(release_evidence.get("missing") or [])
+        release_failures = list(release_evidence.get("failures") or [])
+        missing_text = ", ".join(str(item) for item in release_missing) or "none"
+        failure_text = ", ".join(str(item) for item in release_failures) or "none"
+        lines.extend(
+            [
+                "",
+                "## Release Evidence",
+                "",
+                f"- Status: {release_evidence.get('status', 'unknown')}",
+                f"- Missing: {missing_text}",
+                f"- Failures: {failure_text}",
+            ]
+        )
+        release_components = _mapping(release_evidence.get("components"))
+        for component_name in (
+            "evaluation_signals",
+            "human_labels",
+            "adoption",
+            "adoption_clients",
+        ):
+            component = _mapping(release_components.get(component_name))
+            if not component:
+                continue
+            component_failures = list(component.get("failures") or [])
+            component_failure_text = (
+                f" | failures: {', '.join(str(item) for item in component_failures)}"
+                if component_failures
+                else ""
+            )
+            lines.append(
+                f"- {component_name.replace('_', ' ').title()}: "
+                f"{component.get('status', 'unknown')}{component_failure_text}"
+            )
+
     benchmark_evidence = _mapping(report.get("benchmark_evidence"))
     if benchmark_evidence:
         benchmark_failures = list(benchmark_evidence.get("failures") or [])
@@ -423,6 +517,15 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
     adoption_evidence = _mapping(report.get("adoption_evidence"))
     if adoption_evidence:
         adoption_failures = list(adoption_evidence.get("failures") or [])
+        adoption_blockers = [
+            str(blocker) for blocker in adoption_evidence.get("blockers") or []
+        ]
+        adoption_blocker_details = [
+            str(detail) for detail in adoption_evidence.get("blocker_details") or []
+        ]
+        adoption_mcp_failures = [
+            str(server) for server in adoption_evidence.get("mcp_server_failures") or []
+        ]
         failure_text = (
             f" | failures: {', '.join(str(failure) for failure in adoption_failures)}"
             if adoption_failures
@@ -448,12 +551,164 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
                 ),
             ]
         )
+        if adoption_blockers:
+            lines.append(f"- Blockers: {', '.join(adoption_blockers)}")
+        if adoption_mcp_failures:
+            lines.append(f"- MCP server failures: {', '.join(adoption_mcp_failures)}")
+        if adoption_blocker_details:
+            lines.append(f"- Blocker details: {'; '.join(adoption_blocker_details)}")
+
+    adoption_client_evidence = _mapping(report.get("adoption_client_evidence"))
+    if adoption_client_evidence:
+        client_failures = list(adoption_client_evidence.get("failures") or [])
+        failure_text = (
+            f" | failures: {', '.join(str(failure) for failure in client_failures)}"
+            if client_failures
+            else ""
+        )
+        required_clients = ", ".join(
+            str(client) for client in adoption_client_evidence.get("required_clients") or []
+        ) or "none"
+        observed_clients = ", ".join(
+            str(client) for client in adoption_client_evidence.get("observed_clients") or []
+        ) or "none"
+        client_blockers = [
+            str(blocker) for blocker in adoption_client_evidence.get("blockers") or []
+        ]
+        client_mcp_failures = [
+            str(server)
+            for server in adoption_client_evidence.get("mcp_server_failures") or []
+        ]
+        lines.extend(
+            [
+                "",
+                "## Adoption Client Evidence",
+                "",
+                (
+                    f"- Status: {adoption_client_evidence.get('status', 'unknown')}"
+                    f"{failure_text}"
+                ),
+                (
+                    f"- Required clients: {required_clients} | observed clients: "
+                    f"{observed_clients}"
+                ),
+                (
+                    f"- Reports: {adoption_client_evidence.get('report_count', 0)}"
+                ),
+            ]
+        )
+        if client_blockers:
+            lines.append(f"- Blockers: {', '.join(client_blockers)}")
+        if client_mcp_failures:
+            lines.append(f"- MCP server failures: {', '.join(client_mcp_failures)}")
+        for evidence_report in adoption_client_evidence.get("reports") or []:
+            if not isinstance(evidence_report, Mapping):
+                continue
+            report_blockers = [
+                str(blocker) for blocker in evidence_report.get("blockers") or []
+            ]
+            blocker_text = (
+                f" | blockers {', '.join(report_blockers)}"
+                if report_blockers
+                else ""
+            )
+            lines.append(
+                "- Report: "
+                f"{evidence_report.get('client') or 'unknown client'} "
+                f"{evidence_report.get('status') or 'unknown'} | "
+                f"{evidence_report.get('artifact_path') or 'unknown artifact'} "
+                f"| sha256 {evidence_report.get('artifact_sha256') or 'unknown'}"
+                f"{blocker_text}"
+            )
 
     if gaps:
         lines.extend(["", "## Coverage Gaps", ""])
         lines.extend(f"- {gap}" for gap in gaps)
 
     return "\n".join(lines).strip() + "\n"
+
+
+def _release_evaluation_signal_component(report: Mapping[str, Any]) -> dict[str, Any]:
+    evaluation_signals = _mapping(report.get("evaluation_signals"))
+    if not evaluation_signals:
+        return {
+            "status": "missing",
+            "missing": ["evaluation_signals"],
+            "failures": ["evaluation_signals:missing"],
+        }
+    failures = unmeasured_evaluation_signals(report)
+    return {
+        "status": "measured" if not failures else "needs_signals",
+        "missing": [],
+        "failures": failures,
+    }
+
+
+def _release_evidence_component(
+    evidence: Any,
+    *,
+    missing_key: str,
+) -> dict[str, Any]:
+    payload = _mapping(evidence)
+    if not payload:
+        return {
+            "status": "missing",
+            "missing": [missing_key],
+            "failures": [],
+        }
+    status = str(payload.get("status") or "missing")
+    failures = [str(failure) for failure in payload.get("failures") or []]
+    if status != "measured":
+        failures.append(f"{missing_key}:{status}")
+    component = {
+        "status": "measured" if status == "measured" and not failures else "failed",
+        "missing": [],
+        "failures": failures,
+    }
+    _copy_nonempty_list(component, payload, "blockers")
+    _copy_nonempty_list(component, payload, "blocker_details")
+    _copy_nonempty_list(component, payload, "mcp_server_failures")
+    return component
+
+
+def _release_adoption_client_component(evidence: Any) -> dict[str, Any]:
+    payload = _mapping(evidence)
+    if not payload:
+        return {
+            "status": "not_required",
+            "missing": [],
+            "failures": [],
+            "required_clients": [],
+            "observed_clients": [],
+        }
+    status = str(payload.get("status") or "missing")
+    failures = [str(failure) for failure in payload.get("failures") or []]
+    if status != "measured":
+        failures.append(f"adoption_client_evidence:{status}")
+    component = {
+        "status": "measured" if status == "measured" and not failures else "failed",
+        "missing": [],
+        "failures": failures,
+        "required_clients": [
+            str(client) for client in payload.get("required_clients") or []
+        ],
+        "observed_clients": [
+            str(client) for client in payload.get("observed_clients") or []
+        ],
+    }
+    _copy_nonempty_list(component, payload, "blockers")
+    _copy_nonempty_list(component, payload, "mcp_server_failures")
+    return component
+
+
+def _copy_nonempty_list(
+    target: dict[str, Any],
+    source: Mapping[str, Any],
+    key: str,
+) -> None:
+    values = [str(value) for value in source.get(key) or []]
+    if values:
+        target[key] = values
 
 
 def _capture_summary(stats: Mapping[str, Any], episode_count: int) -> dict[str, Any]:

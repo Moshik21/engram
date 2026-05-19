@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 
-def load_adoption_evidence(artifact_path: Path) -> dict[str, Any]:
+def load_adoption_evidence(
+    artifact_path: Path,
+    *,
+    required_client: str | None = None,
+) -> dict[str, Any]:
     """Load and summarize an `engram adoption --format json` report."""
     raw = artifact_path.read_bytes()
     payload = json.loads(raw.decode("utf-8"))
@@ -19,6 +23,7 @@ def load_adoption_evidence(artifact_path: Path) -> dict[str, Any]:
         payload,
         artifact_path=artifact_path,
         artifact_sha256=hashlib.sha256(raw).hexdigest(),
+        required_client=required_client,
     )
 
 
@@ -27,6 +32,7 @@ def build_adoption_evidence(
     *,
     artifact_path: Path | None = None,
     artifact_sha256: str | None = None,
+    required_client: str | None = None,
 ) -> dict[str, Any]:
     """Build a release-gate summary from an adoption validation report."""
     evidence = _mapping(payload.get("evidence"))
@@ -36,8 +42,17 @@ def build_adoption_evidence(
     file_memory = _mapping(validation.get("file_memory"))
 
     client = _string(evidence.get("client"))
+    report_required_client = _string(evidence.get("required_client"))
+    gate_required_client = _string(required_client)
     captured_at = _string(evidence.get("captured_at") or evidence.get("capturedAt"))
     session_id = _string(evidence.get("session_id") or evidence.get("sessionId"))
+    blockers = _string_list(evidence.get("blockers"))
+    blocker_details = _string_list(
+        evidence.get("blocker_details") or evidence.get("blockerDetails")
+    )
+    mcp_server_failures = _string_list(
+        evidence.get("mcp_server_failures") or evidence.get("mcpServerFailures")
+    )
     failures: list[str] = []
     if payload.get("status") != "passed":
         failures.append("adoption_status_not_passed")
@@ -58,6 +73,19 @@ def build_adoption_evidence(
     validation_failures = [str(failure) for failure in validation.get("failures") or []]
     if validation_failures:
         failures.append("adoption_validation_failures(" + ",".join(validation_failures) + ")")
+    if gate_required_client:
+        if not _client_matches(client, gate_required_client):
+            failures.append(
+                "adoption_client_mismatch"
+                f"({_client_label(client)}!={gate_required_client})"
+            )
+        if not report_required_client:
+            failures.append("missing_required_adoption_client_gate")
+        elif not _client_matches(report_required_client, gate_required_client):
+            failures.append(
+                "required_adoption_client_mismatch"
+                f"({report_required_client}!={gate_required_client})"
+            )
 
     return {
         "status": "failed" if failures else "measured",
@@ -68,12 +96,16 @@ def build_adoption_evidence(
         "calls_path": payload.get("callsPath"),
         "call_count": _int(payload.get("callCount")),
         "client": client,
-        "required_client": evidence.get("required_client"),
+        "required_client": report_required_client,
+        "gate_required_client": gate_required_client,
         "captured_at": captured_at,
         "session_id": session_id,
         "session_filter": evidence.get("session_filter"),
         "source": evidence.get("source"),
         "required_live_evidence": bool(evidence.get("required")),
+        "blockers": blockers,
+        "blocker_details": blocker_details,
+        "mcp_server_failures": mcp_server_failures,
         "required_tools": {
             "expected": list(required_tools.get("expected") or []),
             "observed": list(required_tools.get("observed") or []),
@@ -109,6 +141,108 @@ def adoption_evidence_failure_message(
         return f"{prefix}: {failures}"
     if evidence.get("status") != "measured":
         return f"{prefix}: ['adoption_evidence:{evidence.get('status', 'missing')}']"
+    return None
+
+
+def build_adoption_client_set_evidence(
+    evidences: list[Mapping[str, Any]],
+    *,
+    required_clients: list[str],
+) -> dict[str, Any]:
+    """Summarize adoption evidence across multiple live MCP clients."""
+    required_labels = _dedupe_labels(required_clients)
+    observed_clients = _dedupe_labels(
+        [
+            str(evidence.get("client"))
+            for evidence in evidences
+            if evidence.get("client")
+        ]
+    )
+    blockers = _dedupe_labels(
+        [
+            str(blocker)
+            for evidence in evidences
+            for blocker in evidence.get("blockers") or []
+        ]
+    )
+    mcp_server_failures = _dedupe_labels(
+        [
+            str(server)
+            for evidence in evidences
+            for server in evidence.get("mcp_server_failures") or []
+        ]
+    )
+    failures: list[str] = []
+    if not evidences:
+        failures.append("missing_adoption_evidence")
+    for evidence in evidences:
+        if evidence.get("status") != "measured":
+            client_or_path = _string(evidence.get("client")) or _string(
+                evidence.get("artifact_path")
+            )
+            failures.append(
+                "adoption_report_failed"
+                f"({_client_label(client_or_path)})"
+            )
+    for required_client in required_labels:
+        matching = [
+            evidence
+            for evidence in evidences
+            if _client_matches(_string(evidence.get("client")), required_client)
+        ]
+        if not matching:
+            failures.append(f"missing_required_adoption_client({required_client})")
+            continue
+        if not any(
+            _client_matches(_string(evidence.get("required_client")), required_client)
+            for evidence in matching
+        ):
+            failures.append(
+                f"missing_required_adoption_client_gate({required_client})"
+            )
+
+    return {
+        "status": "failed" if failures else "measured",
+        "required_clients": required_labels,
+        "observed_clients": observed_clients,
+        "report_count": len(evidences),
+        "reports": [
+            {
+                "client": evidence.get("client"),
+                "required_client": evidence.get("required_client"),
+                "status": evidence.get("status"),
+                "artifact_path": evidence.get("artifact_path"),
+                "artifact_sha256": evidence.get("artifact_sha256"),
+                "captured_at": evidence.get("captured_at"),
+                "session_id": evidence.get("session_id"),
+                "blockers": list(evidence.get("blockers") or []),
+                "blocker_details": list(evidence.get("blocker_details") or []),
+                "mcp_server_failures": list(
+                    evidence.get("mcp_server_failures") or []
+                ),
+                "failures": list(evidence.get("failures") or []),
+            }
+            for evidence in evidences
+        ],
+        "blockers": blockers,
+        "mcp_server_failures": mcp_server_failures,
+        "failures": failures,
+    }
+
+
+def adoption_client_set_failure_message(
+    evidence: Mapping[str, Any] | None,
+    *,
+    prefix: str,
+) -> str | None:
+    """Return a human-readable failure if multi-client adoption evidence failed."""
+    if not evidence:
+        return f"{prefix}: ['missing_adoption_client_set_evidence']"
+    failures = list(evidence.get("failures") or [])
+    if failures:
+        return f"{prefix}: {failures}"
+    if evidence.get("status") != "measured":
+        return f"{prefix}: ['adoption_client_set:{evidence.get('status', 'missing')}']"
     return None
 
 
@@ -174,6 +308,43 @@ def _string(value: Any) -> str | None:
         stripped = value.strip()
         return stripped or None
     return None
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value if str(item)]
+    return []
+
+
+def _client_matches(observed_client: str | None, required_client: str) -> bool:
+    return _normalize_client_label(observed_client) == _normalize_client_label(
+        required_client
+    )
+
+
+def _normalize_client_label(value: str | None) -> str:
+    return " ".join((value or "").strip().lower().split())
+
+
+def _client_label(value: str | None) -> str:
+    return value if value else "missing"
+
+
+def _dedupe_labels(values: list[str]) -> list[str]:
+    labels: list[str] = []
+    normalized_seen: set[str] = set()
+    for value in values:
+        label = _string(value)
+        if not label:
+            continue
+        normalized = _normalize_client_label(label)
+        if normalized in normalized_seen:
+            continue
+        normalized_seen.add(normalized)
+        labels.append(label)
+    return labels
 
 
 def _int(value: Any) -> int:

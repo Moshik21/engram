@@ -92,7 +92,8 @@ whether an empty runtime should be bootstrapped, and which tools to call before 
 answering the current message.
 - **route_question** — Epistemic routing: continuity vs artifact vs reconciliation.
 - **search_artifacts** — Search bootstrapped project artifacts.
-- **get_runtime_state** — Check mode, profiles, flags, bootstrap freshness.
+- **get_runtime_state** — Check mode, profiles, flags, bootstrap freshness, \
+and `agentAdoption.requiredNextTools` when the runtime looks fresh or empty.
 - **adjudicate_evidence** — Resolve ambiguous memory items (see tool docstring).
 
 ## When to Observe vs Remember

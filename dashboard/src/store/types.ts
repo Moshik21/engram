@@ -308,6 +308,51 @@ export interface GraphStats {
   growthTimeline: Array<{ date: string; entities: number; episodes: number }>;
 }
 
+export type AgentAdoptionStatus =
+  | "fresh_runtime"
+  | "needs_project_bootstrap"
+  | "ready";
+
+export interface RuntimeState {
+  projectName: string;
+  runtime: {
+    mode: string;
+  };
+  activation: Record<string, string | number | boolean | null | undefined>;
+  features: Record<string, boolean>;
+  artifactBootstrap: {
+    enabled: boolean;
+    projectPath: string | null;
+    artifactCount: number;
+    freshArtifactCount: number;
+    staleArtifactCount: number;
+    lastObservedAt: string | null;
+    staleAfterSeconds: number;
+  };
+  agentAdoption: {
+    status: AgentAdoptionStatus;
+    doNotTreatEmptyAsFailure: boolean;
+    requiredNextTools: string[];
+    claimAuthority: {
+      tool: "claim_authority";
+      args: Record<string, string | boolean | null>;
+      reason: string;
+    };
+    bootstrap: {
+      tool: "bootstrap_project";
+      required: boolean;
+      args: { project_path: string };
+      reason: string;
+    };
+    reason: string;
+  };
+  stats: {
+    recallMetrics: Record<string, unknown>;
+    epistemicMetrics: Record<string, unknown>;
+  };
+  generatedAt: string;
+}
+
 export type LifecycleStageKey = "capture" | "cue" | "project" | "recall" | "consolidate";
 export type LifecycleStageStatus = "active" | "ready" | "attention";
 
@@ -423,6 +468,111 @@ export interface BrainLoopEvaluationSignal {
   evidenceCount: number;
   metric: number | null;
   gap: string | null;
+}
+
+export interface HumanLabelEvidence {
+  status: string;
+  artifactPath: string | null;
+  artifactSha256: string | null;
+  kind: string | null;
+  source: string | null;
+  client: string | null;
+  capturedAt: string | null;
+  sessionId: string | null;
+  labeler: string | null;
+  humanLabeled: boolean;
+  recallSampleCount: number;
+  sessionSampleCount: number;
+  minRecallSamples: number;
+  minSessionSamples: number;
+  sampleSources: string[];
+  failures: string[];
+}
+
+export interface AdoptionEvidence {
+  status: string;
+  artifactPath: string | null;
+  artifactSha256: string | null;
+  adoptionStatus: string | null;
+  authorityPath: string | null;
+  callsPath: string | null;
+  callCount: number;
+  client: string | null;
+  requiredClient: string | null;
+  gateRequiredClient: string | null;
+  capturedAt: string | null;
+  sessionId: string | null;
+  sessionFilter: string | null;
+  source: string | null;
+  requiredLiveEvidence: boolean;
+  blockers?: string[];
+  blockerDetails?: string[];
+  mcpServerFailures?: string[];
+  requiredTools: {
+    expected: string[];
+    observed: string[];
+    missing: string[];
+    inOrder: boolean;
+  };
+  capture: {
+    destination: string | null;
+    expectedTool: string | null;
+    observedTools: string[];
+    missing: boolean;
+  };
+  fileMemory: {
+    present: boolean | null;
+    substitutedForEngram: boolean;
+  };
+  failures: string[];
+}
+
+export interface AdoptionClientEvidenceReport {
+  client: string | null;
+  requiredClient: string | null;
+  status: string;
+  artifactPath: string | null;
+  artifactSha256: string | null;
+  capturedAt: string | null;
+  sessionId: string | null;
+  blockers?: string[];
+  blockerDetails?: string[];
+  mcpServerFailures?: string[];
+  failures: string[];
+}
+
+export interface AdoptionClientEvidence {
+  status: string;
+  requiredClients: string[];
+  observedClients: string[];
+  reportCount: number;
+  reports: AdoptionClientEvidenceReport[];
+  blockers?: string[];
+  mcpServerFailures?: string[];
+  failures: string[];
+}
+
+export interface ReleaseEvidenceComponent {
+  status: string;
+  missing: string[];
+  failures: string[];
+  requiredClients?: string[];
+  observedClients?: string[];
+  blockers?: string[];
+  blockerDetails?: string[];
+  mcpServerFailures?: string[];
+}
+
+export interface ReleaseEvidenceSummary {
+  status: string;
+  components: {
+    evaluationSignals: ReleaseEvidenceComponent;
+    humanLabels: ReleaseEvidenceComponent;
+    adoption: ReleaseEvidenceComponent;
+    adoptionClients: ReleaseEvidenceComponent;
+  };
+  missing: string[];
+  failures: string[];
 }
 
 export interface BrainLoopEvaluationReport {
@@ -607,6 +757,11 @@ export interface BrainLoopEvaluationReport {
   };
   evaluationSignals: Record<BrainLoopEvaluationSignalKey, BrainLoopEvaluationSignal>;
   coverageGaps: string[];
+  releaseEvidence?: ReleaseEvidenceSummary | null;
+  humanLabelEvidence?: HumanLabelEvidence | null;
+  adoptionEvidence?: AdoptionEvidence | null;
+  additionalAdoptionEvidence?: AdoptionEvidence[];
+  adoptionClientEvidence?: AdoptionClientEvidence | null;
 }
 
 export interface RecallEvaluationInput {
@@ -723,6 +878,21 @@ export interface RecallResultCueEpisode {
 }
 
 export type RecallResult = RecallResultEntity | RecallResultEpisode | RecallResultCueEpisode;
+
+export interface RecallResponseLifecycle {
+  stage: "recall";
+  recallMode: "explicit";
+  resultCount: number;
+  packetCount: number;
+}
+
+export interface RecallResponse {
+  operation: "recall";
+  lifecycle: RecallResponseLifecycle;
+  items: RecallResult[];
+  packets?: Array<Record<string, unknown>>;
+  query: string;
+}
 
 export interface FactResult {
   subject: string;

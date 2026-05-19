@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.ingestion.capture_surface import store_observation
 from engram.retrieval.context import (
     manager_conversation_context,
     manager_conversation_recent_turns,
@@ -440,9 +441,14 @@ async def store_mcp_auto_observe_turn(
     group_id: str,
     source: str = "tool_piggyback",
 ) -> None:
-    """Store MCP auto-observed content through the runtime helper boundary."""
+    """Store MCP auto-observed content through the Capture-stage helper boundary."""
     try:
-        await manager.store_episode(content, group_id, source=source)
+        await store_observation(
+            manager,
+            content=content,
+            group_id=group_id,
+            source=source,
+        )
     except Exception:
         logger.debug("middleware auto-observe failed", exc_info=True)
 

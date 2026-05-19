@@ -865,6 +865,10 @@ class TestJSONResponses:
         raw = await mcp_server.recall("Engram packet routing", limit=3)
 
         payload = json.loads(raw)
+        assert payload["operation"] == "recall"
+        assert payload["query"] == "Engram packet routing"
+        assert payload["lifecycle"]["stage"] == "recall"
+        assert payload["lifecycle"]["recall_mode"] == "explicit"
         assert payload["total_candidates"] == 0
         analyze.assert_awaited_once()
         assert analyze.await_args.kwargs["group_id"] == GROUP

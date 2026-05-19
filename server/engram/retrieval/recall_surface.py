@@ -12,8 +12,9 @@ from engram.retrieval.control import resolve_manager_recall_need_thresholds
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.presenter import (
-    present_api_recall_items,
+    present_api_recall_response,
     present_mcp_recall_items,
+    present_mcp_recall_response,
 )
 
 PacketSerializer = Callable[[MemoryPacket], dict[str, Any]]
@@ -47,11 +48,7 @@ async def build_api_recall_surface(
         cfg=manager.get_memory_need_config(),
         serializer=memory_packet_to_api_dict,
     )
-    return {
-        "items": present_api_recall_items(results),
-        "packets": packets,
-        "query": query,
-    }
+    return present_api_recall_response(query=query, results=results, packets=packets)
 
 
 async def build_mcp_recall_surface(
@@ -92,11 +89,11 @@ async def build_mcp_recall_surface(
         cfg=cfg,
         serializer=lambda packet: packet.to_dict(),
     )
-    response = {
-        "packets": packets,
-        "results": formatted,
-        "total_candidates": len(formatted),
-    }
+    response = present_mcp_recall_response(
+        query=query,
+        results=formatted,
+        packets=packets,
+    )
     await attach_mcp_explicit_recall_enrichment(
         manager,
         response,

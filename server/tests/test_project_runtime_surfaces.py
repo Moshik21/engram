@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from engram.config import ActivationConfig
 from engram.ingestion.project_bootstrap import (
     build_project_bootstrap_surface,
     project_bootstrap_http_status,
@@ -12,7 +13,7 @@ from engram.retrieval.memory_authority import (
     build_mcp_memory_authority_surface,
     validate_agent_protocol_calls,
 )
-from engram.retrieval.runtime_state import build_runtime_state_surface
+from engram.retrieval.runtime_state import RuntimeStateService, build_runtime_state_surface
 
 
 @pytest.mark.asyncio
@@ -69,6 +70,48 @@ async def test_runtime_state_surface_forwards_group_and_project_path() -> None:
         group_id="native_brain",
         project_path="/tmp/engram",
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
+    async def list_project_artifacts(**_: object) -> list[object]:
+        return []
+
+    service = RuntimeStateService(
+        cfg=ActivationConfig(artifact_bootstrap_enabled=True),
+        runtime_mode="helix",
+        list_project_artifacts=list_project_artifacts,
+        artifact_is_stale=lambda *_: False,
+        get_recall_metrics=lambda _: {},
+        get_epistemic_metrics=lambda _: {},
+    )
+
+    result = await service.get_runtime_state(
+        group_id="native_brain",
+        project_path="/tmp/engram",
+    )
+
+    guidance = result["agentAdoption"]
+    assert guidance["status"] == "fresh_runtime"
+    assert guidance["doNotTreatEmptyAsFailure"] is True
+    assert guidance["requiredNextTools"] == [
+        "claim_authority",
+        "bootstrap_project",
+        "get_context",
+    ]
+    assert guidance["claimAuthority"]["args"] == {
+        "project_path": "/tmp/engram",
+        "file_memory_present": "<true if local/file memory is visible>",
+    }
+    assert guidance["bootstrap"] == {
+        "tool": "bootstrap_project",
+        "required": True,
+        "args": {"project_path": "/tmp/engram"},
+        "reason": (
+            "A fresh or empty artifact substrate is onboarding state, not proof "
+            "that Engram has no useful memory."
+        ),
+    }
 
 
 @pytest.mark.asyncio

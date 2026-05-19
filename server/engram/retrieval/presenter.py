@@ -172,6 +172,80 @@ def present_api_recall_items(results: Sequence[Mapping[str, Any]]) -> list[dict[
     return [present_api_recall_item(result) for result in results]
 
 
+def recall_response_contract(
+    *,
+    query: str,
+    result_count: int,
+    packet_count: int,
+) -> dict[str, Any]:
+    """Normalize explicit Recall response metadata across public surfaces."""
+    return {
+        "operation": "recall",
+        "lifecycle_stage": "recall",
+        "recall_mode": "explicit",
+        "query": query,
+        "result_count": max(0, int(result_count)),
+        "packet_count": max(0, int(packet_count)),
+    }
+
+
+def present_api_recall_response(
+    *,
+    query: str,
+    results: Sequence[Mapping[str, Any]],
+    packets: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Format the REST explicit-recall response with shared lifecycle semantics."""
+    items = present_api_recall_items(results)
+    packet_payloads = list(packets)
+    contract = recall_response_contract(
+        query=query,
+        result_count=len(items),
+        packet_count=len(packet_payloads),
+    )
+    return {
+        "operation": contract["operation"],
+        "lifecycle": {
+            "stage": contract["lifecycle_stage"],
+            "recallMode": contract["recall_mode"],
+            "resultCount": contract["result_count"],
+            "packetCount": contract["packet_count"],
+        },
+        "items": items,
+        "packets": packet_payloads,
+        "query": contract["query"],
+    }
+
+
+def present_mcp_recall_response(
+    *,
+    query: str,
+    results: Sequence[Mapping[str, Any]],
+    packets: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Format the MCP explicit-recall response with shared lifecycle semantics."""
+    result_payloads = list(results)
+    packet_payloads = list(packets)
+    contract = recall_response_contract(
+        query=query,
+        result_count=len(result_payloads),
+        packet_count=len(packet_payloads),
+    )
+    return {
+        "operation": contract["operation"],
+        "lifecycle": {
+            "stage": contract["lifecycle_stage"],
+            "recall_mode": contract["recall_mode"],
+            "result_count": contract["result_count"],
+            "packet_count": contract["packet_count"],
+        },
+        "packets": packet_payloads,
+        "query": contract["query"],
+        "results": result_payloads,
+        "total_candidates": contract["result_count"],
+    }
+
+
 async def present_mcp_recall_item(
     result: Mapping[str, Any],
     *,
@@ -204,6 +278,16 @@ async def present_mcp_recall_item(
             "projection_state": item["projection_state"],
             "route_reason": item["route_reason"],
             "episode_id": item["episode_id"],
+            "source": item["source"],
+            "created_at": item["created_at"],
+            "hit_count": item["hit_count"],
+            "surfaced_count": item["surfaced_count"],
+            "selected_count": item["selected_count"],
+            "used_count": item["used_count"],
+            "near_miss_count": item["near_miss_count"],
+            "policy_score": item["policy_score"],
+            "last_feedback_at": item["last_feedback_at"],
+            "last_projected_at": item["last_projected_at"],
             "score": round(item["score"], 4),
             "relevance_confidence": round(bd.get("relevance_confidence", 0.0) or 0.0, 4),
             "score_breakdown": _rounded_numeric_breakdown(result),
@@ -227,6 +311,7 @@ async def present_mcp_recall_item(
     entity_id = str(item["entity_id"] or "")
     return {
         "result_type": "entity",
+        "entity_id": entity_id,
         "entity": item["entity_name"],
         "entity_type": item["entity_type"],
         "summary": item["summary"],

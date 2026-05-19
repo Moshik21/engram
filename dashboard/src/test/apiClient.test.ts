@@ -92,6 +92,70 @@ describe("api.getStats", () => {
   });
 });
 
+describe("api.getRuntimeState", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("loads runtime adoption guidance from the shared runtime endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        projectName: "engram",
+        runtime: { mode: "helix" },
+        activation: { recallProfile: "wave1" },
+        features: { artifactBootstrapEnabled: true },
+        artifactBootstrap: {
+          enabled: true,
+          projectPath: "/tmp/engram",
+          artifactCount: 0,
+          freshArtifactCount: 0,
+          staleArtifactCount: 0,
+          lastObservedAt: null,
+          staleAfterSeconds: 86400,
+        },
+        agentAdoption: {
+          status: "fresh_runtime",
+          doNotTreatEmptyAsFailure: true,
+          requiredNextTools: ["claim_authority", "bootstrap_project", "get_context"],
+          claimAuthority: {
+            tool: "claim_authority",
+            args: {
+              project_path: "/tmp/engram",
+              file_memory_present: "<true if local/file memory is visible>",
+            },
+            reason: "Ask Engram for the source-of-truth contract.",
+          },
+          bootstrap: {
+            tool: "bootstrap_project",
+            required: true,
+            args: { project_path: "/tmp/engram" },
+            reason: "Fresh runtime is onboarding state.",
+          },
+          reason: "Connected but empty/fresh Engram runtime.",
+        },
+        stats: { recallMetrics: {}, epistemicMetrics: {} },
+        generatedAt: "2026-05-19T00:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runtime = await api.getRuntimeState({ projectPath: "/tmp/engram" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/knowledge/runtime?project_path=%2Ftmp%2Fengram",
+      expect.any(Object),
+    );
+    expect(runtime.agentAdoption.status).toBe("fresh_runtime");
+    expect(runtime.agentAdoption.requiredNextTools).toEqual([
+      "claim_authority",
+      "bootstrap_project",
+      "get_context",
+    ]);
+  });
+});
+
 describe("api.getLifecycleSummary", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -379,6 +443,131 @@ describe("api.getEvaluationReport", () => {
             gap: null,
           },
         },
+        release_evidence: {
+          status: "measured",
+          components: {
+            evaluation_signals: { status: "measured", missing: [], failures: [] },
+            human_labels: { status: "measured", missing: [], failures: [] },
+            adoption: {
+              status: "measured",
+              missing: [],
+              failures: [],
+              blockers: ["authentication_failed"],
+              blocker_details: ["system:error: Not logged in - Please run /login"],
+              mcp_server_failures: ["engram"],
+            },
+            adoption_clients: {
+              status: "measured",
+              missing: [],
+              failures: [],
+              required_clients: ["Cursor", "Windsurf"],
+              observed_clients: ["Cursor", "Windsurf"],
+              blockers: ["authentication_failed"],
+              mcp_server_failures: ["engram"],
+            },
+          },
+          missing: [],
+          failures: [],
+        },
+        human_label_evidence: {
+          status: "measured",
+          artifact_path: "human-labels.json",
+          artifact_sha256: "human123",
+          kind: "engram_human_label_evidence",
+          source: "staging_harness",
+          client: "Cursor",
+          captured_at: "2026-05-18T23:00:00Z",
+          session_id: "cursor-thread-1",
+          labeler: "operator",
+          human_labeled: true,
+          recall_sample_count: 12,
+          session_sample_count: 4,
+          min_recall_samples: 10,
+          min_session_samples: 3,
+          sample_sources: ["staging_harness"],
+          failures: [],
+        },
+        adoption_evidence: {
+          status: "measured",
+          artifact_path: "cursor-adoption-report.json",
+          artifact_sha256: "adoption123",
+          adoption_status: "passed",
+          authority_path: "authority.json",
+          calls_path: "calls.jsonl",
+          call_count: 4,
+          client: "Cursor",
+          required_client: "Cursor",
+          gate_required_client: "Cursor",
+          captured_at: "2026-05-18T23:00:00Z",
+          session_id: "cursor-thread-1",
+          session_filter: "cursor-thread-1",
+          source: "live_harness",
+          required_live_evidence: true,
+          blockers: ["authentication_failed"],
+          blocker_details: ["system:error: Not logged in - Please run /login"],
+          mcp_server_failures: ["engram"],
+          required_tools: {
+            expected: ["get_context", "recall", "observe"],
+            observed: ["get_context", "recall", "observe"],
+            missing: [],
+            in_order: true,
+          },
+          capture: {
+            destination: "engram",
+            expected_tool: "observe",
+            observed_tools: ["observe"],
+            missing: false,
+          },
+          file_memory: { present: false, substituted_for_engram: false },
+          failures: [],
+        },
+        additional_adoption_evidence: [
+          {
+            status: "measured",
+            client: "Windsurf",
+            call_count: 3,
+            blockers: ["mcp_server_failed"],
+            mcp_server_failures: ["engram"],
+            required_tools: { expected: ["get_context"], observed: ["get_context"] },
+            capture: { observed_tools: ["observe"] },
+            file_memory: { substituted_for_engram: false },
+            failures: [],
+          },
+        ],
+        adoption_client_evidence: {
+          status: "measured",
+          required_clients: ["Cursor", "Windsurf"],
+          observed_clients: ["Cursor", "Windsurf"],
+          report_count: 2,
+          reports: [
+            {
+              client: "Cursor",
+              required_client: "Cursor",
+              status: "measured",
+              artifact_path: "cursor-adoption-report.json",
+              artifact_sha256: "cursor123",
+              captured_at: "2026-05-18T23:00:00Z",
+              session_id: "cursor-thread-1",
+              failures: [],
+            },
+            {
+              client: "Windsurf",
+              required_client: "Windsurf",
+              status: "measured",
+              artifact_path: "windsurf-adoption-report.json",
+              artifact_sha256: "windsurf123",
+              captured_at: "2026-05-18T23:01:00Z",
+              session_id: "windsurf-thread-1",
+              blockers: ["mcp_server_failed"],
+              blocker_details: ["mcp server engram failed"],
+              mcp_server_failures: ["engram"],
+              failures: [],
+            },
+          ],
+          blockers: ["mcp_server_failed"],
+          mcp_server_failures: ["engram"],
+          failures: [],
+        },
         coverage_gaps: [],
       }),
     });
@@ -422,6 +611,46 @@ describe("api.getEvaluationReport", () => {
       gap: null,
     });
     expect(report.evaluationSignals.triageCalibration.metric).toBe(0.12);
+    expect(report.releaseEvidence?.status).toBe("measured");
+    expect(report.releaseEvidence?.components.adoptionClients.requiredClients).toEqual([
+      "Cursor",
+      "Windsurf",
+    ]);
+    expect(report.releaseEvidence?.components.adoption.blockers).toEqual([
+      "authentication_failed",
+    ]);
+    expect(report.releaseEvidence?.components.adoption.mcpServerFailures).toEqual([
+      "engram",
+    ]);
+    expect(report.humanLabelEvidence?.client).toBe("Cursor");
+    expect(report.humanLabelEvidence?.recallSampleCount).toBe(12);
+    expect(report.humanLabelEvidence?.minSessionSamples).toBe(3);
+    expect(report.adoptionEvidence?.client).toBe("Cursor");
+    expect(report.adoptionEvidence?.requiredTools.observed).toEqual([
+      "get_context",
+      "recall",
+      "observe",
+    ]);
+    expect(report.adoptionEvidence?.capture.observedTools).toEqual(["observe"]);
+    expect(report.adoptionEvidence?.blockers).toEqual(["authentication_failed"]);
+    expect(report.adoptionEvidence?.blockerDetails).toEqual([
+      "system:error: Not logged in - Please run /login",
+    ]);
+    expect(report.adoptionEvidence?.mcpServerFailures).toEqual(["engram"]);
+    expect(report.additionalAdoptionEvidence?.[0].client).toBe("Windsurf");
+    expect(report.additionalAdoptionEvidence?.[0].blockers).toEqual([
+      "mcp_server_failed",
+    ]);
+    expect(report.adoptionClientEvidence?.observedClients).toEqual([
+      "Cursor",
+      "Windsurf",
+    ]);
+    expect(report.adoptionClientEvidence?.blockers).toEqual(["mcp_server_failed"]);
+    expect(report.adoptionClientEvidence?.mcpServerFailures).toEqual(["engram"]);
+    expect(report.adoptionClientEvidence?.reports[1].blockers).toEqual([
+      "mcp_server_failed",
+    ]);
+    expect(report.adoptionClientEvidence?.reports[1].artifactSha256).toBe("windsurf123");
     expect(report.consolidate.latestCycle).toMatchObject({
       error: "calibration failed",
       phase_issue: "calibrate: no teacher labels",

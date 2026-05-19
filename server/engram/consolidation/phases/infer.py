@@ -9,8 +9,8 @@ import time
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
+from engram.extraction.apply import apply_relationship_fact
 from engram.extraction.canonicalize import PredicateCanonicalizer
-from engram.graph_manager import GraphManager
 from engram.models.consolidation import (
     CycleContext,
     DecisionOutcomeLabel,
@@ -667,7 +667,7 @@ class EdgeInferencePhase(ConsolidationPhase):
                     rec.co_occurrence_count / 10.0,
                 )
             )
-            apply_result = await GraphManager._apply_relationship_fact(
+            apply_result = await apply_relationship_fact(
                 graph_store,
                 self._canonicalizer,
                 cfg,

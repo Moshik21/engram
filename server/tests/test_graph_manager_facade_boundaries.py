@@ -238,6 +238,28 @@ def _runtime_private_manager_attr_accesses() -> set[tuple[str, str, str, str]]:
     return accesses
 
 
+def _runtime_private_graph_manager_static_accesses() -> set[tuple[str, str, str]]:
+    accesses: set[tuple[str, str, str]] = set()
+    for path in (ROOT / "engram").rglob("*.py"):
+        relative_path = path.relative_to(ROOT).as_posix()
+        if relative_path == "engram/graph_manager.py":
+            continue
+        tree = ast.parse(path.read_text())
+        for function in ast.walk(tree):
+            if not isinstance(function, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Attribute):
+                    continue
+                if not node.attr.startswith("_"):
+                    continue
+                if not isinstance(node.value, ast.Name):
+                    continue
+                if node.value.id == "GraphManager":
+                    accesses.add((relative_path, function.name, node.attr))
+    return accesses
+
+
 @pytest.mark.parametrize(
     ("method_name", "expected_delegate"),
     CORE_LIFECYCLE_DELEGATES.items(),
@@ -288,6 +310,10 @@ def test_episode_worker_runtime_stores_expose_owned_stores() -> None:
 
 def test_runtime_code_does_not_reach_through_graph_manager_private_fields() -> None:
     assert _runtime_private_manager_attr_accesses() == set()
+
+
+def test_runtime_code_does_not_call_graph_manager_private_static_helpers() -> None:
+    assert _runtime_private_graph_manager_static_accesses() == set()
 
 
 @pytest.mark.parametrize(

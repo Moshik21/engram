@@ -34,13 +34,63 @@ client metadata from raw Claude stream records, and the raw
 `/private/tmp/engram-claude-live-raw.jsonl` run passed
 `engram adoption --require-live-evidence` with observed `claim_authority`,
 `get_context`, `recall`, and `remember`.
+Follow-up live-client note: a fresh isolated Claude Code 2.1.144 print-mode
+attempt was run against a local lite REST/MCP server at `127.0.0.1:8100`, but
+the current CLI session reported `Not logged in - Please run /login` before any
+Engram tool calls could execute; the raw failed stream was captured at
+`/private/tmp/engram-claude-live-20260519-stream.jsonl` and should be treated
+as blocked evidence, not adoption success. This run also confirmed current
+Claude Code requires `--verbose` with `--output-format stream-json`; the
+adoption template now prints that exact capture command before the validation
+commands.
+The adoption verifier now preserves that kind of failed Claude stream as
+parseable blocked evidence: Claude stream-json logs with no Engram tool calls
+but with `authentication_failed`, "Not logged in", or failed `engram`
+`mcp_servers` init records produce a failed adoption report with explicit
+`live_harness_authentication_failed` / `live_harness_mcp_server_failed`
+failures instead of an `invalid_calls_transcript` parse error.
+`engram evaluate` now keeps those blocker fields in adoption evidence,
+multi-client adoption summaries, Markdown reports, release evidence summaries,
+and the dashboard Evaluate release-evidence view, so auth/MCP setup blockers
+remain visible instead of collapsing into a generic failed gate.
+
+Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
+`get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
+`doNotTreatEmptyAsFailure`, and concrete `claim_authority`/`bootstrap_project`
+guidance when artifacts are missing, stale, or the graph is fresh. This closes
+the failure mode where an agent pings Engram, sees `artifactCount: 0` and
+`lastObservedAt: null`, then treats Engram as optional instead of onboarding it.
+The dashboard API client now types this runtime payload, and the sidebar
+connection status surfaces the same state as an Onboarding/Bootstrap badge when
+the runtime says empty Engram needs adoption actions.
+
+REST/MCP recall alignment note: explicit recall responses now use a shared
+top-level lifecycle contract. REST `/api/knowledge/recall` and MCP `recall()`
+both include `operation: recall`, the original query, and Recall-stage metadata
+(`stage`, explicit mode, result count, packet count). MCP result items now also
+surface stable entity IDs plus cue episode source/timestamps/counters that REST
+already exposed, so agents and the dashboard can reason about Recall results
+without translating between disconnected shapes.
 
 Latest broad backend gate: `uv run pytest -m "not requires_docker and not
-requires_helix"` now passes with `3357 passed, 43 skipped, 236 deselected`.
-The refreshed run first exposed two static contract drifts: FastMCP's root
-mount needed manifest classification by its nested advertised `/mcp` route, and
-REST `auto_observe` had JSON parsing/skip branching back in the route. Both are
-now fixed and covered by the broad rerun.
+requires_helix" -q` now passes with
+`3386 passed, 43 skipped, 236 deselected` after the runtime-adoption dashboard
+bridge, REST empty-runtime guidance coverage, release-evidence dashboard
+surface, REST/MCP recall lifecycle response alignment, and GraphManager private
+static helper extraction from replay/infer/apply paths, the MCP
+auto-recall Capture-helper boundary, and blocked Claude stream-json adoption
+classification. The previous broad run first
+exposed two static contract drifts: FastMCP's root mount needed manifest
+classification by its nested advertised `/mcp` route, and REST `auto_observe`
+had JSON parsing/skip branching back in the route. Both remain covered.
+
+Latest dashboard gate: `pnpm test -- --run` passes with `218 passed, 1 skipped`
+and `pnpm build` passes with the existing Vite large-chunk warning after the
+runtime-adoption, release-evidence dashboard bridge, and typed recall response
+contract. The focused release-evidence slice also passed
+`pnpm test -- --run src/test/apiClient.test.ts src/test/components.test.tsx`
+with `55 passed` plus `pnpm exec tsc --noEmit`; the focused native dashboard
+smoke for the recall response type passed with `1 passed, 1 skipped`.
 
 Latest native PyO3 operator gate: `uv run engram evaluate --smoke --mode helix
 --helix-data-dir /private/tmp/engram-native-goal-20260519-data --sqlite-path
@@ -53,11 +103,22 @@ with `uv run engram evaluate --mode helix --helix-data-dir
 /private/tmp/engram-native-goal-20260519-labels.db
 --require-evaluation-signals --format json` also passed, proving the operator
 gate reloads the persisted native graph and saved evaluation labels. `uv run
-engram doctor --mode helix --helix-data-dir
+engram lifecycle --mode helix --helix-data-dir
+/private/tmp/engram-native-goal-20260519-data --sqlite-path
+/private/tmp/engram-native-goal-20260519-labels.db --format json` passed on
+the same store with 3 episodes, 3 cues, 3 projected memories, 1 completed
+cycle, and ready stage statuses. `uv run engram doctor --mode helix
+--helix-data-dir
 /private/tmp/engram-native-goal-20260519-data --skip-server --format json`
 passed with a ready Capture -> Cue -> Project -> Recall -> Consolidate
 lifecycle snapshot and a disposable helix smoke with 6/6 evaluation signals
-measured.
+measured. The native evaluation report still correctly reports
+`release_evidence: needs_evidence` until real human-label and live-adoption
+artifacts are attached.
+The populated native parity test now also asserts REST and MCP
+`get_runtime_state` include ready `agentAdoption` guidance for the bootstrapped
+PyO3 brain, proving the adoption contract is present on the preferred no-Docker
+full backend path.
 
 SQLite/lite shutdown stability note: the live adoption run exposed a nonfatal
 shutdown-consolidation `cannot commit transaction - SQL statements in progress`
@@ -66,6 +127,21 @@ warning during the dream phase. The root cause was SQLite
 reciprocal/duplicate relationship matches could leave unconsumed returned rows.
 That helper now consumes all returned rows before commit, with regression
 coverage in `tests/test_consolidation_graph_methods.py`.
+
+GraphManager facade cleanup note: production runtime modules no longer call
+private `GraphManager._*` static helpers. Extraction summary merging now calls
+`is_meta_summary()` directly, consolidation replay uses
+`merge_entity_attributes()` and `apply_relationship_fact()`, and edge inference
+uses `apply_relationship_fact()` directly. The facade-boundary test now guards
+against future `GraphManager._*` private static calls from `server/engram/**`
+outside `graph_manager.py`, alongside the existing `manager._*` access scan.
+
+MCP auto-recall capture boundary note: the auto-recall middleware's
+`auto_observe=True` side effect now records piggybacked read-tool turns through
+the shared Capture-stage `store_observation()` helper instead of calling
+`manager.store_episode()` directly from Recall policy code. Focused
+auto-recall tests now guard that the helper remains routed through the Capture
+boundary while preserving the existing `source="tool_piggyback"` behavior.
 
 Auto-capture compatibility note: REST `/api/knowledge/auto-observe` now parses
 request JSON behind the route-facing Capture surface helper instead of letting
@@ -123,9 +199,13 @@ schema, starter examples, and validation command operators should fill from a
 real harness run. With `--adoption-report adoption-report.json`, the template
 pre-fills the client, capture timestamp, and session metadata that the release
 gate later cross-checks, but template prefill now rejects failed or non-live-
-gated adoption reports before labels are collected. The artifact is attached to
-JSON/Markdown reports and evidence bundles, but it explicitly rejects untouched
-placeholder templates and
+gated adoption reports before labels are collected. Template prefill also
+validates and preserves `--additional-adoption-report` plus
+`--require-adoption-clients` when release labels are being collected for a
+multi-client package; supplemental reports require a primary `--adoption-report`
+so label metadata stays tied to one live harness run. The artifact is attached
+to JSON/Markdown reports and evidence bundles, but it explicitly rejects
+untouched placeholder templates and
 smoke, benchmark, showcase, fixture, deterministic, simulated, or synthetic
 sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed
@@ -135,11 +215,19 @@ files, making release artifacts directly traceable to their input files.
 `engram evaluate` can also attach and require a passed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are
-present, client/session metadata must point at the same live harness run. The
-adoption report must have been validated with `--require-live-evidence`; a
-passing transcript without that live gate now fails release/adoption evidence,
-and the adoption report's own `release_evidence` handoff now stays blocked
-until that validation flag was used.
+present, client/session metadata must point at the same live harness run.
+Release packaging can now add `--require-adoption-client <client>` so a
+Cursor/Windsurf package cannot accidentally pass with a Claude report; the
+attached adoption report must have been validated with the matching
+`engram adoption --require-client <client>` gate. It can also attach repeated
+`--additional-adoption-report <path>` artifacts plus
+`--require-adoption-clients <client...>` to prove broader live-client diversity
+across Cursor/Windsurf/second-client release packages. When release/adoption
+evidence is required, attached additional reports must also be measured and
+unblocked. The adoption report must have been validated with
+`--require-live-evidence`; a passing transcript without that live gate now fails
+release/adoption evidence, and the adoption report's own `release_evidence`
+handoff now stays blocked until that validation flag was used.
 `--require-release-evidence` now enforces measured evaluation signals, real
 human-label evidence, and passed adoption evidence as one operator gate. It
 also defaults human-label thresholds to 10 recall samples and 3 session samples
@@ -147,6 +235,17 @@ unless explicitly overridden, while standalone human-label gates keep the 1/1
 local-check default.
 Deterministic benchmark bundles remain useful local proof; they no longer stand
 in for production/staging human-reviewed harness sessions.
+
+Dashboard release-evidence note: the Evaluate panel now preserves and renders
+`human_label_evidence`, `adoption_evidence`,
+`additional_adoption_evidence`, and `adoption_client_evidence` from
+`GET /api/evaluation/brain-loop/report`. Operators can see human-label sample
+counts, adoption calls/tool coverage, required vs observed live MCP clients,
+and evidence failures in the same runtime-quality view instead of only in CLI
+Markdown/JSON output. The report now also carries a computed
+`release_evidence` summary so REST/MCP/CLI/dashboard all share the same
+`measured`, `failed`, `needs_signals`, or `needs_evidence` readiness state
+instead of each surface inferring release status from optional artifacts.
 
 ## Current Milestone
 

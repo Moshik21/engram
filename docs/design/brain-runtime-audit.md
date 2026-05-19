@@ -26,7 +26,11 @@ runtime does not yet make the lifecycle explicit as a shared service boundary.
 The first P0 recall-contract slice is now in place. REST recall, MCP recall,
 and knowledge-chat recall use `engram.retrieval.presenter` to turn
 `GraphManager.recall()` dictionaries into one shared semantic contract, then
-surface-specific API, MCP, or chat payloads.
+surface-specific API, MCP, or chat payloads. The explicit REST/MCP recall
+responses also share top-level `operation` and lifecycle metadata, including
+the original query, explicit Recall mode, result count, and packet count. MCP
+recall items now carry the same stable entity IDs plus cue episode
+source/timestamp/counter fields that REST already exposed.
 
 The second P0 public-contract slice is also in place. REST and MCP
 observe/remember responses use `engram.ingestion.presenter` to share capture,
@@ -350,19 +354,51 @@ and validation command. When an adoption report already exists,
 `--human-label-template --adoption-report adoption-report.json` pre-fills the
 client, capture timestamp, and session metadata that the release gate later
 cross-checks, and it now rejects failed or non-live-gated adoption reports
-before generating that label-collection template. The gate requires explicit
+before generating that label-collection template. The same template path now
+validates and preserves additional adoption reports plus the
+`--require-adoption-clients` diversity gate when a multi-client release package
+is being prepared, and it requires a primary adoption report before supplemental
+reports can be added. The gate requires explicit
 `humanLabeled: true`
 metadata, a non-synthetic source, client label, capture timestamp, and human
 reviewer, and it rejects untouched placeholder templates plus smoke, benchmark,
 showcase, fixture, deterministic, simulated, or synthetic sources as release
 evidence. Human-label artifacts loaded from disk are summarized with a SHA-256
 digest, so Markdown reports and evidence bundles can be tied to the exact
-reviewed file. `--adoption-report adoption-report.json
+reviewed file. The dashboard Evaluate panel now keeps those release evidence
+blocks in the frontend contract as well: human-label counts, adoption calls,
+tool coverage, multi-client required/observed state, supplemental adoption
+reports, and release-evidence failures render beside Signal Readiness. The
+backend report now computes a first-class `release_evidence` readiness summary
+after evidence attachment, so JSON, Markdown, REST/MCP consumers, and the
+dashboard agree on whether the package is `measured`, `failed`,
+`needs_signals`, or `needs_evidence`.
+`--adoption-report adoption-report.json
 --require-adoption-evidence` attaches the matching `engram adoption --format
 json` report, requires the adoption report to pass with live-client metadata,
 and cross-checks client/session metadata against human-label evidence when both
-are attached. `--require-release-evidence` composes measured evaluation signals,
-human-label evidence, and adoption evidence into one operator gate.
+are attached. `--require-adoption-client <client>` now makes the release
+package assert a specific live MCP client too; it requires the attached adoption
+report to have passed with the same `engram adoption --require-client <client>`
+gate and rejects mismatched live clients. Repeated
+`--additional-adoption-report <path>` artifacts plus
+`--require-adoption-clients <client...>` now summarize and gate broader
+live-client diversity without changing the primary adoption report used for the
+human-label cross-check. When release/adoption evidence is required, any
+attached additional adoption report must also be measured and unblocked before
+the package can pass. `--require-release-evidence` composes measured
+evaluation signals, human-label evidence, and adoption evidence into one
+operator gate.
+The live-adoption template now also prints a Claude Code capture command for
+raw stream-json evidence using the current required
+`claude -p --verbose --output-format stream-json` shape, so operators can
+record a real `claude-stream.jsonl` before running the verifier.
+The verifier now classifies blocked Claude stream-json attempts too: auth
+failures and failed Engram MCP init records remain valid live-client evidence
+with explicit blocker failures, even when zero Engram tool calls were reached.
+Those blocker fields now survive `engram evaluate`, release evidence summaries,
+Markdown reports, and the dashboard Evaluate panel, so operators can tell auth
+or MCP initialization problems apart from actual Engram adoption behavior.
 `--evidence-bundle` writes the same report plus source paths, benchmark
 evidence, human-label evidence, adoption evidence, and gate thresholds as a
 single archiveable JSON artifact.
@@ -1565,13 +1601,20 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    or drilldown, not the primary product explanation of Engram's memory loop.
 
 5. Local verification is much cleaner: the broad non-Docker/non-Helix backend
-   gate currently passes with 3357 tests, 43 skips, and 236 external-service
-   tests deselected after REST auto-observe request parsing moved behind the
-   Capture-stage surface boundary and the native surface manifest learned to
-   classify the advertised FastMCP `/mcp` transport path from the root-mounted
-   app. Earlier broad-gate fixes made the Helix dashboard analytics unit
-   fixture date-stable, guarded the doctor readiness failure path, centralized
-   shared companion-store bootstrap creation, made notification/scheduler
+   gate currently passes with 3386 tests, 43 skips, and 236 external-service
+   tests deselected after the runtime-adoption dashboard bridge, REST
+   empty-runtime guidance coverage, release-evidence dashboard surface, and
+   REST/MCP recall lifecycle response alignment, plus GraphManager private
+   static helper extraction from replay/infer/apply paths, the MCP
+   auto-recall Capture-helper boundary, and blocked Claude stream-json adoption
+   classification.
+   Earlier broad-gate work moved REST
+   auto-observe request parsing behind the Capture-stage surface boundary and
+   made the native surface manifest classify the advertised FastMCP `/mcp`
+   transport path from the root-mounted app. Earlier broad-gate fixes made the
+   Helix dashboard analytics unit fixture date-stable, guarded the doctor
+   readiness failure path, centralized shared companion-store bootstrap
+   creation, made notification/scheduler
    dependencies explicit, and moved smoke cue feedback onto the public manager
    facade. REST and MCP shutdown now use the same runtime-resource stop/close
    boundary too, with shutdown consolidation orchestration behind a
@@ -1979,8 +2022,8 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   search now feed MCP `bootstrap_project` and `search_artifacts` in the same
   populated PyO3 runtime.
 - Native runtime-state parity done: REST `/api/knowledge/runtime` and MCP
-  `get_runtime_state` report the same Helix mode and project artifact freshness
-  over the populated native brain.
+  `get_runtime_state` report the same Helix mode, project artifact freshness,
+  and ready `agentAdoption` guidance over the populated native brain.
 - Native MCP consolidation-control parity done: MCP `get_consolidation_status`
   and dry-run `trigger_consolidation` execute against the active PyO3 graph and
   return latest-cycle plus completed dry-run phase/summary data.
@@ -2119,7 +2162,11 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   artifact search, decision materialization, lookup, forgetting, prospective
   memory, context, graph-state, and recall access/interaction updates. It now
   also scans runtime modules for direct `manager._*`, `graph_manager._*`, or
-  `_manager._*` access outside `server/engram/graph_manager.py`.
+  `_manager._*` access outside `server/engram/graph_manager.py`, plus direct
+  `GraphManager._*` private static helper calls. The latest consolidation
+  cleanup moved replay/infer relationship application and replay entity-summary
+  merging onto the shared `engram.extraction.apply` helpers instead of routing
+  through private `GraphManager` static methods.
 - REST/MCP presenter-boundary guard done:
   `tests/test_public_surface_presenter_boundaries.py` now statically verifies
   REST and MCP observe/remember/recall/chat recall surfaces use the shared
@@ -2483,7 +2530,14 @@ Current verification from this audit pass:
   --require-evaluation-signals --format json`: passed. Reopening the same
   native data and label store preserved 3 episodes, 3 cues, 3 projected
   memories, 1 consolidation cycle, zero coverage gaps, and all 6 evaluation
-  signals measured.
+  signals measured. Release evidence remained `needs_evidence`, as expected
+  before human-label and live-adoption artifacts are attached.
+- `cd server && uv run engram lifecycle --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --sqlite-path
+  /private/tmp/engram-native-goal-20260519-labels.db --format json`: passed.
+  The native lifecycle snapshot reported the Capture -> Cue -> Project ->
+  Recall -> Consolidate loop, 3 episodes, 3 cues, 3 projected memories, 1
+  completed consolidation cycle, and ready stage statuses.
 - `cd server && uv run engram doctor --mode helix --helix-data-dir
   /private/tmp/engram-native-goal-20260519-data --skip-server --format json`:
   passed. Doctor loaded a ready Capture -> Cue -> Project -> Recall ->
@@ -3258,6 +3312,12 @@ across `server/engram/api/*.py` and `server/engram/mcp/server.py` now returns
 no matches except MCP shutdown resource closing, and the public-surface guard
 now enforces that boundary.
 
+The middleware auto-observe write now delegates its Capture side effect through
+`ingestion.capture_surface.store_observation()` as well. This keeps the Recall
+middleware from becoming a second raw `store_episode()` writer while preserving
+the existing MCP piggyback source and error-swallowing behavior. Focused
+auto-recall tests guard both the call shape and the Capture-helper dependency.
+
 REST/MCP explicit recall result and packet assembly now share a retrieval
 boundary too. `server/engram/retrieval/recall_surface.py` owns the explicit
 Recall-stage manager call, recall packet analysis, memory packet assembly, and
@@ -3550,15 +3610,23 @@ lifecycle, queue/batch timing, and Project-stage dispatch without embedding
 raw payload keys or route-specific event shape. Focused worker-event,
 worker-routing/scoring/batching, worker, auto-observe, rework, facade-boundary,
 group-scope, Ruff, and broad non-Docker/non-Helix checks passed; the latest
-broad gate passes with 3357 tests, 43 skips, and 236 external-service
-deselections after the Helix dashboard analytics fixture was made date-stable,
-the doctor readiness failure path was guarded, the shared companion-store
-bootstrap follow-up landed, notification/scheduler dependencies were made
-explicit, smoke cue feedback moved onto the public manager facade, and REST/MCP
-shutdown stop/close facade cleanup plus static guards landed. The latest gate
-also includes REST knowledge-chat SSE runtime extraction, the MCP
+broad gate passes with 3386 tests, 43 skips, and 236 external-service
+deselections after the runtime-adoption dashboard bridge, REST empty-runtime
+guidance coverage, release-evidence dashboard surface, and REST/MCP recall
+lifecycle response alignment, plus GraphManager private static helper
+extraction from replay/infer/apply paths, the MCP auto-recall
+Capture-helper boundary, and blocked Claude stream-json adoption
+classification. Earlier broad-gate
+work made the Helix dashboard analytics fixture date-stable, guarded the doctor
+readiness failure path, landed the shared companion-store bootstrap follow-up,
+made notification/scheduler
+dependencies explicit, moved smoke cue feedback onto the public manager facade,
+and landed REST/MCP shutdown stop/close facade cleanup plus static guards. The
+latest gate also includes REST knowledge-chat SSE runtime extraction, the MCP
 authority/onboarding prompt contract, the `claim_authority()` callable
-contract, dashboard WebSocket auth route-boundary extraction, REST chat
+contract, runtime-state `agentAdoption` guidance for empty/fresh graphs,
+dashboard runtime-adoption status wiring, dashboard WebSocket auth
+route-boundary extraction, REST chat
 response-surface extraction, REST health route-boundary extraction, adoption
 transcript stdin validation, and self-reported file-memory bypass
 classification, the REST auto-observe request-surface boundary, and FastMCP

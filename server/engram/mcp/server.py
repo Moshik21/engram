@@ -889,7 +889,7 @@ async def claim_authority(
 
 @mcp.tool()
 async def get_runtime_state(project_path: str | None = None) -> str:
-    """Return effective runtime/config state and artifact freshness."""
+    """Return effective runtime/config state, artifact freshness, and adoption guidance."""
     manager = _get_manager()
     result = await build_runtime_state_surface(
         manager,

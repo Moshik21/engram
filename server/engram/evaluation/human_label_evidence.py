@@ -29,12 +29,26 @@ def build_human_label_evidence_template(
     *,
     adoption_evidence: Mapping[str, Any] | None = None,
     adoption_report_path: Path | str | None = None,
+    required_adoption_client: str | None = None,
+    additional_adoption_evidences: list[Mapping[str, Any]] | None = None,
+    required_adoption_clients: list[str] | None = None,
 ) -> dict[str, Any]:
     """Return the operator template for real human-reviewed harness evidence."""
+    required_adoption_client = _string(required_adoption_client)
+    required_adoption_clients = _dedupe_strings(required_adoption_clients or [])
     adoption_report = _adoption_report_template_metadata(
         adoption_evidence,
         adoption_report_path=adoption_report_path,
+        required_adoption_client=required_adoption_client,
     )
+    additional_adoption_reports = [
+        _adoption_report_template_metadata(
+            evidence,
+            adoption_report_path=evidence.get("artifact_path"),
+            required_adoption_client=None,
+        )
+        for evidence in additional_adoption_evidences or []
+    ]
     client = (
         adoption_report.get("client")
         or "<Claude Code | Cursor | Windsurf | other MCP client>"
@@ -52,6 +66,22 @@ def build_human_label_evidence_template(
         or adoption_report.get("path")
         or "adoption-report.json"
     )
+    required_client_flag = (
+        f" --require-adoption-client {_shell_arg(required_adoption_client)}"
+        if required_adoption_client
+        else ""
+    )
+    additional_report_flags = "".join(
+        f" --additional-adoption-report {_shell_arg(report['path'])}"
+        for report in additional_adoption_reports
+        if report.get("path")
+    )
+    required_clients_flag = (
+        " --require-adoption-clients "
+        + " ".join(_shell_arg(client) for client in required_adoption_clients)
+        if required_adoption_clients
+        else ""
+    )
     instructions = [
         "Collect this from a real staging or production harness run.",
         "Keep source/client/capturedAt/labeler as observed metadata, not placeholders.",
@@ -67,6 +97,22 @@ def build_human_label_evidence_template(
             (
                 "Keep client/capturedAt/sessionId aligned with the attached "
                 "adoptionReport metadata; the release gate cross-checks them."
+            ),
+        )
+    if required_adoption_client:
+        instructions.insert(
+            1,
+            (
+                "Keep the final release validation command's "
+                f"`--require-adoption-client {required_adoption_client}` gate intact."
+            ),
+        )
+    if required_adoption_clients:
+        instructions.insert(
+            1,
+            (
+                "Keep the final release validation command's "
+                "`--require-adoption-clients` diversity gate intact."
             ),
         )
     template = {
@@ -118,7 +164,10 @@ def build_human_label_evidence_template(
             "engram evaluate --from-json brain-loop-report.json "
             "--require-release-evidence "
             "--human-label-artifact human-labels.json "
-            f"--adoption-report {adoption_report_arg} "
+            f"--adoption-report {adoption_report_arg}"
+            f"{required_client_flag}"
+            f"{additional_report_flags}"
+            f"{required_clients_flag} "
             f"--min-human-recall-samples {DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE} "
             f"--min-human-session-samples {DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE} "
             "--evidence-bundle brain-loop-release-evidence.json "
@@ -126,8 +175,14 @@ def build_human_label_evidence_template(
         ),
         "instructions": instructions,
     }
+    if required_adoption_client:
+        template["requiredAdoptionClient"] = required_adoption_client
+    if required_adoption_clients:
+        template["requiredAdoptionClients"] = required_adoption_clients
     if adoption_report:
         template["adoptionReport"] = adoption_report
+    if additional_adoption_reports:
+        template["additionalAdoptionReports"] = additional_adoption_reports
     return template
 
 
@@ -180,6 +235,22 @@ def render_human_label_evidence_template_markdown(template: Mapping[str, Any]) -
                 f"- Captured at: `{adoption_report.get('capturedAt')}`",
                 f"- Session: `{adoption_report.get('sessionId')}`",
                 f"- Failures: `{failure_text}`",
+            ]
+        )
+    additional_adoption_reports = _list_payload(template.get("additionalAdoptionReports"))
+    if additional_adoption_reports:
+        clients = ", ".join(
+            str(report.get("client") or "unknown")
+            for report in additional_adoption_reports
+            if isinstance(report, Mapping)
+        )
+        lines.extend(
+            [
+                "",
+                "## Additional Adoption Reports",
+                "",
+                f"- Count: `{len(additional_adoption_reports)}`",
+                f"- Clients: `{clients or 'unknown'}`",
             ]
         )
     return "\n".join(lines).strip() + "\n"
@@ -342,6 +413,7 @@ def _adoption_report_template_metadata(
     adoption_evidence: Mapping[str, Any] | None,
     *,
     adoption_report_path: Path | str | None,
+    required_adoption_client: str | None,
 ) -> dict[str, Any]:
     evidence = _mapping(adoption_evidence)
     if not evidence:
@@ -354,6 +426,8 @@ def _adoption_report_template_metadata(
         "client": evidence.get("client"),
         "capturedAt": evidence.get("captured_at"),
         "sessionId": evidence.get("session_id"),
+        "requiredClient": evidence.get("required_client"),
+        "gateRequiredClient": required_adoption_client,
         "source": evidence.get("source"),
         "failures": list(evidence.get("failures") or []),
     }
@@ -373,6 +447,21 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 def _shell_arg(value: Path | str) -> str:
     return shlex.quote(str(value))
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        label = _string(value)
+        if not label:
+            continue
+        normalized = " ".join(label.lower().split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(label)
+    return result
 
 
 def _string(value: Any) -> str | None:

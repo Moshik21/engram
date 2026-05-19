@@ -998,11 +998,11 @@ Engram exposes 27 MCP tools for AI agents:
 | `claim_authority` | Explain what Engram owns vs project-local memory and whether an empty runtime should be bootstrapped |
 | `adjudicate_evidence` | Resolve ambiguous entity or relationship evidence |
 | `search_artifacts` | Search bootstrapped project artifacts (README, design docs, config) |
-| `get_runtime_state` | Check effective mode, active profiles, and enabled flags |
+| `get_runtime_state` | Check effective mode, active profiles, enabled flags, artifact freshness, and agent adoption guidance |
 | `get_lifecycle_summary` | Return the shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
 | `record_recall_evaluation` | Record whether an MCP recall decision helped, how many packets were surfaced/used, and false recalls |
 | `record_session_continuity_evaluation` | Record baseline-vs-memory continuity labels, open-loop recovery, and temporal correctness |
-| `get_evaluation_report` | Return the local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report |
+| `get_evaluation_report` | Return the local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report, including release-evidence summaries when attached |
 
 Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`) and 2 prompts (`engram_system`, `engram_context_loader`).
 
@@ -1012,7 +1012,7 @@ Engram ships with built-in MCP instructions that teach compatible AI agents (Cla
 
 - **Memory authority**: Engram is the portable, cross-context source of truth for user facts, preferences, corrections, durable decisions, relationships, goals, commitments, and long-tail recall. Project-local files remain useful for repo-specific conventions and current-task scratch notes, but they are not a reason for an agent to skip Engram. Agents can call `claim_authority(project_path, user_message, file_memory_present)` when deciding which memory system owns a fact and which Engram tools to call before answering; client transcripts can be checked with `validate_agent_protocol_calls()` during harness or installer validation.
 - **Session start**: The agent calls `get_context()` before its first response to load relevant memories
-- **Fresh-runtime onboarding**: If Engram is connected but empty (`artifactCount: 0`, `lastObservedAt: null`, or zero recall/evaluation stats), the agent treats that as an onboarding state. In a project workspace it should call `bootstrap_project(project_path)` once before assuming no memories exist.
+- **Fresh-runtime onboarding**: If Engram is connected but empty (`artifactCount: 0`, `lastObservedAt: null`, or zero recall/evaluation stats), the agent treats that as an onboarding state. In a project workspace it should call `bootstrap_project(project_path)` once before assuming no memories exist. `get_runtime_state()` also returns `agentAdoption.requiredNextTools` so a low-impact status probe points agents to `claim_authority`, bootstrap, and `get_context` instead of passive emptiness metrics.
 - **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
 - **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (evidence-first extraction by default)
 - **Auto-recall**: With `wave1+`, piggyback recall runs on `observe`/`remember` and all read-oriented tools — memory context flows even when the LLM only calls `recall()` or `search_entities()`. The need analyzer gates firing, surfacing compact packets only when prior context is likely useful
@@ -1102,7 +1102,9 @@ placeholder `client` or `capturedAt` values do not satisfy
 
 Claude Code `--output-format stream-json` logs can also be passed directly as
 `--calls`; Engram extracts Engram MCP tool-use events and infers live client,
-session, and timestamp metadata from the raw stream.
+session, and timestamp metadata from the raw stream. Current Claude Code print
+mode requires `--verbose` with stream-json output, so capture raw evidence with
+`claude -p --verbose --output-format stream-json ... > claude-stream.jsonl`.
 
 ```json
 {
@@ -1170,7 +1172,13 @@ engram adoption --authority claim-authority.json \
 
 For cross-harness checks, add `--require-client Cursor` (or the expected
 client label) so a Claude Code trace cannot accidentally satisfy a Cursor or
-Windsurf gate.
+Windsurf gate. Carry the same client label into release packaging with
+`engram evaluate --require-adoption-client Cursor`; that gate requires the
+attached adoption report to have been validated with the matching
+`engram adoption --require-client Cursor` check and rejects mismatched live
+clients. For diversity gates, attach additional reports with
+`--additional-adoption-report` and require the expected set with
+`--require-adoption-clients Cursor Windsurf`.
 
 The command fails if the client skipped required pre-answer tools, used
 file-local memory as a substitute for Engram, missed required capture, or wrote
@@ -1283,7 +1291,7 @@ Agent: [calls remember] → Extraction finds Login Flow entity
 
 ## Dashboard
 
-The real-time dashboard provides a 3D neural brain visualization of your knowledge graph, plus 8 views for exploring and monitoring memory:
+The real-time dashboard provides a 3D neural brain visualization of your knowledge graph, plus 9 views for exploring and monitoring memory. Its connection status also mirrors runtime adoption state, showing when an empty or stale graph is an onboarding/bootstrap condition rather than a failed memory system:
 
 | View | Description |
 |------|-------------|
@@ -1294,6 +1302,7 @@ The real-time dashboard provides a 3D neural brain visualization of your knowled
 | **Activation** | ACT-R leaderboard with decay curve visualization |
 | **Stats** | Entity counts, type distribution, growth timeline, cue coverage, projection health, and extraction yield observability |
 | **Consolidation** | Cycle history, phase timeline, pressure gauge, trigger controls |
+| **Evaluate** | Brain-loop quality signals, operator labels, human-label/adoption release evidence, and multi-client adoption coverage |
 | **Knowledge** | Chat interface with memory recall, entity browsing, search overlay, streaming responses |
 
 When paired with the MCP server (Option 3), the dashboard updates live via a Redis pub/sub bridge — store a memory in Claude, watch the new entities appear in the 3D graph instantly.
@@ -1330,12 +1339,12 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | POST | `/api/knowledge/observe` | Store content without extraction (fast path) |
 | POST | `/api/knowledge/auto-observe` | Auto-observe with classification (dedup, tagging) |
 | POST | `/api/knowledge/remember` | Ingest with full extraction |
-| GET | `/api/knowledge/recall` | Activation-aware memory search (packets + raw results) |
+| GET | `/api/knowledge/recall` | Activation-aware memory search with shared Recall lifecycle metadata, packets, and typed results |
 | GET | `/api/knowledge/facts` | Search user-facing facts/relationships (`include_epistemic=true` for debug graph edges) |
 | GET | `/api/knowledge/context` | Assembled memory context (structured or briefing) |
 | POST | `/api/knowledge/route` | Deterministic epistemic routing plus `answerContract`, `requiredNextSources`, and source-query metadata |
 | GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
-| GET | `/api/knowledge/runtime` | Effective mode/profile/feature state plus artifact freshness |
+| GET | `/api/knowledge/runtime` | Effective mode/profile/feature state, artifact freshness, and agent adoption guidance |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
 | POST | `/api/knowledge/intentions` | Create a graph-embedded intention or refresh-context pinned query |
@@ -1350,7 +1359,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | GET | `/api/consolidation/cycle/{id}` | Cycle detail with audit records |
 | POST | `/api/evaluation/recall-samples` | Record a labeled recall-quality sample |
 | POST | `/api/evaluation/session-samples` | Record a labeled session-continuity sample |
-| GET | `/api/evaluation/brain-loop/report` | Local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report |
+| GET | `/api/evaluation/brain-loop/report` | Local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report with release-evidence summaries |
 | GET | `/api/conversations/` | List conversations (paginated) |
 | POST | `/api/conversations/` | Create conversation |
 | GET | `/api/conversations/{id}/messages` | Fetch conversation messages |
@@ -1487,7 +1496,7 @@ ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode h
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
 uv run engram evaluate --human-label-template --human-label-template-out human-label-template.json --format markdown
-uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report adoption-report.json --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
+uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report cursor-adoption-report.json --require-adoption-client Cursor --additional-adoption-report windsurf-adoption-report.json --require-adoption-clients Cursor Windsurf --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
 uv run python scripts/brain_loop_report.py
@@ -1529,7 +1538,11 @@ already available, use
 `--human-label-template --adoption-report adoption-report.json` to prefill the
 client, `capturedAt`, and session metadata the release gate later
 cross-checks. Template prefill rejects failed or non-live-gated adoption
-reports, so release labels are not collected from a blocked adoption run. The
+reports, so release labels are not collected from a blocked adoption run. Add
+the same `--additional-adoption-report` and `--require-adoption-clients` flags
+to the template command when the release package needs multi-client evidence;
+the generated validation command preserves those diversity gates, and a primary
+`--adoption-report` is required before adding supplemental reports. The
 untouched template fails the evidence gate because its metadata is placeholder
 text. A real artifact
 must declare `humanLabeled: true`, a real harness `source`, the client label,
@@ -1548,10 +1561,27 @@ For release packaging, also attach the matching `engram adoption --format json`
 output with `--adoption-report adoption-report.json --require-adoption-evidence`.
 That gate requires a passed live-client adoption report validated with
 `--require-live-evidence` and cross-checks the human-label client/session
-metadata against the adoption evidence when both are present. Use
+metadata against the adoption evidence when both are present. Add
+`--require-adoption-client Cursor` (or the expected harness client) when the
+release package must prove a specific MCP client; the adoption report must have
+been validated with the same `engram adoption --require-client` label. Add
+`--additional-adoption-report path/to/report.json` for second-client evidence
+and gate the expected set with `--require-adoption-clients Cursor Windsurf`.
+When release/adoption evidence is required, any attached additional adoption
+report must also be measured and unblocked, so failed second-client evidence
+cannot be archived in a passing release bundle.
+Use
 `--require-release-evidence` when all three release conditions should be
 enforced together: measured evaluation signals, real human labels, and passed
-live adoption evidence.
+live adoption evidence. Brain-loop JSON and Markdown reports now also include a
+computed `release_evidence` readiness summary with `measured`, `failed`,
+`needs_signals`, or `needs_evidence` status plus component-level missing and
+failure lists. The dashboard Evaluate view renders that same summary, so
+operators can see why a package is blocked even before every evidence artifact
+has been attached. Blocked live-harness runs also preserve `blockers`,
+`blocker_details`, and `mcp_server_failures` through `engram evaluate`, the
+Markdown report, and the dashboard, which keeps auth or MCP setup problems
+separate from true adoption behavior.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,

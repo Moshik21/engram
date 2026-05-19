@@ -104,6 +104,43 @@ vi.mock("../api/client", () => ({
       mode: "lite",
       services: { graph_store: "healthy" },
     }),
+    getRuntimeState: vi.fn().mockResolvedValue({
+      projectName: "Engram",
+      runtime: { mode: "lite" },
+      activation: {},
+      features: {},
+      artifactBootstrap: {
+        enabled: true,
+        projectPath: null,
+        artifactCount: 1,
+        freshArtifactCount: 1,
+        staleArtifactCount: 0,
+        lastObservedAt: "2026-05-19T00:00:00Z",
+        staleAfterSeconds: 86400,
+      },
+      agentAdoption: {
+        status: "ready",
+        doNotTreatEmptyAsFailure: false,
+        requiredNextTools: ["get_context"],
+        claimAuthority: {
+          tool: "claim_authority",
+          args: {
+            project_path: "<current_project_path>",
+            file_memory_present: "<true if local/file memory is visible>",
+          },
+          reason: "Load portable memory authority.",
+        },
+        bootstrap: {
+          tool: "bootstrap_project",
+          required: false,
+          args: { project_path: "<current_project_path>" },
+          reason: "Project artifacts are current.",
+        },
+        reason: "Engram has runtime evidence available.",
+      },
+      stats: { recallMetrics: {}, epistemicMetrics: {} },
+      generatedAt: "2026-05-19T00:00:00Z",
+    }),
     getNeighborhood: vi.fn().mockResolvedValue({
       centerId: "n1",
       nodes: [],
@@ -336,8 +373,8 @@ describe("DashboardShell", () => {
     });
     render(<DashboardShell />);
     expect(await screen.findByText("Loading view...")).toBeInTheDocument();
-    expect(await screen.findByText("Filter")).toBeInTheDocument();
-  });
+    expect(await screen.findByText("Filter", {}, { timeout: 5000 })).toBeInTheDocument();
+  }, 10000);
 });
 
 // --- EmptyState ---

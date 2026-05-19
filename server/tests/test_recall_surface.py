@@ -29,6 +29,14 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
         get_access_count=AsyncMock(return_value=0),
     )
 
+    assert result["operation"] == "recall"
+    assert result["query"] == "Engram recall"
+    assert result["lifecycle"] == {
+        "stage": "recall",
+        "recall_mode": "explicit",
+        "result_count": 0,
+        "packet_count": 0,
+    }
     assert result["results"] == []
     assert result["near_misses"] == [{"entity": "Near Miss"}]
     assert result["surprise_connections"] == [{"entity": "Surprise"}]
@@ -78,6 +86,8 @@ async def test_mcp_recall_surface_owns_entity_name_and_access_count_resolution()
     )
 
     assert result["results"][0]["access_count"] == 4
+    assert result["results"][0]["entity_id"] == "ent_1"
+    assert result["lifecycle"]["result_count"] == 1
     assert result["results"][0]["related_facts"][0] == {
         "subject": "ENT_SRC",
         "predicate": "RELATED_TO",

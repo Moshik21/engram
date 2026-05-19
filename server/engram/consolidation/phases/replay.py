@@ -11,6 +11,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
+from engram.extraction.apply import apply_relationship_fact, merge_entity_attributes
 from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.resolver import resolve_entity
 from engram.ingestion.projection_state import sync_projection_state
@@ -299,9 +300,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 # Existing entity not yet linked — merge attributes and link
                 if not dry_run:
                     if summary:
-                        from engram.graph_manager import GraphManager
-
-                        updates = GraphManager._merge_entity_attributes(
+                        updates = merge_entity_attributes(
                             existing_entity,
                             summary,
                             ent_data.get("pii_detected", False),
@@ -468,8 +467,6 @@ class EpisodeReplayPhase(ConsolidationPhase):
         context: CycleContext | None,
     ) -> int:
         """Apply replayed relationships through the ingestion relationship path."""
-        from engram.graph_manager import GraphManager
-
         new_count = 0
 
         for rel_data in rel_data_list:
@@ -480,7 +477,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     new_count += 1
                 continue
 
-            created = await GraphManager._apply_relationship_fact(
+            created = await apply_relationship_fact(
                 graph_store=graph_store,
                 canonicalizer=self._canonicalizer,
                 cfg=cfg,

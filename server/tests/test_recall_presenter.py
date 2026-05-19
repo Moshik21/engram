@@ -6,8 +6,10 @@ import pytest
 
 from engram.retrieval.presenter import (
     present_api_recall_item,
+    present_api_recall_response,
     present_chat_recall_item,
     present_mcp_recall_item,
+    present_mcp_recall_response,
     recall_contract_item,
 )
 
@@ -63,6 +65,7 @@ async def test_entity_recall_presenters_share_contract():
     chat = present_chat_recall_item(raw)
 
     assert contract["result_type"] == api["resultType"] == mcp["result_type"]
+    assert api["entity"]["id"] == mcp["entity_id"] == chat["id"] == "ent_alice"
     assert api["entity"]["name"] == mcp["entity"] == chat["name"] == "Alice"
     assert api["entity"]["entityType"] == mcp["entity_type"] == chat["entityType"] == "Person"
     assert api["scoreBreakdown"]["edgeProximity"] == pytest.approx(0.1)
@@ -157,5 +160,34 @@ async def test_cue_episode_recall_presenters_share_contract():
     assert api["cue"]["episodeId"] == mcp["episode_id"] == chat["episodeId"] == "ep_cue"
     assert api["cue"]["cueText"] == mcp["cue_text"] == chat["cueText"]
     assert api["cue"]["projectionState"] == mcp["projection_state"] == chat["projectionState"]
-    assert api["cue"]["usedCount"] == 1
+    assert api["episode"]["source"] == mcp["source"] == chat["source"] == "observe"
+    assert api["cue"]["usedCount"] == mcp["used_count"] == 1
+    assert api["cue"]["policyScore"] == mcp["policy_score"] == pytest.approx(0.74)
     assert chat["policyScore"] == pytest.approx(0.74)
+
+
+def test_explicit_recall_responses_share_lifecycle_contract():
+    api = present_api_recall_response(
+        query="Engram brain loop",
+        results=[
+            {
+                "result_type": "episode",
+                "episode": {"id": "ep_1", "content": "Capture cue project"},
+                "score": 0.5,
+            }
+        ],
+        packets=[{"id": "packet_1"}],
+    )
+    mcp = present_mcp_recall_response(
+        query="Engram brain loop",
+        results=[{"result_type": "episode", "episode_id": "ep_1"}],
+        packets=[{"id": "packet_1"}],
+    )
+
+    assert api["operation"] == mcp["operation"] == "recall"
+    assert api["query"] == mcp["query"] == "Engram brain loop"
+    assert api["lifecycle"]["stage"] == mcp["lifecycle"]["stage"] == "recall"
+    assert api["lifecycle"]["recallMode"] == mcp["lifecycle"]["recall_mode"] == "explicit"
+    assert api["lifecycle"]["resultCount"] == mcp["lifecycle"]["result_count"] == 1
+    assert api["lifecycle"]["packetCount"] == mcp["lifecycle"]["packet_count"] == 1
+    assert len(api["items"]) == mcp["total_candidates"] == 1

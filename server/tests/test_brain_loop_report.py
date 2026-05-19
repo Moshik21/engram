@@ -6,6 +6,7 @@ from engram.benchmark.metrics import RecallEvalSample, SessionContinuitySample
 from engram.evaluation.brain_loop_report import (
     EVALUATION_SIGNAL_ORDER,
     build_brain_loop_report,
+    build_release_evidence_summary,
     evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
     is_brain_loop_report_payload,
@@ -13,6 +14,7 @@ from engram.evaluation.brain_loop_report import (
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
     unmeasured_evaluation_signals,
+    with_release_evidence_summary,
 )
 from engram.models.consolidation import CalibrationSnapshot, ConsolidationCycle, PhaseResult
 
@@ -26,6 +28,8 @@ def test_evaluation_package_exports_report_artifact_helpers() -> None:
         "looks_like_partial_brain_loop_report",
         "missing_brain_loop_report_sections",
         "unmeasured_evaluation_signals",
+        "build_release_evidence_summary",
+        "with_release_evidence_summary",
     ):
         assert name in evaluation.__all__
         assert getattr(evaluation, name) is not None
@@ -299,6 +303,11 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
         "gap": None,
     }
     assert report["coverage_gaps"] == []
+    assert report["release_evidence"]["status"] == "needs_evidence"
+    assert report["release_evidence"]["missing"] == [
+        "human_label_evidence",
+        "adoption_evidence",
+    ]
 
     markdown = format_brain_loop_report_markdown(report)
     assert "projection 66.7%" in markdown
@@ -318,6 +327,8 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert "open work 4 (evidence 2, requests 2)" in markdown
     assert "Evaluation Signals" in markdown
     assert "False Recall: measured (7 evidence)" in markdown
+    assert "## Release Evidence" in markdown
+    assert "Status: needs_evidence" in markdown
 
 
 def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
@@ -338,6 +349,10 @@ def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
     assert "capture has no stored episodes yet" in report["coverage_gaps"]
     assert "recall quality needs labeled recall_samples input" in report["coverage_gaps"]
     assert "recall gate needs runtime analyses" in report["coverage_gaps"]
+    assert report["release_evidence"]["status"] == "needs_signals"
+    assert report["release_evidence"]["components"]["evaluation_signals"]["status"] == (
+        "needs_signals"
+    )
 
     markdown = format_brain_loop_report_markdown(report)
 
@@ -404,6 +419,121 @@ def test_evaluation_signal_failure_message_formats_failures() -> None:
         evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate")
         is None
     )
+
+
+def test_release_evidence_summary_measures_shared_release_contract() -> None:
+    report = with_release_evidence_summary(
+        {
+            **_measured_signal_report(),
+            "human_label_evidence": {
+                "status": "measured",
+                "failures": [],
+            },
+            "adoption_evidence": {
+                "status": "measured",
+                "failures": [],
+            },
+            "adoption_client_evidence": {
+                "status": "measured",
+                "required_clients": ["Cursor", "Windsurf"],
+                "observed_clients": ["Cursor", "Windsurf"],
+                "failures": [],
+            },
+        }
+    )
+
+    assert report["release_evidence"] == {
+        "status": "measured",
+        "components": {
+            "evaluation_signals": {
+                "status": "measured",
+                "missing": [],
+                "failures": [],
+            },
+            "human_labels": {
+                "status": "measured",
+                "missing": [],
+                "failures": [],
+            },
+            "adoption": {
+                "status": "measured",
+                "missing": [],
+                "failures": [],
+            },
+            "adoption_clients": {
+                "status": "measured",
+                "missing": [],
+                "failures": [],
+                "required_clients": ["Cursor", "Windsurf"],
+                "observed_clients": ["Cursor", "Windsurf"],
+            },
+        },
+        "missing": [],
+        "failures": [],
+    }
+
+
+def test_release_evidence_summary_reports_missing_and_failed_components() -> None:
+    report = {
+        **_measured_signal_report(),
+        "human_label_evidence": {"status": "failed", "failures": ["not_human_labeled"]},
+        "adoption_client_evidence": {
+            "status": "failed",
+            "required_clients": ["Cursor", "Windsurf"],
+            "observed_clients": ["Cursor"],
+            "failures": ["missing_client:Windsurf"],
+        },
+    }
+
+    summary = build_release_evidence_summary(report)
+
+    assert summary["status"] == "failed"
+    assert summary["missing"] == ["adoption_evidence"]
+    assert summary["components"]["adoption"]["status"] == "missing"
+    assert summary["components"]["adoption_clients"]["observed_clients"] == ["Cursor"]
+    assert summary["failures"] == [
+        "not_human_labeled",
+        "human_label_evidence:failed",
+        "missing_client:Windsurf",
+        "adoption_client_evidence:failed",
+    ]
+
+
+def test_release_evidence_summary_preserves_live_harness_blockers() -> None:
+    report = {
+        **_measured_signal_report(),
+        "human_label_evidence": {"status": "measured", "failures": []},
+        "adoption_evidence": {
+            "status": "failed",
+            "failures": ["adoption_status_not_passed"],
+            "blockers": ["authentication_failed"],
+            "blocker_details": ["system:error: Not logged in - Please run /login"],
+            "mcp_server_failures": ["engram"],
+        },
+        "adoption_client_evidence": {
+            "status": "failed",
+            "required_clients": ["Claude Code"],
+            "observed_clients": ["Claude Code"],
+            "blockers": ["authentication_failed"],
+            "mcp_server_failures": ["engram"],
+            "failures": ["adoption_report_failed(Claude Code)"],
+        },
+    }
+
+    summary = build_release_evidence_summary(report)
+
+    assert summary["status"] == "failed"
+    assert summary["components"]["adoption"]["blockers"] == ["authentication_failed"]
+    assert summary["components"]["adoption"]["blocker_details"] == [
+        "system:error: Not logged in - Please run /login"
+    ]
+    assert summary["components"]["adoption"]["mcp_server_failures"] == ["engram"]
+    assert summary["components"]["adoption_clients"]["blockers"] == [
+        "authentication_failed"
+    ]
+    assert summary["components"]["adoption_clients"]["mcp_server_failures"] == [
+        "engram"
+    ]
 
 
 def test_brain_loop_report_artifact_shape_helpers() -> None:

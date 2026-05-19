@@ -521,7 +521,7 @@ async def get_runtime_state(
     request: Request,
     project_path: str | None = Query(None, description="Optional project path context"),
 ) -> JSONResponse:
-    """Return effective runtime/config state and artifact freshness."""
+    """Return effective runtime/config state, artifact freshness, and adoption guidance."""
     tenant = get_tenant(request)
     group_id = tenant.group_id
     manager = get_manager()

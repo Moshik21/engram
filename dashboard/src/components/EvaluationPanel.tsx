@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useEngramStore } from "../store";
-import type { BrainLoopEvaluationSignalKey } from "../store/types";
+import type { BrainLoopEvaluationReport, BrainLoopEvaluationSignalKey } from "../store/types";
 
 function pct(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "n/a";
@@ -48,6 +48,95 @@ function formatSignalMetric(
 ) {
   if (key === "projectionYield" || key === "triageCalibration") return num(metric, 3);
   return pct(metric);
+}
+
+function statusAccent(status: string | null | undefined) {
+  if (status === "measured" || status === "passed" || status === "ready") return "#34d399";
+  if (status === "failed" || status === "error") return "#fb7185";
+  if (status?.startsWith("needs")) return "#facc15";
+  return "var(--text-muted)";
+}
+
+function compactList(values: string[], fallback = "none") {
+  return values.length > 0 ? values.join(", ") : fallback;
+}
+
+function evidenceFailureSummary(failures: string[]) {
+  if (failures.length === 0) return "none";
+  if (failures.length === 1) return failures[0];
+  return `${failures.length} failures`;
+}
+
+function fallbackReleaseEvidenceStatus(report: BrainLoopEvaluationReport) {
+  const measuredCount = [
+    report.humanLabelEvidence?.status,
+    report.adoptionEvidence?.status,
+    report.adoptionClientEvidence?.status,
+  ].filter((status) => status === "measured").length;
+  return `${measuredCount}/3 measured`;
+}
+
+function EvidenceColumn({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status: string;
+  children: ReactNode;
+}) {
+  const accent = statusAccent(status);
+  return (
+    <div
+      style={{
+        minWidth: 0,
+        borderTop: `1px solid ${accent}44`,
+        paddingTop: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <div className="label" style={{ fontSize: 8 }}>
+          {title}
+        </div>
+        <span className="label" style={{ color: accent, fontSize: 8 }}>
+          {status}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function EvidenceLine({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: string;
+}) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div className="label" style={{ fontSize: 8, marginBottom: 3 }}>
+        {label}
+      </div>
+      <div
+        className="mono tabular-nums"
+        style={{
+          color: accent ?? "var(--text-secondary)",
+          fontSize: 12,
+          lineHeight: 1.3,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 function Metric({
@@ -338,6 +427,24 @@ export function EvaluationPanel() {
       })),
     [report],
   );
+  const releaseBlockers = useMemo(() => {
+    const components = report?.releaseEvidence?.components;
+    return Array.from(
+      new Set([
+        ...(components?.adoption.blockers ?? []),
+        ...(components?.adoptionClients.blockers ?? []),
+      ]),
+    );
+  }, [report]);
+  const releaseMcpServerFailures = useMemo(() => {
+    const components = report?.releaseEvidence?.components;
+    return Array.from(
+      new Set([
+        ...(components?.adoption.mcpServerFailures ?? []),
+        ...(components?.adoptionClients.mcpServerFailures ?? []),
+      ]),
+    );
+  }, [report]);
 
   const submitRecallLabel = async (event: FormEvent) => {
     event.preventDefault();
@@ -639,6 +746,254 @@ export function EvaluationPanel() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="card" style={{ padding: 16, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            marginBottom: 12,
+          }}
+        >
+          <div className="label">Release Evidence</div>
+          <span
+            className="label"
+            style={{
+              color: statusAccent(report.releaseEvidence?.status),
+            }}
+          >
+            {report.releaseEvidence?.status ?? fallbackReleaseEvidenceStatus(report)}
+          </span>
+        </div>
+        {report.releaseEvidence ||
+        report.humanLabelEvidence ||
+        report.adoptionEvidence ||
+        report.adoptionClientEvidence ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+              gap: 12,
+            }}
+          >
+            {report.releaseEvidence ? (
+              <EvidenceColumn title="Readiness" status={report.releaseEvidence.status}>
+                <EvidenceLine
+                  label="missing"
+                  value={compactList(report.releaseEvidence.missing)}
+                  accent={
+                    report.releaseEvidence.missing.length > 0
+                      ? "#facc15"
+                      : "var(--text-muted)"
+                  }
+                />
+                <EvidenceLine
+                  label="failures"
+                  value={evidenceFailureSummary(report.releaseEvidence.failures)}
+                  accent={
+                    report.releaseEvidence.failures.length > 0
+                      ? "#fb7185"
+                      : "var(--text-muted)"
+                  }
+                />
+                <EvidenceLine
+                  label="signals"
+                  value={report.releaseEvidence.components.evaluationSignals.status}
+                  accent={statusAccent(
+                    report.releaseEvidence.components.evaluationSignals.status,
+                  )}
+                />
+                <EvidenceLine
+                  label="clients"
+                  value={report.releaseEvidence.components.adoptionClients.status}
+                  accent={statusAccent(
+                    report.releaseEvidence.components.adoptionClients.status,
+                  )}
+                />
+                {releaseBlockers.length > 0 ? (
+                  <EvidenceLine
+                    label="blockers"
+                    value={compactList(releaseBlockers)}
+                    accent="#fb7185"
+                  />
+                ) : null}
+                {releaseMcpServerFailures.length > 0 ? (
+                  <EvidenceLine
+                    label="mcp failures"
+                    value={compactList(releaseMcpServerFailures)}
+                    accent="#fb7185"
+                  />
+                ) : null}
+              </EvidenceColumn>
+            ) : null}
+
+            <EvidenceColumn
+              title="Human labels"
+              status={report.humanLabelEvidence?.status ?? "missing"}
+            >
+              <EvidenceLine
+                label="client"
+                value={report.humanLabelEvidence?.client ?? "unknown"}
+                accent={statusAccent(report.humanLabelEvidence?.status)}
+              />
+              <EvidenceLine
+                label="recall samples"
+                value={`${report.humanLabelEvidence?.recallSampleCount ?? 0}/${
+                  report.humanLabelEvidence?.minRecallSamples ?? 0
+                }`}
+              />
+              <EvidenceLine
+                label="session samples"
+                value={`${report.humanLabelEvidence?.sessionSampleCount ?? 0}/${
+                  report.humanLabelEvidence?.minSessionSamples ?? 0
+                }`}
+              />
+              <EvidenceLine
+                label="failures"
+                value={evidenceFailureSummary(report.humanLabelEvidence?.failures ?? [])}
+                accent={
+                  (report.humanLabelEvidence?.failures.length ?? 0) > 0
+                    ? "#fb7185"
+                    : "var(--text-muted)"
+                }
+              />
+            </EvidenceColumn>
+
+            <EvidenceColumn
+              title="Adoption"
+              status={report.adoptionEvidence?.status ?? "missing"}
+            >
+              <EvidenceLine
+                label="client"
+                value={report.adoptionEvidence?.client ?? "unknown"}
+                accent={statusAccent(report.adoptionEvidence?.status)}
+              />
+              <EvidenceLine
+                label="calls"
+                value={(report.adoptionEvidence?.callCount ?? 0).toLocaleString()}
+              />
+              {(report.adoptionEvidence?.blockers?.length ?? 0) > 0 ? (
+                <EvidenceLine
+                  label="blockers"
+                  value={compactList(report.adoptionEvidence?.blockers ?? [])}
+                  accent="#fb7185"
+                />
+              ) : null}
+              {(report.adoptionEvidence?.mcpServerFailures?.length ?? 0) > 0 ? (
+                <EvidenceLine
+                  label="mcp failures"
+                  value={compactList(report.adoptionEvidence?.mcpServerFailures ?? [])}
+                  accent="#fb7185"
+                />
+              ) : null}
+              <EvidenceLine
+                label="required tools"
+                value={`${report.adoptionEvidence?.requiredTools.observed.length ?? 0}/${
+                  report.adoptionEvidence?.requiredTools.expected.length ?? 0
+                }`}
+              />
+              <EvidenceLine
+                label="failures"
+                value={evidenceFailureSummary(report.adoptionEvidence?.failures ?? [])}
+                accent={
+                  (report.adoptionEvidence?.failures.length ?? 0) > 0
+                    ? "#fb7185"
+                    : "var(--text-muted)"
+                }
+              />
+            </EvidenceColumn>
+
+            <EvidenceColumn
+              title="Clients"
+              status={report.adoptionClientEvidence?.status ?? "missing"}
+            >
+              <EvidenceLine
+                label="required"
+                value={compactList(report.adoptionClientEvidence?.requiredClients ?? [])}
+              />
+              <EvidenceLine
+                label="observed"
+                value={compactList(report.adoptionClientEvidence?.observedClients ?? [])}
+                accent={statusAccent(report.adoptionClientEvidence?.status)}
+              />
+              <EvidenceLine
+                label="reports"
+                value={(report.adoptionClientEvidence?.reportCount ?? 0).toLocaleString()}
+              />
+              {(report.adoptionClientEvidence?.blockers?.length ?? 0) > 0 ? (
+                <EvidenceLine
+                  label="blockers"
+                  value={compactList(report.adoptionClientEvidence?.blockers ?? [])}
+                  accent="#fb7185"
+                />
+              ) : null}
+              {(report.adoptionClientEvidence?.mcpServerFailures?.length ?? 0) > 0 ? (
+                <EvidenceLine
+                  label="mcp failures"
+                  value={compactList(
+                    report.adoptionClientEvidence?.mcpServerFailures ?? [],
+                  )}
+                  accent="#fb7185"
+                />
+              ) : null}
+              <EvidenceLine
+                label="failures"
+                value={evidenceFailureSummary(report.adoptionClientEvidence?.failures ?? [])}
+                accent={
+                  (report.adoptionClientEvidence?.failures.length ?? 0) > 0
+                    ? "#fb7185"
+                    : "var(--text-muted)"
+                }
+              />
+            </EvidenceColumn>
+
+            {(report.additionalAdoptionEvidence?.length ?? 0) > 0 ? (
+              <EvidenceColumn title="Additional adoption" status="measured">
+                <EvidenceLine
+                  label="reports"
+                  value={(report.additionalAdoptionEvidence ?? [])
+                    .map((evidence) => evidence.client ?? evidence.artifactPath ?? "unknown")
+                    .join(", ")}
+                />
+                <EvidenceLine
+                  label="failures"
+                  value={evidenceFailureSummary(
+                    (report.additionalAdoptionEvidence ?? []).flatMap(
+                      (evidence) => evidence.failures,
+                    ),
+                  )}
+                  accent={
+                    (report.additionalAdoptionEvidence ?? []).some(
+                      (evidence) => evidence.failures.length > 0,
+                    )
+                      ? "#fb7185"
+                      : "var(--text-muted)"
+                  }
+                />
+                {(report.additionalAdoptionEvidence ?? []).some(
+                  (evidence) => (evidence.blockers?.length ?? 0) > 0,
+                ) ? (
+                  <EvidenceLine
+                    label="blockers"
+                    value={compactList(
+                      (report.additionalAdoptionEvidence ?? []).flatMap(
+                        (evidence) => evidence.blockers ?? [],
+                      ),
+                    )}
+                    accent="#fb7185"
+                  />
+                ) : null}
+              </EvidenceColumn>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+            No release evidence attached
+          </div>
+        )}
       </section>
 
       <div

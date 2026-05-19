@@ -11,7 +11,9 @@ from typing import Any
 
 from engram.config import EngramConfig
 from engram.evaluation.adoption_evidence import (
+    adoption_client_set_failure_message,
     adoption_evidence_failure_message,
+    build_adoption_client_set_evidence,
     link_adoption_to_human_label_evidence,
     load_adoption_evidence,
 )
@@ -27,6 +29,7 @@ from engram.evaluation.brain_loop_report import (
     looks_like_partial_brain_loop_report,
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
+    with_release_evidence_summary,
 )
 from engram.evaluation.human_label_evidence import (
     DEFAULT_HUMAN_RECALL_SAMPLE_GATE,
@@ -219,12 +222,41 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--additional-adoption-report",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Additional `engram adoption --format json` report to attach for "
+            "multi-client release evidence. Repeat for Cursor/Windsurf/second-client "
+            "diversity gates."
+        ),
+    )
+    parser.add_argument(
         "--require-adoption-evidence",
         action="store_true",
         help=(
             "Exit non-zero unless --adoption-report is a passed live-client "
             "Engram adoption validation report. When human-label evidence is "
             "also attached, client/session metadata must point at the same run."
+        ),
+    )
+    parser.add_argument(
+        "--require-adoption-client",
+        help=(
+            "Expected live MCP client label for --adoption-report. The report "
+            "must have been validated with `engram adoption --require-client` "
+            "for this client and the observed live client must match."
+        ),
+    )
+    parser.add_argument(
+        "--require-adoption-clients",
+        nargs="+",
+        default=[],
+        help=(
+            "Expected live MCP client labels across --adoption-report plus any "
+            "--additional-adoption-report values. Each client must have a measured "
+            "report validated with matching `engram adoption --require-client`."
         ),
     )
     parser.add_argument(
@@ -382,10 +414,22 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
 async def run_evaluate_command(args: argparse.Namespace) -> None:
     """Print a brain-loop report for parsed CLI arguments."""
     if getattr(args, "human_label_template", False):
+        if getattr(args, "additional_adoption_report", None) and not getattr(
+            args,
+            "adoption_report",
+            None,
+        ):
+            raise SystemExit(
+                "--additional-adoption-report requires --adoption-report "
+                "when generating a human-label template"
+            )
         adoption_evidence = None
         if getattr(args, "adoption_report", None):
             try:
-                adoption_evidence = load_adoption_evidence(args.adoption_report)
+                adoption_evidence = load_adoption_evidence(
+                    args.adoption_report,
+                    required_client=getattr(args, "require_adoption_client", None),
+                )
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 raise SystemExit(
                     f"Invalid adoption report {args.adoption_report}: {exc}"
@@ -396,9 +440,32 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
             )
             if failure_message:
                 raise SystemExit(failure_message)
+        additional_adoption_evidences = [
+            _load_adoption_report_evidence(path)
+            for path in getattr(args, "additional_adoption_report", None) or []
+        ]
+        required_adoption_clients = _required_adoption_clients(args)
+        if additional_adoption_evidences or required_adoption_clients:
+            client_set_evidence = build_adoption_client_set_evidence(
+                [
+                    evidence
+                    for evidence in [adoption_evidence, *additional_adoption_evidences]
+                    if evidence is not None
+                ],
+                required_clients=required_adoption_clients,
+            )
+            failure_message = adoption_client_set_failure_message(
+                client_set_evidence,
+                prefix="Adoption client evidence failed gates",
+            )
+            if failure_message:
+                raise SystemExit(failure_message)
         template = build_human_label_evidence_template(
             adoption_evidence=adoption_evidence,
             adoption_report_path=getattr(args, "adoption_report", None),
+            required_adoption_client=getattr(args, "require_adoption_client", None),
+            additional_adoption_evidences=additional_adoption_evidences,
+            required_adoption_clients=required_adoption_clients,
         )
         _write_human_label_template_output(
             template,
@@ -417,6 +484,7 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
     report = _attach_human_label_evidence_from_args(report, args)
     report = _attach_adoption_evidence_from_args(report, args)
     report = link_adoption_to_human_label_evidence(report)
+    report = with_release_evidence_summary(report)
     require_release = bool(getattr(args, "require_release_evidence", False))
     if require_release or getattr(args, "require_evaluation_signals", False):
         failure_message = evaluation_signal_failure_message(
@@ -443,10 +511,23 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         )
         if failure_message:
             raise SystemExit(failure_message)
-    if require_release or getattr(args, "require_adoption_evidence", False):
+    if (
+        require_release
+        or getattr(args, "require_adoption_evidence", False)
+        or bool(getattr(args, "require_adoption_client", None))
+    ):
         failure_message = adoption_evidence_failure_message(
             report.get("adoption_evidence"),
             prefix="Adoption evidence failed gates",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
+    if _should_gate_adoption_client_set(args, require_release) and report.get(
+        "adoption_client_evidence"
+    ):
+        failure_message = adoption_client_set_failure_message(
+            report.get("adoption_client_evidence"),
+            prefix="Adoption client evidence failed gates",
         )
         if failure_message:
             raise SystemExit(failure_message)
@@ -530,19 +611,59 @@ def _attach_adoption_evidence_from_args(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     artifact_path = getattr(args, "adoption_report", None)
-    require_evidence = getattr(args, "require_adoption_evidence", False)
+    additional_paths = list(getattr(args, "additional_adoption_report", None) or [])
+    required_clients = _required_adoption_clients(args)
+    require_evidence = getattr(args, "require_adoption_evidence", False) or bool(
+        getattr(args, "require_adoption_client", None)
+    )
     if artifact_path is None:
         if require_evidence:
             report = dict(report)
             report["adoption_evidence"] = None
+        if additional_paths or required_clients:
+            report = _attach_adoption_client_set(report, [], args)
         return report
-    try:
-        evidence = load_adoption_evidence(artifact_path)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        raise SystemExit(f"Invalid adoption report {artifact_path}: {exc}") from exc
+    evidence = _load_adoption_report_evidence(
+        artifact_path,
+        required_client=getattr(args, "require_adoption_client", None),
+    )
     report = dict(report)
     report["adoption_evidence"] = evidence
+    if additional_paths or required_clients:
+        report = _attach_adoption_client_set(report, [evidence], args)
     return report
+
+
+def _attach_adoption_client_set(
+    report: dict[str, Any],
+    primary_evidences: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    evidences = list(primary_evidences)
+    for path in getattr(args, "additional_adoption_report", None) or []:
+        evidences.append(_load_adoption_report_evidence(path))
+    report = dict(report)
+    if len(evidences) > len(primary_evidences):
+        report["additional_adoption_evidence"] = evidences[len(primary_evidences) :]
+    report["adoption_client_evidence"] = build_adoption_client_set_evidence(
+        evidences,
+        required_clients=_required_adoption_clients(args),
+    )
+    return report
+
+
+def _load_adoption_report_evidence(
+    artifact_path: Path,
+    *,
+    required_client: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return load_adoption_evidence(
+            artifact_path,
+            required_client=required_client,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit(f"Invalid adoption report {artifact_path}: {exc}") from exc
 
 
 def _write_evidence_bundle_from_args(report: dict[str, Any], args: argparse.Namespace) -> None:
@@ -570,6 +691,9 @@ def build_evidence_bundle(
             getattr(args, "human_label_artifact", None)
         ),
         "adoption_report": _optional_path_str(getattr(args, "adoption_report", None)),
+        "additional_adoption_reports": _optional_paths(
+            getattr(args, "additional_adoption_report", None)
+        ),
         "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
         "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
         "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
@@ -612,6 +736,8 @@ def build_evidence_bundle(
             "require_adoption_evidence": bool(
                 getattr(args, "require_adoption_evidence", False)
             ),
+            "require_adoption_client": getattr(args, "require_adoption_client", None),
+            "require_adoption_clients": _required_adoption_clients(args),
             "min_human_recall_samples": max(
                 0,
                 _effective_min_human_recall_samples(args),
@@ -629,7 +755,11 @@ def _optional_path_str(path: Any) -> str | None:
     return str(path) if path is not None else None
 
 
-def _source_sha256_map(sources: dict[str, str | None]) -> dict[str, str | None]:
+def _optional_paths(paths: Any) -> list[str]:
+    return [str(path) for path in paths or []]
+
+
+def _source_sha256_map(sources: dict[str, Any]) -> dict[str, Any]:
     return {
         name: _file_sha256(path)
         for name, path in sources.items()
@@ -637,10 +767,47 @@ def _source_sha256_map(sources: dict[str, str | None]) -> dict[str, str | None]:
     }
 
 
-def _file_sha256(path: str | None) -> str | None:
+def _file_sha256(path: Any) -> Any:
     if path is None:
         return None
+    if isinstance(path, list):
+        return [_file_sha256(item) for item in path]
     return hashlib.sha256(Path(path).expanduser().read_bytes()).hexdigest()
+
+
+def _required_adoption_clients(args: argparse.Namespace) -> list[str]:
+    clients = list(getattr(args, "require_adoption_clients", None) or [])
+    singular = getattr(args, "require_adoption_client", None)
+    if singular:
+        clients.insert(0, singular)
+    return _dedupe_strings(clients)
+
+
+def _should_gate_adoption_client_set(
+    args: argparse.Namespace,
+    require_release: bool,
+) -> bool:
+    return (
+        require_release
+        or getattr(args, "require_adoption_evidence", False)
+        or bool(getattr(args, "require_adoption_client", None))
+        or bool(getattr(args, "require_adoption_clients", None))
+    )
+
+
+def _dedupe_strings(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        label = str(value).strip()
+        if not label:
+            continue
+        normalized = " ".join(label.lower().split())
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(label)
+    return result
 
 
 def _effective_min_human_recall_samples(args: argparse.Namespace) -> int:

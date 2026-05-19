@@ -593,6 +593,27 @@ class TestEpistemicEndpoints:
         data = resp.json()
         assert "epistemicMetrics" in data["stats"]
         assert data["artifactBootstrap"]["artifactCount"] >= 1
+        assert data["agentAdoption"]["requiredNextTools"]
+
+    @pytest.mark.asyncio
+    async def test_runtime_endpoint_guides_agents_for_empty_runtime(
+        self,
+        empty_knowledge_client,
+        tmp_path,
+    ):
+        resp = await empty_knowledge_client.get(
+            "/api/knowledge/runtime",
+            params={"project_path": str(tmp_path)},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["artifactBootstrap"]["artifactCount"] == 0
+        assert data["agentAdoption"]["status"] in {
+            "fresh_runtime",
+            "needs_project_bootstrap",
+        }
+        assert data["agentAdoption"]["doNotTreatEmptyAsFailure"] is True
+        assert "claim_authority" in data["agentAdoption"]["requiredNextTools"]
 
 
 # ─── Recall ──────────────────────────────────────────────────────
@@ -733,6 +754,10 @@ class TestRecall:
 
         assert resp.status_code == 200
         data = resp.json()
+        assert data["operation"] == "recall"
+        assert data["lifecycle"]["stage"] == "recall"
+        assert data["lifecycle"]["recallMode"] == "explicit"
+        assert data["lifecycle"]["resultCount"] == 1
         assert data["items"][0]["resultType"] == "cue_episode"
         assert data["items"][0]["cue"]["cueText"] == "Phoenix redesign and recall discussion"
         assert data["items"][0]["cue"]["usedCount"] == 1

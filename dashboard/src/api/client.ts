@@ -8,13 +8,18 @@ import type {
   EntityDetail,
   Episode,
   GraphStats,
+  RuntimeState,
   BrainLoopEvaluationReport,
+  HumanLabelEvidence,
+  AdoptionEvidence,
+  AdoptionClientEvidence,
+  AdoptionClientEvidenceReport,
   LifecycleSummary,
   GraphRepresentationMeta,
   ConsolidationCycleSummary,
   ConsolidationCycleDetail,
   ConsolidationPressure,
-  RecallResult,
+  RecallResponse,
   FactResult,
   IntentionItem,
   RecallEvaluationInput,
@@ -350,6 +355,17 @@ interface RawEvaluationReport {
   evaluation_signals?: RawEvaluationSignals;
   evaluationSignals?: RawEvaluationSignals;
   coverage_gaps?: string[];
+  coverageGaps?: string[];
+  release_evidence?: unknown;
+  releaseEvidence?: unknown;
+  human_label_evidence?: unknown;
+  humanLabelEvidence?: unknown;
+  adoption_evidence?: unknown;
+  adoptionEvidence?: unknown;
+  additional_adoption_evidence?: unknown;
+  additionalAdoptionEvidence?: unknown;
+  adoption_client_evidence?: unknown;
+  adoptionClientEvidence?: unknown;
 }
 
 interface RawLatencySummary {
@@ -451,6 +467,218 @@ function mapEvaluationSignals(
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readField(record: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) return record[key];
+  }
+  return undefined;
+}
+
+function stringOrNull(value: unknown): string | null {
+  if (typeof value === "string") return value || null;
+  if (value == null) return null;
+  return String(value);
+}
+
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function booleanOrFalse(value: unknown): boolean {
+  return value === true;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => stringOrNull(item))
+    .filter((item): item is string => item != null);
+}
+
+function evidenceStatus(raw: Record<string, unknown> | null) {
+  return stringOrNull(raw ? readField(raw, "status") : null) ?? "missing";
+}
+
+function mapHumanLabelEvidence(raw: unknown): HumanLabelEvidence | null {
+  const data = asRecord(raw);
+  if (!data) return null;
+  return {
+    status: evidenceStatus(data),
+    artifactPath: stringOrNull(readField(data, "artifact_path", "artifactPath")),
+    artifactSha256: stringOrNull(readField(data, "artifact_sha256", "artifactSha256")),
+    kind: stringOrNull(readField(data, "kind")),
+    source: stringOrNull(readField(data, "source")),
+    client: stringOrNull(readField(data, "client")),
+    capturedAt: stringOrNull(readField(data, "captured_at", "capturedAt")),
+    sessionId: stringOrNull(readField(data, "session_id", "sessionId")),
+    labeler: stringOrNull(readField(data, "labeler")),
+    humanLabeled: booleanOrFalse(readField(data, "human_labeled", "humanLabeled")),
+    recallSampleCount: numberOrZero(readField(data, "recall_sample_count", "recallSampleCount")),
+    sessionSampleCount: numberOrZero(readField(data, "session_sample_count", "sessionSampleCount")),
+    minRecallSamples: numberOrZero(readField(data, "min_recall_samples", "minRecallSamples")),
+    minSessionSamples: numberOrZero(readField(data, "min_session_samples", "minSessionSamples")),
+    sampleSources: stringList(readField(data, "sample_sources", "sampleSources")),
+    failures: stringList(readField(data, "failures")),
+  };
+}
+
+function mapAdoptionEvidence(raw: unknown): AdoptionEvidence | null {
+  const data = asRecord(raw);
+  if (!data) return null;
+  const requiredTools = asRecord(readField(data, "required_tools", "requiredTools")) ?? {};
+  const capture = asRecord(readField(data, "capture")) ?? {};
+  const fileMemory = asRecord(readField(data, "file_memory", "fileMemory")) ?? {};
+  return {
+    status: evidenceStatus(data),
+    artifactPath: stringOrNull(readField(data, "artifact_path", "artifactPath")),
+    artifactSha256: stringOrNull(readField(data, "artifact_sha256", "artifactSha256")),
+    adoptionStatus: stringOrNull(readField(data, "adoption_status", "adoptionStatus")),
+    authorityPath: stringOrNull(readField(data, "authority_path", "authorityPath")),
+    callsPath: stringOrNull(readField(data, "calls_path", "callsPath")),
+    callCount: numberOrZero(readField(data, "call_count", "callCount")),
+    client: stringOrNull(readField(data, "client")),
+    requiredClient: stringOrNull(readField(data, "required_client", "requiredClient")),
+    gateRequiredClient: stringOrNull(readField(data, "gate_required_client", "gateRequiredClient")),
+    capturedAt: stringOrNull(readField(data, "captured_at", "capturedAt")),
+    sessionId: stringOrNull(readField(data, "session_id", "sessionId")),
+    sessionFilter: stringOrNull(readField(data, "session_filter", "sessionFilter")),
+    source: stringOrNull(readField(data, "source")),
+    requiredLiveEvidence: booleanOrFalse(
+      readField(data, "required_live_evidence", "requiredLiveEvidence"),
+    ),
+    blockers: stringList(readField(data, "blockers")),
+    blockerDetails: stringList(readField(data, "blocker_details", "blockerDetails")),
+    mcpServerFailures: stringList(
+      readField(data, "mcp_server_failures", "mcpServerFailures"),
+    ),
+    requiredTools: {
+      expected: stringList(readField(requiredTools, "expected")),
+      observed: stringList(readField(requiredTools, "observed")),
+      missing: stringList(readField(requiredTools, "missing")),
+      inOrder: booleanOrFalse(readField(requiredTools, "in_order", "inOrder")),
+    },
+    capture: {
+      destination: stringOrNull(readField(capture, "destination")),
+      expectedTool: stringOrNull(readField(capture, "expected_tool", "expectedTool")),
+      observedTools: stringList(readField(capture, "observed_tools", "observedTools")),
+      missing: booleanOrFalse(readField(capture, "missing")),
+    },
+    fileMemory: {
+      present: booleanOrNull(readField(fileMemory, "present")),
+      substitutedForEngram: booleanOrFalse(
+        readField(fileMemory, "substituted_for_engram", "substitutedForEngram"),
+      ),
+    },
+    failures: stringList(readField(data, "failures")),
+  };
+}
+
+function mapAdoptionClientEvidenceReport(raw: unknown): AdoptionClientEvidenceReport | null {
+  const data = asRecord(raw);
+  if (!data) return null;
+  return {
+    client: stringOrNull(readField(data, "client")),
+    requiredClient: stringOrNull(readField(data, "required_client", "requiredClient")),
+    status: evidenceStatus(data),
+    artifactPath: stringOrNull(readField(data, "artifact_path", "artifactPath")),
+    artifactSha256: stringOrNull(readField(data, "artifact_sha256", "artifactSha256")),
+    capturedAt: stringOrNull(readField(data, "captured_at", "capturedAt")),
+    sessionId: stringOrNull(readField(data, "session_id", "sessionId")),
+    blockers: stringList(readField(data, "blockers")),
+    blockerDetails: stringList(readField(data, "blocker_details", "blockerDetails")),
+    mcpServerFailures: stringList(
+      readField(data, "mcp_server_failures", "mcpServerFailures"),
+    ),
+    failures: stringList(readField(data, "failures")),
+  };
+}
+
+function mapAdoptionClientEvidence(raw: unknown): AdoptionClientEvidence | null {
+  const data = asRecord(raw);
+  if (!data) return null;
+  const reports = (Array.isArray(readField(data, "reports"))
+    ? (readField(data, "reports") as unknown[])
+    : []
+  )
+    .map(mapAdoptionClientEvidenceReport)
+    .filter((item): item is AdoptionClientEvidenceReport => item != null);
+  return {
+    status: evidenceStatus(data),
+    requiredClients: stringList(readField(data, "required_clients", "requiredClients")),
+    observedClients: stringList(readField(data, "observed_clients", "observedClients")),
+    reportCount: numberOrZero(readField(data, "report_count", "reportCount")) || reports.length,
+    reports,
+    blockers: stringList(readField(data, "blockers")),
+    mcpServerFailures: stringList(
+      readField(data, "mcp_server_failures", "mcpServerFailures"),
+    ),
+    failures: stringList(readField(data, "failures")),
+  };
+}
+
+function mapReleaseEvidenceComponent(raw: unknown) {
+  const data = asRecord(raw);
+  return {
+    status: evidenceStatus(data),
+    missing: stringList(data ? readField(data, "missing") : null),
+    failures: stringList(data ? readField(data, "failures") : null),
+    requiredClients: stringList(
+      data ? readField(data, "required_clients", "requiredClients") : null,
+    ),
+    observedClients: stringList(
+      data ? readField(data, "observed_clients", "observedClients") : null,
+    ),
+    blockers: stringList(data ? readField(data, "blockers") : null),
+    blockerDetails: stringList(
+      data ? readField(data, "blocker_details", "blockerDetails") : null,
+    ),
+    mcpServerFailures: stringList(
+      data ? readField(data, "mcp_server_failures", "mcpServerFailures") : null,
+    ),
+  };
+}
+
+function mapReleaseEvidence(raw: unknown): BrainLoopEvaluationReport["releaseEvidence"] {
+  const data = asRecord(raw);
+  if (!data) return null;
+  const components = asRecord(readField(data, "components")) ?? {};
+  return {
+    status: evidenceStatus(data),
+    components: {
+      evaluationSignals: mapReleaseEvidenceComponent(
+        readField(components, "evaluation_signals", "evaluationSignals"),
+      ),
+      humanLabels: mapReleaseEvidenceComponent(
+        readField(components, "human_labels", "humanLabels"),
+      ),
+      adoption: mapReleaseEvidenceComponent(readField(components, "adoption")),
+      adoptionClients: mapReleaseEvidenceComponent(
+        readField(components, "adoption_clients", "adoptionClients"),
+      ),
+    },
+    missing: stringList(readField(data, "missing")),
+    failures: stringList(readField(data, "failures")),
+  };
+}
+
+function mapAdditionalAdoptionEvidence(raw: unknown): AdoptionEvidence[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(mapAdoptionEvidence)
+    .filter((item): item is AdoptionEvidence => item != null);
+}
+
 function mapCalibrationPhaseTotals(totals?: RawCalibrationPhaseTotals) {
   return Object.fromEntries(
     Object.entries(totals ?? {}).map(([phase, value]) => [
@@ -471,6 +699,13 @@ function mapCalibrationPhaseTotals(totals?: RawCalibrationPhaseTotals) {
 
 export const api = {
   getHealth: () => fetchJSON<HealthResponse>("/health"),
+
+  getRuntimeState: (params?: { projectPath?: string | null }) => {
+    const sp = new URLSearchParams();
+    if (params?.projectPath) sp.set("project_path", params.projectPath);
+    const suffix = sp.size > 0 ? `?${sp}` : "";
+    return fetchJSON<RuntimeState>(`/api/knowledge/runtime${suffix}`);
+  },
 
   getGraphAtlas: (params?: { refresh?: boolean; snapshotId?: string | null }) => {
     const sp = new URLSearchParams();
@@ -847,7 +1082,20 @@ export const api = {
       evaluationSignals: mapEvaluationSignals(
         raw.evaluation_signals ?? raw.evaluationSignals,
       ),
-      coverageGaps: raw.coverage_gaps ?? [],
+      coverageGaps: raw.coverage_gaps ?? raw.coverageGaps ?? [],
+      releaseEvidence: mapReleaseEvidence(raw.release_evidence ?? raw.releaseEvidence),
+      humanLabelEvidence: mapHumanLabelEvidence(
+        raw.human_label_evidence ?? raw.humanLabelEvidence,
+      ),
+      adoptionEvidence: mapAdoptionEvidence(
+        raw.adoption_evidence ?? raw.adoptionEvidence,
+      ),
+      additionalAdoptionEvidence: mapAdditionalAdoptionEvidence(
+        raw.additional_adoption_evidence ?? raw.additionalAdoptionEvidence,
+      ),
+      adoptionClientEvidence: mapAdoptionClientEvidence(
+        raw.adoption_client_evidence ?? raw.adoptionClientEvidence,
+      ),
     };
   },
 
@@ -923,7 +1171,7 @@ export const api = {
     const sp = new URLSearchParams();
     sp.set("q", params.q);
     if (params.limit) sp.set("limit", String(params.limit));
-    return fetchJSON<{ items: RecallResult[]; query: string }>(`/api/knowledge/recall?${sp}`);
+    return fetchJSON<RecallResponse>(`/api/knowledge/recall?${sp}`);
   },
 
   searchFacts: (params: { q: string; subject?: string; predicate?: string; limit?: number }) => {

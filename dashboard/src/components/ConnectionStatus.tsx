@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ServerHealthStatus } from "../api/client";
 import { useEngramStore } from "../store";
-import type { WsReadyState } from "../store/types";
+import type { RuntimeState, WsReadyState } from "../store/types";
 
 type IndicatorState =
   | "checking"
@@ -94,9 +94,25 @@ function getIndicatorTitle(state: IndicatorState): string {
   }
 }
 
+function getAdoptionLabel(runtimeState: RuntimeState | null): string | null {
+  const adoption = runtimeState?.agentAdoption;
+  if (!adoption?.doNotTreatEmptyAsFailure) return null;
+  if (adoption.status === "needs_project_bootstrap") return "Bootstrap";
+  if (adoption.status === "fresh_runtime") return "Onboarding";
+  return null;
+}
+
+function getAdoptionTitle(runtimeState: RuntimeState | null): string | null {
+  const adoption = runtimeState?.agentAdoption;
+  if (!adoption?.doNotTreatEmptyAsFailure) return null;
+  const tools = adoption.requiredNextTools.join(" -> ");
+  return tools ? `${adoption.reason} Next: ${tools}.` : adoption.reason;
+}
+
 export function ConnectionStatus() {
   const readyState = useEngramStore((s) => s.readyState);
   const [healthStatus, setHealthStatus] = useState<ServerHealthStatus | "checking">("checking");
+  const [runtimeState, setRuntimeState] = useState<RuntimeState | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -114,9 +130,24 @@ export function ConnectionStatus() {
       }
     }
 
+    async function loadRuntimeState() {
+      try {
+        const runtime = await api.getRuntimeState();
+        if (isMounted) {
+          setRuntimeState(runtime);
+        }
+      } catch {
+        if (isMounted) {
+          setRuntimeState(null);
+        }
+      }
+    }
+
     void loadHealth();
+    void loadRuntimeState();
     const intervalId = window.setInterval(() => {
       void loadHealth();
+      void loadRuntimeState();
     }, HEALTH_POLL_INTERVAL_MS);
 
     return () => {
@@ -127,15 +158,21 @@ export function ConnectionStatus() {
 
   const indicatorState = getIndicatorState(readyState, healthStatus);
   const config = STATE_CONFIG[indicatorState];
+  const adoptionLabel = getAdoptionLabel(runtimeState);
+  const adoptionTitle = getAdoptionTitle(runtimeState);
+  const title = [getIndicatorTitle(indicatorState), adoptionTitle]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div
-      title={getIndicatorTitle(indicatorState)}
+      title={title}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 7,
         padding: "8px 14px",
+        flexWrap: "wrap",
       }}
     >
       <span
@@ -161,6 +198,21 @@ export function ConnectionStatus() {
       >
         {config.label}
       </span>
+      {adoptionLabel ? (
+        <span
+          className="mono"
+          style={{
+            fontSize: 9,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--warm)",
+            borderLeft: "1px solid var(--border)",
+            paddingLeft: 7,
+          }}
+        >
+          {adoptionLabel}
+        </span>
+      ) : null}
     </div>
   );
 }

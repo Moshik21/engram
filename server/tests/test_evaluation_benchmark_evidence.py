@@ -170,6 +170,7 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     assert bundle["sources"]["benchmark_artifact"] == str(benchmark_path)
     assert bundle["sources"]["human_label_artifact"] is None
     assert bundle["sources"]["adoption_report"] is None
+    assert bundle["sources"]["additional_adoption_reports"] == []
     assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
         report_path.read_bytes()
     ).hexdigest()
@@ -178,6 +179,7 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     ).hexdigest()
     assert bundle["source_sha256"]["human_label_artifact"] is None
     assert bundle["source_sha256"]["adoption_report"] is None
+    assert bundle["source_sha256"]["additional_adoption_reports"] == []
     assert bundle["gates"] == {
         "require_evaluation_signals": True,
         "require_release_evidence": False,
@@ -188,6 +190,8 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
         "min_benchmark_pass_rate": 0.9,
         "require_human_label_evidence": False,
         "require_adoption_evidence": False,
+        "require_adoption_client": None,
+        "require_adoption_clients": [],
         "min_human_recall_samples": 1,
         "min_human_session_samples": 1,
     }

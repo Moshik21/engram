@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -21,6 +22,13 @@ from engram.retrieval.auto_recall import (
     should_recall_for_tool,
     store_mcp_auto_observe_turn,
 )
+
+
+def test_mcp_auto_observe_turn_uses_capture_stage_helper() -> None:
+    source = inspect.getsource(store_mcp_auto_observe_turn)
+
+    assert "store_observation" in source
+    assert "store_episode" not in source
 
 
 def test_extract_recall_query_prefers_proper_nouns() -> None:
@@ -393,7 +401,7 @@ async def test_build_session_prime_surface_skips_when_already_primed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_store_mcp_auto_observe_turn_uses_manager_store_episode() -> None:
+async def test_store_mcp_auto_observe_turn_preserves_capture_call_shape() -> None:
     manager = AsyncMock()
 
     await store_mcp_auto_observe_turn(
@@ -403,8 +411,8 @@ async def test_store_mcp_auto_observe_turn_uses_manager_store_episode() -> None:
     )
 
     manager.store_episode.assert_awaited_once_with(
-        "Long route question that should become latent context",
-        "native_brain",
+        content="Long route question that should become latent context",
+        group_id="native_brain",
         source="tool_piggyback",
     )
 
@@ -524,8 +532,8 @@ async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
     )
 
     manager.store_episode.assert_awaited_once_with(
-        content,
-        "brain",
+        content=content,
+        group_id="brain",
         source="tool_piggyback",
     )
     assert response == {

@@ -412,6 +412,9 @@ def _assert_native_runtime_state(payload: dict, project_dir: Path) -> None:
     assert payload["artifactBootstrap"]["projectPath"] == str(project_dir)
     assert payload["artifactBootstrap"]["artifactCount"] >= 1
     assert payload["artifactBootstrap"]["freshArtifactCount"] >= 1
+    assert payload["agentAdoption"]["status"] == "ready"
+    assert payload["agentAdoption"]["doNotTreatEmptyAsFailure"] is False
+    assert payload["agentAdoption"]["requiredNextTools"] == ["get_context"]
     assert "artifactBootstrapEnabled" in payload["features"]
     assert "artifactRecallEnabled" in payload["features"]
 

@@ -30,6 +30,7 @@ from engram.models.episode import Episode
 from engram.models.relationship import Relationship
 from engram.storage.protocols import ActivationStore, GraphStore
 from engram.utils.dates import utc_now
+from engram.utils.text_guards import is_meta_summary
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,8 @@ def merge_entity_attributes(
     """Merge new attributes into an existing entity. Returns update dict."""
     updates: dict = {}
 
-    from engram.graph_manager import GraphManager
-
     if new_summary and new_summary != existing.summary:
-        if GraphManager._is_meta_summary(new_summary):
+        if is_meta_summary(new_summary):
             entity_type = getattr(existing, "entity_type", "Other") or "Other"
             logger.warning(
                 "Rejected meta-summary for %s entity %r: %s",
