@@ -831,8 +831,8 @@ evidence that agents actually trust and use the brain:
    human-label evidence, and adoption evidence into one operator gate.
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached
    benchmark/human-label/adoption evidence, source paths, source SHA-256
-   digests, and gate thresholds as one reproducible JSON artifact after
-   requested gates pass. The
+   digests, package/git provenance, and gate thresholds as one reproducible JSON
+   artifact after requested gates pass. The
    native surface manifest tracks the Helix variant as an operator hard gate.
    `engram doctor` now surfaces the same
    evaluation-signal readiness in its disposable smoke report, so the local

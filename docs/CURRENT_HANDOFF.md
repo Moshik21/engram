@@ -298,7 +298,9 @@ sources. Loaded artifacts now carry their SHA-256 digest in the evidence summary
 and Markdown report, so archived bundles point back to the exact reviewed
 `human-labels.json`. Evidence bundles now also include a top-level
 `source_sha256` map for report, benchmark, human-label, adoption, and sample
-files, making release artifacts directly traceable to their input files.
+files, plus package/git provenance (`engram_version`, commit, branch, dirty
+state, and short status), making release artifacts directly traceable to their
+input files and to the code revision that produced the bundle.
 `engram evaluate` can also attach and require a passed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are

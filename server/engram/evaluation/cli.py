@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from engram import __version__
 from engram.config import EngramConfig
 from engram.evaluation.adoption_evidence import (
     adoption_client_set_failure_message,
@@ -706,6 +708,10 @@ def build_evidence_bundle(
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": "passed",
         "group_id": report.get("group_id"),
+        "provenance": {
+            "engram_version": __version__,
+            "git": _git_metadata(),
+        },
         "sources": sources,
         "source_sha256": _source_sha256_map(sources),
         "gates": {
@@ -774,6 +780,44 @@ def _file_sha256(path: Any) -> Any:
     if isinstance(path, list):
         return [_file_sha256(item) for item in path]
     return hashlib.sha256(Path(path).expanduser().read_bytes()).hexdigest()
+
+
+def _git_metadata() -> dict[str, Any]:
+    """Return best-effort repository metadata for release evidence bundles."""
+    root = _run_git("rev-parse", "--show-toplevel", cwd=Path.cwd())
+    if root is None:
+        return {"available": False}
+
+    repo = Path(root)
+    commit = _run_git("rev-parse", "HEAD", cwd=repo)
+    branch = _run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo)
+    status_short = _run_git("status", "--short", cwd=repo) or ""
+    status_lines = [line for line in status_short.splitlines() if line.strip()]
+    return {
+        "available": True,
+        "root": str(repo),
+        "commit": commit,
+        "branch": branch,
+        "dirty": bool(status_lines),
+        "status_short": status_lines,
+    }
+
+
+def _run_git(*args: str, cwd: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
 
 
 def _required_adoption_clients(args: argparse.Namespace) -> list[str]:

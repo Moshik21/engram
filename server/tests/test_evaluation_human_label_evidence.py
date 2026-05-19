@@ -114,11 +114,21 @@ def test_human_label_template_is_not_valid_evidence_until_filled() -> None:
 @pytest.mark.asyncio
 async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
     capsys,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     report_path = tmp_path / "brain-loop-report.json"
     human_path = tmp_path / "human-labels.json"
     bundle_path = tmp_path / "brain-loop-release-evidence.json"
+    git_metadata = {
+        "available": True,
+        "root": "/repo",
+        "commit": "abc123",
+        "branch": "main",
+        "dirty": False,
+        "status_short": [],
+    }
+    monkeypatch.setattr("engram.evaluation.cli._git_metadata", lambda: git_metadata)
     report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
     human_path.write_text(
         json.dumps(_human_label_artifact(recall_count=2, session_count=1)),
@@ -156,6 +166,10 @@ async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
     assert report["human_label_evidence"]["min_session_samples"] == 1
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     assert bundle["sources"]["human_label_artifact"] == str(human_path)
+    assert bundle["provenance"] == {
+        "engram_version": "0.1.0",
+        "git": git_metadata,
+    }
     assert bundle["source_sha256"]["human_label_artifact"] == expected_hash
     assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
         report_path.read_bytes()
