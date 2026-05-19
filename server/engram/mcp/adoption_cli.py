@@ -127,6 +127,15 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
         help="Optional transcript source label to place in --template metadata.",
     )
     parser.add_argument(
+        "--report-out",
+        type=Path,
+        default=None,
+        help=(
+            "Write the validation report JSON to this path for release packaging, "
+            "for example adoption-report.json. Not used with --template."
+        ),
+    )
+    parser.add_argument(
         "--format",
         choices=["json", "markdown"],
         default="json",
@@ -154,6 +163,12 @@ def run_adoption_command(args: argparse.Namespace) -> int:
     """Validate a recorded client transcript against a claim_authority protocol."""
     output_format = getattr(args, "format", "json")
     if getattr(args, "template", False):
+        if getattr(args, "report_out", None) is not None:
+            print(
+                "engram adoption --report-out is only valid when validating calls",
+                file=sys.stderr,
+            )
+            return 2
         try:
             template = build_live_adoption_transcript_template(
                 authority_path=args.authority,
@@ -203,11 +218,63 @@ def run_adoption_command(args: argparse.Namespace) -> int:
         session_id_filter=getattr(args, "session_id", None),
         required_client=getattr(args, "require_client", None),
     )
+    report = _apply_report_output_path(
+        report,
+        getattr(args, "report_out", None),
+    )
+    _write_report_output(report, getattr(args, "report_out", None))
     if output_format == "markdown":
         print(render_adoption_validation_markdown(report))
     else:
         print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["status"] == "passed" else 1
+
+
+def _write_report_output(report: dict[str, Any], report_out: Path | None) -> None:
+    if report_out is None:
+        return
+    report_out = report_out.expanduser()
+    report_out.parent.mkdir(parents=True, exist_ok=True)
+    report_out.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _apply_report_output_path(
+    report: dict[str, Any],
+    report_out: Path | None,
+) -> dict[str, Any]:
+    if report_out is None:
+        return report
+    release = report.get("release_evidence")
+    if not isinstance(release, dict):
+        return report
+    path = str(report_out.expanduser())
+    updated_release = dict(release)
+    updated_release["adoption_report_path"] = path
+    commands = release.get("commands")
+    if isinstance(commands, dict):
+        quoted_path = shlex.quote(path)
+        updated_commands = dict(commands)
+        updated_commands["human_label_template"] = (
+            "engram evaluate --human-label-template "
+            f"--adoption-report {quoted_path} --format json"
+        )
+        updated_commands["release_gate"] = (
+            "engram evaluate --from-json brain-loop-report.json "
+            "--require-release-evidence "
+            "--human-label-artifact human-labels.json "
+            f"--adoption-report {quoted_path} "
+            "--min-human-recall-samples 10 "
+            "--min-human-session-samples 3 "
+            "--evidence-bundle brain-loop-release-evidence.json "
+            "--format json"
+        )
+        updated_release["commands"] = updated_commands
+    updated_report = dict(report)
+    updated_report["release_evidence"] = updated_release
+    return updated_report
 
 
 def build_live_adoption_transcript_template(
@@ -264,7 +331,8 @@ def _template_validation_commands(
             "command": (
                 "engram adoption --authority claim-authority.json "
                 "--calls live-harness-transcript.json "
-                f"{required_client_flag} --require-live-evidence"
+                f"{required_client_flag} --require-live-evidence "
+                "--report-out adoption-report.json"
             ),
         },
         {
@@ -273,7 +341,8 @@ def _template_validation_commands(
                 "engram adoption --authority claim-authority.json "
                 "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
                 f"--session-id {shlex.quote(session)} "
-                f"{required_client_flag} --require-live-evidence"
+                f"{required_client_flag} --require-live-evidence "
+                "--report-out adoption-report.json"
             ),
         },
     ]

@@ -941,6 +941,62 @@ def test_adoption_release_handoff_requires_live_evidence_gate(
     assert "--require-live-evidence" in markdown
 
 
+def test_adoption_command_writes_release_report_artifact(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "live-client-transcript.json"
+    report_path = tmp_path / "release" / "adoption-report.json"
+    authority_path.write_text(json.dumps({"agent_protocol": _protocol()}), encoding="utf-8")
+    calls_path.write_text(
+        json.dumps(
+            {
+                "metadata": {
+                    "client": "Cursor",
+                    "capturedAt": "2026-05-18T22:31:00Z",
+                    "sessionId": "cursor-thread-4",
+                    "source": "copied_mcp_log",
+                },
+                "calls": [
+                    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
+                    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
+                    {"phase": "before_answer", "tool": "mcp__engram__recall"},
+                    {"phase": "capture", "tool": "mcp__engram__remember"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code = run_adoption_command(
+        argparse.Namespace(
+            authority=authority_path,
+            calls=[calls_path],
+            template=False,
+            client=None,
+            captured_at=None,
+            session_id=None,
+            source=None,
+            report_out=report_path,
+            require_live_evidence=True,
+            require_client="Cursor",
+            format="markdown",
+        )
+    )
+
+    markdown = capsys.readouterr().out
+    saved_report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert code == 0
+    assert saved_report["status"] == "passed"
+    assert saved_report["release_evidence"]["adoption_report_path"] == str(report_path)
+    assert (
+        f"--adoption-report {report_path}"
+        in saved_report["release_evidence"]["commands"]["human_label_template"]
+    )
+    assert f"Adoption report path: `{report_path}`" in markdown
+
+
 def test_adoption_validation_report_accepts_required_client_case_insensitive(
     tmp_path: Path,
 ) -> None:
@@ -1205,7 +1261,8 @@ def test_live_adoption_template_uses_authority_protocol_example(
             "command": (
                 "engram adoption --authority claim-authority.json "
                 "--calls live-harness-transcript.json "
-                "--require-client 'Claude Code' --require-live-evidence"
+                "--require-client 'Claude Code' --require-live-evidence "
+                "--report-out adoption-report.json"
             ),
         },
         {
@@ -1214,7 +1271,8 @@ def test_live_adoption_template_uses_authority_protocol_example(
                 "engram adoption --authority claim-authority.json "
                 "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl "
                 "--session-id claude-thread-1 "
-                "--require-client 'Claude Code' --require-live-evidence"
+                "--require-client 'Claude Code' --require-live-evidence "
+                "--report-out adoption-report.json"
             ),
         },
     ]
@@ -1249,10 +1307,12 @@ def test_adoption_template_command_outputs_markdown(
     assert "`before_answer`: `bootstrap_project`" in markdown
     assert (
         "--calls live-harness-transcript.json "
-        "--require-client Cursor --require-live-evidence"
+        "--require-client Cursor --require-live-evidence "
+        "--report-out adoption-report.json"
     ) in markdown
     assert "--calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl" in markdown
     assert "--session-id cursor-thread-4 --require-client Cursor" in markdown
+    assert "--report-out adoption-report.json" in markdown
 
 
 def test_adoption_command_returns_nonzero_for_failed_validation(

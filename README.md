@@ -1122,13 +1122,14 @@ session, and timestamp metadata from the raw stream.
 ```
 
 ```bash
-engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence
+engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence --report-out adoption-report.json
 ```
 
 The JSON/Markdown adoption report includes a `release_evidence` handoff section
 with the prefilled human-label template command and the final
-`engram evaluate --require-release-evidence` command. Save the JSON output as
-`adoption-report.json`, then use that path with
+`engram evaluate --require-release-evidence` command. Use
+`--report-out adoption-report.json` to archive the JSON report at the exact
+path the release gate consumes, then use that path with
 `engram evaluate --human-label-template --adoption-report adoption-report.json`
 before collecting human labels.
 Release gates reject adoption reports that were not validated with
@@ -1145,7 +1146,8 @@ with the hook-generated capture trace:
 ```bash
 engram adoption --authority claim-authority.json \
   --calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl \
-  --require-live-evidence
+  --require-live-evidence \
+  --report-out adoption-report.json
 ```
 
 When live evidence is required, transcripts with conflicting session/thread IDs
@@ -1161,7 +1163,8 @@ that live session instead of accepting a sessionless transcript:
 engram adoption --authority claim-authority.json \
   --calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl \
   --session-id claude-session-123 \
-  --require-live-evidence
+  --require-live-evidence \
+  --report-out adoption-report.json
 ```
 
 For cross-harness checks, add `--require-client Cursor` (or the expected

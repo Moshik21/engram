@@ -3647,7 +3647,10 @@ Adoption validation reports also include a `release_evidence` handoff section
 with the prefilled human-label template command and final
 `engram evaluate --require-release-evidence` command, so a passed live-client
 artifact directly names the next release packaging step instead of leaving that
-sequence only in prose.
+sequence only in prose. `engram adoption --report-out adoption-report.json`
+writes that JSON validation artifact directly for the release gate, and the
+generated live-harness templates include the same flag in their validation
+commands.
 The release gate is now stricter by default: adoption evidence must come from a
 report validated with `--require-live-evidence`, and
 `--require-release-evidence` defaults to 10 human recall labels plus 3

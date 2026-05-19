@@ -201,6 +201,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
     calls: list[dict] = []
     authority_path = tmp_path / "claim-authority.json"
     calls_path = tmp_path / "mcp-calls.jsonl"
+    report_path = tmp_path / "adoption-report.json"
 
     def fake_run_adoption_command(args) -> int:
         calls.append(
@@ -210,6 +211,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
                 "calls": args.calls,
                 "template": args.template,
                 "format": args.format,
+                "report_out": args.report_out,
                 "require_live_evidence": args.require_live_evidence,
                 "require_client": args.require_client,
             }
@@ -228,6 +230,8 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
             "--require-live-evidence",
             "--require-client",
             "Cursor",
+            "--report-out",
+            str(report_path),
             "--format",
             "markdown",
         ],
@@ -248,6 +252,7 @@ def test_adoption_dispatches_to_transcript_validator(monkeypatch, tmp_path) -> N
             "calls": [calls_path],
             "template": False,
             "format": "markdown",
+            "report_out": report_path,
             "require_live_evidence": True,
             "require_client": "Cursor",
         }

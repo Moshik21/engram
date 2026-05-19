@@ -741,7 +741,10 @@ not yet doing its job.
    `--adoption-report adoption-report.json --require-adoption-evidence` attaches
    the matching adoption validation JSON, requires it to be a passed live-client
    report, and cross-checks client/session metadata against the human-label
-   artifact when both are present. Adoption evidence now fails if the report was
+   artifact when both are present. `engram adoption --report-out
+   adoption-report.json` writes that JSON validation artifact directly for the
+   release gate, and generated live-harness templates include the same flag in
+   their validation commands. Adoption evidence now fails if the report was
    not validated with `--require-live-evidence`, so a non-live transcript cannot
    satisfy release packaging; the adoption report's `release_evidence` handoff
    now reports `blocked` in that case instead of telling operators it is ready
