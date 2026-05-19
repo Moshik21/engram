@@ -2165,6 +2165,14 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   3600.599 seconds of sustained Recall, 10,362 duration recall checks, 9
   captured/cued/projected episodes, one completed triage consolidation cycle,
   and no coverage gaps.
+- Native current operator gate refreshed: `engram evaluate --smoke --mode helix`
+  passed on a disposable PyO3 data directory with 3 projected episodes, one
+  completed triage consolidation cycle, zero coverage gaps, and all six
+  evaluation signals measured. Reopening the same native data with `engram
+  evaluate --mode helix --require-evaluation-signals` passed, and `engram
+  doctor --mode helix --skip-server` reported the lifecycle snapshot ready
+  across Capture, Cue, Project, Recall, and Consolidate plus a disposable helix
+  smoke with 6/6 evaluation signals measured.
 - Consolidation finalization event contract done: completed-cycle lifecycle
   events now carry `finalization.refreshedPinnedContexts` from the post-cycle
   pinned-context refresh service.
@@ -2461,6 +2469,25 @@ Current verification from this audit pass:
   --format json`: passed. Reopening the same native data preserved 3 episodes,
   3 cues, 3 projected memories, linked-entity projection yield, 1 consolidation
   cycle, measured recall/continuity labels, and no coverage gaps.
+- `cd server && uv run engram evaluate --smoke --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --sqlite-path
+  /private/tmp/engram-native-goal-20260519-labels.db --replace --format json`:
+  passed. The command initialized `helix_native`, projected 3 episodes,
+  completed 1 triage consolidation cycle, returned no coverage gaps, and
+  measured all 6 required evaluation signals.
+- `cd server && uv run engram evaluate --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --sqlite-path
+  /private/tmp/engram-native-goal-20260519-labels.db
+  --require-evaluation-signals --format json`: passed. Reopening the same
+  native data and label store preserved 3 episodes, 3 cues, 3 projected
+  memories, 1 consolidation cycle, zero coverage gaps, and all 6 evaluation
+  signals measured.
+- `cd server && uv run engram doctor --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --skip-server --format json`:
+  passed. Doctor loaded a ready Capture -> Cue -> Project -> Recall ->
+  Consolidate lifecycle snapshot from the native data directory, intentionally
+  skipped only the REST server check, and passed a disposable helix brain-loop
+  smoke with 6/6 evaluation signals measured.
 - `cd server && uv run pytest tests/test_projected_consolidated_smoke.py
   tests/test_helix_stats.py tests/test_brain_loop_report.py
   tests/test_lifecycle_cli.py tests/test_doctor.py -q`: 20 passed.

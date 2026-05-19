@@ -1,6 +1,6 @@
 # Current Handoff
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 ## Active Goal
 
@@ -41,6 +41,23 @@ The refreshed run first exposed two static contract drifts: FastMCP's root
 mount needed manifest classification by its nested advertised `/mcp` route, and
 REST `auto_observe` had JSON parsing/skip branching back in the route. Both are
 now fixed and covered by the broad rerun.
+
+Latest native PyO3 operator gate: `uv run engram evaluate --smoke --mode helix
+--helix-data-dir /private/tmp/engram-native-goal-20260519-data --sqlite-path
+/private/tmp/engram-native-goal-20260519-labels.db --replace --format json`
+passed on the no-Docker native path, initializing `helix_native`, projecting 3
+episodes, completing 1 triage consolidation cycle, reporting zero coverage
+gaps, and measuring all 6 evaluation signals. Reopening the same native graph
+with `uv run engram evaluate --mode helix --helix-data-dir
+/private/tmp/engram-native-goal-20260519-data --sqlite-path
+/private/tmp/engram-native-goal-20260519-labels.db
+--require-evaluation-signals --format json` also passed, proving the operator
+gate reloads the persisted native graph and saved evaluation labels. `uv run
+engram doctor --mode helix --helix-data-dir
+/private/tmp/engram-native-goal-20260519-data --skip-server --format json`
+passed with a ready Capture -> Cue -> Project -> Recall -> Consolidate
+lifecycle snapshot and a disposable helix smoke with 6/6 evaluation signals
+measured.
 
 SQLite/lite shutdown stability note: the live adoption run exposed a nonfatal
 shutdown-consolidation `cannot commit transaction - SQL statements in progress`

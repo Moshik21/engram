@@ -1,6 +1,6 @@
 # Brain Runtime Completion Audit
 
-Date: 2026-05-18
+Date: 2026-05-19
 
 This is a readiness audit for the active long-running goal, not a completion
 claim. The current verdict is **not complete**. Engram has strong implementation
@@ -41,7 +41,7 @@ not yet doing its job.
 | Align backend/dashboard lifecycle contracts | `dashboard/src/components/LifecyclePanel.tsx`, `dashboard/src/constants/consolidation.ts`, backend phase registry tests | Strong |
 | Preserve one-brain-per-person `group_id` semantics | `server/tests/test_group_scope_static_contract.py`, native parity tests, active `native_brain` coverage, default-group config inheritance tests | Strong |
 | Keep SQLite/lite viable | Broad gate: `3357 passed, 43 skipped, 236 deselected` for `pytest -m "not requires_docker and not requires_helix"` plus shared lite DB initialization helpers in `server/engram/storage/bootstrap.py` | Strong |
-| Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness | Strong |
+| Make PyO3 native Helix the preferred full path | README/install docs, native smoke, native parity suite, `engram.quality.native_surface_manifest`, native operator gate tracking for `engram evaluate --mode helix --require-evaluation-signals`, and `engram doctor --mode helix` reporting smoke evaluation readiness; the 2026-05-19 native gate passed smoke, persisted reload, and doctor readiness on the same PyO3 data directory | Strong |
 | Keep Helix/full-mode external tests isolated | `requires_helix`/`requires_docker` deselection and native no-Docker parity | Strong for local gates; Docker/full still separate |
 | Build evaluation loop | `server/engram/evaluation/brain_loop_report.py`, REST/MCP label/report surfaces, dashboard Evaluate panel, smoke verifier, structured `evaluation_signals` readiness map, `engram evaluate --require-evaluation-signals`, `--require-release-evidence`, `--min-evaluation-signal-evidence`, `--require-benchmark-evidence`, `--human-label-template`, `--human-label-artifact`, `--require-human-label-evidence`, `--adoption-report`, `--require-adoption-evidence`, `--evidence-bundle`, and doctor smoke readiness output; projected/consolidated smoke and normal CLI reports can now fail if required signals are missing, unmeasured, below an operator evidence threshold, not paired with a valid showcase benchmark artifact, not paired with a real human-reviewed harness artifact, or not paired with a passed live-client adoption report when release evidence is requested; the full deterministic 39-scenario bundle passed for `engram_full` with pass rate `1.0`, false recall `0.0`, transcript hashes, fairness contract, and all six evaluation signals measured | Strong for local deterministic milestone and gate mechanics; real/labeled production artifact remains future release evidence |
 | Update docs/handoff as decisions become real | `docs/CURRENT_HANDOFF.md`, `docs/design/brain-runtime-audit.md` | Strong, ongoing |
@@ -106,6 +106,23 @@ not yet doing its job.
   failure-swallowing shutdown behavior by logging failed shutdown cycles, and
   `main._shutdown()` has dynamic coverage proving it delegates the active
   engine/config/logger.
+- Native PyO3 operator gate:
+  `uv run engram evaluate --smoke --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --sqlite-path
+  /private/tmp/engram-native-goal-20260519-labels.db --replace --format json`
+  passed without Docker, initialized `helix_native`, projected 3 episodes,
+  completed 1 triage consolidation cycle, reported zero coverage gaps, and
+  measured all 6 required evaluation signals. Reopening the same native graph
+  and label store with `uv run engram evaluate --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --sqlite-path
+  /private/tmp/engram-native-goal-20260519-labels.db
+  --require-evaluation-signals --format json` also passed, proving the live
+  operator report can reload persisted native data and saved evaluation labels.
+  `uv run engram doctor --mode helix --helix-data-dir
+  /private/tmp/engram-native-goal-20260519-data --skip-server --format json`
+  passed with lifecycle statuses ready for Capture, Cue, Project, Recall, and
+  Consolidate, plus a disposable helix brain-loop smoke with 6/6 evaluation
+  signals measured. The REST server check was intentionally skipped.
 - REST-mounted HTTP MCP discovery evidence:
   `server/engram/main.py` now mounts FastMCP's streamable HTTP app at the REST
   root so the SDK-owned `/mcp` route is actually served at the advertised
