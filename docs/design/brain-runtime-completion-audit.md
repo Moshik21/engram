@@ -832,7 +832,10 @@ evidence that agents actually trust and use the brain:
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached
    benchmark/human-label/adoption evidence, source paths, source SHA-256
    digests, package/git provenance, and gate thresholds as one reproducible JSON
-   artifact after requested gates pass. The
+   artifact after requested gates pass. Ungated bundles are marked
+   `status: recorded` with `gate_profile: record_only`, while release-gated
+   bundles set `release_ready: true` only after `--require-release-evidence`
+   passes. The
    native surface manifest tracks the Helix variant as an operator hard gate.
    `engram doctor` now surfaces the same
    evaluation-signal readiness in its disposable smoke report, so the local

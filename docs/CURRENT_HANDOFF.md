@@ -300,7 +300,10 @@ and Markdown report, so archived bundles point back to the exact reviewed
 `source_sha256` map for report, benchmark, human-label, adoption, and sample
 files, plus package/git provenance (`engram_version`, commit, branch, dirty
 state, and short status), making release artifacts directly traceable to their
-input files and to the code revision that produced the bundle.
+input files and to the code revision that produced the bundle. Bundles now also
+distinguish `status: recorded` / `gate_profile: record_only` for ungated
+archives from `status: passed` gate runs, and set `release_ready: true` only
+when `--require-release-evidence` actually passed.
 `engram evaluate` can also attach and require a passed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are

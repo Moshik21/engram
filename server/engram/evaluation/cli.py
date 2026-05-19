@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -706,7 +707,9 @@ def build_evidence_bundle(
         "kind": "engram_brain_loop_evidence_bundle",
         "version": 1,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "status": "passed",
+        "status": _evidence_bundle_status(args),
+        "gate_profile": _evidence_bundle_gate_profile(args),
+        "release_ready": _evidence_bundle_release_ready(report, args),
         "group_id": report.get("group_id"),
         "provenance": {
             "engram_version": __version__,
@@ -772,6 +775,50 @@ def _source_sha256_map(sources: dict[str, Any]) -> dict[str, Any]:
         for name, path in sources.items()
         if name not in {"sqlite_path", "helix_data_dir"}
     }
+
+
+def _evidence_bundle_status(args: argparse.Namespace) -> str:
+    return "passed" if _evidence_bundle_has_requested_gate(args) else "recorded"
+
+
+def _evidence_bundle_gate_profile(args: argparse.Namespace) -> str:
+    if getattr(args, "require_release_evidence", False):
+        return "release"
+    if (
+        getattr(args, "require_benchmark_evidence", False)
+        or getattr(args, "require_human_label_evidence", False)
+        or getattr(args, "require_adoption_evidence", False)
+        or getattr(args, "require_adoption_client", None)
+        or getattr(args, "require_adoption_clients", None)
+    ):
+        return "evidence"
+    if getattr(args, "require_evaluation_signals", False):
+        return "evaluation"
+    return "record_only"
+
+
+def _evidence_bundle_release_ready(
+    report: Mapping[str, Any],
+    args: argparse.Namespace,
+) -> bool:
+    if not getattr(args, "require_release_evidence", False):
+        return False
+    release = report.get("release_evidence")
+    return isinstance(release, Mapping) and release.get("status") == "measured"
+
+
+def _evidence_bundle_has_requested_gate(args: argparse.Namespace) -> bool:
+    return any(
+        (
+            getattr(args, "require_evaluation_signals", False),
+            getattr(args, "require_release_evidence", False),
+            getattr(args, "require_benchmark_evidence", False),
+            getattr(args, "require_human_label_evidence", False),
+            getattr(args, "require_adoption_evidence", False),
+            bool(getattr(args, "require_adoption_client", None)),
+            bool(getattr(args, "require_adoption_clients", None)),
+        )
+    )
 
 
 def _file_sha256(path: Any) -> Any:

@@ -272,6 +272,9 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
         human_path.read_bytes()
     ).hexdigest()
     assert bundle["gates"]["require_release_evidence"] is True
+    assert bundle["status"] == "passed"
+    assert bundle["gate_profile"] == "release"
+    assert bundle["release_ready"] is True
     assert bundle["gates"]["require_adoption_evidence"] is False
     assert bundle["gates"]["require_adoption_client"] == "Cursor"
     assert bundle["gates"]["require_adoption_clients"] == ["Cursor", "Windsurf"]

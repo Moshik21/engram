@@ -166,6 +166,9 @@ async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
     assert report["human_label_evidence"]["min_session_samples"] == 1
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     assert bundle["sources"]["human_label_artifact"] == str(human_path)
+    assert bundle["status"] == "passed"
+    assert bundle["gate_profile"] == "evidence"
+    assert bundle["release_ready"] is False
     assert bundle["provenance"] == {
         "engram_version": "0.1.0",
         "git": git_metadata,

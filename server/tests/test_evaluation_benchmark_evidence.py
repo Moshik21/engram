@@ -13,7 +13,11 @@ from engram.evaluation.benchmark_evidence import (
     build_benchmark_evidence,
     load_benchmark_evidence,
 )
-from engram.evaluation.cli import configure_evaluate_parser, run_evaluate_command
+from engram.evaluation.cli import (
+    build_evidence_bundle,
+    configure_evaluate_parser,
+    run_evaluate_command,
+)
 
 
 def test_benchmark_evidence_accepts_showcase_artifact() -> None:
@@ -165,6 +169,8 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     assert bundle["kind"] == "engram_brain_loop_evidence_bundle"
     assert bundle["status"] == "passed"
+    assert bundle["gate_profile"] == "evidence"
+    assert bundle["release_ready"] is False
     assert bundle["group_id"] == "operator_brain"
     assert bundle["sources"]["report_json"] == str(report_path)
     assert bundle["sources"]["benchmark_artifact"] == str(benchmark_path)
@@ -196,6 +202,22 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
         "min_human_session_samples": 1,
     }
     assert bundle["report"]["benchmark_evidence"] == report["benchmark_evidence"]
+
+
+def test_evidence_bundle_without_requested_gates_is_record_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(["--format", "json"])
+    monkeypatch.setattr("engram.evaluation.cli._git_metadata", lambda: {"available": False})
+
+    bundle = build_evidence_bundle(_measured_evaluation_payload(), args)
+
+    assert bundle["status"] == "recorded"
+    assert bundle["gate_profile"] == "record_only"
+    assert bundle["release_ready"] is False
+    assert bundle["provenance"]["git"] == {"available": False}
 
 
 @pytest.mark.asyncio
