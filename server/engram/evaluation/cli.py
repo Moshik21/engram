@@ -28,6 +28,10 @@ from engram.evaluation.brain_loop_report import (
     missing_brain_loop_report_sections,
 )
 from engram.evaluation.human_label_evidence import (
+    DEFAULT_HUMAN_RECALL_SAMPLE_GATE,
+    DEFAULT_HUMAN_SESSION_SAMPLE_GATE,
+    DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE,
+    DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE,
     build_human_label_evidence_template,
     human_label_evidence_failure_message,
     load_human_label_evidence,
@@ -225,16 +229,22 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--min-human-recall-samples",
         type=int,
-        default=1,
-        help="Minimum human-labeled recall samples required when gating evidence.",
+        default=None,
+        help=(
+            "Minimum human-labeled recall samples required when gating evidence. "
+            f"Defaults to {DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE} with "
+            f"--require-release-evidence, otherwise {DEFAULT_HUMAN_RECALL_SAMPLE_GATE}."
+        ),
     )
     parser.add_argument(
         "--min-human-session-samples",
         type=int,
-        default=1,
+        default=None,
         help=(
             "Minimum human-labeled session-continuity samples required when "
-            "gating evidence."
+            "gating evidence. Defaults to "
+            f"{DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE} with "
+            f"--require-release-evidence, otherwise {DEFAULT_HUMAN_SESSION_SAMPLE_GATE}."
         ),
     )
     parser.add_argument(
@@ -470,8 +480,8 @@ def _attach_human_label_evidence_from_args(
     try:
         evidence = load_human_label_evidence(
             artifact_path,
-            min_recall_samples=max(0, getattr(args, "min_human_recall_samples", 1)),
-            min_session_samples=max(0, getattr(args, "min_human_session_samples", 1)),
+            min_recall_samples=_effective_min_human_recall_samples(args),
+            min_session_samples=_effective_min_human_session_samples(args),
         )
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid human label artifact {artifact_path}: {exc}") from exc
@@ -567,11 +577,11 @@ def build_evidence_bundle(
             ),
             "min_human_recall_samples": max(
                 0,
-                getattr(args, "min_human_recall_samples", 1),
+                _effective_min_human_recall_samples(args),
             ),
             "min_human_session_samples": max(
                 0,
-                getattr(args, "min_human_session_samples", 1),
+                _effective_min_human_session_samples(args),
             ),
         },
         "report": report,
@@ -580,6 +590,28 @@ def build_evidence_bundle(
 
 def _optional_path_str(path: Any) -> str | None:
     return str(path) if path is not None else None
+
+
+def _effective_min_human_recall_samples(args: argparse.Namespace) -> int:
+    value = getattr(args, "min_human_recall_samples", None)
+    if value is None:
+        value = (
+            DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE
+            if getattr(args, "require_release_evidence", False)
+            else DEFAULT_HUMAN_RECALL_SAMPLE_GATE
+        )
+    return max(0, int(value))
+
+
+def _effective_min_human_session_samples(args: argparse.Namespace) -> int:
+    value = getattr(args, "min_human_session_samples", None)
+    if value is None:
+        value = (
+            DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE
+            if getattr(args, "require_release_evidence", False)
+            else DEFAULT_HUMAN_SESSION_SAMPLE_GATE
+        )
+    return max(0, int(value))
 
 
 async def _load_live_report(

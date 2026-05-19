@@ -741,7 +741,12 @@ not yet doing its job.
    `--adoption-report adoption-report.json --require-adoption-evidence` attaches
    the matching adoption validation JSON, requires it to be a passed live-client
    report, and cross-checks client/session metadata against the human-label
-   artifact when both are present.
+   artifact when both are present. Adoption evidence now fails if the report was
+   not validated with `--require-live-evidence`, so a non-live transcript cannot
+   satisfy release packaging. `--require-release-evidence` also uses production
+   human-label defaults of 10 recall samples and 3 session samples unless the
+   operator explicitly overrides them; standalone human-label gates keep the
+   1/1 local-check defaults.
    `--require-release-evidence` composes measured evaluation signals,
    human-label evidence, and adoption evidence into one operator gate.
    `--evidence-bundle brain-loop-evidence.json` archives the report, attached

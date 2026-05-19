@@ -45,6 +45,8 @@ def build_adoption_evidence(
         failures.append("missing_adoption_client")
     if not captured_at:
         failures.append("missing_adoption_captured_at")
+    if evidence.get("required") is not True:
+        failures.append("missing_required_live_evidence_gate")
     if required_tools.get("missing"):
         failures.append("missing_adoption_required_tools")
     if required_tools.get("in_order") is False:

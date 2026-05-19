@@ -124,9 +124,14 @@ and Markdown report, so archived bundles point back to the exact reviewed
 `human-labels.json`. `engram evaluate` can also attach and require a passed
 `engram adoption --format json` report via `--adoption-report` and
 `--require-adoption-evidence`; when both adoption and human-label evidence are
-present, client/session metadata must point at the same live harness run.
+present, client/session metadata must point at the same live harness run. The
+adoption report must have been validated with `--require-live-evidence`; a
+passing transcript without that live gate now fails release/adoption evidence.
 `--require-release-evidence` now enforces measured evaluation signals, real
-human-label evidence, and passed adoption evidence as one operator gate.
+human-label evidence, and passed adoption evidence as one operator gate. It
+also defaults human-label thresholds to 10 recall samples and 3 session samples
+unless explicitly overridden, while standalone human-label gates keep the 1/1
+local-check default.
 Deterministic benchmark bundles remain useful local proof; they no longer stand
 in for production/staging human-reviewed harness sessions.
 

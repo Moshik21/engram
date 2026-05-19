@@ -19,6 +19,11 @@ _SYNTHETIC_SOURCE_TOKENS = {
     "synthetic",
 }
 
+DEFAULT_HUMAN_RECALL_SAMPLE_GATE = 1
+DEFAULT_HUMAN_SESSION_SAMPLE_GATE = 1
+DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE = 10
+DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE = 3
+
 
 def build_human_label_evidence_template(
     *,
@@ -114,8 +119,8 @@ def build_human_label_evidence_template(
             "--require-release-evidence "
             "--human-label-artifact human-labels.json "
             f"--adoption-report {adoption_report_arg} "
-            "--min-human-recall-samples 10 "
-            "--min-human-session-samples 3 "
+            f"--min-human-recall-samples {DEFAULT_RELEASE_HUMAN_RECALL_SAMPLE_GATE} "
+            f"--min-human-session-samples {DEFAULT_RELEASE_HUMAN_SESSION_SAMPLE_GATE} "
             "--evidence-bundle brain-loop-release-evidence.json "
             "--format json"
         ),

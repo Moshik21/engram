@@ -54,6 +54,17 @@ def test_adoption_evidence_rejects_failed_or_sessionless_report() -> None:
     ]
 
 
+def test_adoption_evidence_requires_live_evidence_gate() -> None:
+    report = _adoption_report()
+    report["evidence"]["required"] = False
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["required_live_evidence"] is False
+    assert evidence["failures"] == ["missing_required_live_evidence_gate"]
+
+
 def test_load_adoption_evidence_records_report_hash(tmp_path: Path) -> None:
     report_path = tmp_path / "adoption-report.json"
     report_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
@@ -131,7 +142,48 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
     assert bundle["gates"]["require_release_evidence"] is True
     assert bundle["gates"]["require_adoption_evidence"] is False
     assert bundle["gates"]["require_human_label_evidence"] is False
+    assert bundle["gates"]["min_human_recall_samples"] == 10
+    assert bundle["gates"]["min_human_session_samples"] == 3
     assert bundle["report"]["adoption_evidence"] == report["adoption_evidence"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_release_gate_requires_production_human_label_counts(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    adoption_path = tmp_path / "adoption-report.json"
+    human_path = tmp_path / "human-labels.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    adoption_path.write_text(json.dumps(_adoption_report()), encoding="utf-8")
+    human_path.write_text(
+        json.dumps(_human_label_artifact(recall_count=1, session_count=1)),
+        encoding="utf-8",
+    )
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-release-evidence",
+            "--adoption-report",
+            str(adoption_path),
+            "--human-label-artifact",
+            str(human_path),
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "Human label evidence failed gates: "
+        "['insufficient_human_recall_samples(1<10)', "
+        "'insufficient_human_session_samples(1<3)']"
+    )
 
 
 @pytest.mark.asyncio
@@ -287,7 +339,7 @@ def _adoption_report() -> dict:
     }
 
 
-def _human_label_artifact() -> dict:
+def _human_label_artifact(*, recall_count: int = 10, session_count: int = 3) -> dict:
     return {
         "kind": "engram_human_label_evidence",
         "humanLabeled": True,
@@ -306,6 +358,7 @@ def _human_label_artifact() -> dict:
                 "packetsUsed": 1,
                 "falseRecalls": 0,
             }
+            for _index in range(recall_count)
         ],
         "sessionSamples": [
             {
@@ -317,6 +370,7 @@ def _human_label_artifact() -> dict:
                 "temporalExpected": True,
                 "temporalCorrect": True,
             }
+            for _index in range(session_count)
         ],
     }
 

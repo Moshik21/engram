@@ -1131,6 +1131,9 @@ with the prefilled human-label template command and the final
 `adoption-report.json`, then use that path with
 `engram evaluate --human-label-template --adoption-report adoption-report.json`
 before collecting human labels.
+Release gates reject adoption reports that were not validated with
+`--require-live-evidence`; this keeps wrapper transcripts, templates, and
+non-live smoke logs from being promoted into release evidence.
 
 When evidence is split across client logs and REST hooks, pass multiple
 `--calls` files in order. For example, combine a Claude Code stream-json log
@@ -1522,16 +1525,21 @@ must declare `humanLabeled: true`, a real harness `source`, the client label,
 showcase, benchmark, fixture, deterministic, simulated, or synthetic data fail
 the gate. Use `--min-human-recall-samples` and
 `--min-human-session-samples` to keep deterministic benchmarks and real
-human-reviewed harness sessions from being treated as interchangeable. When
-loaded from disk, the report records the `human-labels.json` SHA-256 digest so
-the archived evidence bundle points back to the exact reviewed artifact.
+human-reviewed harness sessions from being treated as interchangeable.
+Standalone human-label gates default to 1 recall sample and 1 session sample for
+local checks, while `--require-release-evidence` defaults to 10 recall samples
+and 3 session samples unless the operator explicitly sets different thresholds.
+When loaded from disk, the report records the `human-labels.json` SHA-256
+digest so the archived evidence bundle points back to the exact reviewed
+artifact.
 For release packaging, also attach the matching `engram adoption --format json`
 output with `--adoption-report adoption-report.json --require-adoption-evidence`.
-That gate requires a passed live-client adoption report and cross-checks the
-human-label client/session metadata against the adoption evidence when both are
-present. Use `--require-release-evidence` when all three release conditions
-should be enforced together: measured evaluation signals, real human labels, and
-passed adoption evidence.
+That gate requires a passed live-client adoption report validated with
+`--require-live-evidence` and cross-checks the human-label client/session
+metadata against the adoption evidence when both are present. Use
+`--require-release-evidence` when all three release conditions should be
+enforced together: measured evaluation signals, real human labels, and passed
+live adoption evidence.
 
 `engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
 summary contract. The Recall stage includes active prospective intentions,
