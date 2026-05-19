@@ -121,6 +121,13 @@ Focused Ruff, focused smoke tests, `git diff --check`, and a disposable lite
 `engram evaluate --smoke --mode lite --replace --format json` operator run
 passed, with all six evaluation signals measured and release evidence still
 correctly reporting `needs_evidence`.
+One-shot consolidation CLI cleanup now also uses the shared storage bootstrap
+boundary: it creates the consolidation audit store through
+`create_consolidation_store_for_graph()` and closes consolidation, search,
+activation, and graph resources through `close_if_supported()` even when phase
+validation exits early. This keeps the preferred native Helix path on a Helix
+consolidation store instead of silently writing a separate local SQLite audit
+file for Helix runs.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,

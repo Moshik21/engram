@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import json
+from argparse import Namespace
 
 import pytest
 
 from engram.consolidation import cli
 from engram.models.consolidation import ConsolidationCycle, PhaseResult
+from engram.storage.resolver import EngineMode
+
+
+class _FakeClosable:
+    def __init__(self, name: str, closed: list[str]) -> None:
+        self.name = name
+        self._closed = closed
+
+    async def close(self) -> None:
+        self._closed.append(self.name)
 
 
 def test_print_cycle_result_reports_completed_cycle(capsys):
@@ -99,3 +110,101 @@ def test_print_cycle_result_exits_nonzero_for_failed_cycle(capsys):
         "Consolidation failed: Phase 'triage' requires graph_store methods: missing_method"
         in captured.err
     )
+
+
+@pytest.mark.asyncio
+async def test_consolidation_cli_closes_runtime_stores_after_phase_validation_error(
+    monkeypatch,
+) -> None:
+    closed: list[str] = []
+    created_modes: list[EngineMode] = []
+    expected_extractor = object()
+
+    class FakeGraphStore(_FakeClosable):
+        async def initialize(self) -> None:
+            pass
+
+        async def get_stats(self, group_id: str | None = None) -> dict:
+            assert group_id == "native_brain"
+            return {"episodes": 1}
+
+    class FakeEngine:
+        def __init__(
+            self,
+            graph_store,
+            activation_store,
+            search_index,
+            *,
+            cfg,
+            consolidation_store,
+            extractor,
+        ) -> None:
+            assert graph_store.name == "graph"
+            assert activation_store.name == "activation"
+            assert search_index.name == "search"
+            assert consolidation_store.name == "consolidation"
+            assert extractor is expected_extractor
+
+        async def run_cycle(self, **kwargs):
+            assert kwargs["group_id"] == "native_brain"
+            assert kwargs["phase_names"] == {"missing_phase"}
+            raise ValueError("unknown phase: missing_phase")
+
+    async def fake_resolve_mode(mode: str) -> EngineMode:
+        return EngineMode.HELIX
+
+    def fake_create_stores(mode: EngineMode, config):
+        created_modes.append(mode)
+        return (
+            FakeGraphStore("graph", closed),
+            _FakeClosable("activation", closed),
+            _FakeClosable("search", closed),
+        )
+
+    async def fake_initialize_search_index_for_graph(search_index, *, graph_store, mode):
+        assert search_index.name == "search"
+        assert graph_store.name == "graph"
+        assert mode == EngineMode.HELIX
+
+    async def fake_create_consolidation_store_for_graph(
+        config,
+        *,
+        graph_store,
+        mode,
+        sqlite_path=None,
+    ):
+        assert graph_store.name == "graph"
+        assert mode == EngineMode.HELIX
+        assert sqlite_path is None
+        return _FakeClosable("consolidation", closed)
+
+    monkeypatch.setattr(cli, "resolve_mode", fake_resolve_mode)
+    monkeypatch.setattr(cli, "create_stores", fake_create_stores)
+    monkeypatch.setattr(
+        cli,
+        "initialize_search_index_for_graph",
+        fake_initialize_search_index_for_graph,
+    )
+    monkeypatch.setattr(
+        cli,
+        "create_consolidation_store_for_graph",
+        fake_create_consolidation_store_for_graph,
+    )
+    monkeypatch.setattr(cli, "create_extractor", lambda config: expected_extractor)
+    monkeypatch.setattr(cli, "ConsolidationEngine", FakeEngine)
+
+    args = Namespace(
+        profile="observe",
+        group_id="native_brain",
+        dry_run=True,
+        scan_edges=None,
+        scan_entities=None,
+        phases=["missing_phase"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await cli.run(args)
+
+    assert exc_info.value.code == 2
+    assert created_modes == [EngineMode.HELIX]
+    assert closed == ["consolidation", "search", "activation", "graph"]

@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
@@ -15,16 +16,15 @@ from engram.consolidation.presenter import (
     cycle_phase_issue_text,
     serialize_cycle_summary,
 )
-from engram.consolidation.store import SQLiteConsolidationStore
 from engram.extraction.factory import create_extractor
 from engram.models.consolidation import ConsolidationCycle
 from engram.storage.bootstrap import (
+    close_if_supported,
+    create_consolidation_store_for_graph,
     initialize_search_index_for_graph,
-    initialize_store_for_graph,
-    shared_sqlite_db,
 )
 from engram.storage.factory import create_stores
-from engram.storage.resolver import resolve_mode
+from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
 
@@ -71,87 +71,95 @@ async def run(args: argparse.Namespace) -> None:
     """Run a single consolidation cycle."""
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
-    graph_store, activation_store, search_index = create_stores(mode, config)
-
-    await graph_store.initialize()
-    await initialize_search_index_for_graph(
-        search_index,
-        graph_store=graph_store,
-        mode=mode,
-    )
-
-    # Build activation config — use EngramConfig's nested activation
-    # so env vars like ENGRAM_ACTIVATION__MICROGLIA_SCAN_EDGES_PER_CYCLE work.
-    # CLI --profile overrides the env-derived profile.
-    cfg = config.activation
-    if args.profile != cfg.consolidation_profile:
-        object.__setattr__(cfg, "consolidation_profile", args.profile)
-        cfg.model_post_init(None)
-
-    # CLI overrides
-    if args.dry_run is not None:
-        object.__setattr__(cfg, "consolidation_dry_run", args.dry_run)
-    # Ensure enabled regardless of profile (user explicitly ran CLI)
-    object.__setattr__(cfg, "consolidation_enabled", True)
-
-    # Scan limit overrides (for one-time full scans)
-    if args.scan_edges is not None:
-        object.__setattr__(cfg, "microglia_scan_edges_per_cycle", args.scan_edges)
-    if args.scan_entities is not None:
-        object.__setattr__(cfg, "microglia_scan_entities_per_cycle", args.scan_entities)
-
-    group_id = args.group_id
-
-    # Get graph stats before cycle
-    stats = await graph_store.get_stats(group_id)
-    print(f"Graph stats: {json.dumps(stats, indent=2)}")
-
-    # Create consolidation store
+    graph_store = None
+    activation_store = None
+    search_index = None
     store = None
-    if shared_sqlite_db(graph_store, mode) is not None:
-        # Lite mode — share the SQLite connection
-        store = SQLiteConsolidationStore(":memory:")
-    else:
-        # Full mode — use a standalone SQLite file for consolidation audit
-        import os
 
-        data_dir = os.path.expanduser("~/.engram")
-        os.makedirs(data_dir, exist_ok=True)
-        consolidation_db = os.path.join(data_dir, "consolidation.db")
-        store = SQLiteConsolidationStore(consolidation_db)
-    await initialize_store_for_graph(store, graph_store=graph_store, mode=mode)
-
-    extractor = create_extractor(config)
-    engine = ConsolidationEngine(
-        graph_store,
-        activation_store,
-        search_index,
-        cfg=cfg,
-        consolidation_store=store,
-        extractor=extractor,
-    )
-
-    phase_names = set(args.phases) if args.phases else None
     try:
-        cycle = await engine.run_cycle(
-            group_id=group_id,
-            trigger="cli",
-            dry_run=cfg.consolidation_dry_run,
-            phase_names=phase_names,
+        graph_store, activation_store, search_index = create_stores(mode, config)
+
+        await graph_store.initialize()
+        await initialize_search_index_for_graph(
+            search_index,
+            graph_store=graph_store,
+            mode=mode,
         )
-    except ValueError as exc:
-        print(f"Consolidation failed: {exc}", file=sys.stderr)
-        await graph_store.close()
-        raise SystemExit(2) from None
 
-    try:
+        # Build activation config - use EngramConfig's nested activation
+        # so env vars like ENGRAM_ACTIVATION__MICROGLIA_SCAN_EDGES_PER_CYCLE work.
+        # CLI --profile overrides the env-derived profile.
+        cfg = config.activation
+        if args.profile != cfg.consolidation_profile:
+            object.__setattr__(cfg, "consolidation_profile", args.profile)
+            cfg.model_post_init(None)
+
+        # CLI overrides
+        if args.dry_run is not None:
+            object.__setattr__(cfg, "consolidation_dry_run", args.dry_run)
+        # Ensure enabled regardless of profile (user explicitly ran CLI)
+        object.__setattr__(cfg, "consolidation_enabled", True)
+
+        # Scan limit overrides (for one-time full scans)
+        if args.scan_edges is not None:
+            object.__setattr__(cfg, "microglia_scan_edges_per_cycle", args.scan_edges)
+        if args.scan_entities is not None:
+            object.__setattr__(
+                cfg,
+                "microglia_scan_entities_per_cycle",
+                args.scan_entities,
+            )
+
+        group_id = args.group_id
+
+        # Get graph stats before cycle
+        stats = await graph_store.get_stats(group_id)
+        print(f"Graph stats: {json.dumps(stats, indent=2)}")
+
+        consolidation_sqlite_path = None
+        if mode == EngineMode.FULL:
+            consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
+            consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+
+        store = await create_consolidation_store_for_graph(
+            config,
+            graph_store=graph_store,
+            mode=mode,
+            sqlite_path=consolidation_sqlite_path,
+        )
+
+        extractor = create_extractor(config)
+        engine = ConsolidationEngine(
+            graph_store,
+            activation_store,
+            search_index,
+            cfg=cfg,
+            consolidation_store=store,
+            extractor=extractor,
+        )
+
+        phase_names = set(args.phases) if args.phases else None
+        try:
+            cycle = await engine.run_cycle(
+                group_id=group_id,
+                trigger="cli",
+                dry_run=cfg.consolidation_dry_run,
+                phase_names=phase_names,
+            )
+        except ValueError as exc:
+            print(f"Consolidation failed: {exc}", file=sys.stderr)
+            raise SystemExit(2) from None
+
         _print_cycle_result(
             cycle,
             profile=args.profile,
             graph_stats=stats,
         )
     finally:
-        await graph_store.close()
+        await close_if_supported(store)
+        await close_if_supported(search_index)
+        await close_if_supported(activation_store)
+        await close_if_supported(graph_store)
 
 
 def main() -> None:
