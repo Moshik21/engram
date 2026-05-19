@@ -18,6 +18,7 @@ from engram.models.consolidation import (
     EvidenceAdjudicationRecord,
     GraphEmbedRecord,
     IdentifierReviewRecord,
+    ImmunityRecord,
     InferredEdge,
     MaturationRecord,
     MergeRecord,
@@ -43,6 +44,7 @@ _AUDIT_PERSISTORS: tuple[tuple[type[Any], str], ...] = (
     (ReplayRecord, "save_replay_record"),
     (DreamAssociationRecord, "save_dream_association_record"),
     (DreamRecord, "save_dream_record"),
+    (ImmunityRecord, "save_immunity_record"),
     (TriageRecord, "save_triage_record"),
     (GraphEmbedRecord, "save_graph_embed_record"),
     (MaturationRecord, "save_maturation_record"),
@@ -145,4 +147,7 @@ def _removed_node_ids(records: tuple[object, ...]) -> tuple[str, ...]:
             removed_ids.append(record.entity_id)
         elif isinstance(record, MergeRecord):
             removed_ids.append(record.remove_id)
+        elif isinstance(record, ImmunityRecord):
+            if record.decision == "pruned":
+                removed_ids.append(record.node_id)
     return tuple(removed_ids)

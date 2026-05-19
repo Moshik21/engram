@@ -109,6 +109,54 @@ class EvidenceAdjudicationService:
             requests.append(request)
         return requests
 
+    async def create_clarification_intents(
+        self,
+        requests: list[AdjudicationRequest],
+    ) -> None:
+        """Create high-activation ClarificationIntent entities for pending adjudications."""
+        if not self._cfg.active_adjudication_enabled or not requests:
+            return
+
+        from engram.models.entity import Entity
+        from engram.utils.dates import utc_now
+
+        for request in requests:
+            intent_id = f"intent_{request.request_id[:12]}"
+            # Link to the original text and episode
+            summary = (
+                f"Clarification needed for '{request.selected_text}'. "
+                f"Reason: {request.request_reason}. "
+                f"Source Episode: {request.episode_id}"
+            )
+            intent = Entity(
+                id=intent_id,
+                name=f"Clarification: {request.selected_text}",
+                entity_type="ClarificationIntent",
+                summary=summary,
+                group_id=request.group_id,
+                activation_current=0.95,  # High activation to ensure recall
+                created_at=utc_now(),
+                updated_at=utc_now(),
+                attributes={
+                    "adjudication_request_id": request.request_id,
+                    "ambiguity_tags": request.ambiguity_tags,
+                    "target_text": request.selected_text,
+                },
+            )
+            try:
+                await self._graph.create_entity(intent)
+                logger.info(
+                    "Active Adjudication: Created intent %s for request %s",
+                    intent_id,
+                    request.request_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to create clarification intent for request %s",
+                    request.request_id,
+                    exc_info=True,
+                )
+
     async def get_episode_adjudications(
         self,
         episode_id: str,

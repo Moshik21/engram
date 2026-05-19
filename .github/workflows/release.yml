@@ -48,16 +48,68 @@ jobs:
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/engram-dashboard:${{ github.ref_name }}
             ghcr.io/${{ steps.meta.outputs.owner_lower }}/engram-dashboard:latest
 
+  native-wheels:
+    name: Build Helix Native Wheels
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+            manylinux: "2014"
+            artifact: linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64
+            manylinux: "2014"
+            artifact: linux-aarch64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            manylinux: "off"
+            artifact: macos-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            manylinux: "off"
+            artifact: macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build helix-native wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: native/helix-repo/helix-python
+          command: build
+          args: --release --out dist/helix-native
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+
+      - name: Upload helix-native wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-native-wheel-${{ matrix.artifact }}
+          path: native/helix-repo/helix-python/dist/helix-native/*.whl
+
   bundle:
     name: Build Release Assets
     runs-on: ubuntu-latest
-    needs: images
+    needs: [images, native-wheels]
     steps:
       - uses: actions/checkout@v4
 
       - name: Compute image namespace
         id: meta
         run: echo "owner_lower=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Download helix-native wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: helix-native-wheel-*
+          path: dist/native-wheels
+          merge-multiple: true
 
       - name: Build install bundle
         run: |
@@ -72,5 +124,8 @@ jobs:
           files: |
             dist/release/engram-install-bundle.tar.gz
             dist/release/engram-install-bundle.sha256
+            dist/release/engram-brain-skill.tar.gz
+            dist/release/engram-brain-skill.sha256
             dist/release/engram-memory-skill.tar.gz
             dist/release/engram-memory-skill.sha256
+            dist/native-wheels/*.whl

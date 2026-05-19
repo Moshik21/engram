@@ -27,13 +27,21 @@ export class FocusTierRenderer {
     entityType: string,
     accessCount: number,
     showHeatmap: boolean,
+    layer: string = "activity",
   ): THREE.Group {
     // Clean up previous resources if node is being recreated
     if (this.registry.hasNode(nodeId)) {
       this.registry.disposeNode(nodeId);
     }
 
-    const colorHex = showHeatmap ? activationColor(activation) : entityColor(entityType);
+    let colorHex = showHeatmap ? activationColor(activation) : entityColor(entityType);
+
+    if (layer === "entropy") {
+      colorHex = activation < 0.3 ? "#a855f7" : "#3b0764";
+    } else if (layer === "clusters") {
+      colorHex = entityColor(entityType);
+    }
+
     const color = new THREE.Color(colorHex);
     const coreRadius = 2 + activation * 6;
 

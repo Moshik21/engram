@@ -22,7 +22,7 @@ import { createActivationSlice } from "../store/activationSlice";
 import { createConsolidationSlice } from "../store/consolidationSlice";
 import { createKnowledgeSlice } from "../store/knowledgeSlice";
 import { createConversationSlice } from "../store/conversationSlice";
-import { createQuestSlice } from "../store/questSlice";
+import { createNerveCenterSlice } from "../store/nerveCenterSlice";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -80,7 +80,7 @@ function createTestStore() {
       ...createConsolidationSlice(...a),
       ...createKnowledgeSlice(...a),
       ...createConversationSlice(...(a as Parameters<typeof createConversationSlice>)),
-      ...createQuestSlice(...a),
+      ...createNerveCenterSlice(...a),
     })),
   );
 }

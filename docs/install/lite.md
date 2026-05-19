@@ -1,7 +1,7 @@
 # Lite Install
 
 Engram's lite mode runs entirely on SQLite — no Docker, no Redis, no FalkorDB.
-All features are available, including the full 16-phase consolidation pipeline,
+All features are available, including the full 17-phase consolidation pipeline,
 graph embeddings, and schema formation.
 
 > For full HelixDB graph/vector/BM25 without Docker, use
@@ -10,11 +10,8 @@ graph embeddings, and schema formation.
 
 ## One-click install
 
-```bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-```
-
-Select **[1] Lite** when prompted. Or skip the prompt:
+The default public install uses Helix native. Use lite explicitly when you want
+the SQLite fallback/demo path:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- lite
@@ -26,7 +23,7 @@ What it does:
 - installs `uv` if not present
 - installs `engram[local]` via `uv tool install`
 - installs `engramctl` to `~/.local/bin/`
-- runs `engramctl setup` (API keys, profiles, etc.)
+- runs `engramctl quickstart --mode lite` (configuration, optional MCP connection, readiness checks)
 - writes config to `~/.engram/.env`
 
 ## Lifecycle commands
@@ -41,6 +38,13 @@ engramctl uninstall    # remove (preserves data by default)
 engramctl uninstall --purge-data  # remove everything
 ```
 
+Bootstrap selected user-approved sources the same way as native mode:
+
+```bash
+engramctl bootstrap /path/to/project
+engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
+```
+
 ## Endpoints
 
 - **API**: `http://127.0.0.1:8100`
@@ -51,24 +55,24 @@ engramctl uninstall --purge-data  # remove everything
 Run the local doctor before trusting a lite install:
 
 ```bash
-engram doctor
+engramctl doctor
 ```
 
 The doctor loads configuration, resolves the engine mode, checks the local API
-health endpoint when the server is running, includes the current local
+and MCP endpoints when the server is running, includes the current local
 `Capture -> Cue -> Project -> Recall -> Consolidate` lifecycle snapshot, and
 runs the disposable projected/consolidated smoke. The smoke section reports both
 coverage gaps and evaluation-signal readiness for the six hard-gate signals. For
 a JSON gate:
 
 ```bash
-engram doctor --mode lite --skip-server --format json
+engramctl doctor --mode lite --skip-server --format json
 ```
 
 For a fast config plus lifecycle check without the heavier smoke:
 
 ```bash
-engram doctor --mode lite --skip-server --no-smoke
+engramctl doctor --mode lite --skip-server --no-smoke
 ```
 
 To inspect the current brain-loop state without starting the dashboard, print
@@ -115,7 +119,7 @@ ENGRAM_MODE=lite ENGRAM_SERVER__AUTO_OBSERVE_ENABLED=false engram serve
 
 Both modes get the complete Engram feature set:
 
-- Full 16-phase consolidation (triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream)
+- Full 17-phase consolidation (triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream)
 - Entity extraction + resolution (Claude Haiku)
 - Multi-signal merge/infer scorers (zero LLM cost)
 - Graph embeddings (Node2Vec / TransE / GNN)
@@ -144,9 +148,9 @@ When you outgrow lite mode, use Helix native first if you want the full
 graph/vector/BM25 backend without Docker:
 
 ```bash
-cd server
-make build-native
-make up-native NATIVE_DATA_DIR=/path/to/native-data
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
+engramctl status
+engramctl doctor
 ```
 
 The legacy Docker full stack is still available:

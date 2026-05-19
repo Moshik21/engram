@@ -3,7 +3,7 @@
 Engram's helix mode uses [HelixDB](https://github.com/helixdb/helix) — a Rust
 graph-vector database that combines graph traversals and vector search in a
 single engine, replacing both FalkorDB and Redis. All Engram features are
-available, including the full 16-phase consolidation pipeline.
+available, including the full 17-phase consolidation pipeline.
 
 The recommended local path is **Helix native**: the HelixDB engine runs
 in-process through the PyO3 `helix_native` binding, so you get the full Helix
@@ -15,35 +15,31 @@ graph/vector/BM25 backend without Docker or a network hop.
 ## Prerequisites
 
 - **Python 3.10+** with [uv](https://docs.astral.sh/uv/)
-- An **Anthropic API key** for entity extraction (`ANTHROPIC_API_KEY`)
-- Native mode: Rust/Cargo and the local Helix PyO3 source used by `make build-native`
-- Docker mode: **Docker** and **Docker Compose** (v2)
+- Optional **Anthropic API key** for richer entity extraction (`ANTHROPIC_API_KEY`)
+- Rust/Cargo only if no compatible `helix-native` release wheel exists and the installer must build from Engram's bundled source
+- Docker and Docker Compose only for explicit Docker mode
 
 ## Quick Start with Native PyO3
 
 ```bash
-git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram
-
-cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY, ENGRAM_MODE=helix,
-# and ENGRAM_HELIX__TRANSPORT=native
-
-make build-native
-make up-native
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
+engramctl status
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 ```
 
-The public one-click path (`scripts/install.sh helix`) also selects native
-Helix, but it depends on the installed package exposing the `helix_native` PyO3
-extension. The installer requests native extras and runs a no-smoke
-`engram doctor --mode helix` check; if that verification fails, use this source
-workflow and `make build-native`.
+The one-click path selects native Helix, installs Engram, adds the
+`helix-native` PyO3 runtime to Engram's uv tool environment, and checks that the
+runtime is importable before accepting the configuration. Bootstrap indexes the
+selected project metadata plus generic docs, notes, and memory-export folders;
+use `--include` for any additional user-approved folders or export globs.
 
-For MCP instead of REST:
-
-```bash
-make mcp-native
-```
+Release wheels are preferred. If no compatible wheel is available for the
+current platform, the installer builds `helix-native` from Engram's bundled
+custom Helix source and reports Rust/Cargo as the only extra prerequisite. It
+does not silently switch to Docker.
 
 Verify the configured native lifecycle without starting Docker:
 
@@ -74,8 +70,9 @@ make mcp-native NATIVE_DATA_DIR=/path/to/native-data
 `serve`, `mcp`, and the Makefile shortcuts set native transport and run against that directory.
 Doctor reads that directory for the lifecycle snapshot, then runs its
 projected/consolidated smoke against disposable native storage. The doctor smoke
-section includes evaluation-signal readiness, so JSON and Markdown output show
-whether the six hard-gate signals are measured.
+section includes MCP endpoint readiness and evaluation-signal readiness, so JSON
+and Markdown output show whether the runtime transport is reachable and the six
+hard-gate signals are measured.
 
 The native smoke creates a disposable PyO3 Helix brain, captures three
 episodes, projects them through triage, persists a consolidation cycle and
@@ -148,6 +145,23 @@ external Helix service is available, it falls back to lite.
 
 ## Lifecycle Commands
 
+Installed-user lifecycle:
+
+```bash
+engramctl quickstart --mode helix
+engramctl start
+engramctl status
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
+engramctl logs
+engramctl stop
+engramctl update
+```
+
+Developer/source lifecycle:
+
 ```bash
 make build-native      # Build the PyO3 native extension
 make up-native         # Start REST with native in-process HelixDB
@@ -160,7 +174,16 @@ make logs-helix        # Tail all container logs
 
 ## MCP Server
 
-Run the MCP server on your host with native Helix:
+For installed users, connect an MCP client to the local HTTP runtime:
+
+```bash
+engramctl connect claude-code
+engramctl connect cursor
+engramctl connect windsurf
+engramctl connect claude-desktop
+```
+
+For source installs, run the MCP server on your host with native Helix:
 
 ```bash
 cd server && ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram mcp
@@ -210,14 +233,16 @@ in-memory, rebuilt from access history on restart.
 `server/engram/storage/helix/schema.hx` must exist and be valid.
 
 **Mode auto-detects as "lite"** — Engram probes the configured host/port with a
-2s timeout after checking `helix_native`. Verify the native extension is built
-or the container is healthy, port `6969` is mapped, and env vars are set. Or
-force native explicitly: `ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native`.
+2s timeout after checking `helix_native`. Run `engramctl update` to refresh the
+native runtime, verify the container is healthy if you selected HTTP transport,
+and force native explicitly with `ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native`.
 
-**Native mode says `helix_native` is not importable** — Build the PyO3 extension
-from the repo root with `make build-native`, or use `make up-native` /
-`make mcp-native` so the extension is built before startup. If you meant to use
-an external HelixDB service instead, set `ENGRAM_HELIX__TRANSPORT=http`.
+**Native mode says `helix_native` is not importable** — Rerun the public
+installer or run `engramctl update`. If no compatible release wheel exists for
+your platform, install Rust/Cargo so Engram can build `helix-native` from
+source. Developer source checkouts can still use `make build-native`,
+`make up-native`, or `make mcp-native`. If you meant to use an external HelixDB
+service instead, set `ENGRAM_HELIX__TRANSPORT=http`.
 
 **"Connection refused" from host MCP** — Use `localhost:6969` (host port), not
 the Docker-internal address.

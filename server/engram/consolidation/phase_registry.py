@@ -20,6 +20,7 @@ CONSOLIDATION_PHASE_ORDER: tuple[str, ...] = (
     "reindex",
     "graph_embed",
     "microglia",
+    "immunity",
     "dream",
 )
 
@@ -35,6 +36,7 @@ CONSOLIDATION_PHASE_TIERS: dict[str, str] = {
     "semanticize": "warm",
     "reindex": "warm",
     "microglia": "warm",
+    "immunity": "cold",
     "replay": "cold",
     "prune": "cold",
     "schema": "cold",

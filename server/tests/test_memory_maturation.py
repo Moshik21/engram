@@ -552,6 +552,7 @@ def test_engine_phase_order():
         "reindex",
         "graph_embed",
         "microglia",
+        "immunity",
         "dream",
     ]
 

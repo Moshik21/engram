@@ -86,7 +86,9 @@ default; internal graph facts only appear in debug mode.
 - **mark_identity_core** — Protect important personal entities from pruning.
 - **intend** — Create a graph-embedded intention or pinned context query.
 - **dismiss_intention** / **list_intentions** — Manage prospective memory.
-- **bootstrap_project** — Auto-observe key project files. Idempotent.
+- **bootstrap_project** — Auto-observe key project docs, notes, and memory \
+exports. Idempotent. Use `include_patterns` only for explicit user-approved \
+source globs.
 - **claim_authority** — Explain what Engram owns vs project-local memory, \
 whether an empty runtime should be bootstrapped, and which tools to call before \
 answering the current message.

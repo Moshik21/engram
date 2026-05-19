@@ -124,6 +124,7 @@ async def build_lifecycle_summary_for_config(
             search_index,
             EntityExtractor(),
             cfg=config.activation,
+            nerve_center_cfg=config.nerve_center,
             runtime_mode=mode.value,
         )
         consolidation_engine = SimpleNamespace(is_running=False)

@@ -54,20 +54,26 @@ const KnowledgePanel = lazy(() =>
     default: module.KnowledgePanel,
   })),
 );
-const CharacterSheet = lazy(() =>
-  import("../views/CharacterSheet").then((m) => ({ default: m.CharacterSheet })),
+const CerebralProfile = lazy(() =>
+  import("../views/CerebralProfile").then((m) => ({ default: m.CerebralProfile })),
 );
-const QuestLog = lazy(() =>
-  import("../views/QuestLog").then((m) => ({ default: m.QuestLog })),
+const PlasticityLog = lazy(() =>
+  import("../views/PlasticityLog").then((m) => ({ default: m.PlasticityLog })),
 );
-const WorldMap = lazy(() =>
-  import("../views/WorldMap").then((m) => ({ default: m.WorldMap })),
+const NeuralField = lazy(() =>
+  import("../views/NeuralField").then((m) => ({ default: m.NeuralField })),
 );
-const Tavern = lazy(() =>
-  import("../views/Tavern").then((m) => ({ default: m.Tavern })),
+const IngestionChamber = lazy(() =>
+  import("../views/IngestionChamber").then((m) => ({ default: m.IngestionChamber })),
 );
-const GuildHall = lazy(() =>
-  import("../views/GuildHall").then((m) => ({ default: m.GuildHall })),
+const NerveCenterView = lazy(() =>
+  import("../views/NerveCenterView").then((m) => ({ default: m.NerveCenterView })),
+);
+const AdjudicationPanel = lazy(() =>
+  import("./nerve/AdjudicationPanel").then((m) => ({ default: m.AdjudicationPanel })),
+);
+const ImmunitySweep = lazy(() =>
+  import("./nerve/ImmunitySweep").then((m) => ({ default: m.ImmunitySweep })),
 );
 
 function PanelFallback() {
@@ -184,49 +190,67 @@ export function DashboardShell() {
             <KnowledgePanel />
           </div>
         );
-      case "character":
+      case "profile":
         return (
           <div
             className="absolute inset-0 overflow-hidden"
             style={{ left: contentLeft, top: 54 }}
           >
-            <CharacterSheet />
+            <CerebralProfile />
           </div>
         );
-      case "questlog":
+      case "synaptic_log":
         return (
           <div
             className="absolute inset-0 overflow-hidden"
             style={{ left: contentLeft, top: 54 }}
           >
-            <QuestLog />
+            <PlasticityLog />
           </div>
         );
-      case "worldmap":
+      case "neural_field":
         return (
           <>
             <div className="absolute inset-0">
-              <WorldMap />
+              <NeuralField />
             </div>
             <div className="vignette" />
           </>
         );
-      case "tavern":
+      case "ingestion":
         return (
           <div
             className="absolute inset-0 overflow-hidden"
             style={{ left: contentLeft, top: 54 }}
           >
-            <Tavern />
+            <IngestionChamber />
           </div>
         );
-      case "guildhall":
+      case "nerve_center":
         return (
           <div
             className="absolute inset-0 overflow-hidden"
             style={{ left: contentLeft, top: 54 }}
           >
-            <GuildHall />
+            <NerveCenterView />
+          </div>
+        );
+      case "adjudicate":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <AdjudicationPanel />
+          </div>
+        );
+      case "immunity":
+        return (
+          <div
+            className="absolute inset-0 overflow-hidden"
+            style={{ left: contentLeft, top: 54 }}
+          >
+            <ImmunitySweep />
           </div>
         );
       case "graph":
@@ -245,7 +269,7 @@ export function DashboardShell() {
 
   return (
     <div
-      className={`relative h-screen w-screen overflow-hidden${dashboardMode === "quest" ? " quest-mode" : ""}`}
+      className={`relative h-screen w-screen overflow-hidden${dashboardMode === "nerve" ? " nerve-mode" : ""}`}
       style={{ background: "var(--void)" }}
     >
       <Suspense fallback={<PanelFallback />}>{renderMainContent()}</Suspense>

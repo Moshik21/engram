@@ -1,0 +1,28 @@
+[package]
+name = "helix-python"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "helix_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+helix-db = { path = "../helix-db", features = ["server"] }
+helix-macros = { path = "../helix-macros" }
+
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"] }
+inventory = "0.3.16"
+tokio = { version = "1.44.2", features = ["full"] }
+sonic-rs = "0.5.0"
+axum = { version = "0.8.4", features = ["http2"] }
+core_affinity = "0.8.3"
+dirs = "6.0.0"
+
+# Required by generated queries.rs (same deps as helix-container)
+bumpalo = { version = "3.19.0", features = ["collections", "boxed", "serde"] }
+heed3 = "0.22.0"
+chrono = "0.4.39"
+uuid = { version = "1.12.1", features = ["serde", "v4", "v6", "fast-rng"] }
+serde = { version = "1.0.217", features = ["derive"] }

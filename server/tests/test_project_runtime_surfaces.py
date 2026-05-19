@@ -39,6 +39,7 @@ async def test_project_bootstrap_surface_forwards_group_path_and_session() -> No
     manager.bootstrap_project.assert_awaited_once_with(
         project_path="/tmp/engram",
         group_id="native_brain",
+        include_patterns=None,
         session_id="sess_native",
     )
 

@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _run_engramctl_setup(tmp_path: Path, mode: str) -> tuple[str, str]:
+    return _run_engramctl(tmp_path, "setup", "--mode", mode)
+
+
+def _run_engramctl(tmp_path: Path, *args: str) -> tuple[str, str]:
     home = tmp_path / "home"
     bin_dir = tmp_path / "bin"
     engram_home = home / ".engram"
@@ -23,11 +27,12 @@ def _run_engramctl_setup(tmp_path: Path, mode: str) -> tuple[str, str]:
             "ENGRAM_INSTALL_NONINTERACTIVE": "1",
             "ENGRAM_INSTALL_SKIP_NATIVE_VERIFY": "1",
             "ENGRAM_ANTHROPIC_API_KEY": "sk-test",
+            "ENGRAM_SKILL_SOURCE": str(ROOT / "skills/engram-memory"),
         }
     )
 
     result = subprocess.run(
-        ["bash", str(ROOT / "installer/engramctl"), "setup", "--mode", mode],
+        ["bash", str(ROOT / "installer/engramctl"), *args],
         cwd=ROOT,
         env=env,
         check=True,
@@ -59,9 +64,137 @@ def test_install_script_forwards_explicit_helix_mode() -> None:
     install_script = (ROOT / "scripts/install.sh").read_text()
 
     assert '""|helix|lite|auto|full|openclaw)' in install_script
-    assert '"$BIN_DIR/engramctl" setup --mode "$MODE"' in install_script
+    assert "is_native_install_mode()" in install_script
+    assert '[ "${MODE:-helix}" = "helix" ] || [ "${MODE:-}" = "auto" ]' in install_script
+    assert '[ "${MODE:-}" = "openclaw" ]' in install_script
+    assert '"$BIN_DIR/engramctl" quickstart --mode "$MODE"' in install_script
+    assert (
+        '"$BIN_DIR/engramctl" quickstart --mode helix --install-openclaw'
+        " --connect openclaw"
+    ) in install_script
+    assert 'if [ "$MODE" = "full" ]; then' in install_script
+    assert 'if [ "$MODE" = "full" ] || [ "$MODE" = "openclaw" ]; then' not in install_script
     assert 'package_spec="engram[local,native]"' in install_script
     assert "#subdirectory=server[local,native]" in install_script
+    assert 'uv_tool_install_engram "$github_spec" "GitHub"' in install_script
+    assert (
+        install_script.index('uv_tool_install_engram "$github_spec" "GitHub"')
+        < install_script.index('uv_tool_install_engram "$package_spec" "PyPI"')
+    )
+    assert "resolve_helix_native_requirement" in install_script
+    assert 'uv tool install --with "$helix_native_req" "$package_spec"' in install_script
+    assert "HELIX_NATIVE_SUBDIR" in install_script
+    assert "discover_helix_native_release_wheel" in install_script
+    assert "local_helix_native_requirement" in install_script
+    assert 'HELIX_NATIVE_SUBDIR="native/helix-repo/helix-python"' in install_script
+    assert "helixdb-cfg/.helix" not in install_script
+    assert "cargo --version" in install_script
+    assert "rustup default stable" in install_script
+
+
+def test_engramctl_quickstart_configures_native_without_repo_commands(tmp_path: Path) -> None:
+    content, output = _run_engramctl(
+        tmp_path,
+        "quickstart",
+        "--mode",
+        "helix",
+        "--no-start",
+        "--no-doctor",
+    )
+
+    assert "Engram Quickstart" in output
+    assert "Quickstart complete" in output
+    assert "ENGRAM_MODE=helix" in content
+    assert "ENGRAM_HELIX__TRANSPORT=native" in content
+    assert "cd server" not in output
+    assert "uv run" not in output
+
+
+def test_engramctl_quickstart_can_install_openclaw_skill(tmp_path: Path) -> None:
+    _content, output = _run_engramctl(
+        tmp_path,
+        "quickstart",
+        "--mode",
+        "helix",
+        "--install-openclaw",
+        "--no-start",
+        "--no-doctor",
+    )
+
+    assert "Installed OpenClaw skill at" in output
+    assert ".openclaw/skills/engram-brain" in output
+    assert (tmp_path / "home/.openclaw/skills/engram-brain/SKILL.md").exists()
+
+
+def test_engramctl_start_honors_configured_api_port() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert 'local port="${ENGRAM_API_PORT:-8100}"' in engramctl
+    assert '"$engram_cmd" serve --host 127.0.0.1 --port "$port"' in engramctl
+    assert 'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)"' in engramctl
+    assert "return 1" in engramctl
+    assert "Quickstart could not confirm Engram is ready." in engramctl
+
+
+def test_engramctl_exposes_release_startup_commands() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "quickstart [--project PATH]" in engramctl
+    assert "[--install-openclaw] [--connect CLIENT]" in engramctl
+    assert "doctor                         Run the installed-user readiness gate" in engramctl
+    assert "connect <client>" in engramctl
+    assert "claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
+    assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
+    assert "quickstart) command_quickstart" in engramctl
+    assert "doctor) command_doctor" in engramctl
+    assert "connect) command_connect" in engramctl
+    assert "bootstrap) command_bootstrap" in engramctl
+
+
+def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert 'project_path/.mcp.json' in engramctl
+    assert 'project_path/.cursor/mcp.json' in engramctl
+    assert '$HOME/.codeium/windsurf/mcp_config.json' in engramctl
+    assert '"type": "http"' in engramctl
+    assert 'url": "$url"' in engramctl
+    assert "openclaw mcp set engram" in engramctl
+    assert '"transport": "streamable-http"' in engramctl
+    assert "OpenClaw CLI not found; MCP config was not written." in engramctl
+    assert 'OPENCLAW_SKILL_SLUG="${ENGRAM_OPENCLAW_SKILL_SLUG:-engram-brain}"' in engramctl
+    assert '$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG' in engramctl
+
+
+def test_engramctl_install_mode_keeps_openclaw_native_first() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "install [--mode full] [--no-open]" in engramctl
+    assert "OpenClaw mode is native-first." in engramctl
+    assert "engramctl quickstart --mode helix --install-openclaw --connect openclaw" in engramctl
+
+
+def test_release_bundle_emits_openclaw_slugged_skill_asset() -> None:
+    build_script = (ROOT / "scripts/build_install_bundle.py").read_text()
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text()
+
+    assert 'OPENCLAW_SKILL_SLUG = "engram-brain"' in build_script
+    assert 'f"{OPENCLAW_SKILL_SLUG}-skill.tar.gz"' in build_script
+    assert "engram-brain-skill.tar.gz" in release_workflow
+    assert "engram-brain-skill.sha256" in release_workflow
+    assert "engram-memory-skill.tar.gz" in release_workflow
+    assert "Build Helix Native Wheels" in release_workflow
+    assert "PyO3/maturin-action@v1" in release_workflow
+    assert "working-directory: native/helix-repo/helix-python" in release_workflow
+    assert "dist/native-wheels/*.whl" in release_workflow
+
+
+def test_engramctl_bootstrap_supports_user_approved_include_patterns() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "--include)" in engramctl
+    assert "include_patterns" in engramctl
+    assert 'body["include_patterns"] = sys.argv[2:]' in engramctl
 
 
 def test_engramctl_setup_helix_verifies_native_runtime() -> None:
@@ -77,4 +210,46 @@ def test_engramctl_update_preserves_helix_native_package_extras() -> None:
 
     assert 'engine_mode="${ENGRAM_MODE:-lite}"' in engramctl
     assert 'package_spec="engram[local,native]"' in engramctl
-    assert 'uv tool upgrade "$package_spec"' in engramctl
+    assert 'install_engram_tool_with_native "$package_spec"' in engramctl
+    assert 'uv tool install --force --with "$helix_native_req" "$package_spec"' in engramctl
+    assert "resolve_helix_native_requirement" in engramctl
+    assert "discover_helix_native_release_wheel" in engramctl
+    assert "local_helix_native_requirement" in engramctl
+    assert (
+        engramctl.index('install_engram_tool_with_native "$github_spec"')
+        < engramctl.index('install_engram_tool_with_native "$package_spec"')
+    )
+    assert "cargo --version" in engramctl
+    assert "rustup default stable" in engramctl
+
+
+def test_engramctl_does_not_require_api_key_for_native_quickstart() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "ANTHROPIC_API_KEY is required" not in engramctl
+    assert "Anthropic API key (optional, press enter to use deterministic extraction)" in engramctl
+
+
+def test_openclaw_skill_uses_public_installer_not_empty_native_extra() -> None:
+    skill = (ROOT / "skills/engram-memory/SKILL.md").read_text()
+
+    assert '"kind":"shell"' in skill
+    assert "install.sh | bash -s -- openclaw" in skill
+    assert '"package":"engram[local,native]"' not in skill
+    assert "Release wheels are preferred" in skill
+
+
+def test_custom_helix_native_source_is_packaged_for_release() -> None:
+    native_root = ROOT / "native/helix-repo/helix-python"
+
+    assert (ROOT / "native/helix-repo/helix-db").exists()
+    assert (ROOT / "native/helix-repo/helix-macros").exists()
+    assert (ROOT / "native/helix-repo/metrics").exists()
+    assert not (ROOT / "native/helix-repo/helix-container").exists()
+    assert (native_root / "pyproject.toml").exists()
+    assert (native_root / "Cargo.toml").exists()
+    assert (native_root / "build.rs").exists()
+    assert (native_root / "src/lib.rs").exists()
+    assert (native_root / "src/queries.rs").exists()
+    assert "abi3-py310" in (native_root / "Cargo.toml").read_text()
+    assert 'join("src/queries.rs")' in (native_root / "build.rs").read_text()

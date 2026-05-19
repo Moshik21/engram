@@ -110,6 +110,55 @@ async def test_bootstrap_observes_files(manager: GraphManager, tmp_project: Path
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_observes_generic_docs_notes_and_memory_exports(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Release bootstrap covers generic user-approved docs, notes, and exports."""
+    (tmp_path / "README.md").write_text("# My Project")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "launch.md").write_text("# Launch notes")
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "preferences.md").write_text("Use native mode first.")
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory" / "chatgpt-export.json").write_text('{"memory": "portable"}')
+    manager.store_episode = AsyncMock(return_value="ep_bootstrap")
+
+    result = await manager.bootstrap_project(str(tmp_path))
+
+    assert set(result["files_observed"]) == {
+        "README.md",
+        "docs/launch.md",
+        "memory/chatgpt-export.json",
+        "notes/preferences.md",
+    }
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_include_patterns_are_project_relative_and_explicit(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Explicit include patterns index selected folders without allowing path escape."""
+    (tmp_path / "selected").mkdir()
+    (tmp_path / "selected" / "decision.txt").write_text("Selected source.")
+    (tmp_path / "ignored.txt").write_text("Ignored source.")
+    manager.store_episode = AsyncMock(return_value="ep_bootstrap")
+
+    result = await manager.bootstrap_project(
+        str(tmp_path),
+        include_patterns=[
+            "selected/**/*.txt",
+            "/absolute/*.txt",
+            "../outside/*.txt",
+            "",
+        ],
+    )
+
+    assert result["files_observed"] == ["selected/decision.txt"]
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_artifact_episode_syncs_cue_only_state(
     manager: GraphManager,
     tmp_path: Path,

@@ -33,6 +33,9 @@ BIN_DIR="${ENGRAM_INSTALL_BIN_DIR:-$HOME/.local/bin}"
 COMPOSE_FILE="$INSTALL_ROOT/current/compose.yaml"
 METADATA_FILE="$BUNDLE_ROOT/release-metadata.env"
 DEFAULT_RELEASE_REPOSITORY="${ENGRAM_RELEASE_REPOSITORY:-Moshik21/engram}"
+OPENCLAW_SKILL_SLUG="${ENGRAM_OPENCLAW_SKILL_SLUG:-engram-brain}"
+HELIX_NATIVE_VERSION="${ENGRAM_HELIX_NATIVE_VERSION:-0.1.0}"
+HELIX_NATIVE_SUBDIR="native/helix-repo/helix-python"
 
 # Lite mode paths
 LITE_ENV_FILE="$ENGRAM_HOME/.env"
@@ -51,6 +54,152 @@ fi
 
 DOCKER_COMPOSE=()
 
+discover_helix_native_release_wheel() {
+  [ "${ENGRAM_HELIX_NATIVE_SKIP_RELEASE_WHEEL:-0}" = "1" ] && return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  local metadata_file api_url
+  metadata_file="$(mktemp)"
+  api_url="https://api.github.com/repos/${DEFAULT_RELEASE_REPOSITORY}/releases/latest"
+  if ! curl -fsSL "$api_url" -o "$metadata_file" 2>/dev/null; then
+    rm -f "$metadata_file"
+    return 1
+  fi
+
+  local wheel_url
+  wheel_url="$(
+    python3 - "$metadata_file" "$HELIX_NATIVE_VERSION" <<'PY'
+import json
+import platform
+import sys
+
+metadata_path, expected_version = sys.argv[1], sys.argv[2]
+try:
+    assets = json.load(open(metadata_path, encoding="utf-8")).get("assets", [])
+except Exception:
+    sys.exit(1)
+
+system = platform.system()
+machine = platform.machine().lower()
+py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+
+if machine in {"arm64", "aarch64"}:
+    arch = "arm64" if system == "Darwin" else "aarch64"
+elif machine in {"x86_64", "amd64"}:
+    arch = "x86_64"
+else:
+    sys.exit(1)
+
+def score(asset):
+    name = asset.get("name", "").lower()
+    if not name.endswith(".whl") or not name.startswith("helix_native-"):
+        return -1
+    if expected_version and f"-{expected_version}-" not in name:
+        return -1
+    if "cp310-abi3" not in name and py_tag not in name:
+        return -1
+
+    score_value = 0
+    if system == "Darwin":
+        if "macosx" not in name:
+            return -1
+        if "universal2" in name:
+            score_value += 30
+        elif arch not in name:
+            return -1
+    elif system == "Linux":
+        if "manylinux" not in name and "linux" not in name:
+            return -1
+        if arch not in name:
+            return -1
+        if "manylinux" in name:
+            score_value += 20
+    else:
+        return -1
+
+    if "cp310-abi3" in name:
+        score_value += 10
+    return score_value
+
+matches = sorted(
+    ((score(asset), asset.get("browser_download_url", "")) for asset in assets),
+    reverse=True,
+)
+for score_value, url in matches:
+    if score_value >= 0 and url:
+        print(url)
+        sys.exit(0)
+sys.exit(1)
+PY
+  )" || true
+  rm -f "$metadata_file"
+
+  [ -n "$wheel_url" ] || return 1
+  printf '%s' "$wheel_url"
+}
+
+helix_native_git_requirement() {
+  local repo_url="https://github.com/${DEFAULT_RELEASE_REPOSITORY}.git"
+  if [ -n "${ENGRAM_RELEASE_REF:-}" ]; then
+    repo_url="${repo_url}@${ENGRAM_RELEASE_REF}"
+  fi
+  printf 'helix-native @ git+%s#subdirectory=%s' "$repo_url" "$HELIX_NATIVE_SUBDIR"
+}
+
+local_helix_native_requirement() {
+  local repo_root candidate
+  repo_root="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd || true)"
+  [ -n "$repo_root" ] || return 1
+
+  candidate="$repo_root/$HELIX_NATIVE_SUBDIR"
+  if [ -f "$candidate/pyproject.toml" ] && [ -d "$candidate/../helix-db" ]; then
+    printf 'helix-native @ file://%s' "$candidate"
+    return
+  fi
+
+  return 1
+}
+
+resolve_helix_native_requirement() {
+  if [ -n "${ENGRAM_HELIX_NATIVE_SOURCE:-}" ]; then
+    printf '%s' "$ENGRAM_HELIX_NATIVE_SOURCE"
+    return
+  fi
+
+  local wheel_url
+  if wheel_url="$(discover_helix_native_release_wheel)"; then
+    printf '%s' "$wheel_url"
+    return
+  fi
+
+  if local_helix_native_requirement; then
+    return
+  fi
+
+  helix_native_git_requirement
+}
+
+install_engram_tool_with_native() {
+  local package_spec="$1"
+  local helix_native_req
+  helix_native_req="$(resolve_helix_native_requirement)"
+  if [[ "$helix_native_req" == helix-native\ @\ file://* ]]; then
+    note "Using local Helix native source; build can take several minutes and requires Rust/Cargo."
+  elif [[ "$helix_native_req" == helix-native\ @\ git+* ]]; then
+    note "No compatible Helix native release wheel was found; building from Engram's bundled source."
+    note "This can take several minutes and requires Rust/Cargo."
+  fi
+  if [[ "$helix_native_req" == helix-native\ @\ file://* || "$helix_native_req" == helix-native\ @\ git+* ]]; then
+    if ! command -v cargo >/dev/null 2>&1 || ! cargo --version >/dev/null 2>&1; then
+      warn "Helix native source build requires a working Rust toolchain."
+      note "Install Rust with rustup and run: rustup default stable"
+      return 1
+    fi
+  fi
+  info "Using Helix native runtime: $helix_native_req"
+  uv tool install --force --with "$helix_native_req" "$package_spec"
+}
+
 usage() {
   cat <<'EOF'
 Usage: engramctl <command> [options]
@@ -58,7 +207,13 @@ Usage: engramctl <command> [options]
 Commands:
   setup                          Interactive mode picker + config
   setup --mode helix|lite|auto   Preselect a local no-Docker backend
-  install [--mode full|openclaw] [--no-open]
+  quickstart [--project PATH]    Setup native mode, start, connect, bootstrap, doctor
+             [--install-openclaw] [--connect CLIENT]
+  doctor                         Run the installed-user readiness gate
+  connect <client>               Configure MCP for claude-code|cursor|windsurf|claude-desktop|openclaw
+  bootstrap [--include GLOB] <project-dir> [...]
+                                  Index selected project docs, notes, exports
+  install [--mode full] [--no-open]
   install-openclaw
   start
   stop
@@ -192,12 +347,8 @@ write_lite_env_file() {
   mkdir -p "$ENGRAM_HOME"
 
   local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
-  if [ -z "$anthropic" ]; then
-    if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" = "1" ]; then
-      die "ANTHROPIC_API_KEY is required in non-interactive mode."
-    fi
-    anthropic="$(prompt_value 'Anthropic API key (required)')"
-    [ -n "$anthropic" ] || die "ANTHROPIC_API_KEY is required."
+  if [ -z "$anthropic" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    anthropic="$(prompt_value 'Anthropic API key (optional, press enter to use deterministic extraction)')"
   fi
 
   local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
@@ -242,12 +393,8 @@ write_full_env_file() {
   load_existing_env "$FULL_ENV_FILE"
 
   local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
-  if [ -z "$anthropic" ]; then
-    if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" = "1" ]; then
-      die "ANTHROPIC_API_KEY is required in non-interactive mode."
-    fi
-    anthropic="$(prompt_value 'Anthropic API key (required)')"
-    [ -n "$anthropic" ] || die "ANTHROPIC_API_KEY is required."
+  if [ -z "$anthropic" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    anthropic="$(prompt_value 'Anthropic API key (optional, press enter to use deterministic extraction)')"
   fi
 
   local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
@@ -333,10 +480,97 @@ verify_api_reachable() {
     || die "Engram API is not reachable on 127.0.0.1:${port}."
 }
 
+api_base_url() {
+  local port="${ENGRAM_API_PORT:-8100}"
+  echo "http://127.0.0.1:${port}"
+}
+
+load_local_env() {
+  [ -f "$LITE_ENV_FILE" ] || die "No local install found. Run engramctl quickstart first."
+  load_existing_env "$LITE_ENV_FILE"
+}
+
+write_mcp_http_config() {
+  local target="$1"
+  local url="$2"
+  mkdir -p "$(dirname "$target")"
+  python3 - "$target" "$url" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+url = sys.argv[2]
+data = {}
+if path.exists():
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        backup = path.with_suffix(path.suffix + ".bak")
+        backup.write_text(path.read_text())
+        data = {}
+data.setdefault("mcpServers", {})["engram"] = {"type": "http", "url": url}
+path.write_text(json.dumps(data, indent=2) + "\n")
+PY
+}
+
+print_mcp_http_json() {
+  local url="$1"
+  cat <<EOF
+{
+  "mcpServers": {
+    "engram": {
+      "type": "http",
+      "url": "$url"
+    }
+  }
+}
+EOF
+}
+
+openclaw_mcp_json() {
+  local url="$1"
+  python3 - "$url" <<'PY'
+import json
+import sys
+
+print(json.dumps({"url": sys.argv[1], "transport": "streamable-http"}))
+PY
+}
+
+configure_openclaw_mcp() {
+  local url="$1"
+  local verify="${2:-0}"
+  local payload
+  payload="$(openclaw_mcp_json "$url")"
+
+  if ! command -v openclaw >/dev/null 2>&1; then
+    warn "OpenClaw CLI not found; MCP config was not written."
+    dim "Install OpenClaw, then run:"
+    dim "  openclaw mcp set engram '$payload'"
+    return 0
+  fi
+
+  if openclaw mcp set engram "$payload"; then
+    info "Configured OpenClaw MCP server 'engram'"
+  else
+    warn "OpenClaw MCP config failed."
+    dim "Manual command:"
+    dim "  openclaw mcp set engram '$payload'"
+    return 0
+  fi
+
+  if [ "$verify" = "1" ]; then
+    openclaw mcp show engram --json || warn "OpenClaw MCP config was written, but verification failed."
+  else
+    dim "Verify: openclaw mcp show engram --json"
+  fi
+}
+
 install_openclaw_skill() {
   load_existing_env
   local source_dir="$INSTALL_ROOT/current/skills/engram-memory"
-  local target_dir="$HOME/.openclaw/skills/engram-memory"
+  local target_dir="$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG"
   [ -d "$source_dir" ] || die "OpenClaw skill asset is missing from the current install bundle."
   mkdir -p "$(dirname "$target_dir")"
   rm -rf "$target_dir"
@@ -392,6 +626,16 @@ download_bundle() {
 # ─── Local Mode Helpers ──────────────────────────────────────────────
 
 find_engram_command() {
+  local cmd
+  cmd="$(find_engram_command_optional)"
+  if [ -n "$cmd" ]; then
+    echo "$cmd"
+    return
+  fi
+  die "engram command not found. Re-run install or check your PATH."
+}
+
+find_engram_command_optional() {
   # Find the engram CLI command (uv tool or pip installed)
   if command -v engram >/dev/null 2>&1; then
     echo "engram"
@@ -402,7 +646,6 @@ find_engram_command() {
     echo "$HOME/.local/bin/engram"
     return
   fi
-  die "engram command not found. Re-run install or check your PATH."
 }
 
 lite_is_running() {
@@ -431,16 +674,16 @@ lite_start() {
 
   local engram_cmd
   engram_cmd="$(find_engram_command)"
+  local port="${ENGRAM_API_PORT:-8100}"
 
   # Start engram serve in background, bound to loopback only
   nohup env $(grep -v '^#' "$LITE_ENV_FILE" | grep '=' | xargs) \
-    "$engram_cmd" serve --host 127.0.0.1 \
+    "$engram_cmd" serve --host 127.0.0.1 --port "$port" \
     >> "$LITE_LOG_FILE" 2>&1 &
   local pid=$!
   echo "$pid" > "$LITE_PID_FILE"
 
   # Wait for health
-  local port="${ENGRAM_API_PORT:-8100}"
   local attempts=30
   while [ "$attempts" -gt 0 ]; do
     if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
@@ -463,6 +706,7 @@ lite_start() {
 
   warn "Engram process started (PID $pid) but health check not responding yet."
   dim "Check logs: tail -f $LITE_LOG_FILE"
+  return 1
 }
 
 lite_stop() {
@@ -594,7 +838,7 @@ command_setup() {
   esac
 
   # OpenClaw skill prompt
-  if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+  if [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ] && [ "${ENGRAM_SETUP_SKIP_OPENCLAW_PROMPT:-0}" != "1" ]; then
     echo ""
     local install_skill
     read -r -p "  Install OpenClaw skill? [y/N]: " install_skill || true
@@ -617,20 +861,14 @@ _setup_lite() {
   local engine_mode="${1:-lite}"
   write_lite_env_file "$engine_mode"
 
-  # Run the Python setup wizard for detailed config (API keys, profiles, etc.)
   local engram_cmd
-  engram_cmd="$(find_engram_command 2>/dev/null || true)"
-  if [ -n "$engram_cmd" ]; then
-    info "Running Engram setup wizard..."
-    "$engram_cmd" setup --mode "$engine_mode" --env-path "$LITE_ENV_FILE" 2>/dev/null || true
-  fi
+  engram_cmd="$(find_engram_command_optional)"
 
   if [ "$engine_mode" = "helix" ]; then
     _verify_helix_native_runtime "$engram_cmd"
   fi
 
-  # Re-stamp ENGRAM_INSTALL_VARIANT — the Python wizard may have rewritten the
-  # env file without it.
+  # Re-stamp ENGRAM_INSTALL_VARIANT for older env files and direct setup runs.
   if [ -f "$LITE_ENV_FILE" ]; then
     if ! grep -q '^ENGRAM_INSTALL_VARIANT=' "$LITE_ENV_FILE" 2>/dev/null; then
       echo "ENGRAM_INSTALL_VARIANT=lite" >> "$LITE_ENV_FILE"
@@ -655,10 +893,22 @@ _verify_helix_native_runtime() {
   fi
 
   if ! "$engram_cmd" doctor --mode helix --skip-server --no-smoke --no-lifecycle --format json >/dev/null 2>&1; then
+    if [ "${ENGRAM_INSTALL_SKIP_NATIVE_REPAIR:-0}" != "1" ] && command -v uv >/dev/null 2>&1; then
+      warn "Helix native verification failed; trying to install the native runtime."
+      if install_engram_tool_with_native "engram[local,native]" >/dev/null 2>&1; then
+        engram_cmd="$(find_engram_command_optional)"
+        if [ -n "$engram_cmd" ] \
+          && "$engram_cmd" doctor --mode helix --skip-server --no-smoke --no-lifecycle --format json >/dev/null 2>&1; then
+          info "Verified Helix native PyO3 runtime."
+          return
+        fi
+      fi
+    fi
+
     warn "Helix native verification failed."
     note "Native mode requires the helix_native PyO3 extension in the Engram tool environment."
-    note "For source installs, run: make build-native"
-    note "For external HelixDB instead, set ENGRAM_HELIX__TRANSPORT=http and run the Helix service."
+    note "Rerun the public installer, or run: engramctl update"
+    note "If a release wheel is unavailable, install Rust/Cargo so Engram can build helix-native."
     die "Helix native setup did not produce a runnable native runtime."
   fi
 
@@ -699,7 +949,7 @@ _install_openclaw_skill_lite() {
 
   # Try to find skill from uv tool install location
   local engram_cmd
-  engram_cmd="$(find_engram_command 2>/dev/null || true)"
+  engram_cmd="$(find_engram_command_optional)"
   if [ -n "$engram_cmd" ]; then
     # Get the package location
     local pkg_dir
@@ -713,12 +963,21 @@ _install_openclaw_skill_lite() {
   if [ -z "$skill_source" ] || [ ! -d "$skill_source" ]; then
     local temp_dir
     temp_dir="$(mktemp -d)"
-    local skill_url="https://github.com/${DEFAULT_RELEASE_REPOSITORY}/releases/latest/download/engram-memory-skill.tar.gz"
-    if curl -fsSL "$skill_url" -o "$temp_dir/skill.tar.gz" 2>/dev/null; then
-      mkdir -p "$temp_dir/extracted"
-      tar -xzf "$temp_dir/skill.tar.gz" -C "$temp_dir/extracted"
-      skill_source="$temp_dir/extracted/engram-memory"
-    fi
+    local asset_slug
+    for asset_slug in "$OPENCLAW_SKILL_SLUG" "engram-memory"; do
+      local skill_url="https://github.com/${DEFAULT_RELEASE_REPOSITORY}/releases/latest/download/${asset_slug}-skill.tar.gz"
+      if curl -fsSL "$skill_url" -o "$temp_dir/skill.tar.gz" 2>/dev/null; then
+        rm -rf "$temp_dir/extracted"
+        mkdir -p "$temp_dir/extracted"
+        tar -xzf "$temp_dir/skill.tar.gz" -C "$temp_dir/extracted"
+        if [ -d "$temp_dir/extracted/$OPENCLAW_SKILL_SLUG" ]; then
+          skill_source="$temp_dir/extracted/$OPENCLAW_SKILL_SLUG"
+        elif [ -d "$temp_dir/extracted/engram-memory" ]; then
+          skill_source="$temp_dir/extracted/engram-memory"
+        fi
+        [ -n "$skill_source" ] && break
+      fi
+    done
   fi
 
   if [ -z "$skill_source" ] || [ ! -d "$skill_source" ]; then
@@ -726,11 +985,288 @@ _install_openclaw_skill_lite() {
     return
   fi
 
-  local target_dir="$HOME/.openclaw/skills/engram-memory"
+  local target_dir="$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG"
   mkdir -p "$(dirname "$target_dir")"
   rm -rf "$target_dir"
   cp -R "$skill_source" "$target_dir"
   info "Installed OpenClaw skill at $target_dir"
+}
+
+command_doctor() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ "$variant" = "lite" ]; then
+    load_local_env
+    local engram_cmd
+    engram_cmd="$(find_engram_command)"
+    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" "$@"
+    return
+  fi
+
+  if [ -f "$FULL_ENV_FILE" ]; then
+    load_existing_env "$FULL_ENV_FILE"
+    local engram_cmd
+    engram_cmd="$(find_engram_command)"
+    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-full}" --server-url "$(api_base_url)" "$@"
+    return
+  fi
+
+  die "No install found. Run engramctl quickstart first."
+}
+
+command_connect() {
+  local client="${1:-}"
+  [ -n "$client" ] || die "Usage: engramctl connect claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify]"
+  shift || true
+
+  local project_path="$PWD"
+  local verify=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project)
+        project_path="${2:-}"
+        shift 2
+        ;;
+      --verify)
+        verify=1
+        shift
+        ;;
+      *)
+        die "Unknown connect option: $1"
+        ;;
+    esac
+  done
+
+  [ -d "$project_path" ] || die "Project path does not exist or is not a directory: $project_path"
+
+  load_local_env
+  local url
+  url="$(api_base_url)/mcp"
+
+  case "$client" in
+    claude-code|claude)
+      local target="$project_path/.mcp.json"
+      write_mcp_http_config "$target" "$url"
+      info "Configured Claude Code project MCP at $target"
+      if [ "$verify" = "1" ]; then
+        if command -v claude >/dev/null 2>&1; then
+          claude mcp list || warn "Claude Code verification failed. Open Claude Code and run /mcp."
+        else
+          warn "Claude Code CLI not found; verify inside Claude Code with /mcp."
+        fi
+      else
+        dim "Verify: open Claude Code in $project_path and run /mcp"
+      fi
+      ;;
+    cursor)
+      local target="$project_path/.cursor/mcp.json"
+      write_mcp_http_config "$target" "$url"
+      info "Configured Cursor project MCP at $target"
+      dim "Restart Cursor or refresh MCP tools to pick up Engram."
+      ;;
+    windsurf)
+      local target="$HOME/.codeium/windsurf/mcp_config.json"
+      write_mcp_http_config "$target" "$url"
+      info "Configured Windsurf Cascade MCP at $target"
+      dim "Refresh Windsurf Cascade MCP tools to pick up Engram."
+      ;;
+    claude-desktop|desktop)
+      local target
+      if [ "$(uname -s)" = "Darwin" ]; then
+        target="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+      else
+        target="$HOME/.config/Claude/claude_desktop_config.json"
+      fi
+      write_mcp_http_config "$target" "$url"
+      info "Configured Claude Desktop MCP at $target"
+      dim "Restart Claude Desktop to pick up Engram."
+      ;;
+    openclaw|claw)
+      configure_openclaw_mcp "$url" "$verify"
+      ;;
+    manual)
+      print_mcp_http_json "$url"
+      ;;
+    *)
+      die "Unknown MCP client: $client"
+      ;;
+  esac
+}
+
+command_bootstrap() {
+  [ $# -gt 0 ] || die "Usage: engramctl bootstrap [--include GLOB] <project-dir> [...]"
+  local include_patterns=()
+  local source_paths=()
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --include)
+        [ -n "${2:-}" ] || die "Usage: engramctl bootstrap --include GLOB <project-dir>"
+        include_patterns+=("$2")
+        shift 2
+        ;;
+      --)
+        shift
+        while [ $# -gt 0 ]; do
+          source_paths+=("$1")
+          shift
+        done
+        ;;
+      -*)
+        die "Unknown bootstrap option: $1"
+        ;;
+      *)
+        source_paths+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  [ "${#source_paths[@]}" -gt 0 ] || die "Usage: engramctl bootstrap [--include GLOB] <project-dir> [...]"
+  load_local_env
+  verify_api_reachable
+
+  local base
+  base="$(api_base_url)"
+  for source_path in "${source_paths[@]}"; do
+    [ -d "$source_path" ] || die "Bootstrap source must be a project directory: $source_path"
+    local absolute_path payload
+    absolute_path="$(cd "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)/$(basename "$source_path")"
+    payload="$(
+      python3 - "$absolute_path" "${include_patterns[@]}" <<'PY'
+import json
+import sys
+
+body = {"project_path": sys.argv[1]}
+if len(sys.argv) > 2:
+    body["include_patterns"] = sys.argv[2:]
+print(json.dumps(body))
+PY
+    )"
+    info "Bootstrapping selected source: $absolute_path"
+    curl -fsS -X POST "$base/api/knowledge/bootstrap" \
+      -H "Content-Type: application/json" \
+      --data "$payload" \
+      --connect-timeout 2 --max-time 30
+    echo ""
+  done
+}
+
+command_quickstart() {
+  local mode="helix"
+  local project_path=""
+  local connect_client=""
+  local install_openclaw=0
+  local install_hooks=0
+  local no_start=0
+  local no_doctor=0
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mode)
+        mode="${2:-}"
+        shift 2
+        ;;
+      --project)
+        project_path="${2:-}"
+        shift 2
+        ;;
+      --connect)
+        connect_client="${2:-}"
+        shift 2
+        ;;
+      --install-openclaw)
+        install_openclaw=1
+        shift
+        ;;
+      --hooks)
+        install_hooks=1
+        shift
+        ;;
+      --no-start)
+        no_start=1
+        shift
+        ;;
+      --no-doctor)
+        no_doctor=1
+        shift
+        ;;
+      *)
+        die "Unknown quickstart option: $1"
+        ;;
+    esac
+  done
+
+  echo ""
+  echo -e "  ${BOLD}Engram Quickstart${RESET}"
+  echo -e "  ${DIM}Install -> Configure -> Start -> Connect MCP -> Bootstrap -> Doctor -> Use${RESET}"
+  echo ""
+
+  ensure_supported_os
+  command -v python3 >/dev/null 2>&1 || die "Python 3.10+ is required."
+  command -v uv >/dev/null 2>&1 || die "uv is required. Install uv, then rerun engramctl quickstart."
+
+  if [ "$install_openclaw" = "1" ]; then
+    ENGRAM_SETUP_SKIP_OPENCLAW_PROMPT=1 command_setup --mode "$mode"
+  else
+    command_setup --mode "$mode"
+  fi
+
+  if [ "$no_start" != "1" ]; then
+    if ! command_start; then
+      warn "Quickstart could not confirm Engram is ready."
+      dim "Status: engramctl status"
+      dim "Logs:   engramctl logs"
+      return 1
+    fi
+  fi
+
+  if [ "$install_openclaw" = "1" ]; then
+    _install_openclaw_skill_lite
+  fi
+
+  if [ -z "$connect_client" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    echo ""
+    read -r -p "  Connect an MCP client now? [claude-code/cursor/windsurf/claude-desktop/openclaw/skip] (skip): " connect_client || true
+    connect_client="${connect_client:-skip}"
+  fi
+  if [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
+    if [ -n "$project_path" ]; then
+      command_connect "$connect_client" --project "$project_path"
+    else
+      command_connect "$connect_client"
+    fi
+  fi
+
+  if [ "$install_hooks" = "1" ]; then
+    local engram_cmd
+    engram_cmd="$(find_engram_command)"
+    "$engram_cmd" hooks || warn "AutoCapture hook install did not complete."
+  fi
+
+  if [ -z "$project_path" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
+    echo ""
+    read -r -p "  Bootstrap a project directory now? [path or Enter to skip]: " project_path || true
+  fi
+  if [ -n "$project_path" ] && [ "$no_start" != "1" ]; then
+    command_bootstrap "$project_path"
+  elif [ -n "$project_path" ]; then
+    note "Skipped bootstrap because --no-start was set. Run: engramctl bootstrap \"$project_path\""
+  fi
+
+  if [ "$no_doctor" != "1" ]; then
+    command_doctor
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}${GREEN}Quickstart complete.${RESET}"
+  dim "Use:      open your MCP client and ask it to call claim_authority before answering"
+  dim "OpenClaw: openclaw skills list --eligible && openclaw mcp show engram --json"
+  dim "Status:   engramctl status"
+  dim "Doctor:   engramctl doctor"
+  dim "Bootstrap another project: engramctl bootstrap /path/to/project"
+  echo ""
 }
 
 command_install() {
@@ -754,8 +1290,11 @@ command_install() {
   done
 
   case "$mode" in
-    full|openclaw) ;;
-    *) die "Install mode must be full or openclaw." ;;
+    full) ;;
+    openclaw)
+      die "OpenClaw mode is native-first. Run: engramctl quickstart --mode helix --install-openclaw --connect openclaw"
+      ;;
+    *) die "Install mode must be full." ;;
   esac
 
   ensure_supported_os
@@ -767,13 +1306,6 @@ command_install() {
 
   if [ "${ENGRAM_INSTALL_SKIP_RUNTIME:-0}" = "1" ]; then
     info "Bundle installed into $INSTALL_ROOT"
-    if [ "$mode" = "openclaw" ]; then
-      mkdir -p "$HOME/.openclaw/skills"
-      local target_dir="$HOME/.openclaw/skills/engram-memory"
-      rm -rf "$target_dir"
-      cp -R "$INSTALL_ROOT/current/skills/engram-memory" "$target_dir"
-      info "Installed OpenClaw skill at $target_dir"
-    fi
     return 0
   fi
 
@@ -781,9 +1313,6 @@ command_install() {
   compose pull
   compose up -d
   wait_for_health
-  if [ "$mode" = "openclaw" ]; then
-    install_openclaw_skill
-  fi
   if [ "$open_browser" = "1" ]; then
     open_dashboard
   fi
@@ -803,7 +1332,7 @@ command_start() {
   fi
 
   # Full mode
-  [ -f "$FULL_ENV_FILE" ] || die "No install found. Run engramctl setup first."
+  [ -f "$FULL_ENV_FILE" ] || die "No install found. Run engramctl quickstart first."
   [ -f "$COMPOSE_FILE" ] || die "Current release bundle is missing."
   load_existing_env "$FULL_ENV_FILE"
   ensure_docker_ready
@@ -833,7 +1362,7 @@ command_status() {
   variant="$(detect_variant)"
 
   if [ -z "$variant" ]; then
-    die "No install found. Run engramctl setup first."
+    die "No install found. Run engramctl quickstart first."
   fi
 
   if [ "$variant" = "lite" ]; then
@@ -897,16 +1426,22 @@ command_update() {
 
     # Upgrade via uv tool
     if command -v uv >/dev/null 2>&1; then
-      uv tool upgrade "$package_spec" 2>/dev/null \
-        || uv tool install --force "$github_spec" 2>/dev/null \
-        || warn "Update failed. Try: uv tool install --force '$package_spec'"
+      if [ "$engine_mode" = "helix" ]; then
+        install_engram_tool_with_native "$github_spec" 2>/dev/null \
+          || install_engram_tool_with_native "$package_spec" 2>/dev/null \
+          || warn "Update failed. Try rerunning the public installer."
+      else
+        uv tool install --force "$github_spec" 2>/dev/null \
+          || uv tool upgrade "$package_spec" 2>/dev/null \
+          || warn "Update failed. Try: uv tool install --force '$package_spec'"
+      fi
     else
       warn "uv not found. Install uv or update manually."
     fi
 
     if [ "$engine_mode" = "helix" ]; then
       local engram_cmd
-      engram_cmd="$(find_engram_command 2>/dev/null || true)"
+      engram_cmd="$(find_engram_command_optional)"
       _verify_helix_native_runtime "$engram_cmd"
     fi
 
@@ -1045,6 +1580,10 @@ main() {
 
   case "$cmd" in
     setup) command_setup "$@" ;;
+    quickstart) command_quickstart "$@" ;;
+    doctor) command_doctor "$@" ;;
+    connect) command_connect "$@" ;;
+    bootstrap) command_bootstrap "$@" ;;
     install) command_install "$@" ;;
     install-openclaw)
       local variant

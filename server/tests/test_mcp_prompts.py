@@ -62,6 +62,11 @@ def test_system_prompt_covers_epistemic_routing_tools():
         assert phrase in ENGRAM_SYSTEM_PROMPT
 
 
+def test_system_prompt_bootstrap_covers_user_approved_sources():
+    assert "project docs, notes, and memory exports" in ENGRAM_SYSTEM_PROMPT
+    assert "explicit user-approved source globs" in ENGRAM_SYSTEM_PROMPT
+
+
 def test_system_prompt_covers_answer_contract_guidance():
     for phrase in (
         "Carry the same `project_path`",

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INSTALLER_DIR = ROOT / "installer"
 SCRIPTS_DIR = ROOT / "scripts"
 SKILL_DIR = ROOT / "skills" / "engram-memory"
+OPENCLAW_SKILL_SLUG = "engram-brain"
 
 
 def sha256_file(path: Path) -> str:
@@ -112,14 +113,26 @@ def build_bundle(
         bundle_sha.write_text(f"{sha256_file(bundle_tar)}  {bundle_tar.name}\n", encoding="utf-8")
         artifacts.append(bundle_sha)
 
-        skill_tar = output_dir / "engram-memory-skill.tar.gz"
+        skill_tar = output_dir / f"{OPENCLAW_SKILL_SLUG}-skill.tar.gz"
         with tarfile.open(skill_tar, "w:gz") as tar:
-            tar.add(SKILL_DIR, arcname="engram-memory")
+            tar.add(SKILL_DIR, arcname=OPENCLAW_SKILL_SLUG)
         artifacts.append(skill_tar)
 
-        skill_sha = output_dir / "engram-memory-skill.sha256"
+        skill_sha = output_dir / f"{OPENCLAW_SKILL_SLUG}-skill.sha256"
         skill_sha.write_text(f"{sha256_file(skill_tar)}  {skill_tar.name}\n", encoding="utf-8")
         artifacts.append(skill_sha)
+
+        legacy_skill_tar = output_dir / "engram-memory-skill.tar.gz"
+        with tarfile.open(legacy_skill_tar, "w:gz") as tar:
+            tar.add(SKILL_DIR, arcname="engram-memory")
+        artifacts.append(legacy_skill_tar)
+
+        legacy_skill_sha = output_dir / "engram-memory-skill.sha256"
+        legacy_skill_sha.write_text(
+            f"{sha256_file(legacy_skill_tar)}  {legacy_skill_tar.name}\n",
+            encoding="utf-8",
+        )
+        artifacts.append(legacy_skill_sha)
 
     return artifacts
 

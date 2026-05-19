@@ -153,6 +153,7 @@ async def run_projected_consolidated_smoke(
             search_index,
             create_extractor(config),
             cfg=config.activation,
+            nerve_center_cfg=config.nerve_center,
             runtime_mode=mode.value,
         )
         engine = ConsolidationEngine(

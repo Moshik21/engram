@@ -6,10 +6,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from engram.config import NerveCenterConfig
 from engram.storage.bootstrap import (
     borrowed_sqlite_db,
     create_borrowed_sqlite_consolidation_store,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -290,12 +293,18 @@ class ConsolidationTriggerService:
         search_index: Any,
         cfg: Any,
         extractor: Any,
+        nerve_center_cfg: Any | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
         self._search = search_index
         self._cfg = cfg
         self._extractor = extractor
+        self._nerve_center_cfg = (
+            nerve_center_cfg
+            or getattr(cfg, "nerve_center", None)
+            or NerveCenterConfig()
+        )
 
     async def trigger_consolidation_cycle(
         self,
@@ -306,6 +315,31 @@ class ConsolidationTriggerService:
         consolidation_store: Any | None = None,
     ) -> ConsolidationTriggerResult:
         """Run a public ad hoc consolidation cycle."""
+        graph_stats = await self._graph.get_stats(group_id)
+
+        # Level Gating logic
+        total_entities = graph_stats.get("total_entities", 0)
+        current_level = (total_entities // 50) + 1
+
+        # If trigger is not manual and level is too low for autonomous consolidation,
+        # we might need to block or warn
+        if trigger.startswith("tiered") or trigger == "pressure" or trigger == "scheduled":
+            nerve_cfg = self._nerve_center_cfg
+            if nerve_cfg.level_gating_enabled:
+                required_level = nerve_cfg.level_unlock_autonomous_consolidation
+                if current_level < required_level:
+                    logger.warning(
+                        "Autonomous consolidation blocked: Level %d too low (Requires Level %d)",
+                        current_level,
+                        required_level,
+                    )
+                    # Allow short maintenance cycles to keep capture responsive;
+                    # block pressure and cold autonomous work until the graph matures.
+                    if "cold" in trigger or trigger == "pressure":
+                        raise PermissionError(
+                            f"Autonomous consolidation requires Level {required_level}"
+                        )
+
         engine = _build_consolidation_engine(
             self._graph,
             self._activation,
@@ -314,7 +348,6 @@ class ConsolidationTriggerService:
             consolidation_store=consolidation_store,
             extractor=self._extractor,
         )
-        graph_stats = await self._graph.get_stats(group_id)
         cycle = await engine.run_cycle(
             group_id=group_id,
             trigger=trigger,

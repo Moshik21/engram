@@ -57,6 +57,7 @@ const PHASE_RESULT_OVERRIDES: Record<ConsolidationPhaseName, PhaseResultOverride
   reindex: { items_processed: 2, items_affected: 2, duration_ms: 300 },
   graph_embed: { status: "skipped", duration_ms: 8 },
   microglia: { items_processed: 2, items_affected: 1, duration_ms: 90 },
+  immunity: { items_processed: 3, items_affected: 1, duration_ms: 75 },
   dream: { status: "skipped", duration_ms: 5 },
 };
 
@@ -218,14 +219,14 @@ describe("ConsolidationPanel", () => {
     expect(api.getConsolidationCycle).toHaveBeenCalledWith("cyc_abc123");
   });
 
-  it("phase timeline shows all 16 phases", async () => {
+  it("phase timeline shows all 17 phases", async () => {
     render(<ConsolidationPanel />);
     // Click cycle to load detail
     const cycleButton = await screen.findByText("manual");
     const user = userEvent.setup();
     await user.click(cycleButton);
 
-    expect(CONSOLIDATION_PHASE_ORDER).toHaveLength(16);
+    expect(CONSOLIDATION_PHASE_ORDER).toHaveLength(17);
     expect(await screen.findByText("triage")).toBeInTheDocument();
     CONSOLIDATION_PHASE_ORDER.forEach((phase) => {
       expect(screen.getByText(phase)).toBeInTheDocument();

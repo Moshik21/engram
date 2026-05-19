@@ -10,6 +10,7 @@ from engram.consolidation.phases.dream import DreamSpreadingPhase
 from engram.consolidation.phases.edge_adjudication import EdgeAdjudicationPhase
 from engram.consolidation.phases.evidence_adjudication import EvidenceAdjudicationPhase
 from engram.consolidation.phases.graph_embed import GraphEmbedPhase
+from engram.consolidation.phases.immunity import ImmunityPhase
 from engram.consolidation.phases.infer import EdgeInferencePhase
 from engram.consolidation.phases.maturation import MaturationPhase
 from engram.consolidation.phases.merge import EntityMergePhase
@@ -45,6 +46,7 @@ def build_consolidation_phases(
         ReindexPhase(),
         GraphEmbedPhase(),
         MicrogliaPhase(),
+        ImmunityPhase(),
         DreamSpreadingPhase(),
     ]
     validate_consolidation_phase_order(phase.name for phase in phases)

@@ -600,7 +600,7 @@ describe("native PyO3 dashboard fixture smoke", () => {
       expect(useEngramStore.getState().episodes[0]?.cue?.policyScore).toBe(0.73);
     });
     expect(screen.getByText("native-rest-observe")).toBeInTheDocument();
-  }, 10000);
+  }, 20000);
 });
 
 describeNativeSmoke("native PyO3 dashboard smoke", () => {

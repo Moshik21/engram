@@ -75,6 +75,8 @@ class NotificationCollector:
                 await self._handle_maturation(group_id, cycle_id)
             elif phase == "merge" and self._cfg.notification_merge_enabled:
                 await self._handle_merge(group_id, cycle_id)
+            elif phase == "immunity" and self._cfg.notification_immunity_enabled:
+                await self._handle_immunity(group_id, cycle_id)
         except Exception:
             logger.debug("Notification collector error for %s", phase, exc_info=True)
 
@@ -229,6 +231,44 @@ class NotificationCollector:
                 body="\n".join(lines),
                 entity_ids=entity_ids,
                 metadata={"record_count": len(records), "identity_core": has_identity_core},
+                source_cycle_id=cycle_id,
+                created_at=time.time(),
+            )
+        )
+
+    async def _handle_immunity(self, group_id: str, cycle_id: str) -> None:
+        cs = self._consolidation_store
+        if cs is None:
+            return
+        records = await cs.get_immunity_records(cycle_id, group_id)
+        if not records:
+            return
+
+        # Focus on pruned nodes as that's the "immunity" action
+        pruned = [r for r in records if r.decision == "pruned"]
+        if not pruned:
+            return
+
+        entity_ids = [r.node_id for r in pruned]
+        lines: list[str] = []
+        for r in pruned[:5]:
+            lines.append(f"Node '{r.node_name}' dissolved (Gravity: {r.semantic_gravity:.2f})")
+        if len(pruned) > 5:
+            lines.append(f"...and {len(pruned) - 5} more")
+
+        key = self._dedup_key("immunity_sweep", cycle_id, entity_ids)
+        if self._is_duplicate(key):
+            return
+
+        self._publish(
+            MemoryNotification(
+                group_id=group_id,
+                notification_type="immunity_sweep",
+                priority="normal",
+                title=f"Immune System: {len(pruned)} viral node(s) dissolved",
+                body="\n".join(lines),
+                entity_ids=entity_ids,
+                metadata={"record_count": len(pruned)},
                 source_cycle_id=cycle_id,
                 created_at=time.time(),
             )

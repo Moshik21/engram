@@ -1301,8 +1301,14 @@ def setup(env_path: Path | None = None, mode: str | None = None) -> None:
 
     print(f"\n  {_GREEN}{_BOLD}Setup complete!{_RESET}")
     print(f"  {_DIM}Config: {env_path}{_RESET}")
-    mcp_cmd = "cd server && uv run python -m engram.mcp.server"
-    print(f"  {_DIM}Start MCP server:  {mcp_cmd}{_RESET}")
-    http_cmd = "cd server && uv run python -m engram --transport http"
-    print(f"  {_DIM}Start HTTP server: {http_cmd}{_RESET}")
+    print(f"  {_DIM}Start Engram:       engramctl start{_RESET}")
+    print(f"  {_DIM}Check readiness:    engramctl doctor{_RESET}")
+    print(f"  {_DIM}Connect Claude Code: engramctl connect claude-code{_RESET}")
+    print(f"  {_DIM}Bootstrap project:  engramctl bootstrap /path/to/project{_RESET}")
+    print(
+        f"  {_DIM}Add source globs:   "
+        "engramctl bootstrap /path/to/project --include 'notes/**/*.md'"
+        f"{_RESET}"
+    )
+    print(f"  {_DIM}Advanced runtime:   engram serve | engram mcp{_RESET}")
     print()

@@ -92,6 +92,20 @@ class IdentifierReviewRecord:
 
 
 @dataclass
+class ImmunityRecord:
+    """Audit entry for a node flagged by topological immunity."""
+
+    cycle_id: str
+    group_id: str
+    node_id: str
+    node_name: str
+    semantic_gravity: float
+    decision: str  # "flagged", "pruned", "protected"
+    id: str = field(default_factory=lambda: f"imm_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class InferredEdge:
     """Audit entry for an inferred co-occurrence edge."""
 

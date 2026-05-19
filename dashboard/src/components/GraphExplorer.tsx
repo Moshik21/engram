@@ -8,6 +8,7 @@ import { activationColor, entityColor } from "../lib/colors";
 import { NodeTooltip } from "./NodeTooltip";
 import { EmptyState } from "./EmptyState";
 import { Stats } from "../lib/stats";
+import type { NeuralFieldLayer } from "../store/types";
 
 const StressTestPanel = lazy(() => import("./StressTestPanel"));
 
@@ -62,19 +63,20 @@ const FLY_TO_OFFSET_Z = 120;
 export function GraphExplorer() {
   const isLoading = useEngramStore((s) => s.isLoading);
   const renderMode = useEngramStore((s) => s.renderMode);
-  const showHeatmap = useEngramStore((s) => s.showActivationHeatmap);
-  const showEdgeLabels = useEngramStore((s) => s.showEdgeLabels);
+  const selectedLayer = useEngramStore((s) => s.selectedNeuralLayer);
+  const isConsolidating = useEngramStore((s) => s.isRunning);
+  const nodes = useEngramStore((s) => s.nodes);
   const showFpsOverlay = useEngramStore((s) => s.showFpsOverlay);
   const toggleFpsOverlay = useEngramStore((s) => s.toggleFpsOverlay);
+  const setSearchOverlayOpen = useEngramStore((s) => s.setSearchOverlayOpen);
   const selectNode = useEngramStore((s) => s.selectNode);
-  const hoverNode = useEngramStore((s) => s.hoverNode);
-  const expandNode = useEngramStore((s) => s.expandNode);
-
-  const setRenderMode = useEngramStore((s) => s.setRenderMode);
   const toggleHeatmap = useEngramStore((s) => s.toggleActivationHeatmap);
   const toggleEdgeLabelsAction = useEngramStore((s) => s.toggleEdgeLabels);
-  const setSearchOverlayOpen = useEngramStore((s) => s.setSearchOverlayOpen);
-  const nodes = useEngramStore((s) => s.nodes);
+  const setRenderMode = useEngramStore((s) => s.setRenderMode);
+  const expandNode = useEngramStore((s) => s.expandNode);
+  const hoverNode = useEngramStore((s) => s.hoverNode);
+  const showHeatmap = useEngramStore((s) => s.showActivationHeatmap);
+  const showEdgeLabels = useEngramStore((s) => s.showEdgeLabels);
 
   const [showStressTest, setShowStressTest] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -397,6 +399,33 @@ export function GraphExplorer() {
       ambientParticlesRef.current = null;
     };
   }, [renderMode]);
+
+  // ── Activity Spikes & Neural Bridges ──
+  const isIngesting = useEngramStore(s => s.isIngesting);
+
+  useEffect(() => {
+    if (renderMode !== "3d" || !fgRef.current) return;
+    const fg = fgRef.current;
+
+    // Ingestion Spike: Intensify Bloom
+    if (isIngesting) {
+      const scene = fg.scene?.();
+      if (scene) {
+        // Temporary pulse effect by shifting ambient light or background
+        const light = new THREE.PointLight(0x67e8f9, 2, 500);
+        light.position.set(0, 0, 0);
+        scene.add(light);
+        setTimeout(() => scene.remove(light), 1000);
+      }
+    }
+
+    // Consolidation Bridges: Shift edge colors
+    if (isConsolidating && edgeRendererRef.current) {
+      edgeRendererRef.current.setOpacity(0.4); // More prominent bridges
+    } else if (edgeRendererRef.current) {
+      edgeRendererRef.current.setOpacity(lodRef.current?.config.edgeOpacity ?? 0.12);
+    }
+  }, [isIngesting, isConsolidating, renderMode]);
 
   // ── Optimized animation loop with tier-aware rendering + LOD ──
   const dirtyNodesRef = useRef<Set<string>>(new Set());
@@ -737,13 +766,14 @@ export function GraphExplorer() {
   );
 
   // Tier-aware nodeThreeObject callback with caching
-  const showHeatmapRef = useRef(showHeatmap);
-  showHeatmapRef.current = showHeatmap;
+  // ── Neural Field Layers ──
+  const layerRef = useRef(selectedLayer);
+  layerRef.current = selectedLayer;
 
-  // Invalidate cache when heatmap toggle changes
+  // Invalidate cache when layer changes
   useEffect(() => {
     nodeObjectCacheRef.current.clear();
-  }, [showHeatmap]);
+  }, [selectedLayer]);
 
   const nodeThreeObject = useCallback(
     (node: Record<string, unknown>) => {
@@ -756,8 +786,10 @@ export function GraphExplorer() {
       const focusRenderer = focusRendererRef.current;
       const lod = lodRef.current;
 
+      const showHeatmap = layerRef.current === "heatmap";
+
       if (!classifier || !focusRenderer) {
-        return createFallbackNode(node, showHeatmapRef.current);
+        return createFallbackNode(node, showHeatmap, layerRef.current);
       }
 
       // LOD-aware classification: cap detail based on zoom level
@@ -780,7 +812,8 @@ export function GraphExplorer() {
           activation,
           entityType,
           accessCount,
-          showHeatmapRef.current,
+          showHeatmap,
+          layerRef.current,
         );
       } else if (tier === "active") {
         // Active tier — batch rendered via ActiveTierRenderer (InstancedMesh)
@@ -1045,10 +1078,19 @@ function ZoomIndicator({
  * Fallback: create a simple node object when tier system isn't initialized yet.
  * Matches the original createNodeObject signature.
  */
-function createFallbackNode(node: Record<string, unknown>, showHeatmap: boolean): THREE.Group {
+function createFallbackNode(node: Record<string, unknown>, showHeatmap: boolean, layer: NeuralFieldLayer): THREE.Group {
   const activation = (node.activationCurrent as number) ?? 0;
   const type = (node.entityType as string) ?? "Other";
-  const colorHex = showHeatmap ? activationColor(activation) : entityColor(type);
+
+  let colorHex = showHeatmap ? activationColor(activation) : entityColor(type);
+
+  if (layer === "entropy") {
+    // Entropy: nodes scaled by inverse activation + purple/violet tint
+    colorHex = activation < 0.3 ? "#a855f7" : "#3b0764";
+  } else if (layer === "clusters") {
+    // Clusters: slightly brighter colors
+    colorHex = entityColor(type);
+  }
   const color = new THREE.Color(colorHex);
   const coreRadius = 2 + activation * 6;
 

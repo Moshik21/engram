@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -32,12 +32,14 @@ async def build_project_bootstrap_surface(
     *,
     group_id: str,
     project_path: str,
+    include_patterns: list[str] | None = None,
     session_id: str | None = None,
 ) -> dict:
     """Run project bootstrap through the shared manager compatibility facade."""
     return await manager.bootstrap_project(
         project_path=project_path,
         group_id=group_id,
+        include_patterns=include_patterns,
         session_id=session_id,
     )
 
@@ -50,16 +52,27 @@ def project_bootstrap_http_status(result: dict) -> int:
 class ProjectBootstrapService:
     """Bootstrap project files into artifact entities and cue-only episodes."""
 
+    EXPLICIT_SOURCE_MAX_CHARS = 6000
+
     BOOTSTRAP_FILES: list[tuple[str, int]] = [
         ("README.md", 2000),
+        ("MEMORY.md", 4000),
         ("package.json", 3000),
         ("pyproject.toml", 3000),
         ("Makefile", 3000),
         (".env.example", 2000),
         ("docker-compose.yml", 3000),
         ("CLAUDE.md", 2500),
+        ("docs/**/*.md", 4000),
         ("docs/design/**/*.md", 4000),
         ("docs/vision/**/*.md", 4000),
+        ("notes/**/*.md", 4000),
+        ("memory/**/*.md", 4000),
+        ("memory/**/*.json", 6000),
+        ("memories/**/*.md", 4000),
+        ("memories/**/*.json", 6000),
+        ("exports/**/*.md", 4000),
+        ("exports/**/*.json", 6000),
         ("skills/**/SKILL.md", 3500),
     ]
 
@@ -90,6 +103,7 @@ class ProjectBootstrapService:
         self,
         project_path: str,
         group_id: str = "default",
+        include_patterns: list[str] | None = None,
         session_id: str | None = None,
     ) -> dict:
         """Create or refresh Project/Artifact graph context for a local project path."""
@@ -116,7 +130,10 @@ class ProjectBootstrapService:
                 try:
                     last_dt = datetime.fromisoformat(last_bootstrapped)
                     age_seconds = (utc_now() - last_dt).total_seconds()
-                    if age_seconds < self._cfg.artifact_bootstrap_stale_seconds:
+                    if (
+                        not include_patterns
+                        and age_seconds < self._cfg.artifact_bootstrap_stale_seconds
+                    ):
                         return {
                             "status": "already_bootstrapped",
                             "project_entity_id": entity_id,
@@ -129,6 +146,7 @@ class ProjectBootstrapService:
                 project_name,
                 group_id,
                 session_id,
+                include_patterns=include_patterns,
             )
 
             merged_attrs = {**attrs, "last_bootstrapped": now_iso}
@@ -184,6 +202,7 @@ class ProjectBootstrapService:
             project_name,
             group_id,
             session_id,
+            include_patterns=include_patterns,
         )
 
         self._publish(
@@ -208,6 +227,7 @@ class ProjectBootstrapService:
         project_name: str,
         group_id: str,
         session_id: str | None,
+        include_patterns: list[str] | None = None,
     ) -> list[str]:
         """Read, index, and optionally store bootstrapped project artifacts."""
         files_observed: list[str] = []
@@ -216,7 +236,10 @@ class ProjectBootstrapService:
         now_iso = utc_now_iso()
         seen_rel_paths: set[str] = set()
 
-        for filepath, rel_path, max_chars in self.iter_bootstrap_files(project_dir):
+        for filepath, rel_path, max_chars in self.iter_bootstrap_files(
+            project_dir,
+            include_patterns=include_patterns,
+        ):
             if rel_path in seen_rel_paths:
                 continue
             seen_rel_paths.add(rel_path)
@@ -241,6 +264,7 @@ class ProjectBootstrapService:
             artifact_entity, changed = await self.upsert_artifact_entity(
                 project_name=project_name,
                 project_path=project_path,
+                source_path=str(filepath),
                 rel_path=rel_path,
                 artifact_class=artifact_class,
                 content=truncated,
@@ -288,10 +312,17 @@ class ProjectBootstrapService:
     def iter_bootstrap_files(
         self,
         project_dir: Path,
+        *,
+        include_patterns: list[str] | None = None,
     ) -> list[tuple[Path, str, int]]:
         """Expand bootstrap patterns into concrete files."""
         matches: list[tuple[Path, str, int]] = []
-        for pattern, max_chars in self.BOOTSTRAP_FILES:
+        patterns = list(self.BOOTSTRAP_FILES)
+        patterns.extend(
+            (pattern, self.EXPLICIT_SOURCE_MAX_CHARS)
+            for pattern in self.normalize_include_patterns(include_patterns)
+        )
+        for pattern, max_chars in patterns:
             for filepath in sorted(project_dir.glob(pattern)):
                 if not filepath.is_file():
                     continue
@@ -301,6 +332,25 @@ class ProjectBootstrapService:
                     continue
                 matches.append((filepath, rel_path, max_chars))
         return matches
+
+    @staticmethod
+    def normalize_include_patterns(include_patterns: list[str] | None) -> list[str]:
+        """Return safe project-relative user-approved bootstrap globs."""
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_pattern in include_patterns or []:
+            pattern = raw_pattern.strip()
+            while pattern.startswith("./"):
+                pattern = pattern[2:]
+            if not pattern:
+                continue
+            parsed = PurePosixPath(pattern)
+            if parsed.is_absolute() or ".." in parsed.parts:
+                continue
+            if pattern not in seen:
+                normalized.append(pattern)
+                seen.add(pattern)
+        return normalized
 
     async def resolve_project_entity_id(
         self,
@@ -329,12 +379,14 @@ class ProjectBootstrapService:
         claims: list[EvidenceClaim],
         group_id: str,
         now_iso: str,
+        source_path: str | None = None,
     ) -> tuple[Entity, bool]:
         """Create or update a bootstrapped Artifact entity."""
         artifact_key = f"{group_id}:{project_path}:{rel_path}"
         artifact_id = f"art_{hashlib.sha256(artifact_key.encode()).hexdigest()[:12]}"
         attributes = {
             "project_path": project_path,
+            "source_path": source_path or str(Path(project_path) / rel_path),
             "rel_path": rel_path,
             "artifact_class": artifact_class,
             "content_hash": content_hash,

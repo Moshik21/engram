@@ -26,6 +26,10 @@ import type {
   RecallEvaluationWriteResponse,
   SessionContinuityEvaluationInput,
   SessionContinuityEvaluationWriteResponse,
+  MemoryNotification,
+  AdjudicateBody,
+  AdjudicationResolutionOutcome,
+  AdjudicationRequestData,
 } from "../store/types";
 
 export interface NeighborhoodResponse {
@@ -1252,4 +1256,32 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ entity_id: params.entityId, rating: params.rating, comment: params.comment }),
     }),
+
+  getNotifications: (params?: { limit?: number; since?: number }) => {
+    const sp = new URLSearchParams();
+    if (params?.limit) sp.set("limit", String(params.limit));
+    if (params?.since) sp.set("since", String(params.since));
+    return fetchJSON<{ notifications: MemoryNotification[] }>(`/api/knowledge/notifications?${sp}`);
+  },
+
+  dismissNotifications: (ids: string[]) =>
+    fetchJSON<{ dismissed: number }>("/api/knowledge/notifications/dismiss", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+
+  adjudicate: (body: AdjudicateBody) =>
+    fetchJSON<AdjudicationResolutionOutcome>("/api/knowledge/adjudicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  getAdjudications: (params?: { limit?: number; status?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.limit) sp.set("limit", String(params.limit));
+    if (params?.status) sp.set("status", params.status);
+    return fetchJSON<{ requests: AdjudicationRequestData[] }>(`/api/knowledge/adjudications?${sp}`);
+  },
 };

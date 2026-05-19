@@ -193,6 +193,7 @@ async def _build_entity_packet(
         summary=summary,
         why_now=_why_now(query, memory_need, packet_type, intents=intents),
         confidence=_confidence(score, planner_support, relevance),
+        belief_map=result.get("belief_map"),
         entity_ids=[entity["id"]],
         relationship_ids=relationship_ids,
         evidence_lines=evidence_lines[:3],

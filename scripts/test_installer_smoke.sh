@@ -44,14 +44,28 @@ if [ "$SKIP_RUNTIME" = "1" ]; then
   export ENGRAM_INSTALL_SKIP_RUNTIME=1
 fi
 
+if [ "$MODE" = "openclaw" ]; then
+  export ENGRAM_SKILL_SOURCE="$ROOT_DIR/skills/engram-memory"
+  if [ "$SKIP_RUNTIME" = "1" ]; then
+    export ENGRAM_PACKAGE_SOURCE="${ENGRAM_PACKAGE_SOURCE:-$ROOT_DIR/server}"
+    export ENGRAM_INSTALL_SKIP_PACKAGE=1
+    export ENGRAM_INSTALL_SKIP_NATIVE_VERIFY=1
+  else
+    export ENGRAM_PACKAGE_SOURCE="${ENGRAM_PACKAGE_SOURCE:-$ROOT_DIR/server[local,native]}"
+  fi
+
+  bash "$ROOT_DIR/scripts/install.sh" "$MODE"
+  test -x "$BIN_DIR/engramctl"
+  test -f "$HOME/.engram/.env"
+  test -f "$HOME/.openclaw/skills/engram-brain/SKILL.md"
+  echo "OpenClaw installer smoke test passed."
+  exit 0
+fi
+
 bash "$ROOT_DIR/scripts/install.sh" "$MODE"
 test -L "$BIN_DIR/engramctl"
 test -f "$INSTALL_ROOT/.env"
 test -f "$INSTALL_ROOT/current/compose.yaml"
-
-if [ "$MODE" = "openclaw" ] || [ "$SKIP_RUNTIME" = "1" ]; then
-  test -f "$HOME/.openclaw/skills/engram-memory/SKILL.md"
-fi
 
 if [ "$SKIP_RUNTIME" != "1" ]; then
   curl -fsS "http://127.0.0.1:8100/health" >/dev/null

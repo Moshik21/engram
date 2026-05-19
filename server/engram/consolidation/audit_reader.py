@@ -24,6 +24,7 @@ class ConsolidationCycleDetail:
     decision_outcomes: list[Any] = field(default_factory=list)
     distillation_examples: list[Any] = field(default_factory=list)
     calibration_snapshots: list[Any] = field(default_factory=list)
+    immunity_records: list[Any] = field(default_factory=list)
 
 
 class ConsolidationAuditReader:
@@ -91,6 +92,7 @@ class ConsolidationAuditReader:
                 cycle_id,
                 group_id,
             ),
+            immunity_records=await self._records("get_immunity_records", cycle_id, group_id),
         )
 
     async def evaluation_context(

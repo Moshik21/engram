@@ -130,6 +130,9 @@ function routeEvent(data: WsEvent) {
     case "episode.queued":
       if (data.episode) {
         s.prependEpisode(data.episode);
+        // Trigger Activity Spike
+        s.setIngesting(true);
+        setTimeout(() => s.setIngesting(false), 2000);
       }
       void s.loadLifecycleSummary();
       void s.loadEvaluationReport();
@@ -138,6 +141,10 @@ function routeEvent(data: WsEvent) {
     case "episode.failed":
       if (data.episodeId && data.status) {
         s.updateEpisodeStatus(data.episodeId, data.status, data.error);
+        if (data.type === "episode.completed") {
+          s.setIngesting(true);
+          setTimeout(() => s.setIngesting(false), 1500);
+        }
       }
       void s.loadLifecycleSummary();
       void s.loadEvaluationReport();
@@ -244,14 +251,14 @@ function routeEvent(data: WsEvent) {
       break;
   }
 
-  // Quest mode event dispatch
-  const questMode = useEngramStore.getState().dashboardMode;
-  if (questMode === "quest") {
-    const EVENT_FLAVOR: Record<string, { text: string; xp: number }> = {
-      "episode.completed": { text: "A new tale inscribed!", xp: 1 },
-      "consolidation.completed": { text: "Quest completed! The mind grows stronger.", xp: 15 },
-      "consolidation.phase.merge.completed": { text: "Entities forged together!", xp: 5 },
-      "consolidation.phase.dream.completed": { text: "Dream vision: new connections!", xp: 3 },
+  // Nerve Center mode event dispatch
+  const dashboardMode = useEngramStore.getState().dashboardMode;
+  if (dashboardMode === "nerve") {
+    const EVENT_FLAVOR: Record<string, { text: string; plasticity: number }> = {
+      "episode.completed": { text: "Neural Inscription complete.", plasticity: 1 },
+      "consolidation.completed": { text: "Dream Phase finalized. Homeostasis increased.", plasticity: 15 },
+      "consolidation.phase.merge.completed": { text: "Synaptic Merge successful.", plasticity: 5 },
+      "consolidation.phase.dream.completed": { text: "Latent connections forming.", plasticity: 3 },
     };
     const eventPayload =
       data.payload && typeof data.payload === "object"
@@ -262,14 +269,14 @@ function routeEvent(data: WsEvent) {
       data.type === "consolidation.completed" &&
       typeof phaseIssue === "string" &&
       phaseIssue.trim()
-        ? { text: `Quest completed with warning: ${phaseIssue}`, xp: 5 }
+        ? { text: `Maintenance warning: ${phaseIssue}`, plasticity: 5 }
         : EVENT_FLAVOR[data.type];
     if (flavor) {
-      s.addQuestEvent(flavor.text, flavor.xp);
+      s.addSynapticEvent(flavor.text, flavor.plasticity);
     }
   }
 
-  // Track feedback events for MP stat (regardless of quest mode)
+  // Track feedback events for the plasticity signal regardless of dashboard mode.
   if (data.type === "feedback.recorded") {
     const rating = ((data as unknown as Record<string, unknown>).rating as number | undefined) ?? 3;
     s.recordFeedback(rating >= 4);

@@ -12,6 +12,7 @@ export const createEpisodeSlice: StateCreator<
   episodeCursor: null,
   hasMoreEpisodes: true,
   isLoadingEpisodes: false,
+  isIngesting: false,
 
   loadEpisodes: async (cursor?: string) => {
     if (get().isLoadingEpisodes) return;
@@ -40,6 +41,11 @@ export const createEpisodeSlice: StateCreator<
   prependEpisode: (episode) =>
     set((s) => {
       s.episodes.unshift(episode);
+    }),
+
+  setIngesting: (isIngesting) =>
+    set((s) => {
+      s.isIngesting = isIngesting;
     }),
 
   updateEpisodeStatus: (episodeId, status, error) =>

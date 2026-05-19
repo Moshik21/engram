@@ -18,7 +18,15 @@ from engram.evaluation.smoke import run_projected_consolidated_smoke_for_args
 from engram.lifecycle_cli import build_lifecycle_summary_for_config, cycle_issue_text
 from engram.storage.resolver import EngineMode, resolve_mode
 
-CHECK_ORDER = ("config", "sqlite", "mode", "lifecycle_snapshot", "server", "brain_loop_smoke")
+CHECK_ORDER = (
+    "config",
+    "sqlite",
+    "mode",
+    "lifecycle_snapshot",
+    "server",
+    "mcp",
+    "brain_loop_smoke",
+)
 
 
 def configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
@@ -122,8 +130,10 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.skip_server:
         _add_check(checks, "server", "skipped", "server health check skipped")
+        _add_check(checks, "mcp", "skipped", "MCP readiness check skipped")
     else:
         _check_server(args, checks)
+        _check_mcp(args, checks)
 
     smoke_report = None
     if args.no_smoke:
@@ -336,6 +346,37 @@ def _check_server(args: argparse.Namespace, checks: list[dict[str, Any]]) -> Non
             "server",
             "warn",
             f"REST server not reachable: {exc}",
+            {"url": url},
+        )
+
+
+def _check_mcp(args: argparse.Namespace, checks: list[dict[str, Any]]) -> None:
+    base_url = str(args.server_url).rstrip("/")
+    url = f"{base_url}/mcp"
+    try:
+        with request.urlopen(url, timeout=max(0.1, float(args.timeout))) as resp:
+            if resp.status == 200:
+                _add_check(
+                    checks,
+                    "mcp",
+                    "pass",
+                    "MCP streamable HTTP endpoint is reachable",
+                    {"url": url, "status_code": resp.status},
+                )
+                return
+            _add_check(
+                checks,
+                "mcp",
+                "warn",
+                f"MCP endpoint returned HTTP {resp.status}",
+                {"url": url, "status_code": resp.status},
+            )
+    except (OSError, error.URLError, TimeoutError) as exc:
+        _add_check(
+            checks,
+            "mcp",
+            "warn",
+            f"MCP endpoint not reachable: {exc}",
             {"url": url},
         )
 

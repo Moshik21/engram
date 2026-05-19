@@ -460,7 +460,7 @@ export interface TimeRange {
 }
 
 export type GraphRenderMode = "3d" | "2d";
-export type DashboardMode = "observatory" | "quest";
+export type DashboardMode = "observatory" | "nerve";
 
 export type BrainLoopEvaluationSignalKey =
   | "cueUsefulness"
@@ -841,11 +841,13 @@ export type DashboardView =
   | "stats"
   | "evaluation"
   | "consolidation"
-  | "character"
-  | "questlog"
-  | "worldmap"
-  | "tavern"
-  | "guildhall";
+  | "profile"
+  | "synaptic_log"
+  | "neural_field"
+  | "ingestion"
+  | "nerve_center"
+  | "adjudicate"
+  | "immunity";
 
 export interface RecallResultEntity {
   resultType: "entity";
@@ -1034,8 +1036,10 @@ export interface EpisodeSlice {
   episodeCursor: string | null;
   hasMoreEpisodes: boolean;
   isLoadingEpisodes: boolean;
+  isIngesting: boolean;
   loadEpisodes: (cursor?: string) => Promise<void>;
   prependEpisode: (episode: Episode) => void;
+  setIngesting: (isIngesting: boolean) => void;
   updateEpisodeStatus: (episodeId: string, status: EpisodeStatus, error?: string | null) => void;
 }
 
@@ -1288,36 +1292,47 @@ export interface IntentionItem {
   linkedEntityIds: string[];
 }
 
-export type PlayerClass = "Artificer" | "Sage" | "Bard" | "Diplomat" | "Alchemist" | "Cartographer" | "Polymath";
+export type NeuralSpecialization = "Architect" | "Synthesizer" | "Narrator" | "Integrator" | "Biochemist" | "Topologist" | "Polymath";
 
-export interface PlayerStats {
+export interface CerebralStats {
   level: number;
-  xp: number;
-  xpToNext: number;
-  hp: number;
-  mp: number;
-  gold: number;
-  playerClass: PlayerClass;
+  plasticity: number;
+  plasticityToNext: number;
+  homeostasis: number;
+  morale: number;
+  synapticCredits: number;
+  specialization: NeuralSpecialization;
   domainScores: Record<string, number>;
 }
 
-export interface QuestEvent {
+export interface SynapticEvent {
   id: string;
   text: string;
-  xp: number;
+  plasticity: number;
   timestamp: number;
 }
 
-export interface QuestSlice {
+export type NeuralFieldLayer = "activity" | "clusters" | "heatmap" | "entropy";
+
+export interface NerveCenterSlice {
   dashboardMode: DashboardMode;
-  playerStats: PlayerStats;
-  questEvents: QuestEvent[];
+  cerebralStats: CerebralStats;
+  synapticEvents: SynapticEvent[];
   feedbackPositive: number;
   feedbackNegative: number;
+  notifications: MemoryNotification[];
+  adjudicationRequests: AdjudicationRequestData[];
+  isAdjudicating: boolean;
+  selectedNeuralLayer: NeuralFieldLayer;
   setDashboardMode: (mode: DashboardMode) => void;
-  computePlayerStats: (stats: GraphStats) => void;
-  addQuestEvent: (text: string, xp: number) => void;
+  computeCerebralStats: (stats: GraphStats) => void;
+  addSynapticEvent: (text: string, plasticity: number) => void;
   recordFeedback: (positive: boolean) => void;
+  loadNotifications: () => Promise<void>;
+  dismissNotifications: (ids: string[]) => Promise<void>;
+  loadAdjudications: () => Promise<void>;
+  resolveAdjudication: (body: AdjudicateBody) => Promise<void>;
+  setSelectedNeuralLayer: (layer: NeuralFieldLayer) => void;
 }
 
 export interface ConsolidationSlice {
@@ -1371,4 +1386,56 @@ export type EngramStore =
   ConsolidationSlice &
   KnowledgeSlice &
   ConversationSlice &
-  QuestSlice;
+  NerveCenterSlice;
+
+export interface MemoryNotification {
+  id: string;
+  group_id: string;
+  notification_type:
+    | "temporal_intention"
+    | "dream_association"
+    | "schema_discovery"
+    | "entity_maturation"
+    | "entity_merge"
+    | "activation_anomaly"
+    | "immunity_sweep";
+  priority: "low" | "normal" | "high";
+  title: string;
+  body: string;
+  entity_ids: string[];
+  metadata: Record<string, any>;
+  source_cycle_id: string | null;
+  created_at: number;
+  dismissed_at: number | null;
+  surfaced_count: number;
+}
+
+export interface AdjudicateBody {
+  request_id: string;
+  entities?: any[];
+  relationships?: any[];
+  reject_evidence_ids?: string[];
+  model_tier?: string;
+  rationale?: string;
+}
+
+export interface AdjudicationResolutionOutcome {
+  status: string;
+  requestId: string;
+  committedIds: Record<string, string>;
+  supersededEvidenceIds: string[];
+  replacementEvidenceIds: string[];
+}
+
+export interface AdjudicationRequestData {
+  request_id: string;
+  episode_id: string;
+  ambiguity_tags: string[];
+  selected_text: string;
+  candidate_evidence: Array<{
+    evidence_id: string;
+    fact_class: string;
+    payload: any;
+  }>;
+  instructions: string;
+}

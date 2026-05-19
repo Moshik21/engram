@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -721,7 +721,8 @@ class ActivationConfig(BaseModel):
     notification_max_per_group: int = Field(default=200, ge=10, le=1000)
     notification_mcp_max_per_response: int = Field(default=3, ge=0, le=10)
     notification_mcp_max_surfaces: int = Field(default=2, ge=1, le=5)
-    notification_temporal_enabled: bool = Field(default=False)
+    notification_temporal_enabled: bool = Field(default=True)
+    notification_immunity_enabled: bool = Field(default=True)
     notification_temporal_horizon_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
     notification_activation_spike_threshold: float = Field(default=0.3, ge=0.1, le=1.0)
     notification_dream_enabled: bool = Field(default=True)
@@ -913,6 +914,34 @@ class ActivationConfig(BaseModel):
         le=10,
         description="Max retryable projection attempts before dead-letter state",
     )
+
+    # --- Project Synapse: Topological Immunity ---
+    immunity_enabled: bool = Field(default=False)
+    immunity_gravity_threshold: float = Field(default=0.2, ge=0.0, le=1.0)
+    immunity_min_age_hours: float = Field(default=48.0, ge=1.0)
+
+    # --- Project Synapse: Bayesian Recall ---
+    belief_map_enabled: bool = Field(default=False)
+
+    # --- Project Synapse: Self-Tuning Activation ---
+    neuroplasticity_enabled: bool = Field(default=False)
+
+    # --- Project Synapse: Active Adjudication ---
+    active_adjudication_enabled: bool = Field(default=False)
+
+    # --- Project Synapse: Streaming Evidence ---
+    streaming_evidence_enabled: bool = Field(
+        default=False,
+        description="Broadcast evidence projection progress during episode projection",
+    )
+    streaming_ingestion_enabled: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _sync_streaming_evidence_alias(self) -> ActivationConfig:
+        if self.streaming_ingestion_enabled and not self.streaming_evidence_enabled:
+            self.streaming_evidence_enabled = True
+        return self
+
     projection_planner_enabled: bool = Field(
         default=True,
         description="Use deterministic span planning before extractor calls",
@@ -1913,6 +1942,7 @@ class ActivationConfig(BaseModel):
             _set("episode_transition_enabled", True)
             _set("notification_surfacing_enabled", True)
             _set("notification_temporal_enabled", True)
+            _set("notification_immunity_enabled", True)
         elif profile == "standard":
             _set("consolidation_enabled", True)
             _set("consolidation_dry_run", False)
@@ -1952,6 +1982,7 @@ class ActivationConfig(BaseModel):
             _set("microglia_enabled", True)
             _set("notification_surfacing_enabled", True)
             _set("notification_temporal_enabled", True)
+            _set("notification_immunity_enabled", True)
             _set("preference_directed_enabled", True)
             _set("preference_calibrate_enabled", True)
 
@@ -2033,6 +2064,27 @@ class ActivationConfig(BaseModel):
             _set("consolidation_merge_escalation_enabled", False)
 
 
+class NerveCenterConfig(BaseModel):
+    """Configuration for the bio-digital Nerve Center gating."""
+
+    enabled: bool = True
+    level_gating_enabled: bool = True
+
+    # Feature unlock levels
+    level_unlock_basic_ingestion: int = 1
+    level_unlock_active_adjudication: int = 10
+    level_unlock_autonomous_consolidation: int = 20
+
+    # Reward multipliers
+    plasticity_multiplier_recall_hit: float = 1.0
+    plasticity_multiplier_feedback_positive: float = 2.0
+    plasticity_multiplier_adjudication_resolve: float = 5.0
+
+    # Health decay
+    homeostasis_decay_per_cycle_no_adjudication: float = 0.05
+    morale_decay_per_negative_feedback: float = 2.0
+
+
 class EngramConfig(BaseSettings):
     """Root configuration for Engram. Supports env vars, .env files, and YAML."""
 
@@ -2060,6 +2112,7 @@ class EngramConfig(BaseSettings):
     cors: CORSConfig = Field(default_factory=CORSConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     activation: ActivationConfig = Field(default_factory=ActivationConfig)
+    nerve_center: NerveCenterConfig = Field(default_factory=NerveCenterConfig)
 
     def model_post_init(self, __context: object) -> None:
         """Keep unauthenticated tenant routing aligned with the default brain."""

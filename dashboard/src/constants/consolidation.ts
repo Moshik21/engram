@@ -15,6 +15,7 @@ export const CONSOLIDATION_PHASE_ORDER = [
   "reindex",
   "graph_embed",
   "microglia",
+  "immunity",
   "dream",
 ] as const;
 

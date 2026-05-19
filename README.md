@@ -49,6 +49,8 @@ Engram stores conversations as episodes, turns important people, facts, and rela
 - **Understand** personal, health, and emotional content with an expanded 17-type entity taxonomy and rich predicate vocabulary
 - **Visualize** the knowledge graph and memory pipeline in real-time with a 3D neural brain dashboard plus cue/projection observability
 - **Atlas** multi-scale graph exploration — zoom from high-level region clusters down to individual entity neighborhoods
+- **Self-Tune** with neuroplasticity loops that automatically optimize recall parameters based on agent interaction
+- **Safeguard** memory truth with topological immunity that dissolves semantic noise and hallucinated connections
 
 ## Key Concepts
 
@@ -65,6 +67,20 @@ Engram stores conversations as episodes, turns important people, facts, and rela
 | **Memory Tier** | Entities graduate from episodic → transitional → semantic as they mature (like biological memory) |
 | **Labile Window** | 5-minute reconsolidation window after recall where entity summaries can be updated with new info |
 | **Dream Phase** | Offline spreading activation that strengthens important connections and discovers cross-domain associations |
+| **Semantic Gravity** | Measure of a node's topological importance used by the Immunity System to prune noise |
+| **Nerve Center** | Central command dashboard for resolving memory conflicts and monitoring system health |
+| **Ingestion Chamber** | Real-time intake pipeline for new conversational episodes |
+| **Belief Map** | Probabilistic context packet including evidence density and temporal stability |
+
+## Project Synapse: Autonomous Memory
+
+Engram has evolved into an **autonomous, self-tuning memory layer** that actively safeguards its own truth and optimizes retrieval without human configuration.
+
+- **Topological Immunity**: Treating the Knowledge Graph as a biological system. Entities lacking "semantic gravity" (meaningful connectivity or clusters) are automatically flagged and dissolved by a Graph-Aware Anomaly Detector, treating them as viral noise.
+- **Bayesian Recall**: Retrieval now delivers a **Belief Map** instead of a flat context packet. Every fact includes an Evidence Density Score based on corroboration frequency, recency, and temporal polarity (detecting contradictory "moved from" events).
+- **Auto-Neuroplasticity**: A meta-learning loop that tunes the 200+ internal activation parameters. By observing agent interaction, the system automatically dampens decay or adjusts spreading sensitivity for specific topic clusters based on their "Retrieval ROI."
+- **Nerve Center**: A high-fidelity bio-digital command center for memory management. Surfaces **Clarification Intents** (conflicting evidence) and **Immunity Logs** (background maintenance) as interactive, actionable events, allowing the user or agent to nurture system health.
+- **Fluid Ingestion**: Zero-latency text streaming via WebSockets. Incremental projection builds "Latent Memory Traces" that mature into full entities only when discourse reaches a logical conclusion, eliminating the wait for batch POST requests.
 
 ## Quickstart
 
@@ -74,24 +90,31 @@ Engram stores conversations as episodes, turns important people, facts, and rela
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
-The installer prompts you to choose a mode:
+The default path installs Engram with native Helix support, runs
+`engramctl quickstart`, and verifies that the local runtime is ready:
 
 - **Helix native** (recommended) — HelixDB in-process via PyO3, no Docker, best quality + speed
 - **Lite** — SQLite backend, no Docker needed, all features included
-- **Helix HTTP** — HelixDB via Docker, graph+vector in one
 - **Full** — FalkorDB + Redis via Docker, legacy high throughput
 
-Skip the prompt with `bash -s -- helix`, `bash -s -- lite`, or `bash -s -- full`.
-The explicit Helix path installs Engram with native extras when available and
-verifies that the `helix_native` PyO3 runtime is importable before accepting the
-configuration. If your package source does not include a native wheel yet, use
-the source install path below and run `make build-native`.
+Use an explicit mode when needed: `bash -s -- helix`, `bash -s -- lite`, or
+`bash -s -- full`. The Helix path installs Engram, adds the `helix-native` PyO3
+runtime to Engram's uv tool environment, and checks that the runtime is
+importable before accepting the configuration. Release wheels are the public
+path; if none match the current platform, the installer builds `helix-native`
+from Engram's bundled custom Helix source and reports Rust/Cargo as the only
+extra prerequisite. It does not silently switch to Docker.
 
-Lifecycle commands (both modes):
+Release startup commands:
 
 ```bash
+engramctl quickstart --mode helix
 engramctl start
 engramctl status
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 engramctl logs
 engramctl stop
 engramctl update
@@ -108,10 +131,16 @@ Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-do
 ### One-Click OpenClaw Install
 
 ```bash
+openclaw skills install engram-brain
+```
+
+```bash
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
-Or install native Helix and say **yes** to "Install OpenClaw skill?" during setup.
+This uses native Helix through PyO3, installs the shared OpenClaw skill,
+configures OpenClaw MCP at `http://127.0.0.1:8100/mcp`, and runs
+`engramctl doctor`.
 
 Details: [`docs/install/openclaw.md`](docs/install/openclaw.md)
 
@@ -130,10 +159,10 @@ Or manually:
 git clone https://github.com/Moshik21/engram.git ~/engram
 cd ~/engram/server
 uv sync
-uv run engram setup
+uv run engram setup --mode helix
 ```
 
-### Option 1: Native Mode (recommended — best quality, no Docker)
+### Option 1: Native Mode (developer/source — best quality, no Docker)
 
 ```bash
 cd server
@@ -171,7 +200,7 @@ helix push dev
 
 # Option B: Docker Compose
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY (required), optionally GEMINI_API_KEY or VOYAGE_API_KEY
+# Edit .env: optionally set ANTHROPIC_API_KEY, GEMINI_API_KEY, or VOYAGE_API_KEY
 make up-helix            # or: docker compose -f docker-compose.helix.yml up -d --build
 ```
 
@@ -182,7 +211,7 @@ and API. Best retrieval quality. Details: [`docs/install/helix.md`](docs/install
 
 ```bash
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY (required), optionally GEMINI_API_KEY or VOYAGE_API_KEY
+# Edit .env: optionally set ANTHROPIC_API_KEY, GEMINI_API_KEY, or VOYAGE_API_KEY
 make up                  # or: docker compose up -d --build
 ```
 
@@ -262,7 +291,7 @@ docker compose down -v
 
 HelixDB is the recommended backend, unifying graph, vector, and full-text search in one engine. It is available in two transport modes:
 
-- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 171 compiled queries. No Docker required. This is the recommended transport. Build with `make build-native`.
+- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 171 compiled queries. No Docker required. This is the recommended transport. Public installs use `engramctl quickstart`; developer source builds can use `make build-native`.
 - **HTTP mode**: Standard client-server over localhost. Good for production multi-service deployments. One Docker container replaces two (FalkorDB + Redis).
 
 **Why HelixDB:**
@@ -277,9 +306,12 @@ HelixDB is the recommended backend, unifying graph, vector, and full-text search
 
 ```bash
 # Option A: Native mode (recommended — no Docker)
-make build-native         # Build PyO3 extension (one-time)
-make mcp-native           # MCP server with native HelixDB
-# or: make up-native       # REST API with native HelixDB
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
+engramctl status
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 
 # Option B: Helix CLI (HTTP mode)
 helix push dev
@@ -591,7 +623,7 @@ Engram runs offline consolidation cycles inspired by biological memory consolida
 
 **Sleep stage mapping**: Phases map to biological sleep stages — triage parallels pre-sleep encoding, replay mirrors NREM3 slow-wave replay, merge maps to NREM2 spindle-driven binding, and dream corresponds to REM creative association.
 
-Sixteen phases execute sequentially:
+Seventeen phases execute sequentially:
 
 | Phase | What It Does |
 |-------|-------------|
@@ -610,6 +642,7 @@ Sixteen phases execute sequentially:
 | **Reindex** | Re-embed entities affected by earlier phases |
 | **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Node2Vec supports a true dirty-subgraph incremental path with warm-started vectors. TransE and GNN are staggered, but currently retrain the full graph when they run. |
 | **Microglia** | Run graph hygiene checks and complement tagging so cleanup and low-confidence relation decisions can be carried forward without destructive churn. |
+| **Immunity** | Detect low-semantic-gravity nodes and dissolve isolated or weakly corroborated graph noise before it can dominate recall. |
 | **Dream** | Offline spreading activation to strengthen associative pathways + discover cross-domain creative connections. **LTP/LTD**: Boosted edges strengthen (predicate-aware); unboosted edges decay 0.005/cycle (floor 0.1). **Dream associations**: Embedding similarity (70% text + 30% graph) discovers cross-domain entity pairs, creates temporary `DREAM_ASSOCIATED` edges (weight 0.1, 30-day TTL, excluded from Hebbian boosting). Accessed dream edges extend TTL by 30 days. Repeated validation can graduate a dream edge to permanent `RELATED_TO`. |
 
 #### Three-Tier Scheduling
@@ -620,7 +653,7 @@ Phases run at different frequencies based on urgency:
 |------|--------|-----------------|
 | **Hot** | triage | 15 minutes |
 | **Warm** | merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, mature, semanticize, reindex, microglia | 2 hours |
-| **Cold** | replay, prune, schema, graph_embed, dream | 6 hours |
+| **Cold** | replay, prune, schema, graph_embed, immunity, dream | 6 hours |
 
 Tiered cycles only run the phases that are due. Optimizations (incremental graph_embed, selective replay) only apply during tiered scheduling — manual triggers, pressure triggers, and scheduled flat cycles always run all phases fully.
 
@@ -1633,12 +1666,13 @@ The same local evaluation store is available over REST and MCP:
 
 Engram uses Pydantic Settings with env var support. Config is loaded in order (later sources override earlier):
 
-1. `~/.engram/.env` — global config (created by `python -m engram setup`)
+1. `~/.engram/.env` — global config (created by `engramctl quickstart`, or by `engram setup` in source installs)
 2. repo-root `.env` — useful when launching from `server/` inside this repository
 3. `./.env` — current-working-directory overrides
 4. Environment variables — always take precedence
 
-For first-time setup, run the wizard: `cd server && uv run python -m engram setup`
+For first-time user setup, run `engramctl quickstart`. For source installs,
+use `cd server && uv run engram setup --mode helix`.
 
 Key environment variables (or copy `.env.example` to `.env`):
 
@@ -1786,8 +1820,10 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 # Public local install
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
+openclaw skills install engram-brain
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 engramctl status
+engramctl connect openclaw
 engramctl update
 
 # Backend
@@ -1846,7 +1882,7 @@ server/engram/
   activation/       # ACT-R engine (BFS, PPR, strategy pattern)
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
-  consolidation/    # 16-phase engine, scheduler, pressure accumulator
+  consolidation/    # 17-phase engine, scheduler, pressure accumulator
   embeddings/       # Embedding providers (Gemini multimodal, Voyage AI cloud, fastembed local, noop)
   events/           # EventBus + Redis pub/sub bridge
   extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier

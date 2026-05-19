@@ -4,7 +4,7 @@
 
 This document proposes a rework of Engram's consolidation pipeline.
 
-The current 16-phase design is directionally strong. The main gaps are not
+The current 17-phase design is directionally strong. The main gaps are not
 conceptual. They are:
 
 - hidden correctness bugs that prevent intended behavior

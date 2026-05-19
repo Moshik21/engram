@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram import consolidation_trigger as trigger_module
-from engram.config import ActivationConfig
+from engram.config import ActivationConfig, NerveCenterConfig
 from engram.consolidation.audit_reader import ConsolidationCycleDetail
 from engram.consolidation_trigger import (
     ConsolidationTriggerResult,
@@ -26,13 +26,14 @@ from engram.models.consolidation import ConsolidationCycle, PhaseResult
 
 
 class FakeGraphStore:
-    def __init__(self) -> None:
+    def __init__(self, stats: dict | None = None) -> None:
         self._db = object()
+        self._stats = stats or {"episodes": 3}
         self.get_stats_calls: list[str] = []
 
     async def get_stats(self, group_id: str) -> dict:
         self.get_stats_calls.append(group_id)
-        return {"episodes": 3}
+        return dict(self._stats)
 
 
 @pytest.mark.asyncio
@@ -85,6 +86,95 @@ async def test_consolidation_trigger_service_runs_cycle(monkeypatch) -> None:
         "group_id": "brain",
         "trigger": "mcp",
         "dry_run": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_autonomous_pressure_consolidation_blocks_below_cortical_unlock(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeConsolidationEngine:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+        async def run_cycle(self, **kwargs):
+            captured["run_cycle"] = kwargs
+            return SimpleNamespace(id="blocked")
+
+    monkeypatch.setattr(
+        trigger_module,
+        "_build_consolidation_engine",
+        FakeConsolidationEngine,
+    )
+
+    graph = FakeGraphStore({"episodes": 3, "total_entities": 0})
+    service = ConsolidationTriggerService(
+        graph_store=graph,
+        activation_store=SimpleNamespace(),
+        search_index=SimpleNamespace(),
+        cfg=ActivationConfig(),
+        extractor=None,
+        nerve_center_cfg=NerveCenterConfig(level_unlock_autonomous_consolidation=20),
+    )
+
+    with pytest.raises(PermissionError, match="Level 20"):
+        await service.trigger_consolidation_cycle(
+            group_id="brain",
+            trigger="pressure",
+            dry_run=False,
+        )
+
+    assert "run_cycle" not in captured
+    assert graph.get_stats_calls == ["brain"]
+
+
+@pytest.mark.asyncio
+async def test_autonomous_pressure_consolidation_runs_at_cortical_unlock(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+    cycle = SimpleNamespace(id="cyc_20", status="completed")
+
+    class FakeConsolidationEngine:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+        async def run_cycle(self, **kwargs):
+            captured["run_cycle"] = kwargs
+            return cycle
+
+    monkeypatch.setattr(
+        trigger_module,
+        "_build_consolidation_engine",
+        FakeConsolidationEngine,
+    )
+
+    graph = FakeGraphStore({"episodes": 3, "total_entities": 950})
+    service = ConsolidationTriggerService(
+        graph_store=graph,
+        activation_store=SimpleNamespace(),
+        search_index=SimpleNamespace(),
+        cfg=ActivationConfig(),
+        extractor=None,
+        nerve_center_cfg=NerveCenterConfig(level_unlock_autonomous_consolidation=20),
+    )
+
+    result = await service.trigger_consolidation_cycle(
+        group_id="brain",
+        trigger="pressure",
+        dry_run=False,
+    )
+
+    assert result.cycle is cycle
+    assert result.graph_stats == {"episodes": 3, "total_entities": 950}
+    assert captured["run_cycle"] == {
+        "group_id": "brain",
+        "trigger": "pressure",
+        "dry_run": False,
     }
 
 

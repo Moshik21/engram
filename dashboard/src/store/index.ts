@@ -15,7 +15,7 @@ import { createActivationSlice } from "./activationSlice";
 import { createConsolidationSlice } from "./consolidationSlice";
 import { createKnowledgeSlice } from "./knowledgeSlice";
 import { createConversationSlice } from "./conversationSlice";
-import { createQuestSlice } from "./questSlice";
+import { createNerveCenterSlice } from "./nerveCenterSlice";
 
 export const useEngramStore = create<EngramStore>()(
   devtools(
@@ -34,7 +34,7 @@ export const useEngramStore = create<EngramStore>()(
         ...createConsolidationSlice(...a),
         ...createKnowledgeSlice(...a),
         ...createConversationSlice(...a),
-        ...createQuestSlice(...a),
+        ...createNerveCenterSlice(...a),
       })),
       {
         name: "engram-dashboard",

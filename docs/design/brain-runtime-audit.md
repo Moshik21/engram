@@ -17,7 +17,7 @@ The core loop exists, but it is spread across `GraphManager`, REST handlers,
 MCP tools, the worker, consolidation phases, retrieval formatting, and dashboard
 state. The first integration pass moved several contracts back into sync:
 granular episode status, projection state, cue summaries, cue-backed recall,
-16-phase consolidation, quest-mode dashboard compilation, and Helix search
+17-phase consolidation, quest-mode dashboard compilation, and Helix search
 support.
 
 The next risk is architectural drift. Most behavior is reachable, but the
@@ -1504,12 +1504,12 @@ result metadata while still preserving surface-specific naming conventions.
 
 ### 5. Consolidate
 
-The current engine contract is 16 phases:
+The current engine contract is 17 phases:
 
 ```text
 triage -> merge -> calibrate -> infer -> evidence_adjudication ->
 edge_adjudication -> replay -> prune -> compact -> mature -> semanticize ->
-schema -> reindex -> graph_embed -> microglia -> dream
+schema -> reindex -> graph_embed -> microglia -> immunity -> dream
 ```
 
 Backend phase order and scheduler tiering now share
@@ -1518,7 +1518,7 @@ are guarded against divergent phase-name lists. `ConsolidationEngine` also
 validates constructed runtime phase order against that registry on startup.
 Concrete runtime phase construction now lives in
 `engram.consolidation.phase_catalog.build_consolidation_phases`, keeping the
-16-phase object assembly in a dedicated Consolidate-stage catalog while the
+17-phase object assembly in a dedicated Consolidate-stage catalog while the
 engine retains the cycle loop.
 The dashboard has a small mirror of that order in
 `dashboard/src/constants/consolidation.ts`; consolidation panel fixtures build
@@ -1597,7 +1597,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
    reuse the shared presenters/builders instead of reformatting lifecycle state
    locally.
 
-3. The public phase-count drift is closed for the current 16-phase engine
+3. The public phase-count drift is closed for the current 17-phase engine
    contract. Backend registry validation and dashboard consolidation fixtures
    now guard the current order whenever phases are added, removed, renamed, or
    rescheduled.
@@ -1714,12 +1714,12 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   failed-cycle description contract.
 - Done: add `engram.consolidation.phase_registry` so backend phase order,
   scheduler tiers, engine phase-order tests, and engine runtime construction
-  share one 16-phase contract.
+  share one 17-phase contract.
 - Done: add `engram.consolidation.phase_catalog` so concrete runtime phase
   construction lives outside the engine loop while still validating against the
   shared registry.
 - Done: add a dashboard-side consolidation phase-order mirror so panel
-  fixtures and quest-mode descriptions use one frontend 16-phase contract.
+  fixtures and quest-mode descriptions use one frontend 17-phase contract.
 - Done: add a backend/dashboard phase-order contract test so the TypeScript
   mirror cannot quietly diverge from the Python registry.
 - Done: add `engram.consolidation.phase_runner` for one-phase execution,
@@ -2135,7 +2135,7 @@ Manual, pressure, and flat scheduled cycles can still run all phases.
   rerank, top-fact rendering, freshness/confidence labeling, and token packing,
   with `GraphManager` delegating the MCP/chat compatibility APIs.
 - Consolidation phase catalog boundary done:
-  `build_consolidation_phases()` now owns concrete 16-phase runtime
+  `build_consolidation_phases()` now owns concrete 17-phase runtime
   construction and registry-order validation, with `ConsolidationEngine`
   delegating phase assembly while retaining run-loop, cancellation, capability,
   event, and completion orchestration.

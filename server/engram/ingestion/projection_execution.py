@@ -198,6 +198,21 @@ class EvidenceProjectionExecutor:
             proposed_relationships=proposed_relationships,
             model_tier=model_tier,
         )
+        if self._cfg.streaming_evidence_enabled:
+            from engram.extraction.streaming_projector import StreamingEvidenceProjector
+            streamer = StreamingEvidenceProjector(group_id)
+            streamer.broadcast_extraction_start(episode.id)
+            # Broadcast the initial discovery
+            # We wrap the candidates in a mock ExtractionResult
+            from engram.extraction.models import ExtractionResult
+            mock_result = ExtractionResult(
+                entities=[c.entity for c in evidence_bundle.candidates if c.entity],
+                relationships=[
+                    c.relationship for c in evidence_bundle.candidates if c.relationship
+                ],
+            )
+            streamer.broadcast_result(mock_result)
+
         evidence_bundle = await self._store_adjudication_work(
             evidence_bundle=evidence_bundle,
             plan=plan,
@@ -322,6 +337,8 @@ class EvidenceProjectionExecutor:
             [request.to_dict() for request in requests],
             group_id=group_id,
         )
+        if self._cfg.active_adjudication_enabled:
+            await self._evidence_adjudication_service.create_clarification_intents(requests)
         ambiguous_candidates = [
             candidate
             for group in ambiguous_groups

@@ -90,3 +90,11 @@ class ApplyOutcome:
     new_entity_names: list[str] = field(default_factory=list)
     meta_entity_names: set[str] = field(default_factory=set)
     relationship_results: list[RelationshipApplyResult] = field(default_factory=list)
+
+
+@dataclass
+class ExtractionResult:
+    """Incremental extraction chunk for streaming discovery."""
+
+    entities: list[EntityCandidate] = field(default_factory=list)
+    relationships: list[ClaimCandidate] = field(default_factory=list)

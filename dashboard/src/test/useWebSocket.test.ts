@@ -395,11 +395,11 @@ describe("useWebSocket", () => {
     expect(useEngramStore.getState().nodes["ent_x"].activationCurrent).toBe(0.9);
   });
 
-  it("marks quest consolidation completion as warning when phase_issue is present", async () => {
+  it("records a nerve-center consolidation warning when phase_issue is present", async () => {
     act(() => {
       useEngramStore.setState({
-        dashboardMode: "quest",
-        questEvents: [],
+        dashboardMode: "nerve",
+        synapticEvents: [],
         lastSeq: 0,
       });
     });
@@ -424,9 +424,9 @@ describe("useWebSocket", () => {
       );
     });
 
-    expect(useEngramStore.getState().questEvents[0]).toMatchObject({
-      text: "Quest completed with warning: graph_embed: optional vector index unavailable",
-      xp: 5,
+    expect(useEngramStore.getState().synapticEvents[0]).toMatchObject({
+      text: "Maintenance warning: graph_embed: optional vector index unavailable",
+      plasticity: 5,
     });
   });
 });

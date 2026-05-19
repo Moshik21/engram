@@ -15,28 +15,30 @@ const OBSERVATORY_VIEWS: { id: DashboardView; label: string; icon: string }[] = 
   { id: "consolidation", label: "Consolidate", icon: "\u27F3" },
 ];
 
-const QUEST_VIEWS: { id: DashboardView; label: string; icon: string }[] = [
-  { id: "guildhall", label: "Guild Hall", icon: "\u2694" },
-  { id: "worldmap", label: "World Map", icon: "\u25C9" },
-  { id: "tavern", label: "Tavern", icon: "\u2302" },
-  { id: "character", label: "Character", icon: "\u2606" },
-  { id: "questlog", label: "Quest Log", icon: "\u2721" },
+const NERVE_VIEWS: { id: DashboardView; label: string; icon: string }[] = [
+  { id: "nerve_center", label: "Nerve Center", icon: "\u2699" },
+  { id: "neural_field", label: "Neural Field", icon: "\u25C9" },
+  { id: "ingestion", label: "Ingestion Chamber", icon: "\u269B" },
+  { id: "adjudicate", label: "Adjudication", icon: "\u2696" },
+  { id: "immunity", label: "Immunity Sweep", icon: "\u26E8" },
+  { id: "profile", label: "Cerebral Profile", icon: "\u2606" },
+  { id: "synaptic_log", label: "Plasticity Log", icon: "\u2721" },
 ];
 
 // Map between modes for toggle
 const VIEW_MAP: Record<string, DashboardView> = {
-  lifecycle: "guildhall",
-  guildhall: "lifecycle",
-  knowledge: "guildhall",
-  graph: "worldmap",
-  worldmap: "graph",
-  feed: "tavern",
-  tavern: "feed",
-  stats: "character",
-  evaluation: "character",
-  character: "stats",
-  consolidation: "questlog",
-  questlog: "consolidation",
+  lifecycle: "nerve_center",
+  nerve_center: "lifecycle",
+  knowledge: "nerve_center",
+  graph: "neural_field",
+  neural_field: "graph",
+  feed: "ingestion",
+  ingestion: "feed",
+  stats: "profile",
+  evaluation: "profile",
+  profile: "stats",
+  consolidation: "synaptic_log",
+  synaptic_log: "consolidation",
 };
 
 export function Sidebar() {
@@ -45,10 +47,10 @@ export function Sidebar() {
   const dashboardMode = useEngramStore((s) => s.dashboardMode);
   const setDashboardMode = useEngramStore((s) => s.setDashboardMode);
 
-  const views = dashboardMode === "quest" ? QUEST_VIEWS : OBSERVATORY_VIEWS;
+  const views = dashboardMode === "nerve" ? NERVE_VIEWS : OBSERVATORY_VIEWS;
 
   const handleModeToggle = () => {
-    const newMode: DashboardMode = dashboardMode === "observatory" ? "quest" : "observatory";
+    const newMode: DashboardMode = dashboardMode === "observatory" ? "nerve" : "observatory";
     setDashboardMode(newMode);
     // Switch to equivalent view in new mode
     const mappedView = VIEW_MAP[currentView];
@@ -56,7 +58,7 @@ export function Sidebar() {
       setCurrentView(mappedView);
     } else {
       // Default to first view in new mode
-      const defaultView = newMode === "quest" ? "guildhall" : "lifecycle";
+      const defaultView = newMode === "nerve" ? "nerve_center" : "lifecycle";
       setCurrentView(defaultView);
     }
   };
@@ -100,7 +102,7 @@ export function Sidebar() {
           />
         </div>
         <p className="label" style={{ marginTop: 3, fontSize: 9, letterSpacing: "0.1em" }}>
-          {dashboardMode === "quest" ? "Quest Mode" : "Memory Explorer"}
+          {dashboardMode === "nerve" ? "Nerve Center" : "Memory Explorer"}
         </p>
       </div>
 
@@ -113,8 +115,8 @@ export function Sidebar() {
             padding: "6px 10px",
             border: "1px solid var(--border)",
             borderRadius: "var(--radius-sm)",
-            background: dashboardMode === "quest" ? "rgba(212, 168, 75, 0.08)" : "rgba(103, 232, 249, 0.04)",
-            color: dashboardMode === "quest" ? "#D4A84B" : "var(--text-secondary)",
+            background: dashboardMode === "nerve" ? "rgba(103, 232, 249, 0.08)" : "rgba(103, 232, 249, 0.04)",
+            color: dashboardMode === "nerve" ? "var(--accent)" : "var(--text-secondary)",
             fontFamily: "var(--font-mono)",
             fontSize: 10,
             fontWeight: 500,
@@ -128,8 +130,8 @@ export function Sidebar() {
             gap: 6,
           }}
         >
-          <span>{dashboardMode === "quest" ? "\u2726" : "\u2699"}</span>
-          {dashboardMode === "quest" ? "Observatory" : "Quest Mode"}
+          <span>{dashboardMode === "nerve" ? "\u2630" : "\u2699"}</span>
+          {dashboardMode === "nerve" ? "Observatory" : "Nerve Center"}
         </button>
       </div>
 
@@ -158,7 +160,7 @@ export function Sidebar() {
                 border: "none",
                 borderRadius: "var(--radius-sm)",
                 background: active
-                  ? dashboardMode === "quest"
+                  ? dashboardMode === "nerve"
                     ? "rgba(212, 168, 75, 0.08)"
                     : "rgba(34, 211, 238, 0.08)"
                   : "transparent",

@@ -1,105 +1,80 @@
 ---
 name: engram-brain
-description: Persistent long-term memory powered by knowledge graphs, ACT-R activation, and 16-phase consolidation. Remember conversations across sessions, recall relevant context automatically, and build a private brain that improves over time. Zero LLM cost by default.
-version: 0.3.2
+description: Native local memory for OpenClaw agents: Capture, Cue, Project, Recall, and Consolidate conversations into a private Helix-backed brain.
+version: 0.3.4
+homepage: https://github.com/Moshik21/engram
 user-invocable: true
-metadata:
-  openclaw:
-    requires:
-      env: []
-      anyBins:
-        - docker
-        - uv
-    optionalEnv:
-      - ANTHROPIC_API_KEY
-      - ENGRAM_GROUP_ID
-    emoji: "\U0001F9E0"
-    homepage: https://github.com/Moshik21/engram
-    install:
-      uv: engram
-    tags:
-      - memory
-      - knowledge-graph
-      - mcp
-      - recall
-      - long-term-memory
-      - cognitive-architecture
+metadata: {"openclaw":{"requires":{"anyBins":["curl"]},"envVars":[{"name":"ANTHROPIC_API_KEY","required":false,"description":"Optional richer entity extraction; deterministic extraction works without it."},{"name":"ENGRAM_GROUP_ID","required":false,"description":"Optional brain namespace for multi-brain setups."}],"emoji":"\ud83e\udde0","homepage":"https://github.com/Moshik21/engram","install":[{"kind":"shell","command":"curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw","bins":["engram","engramctl"]}],"tags":["memory","knowledge-graph","mcp","recall","long-term-memory","cognitive-architecture"]}}
 ---
 
 # Engram Memory
 
-You have access to Engram, a persistent memory system that builds a temporal knowledge graph from conversations. It uses ACT-R cognitive architecture for activation-aware retrieval and runs offline consolidation inspired by biological memory.
+You have access to Engram, a persistent local memory system for OpenClaw agents. Engram turns conversations and project artifacts into a private temporal knowledge graph, then retrieves context through the lifecycle:
 
-Works with native Helix (PyO3, recommended), lite (SQLite fallback), and Docker-backed Helix installs. Zero LLM cost by default — all consolidation scoring, replay, and retrieval are deterministic. Optional Anthropic API key enables richer entity extraction.
+`Capture -> Cue -> Project -> Recall -> Consolidate`
+
+Native Helix through PyO3 is the primary OpenClaw path. It gives OpenClaw the full graph/vector/BM25 backend without Docker. Lite SQLite is a fallback; Docker full mode is only for users who explicitly choose it.
 
 ## Setup
 
 The Engram server must be running locally. No API keys are required for basic operation.
 
-### Package install (recommended)
+### Public OpenClaw install
 
 ```bash
-uv tool install engram
-engramctl setup
-engramctl start
-engramctl install-openclaw
+openclaw skills install engram-brain
 ```
 
-### Native Helix install (recommended)
+Then start the native Engram runtime and connect it to OpenClaw:
 
 ```bash
-git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram
-make build-native
-cd server
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram mcp
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
 ```
 
-### Docker install
+That one command installs Engram, adds the Helix native runtime to Engram's tool environment, starts the local server, installs this skill into OpenClaw's shared skill folder, writes OpenClaw MCP config, and runs readiness checks. Release wheels are preferred; if no compatible wheel is available, the installer builds `helix-native` from Engram's bundled source and reports Rust/Cargo as the only extra prerequisite. It does not silently switch to Docker.
+
+### Existing Engram install
+
+If Engram is already installed:
 
 ```bash
-docker pull ghcr.io/moshik21/engram:latest
-docker run -d -p 8100:8100 --name engram ghcr.io/moshik21/engram:latest
+engramctl quickstart --mode helix --install-openclaw --connect openclaw
 ```
 
-Then add the OpenClaw skill:
+If the server is already running and only OpenClaw needs wiring:
 
 ```bash
 engramctl install-openclaw
+engramctl connect openclaw
+engramctl doctor
 ```
 
-### Source install
+### Manual OpenClaw MCP config
 
-Clone the repo, review the code, then build locally:
+If `engramctl connect openclaw` cannot find the OpenClaw CLI, configure MCP manually:
 
 ```bash
-git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram/server
-uv sync
-uv run engram setup
-uv run engram serve
+openclaw mcp set engram '{"url":"http://127.0.0.1:8100/mcp","transport":"streamable-http"}'
 ```
 
-### Installer script (alternative)
+### Runtime checks
 
-An interactive installer is available. Review it before running:
+Use these commands before relying on memory:
 
 ```bash
-# Review first:
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh -o install.sh
-less install.sh
-# Then run:
-bash install.sh
+engramctl status
+engramctl doctor
+openclaw skills list --eligible
+openclaw mcp show engram --json
 ```
 
-### MCP Server
-
-For Claude Desktop / Claude Code integration:
+### Explicit Docker fallback
 
 ```bash
-uv run engram mcp                                          # stdio (default)
-uv run engram mcp --transport streamable-http --port 8200  # HTTP
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- full
 ```
+
+Use Docker only when the user explicitly asks for full Docker mode.
 
 ### Environment variables
 
@@ -107,8 +82,7 @@ All optional:
 - `ANTHROPIC_API_KEY` — enables richer entity extraction via Claude Haiku. Without it, Engram uses a deterministic narrow extractor (zero cost).
 - `ENGRAM_GROUP_ID` — namespace for multi-brain setups. Defaults to `"default"`. Most users never need to set this.
 
-The REST API is available at `http://127.0.0.1:8100`. Check status with
-`engramctl status`.
+The REST API is available at `http://127.0.0.1:8100`. The OpenClaw MCP endpoint is available at `http://127.0.0.1:8100/mcp`. When MCP tools are visible, prefer the MCP tools; use the REST examples below as the manual fallback.
 
 If you know the current project path, bootstrap it once at session start so
 artifact-backed routing has parity with memory:
@@ -116,7 +90,7 @@ artifact-backed routing has parity with memory:
 POST http://localhost:8100/api/knowledge/bootstrap
 Content-Type: application/json
 
-{"project_path": "<absolute project path>", "session_id": "<optional session id>"}
+{"project_path": "<absolute project path>", "session_id": "<optional session id>", "include_patterns": ["docs/**/*.md", "memory/**/*.md", "exports/**/*.json"]}
 ```
 
 ## When to Observe vs Remember
@@ -233,7 +207,7 @@ stay hidden unless you explicitly opt into debug mode with
 
 - **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
 - **Knowledge graph**: Entities and relationships are extracted and connected
-- **16-phase consolidation**: Offline cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, form schemas, reindex, embed the graph, run microglia cleanup, and discover dream associations
+- **17-phase consolidation**: Offline cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, form schemas, reindex, embed the graph, run microglia cleanup, dissolve low-semantic-gravity noise through immunity, and discover dream associations
 - **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
@@ -267,8 +241,8 @@ When an intention fires during recall, act on it naturally without announcing it
 
 ## Consolidation
 
-Engram runs 16 offline consolidation phases that improve memory quality over time:
-triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream.
+Engram runs 17 offline consolidation phases that improve memory quality over time:
+triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream.
 
 To trigger a consolidation cycle manually:
 ```

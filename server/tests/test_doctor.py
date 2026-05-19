@@ -59,6 +59,7 @@ async def test_doctor_can_run_config_only(tmp_path, monkeypatch) -> None:
     assert checks["mode"]["metadata"]["resolved_mode"] == "lite"
     assert checks["lifecycle_snapshot"]["status"] == "pass"
     assert checks["server"]["status"] == "skipped"
+    assert checks["mcp"]["status"] == "skipped"
     assert checks["brain_loop_smoke"]["status"] == "skipped"
     assert report["lifecycle_summary"]["groupId"] == "default"
     assert report["lifecycle_summary"]["loop"] == [
@@ -91,6 +92,7 @@ async def test_doctor_runs_brain_loop_smoke(tmp_path, monkeypatch) -> None:
     assert checks["brain_loop_smoke"]["metadata"]["group_id"] == "doctor_brain"
     assert checks["lifecycle_snapshot"]["status"] == "pass"
     assert checks["lifecycle_snapshot"]["metadata"]["group_id"] == "doctor_brain"
+    assert checks["mcp"]["status"] == "skipped"
     evaluation_signals = checks["brain_loop_smoke"]["metadata"]["evaluation_signals"]
     assert evaluation_signals["ready"] is True
     assert evaluation_signals["measured"] == len(EVALUATION_SIGNAL_ORDER)
@@ -161,6 +163,41 @@ async def test_doctor_smoke_uses_native_mode_when_resolved(monkeypatch, tmp_path
     assert lifecycle_kwargs["helix_data_dir"] == native_dir
     assert checks["brain_loop_smoke"]["metadata"]["mode"] == "helix"
     assert report["smoke_report"]["smoke"]["mode"] == "helix"
+
+
+@pytest.mark.asyncio
+async def test_doctor_checks_mcp_streamable_http_endpoint(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    seen_urls: list[str] = []
+
+    def fake_urlopen(url: str, timeout: float):
+        seen_urls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr("engram.doctor.request.urlopen", fake_urlopen)
+
+    report = await build_doctor_report(
+        _parse_doctor_args("--mode", "lite", "--no-smoke")
+    )
+
+    checks = {check["name"]: check for check in report["checks"]}
+    assert checks["server"]["status"] == "pass"
+    assert checks["mcp"]["status"] == "pass"
+    assert checks["mcp"]["metadata"]["url"] == "http://localhost:8100/mcp"
+    assert seen_urls == [
+        "http://localhost:8100/health",
+        "http://localhost:8100/mcp",
+    ]
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from engram.activation.neuroplasticity import NeuroplasticityEngine
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
 
@@ -18,6 +19,10 @@ async def record_positive_feedback(
     state.ts_alpha += cfg.ts_positive_increment
     await activation_store.set_activation(entity_id, state)
 
+    if cfg.neuroplasticity_enabled:
+        engine = NeuroplasticityEngine(cfg)
+        engine.handle_positive_feedback(entity_id, state)
+
 
 async def record_negative_feedback(
     entity_id: str,
@@ -30,3 +35,7 @@ async def record_negative_feedback(
         state = ActivationState(node_id=entity_id)
     state.ts_beta += cfg.ts_negative_increment
     await activation_store.set_activation(entity_id, state)
+
+    if cfg.neuroplasticity_enabled:
+        engine = NeuroplasticityEngine(cfg)
+        engine.handle_negative_feedback(entity_id, state)

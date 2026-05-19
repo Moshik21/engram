@@ -95,6 +95,7 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
             search_index,
             EntityExtractor(),
             cfg=config.activation,
+            nerve_center_cfg=config.nerve_center,
             runtime_mode=mode.value,
         )
         return await build_mcp_memory_authority_surface(

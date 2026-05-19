@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import { useEngramStore } from "../store";
 import { entityColor, entityColorDim } from "../lib/colors";
+import { CerebralProfile } from "../views/CerebralProfile";
 
 const EMPTY_CUE_METRICS = {
   cueCount: 0,
@@ -296,6 +297,10 @@ function RatioBar({
 }
 
 export function StatsPanel() {
+  const dashboardMode = useEngramStore((s) => s.dashboardMode);
+  if (dashboardMode === "nerve") {
+    return <CerebralProfile />;
+  }
   const stats = useEngramStore((s) => s.stats);
   const isLoading = useEngramStore((s) => s.isLoadingStats);
   const loadStats = useEngramStore((s) => s.loadStats);

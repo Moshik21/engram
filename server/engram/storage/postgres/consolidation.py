@@ -16,6 +16,7 @@ from engram.models.consolidation import (
     DreamAssociationRecord,
     DreamRecord,
     IdentifierReviewRecord,
+    ImmunityRecord,
     InferredEdge,
     MergeRecord,
     PhaseResult,
@@ -264,6 +265,18 @@ class PostgresConsolidationStore:
                 )
             """)
             await conn.execute("""
+                CREATE TABLE IF NOT EXISTS consolidation_immunity_records (
+                    id TEXT PRIMARY KEY,
+                    cycle_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    node_name TEXT NOT NULL,
+                    semantic_gravity DOUBLE PRECISION NOT NULL,
+                    decision TEXT NOT NULL,
+                    timestamp DOUBLE PRECISION NOT NULL
+                )
+            """)
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS consolidation_calibration_snapshots (
                     id TEXT PRIMARY KEY,
                     cycle_id TEXT NOT NULL,
@@ -334,6 +347,10 @@ class PostgresConsolidationStore:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_consol_distill_cycle "
                 "ON consolidation_distillation_examples(cycle_id)"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_consol_immunity_cycle "
+                "ON consolidation_immunity_records(cycle_id)"
             )
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_consol_calibration_cycle "
@@ -669,6 +686,52 @@ class PostgresConsolidationStore:
                 entity_name=r["entity_name"],
                 entity_type=r["entity_type"],
                 reason=r["reason"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    # ── Immunity records ─────────────────────────────────────────────────
+
+    async def save_immunity_record(self, record: ImmunityRecord) -> None:
+        """Insert an immunity audit record."""
+        await self.pool.execute(
+            "INSERT INTO consolidation_immunity_records "
+            "(id, cycle_id, group_id, node_id, node_name, semantic_gravity, "
+            "decision, timestamp) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
+            "ON CONFLICT (id) DO NOTHING",
+            record.id,
+            record.cycle_id,
+            record.group_id,
+            record.node_id,
+            record.node_name,
+            record.semantic_gravity,
+            record.decision,
+            record.timestamp,
+        )
+
+    async def get_immunity_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[ImmunityRecord]:
+        """Fetch immunity records for a cycle."""
+        rows = await self.pool.fetch(
+            "SELECT * FROM consolidation_immunity_records "
+            "WHERE cycle_id = $1 AND group_id = $2 ORDER BY timestamp",
+            cycle_id,
+            group_id,
+        )
+        return [
+            ImmunityRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                node_id=r["node_id"],
+                node_name=r["node_name"],
+                semantic_gravity=r["semantic_gravity"],
+                decision=r["decision"],
                 timestamp=r["timestamp"],
             )
             for r in rows
@@ -1200,6 +1263,7 @@ class PostgresConsolidationStore:
             "consolidation_dreams",
             "consolidation_triage",
             "consolidation_dream_associations",
+            "consolidation_immunity_records",
             "consolidation_decision_traces",
             "consolidation_decision_outcomes",
             "consolidation_distillation_examples",

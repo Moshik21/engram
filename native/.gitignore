@@ -1,0 +1,4 @@
+helix-repo/target/
+helix-repo/**/target/
+helix-repo/helix-python/dist/
+helix-repo/helix-python/.venv/

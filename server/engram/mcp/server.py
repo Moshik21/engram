@@ -191,6 +191,7 @@ async def _init() -> None:
         extractor,
         cfg=config.activation,
         event_bus=event_bus,
+        nerve_center_cfg=config.nerve_center,
         runtime_mode=mode.value,
     )
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
@@ -791,19 +792,25 @@ async def get_context(
 
 
 @mcp.tool()
-async def bootstrap_project(project_path: str) -> str:
+async def bootstrap_project(
+    project_path: str,
+    include_patterns: list[str] | None = None,
+) -> str:
     """Auto-observe key project files and create a Project entity.
 
     Reads README, package.json, pyproject.toml, Makefile, .env.example, and
-    CLAUDE.md from the project directory and stores them as episodes. Creates
-    a Project entity in the knowledge graph so spreading activation can reach
-    project-relevant entities.
+    CLAUDE.md plus generic docs/notes/memory-export folders from the project
+    directory and stores them as episodes. Creates a Project entity in the
+    knowledge graph so spreading activation can reach project-relevant entities.
 
     Safe to call every session — files are only re-observed if the last
-    bootstrap was more than 24 hours ago (staleness check).
+    bootstrap was more than 24 hours ago (staleness check), unless explicit
+    include_patterns are provided.
 
     Args:
         project_path: Absolute path to the project directory.
+        include_patterns: Optional project-relative globs for user-approved
+            sources such as notes/**/*.md or memory-exports/**/*.json.
 
     Returns:
         JSON with status (bootstrapped/refreshed/already_bootstrapped),
@@ -815,6 +822,7 @@ async def bootstrap_project(project_path: str) -> str:
         manager,
         group_id=_group_id,
         project_path=project_path,
+        include_patterns=include_patterns,
         session_id=session.session_id,
     )
     return json.dumps(result)

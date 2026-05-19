@@ -122,6 +122,7 @@ class MemoryPacket:
     summary: str
     why_now: str
     confidence: float
+    belief_map: dict[str, Any] | None = None
     entity_ids: list[str] = field(default_factory=list)
     relationship_ids: list[str] = field(default_factory=list)
     episode_ids: list[str] = field(default_factory=list)
@@ -131,7 +132,7 @@ class MemoryPacket:
 
     def to_dict(self) -> dict:
         """Serialize for APIs and MCP."""
-        return {
+        res = {
             "packet_type": self.packet_type,
             "title": self.title,
             "summary": self.summary,
@@ -144,6 +145,9 @@ class MemoryPacket:
             "provenance": self.provenance,
             "supporting_intents": self.supporting_intents,
         }
+        if self.belief_map:
+            res["belief_map"] = self.belief_map
+        return res
 
 
 @dataclass

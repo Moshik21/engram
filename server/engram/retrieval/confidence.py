@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.retrieval.belief import BeliefMapScorer
 from engram.retrieval.relevance import RelevanceScorer
 from engram.retrieval.scorer import ScoredResult
 
@@ -33,6 +34,7 @@ class RecallConfidenceApplier:
                 query=query,
                 results=results,
                 search_index=self._search_index,
+                cfg=self._cfg,
             )
         except Exception:
             logger.debug("Relevance scoring failed, continuing without it", exc_info=True)
@@ -43,6 +45,7 @@ async def apply_relevance_confidence(
     query: str,
     results: list[dict[str, Any]],
     search_index: object,
+    cfg: ActivationConfig,
 ) -> None:
     """Mutate raw recall results with embedding-based relevance confidence."""
     if not results:
@@ -106,6 +109,16 @@ async def apply_relevance_confidence(
                 scored_result.relevance_confidence,
                 4,
             )
+
+        if cfg.belief_map_enabled and result.get("result_type") == "entity":
+            belief_scorer = BeliefMapScorer(cfg)
+            entity_data = result.get("entity", {})
+            belief = belief_scorer.calculate_belief(
+                entity_data=entity_data,
+                relevance=scored_result.relevance_confidence,
+                activation=scored_result.activation,
+            )
+            result["belief_map"] = belief.to_dict()
 
 
 def _scored_result_from_recall_item(result: dict[str, Any]) -> ScoredResult:

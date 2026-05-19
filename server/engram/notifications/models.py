@@ -14,6 +14,7 @@ NOTIFICATION_TYPES = frozenset(
         "entity_maturation",
         "entity_merge",
         "activation_anomaly",
+        "immunity_sweep",
     }
 )
 

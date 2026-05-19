@@ -175,6 +175,7 @@ class IntendBody(BaseModel):
 
 class BootstrapBody(BaseModel):
     project_path: str
+    include_patterns: list[str] | None = None
     session_id: str | None = None
 
 
@@ -469,6 +470,7 @@ async def bootstrap_project(request: Request, body: BootstrapBody) -> JSONRespon
         manager,
         group_id=group_id,
         project_path=body.project_path,
+        include_patterns=body.include_patterns,
         session_id=body.session_id,
     )
 
@@ -554,6 +556,21 @@ async def create_intention(request: Request, body: IntendBody) -> JSONResponse:
         refresh_trigger=body.refresh_trigger,
     )
     return JSONResponse(status_code=result.status_code, content=result.payload)
+
+
+@router.get("/adjudications")
+async def get_adjudications(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    status: str = Query("pending"),
+) -> JSONResponse:
+    """Return pending adjudication requests across all episodes."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+
+    requests = await manager.get_all_adjudications(group_id, limit=limit, status=status)
+    return JSONResponse(content={"requests": requests})
 
 
 @router.get("/intentions")

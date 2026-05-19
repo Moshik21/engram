@@ -21,6 +21,7 @@ from engram.api.episodes import router as episodes_router
 from engram.api.evaluation import router as evaluation_router
 from engram.api.graph import router as graph_router
 from engram.api.health import router as health_router
+from engram.api.ingest_ws import router as ingest_ws_router
 from engram.api.knowledge import router as knowledge_router
 from engram.api.lifecycle import router as lifecycle_router
 from engram.api.stats import router as stats_router
@@ -115,6 +116,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         reranker=reranker,
         community_store=community_store,
         predicate_cache=predicate_cache,
+        nerve_center_cfg=config.nerve_center,
         runtime_mode=mode.value,
     )
 
@@ -434,7 +436,8 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(consolidation_router)
     app.include_router(evaluation_router)
-    app.include_router(ws_router)
+    app.include_router(ws_router, tags=["websocket"])
+    app.include_router(ingest_ws_router, tags=["websocket"])
     app.include_router(knowledge_router)
     app.include_router(conversations_router)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from engram.benchmark_loader import BenchmarkLoadService
-from engram.config import ActivationConfig
+from engram.config import ActivationConfig, NerveCenterConfig
 from engram.consolidation_trigger import ConsolidationTriggerResult, ConsolidationTriggerService
 from engram.events.bus import EventBus
 from engram.extraction.ambiguity import AmbiguityAnalyzer, AmbiguityGroup
@@ -140,6 +140,7 @@ class GraphManager:
         reranker: object | None = None,
         community_store: object | None = None,
         predicate_cache: object | None = None,
+        nerve_center_cfg: NerveCenterConfig | None = None,
         runtime_mode: str | None = None,
     ) -> None:
         self._graph = graph_store
@@ -152,6 +153,7 @@ class GraphManager:
         self._reranker = reranker
         self._community_store = community_store
         self._predicate_cache = predicate_cache
+        self._nerve_center_cfg = nerve_center_cfg or NerveCenterConfig()
         self._runtime_mode = runtime_mode or "unknown"
         self._public_surface_policy_service = PublicSurfacePolicyService(self._cfg)
         self._benchmark_load_service = BenchmarkLoadService(
@@ -396,6 +398,7 @@ class GraphManager:
             search_index=self._search,
             cfg=self._cfg,
             extractor=self._extractor,
+            nerve_center_cfg=self._nerve_center_cfg,
         )
 
         # Working memory buffer
@@ -1268,6 +1271,7 @@ class GraphManager:
         self,
         project_path: str,
         group_id: str = "default",
+        include_patterns: list[str] | None = None,
         session_id: str | None = None,
     ) -> dict:
         """Bootstrap a project: create Project entity and observe key files.
@@ -1279,6 +1283,7 @@ class GraphManager:
         return await self._project_bootstrap_service.bootstrap_project(
             project_path,
             group_id=group_id,
+            include_patterns=include_patterns,
             session_id=session_id,
         )
 
@@ -2394,6 +2399,44 @@ class GraphManager:
             updates,
             group_id=group_id,
         )
+
+    async def get_all_adjudications(
+        self,
+        group_id: str,
+        limit: int = 20,
+        status: str = "pending",
+    ) -> list[dict]:
+        """Return adjudication requests plus their candidate evidence across all episodes."""
+        requests = await self._graph.get_pending_adjudication_requests(group_id, limit=limit)
+        if not requests:
+            return []
+
+        response = []
+        for request in requests:
+            episode_id = request["episode_id"]
+            evidence_rows = await self._graph.get_episode_evidence(episode_id, group_id)
+            by_id = {row["evidence_id"]: row for row in evidence_rows}
+            response.append(
+                {
+                    "request_id": request["request_id"],
+                    "episode_id": episode_id,
+                    "ambiguity_tags": request.get("ambiguity_tags", []),
+                    "selected_text": request.get("selected_text", ""),
+                    "candidate_evidence": [
+                        {
+                            "evidence_id": row["evidence_id"],
+                            "fact_class": row["fact_class"],
+                            "payload": row.get("payload", {}),
+                        }
+                        for evidence_id in request.get("evidence_ids", [])
+                        if (row := by_id.get(evidence_id)) is not None
+                    ],
+                    "instructions": self._evidence_adjudication_service._adjudication_instructions(
+                        request.get("ambiguity_tags", []),
+                    ),
+                },
+            )
+        return response
 
     async def delete_entity_by_id(
         self,
