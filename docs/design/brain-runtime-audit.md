@@ -3750,6 +3750,11 @@ client/captured/session/source metadata and explicit `Before answer`/`Capture`
 tool-call sections. Cursor, Windsurf, or copied MCP UI sessions can use that
 manual notes path when they expose visible Engram tool calls but do not export
 raw stream-json.
+`engram authority` now generates the same `claim_authority` payload directly
+from local runtime state, with `--project-path`, `--user-message`,
+`--file-memory-present`, and `--out claim-authority.json`. This lets operators
+prepare the verifier protocol before starting a live harness and then feed the
+saved JSON into `engram adoption --template` or validation.
 The verifier accepts common real-log forms too: prefixed tool names such as
 `mcp__engram__recall`, nested `tool` / `function` / `tool_call` records, and
 `stage` as a phase alias. It also accepts explicit plaintext/Markdown harness

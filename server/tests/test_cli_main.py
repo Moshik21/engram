@@ -330,6 +330,63 @@ def test_adoption_template_dispatches_to_command(monkeypatch, tmp_path) -> None:
     ]
 
 
+def test_authority_dispatches_to_command(monkeypatch, tmp_path) -> None:
+    cli = importlib.import_module("engram.__main__")
+    calls: list[dict] = []
+    sqlite_path = tmp_path / "engram.db"
+    authority_path = tmp_path / "claim-authority.json"
+
+    async def fake_run_authority_command(args) -> None:
+        calls.append(
+            {
+                "command": args.command,
+                "sqlite_path": args.sqlite_path,
+                "project_path": args.project_path,
+                "user_message": args.user_message,
+                "file_memory_present": args.file_memory_present,
+                "out": args.out,
+                "format": args.format,
+            }
+        )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "engram",
+            "authority",
+            "--sqlite-path",
+            str(sqlite_path),
+            "--project-path",
+            "/Users/konnermoshier/Engram",
+            "--user-message",
+            "I prefer Engram as the portable memory authority.",
+            "--file-memory-present",
+            "--out",
+            str(authority_path),
+            "--format",
+            "markdown",
+        ],
+    )
+    monkeypatch.setattr(
+        "engram.mcp.authority_cli.run_authority_command",
+        fake_run_authority_command,
+    )
+
+    cli.main()
+
+    assert calls == [
+        {
+            "command": "authority",
+            "sqlite_path": sqlite_path,
+            "project_path": "/Users/konnermoshier/Engram",
+            "user_message": "I prefer Engram as the portable memory authority.",
+            "file_memory_present": True,
+            "out": authority_path,
+            "format": "markdown",
+        }
+    ]
+
+
 def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> None:
     cli = importlib.import_module("engram.__main__")
     monkeypatch.setattr("sys.argv", ["engram", "--help"])
@@ -341,6 +398,7 @@ def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> 
     output = capsys.readouterr().out
     assert "engram doctor" in output
     assert "engram adoption" in output
+    assert "engram authority" in output
     assert "readiness smoke" in output
 
 

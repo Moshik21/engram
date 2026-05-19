@@ -67,6 +67,17 @@ run /login`. The raw stream is
 `dd1cdf01-d4d1-47e2-8d48-4b1e3bccd578`, and missing `captured_at`. Adoption
 validation Markdown now also prints the specific failed MCP server list
 (`['engram']`) so blocked reports identify which server failed to initialize.
+New authority-prep path: `engram authority` now generates the same
+`claim_authority` payload locally from the configured brain before a client run.
+`uv run engram authority --mode lite --sqlite-path
+/private/tmp/engram-authority-cli-20260519.db --project-path
+/Users/konnermoshier/Engram --user-message "I prefer Engram as the portable
+memory authority across AI harnesses." --file-memory-present --out
+/private/tmp/engram-authority-cli-20260519.json --format markdown` passed and
+produced required before-answer tools `bootstrap_project`, `get_context`, and
+`recall`, with `remember` capture. Feeding that JSON into `engram adoption
+--template --client Cursor` produced the expected live transcript template and
+manual Cursor/Windsurf transcript block.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,

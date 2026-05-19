@@ -8,6 +8,7 @@ Usage:
     engram hooks          Install AutoCapture hooks
     engram lifecycle      Print local Capture -> Cue -> Project -> Recall -> Consolidate state
     engram evaluate       Print local brain-loop evaluation report
+    engram authority      Generate claim_authority payload for adoption validation
     engram adoption       Validate MCP client adoption transcript
     engram doctor         Run diagnostics and brain-loop readiness smoke
     engram health         Check if server is running
@@ -39,6 +40,8 @@ def main():
         "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
         "                            Verify the native Helix brain loop end to end\n"
+        "  engram authority --out claim-authority.json\n"
+        "                            Generate memory authority payload for clients\n"
         "  engram adoption --authority claim-authority.json --calls mcp-calls.jsonl\n"
         "                            Validate an MCP client followed Engram authority\n"
         "  engram doctor            Run diagnostics and readiness smoke\n"
@@ -147,6 +150,15 @@ def main():
     from engram.evaluation.cli import configure_evaluate_parser
 
     configure_evaluate_parser(evaluate_parser)
+
+    # --- authority ---
+    authority_parser = subparsers.add_parser(
+        "authority",
+        help="Generate memory authority payload for adoption validation",
+    )
+    from engram.mcp.authority_cli import configure_authority_parser
+
+    configure_authority_parser(authority_parser)
 
     # --- adoption ---
     adoption_parser = subparsers.add_parser(
@@ -278,6 +290,15 @@ def main():
         from engram.evaluation.cli import run_evaluate_command
 
         asyncio.run(run_evaluate_command(args))
+        return
+
+    # --- authority ---
+    if args.command == "authority":
+        import asyncio
+
+        from engram.mcp.authority_cli import run_authority_command
+
+        asyncio.run(run_authority_command(args))
         return
 
     # --- adoption ---

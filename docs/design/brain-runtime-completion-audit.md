@@ -883,6 +883,11 @@ treating it as the main completion blocker. The next goal-critical work is:
    explicit `Before answer` and `Capture` tool sections, so a second-client run
    can be collected without raw JSON export as long as the operator can see the
    Engram tool calls.
+   `engram authority` now prepares the same authority payload from local
+   runtime state before launching a client. The command writes
+   `claim-authority.json` for later `engram adoption --template` or validation,
+   closing the operator gap where the client itself had to successfully call
+   MCP before the verifier protocol could be saved.
 2. If the project wants a release gate beyond the local deterministic milestone,
    collect a real `human-labels.json` artifact from a staging or production
    harness plus the matching `engram adoption --format json` report, then run

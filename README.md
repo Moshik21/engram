@@ -1085,6 +1085,18 @@ Then run:
 engram adoption --authority claim-authority.json --calls mcp-calls.jsonl
 ```
 
+If you want to prepare that authority payload before handing the task to a
+client, generate it locally from the same runtime contract:
+
+```bash
+engram authority \
+  --project-path /path/to/project \
+  --user-message "I prefer Engram as the portable memory authority across AI harnesses." \
+  --file-memory-present \
+  --out claim-authority.json \
+  --format markdown
+```
+
 For completion evidence from a real AI harness, use a JSON wrapper with live
 client metadata and require it during validation. To generate a wrapper from the
 actual `claim_authority()` protocol before running the client, use:
