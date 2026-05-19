@@ -100,11 +100,12 @@ evidence that agents actually trust and use the brain:
   instructions plus `claim_authority(project_path,
   user_message, file_memory_present)` now claim Engram's portable-memory
   authority plus empty-runtime bootstrap behavior. Shared runtime-state payloads
-  now include `agentAdoption.requiredNextTools`, `doNotTreatEmptyAsFailure`, and
-  concrete `claim_authority`/`bootstrap_project` guidance too, so a client that
-  only probes `get_runtime_state()` sees onboarding instructions instead of
-  passive empty-runtime metrics. The dashboard API client now carries that
-  runtime-state type, and the sidebar connection status mirrors it as an
+  now include `agentAdoption.beforeAnswer`, `requiredNextTools`,
+  `doNotTreatEmptyAsFailure`, and concrete
+  `claim_authority`/`bootstrap_project` guidance too, so a client that only
+  probes `get_runtime_state()` sees a required before-answer tool sequence
+  instead of passive empty-runtime metrics. The dashboard API client now carries
+  that runtime-state type, and the sidebar connection status mirrors it as an
   Onboarding/Bootstrap badge when agent adoption actions are still required.
   `claim_authority()` also
   returns an `agent_protocol` covering required pre-answer tools and capture

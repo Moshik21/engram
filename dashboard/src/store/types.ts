@@ -333,6 +333,13 @@ export interface RuntimeState {
     status: AgentAdoptionStatus;
     doNotTreatEmptyAsFailure: boolean;
     requiredNextTools: string[];
+    beforeAnswer?: {
+      required: boolean;
+      tools: string[];
+      reason: string;
+    };
+    emptyRuntimePolicy?: string;
+    fileMemoryPolicy?: string;
     claimAuthority: {
       tool: "claim_authority";
       args: Record<string, string | boolean | null>;

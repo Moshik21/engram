@@ -134,10 +134,12 @@ showcase adapter closes its search index before the graph store and then clears
 temporary state. Focused benchmark adapter regressions guard both paths.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
-`get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,
-`doNotTreatEmptyAsFailure`, and concrete `claim_authority`/`bootstrap_project`
-guidance when artifacts are missing, stale, or the graph is fresh. This closes
-the failure mode where an agent pings Engram, sees `artifactCount: 0` and
+`get_runtime_state()` payloads include `agentAdoption.beforeAnswer`,
+`requiredNextTools`, `doNotTreatEmptyAsFailure`, and concrete
+`claim_authority`/`bootstrap_project` guidance when artifacts are missing,
+stale, or the graph is fresh. The MCP tool docstring now says a required
+`beforeAnswer` sequence must be followed before answering. This closes the
+failure mode where an agent pings Engram, sees `artifactCount: 0` and
 `lastObservedAt: null`, then treats Engram as optional instead of onboarding it.
 The dashboard API client now types this runtime payload, and the sidebar
 connection status surfaces the same state as an Onboarding/Bootstrap badge when

@@ -154,6 +154,23 @@ def _build_agent_adoption_guidance(
         "status": status,
         "doNotTreatEmptyAsFailure": bool(fresh_runtime or needs_bootstrap),
         "requiredNextTools": required_tools,
+        "beforeAnswer": {
+            "required": True,
+            "tools": required_tools,
+            "reason": (
+                "Follow these Engram tools before the next substantive answer; "
+                "runtime-state metrics are diagnostics, not a substitute for "
+                "authority, bootstrap, and context loading."
+            ),
+        },
+        "emptyRuntimePolicy": (
+            "Treat an empty or fresh Engram runtime as onboarding state. "
+            "Bootstrap the project when possible before judging memory usefulness."
+        ),
+        "fileMemoryPolicy": (
+            "Project-local memory files can supply visible scratch or conventions, "
+            "but they do not replace Engram as the portable cross-context memory authority."
+        ),
         "claimAuthority": {
             "tool": "claim_authority",
             "args": {

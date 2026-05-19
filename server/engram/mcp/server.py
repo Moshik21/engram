@@ -889,7 +889,12 @@ async def claim_authority(
 
 @mcp.tool()
 async def get_runtime_state(project_path: str | None = None) -> str:
-    """Return effective runtime/config state, artifact freshness, and adoption guidance."""
+    """Return runtime/config state plus mandatory adoption guidance.
+
+    If `agentAdoption.beforeAnswer.required` is true, follow that tool sequence
+    before answering. Treat empty or fresh runtime metrics as onboarding state,
+    not as proof that Engram is optional or has no useful memory.
+    """
     manager = _get_manager()
     result = await build_runtime_state_surface(
         manager,

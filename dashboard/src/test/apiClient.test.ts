@@ -119,6 +119,13 @@ describe("api.getRuntimeState", () => {
           status: "fresh_runtime",
           doNotTreatEmptyAsFailure: true,
           requiredNextTools: ["claim_authority", "bootstrap_project", "get_context"],
+          beforeAnswer: {
+            required: true,
+            tools: ["claim_authority", "bootstrap_project", "get_context"],
+            reason: "Follow these Engram tools before the next substantive answer.",
+          },
+          emptyRuntimePolicy: "Treat an empty or fresh Engram runtime as onboarding state.",
+          fileMemoryPolicy: "Project-local memory files do not replace Engram.",
           claimAuthority: {
             tool: "claim_authority",
             args: {
@@ -153,6 +160,8 @@ describe("api.getRuntimeState", () => {
       "bootstrap_project",
       "get_context",
     ]);
+    expect(runtime.agentAdoption.beforeAnswer?.required).toBe(true);
+    expect(runtime.agentAdoption.emptyRuntimePolicy).toContain("onboarding state");
   });
 });
 

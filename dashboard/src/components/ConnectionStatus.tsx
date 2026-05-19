@@ -105,8 +105,10 @@ function getAdoptionLabel(runtimeState: RuntimeState | null): string | null {
 function getAdoptionTitle(runtimeState: RuntimeState | null): string | null {
   const adoption = runtimeState?.agentAdoption;
   if (!adoption?.doNotTreatEmptyAsFailure) return null;
-  const tools = adoption.requiredNextTools.join(" -> ");
-  return tools ? `${adoption.reason} Next: ${tools}.` : adoption.reason;
+  const beforeAnswer = adoption.beforeAnswer;
+  const tools = (beforeAnswer?.tools ?? adoption.requiredNextTools).join(" -> ");
+  const reason = beforeAnswer?.reason ?? adoption.reason;
+  return tools ? `${reason} Next: ${tools}.` : reason;
 }
 
 export function ConnectionStatus() {

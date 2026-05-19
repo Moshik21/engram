@@ -57,6 +57,7 @@ def test_system_prompt_covers_epistemic_routing_tools():
         "answerContract",
         "search_artifacts",
         "get_runtime_state",
+        "beforeAnswer",
     ):
         assert phrase in ENGRAM_SYSTEM_PROMPT
 

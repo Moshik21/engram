@@ -614,6 +614,9 @@ class TestEpistemicEndpoints:
         }
         assert data["agentAdoption"]["doNotTreatEmptyAsFailure"] is True
         assert "claim_authority" in data["agentAdoption"]["requiredNextTools"]
+        assert data["agentAdoption"]["beforeAnswer"]["required"] is True
+        assert "claim_authority" in data["agentAdoption"]["beforeAnswer"]["tools"]
+        assert "onboarding state" in data["agentAdoption"]["emptyRuntimePolicy"]
 
 
 # ─── Recall ──────────────────────────────────────────────────────

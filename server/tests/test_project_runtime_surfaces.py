@@ -99,6 +99,17 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
         "bootstrap_project",
         "get_context",
     ]
+    assert guidance["beforeAnswer"] == {
+        "required": True,
+        "tools": ["claim_authority", "bootstrap_project", "get_context"],
+        "reason": (
+            "Follow these Engram tools before the next substantive answer; "
+            "runtime-state metrics are diagnostics, not a substitute for "
+            "authority, bootstrap, and context loading."
+        ),
+    }
+    assert "onboarding state" in guidance["emptyRuntimePolicy"]
+    assert "portable cross-context memory authority" in guidance["fileMemoryPolicy"]
     assert guidance["claimAuthority"]["args"] == {
         "project_path": "/tmp/engram",
         "file_memory_present": "<true if local/file memory is visible>",
