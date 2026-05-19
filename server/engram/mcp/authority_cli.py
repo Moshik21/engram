@@ -10,9 +10,12 @@ from typing import Any
 from engram.config import EngramConfig
 from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
-from engram.lifecycle_cli import _create_lifecycle_stores, _maybe_close
 from engram.retrieval.memory_authority import build_mcp_memory_authority_surface
-from engram.storage.bootstrap import initialize_search_index_for_graph
+from engram.storage.bootstrap import (
+    close_if_supported,
+    create_local_runtime_stores,
+    initialize_search_index_for_graph,
+)
 from engram.storage.resolver import resolve_mode
 
 
@@ -75,7 +78,10 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
         config.helix.data_dir = str(args.helix_data_dir.expanduser())
 
     mode = await resolve_mode(config.mode)
-    graph_store, activation_store, search_index = _create_lifecycle_stores(mode, config)
+    graph_store, activation_store, search_index = create_local_runtime_stores(
+        mode,
+        config,
+    )
     await graph_store.initialize()
     await initialize_search_index_for_graph(
         search_index,
@@ -99,8 +105,8 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
             file_memory_present=bool(args.file_memory_present),
         )
     finally:
-        await _maybe_close(search_index)
-        await _maybe_close(graph_store)
+        await close_if_supported(search_index)
+        await close_if_supported(graph_store)
 
 
 async def run_authority_command(args: argparse.Namespace) -> None:

@@ -86,6 +86,14 @@ produced required before-answer tools `bootstrap_project`, `get_context`, and
 `recall`, with `remember` capture. Feeding that JSON into `engram adoption
 --template --client Cursor` produced the expected live transcript template and
 manual Cursor/Windsurf transcript block.
+Shared local CLI runtime cleanup: lifecycle snapshots and local authority
+payload generation now create graph/activation/search stores through
+`engram.storage.bootstrap.create_local_runtime_stores()` and close them through
+`close_if_supported()`. `authority_cli.py` no longer imports private helpers
+from `lifecycle_cli.py`, keeping the authority-prep path on the same public
+bootstrap boundary used by other runtime entrypoints. Focused Ruff, storage,
+lifecycle, authority CLI tests, `git diff --check`, and a live lite
+`engram authority` Markdown smoke passed for this slice.
 
 Runtime-state probes now reinforce the same adoption contract: shared REST/MCP
 `get_runtime_state()` payloads include `agentAdoption.requiredNextTools`,

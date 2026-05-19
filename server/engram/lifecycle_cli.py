@@ -14,13 +14,12 @@ from engram.extraction.extractor import EntityExtractor
 from engram.graph_manager import GraphManager
 from engram.lifecycle_summary import build_lifecycle_summary
 from engram.storage.bootstrap import (
+    close_if_supported,
     create_consolidation_store_for_graph,
+    create_local_runtime_stores,
     initialize_search_index_for_graph,
 )
-from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.resolver import EngineMode, resolve_mode
-from engram.storage.sqlite.graph import SQLiteGraphStore
-from engram.storage.sqlite.search import FTS5SearchIndex
 
 
 def configure_lifecycle_parser(parser: argparse.ArgumentParser) -> None:
@@ -105,7 +104,10 @@ async def build_lifecycle_summary_for_config(
 
     resolved_group_id = group_id or config.default_group_id
     mode = await resolve_mode(config.mode)
-    graph_store, activation_store, search_index = _create_lifecycle_stores(mode, config)
+    graph_store, activation_store, search_index = create_local_runtime_stores(
+        mode,
+        config,
+    )
     consolidation_store: Any | None = None
 
     await graph_store.initialize()
@@ -137,27 +139,9 @@ async def build_lifecycle_summary_for_config(
             cycle_limit=cycle_limit,
         )
     finally:
-        await _maybe_close(consolidation_store)
-        await _maybe_close(search_index)
-        await _maybe_close(graph_store)
-
-
-def _create_lifecycle_stores(
-    mode: EngineMode,
-    config: EngramConfig,
-) -> tuple[Any, Any, Any]:
-    """Create stores for a local lifecycle snapshot."""
-    if mode == EngineMode.LITE:
-        db_path = str(config.get_sqlite_path())
-        return (
-            SQLiteGraphStore(db_path),
-            MemoryActivationStore(cfg=config.activation),
-            FTS5SearchIndex(db_path),
-        )
-
-    from engram.storage.factory import create_stores
-
-    return create_stores(mode, config)
+        await close_if_supported(consolidation_store)
+        await close_if_supported(search_index)
+        await close_if_supported(graph_store)
 
 
 async def _create_consolidation_store(
@@ -171,17 +155,6 @@ async def _create_consolidation_store(
         graph_store=graph_store,
         mode=mode,
     )
-
-
-async def _maybe_close(resource: Any) -> None:
-    if resource is None:
-        return
-    close = getattr(resource, "close", None)
-    if close is None:
-        return
-    result = close()
-    if hasattr(result, "__await__"):
-        await result
 
 
 async def run_lifecycle_command(args: argparse.Namespace) -> None:

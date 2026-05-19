@@ -12,13 +12,17 @@ from engram.storage.bootstrap import (
     create_consolidation_store_for_graph,
     create_conversation_store_for_graph,
     create_evaluation_store_for_graph,
+    create_local_runtime_stores,
     initialize_search_index_for_graph,
     initialize_store_for_graph,
     shared_helix_client,
     shared_sqlite_db,
     stop_if_supported,
 )
+from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.resolver import EngineMode
+from engram.storage.sqlite.graph import SQLiteGraphStore
+from engram.storage.sqlite.search import FTS5SearchIndex
 
 
 class FakeGraphStore:
@@ -117,6 +121,36 @@ async def test_initialize_search_index_for_graph_uses_same_contract() -> None:
     )
 
     assert search.calls == [db]
+
+
+def test_create_local_runtime_stores_uses_lite_sqlite_path(tmp_path) -> None:
+    config = EngramConfig(_env_file=None)
+    config.sqlite.path = str(tmp_path / "engram.db")
+
+    graph_store, activation_store, search_index = create_local_runtime_stores(
+        EngineMode.LITE,
+        config,
+    )
+
+    assert isinstance(graph_store, SQLiteGraphStore)
+    assert isinstance(activation_store, MemoryActivationStore)
+    assert isinstance(search_index, FTS5SearchIndex)
+
+
+def test_create_local_runtime_stores_delegates_non_lite_modes(monkeypatch) -> None:
+    config = EngramConfig(_env_file=None)
+    calls: list[tuple[EngineMode, EngramConfig]] = []
+
+    def fake_create_stores(mode: EngineMode, received_config: EngramConfig):
+        calls.append((mode, received_config))
+        return "graph", "activation", "search"
+
+    monkeypatch.setattr("engram.storage.factory.create_stores", fake_create_stores)
+
+    result = create_local_runtime_stores(EngineMode.HELIX, config)
+
+    assert result == ("graph", "activation", "search")
+    assert calls == [(EngineMode.HELIX, config)]
 
 
 @pytest.mark.asyncio

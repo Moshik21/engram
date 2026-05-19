@@ -58,6 +58,28 @@ async def initialize_search_index_for_graph(
     )
 
 
+def create_local_runtime_stores(
+    mode: EngineMode,
+    config: EngramConfig,
+) -> tuple[Any, Any, Any]:
+    """Create graph, activation, and search stores for local CLI runtime reads."""
+    if mode == EngineMode.LITE:
+        from engram.storage.memory.activation import MemoryActivationStore
+        from engram.storage.sqlite.graph import SQLiteGraphStore
+        from engram.storage.sqlite.search import FTS5SearchIndex
+
+        db_path = str(config.get_sqlite_path())
+        return (
+            SQLiteGraphStore(db_path),
+            MemoryActivationStore(cfg=config.activation),
+            FTS5SearchIndex(db_path),
+        )
+
+    from engram.storage.factory import create_stores
+
+    return create_stores(mode, config)
+
+
 async def create_atlas_store_for_graph(
     config: EngramConfig,
     *,

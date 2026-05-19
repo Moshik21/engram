@@ -232,7 +232,7 @@ async def test_lifecycle_summary_applies_native_helix_data_dir(tmp_path, monkeyp
         requested_modes.append(mode)
         return EngineMode.HELIX
 
-    def fake_create_lifecycle_stores(mode: EngineMode, config: EngramConfig):
+    def fake_create_local_runtime_stores(mode: EngineMode, config: EngramConfig):
         assert mode == EngineMode.HELIX
         assert config.helix.transport == "native"
         assert config.helix.data_dir == str(native_dir)
@@ -252,8 +252,8 @@ async def test_lifecycle_summary_applies_native_helix_data_dir(tmp_path, monkeyp
 
     monkeypatch.setattr("engram.lifecycle_cli.resolve_mode", fake_resolve_mode)
     monkeypatch.setattr(
-        "engram.lifecycle_cli._create_lifecycle_stores",
-        fake_create_lifecycle_stores,
+        "engram.lifecycle_cli.create_local_runtime_stores",
+        fake_create_local_runtime_stores,
     )
     monkeypatch.setattr(
         "engram.lifecycle_cli._create_consolidation_store",
