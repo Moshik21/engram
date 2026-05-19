@@ -26,6 +26,22 @@ _SESSION_SAMPLE_TEXT_REQUIREMENTS = {
     "scenarios": ("scenario", "task", "prompt"),
     "notes": ("notes", "reviewNotes", "review_notes", "labelNotes", "label_notes"),
 }
+_RECALL_SAMPLE_VALUE_REQUIREMENTS = {
+    "recall_triggered": ("recallTriggered", "recall_triggered"),
+    "recall_helped": ("recallHelped", "recall_helped"),
+    "recall_needed": ("recallNeeded", "recall_needed"),
+    "packets_surfaced": ("packetsSurfaced", "packets_surfaced"),
+    "packets_used": ("packetsUsed", "packets_used"),
+    "false_recalls": ("falseRecalls", "false_recalls"),
+}
+_SESSION_SAMPLE_VALUE_REQUIREMENTS = {
+    "baseline_score": ("baselineScore", "baseline_score"),
+    "memory_score": ("memoryScore", "memory_score"),
+    "open_loop_expected": ("openLoopExpected", "open_loop_expected"),
+    "open_loop_recovered": ("openLoopRecovered", "open_loop_recovered"),
+    "temporal_expected": ("temporalExpected", "temporal_expected"),
+    "temporal_correct": ("temporalCorrect", "temporal_correct"),
+}
 
 HUMAN_LABEL_EVIDENCE_KIND = "engram_human_label_evidence"
 DEFAULT_HUMAN_RECALL_SAMPLE_GATE = 1
@@ -327,6 +343,14 @@ def build_human_label_evidence(
         session_samples,
         _SESSION_SAMPLE_TEXT_REQUIREMENTS,
     )
+    missing_recall_values = _missing_sample_value_requirements(
+        recall_samples,
+        _RECALL_SAMPLE_VALUE_REQUIREMENTS,
+    )
+    missing_session_values = _missing_sample_value_requirements(
+        session_samples,
+        _SESSION_SAMPLE_VALUE_REQUIREMENTS,
+    )
 
     failures: list[str] = []
     if kind != HUMAN_LABEL_EVIDENCE_KIND:
@@ -361,6 +385,10 @@ def build_human_label_evidence(
     for field, count in missing_recall_text.items():
         failures.append(f"missing_recall_sample_{field}({count})")
     for field, count in missing_session_text.items():
+        failures.append(f"missing_session_sample_{field}({count})")
+    for field, count in missing_recall_values.items():
+        failures.append(f"missing_recall_sample_{field}({count})")
+    for field, count in missing_session_values.items():
         failures.append(f"missing_session_sample_{field}({count})")
     if source and not _looks_placeholder(source):
         mismatched_sample_sources = [
@@ -467,6 +495,26 @@ def _missing_sample_text(sample: Mapping[str, Any], aliases: tuple[str, ...]) ->
         for alias in aliases
         if (text := _string(sample.get(alias)))
     )
+
+
+def _missing_sample_value_requirements(
+    samples: list[Any],
+    requirements: Mapping[str, tuple[str, ...]],
+) -> dict[str, int]:
+    missing: dict[str, int] = {}
+    for label, aliases in requirements.items():
+        count = sum(
+            1
+            for sample in samples
+            if not _sample_has_any_key(_mapping(sample), aliases)
+        )
+        if count:
+            missing[label] = count
+    return missing
+
+
+def _sample_has_any_key(sample: Mapping[str, Any], aliases: tuple[str, ...]) -> bool:
+    return any(alias in sample for alias in aliases)
 
 
 def _list_payload(value: Any) -> list[Any]:

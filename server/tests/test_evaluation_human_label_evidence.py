@@ -126,6 +126,24 @@ def test_human_label_evidence_requires_reviewable_sample_text() -> None:
     assert "missing_session_sample_scenarios(1)" in evidence["failures"]
 
 
+def test_human_label_evidence_requires_sample_label_values() -> None:
+    artifact = _human_label_artifact(recall_count=1, session_count=1)
+    artifact["recallSamples"][0].pop("recallTriggered")
+    artifact["recallSamples"][0].pop("packetsUsed")
+    artifact["sessionSamples"][0].pop("temporalCorrect")
+
+    evidence = build_human_label_evidence(
+        artifact,
+        min_recall_samples=1,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "failed"
+    assert "missing_recall_sample_recall_triggered(1)" in evidence["failures"]
+    assert "missing_recall_sample_packets_used(1)" in evidence["failures"]
+    assert "missing_session_sample_temporal_correct(1)" in evidence["failures"]
+
+
 def test_human_label_evidence_requires_expected_artifact_kind() -> None:
     artifact = _human_label_artifact(recall_count=2, session_count=1)
     artifact["kind"] = "generic_label_export"
