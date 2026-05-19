@@ -75,7 +75,7 @@ Live adoption evidence must also name a transcript `source`, and
 adoption validation reports now carry `kind:
 engram_adoption_validation_report` so release packaging can reject generic
 hand-shaped adoption summaries. Adoption release evidence also rejects template
-placeholder client/source metadata.
+placeholder client/source metadata and synthetic transcript source labels.
 Current blocked live-client evidence refresh: `claude mcp list` verified the
 local REST/MCP server as connected, but a constrained Claude Code 2.1.144
 print-mode run still exited before tool execution with `Not logged in - Please

@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Any
 
 ADOPTION_VALIDATION_REPORT_KIND = "engram_adoption_validation_report"
+_SYNTHETIC_SOURCE_TOKENS = {
+    "benchmark",
+    "deterministic",
+    "fixture",
+    "showcase",
+    "simulated",
+    "smoke",
+    "synthetic",
+}
 
 
 def load_adoption_evidence(
@@ -84,6 +93,8 @@ def build_adoption_evidence(
         failures.append("missing_adoption_source")
     elif _looks_placeholder(source):
         failures.append("placeholder_adoption_source")
+    elif _looks_synthetic(source):
+        failures.append(f"synthetic_adoption_source({source})")
     if evidence.get("required") is not True:
         failures.append("missing_required_live_evidence_gate")
     if not expected_before_answer:
@@ -377,6 +388,13 @@ def _looks_placeholder(value: str) -> bool:
         stripped.startswith("<")
         and stripped.endswith(">")
         or stripped.lower() in {"todo", "tbd", "replace me", "placeholder"}
+    )
+
+
+def _looks_synthetic(source: str) -> bool:
+    return any(
+        token.lower() in _SYNTHETIC_SOURCE_TOKENS
+        for token in source.replace("-", " ").replace("_", " ").split()
     )
 
 

@@ -173,6 +173,18 @@ def test_adoption_evidence_rejects_placeholder_metadata() -> None:
     ]
 
 
+def test_adoption_evidence_rejects_synthetic_transcript_source() -> None:
+    report = _adoption_report()
+    report["evidence"]["source"] = "deterministic_smoke"
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "synthetic_adoption_source(deterministic_smoke)"
+    ]
+
+
 def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
     report = _adoption_report()
     report["callCount"] = 0
