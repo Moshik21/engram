@@ -6,6 +6,7 @@ import hashlib
 import json
 import shlex
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -410,6 +411,8 @@ def build_human_label_evidence(
         failures.append("missing_harness_captured_at")
     elif _looks_placeholder(captured_at):
         failures.append("placeholder_harness_captured_at")
+    elif not _is_iso_timestamp(captured_at):
+        failures.append(f"invalid_harness_captured_at({captured_at})")
     if not labeler:
         failures.append("missing_human_labeler")
     elif _looks_placeholder(labeler):
@@ -515,6 +518,16 @@ def _missing_sample_value_requirements(
 
 def _sample_has_any_key(sample: Mapping[str, Any], aliases: tuple[str, ...]) -> bool:
     return any(alias in sample for alias in aliases)
+
+
+def _is_iso_timestamp(value: str) -> bool:
+    if "T" not in value:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _list_payload(value: Any) -> list[Any]:

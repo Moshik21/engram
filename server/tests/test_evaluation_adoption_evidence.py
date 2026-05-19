@@ -118,6 +118,18 @@ def test_adoption_evidence_requires_live_evidence_gate() -> None:
     assert evidence["failures"] == ["missing_required_live_evidence_gate"]
 
 
+def test_adoption_evidence_requires_parseable_capture_timestamp() -> None:
+    report = _adoption_report()
+    report["evidence"]["captured_at"] = "after the live run"
+
+    evidence = build_adoption_evidence(report)
+
+    assert evidence["status"] == "failed"
+    assert evidence["failures"] == [
+        "invalid_adoption_captured_at(after the live run)"
+    ]
+
+
 def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
     report = _adoption_report()
     report["callCount"] = 0

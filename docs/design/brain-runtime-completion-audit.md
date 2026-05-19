@@ -837,7 +837,8 @@ evidence that agents actually trust and use the brain:
    reviewable query text, notes, and recall-quality label fields, while session
    samples must include reviewable scenario text, notes, and session-continuity
    label fields, so source-tagged empty sample shells cannot satisfy the release
-   gate. `--require-release-evidence` also
+   gate. Adoption and human-label artifacts now also require parseable ISO-style
+   captured timestamps instead of arbitrary text. `--require-release-evidence` also
    uses production
    human-label defaults of 10 recall samples and 3 session samples unless the
    operator explicitly overrides them; standalone human-label gates keep the

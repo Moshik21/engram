@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,8 @@ def build_adoption_evidence(
         failures.append("missing_adoption_client")
     if not captured_at:
         failures.append("missing_adoption_captured_at")
+    elif not _is_iso_timestamp(captured_at):
+        failures.append(f"invalid_adoption_captured_at({captured_at})")
     if evidence.get("required") is not True:
         failures.append("missing_required_live_evidence_gate")
     if not expected_before_answer:
@@ -340,6 +343,16 @@ def _string_list(value: Any) -> list[str]:
     if isinstance(value, list | tuple):
         return [str(item) for item in value if str(item)]
     return []
+
+
+def _is_iso_timestamp(value: str) -> bool:
+    if "T" not in value:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _client_matches(observed_client: str | None, required_client: str) -> bool:

@@ -144,6 +144,20 @@ def test_human_label_evidence_requires_sample_label_values() -> None:
     assert "missing_session_sample_temporal_correct(1)" in evidence["failures"]
 
 
+def test_human_label_evidence_requires_parseable_capture_timestamp() -> None:
+    artifact = _human_label_artifact(recall_count=2, session_count=1)
+    artifact["capturedAt"] = "after review"
+
+    evidence = build_human_label_evidence(
+        artifact,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "failed"
+    assert "invalid_harness_captured_at(after review)" in evidence["failures"]
+
+
 def test_human_label_evidence_requires_expected_artifact_kind() -> None:
     artifact = _human_label_artifact(recall_count=2, session_count=1)
     artifact["kind"] = "generic_label_export"

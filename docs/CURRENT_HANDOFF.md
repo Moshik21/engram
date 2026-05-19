@@ -69,7 +69,8 @@ Human-label evidence now applies the same anti-proxy rule at the sample level:
 recall samples must include reviewable query text, notes, and recall-quality
 label fields; session samples must include reviewable scenario text, notes, and
 session-continuity label fields, so release evidence cannot pass with
-source-tagged but empty sample shells.
+source-tagged but empty sample shells. Adoption and human-label artifacts also
+require parseable ISO-style captured timestamps instead of arbitrary text.
 Current blocked live-client evidence refresh: `claude mcp list` verified the
 local REST/MCP server as connected, but a constrained Claude Code 2.1.144
 print-mode run still exited before tool execution with `Not logged in - Please
