@@ -90,6 +90,24 @@ def test_human_label_evidence_rejects_synthetic_or_unreviewed_artifact() -> None
     )
 
 
+def test_human_label_evidence_requires_sample_source_traceability() -> None:
+    artifact = _human_label_artifact(recall_count=2, session_count=1)
+    artifact["recallSamples"][0].pop("source")
+    artifact["recallSamples"][1]["source"] = "other_staging_harness"
+
+    evidence = build_human_label_evidence(
+        artifact,
+        min_recall_samples=2,
+        min_session_samples=1,
+    )
+
+    assert evidence["status"] == "failed"
+    assert "missing_sample_sources(1)" in evidence["failures"]
+    assert "sample_source_mismatch(other_staging_harness!=staging_harness)" in evidence[
+        "failures"
+    ]
+
+
 def test_human_label_template_is_not_valid_evidence_until_filled() -> None:
     template = build_human_label_evidence_template()
 

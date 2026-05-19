@@ -304,6 +304,11 @@ def build_human_label_evidence(
             if (sample_source := _string(_mapping(sample).get("source")))
         }
     )
+    missing_sample_source_count = sum(
+        1
+        for sample in recall_samples + session_samples
+        if not _string(_mapping(sample).get("source"))
+    )
 
     failures: list[str] = []
     if not human_labeled:
@@ -328,6 +333,20 @@ def build_human_label_evidence(
         failures.append(
             "synthetic_sample_sources(" + ",".join(synthetic_sample_sources) + ")"
         )
+    if missing_sample_source_count:
+        failures.append(f"missing_sample_sources({missing_sample_source_count})")
+    if source and not _looks_placeholder(source):
+        mismatched_sample_sources = [
+            sample_source for sample_source in sample_sources if sample_source != source
+        ]
+        if mismatched_sample_sources:
+            mismatch_text = ",".join(
+                f"{sample_source}!={source}"
+                for sample_source in mismatched_sample_sources
+            )
+            failures.append(
+                "sample_source_mismatch(" + mismatch_text + ")"
+            )
     if not client:
         failures.append("missing_harness_client")
     elif _looks_placeholder(client):
