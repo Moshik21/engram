@@ -1095,10 +1095,12 @@ engram adoption --authority claim-authority.json --template --format markdown
 
 The generated template includes placeholder metadata, the expected call
 sequence, and client-checked validation commands for both a single transcript
-wrapper and the Claude stream-json plus AutoCapture trace path. Replace
-placeholders with observed live client metadata and actual tool calls;
-placeholder `client` or `capturedAt` values do not satisfy
-`--require-live-evidence`.
+wrapper and the Claude stream-json plus AutoCapture trace path. It also
+includes a copyable `manual_transcript_markdown` block for Cursor, Windsurf, or
+other MCP clients where the operator can copy visible tool calls from the
+session UI rather than export raw JSON. Replace placeholders with observed live
+client metadata and actual tool calls; placeholder `client` or `capturedAt`
+values do not satisfy `--require-live-evidence`.
 
 Claude Code `--output-format stream-json` logs can also be passed directly as
 `--calls`; Engram extracts Engram MCP tool-use events and infers live client,

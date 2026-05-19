@@ -293,26 +293,37 @@ def build_live_adoption_transcript_template(
     """Build a live-harness transcript template from a claim_authority payload."""
     authority_payload = _load_json(authority_path)
     protocol = _extract_protocol(authority_payload)
+    calls = _protocol_example_calls(protocol)
+    metadata = {
+        "client": client or "<Claude Code | Cursor | Windsurf | other MCP client>",
+        "capturedAt": captured_at or "<ISO-8601 timestamp from live run>",
+        "sessionId": session_id or "<client session/thread id if available>",
+        "source": source or "copied_mcp_log",
+    }
     capture_commands = _template_capture_commands()
     validation_commands = _template_validation_commands(
         session_id=session_id,
         client=client,
     )
     return {
-        "metadata": {
-            "client": client or "<Claude Code | Cursor | Windsurf | other MCP client>",
-            "capturedAt": captured_at or "<ISO-8601 timestamp from live run>",
-            "sessionId": session_id or "<client session/thread id if available>",
-            "source": source or "copied_mcp_log",
-        },
-        "calls": _protocol_example_calls(protocol),
+        "metadata": metadata,
+        "calls": calls,
         "capture_commands": capture_commands,
         "validation_commands": validation_commands,
+        "manual_transcript_markdown": _manual_transcript_markdown(
+            metadata=metadata,
+            calls=calls,
+        ),
         "instructions": [
             "Run the real MCP client after saving the matching claim_authority response.",
             (
                 "For Claude Code, capture raw stream-json with "
                 f"{capture_commands[0]['command']}."
+            ),
+            (
+                "For Cursor, Windsurf, or copied MCP UI logs, update "
+                "manual_transcript_markdown with observed metadata and actual "
+                "Engram tool calls, then validate it as live-harness-transcript.md."
             ),
             "Replace metadata placeholders with observed live client metadata.",
             "Replace or confirm calls with the actual Engram tool calls from the client log.",
@@ -375,6 +386,40 @@ def _template_validation_commands(
             ),
         },
     ]
+
+
+def _manual_transcript_markdown(
+    *,
+    metadata: dict[str, Any],
+    calls: list[dict[str, str]],
+) -> str:
+    lines = [
+        f"Client: {metadata.get('client')}",
+        f"Captured at: {metadata.get('capturedAt')}",
+        f"Session ID: {metadata.get('sessionId')}",
+        f"Source: {metadata.get('source')}",
+        "",
+        "## Before answer",
+    ]
+    before_answer = [
+        call.get("tool")
+        for call in calls
+        if call.get("phase") == "before_answer" and call.get("tool")
+    ]
+    capture = [
+        call.get("tool")
+        for call in calls
+        if call.get("phase") == "capture" and call.get("tool")
+    ]
+    for tool in before_answer:
+        lines.append(f"- {tool}")
+    lines.extend(["", "## Capture"])
+    if capture:
+        for tool in capture:
+            lines.append(f"- {tool}")
+    else:
+        lines.append("- <no Engram capture required by this protocol>")
+    return "\n".join(lines)
 
 
 def build_adoption_validation_report(
@@ -628,6 +673,7 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
     calls = template.get("calls") or []
     capture_commands = template.get("capture_commands") or []
     validation_commands = template.get("validation_commands") or []
+    manual_transcript = template.get("manual_transcript_markdown")
     lines = [
         "# Engram Live Adoption Transcript Template",
         "",
@@ -657,6 +703,19 @@ def render_live_adoption_template_markdown(template: dict[str, Any]) -> str:
             value = command.get("command")
             if value:
                 lines.append(f"- {label}: `{value}`")
+    if manual_transcript:
+        lines.extend(
+            [
+                "",
+                "## Manual Transcript",
+                "",
+                "Use this for Cursor, Windsurf, or copied MCP UI logs:",
+                "",
+                "```markdown",
+                str(manual_transcript),
+                "```",
+            ]
+        )
     lines.extend(
         [
             "",

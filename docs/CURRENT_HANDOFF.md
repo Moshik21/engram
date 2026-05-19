@@ -187,6 +187,11 @@ artifact directly for release packaging while still printing the requested
 JSON/Markdown output. The release handoff's human-label command now includes
 `--human-label-template-out human-label-template.json`, and `engram evaluate`
 writes that fillable JSON template while still printing JSON/Markdown.
+The live-adoption template now also emits a copyable
+`manual_transcript_markdown` block with client/captured/session/source metadata
+plus `Before answer` and `Capture` tool-call sections. That gives Cursor,
+Windsurf, and copied MCP UI logs the same first-class collection path as Claude
+stream-json without requiring raw JSON export from the client.
 Adoption validation reports now include a
 `release_evidence` handoff section with the prefilled human-label template
 command and final `engram evaluate --require-release-evidence` command so the

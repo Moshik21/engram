@@ -870,6 +870,11 @@ treating it as the main completion blocker. The next goal-critical work is:
    adoption evidence, multi-client summaries, release summaries, and Markdown
    output so a blocked run remains diagnosable after it is attached to a release
    report.
+   The adoption template now also prints `manual_transcript_markdown`, a
+   copyable Cursor/Windsurf/manual MCP notes block with client metadata plus
+   explicit `Before answer` and `Capture` tool sections, so a second-client run
+   can be collected without raw JSON export as long as the operator can see the
+   Engram tool calls.
 2. If the project wants a release gate beyond the local deterministic milestone,
    collect a real `human-labels.json` artifact from a staging or production
    harness plus the matching `engram adoption --format json` report, then run

@@ -1370,6 +1370,22 @@ def test_live_adoption_template_uses_authority_protocol_example(
             ),
         },
     ]
+    assert template["manual_transcript_markdown"] == "\n".join(
+        [
+            "Client: Claude Code",
+            "Captured at: 2026-05-18T22:30:00Z",
+            "Session ID: claude-thread-1",
+            "Source: copied_mcp_log",
+            "",
+            "## Before answer",
+            "- bootstrap_project",
+            "- get_context",
+            "",
+            "## Capture",
+            "- remember",
+        ]
+    )
+    assert "manual_transcript_markdown" in template["instructions"][2]
     assert "AutoCapture hooks" in template["instructions"][-1]
 
 
@@ -1402,6 +1418,12 @@ def test_adoption_template_command_outputs_markdown(
     assert "## Capture" in markdown
     assert "claude -p --verbose --output-format stream-json" in markdown
     assert "mcp__engram__claim_authority,mcp__engram__bootstrap_project" in markdown
+    assert "## Manual Transcript" in markdown
+    assert "Use this for Cursor, Windsurf, or copied MCP UI logs" in markdown
+    assert "Client: Cursor" in markdown
+    assert "Session ID: cursor-thread-4" in markdown
+    assert "- bootstrap_project" in markdown
+    assert "- remember" in markdown
     assert (
         "--calls live-harness-transcript.json "
         "--require-client Cursor --require-live-evidence "

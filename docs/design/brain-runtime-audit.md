@@ -3738,6 +3738,12 @@ also returns a `live_evidence_command` and JSON wrapper schema requiring
 adds a `missing_live_harness_evidence` failure when the tool-call transcript
 passes but lacks current client/session evidence, so a handcrafted JSONL sample
 cannot substitute for Claude/Cursor/Windsurf proof.
+The generated live-adoption template also includes
+`manual_transcript_markdown`: a copyable Markdown transcript with
+client/captured/session/source metadata and explicit `Before answer`/`Capture`
+tool-call sections. Cursor, Windsurf, or copied MCP UI sessions can use that
+manual notes path when they expose visible Engram tool calls but do not export
+raw stream-json.
 The verifier accepts common real-log forms too: prefixed tool names such as
 `mcp__engram__recall`, nested `tool` / `function` / `tool_call` records, and
 `stage` as a phase alias. It also accepts explicit plaintext/Markdown harness
