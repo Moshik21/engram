@@ -26,6 +26,7 @@ def _run_engramctl(tmp_path: Path, *args: str) -> tuple[str, str]:
             "ENGRAM_INSTALL_BIN_DIR": str(bin_dir),
             "ENGRAM_INSTALL_NONINTERACTIVE": "1",
             "ENGRAM_INSTALL_SKIP_NATIVE_VERIFY": "1",
+            "ENGRAM_API_PORT": "18100",
             "ENGRAM_ANTHROPIC_API_KEY": "sk-test",
             "ENGRAM_SKILL_SOURCE": str(ROOT / "skills/engram-memory"),
         }
@@ -131,6 +132,7 @@ def test_engramctl_start_honors_configured_api_port() -> None:
 
     assert 'local port="${ENGRAM_API_PORT:-8100}"' in engramctl
     assert '"$engram_cmd" serve --host 127.0.0.1 --port "$port"' in engramctl
+    assert "curl --connect-timeout 1 --max-time 5 -fsS" in engramctl
     assert 'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)"' in engramctl
     assert "return 1" in engramctl
     assert "Quickstart could not confirm Engram is ready." in engramctl
@@ -143,7 +145,7 @@ def test_engramctl_exposes_release_startup_commands() -> None:
     assert "[--install-openclaw] [--connect CLIENT]" in engramctl
     assert "doctor                         Run the installed-user readiness gate" in engramctl
     assert "connect <client>" in engramctl
-    assert "claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
+    assert "codex|claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
     assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
     assert "storage                        Show resolved storage paths and disk growth" in engramctl
     assert "quickstart) command_quickstart" in engramctl
@@ -180,6 +182,10 @@ def test_engramctl_storage_offline_smoke_shows_native_data_path(tmp_path: Path) 
 def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:
     engramctl = (ROOT / "installer/engramctl").read_text()
 
+    assert '$HOME/.codex/config.toml' in engramctl
+    assert "write_codex_mcp_config" in engramctl
+    assert "[mcp_servers.engram]" in engramctl
+    assert "remote_mcp_client_enabled = true" in engramctl
     assert 'project_path/.mcp.json' in engramctl
     assert 'project_path/.cursor/mcp.json' in engramctl
     assert '$HOME/.codeium/windsurf/mcp_config.json' in engramctl
@@ -190,6 +196,19 @@ def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:
     assert "OpenClaw CLI not found; MCP config was not written." in engramctl
     assert 'OPENCLAW_SKILL_SLUG="${ENGRAM_OPENCLAW_SKILL_SLUG:-engram-brain}"' in engramctl
     assert '$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG' in engramctl
+
+
+def test_engramctl_connect_codex_writes_global_toml(tmp_path: Path) -> None:
+    _run_engramctl_setup(tmp_path, "helix")
+
+    _content, output = _run_engramctl(tmp_path, "connect", "codex")
+
+    config = (tmp_path / "home/.codex/config.toml").read_text()
+    assert "Configured Codex MCP" in output
+    assert "[mcp]" in config
+    assert "remote_mcp_client_enabled = true" in config
+    assert "[mcp_servers.engram]" in config
+    assert 'url = "http://127.0.0.1:18100/mcp"' in config
 
 
 def test_engramctl_install_mode_keeps_openclaw_native_first() -> None:

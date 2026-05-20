@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -10,6 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
+
+LOGGER = logging.getLogger(__name__)
+STARTUP_TIMEOUT_ENV = "ENGRAM_STORAGE_STARTUP_TIMEOUT_SECONDS"
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 5.0
 
 
 def default_helix_native_data_dir() -> Path:
@@ -49,11 +55,27 @@ class StorageDiagnostics:
         mode: str,
         graph_store: Any,
         group_id: str,
+        startup_timeout_seconds: float | None = None,
     ) -> StorageDiagnostics:
         """Create diagnostics with a startup baseline."""
         started_at = time.time()
-        counts = await _read_counts(graph_store, group_id)
-        paths = collect_storage_paths(config, mode)
+        timeout_seconds = (
+            startup_timeout_seconds
+            if startup_timeout_seconds is not None
+            else _startup_timeout_seconds()
+        )
+        counts = await _startup_baseline(
+            _read_counts(graph_store, group_id),
+            label="storage count baseline",
+            timeout_seconds=timeout_seconds,
+            fallback=_empty_counts,
+        )
+        paths = await _startup_baseline(
+            asyncio.to_thread(collect_storage_paths, config, mode),
+            label="storage disk baseline",
+            timeout_seconds=timeout_seconds,
+            fallback=list,
+        )
         return cls(
             config=config,
             mode=mode,
@@ -67,9 +89,14 @@ class StorageDiagnostics:
     async def snapshot(self, *, group_id: str | None = None) -> dict[str, Any]:
         """Return a JSON-serializable storage report."""
         resolved_group = group_id or self.group_id
-        counts = await _read_counts(self.graph_store, resolved_group)
+        counts = await _startup_baseline(
+            _read_counts(self.graph_store, resolved_group),
+            label="storage count snapshot",
+            timeout_seconds=_startup_timeout_seconds(),
+            fallback=_empty_counts,
+        )
         baseline_counts = self.startup_counts if resolved_group == self.group_id else counts
-        paths = collect_storage_paths(self.config, self.mode)
+        paths = await asyncio.to_thread(collect_storage_paths, self.config, self.mode)
         total_bytes = sum(item["bytes"] for item in paths)
         started_at = datetime.fromtimestamp(self.started_at, tz=UTC).isoformat()
 
@@ -180,6 +207,49 @@ async def _read_counts(graph_store: Any, group_id: str) -> dict[str, int]:
         ),
         "cues": _int_stat(cue_metrics, "cue_count", "cues"),
     }
+
+
+def _empty_counts() -> dict[str, int]:
+    return {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+
+
+def _startup_timeout_seconds() -> float:
+    raw = os.environ.get(STARTUP_TIMEOUT_ENV, str(DEFAULT_STARTUP_TIMEOUT_SECONDS))
+    try:
+        return float(raw)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid %s=%r; using %.1f seconds",
+            STARTUP_TIMEOUT_ENV,
+            raw,
+            DEFAULT_STARTUP_TIMEOUT_SECONDS,
+        )
+        return DEFAULT_STARTUP_TIMEOUT_SECONDS
+
+
+async def _startup_baseline(
+    operation: Any,
+    *,
+    label: str,
+    timeout_seconds: float,
+    fallback: Any,
+) -> Any:
+    if timeout_seconds <= 0:
+        return await operation
+    try:
+        return await asyncio.wait_for(operation, timeout=timeout_seconds)
+    except TimeoutError:
+        LOGGER.warning(
+            "%s timed out after %.1f seconds; startup baseline will begin empty",
+            label,
+            timeout_seconds,
+        )
+        return fallback()
 
 
 def _int_stat(payload: dict[str, Any], *keys: str) -> int:

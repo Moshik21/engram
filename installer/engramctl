@@ -210,7 +210,7 @@ Commands:
   quickstart [--project PATH]    Setup native mode, start, connect, bootstrap, doctor
              [--install-openclaw] [--connect CLIENT]
   doctor                         Run the installed-user readiness gate
-  connect <client>               Configure MCP for claude-code|cursor|windsurf|claude-desktop|openclaw
+  connect <client>               Configure MCP for codex|claude-code|cursor|windsurf|claude-desktop|openclaw
   bootstrap [--include GLOB] <project-dir> [...]
                                   Index selected project docs, notes, exports
   install [--mode full] [--no-open]
@@ -455,7 +455,7 @@ wait_for_health() {
   local url="http://127.0.0.1:${port}/health"
 
   while [ "$attempts" -gt 0 ]; do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl --connect-timeout 1 --max-time 5 -fsS "$url" >/dev/null 2>&1; then
       return 0
     fi
     attempts=$((attempts - 1))
@@ -477,7 +477,7 @@ open_dashboard() {
 
 verify_api_reachable() {
   local port="${ENGRAM_API_PORT:-8100}"
-  curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1 \
+  curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1 \
     || die "Engram API is not reachable on 127.0.0.1:${port}."
 }
 
@@ -512,6 +512,46 @@ if path.exists():
         data = {}
 data.setdefault("mcpServers", {})["engram"] = {"type": "http", "url": url}
 path.write_text(json.dumps(data, indent=2) + "\n")
+PY
+}
+
+write_codex_mcp_config() {
+  local target="$1"
+  local url="$2"
+  mkdir -p "$(dirname "$target")"
+  python3 - "$target" "$url" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+url = sys.argv[2]
+text = path.read_text() if path.exists() else ""
+
+if text and not text.endswith("\n"):
+    text += "\n"
+
+text = re.sub(r"(?ms)^\[mcp_servers\.engram\]\n.*?(?=^\[|\Z)", "", text)
+
+mcp_match = re.search(r"(?ms)^(\[mcp\]\n)(.*?)(?=^\[|\Z)", text)
+if mcp_match:
+    body = mcp_match.group(2)
+    if re.search(r"(?m)^remote_mcp_client_enabled\s*=", body):
+        body = re.sub(
+            r"(?m)^remote_mcp_client_enabled\s*=.*$",
+            "remote_mcp_client_enabled = true",
+            body,
+        )
+    else:
+        body = "remote_mcp_client_enabled = true\n" + body
+    text = text[: mcp_match.start()] + mcp_match.group(1) + body + text[mcp_match.end() :]
+else:
+    text = "[mcp]\nremote_mcp_client_enabled = true\n\n" + text.lstrip("\n")
+
+text = text.rstrip() + "\n\n[mcp_servers.engram]\n"
+text += f"url = {json.dumps(url)}\n"
+path.write_text(text)
 PY
 }
 
@@ -687,7 +727,7 @@ lite_start() {
   # Wait for health
   local attempts=30
   while [ "$attempts" -gt 0 ]; do
-    if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+    if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
       local engine_mode="${ENGRAM_MODE:-lite}"
       info "Engram started (PID $pid, $engine_mode mode)."
       dim "API: http://127.0.0.1:${port}"
@@ -741,6 +781,12 @@ lite_status() {
   local engine_mode="${ENGRAM_MODE:-lite}"
   local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"
   local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"
+  local health_file
+  local api_ok=0
+  health_file="$(mktemp)"
+  if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" -o "$health_file" 2>/dev/null; then
+    api_ok=1
+  fi
 
   echo -e "  ${BOLD}Engram Status (local mode)${RESET}"
   echo ""
@@ -749,6 +795,8 @@ lite_status() {
     local pid
     pid="$(cat "$LITE_PID_FILE")"
     info "Server: running (PID $pid)"
+  elif [ "$api_ok" = "1" ]; then
+    info "Server: running (API on port $port)"
   else
     warn "Server: not running"
   fi
@@ -771,11 +819,13 @@ lite_status() {
   dim "Config: $LITE_ENV_FILE"
   echo ""
 
-  if curl -fsS "http://127.0.0.1:${port}/health" 2>/dev/null; then
+  if [ "$api_ok" = "1" ]; then
+    cat "$health_file"
     echo ""
   else
     warn "API is not responding on port $port."
   fi
+  rm -f "$health_file"
 }
 
 storage_size() {
@@ -1156,7 +1206,7 @@ command_doctor() {
 
 command_connect() {
   local client="${1:-}"
-  [ -n "$client" ] || die "Usage: engramctl connect claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify]"
+  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify]"
   shift || true
 
   local project_path="$PWD"
@@ -1184,6 +1234,12 @@ command_connect() {
   url="$(api_base_url)/mcp"
 
   case "$client" in
+    codex)
+      local target="$HOME/.codex/config.toml"
+      write_codex_mcp_config "$target" "$url"
+      info "Configured Codex MCP at $target"
+      dim "Restart Codex or start a new session to pick up Engram."
+      ;;
     claude-code|claude)
       local target="$project_path/.mcp.json"
       write_mcp_http_config "$target" "$url"
@@ -1367,7 +1423,7 @@ command_quickstart() {
 
   if [ -z "$connect_client" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
     echo ""
-    read -r -p "  Connect an MCP client now? [claude-code/cursor/windsurf/claude-desktop/openclaw/skip] (skip): " connect_client || true
+    read -r -p "  Connect an MCP client now? [codex/claude-code/cursor/windsurf/claude-desktop/openclaw/skip] (skip): " connect_client || true
     connect_client="${connect_client:-skip}"
   fi
   if [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
@@ -1515,7 +1571,7 @@ command_status() {
   ensure_docker_ready
   compose ps
   echo ""
-  if curl -fsS "http://127.0.0.1:${ENGRAM_API_PORT:-8100}/health" 2>/dev/null; then
+  if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${ENGRAM_API_PORT:-8100}/health" 2>/dev/null; then
     echo ""
   else
     warn "Engram API is not responding."
@@ -1535,7 +1591,7 @@ command_storage() {
     local port="${ENGRAM_API_PORT:-8100}"
     local tmp_file
     tmp_file="$(mktemp)"
-    if curl -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+    if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
       format_storage_json "$tmp_file"
       rm -f "$tmp_file"
       return
@@ -1549,7 +1605,7 @@ command_storage() {
   local port="${ENGRAM_API_PORT:-8100}"
   local tmp_file
   tmp_file="$(mktemp)"
-  if curl -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+  if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
     format_storage_json "$tmp_file"
     rm -f "$tmp_file"
     return

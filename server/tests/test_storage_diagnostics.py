@@ -1,8 +1,11 @@
+import asyncio
+import time
 from pathlib import Path
 
 import pytest
 
 from engram.config import EngramConfig
+from engram.storage import diagnostics as diagnostics_module
 from engram.storage.diagnostics import (
     StorageDiagnostics,
     collect_storage_paths,
@@ -18,6 +21,17 @@ class FakeGraphStore:
     async def get_stats(self, group_id: str) -> dict:
         self.group_ids.append(group_id)
         return self.stats
+
+
+class SlowGraphStore:
+    async def get_stats(self, group_id: str) -> dict:
+        await asyncio.sleep(0.2)
+        return {
+            "episodes": 9,
+            "entities": 9,
+            "relationships": 9,
+            "cue_metrics": {"cue_count": 9},
+        }
 
 
 @pytest.mark.asyncio
@@ -91,6 +105,39 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
         "Server log",
     }
     assert graph_store.group_ids == ["default", "default"]
+
+
+@pytest.mark.asyncio
+async def test_storage_diagnostics_startup_timeout_uses_empty_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = EngramConfig(mode="helix")
+    config.helix.transport = "native"
+    config.helix.data_dir = str(tmp_path / "helix-native")
+    config.sqlite.path = str(tmp_path / "engram.db")
+
+    def slow_collect_paths(_config: EngramConfig, _mode: str) -> list[dict]:
+        time.sleep(0.2)
+        return [{"bytes": 1024}]
+
+    monkeypatch.setattr(diagnostics_module, "collect_storage_paths", slow_collect_paths)
+
+    diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=SlowGraphStore(),
+        group_id="default",
+        startup_timeout_seconds=0.01,
+    )
+
+    assert diagnostics.startup_counts == {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+    assert diagnostics.startup_bytes == 0
 
 
 def test_storage_paths_use_native_default_when_unconfigured(

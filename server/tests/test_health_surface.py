@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from engram.api.health_surface import (
@@ -21,6 +23,12 @@ class FakeGraphStore:
         self.group_ids.append(group_id or "")
         if self.raises:
             raise RuntimeError("graph unavailable")
+        return {}
+
+
+class SlowGraphStore:
+    async def get_stats(self, *, group_id: str | None = None) -> dict:
+        await asyncio.sleep(0.2)
         return {}
 
 
@@ -55,6 +63,18 @@ async def test_probe_graph_store_health_reports_unhealthy_when_missing_or_failin
     assert (
         await probe_graph_store_health(FakeGraphStore(raises=True), group_id="brain")
         == ServiceStatus.UNHEALTHY
+    )
+
+
+@pytest.mark.asyncio
+async def test_probe_graph_store_health_reports_degraded_when_stats_timeout() -> None:
+    assert (
+        await probe_graph_store_health(
+            SlowGraphStore(),
+            group_id="brain",
+            timeout_seconds=0.01,
+        )
+        == ServiceStatus.DEGRADED
     )
 
 

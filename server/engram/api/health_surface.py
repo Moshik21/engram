@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
+
+LOGGER = logging.getLogger(__name__)
+HEALTH_PROBE_TIMEOUT_ENV = "ENGRAM_HEALTH_PROBE_TIMEOUT_SECONDS"
+DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
 
 
 class ServiceStatus(str, Enum):
@@ -34,15 +41,48 @@ async def probe_graph_store_health(
     graph_store: Any | None,
     *,
     group_id: str,
+    timeout_seconds: float | None = None,
 ) -> ServiceStatus:
     """Probe the graph store for the active default brain group."""
     if graph_store is None:
         return ServiceStatus.UNHEALTHY
+    timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else _health_probe_timeout_seconds()
+    )
     try:
-        await graph_store.get_stats(group_id=group_id)
+        probe = graph_store.get_stats(group_id=group_id)
+        if timeout <= 0:
+            await probe
+        else:
+            await asyncio.wait_for(probe, timeout=timeout)
+    except TimeoutError:
+        LOGGER.warning(
+            "Graph store health probe timed out after %.1f seconds",
+            timeout,
+        )
+        return ServiceStatus.DEGRADED
     except Exception:
         return ServiceStatus.UNHEALTHY
     return ServiceStatus.HEALTHY
+
+
+def _health_probe_timeout_seconds() -> float:
+    raw = os.environ.get(
+        HEALTH_PROBE_TIMEOUT_ENV,
+        str(DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS),
+    )
+    try:
+        return float(raw)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid %s=%r; using %.1f seconds",
+            HEALTH_PROBE_TIMEOUT_ENV,
+            raw,
+            DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS,
+        )
+        return DEFAULT_HEALTH_PROBE_TIMEOUT_SECONDS
 
 
 async def build_api_health_surface(
