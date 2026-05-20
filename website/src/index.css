@@ -1066,7 +1066,140 @@ body::after {
 }
 
 /* --------------------------------------------------------------------------
-   20. Utility Classes
+   20. Operator Website Redesign
+   -------------------------------------------------------------------------- */
+
+.operator-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 7rem 1.5rem 5rem;
+  overflow: hidden;
+}
+
+.operator-hero-grid {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 470px);
+  gap: 3rem;
+  align-items: center;
+}
+
+.operator-hero-title {
+  font-size: 4.45rem;
+}
+
+.operator-section-title {
+  font-size: 2.7rem;
+}
+
+.operator-hero-terminal {
+  display: grid;
+  gap: 1rem;
+}
+
+.operator-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(8, 10, 18, 0.78);
+}
+
+.mode-band,
+.operator-step-grid,
+.trust-grid,
+.evidence-grid,
+.memory-step-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.mode-band {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  background: rgba(8, 10, 18, 0.82);
+}
+
+.operator-step-grid,
+.trust-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.evidence-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.memory-step-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.openclaw-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+  gap: 2rem;
+  align-items: center;
+  padding: 2rem;
+  border: 1px solid rgba(103, 232, 249, 0.16);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(103, 232, 249, 0.08), rgba(255, 255, 255, 0.02));
+}
+
+@media (max-width: 1040px) {
+  .operator-hero-grid,
+  .openclaw-band {
+    grid-template-columns: 1fr;
+  }
+
+  .operator-step-grid,
+  .trust-grid,
+  .evidence-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mode-band,
+  .memory-step-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .operator-hero {
+    min-height: auto;
+    padding: 6rem 1.25rem 3.5rem;
+  }
+
+  .operator-hero-title {
+    font-size: 2.85rem;
+  }
+
+  .operator-section-title {
+    font-size: 2.05rem;
+  }
+
+  .operator-step-grid,
+  .trust-grid,
+  .evidence-grid,
+  .mode-band,
+  .memory-step-grid,
+  .operator-stat-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .openclaw-band {
+    padding: 1.25rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   21. Utility Classes
    -------------------------------------------------------------------------- */
 
 /* Focus ring for accessibility */

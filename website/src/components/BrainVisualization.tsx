@@ -1,5 +1,5 @@
 // @ts-nocheck — R3F JSX intrinsic elements are resolved at runtime by the Canvas
-import { useRef, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import {
   ACESFilmicToneMapping,
@@ -34,6 +34,56 @@ const NODE_COLORS: string[] = [
 const NODE_COLOR_OBJECTS = NODE_COLORS.map((c) => new Color(c));
 
 const EDGE_COLOR = new Color("#67e8f9");
+
+function canCreateWebGLContext(): boolean {
+  if (typeof document === "undefined") return false;
+
+  try {
+    const canvas = document.createElement("canvas");
+    const context =
+      canvas.getContext("webgl2") ||
+      canvas.getContext("webgl") ||
+      canvas.getContext("experimental-webgl");
+
+    if (!context) return false;
+
+    const loseContext = context.getExtension?.("WEBGL_lose_context");
+    loseContext?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function BrainVisualizationFallback() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        background:
+          "linear-gradient(135deg, rgba(103,232,249,0.12), rgba(167,139,250,0.05) 42%, rgba(3,4,8,0.72)), linear-gradient(180deg, rgba(3,4,8,0), rgba(3,4,8,0.86))",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: "8% -8%",
+          opacity: 0.34,
+          backgroundImage:
+            "linear-gradient(rgba(103,232,249,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(103,232,249,0.10) 1px, transparent 1px)",
+          backgroundSize: "72px 72px",
+          transform: "perspective(900px) rotateX(58deg) rotateZ(-8deg)",
+          transformOrigin: "center",
+        }}
+      />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Layout helpers – golden-ratio spherical clusters
@@ -621,6 +671,16 @@ function BrainScene() {
 // ---------------------------------------------------------------------------
 
 export function BrainVisualization() {
+  const [canRenderWebGL, setCanRenderWebGL] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setCanRenderWebGL(canCreateWebGLContext());
+  }, []);
+
+  if (canRenderWebGL !== true) {
+    return <BrainVisualizationFallback />;
+  }
+
   return (
     <div
       style={{

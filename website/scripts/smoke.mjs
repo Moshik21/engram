@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,17 +69,29 @@ const checks = [
   { path: "/science", includes: ["id=\"root\""] },
   { path: "/benchmarks", includes: ["id=\"root\""] },
   { path: "/roadmap", includes: ["id=\"root\""] },
+  { path: "/vision", includes: ["id=\"root\""] },
   {
     path: "/llms.txt",
-    includes: ["Native Helix", "17-phase", "27 tools", "OpenClaw"],
+    includes: ["Operator startup", "Native Helix", "17-phase", "27 tools", "OpenClaw", "uninstall --purge-data"],
     excludes: ["15-phase", "19 tools", "Dual mode"],
   },
   {
     path: "/llms-full.txt",
-    includes: ["Native Helix", "17-Phase Consolidation", "27 MCP tools", "engram-brain"],
+    includes: ["operator surface", "Native Helix", "17-Phase Consolidation", "27 MCP tools", "engram-brain", "uninstall --purge-data"],
     excludes: ["15-Phase", "19 tools exposed", "Dual Mode"],
   },
 ];
+
+async function readBuiltAssetsText() {
+  const assetsDir = path.join(dist, "assets");
+  const names = await readdir(assetsDir);
+  const chunks = await Promise.all(
+    names
+      .filter((name) => name.endsWith(".js") || name.endsWith(".css"))
+      .map((name) => readFile(path.join(assetsDir, name), "utf8")),
+  );
+  return chunks.join("\n");
+}
 
 try {
   for (const check of checks) {
@@ -98,6 +110,23 @@ try {
       if (body.includes(rejected)) {
         throw new Error(`${check.path} still included stale text ${JSON.stringify(rejected)}`);
       }
+    }
+  }
+
+  const builtAssets = await readBuiltAssetsText();
+  const assetIncludes = [
+    "Install a local brain",
+    "engramctl storage",
+    "engramctl doctor",
+    "engramctl bootstrap /path/to/project",
+    "engram-brain",
+    "OPERATOR TASK FLOW",
+    "How To Read This",
+    "uninstall --purge-data",
+  ];
+  for (const expected of assetIncludes) {
+    if (!builtAssets.includes(expected)) {
+      throw new Error(`built assets did not include ${JSON.stringify(expected)}`);
     }
   }
 

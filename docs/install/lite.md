@@ -134,7 +134,7 @@ Both modes get the complete Engram feature set:
 - Prospective memory (intentions)
 - Activation-aware retrieval with spreading activation
 - Hybrid search (FTS5 + vectors, RRF fusion)
-- MCP server (26 tools) + REST API
+- MCP server (27 tools) + REST API
 - WebSocket API
 
 **Full mode adds** (scale/perf/infrastructure):

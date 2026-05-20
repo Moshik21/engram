@@ -6,6 +6,8 @@
 
 Engram gives AI agents a brain that persists across sessions. Instead of resetting when a conversation ends, Engram captures episodes, extracts entities and relationships, builds a knowledge graph, recalls relevant context through cues and activation, and consolidates the graph in the background.
 
+The public website is designed as an operator surface, not only a vision page. It should let a new user understand the install path, supported agents, storage paths, MCP connection, project bootstrap, doctor verification, delete-data path, and memory lifecycle without opening the README first.
+
 The product model is one brain per person, not one brain per project. Projects are topology inside the same knowledge graph, not separate tenants by default.
 
 ## Runtime Paths
@@ -25,6 +27,16 @@ engramctl bootstrap /path/to/project
 ```
 
 `engramctl storage` reports resolved storage paths, disk usage, graph/cue counts, and growth since startup. Native Helix defaults to `~/.helix/engram-native`.
+
+Recommended operator flow:
+
+1. Install: `curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix`
+2. Start: `engramctl start`
+3. Connect: `engramctl connect claude-code`
+4. Bootstrap: `engramctl bootstrap /path/to/project`
+5. Inspect storage: `engramctl storage`
+6. Verify readiness: `engramctl doctor`
+7. Troubleshoot or delete data: `engramctl logs`, `engramctl uninstall`, or `engramctl uninstall --purge-data`
 
 ### Lite Fallback
 
@@ -81,6 +93,17 @@ Expected OpenClaw MCP entry:
   "transport": "streamable-http"
 }
 ```
+
+## Operator Trust Surfaces
+
+- Native Helix/PyO3 is the recommended no-Docker path.
+- Lite is a SQLite fallback/demo path.
+- Docker full is explicit legacy compatibility for the FalkorDB + Redis stack.
+- Basic deterministic capture and recall can run without an API key; richer extraction can use Anthropic or local Ollama.
+- `engramctl storage` and `/api/storage` expose resolved paths, disk usage, graph/cue counts, and growth since startup.
+- The dashboard mirrors storage diagnostics, lifecycle stage health, and runtime readiness.
+- `engramctl doctor` is the local readiness gate before trusting the runtime.
+- `engramctl uninstall --purge-data` is the explicit delete-data path.
 
 ## Lifecycle
 

@@ -1,96 +1,151 @@
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { ScrollReveal } from "../components/ScrollReveal";
-import { MemoryFlowDiagram } from "../components/MemoryFlowDiagram";
-import { ComparisonTable } from "../components/ComparisonTable";
 import { BenchmarkShowcase } from "../components/BenchmarkShowcase";
-import { FeatureCard } from "../components/FeatureCard";
+import { BrainVisualization } from "../components/BrainVisualization";
+import { MemoryFlowDiagram } from "../components/MemoryFlowDiagram";
+import { ScrollReveal } from "../components/ScrollReveal";
 
-const BrainVisualization = lazy(async () => {
-  const mod = await import("../components/BrainVisualization");
-  return { default: mod.BrainVisualization };
-});
+const BrainScene = lazy(async () => ({ default: BrainVisualization }));
 
-/* ───────────────────────────── constants ───────────────────────────── */
+const LIFECYCLE = "Capture -> Cue -> Project -> Recall -> Consolidate";
 
-const PROOF_PILLS = [
-  "Private by default",
-  "Works with MCP agents",
-  "Helix native first",
-  "OpenClaw ready",
-  "Cue-based memory",
-] as const;
+const AGENTS = ["Claude Code", "Cursor", "Windsurf", "Claude Desktop", "OpenClaw"] as const;
 
-const PROBLEM_CARDS = [
+const OPERATOR_STEPS = [
   {
-    heading: "Chat history is not durable memory.",
-    body: "Scrollback disappears between sessions, gets truncated to fit context limits, and carries no structure. It is a log, not a brain.",
+    label: "Install",
+    command: "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix",
+    detail: "Native Helix through PyO3. Full graph, vector, and BM25 memory without Docker.",
   },
   {
-    heading: "Bigger context windows are expensive and indiscriminate.",
-    body: "Stuffing 200k tokens into every call burns money, slows inference, and treats every past utterance as equally important. Most of it is noise.",
+    label: "Start",
+    command: "engramctl start",
+    detail: "Runs the local Engram API and MCP runtime on your machine.",
   },
   {
-    heading: "Retrieval alone does not create continuity.",
-    body: "Vector search finds similar text, but similarity is not relevance. Without cue-based activation, temporal context, and background consolidation, retrieval is just keyword search with extra steps.",
-  },
-] as const;
-
-const HOW_CARDS = [
-  {
-    title: "Observe fast",
-    description:
-      "Store conversations immediately without forcing expensive extraction. Most turns are low-signal \u2014 capture them cheaply and let consolidation decide what matters later.",
+    label: "Connect",
+    command: "engramctl connect claude-code",
+    detail: "Writes MCP client config for the local streamable HTTP endpoint.",
   },
   {
-    title: "Recall with cues",
-    description:
-      "Surface latent memory traces before full projection. Cue-based recall activates relevant memories using spreading activation, not just embedding similarity.",
+    label: "Bootstrap",
+    command: "engramctl bootstrap /path/to/project",
+    detail: "Indexes user-approved project docs, notes, and exports as cueable context.",
   },
   {
-    title: "Learn from actual use",
-    description:
-      "Distinguish surfaced from used memory. When the agent actually references a recalled fact, that feedback strengthens the trace. Ignored recalls decay naturally.",
+    label: "Inspect",
+    command: "engramctl storage",
+    detail: "Shows resolved storage paths, disk usage, graph counts, and growth.",
   },
   {
-    title: "Consolidate offline",
-    description:
-      "Triage, project, adjudicate, calibrate, immunize, and dream in the background. The full consolidation loop sharpens the graph without blocking inference.",
+    label: "Verify",
+    command: "engramctl doctor",
+    detail: "Checks startup readiness, lifecycle state, and local smoke evidence.",
   },
 ] as const;
 
-const CONTINUITY_ITEMS = [
-  "The agent remembers relevant facts without you repeating them.",
-  "Lower-value turns stay latent until they prove useful.",
-  "Important memories become structured and durable.",
-  "Old noise fades instead of polluting every future recall.",
-  "Memory quality improves over weeks, not just within one session.",
+const TRUST_BLOCKS = [
+  {
+    label: "Default backend",
+    title: "Native Helix first",
+    body: "The public path is PyO3 native Helix: graph, vector, and BM25 in-process with no Docker requirement.",
+    evidence: "engramctl quickstart --mode helix",
+  },
+  {
+    label: "Fallbacks",
+    title: "Lite and Docker are explicit",
+    body: "Lite is the SQLite fallback/demo path. Docker full is the compatibility lane when you specifically need it.",
+    evidence: "bash -s -- lite | bash -s -- full",
+  },
+  {
+    label: "Storage",
+    title: "You can see where memory lives",
+    body: "Native Helix defaults to ~/.helix/engram-native. Lite defaults to ~/.engram/engram.db.",
+    evidence: "engramctl storage",
+  },
+  {
+    label: "Extraction",
+    title: "No API key for deterministic basics",
+    body: "Anthropic improves extraction quality, but the narrow deterministic pipeline can run without an LLM key.",
+    evidence: "extraction_provider=auto|narrow",
+  },
+  {
+    label: "Control",
+    title: "Removal is visible",
+    body: "Uninstall preserves data by default. Purge mode removes local Engram data when the user chooses it.",
+    evidence: "engramctl uninstall --purge-data",
+  },
+  {
+    label: "Lifecycle",
+    title: "Memory is auditable",
+    body: "Doctor, lifecycle, evaluation, storage, and dashboard surfaces show what the brain is doing.",
+    evidence: LIFECYCLE,
+  },
 ] as const;
 
-const USE_CASES = [
+const MEMORY_STEPS = [
   {
-    title: "Coding agents",
-    description:
-      "Architecture decisions, naming conventions, past bugs, library preferences \u2014 recalled automatically across sessions instead of re-explained every time.",
+    title: "Capture",
+    body: "observe and remember write episodes without forcing every turn into durable knowledge.",
   },
   {
-    title: "Personal AI",
-    description:
-      "Health context, relationship notes, goals, ongoing threads. One private brain that accumulates understanding of your life over months.",
+    title: "Cue",
+    body: "latent traces keep fresh observations searchable before full projection.",
   },
   {
-    title: "Research & writing",
-    description:
-      "Source material, evolving arguments, reviewer feedback, style preferences. Memory that matures alongside the work itself.",
+    title: "Project",
+    body: "triage and projection extract evidence into entities, facts, and relationships.",
   },
   {
-    title: "Team assistants",
-    description:
-      "Project timelines, decision history, stakeholder preferences, recurring patterns. Continuity that survives member turnover.",
+    title: "Recall",
+    body: "agents search memories, artifacts, and cues through MCP before answering.",
+  },
+  {
+    title: "Consolidate",
+    body: "background phases merge, calibrate, prune, immunize, mature, and reinforce the graph.",
   },
 ] as const;
 
-/* ────────────────────────────── styles ─────────────────────────────── */
+const EVIDENCE_PANELS = [
+  {
+    title: "Storage diagnostics",
+    label: "Dashboard / CLI",
+    content: [
+      "Backend: helix_native",
+      "Data: ~/.helix/engram-native",
+      "SQLite companion: ~/.engram/engram.db",
+      "Growth: +4 episodes, +7 entities, +12 edges",
+      "Command: engramctl storage",
+    ],
+  },
+  {
+    title: "Doctor readiness",
+    label: "Operator gate",
+    content: [
+      "Mode: helix",
+      "API: ready",
+      "MCP: ready",
+      "Lifecycle: capture/cue/project/recall/consolidate ready",
+      "Command: engramctl doctor",
+    ],
+  },
+  {
+    title: "MCP connection",
+    label: "Agent config",
+    content: [
+      '"url": "http://127.0.0.1:8100/mcp"',
+      '"transport": "streamable-http"',
+      "Clients: Claude Code, Cursor, Windsurf, OpenClaw",
+      "Command: engramctl connect claude-code",
+    ],
+  },
+] as const;
+
+const OPENCLAW_COMMANDS = [
+  "openclaw skills install engram-brain",
+  "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw",
+  "engramctl doctor",
+] as const;
 
 const serif: CSSProperties = { fontFamily: '"Instrument Serif", serif', fontStyle: "italic" };
 const body: CSSProperties = { fontFamily: '"Outfit", sans-serif' };
@@ -98,29 +153,30 @@ const mono: CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
 
 const section: CSSProperties = {
   position: "relative",
-  padding: "7rem 1.5rem",
-};
-
-const narrowContainer: CSSProperties = {
-  maxWidth: 720,
-  marginInline: "auto",
+  padding: "clamp(4.5rem, 9vw, 7rem) 1.5rem",
 };
 
 const wideContainer: CSSProperties = {
-  maxWidth: 1100,
+  maxWidth: 1180,
+  marginInline: "auto",
+};
+
+const narrowContainer: CSSProperties = {
+  maxWidth: 760,
   marginInline: "auto",
 };
 
 const heading: CSSProperties = {
   ...serif,
   color: "var(--text-primary)",
-  lineHeight: 1.2,
-  marginBottom: "1.5rem",
+  lineHeight: 1.14,
+  marginBottom: "1.2rem",
 };
 
 const bodyText: CSSProperties = {
-  fontSize: "1.125rem",
-  lineHeight: 1.7,
+  ...body,
+  fontSize: "1.06rem",
+  lineHeight: 1.75,
   color: "var(--text-secondary)",
 };
 
@@ -128,18 +184,16 @@ const cardBase: CSSProperties = {
   background: "var(--surface)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-lg)",
-  padding: "2rem",
-  height: "100%",
-  transition: "border-color 300ms ease, box-shadow 300ms ease, transform 300ms ease",
+  padding: "1.35rem",
 };
 
-const glowCard: CSSProperties = {
-  background: "var(--surface)",
-  border: "1px solid rgba(103, 232, 249, 0.2)",
+const codeCard: CSSProperties = {
+  ...mono,
+  overflow: "hidden",
   borderRadius: "var(--radius-lg)",
-  backdropFilter: "blur(24px) saturate(1.2)",
-  boxShadow: "0 0 24px rgba(103, 232, 249, 0.06)",
-  padding: "2rem 2.5rem",
+  border: "1px solid rgba(103,232,249,0.16)",
+  background: "linear-gradient(180deg, rgba(10,12,22,0.96), rgba(3,4,8,0.94))",
+  boxShadow: "0 18px 70px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
 };
 
 const btnPrimary: CSSProperties = {
@@ -147,76 +201,42 @@ const btnPrimary: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   gap: "0.5rem",
-  padding: "0.75rem 1.75rem",
+  padding: "0.8rem 1.2rem",
   ...body,
-  fontSize: "0.9375rem",
-  fontWeight: 500,
-  lineHeight: 1.4,
+  fontSize: "0.94rem",
+  fontWeight: 600,
+  lineHeight: 1.35,
   borderRadius: "var(--radius-md)",
   background: "var(--accent)",
   color: "var(--text-inverse)",
   border: "1px solid transparent",
-  boxShadow: "0 1px 2px rgba(0,0,0,0.3), 0 0 16px rgba(103,232,249,0.06)",
   textDecoration: "none",
   whiteSpace: "nowrap",
 };
 
 const btnSecondary: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "0.5rem",
-  padding: "0.75rem 1.75rem",
-  ...body,
-  fontSize: "0.9375rem",
-  fontWeight: 500,
-  lineHeight: 1.4,
-  borderRadius: "var(--radius-md)",
-  background: "transparent",
+  ...btnPrimary,
+  background: "rgba(255,255,255,0.025)",
   color: "var(--text-primary)",
   border: "1px solid rgba(255,255,255,0.08)",
-  textDecoration: "none",
-  whiteSpace: "nowrap",
 };
 
-/* ────────────────────────────── helpers ────────────────────────────── */
-
-function ChevronDown() {
+function Label({ children }: { children: string }) {
   return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ color: "var(--text-muted)" }}
+    <span
+      style={{
+        ...mono,
+        display: "block",
+        marginBottom: 14,
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: "#67e8f9",
+      }}
     >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  );
-}
-
-function AccentCheck() {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      fill="none"
-      style={{ flexShrink: 0, marginTop: 2 }}
-    >
-      <circle cx="10" cy="10" r="10" fill="var(--accent)" fillOpacity="0.12" />
-      <path
-        d="M6 10.5l2.5 2.5L14 7.5"
-        stroke="var(--accent)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+      {children}
+    </span>
   );
 }
 
@@ -228,16 +248,151 @@ function BrainBackdropFallback() {
         position: "absolute",
         inset: 0,
         background:
-          "radial-gradient(circle at 50% 42%, rgba(103,232,249,0.18), transparent 24%), radial-gradient(circle at 32% 56%, rgba(167,139,250,0.12), transparent 22%), radial-gradient(circle at 68% 58%, rgba(52,211,153,0.10), transparent 20%), linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0))",
-        filter: "blur(8px)",
+          "linear-gradient(145deg, rgba(103,232,249,0.12), rgba(3,4,8,0.18) 38%, rgba(3,4,8,0.82)), linear-gradient(180deg, rgba(3,4,8,0.0), rgba(3,4,8,0.8))",
+        filter: "blur(4px)",
       }}
     />
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   HOMEPAGE
-   ═══════════════════════════════════════════════════════════════════════ */
+function TerminalBlock({
+  label,
+  commands,
+  footer,
+}: {
+  label: string;
+  commands: readonly string[];
+  footer?: string;
+}) {
+  return (
+    <div style={codeCard}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "12px 16px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <span style={{ fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+          {label}
+        </span>
+        <span style={{ display: "flex", gap: 5 }}>
+          {[0, 1, 2].map((dot) => (
+            <span key={dot} style={{ width: 7, height: 7, borderRadius: 999, background: "rgba(255,255,255,0.10)" }} />
+          ))}
+        </span>
+      </div>
+      <div style={{ padding: "18px 18px 20px", display: "grid", gap: 10 }}>
+        {commands.map((command) => (
+          <div key={command} style={{ fontSize: 12.5, lineHeight: 1.65, color: "#67e8f9", wordBreak: "break-word" }}>
+            <span style={{ color: "var(--text-muted)", userSelect: "none" }}>$ </span>
+            {command}
+          </div>
+        ))}
+      </div>
+      {footer ? (
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "12px 18px", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.6 }}>
+          {footer}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatStrip() {
+  return (
+    <div className="operator-stat-strip">
+      {[
+        ["Default", "Native Helix / PyO3"],
+        ["Fallback", "SQLite lite"],
+        ["Agent path", "MCP + OpenClaw"],
+        ["Lifecycle", LIFECYCLE],
+      ].map(([label, value]) => (
+        <div key={label} style={{ minWidth: 0 }}>
+          <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>
+            {label}
+          </div>
+          <div style={{ ...body, fontSize: 14, color: "var(--text-primary)", lineHeight: 1.35 }}>
+            {value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StepCard({ step, index }: { step: (typeof OPERATOR_STEPS)[number]; index: number }) {
+  return (
+    <article style={{ ...cardBase, display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span
+          style={{
+            ...mono,
+            display: "grid",
+            placeItems: "center",
+            width: 30,
+            height: 30,
+            borderRadius: 8,
+            background: "rgba(103,232,249,0.10)",
+            color: "#67e8f9",
+            fontSize: 12,
+          }}
+        >
+          {String(index + 1).padStart(2, "0")}
+        </span>
+        <h3 style={{ ...body, fontSize: 17, fontWeight: 600 }}>{step.label}</h3>
+      </div>
+      <code style={{ ...mono, display: "block", fontSize: 12, lineHeight: 1.6, color: "#67e8f9", wordBreak: "break-word" }}>
+        {step.command}
+      </code>
+      <p style={{ ...body, color: "var(--text-secondary)", fontSize: 14, lineHeight: 1.65, margin: 0 }}>
+        {step.detail}
+      </p>
+    </article>
+  );
+}
+
+function TrustBlock({ item }: { item: (typeof TRUST_BLOCKS)[number] }) {
+  return (
+    <article style={{ ...cardBase, minHeight: "100%" }}>
+      <div style={{ ...mono, fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase", color: "#67e8f9", marginBottom: 10 }}>
+        {item.label}
+      </div>
+      <h3 style={{ ...body, fontSize: 18, fontWeight: 600, marginBottom: 10 }}>{item.title}</h3>
+      <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.65, fontSize: 14, marginBottom: 14 }}>
+        {item.body}
+      </p>
+      <code style={{ ...mono, fontSize: 11.5, lineHeight: 1.6, color: "var(--text-primary)", wordBreak: "break-word" }}>
+        {item.evidence}
+      </code>
+    </article>
+  );
+}
+
+function EvidencePanel({ panel }: { panel: (typeof EVIDENCE_PANELS)[number] }) {
+  return (
+    <article style={{ ...codeCard, height: "100%" }}>
+      <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ ...mono, fontSize: 10, color: "#67e8f9", letterSpacing: "0.13em", textTransform: "uppercase", marginBottom: 5 }}>
+          {panel.label}
+        </div>
+        <h3 style={{ ...body, fontSize: 17, fontWeight: 600 }}>{panel.title}</h3>
+      </div>
+      <div style={{ padding: 16, display: "grid", gap: 10 }}>
+        {panel.content.map((line) => (
+          <div key={line} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span style={{ width: 7, height: 7, marginTop: 8, borderRadius: 99, background: "var(--accent)", boxShadow: "0 0 12px rgba(103,232,249,0.35)", flexShrink: 0 }} />
+            <code style={{ ...mono, color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.6, wordBreak: "break-word" }}>
+              {line}
+            </code>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
 
 export function HomePage() {
   const [shouldLoadScene, setShouldLoadScene] = useState(false);
@@ -245,9 +400,7 @@ export function HomePage() {
   useEffect(() => {
     const onIdle = () => setShouldLoadScene(true);
 
-    if (typeof window === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
@@ -255,7 +408,7 @@ export function HomePage() {
     };
 
     if (idleWindow.requestIdleCallback) {
-      const idleId = idleWindow.requestIdleCallback(onIdle, { timeout: 1200 });
+      const idleId = idleWindow.requestIdleCallback(onIdle, { timeout: 1000 });
       return () => idleWindow.cancelIdleCallback?.(idleId);
     }
 
@@ -265,372 +418,300 @@ export function HomePage() {
 
   return (
     <main style={{ position: "relative", overflowX: "hidden", background: "var(--void)", color: "var(--text-primary)" }}>
-      {/* ── SECTION 1: HERO ──────────────────────────────────────────── */}
-      <section style={{ position: "relative", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        {/* Brain visualization background */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 0 }}>
+      <section className="operator-hero">
+        <div style={{ position: "absolute", inset: 0, zIndex: 0, opacity: 0.62 }}>
           {shouldLoadScene ? (
             <Suspense fallback={<BrainBackdropFallback />}>
-              <BrainVisualization />
+              <BrainScene />
             </Suspense>
           ) : (
             <BrainBackdropFallback />
           )}
         </div>
-
-        {/* Vignette overlay */}
         <div
+          aria-hidden="true"
           style={{
             position: "absolute",
             inset: 0,
             zIndex: 1,
             pointerEvents: "none",
-            background: "radial-gradient(ellipse 80% 70% at 50% 45%, transparent 0%, var(--void) 100%)",
+            background:
+              "linear-gradient(90deg, rgba(3,4,8,0.96) 0%, rgba(3,4,8,0.84) 48%, rgba(3,4,8,0.52) 100%), linear-gradient(150deg, rgba(103,232,249,0.08), transparent 46%)",
           }}
         />
 
-        {/* Content */}
-        <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "0 1.5rem", maxWidth: 780, marginInline: "auto" }}>
-          <ScrollReveal>
-            <span className="pill" style={{ ...mono, fontSize: "0.75rem", letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 24, display: "inline-block" }}>
-              Private Memory for AI Agents
-            </span>
-          </ScrollReveal>
+        <div className="operator-hero-grid" style={{ position: "relative", zIndex: 2 }}>
+          <div>
+            <ScrollReveal>
+              <span className="pill pill-accent" style={{ marginBottom: 22 }}>
+                Local long-term memory for AI agents
+              </span>
+            </ScrollReveal>
+            <ScrollReveal delay={80}>
+              <h1 className="operator-hero-title" style={{ ...serif, lineHeight: 1.02, marginBottom: 22, maxWidth: 780 }}>
+                Install a local brain your agents can actually use.
+              </h1>
+            </ScrollReveal>
+            <ScrollReveal delay={140}>
+              <p style={{ ...bodyText, fontSize: "1.15rem", maxWidth: 680, marginBottom: 28 }}>
+                Engram runs on your machine, connects through MCP, stores memory in local paths you can inspect, and keeps the memory loop visible from capture through consolidation.
+              </p>
+            </ScrollReveal>
+            <ScrollReveal delay={200}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
+                <Link to="/docs" style={btnPrimary}>
+                  Install Engram
+                </Link>
+                <Link to="/docs#openclaw" style={btnSecondary}>
+                  OpenClaw setup
+                </Link>
+                <Link to="/benchmarks" style={btnSecondary}>
+                  Read benchmark method
+                </Link>
+              </div>
+            </ScrollReveal>
+            <ScrollReveal delay={260}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {AGENTS.map((agent) => (
+                  <span key={agent} className="pill">
+                    {agent}
+                  </span>
+                ))}
+              </div>
+            </ScrollReveal>
+          </div>
 
-          <ScrollReveal delay={100}>
-            <h1 style={{ ...serif, fontSize: "clamp(2.5rem, 5.5vw, 4rem)", lineHeight: 1.12, marginBottom: 24, color: "var(--text-primary)" }}>
-              AI needs a brain,
-              <br style={{ display: "none" }} /> not just a context window.
-            </h1>
-          </ScrollReveal>
-
-          <ScrollReveal delay={200}>
-            <p style={{ ...body, fontSize: "clamp(1.125rem, 2vw, 1.25rem)", lineHeight: 1.7, color: "var(--text-secondary)", maxWidth: 640, marginBottom: 40 }}>
-              Engram gives AI agents private long-term memory: episodic capture,
-              cue-based recall, structured knowledge, and background
-              consolidation that improves continuity over time.
-            </p>
-          </ScrollReveal>
-
-          <ScrollReveal delay={300}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "center", marginBottom: 48 }}>
-              <Link to="/docs" style={btnPrimary}>
-                Get Started
-              </Link>
-              <Link to="/science" style={btnSecondary}>
-                Read The Architecture
-              </Link>
+          <ScrollReveal delay={170}>
+            <div className="operator-hero-terminal">
+              <TerminalBlock
+                label="Recommended startup"
+                commands={[
+                  "engramctl quickstart --mode helix",
+                  "engramctl start",
+                  "engramctl status",
+                  "engramctl storage",
+                  "engramctl doctor",
+                  "engramctl connect claude-code",
+                  "engramctl bootstrap /path/to/project",
+                ]}
+                footer="Native Helix/PyO3 is the default no-Docker path. Lite is fallback/demo. Docker full is compatibility."
+              />
+              <StatStrip />
             </div>
           </ScrollReveal>
+        </div>
+      </section>
 
-          <ScrollReveal delay={400}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
-              {PROOF_PILLS.map((label) => (
-                <span
-                  key={label}
-                  className="pill"
-                  style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}
-                >
-                  {label}
-                </span>
+      <section style={{ padding: "1.4rem 1.5rem 4.5rem" }}>
+        <div style={wideContainer}>
+          <ScrollReveal>
+            <div className="mode-band">
+              {[
+                ["Native Helix", "Recommended", "PyO3 in-process graph, vector, and BM25 with no Docker."],
+                ["Lite", "Fallback/demo", "SQLite path for disposable local testing and smoke checks."],
+                ["Docker full", "Compatibility", "Explicit FalkorDB + Redis lane when that stack is required."],
+                ["OpenClaw", "First-class", "Install the engram-brain skill and connect to the local MCP runtime."],
+              ].map(([title, badge, description]) => (
+                <div key={title}>
+                  <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#67e8f9", marginBottom: 8 }}>{badge}</div>
+                  <h2 style={{ ...body, fontSize: 18, fontWeight: 600, marginBottom: 6 }}>{title}</h2>
+                  <p style={{ ...body, color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>{description}</p>
+                </div>
               ))}
             </div>
           </ScrollReveal>
         </div>
-
-        {/* Scroll indicator */}
-        <div className="animate-bounce" style={{ position: "absolute", bottom: 32, zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-          <ChevronDown />
-          <ChevronDown />
-        </div>
       </section>
 
-      {/* ── SECTION 2: THE PROBLEM ───────────────────────────────────── */}
       <section style={section}>
-        <div style={{ ...narrowContainer, marginBottom: 64 }}>
+        <div style={{ ...wideContainer, display: "grid", gap: 34 }}>
           <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.75rem)" }}>
-              Most AI is smart in the moment and forgetful across time.
-            </h2>
-          </ScrollReveal>
-          <ScrollReveal delay={100}>
-            <p style={bodyText}>
-              Today&rsquo;s agents lose everything between sessions. They
-              re-discover your preferences, re-learn your codebase, and
-              re-ask questions you answered last week. The continuity
-              problem is not about intelligence &mdash; it is about
-              memory architecture.
-            </p>
-          </ScrollReveal>
-        </div>
-
-        <div style={wideContainer}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
-            {PROBLEM_CARDS.map((card, i) => (
-              <ScrollReveal key={card.heading} delay={i * 120}>
-                <div style={{ ...cardBase, display: "flex", flexDirection: "column" }}>
-                  <div className="accent-bar" style={{ marginBottom: 16 }} />
-                  <h3 style={{ ...body, fontSize: "1.125rem", fontWeight: 500, marginBottom: 12, color: "var(--text-primary)" }}>
-                    {card.heading}
-                  </h3>
-                  <p style={{ fontSize: "0.9375rem", lineHeight: 1.7, color: "var(--text-secondary)", flex: 1 }}>
-                    {card.body}
-                  </p>
-                </div>
-              </ScrollReveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── SECTION 3: THE THESIS ────────────────────────────────────── */}
-      <section style={section}>
-        <div style={narrowContainer}>
-          <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(2rem, 4vw, 3rem)", marginBottom: 32 }}>
-              One brain per person.
-            </h2>
-          </ScrollReveal>
-
-          <ScrollReveal delay={100}>
-            <p style={{ ...bodyText, marginBottom: 40 }}>
-              Engram is built around a simple model: each person gets one
-              private brain for their AI. Work, projects, goals,
-              preferences, relationships, health context, and ongoing
-              threads belong to the same private memory graph. Projects
-              become neighborhoods in memory, not hard silos that block
-              useful connections.
-            </p>
-          </ScrollReveal>
-
-          <ScrollReveal delay={200}>
-            <div style={glowCard}>
-              <p style={{ ...serif, fontSize: "clamp(1.25rem, 2.5vw, 1.5rem)", lineHeight: 1.4, color: "var(--accent)" }}>
-                &ldquo;Projects are topology, not tenancy.&rdquo;
+            <div style={narrowContainer}>
+              <Label>Operator path</Label>
+              <h2 className="operator-section-title" style={heading}>
+                From zero install to inspected memory in six commands.
+              </h2>
+              <p style={bodyText}>
+                Start with the path a new operator actually needs: install the local runtime, connect an agent, bootstrap context, inspect storage, and verify readiness.
               </p>
             </div>
           </ScrollReveal>
-        </div>
-      </section>
-
-      {/* ── SECTION 4: HOW IT WORKS ──────────────────────────────────── */}
-      <section style={section}>
-        <div style={{ ...narrowContainer, marginBottom: 64 }}>
-          <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)" }}>
-              Memory that starts cheap and becomes structured only when it
-              earns it.
-            </h2>
-          </ScrollReveal>
-        </div>
-
-        <div style={{ ...wideContainer, marginBottom: 64 }}>
-          <ScrollReveal delay={100}>
-            <MemoryFlowDiagram />
-          </ScrollReveal>
-        </div>
-
-        <div style={wideContainer}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
-            {HOW_CARDS.map((card, i) => (
-              <ScrollReveal key={card.title} delay={i * 100}>
-                <FeatureCard
-                  title={card.title}
-                  description={card.description}
-                />
+          <div className="operator-step-grid">
+            {OPERATOR_STEPS.map((step, index) => (
+              <ScrollReveal key={step.label} delay={index * 50}>
+                <StepCard step={step} index={index} />
               </ScrollReveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── SECTION 5: COMPARISON ────────────────────────────────────── */}
       <section style={section}>
-        <div style={{ ...narrowContainer, marginBottom: 64 }}>
-          <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)" }}>
-              Built like a memory system, not a prompt stuffing trick.
-            </h2>
-          </ScrollReveal>
-        </div>
-
         <div style={wideContainer}>
-          <ScrollReveal delay={100}>
-            <ComparisonTable />
+          <ScrollReveal>
+            <div style={{ ...narrowContainer, marginBottom: 34 }}>
+              <Label>Trust surface</Label>
+              <h2 className="operator-section-title" style={heading}>
+                Memory is only useful if the operator can inspect and control it.
+              </h2>
+              <p style={bodyText}>
+                Engram keeps the mechanics visible: backend mode, storage paths, startup checks, project bootstrap, no-Docker defaults, deterministic fallback extraction, and delete-data paths.
+              </p>
+            </div>
           </ScrollReveal>
+          <div className="trust-grid">
+            {TRUST_BLOCKS.map((item, index) => (
+              <ScrollReveal key={item.title} delay={index * 45}>
+                <TrustBlock item={item} />
+              </ScrollReveal>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ── SECTION 6: BENCHMARK ─────────────────────────────────────── */}
       <section style={section}>
-        <div style={{ ...narrowContainer, marginBottom: 48 }}>
+        <div style={wideContainer}>
           <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)" }}>
-              Measured against fair baselines, not just described.
-            </h2>
+            <div style={{ ...narrowContainer, marginBottom: 34 }}>
+              <Label>Product evidence</Label>
+              <h2 className="operator-section-title" style={heading}>
+                Show the runtime, not just the promise.
+              </h2>
+              <p style={bodyText}>
+                Engram exposes concrete runtime signals: dashboard-style storage diagnostics, doctor readiness, and the MCP config agents use to reach the local brain.
+              </p>
+            </div>
           </ScrollReveal>
-          <ScrollReveal delay={80}>
-            <p style={{ ...bodyText, marginBottom: 0 }}>
-              The benchmark section below renders exported benchmark artifacts from the real suite: stronger baseline comparisons, fixed retrieval budgets, and deterministic scenario scoring.
-            </p>
+          <div className="evidence-grid">
+            {EVIDENCE_PANELS.map((panel, index) => (
+              <ScrollReveal key={panel.title} delay={index * 80}>
+                <EvidencePanel panel={panel} />
+              </ScrollReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section style={section}>
+        <div style={wideContainer}>
+          <div className="openclaw-band">
+            <ScrollReveal>
+              <div>
+                <Label>OpenClaw</Label>
+                <h2 className="operator-section-title" style={heading}>
+                  First-class memory for OpenClaw agents.
+                </h2>
+                <p style={{ ...bodyText, marginBottom: 22 }}>
+                  The OpenClaw path installs the public `engram-brain` skill, configures MCP at `http://127.0.0.1:8100/mcp`, uses native Helix by default, and runs `engramctl doctor`.
+                </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <Link to="/docs#openclaw" style={btnPrimary}>
+                    OpenClaw install docs
+                  </Link>
+                  <a href="https://github.com/Moshik21/engram" target="_blank" rel="noopener noreferrer" style={btnSecondary}>
+                    View skill source
+                  </a>
+                </div>
+              </div>
+            </ScrollReveal>
+            <ScrollReveal delay={100}>
+              <TerminalBlock label="OpenClaw commands" commands={OPENCLAW_COMMANDS} />
+            </ScrollReveal>
+          </div>
+        </div>
+      </section>
+
+      <section style={section}>
+        <div style={{ ...wideContainer, display: "grid", gap: 42 }}>
+          <ScrollReveal>
+            <div style={narrowContainer}>
+              <Label>Memory loop</Label>
+              <h2 className="operator-section-title" style={heading}>
+                {LIFECYCLE}
+              </h2>
+              <p style={bodyText}>
+                Engram starts with cheap episodic capture, uses cues before projection, recalls through MCP, and consolidates offline so the graph improves without blocking active agent work.
+              </p>
+            </div>
           </ScrollReveal>
-          <ScrollReveal delay={140}>
-            <div style={{ marginTop: 20 }}>
-              <Link
-                to="/benchmarks"
-                style={{
-                  ...body,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 10,
-                  color: "var(--accent)",
-                  textDecoration: "none",
-                  fontSize: "0.98rem",
-                }}
-              >
-                Open the full benchmark page
-                <span style={{ ...mono, fontSize: 12, opacity: 0.75 }}>methodology + baseline specs</span>
+          <ScrollReveal delay={100}>
+            <MemoryFlowDiagram />
+          </ScrollReveal>
+          <div className="memory-step-grid">
+            {MEMORY_STEPS.map((step, index) => (
+              <ScrollReveal key={step.title} delay={index * 50}>
+                <article style={cardBase}>
+                  <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
+                    {String(index + 1).padStart(2, "0")}
+                  </div>
+                  <h3 style={{ ...body, fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{step.title}</h3>
+                  <p style={{ ...body, color: "var(--text-secondary)", fontSize: 14, lineHeight: 1.65 }}>{step.body}</p>
+                </article>
+              </ScrollReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section style={section}>
+        <div style={{ ...wideContainer, display: "grid", gap: 32 }}>
+          <ScrollReveal>
+            <div style={narrowContainer}>
+              <Label>Benchmarks</Label>
+              <h2 className="operator-section-title" style={heading}>
+                Read the method before the headline.
+              </h2>
+              <p style={bodyText}>
+                Benchmarks use equal retrieval budgets, deterministic scoring, measured controls, and clear spec-only targets so users can read the evidence without taking marketing copy on faith.
+              </p>
+              <Link to="/benchmarks" style={{ ...btnSecondary, marginTop: 20 }}>
+                Read methodology and caveats
               </Link>
             </div>
           </ScrollReveal>
-        </div>
-
-        <div style={wideContainer}>
           <ScrollReveal delay={120}>
             <BenchmarkShowcase />
           </ScrollReveal>
         </div>
       </section>
 
-      {/* ── SECTION 7: WHAT YOU GET ──────────────────────────────────── */}
       <section style={section}>
         <div style={narrowContainer}>
           <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)", marginBottom: 48 }}>
-              What continuity feels like in practice.
+            <Label>Architecture stays available</Label>
+            <h2 className="operator-section-title" style={heading}>
+              The science supports onboarding; it does not replace it.
             </h2>
-          </ScrollReveal>
-
-          <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 24 }}>
-            {CONTINUITY_ITEMS.map((item, i) => (
-              <ScrollReveal key={item} delay={i * 80}>
-                <li style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-                  <AccentCheck />
-                  <span style={{ ...bodyText }}>
-                    {item}
-                  </span>
-                </li>
-              </ScrollReveal>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      {/* ── SECTION 8: USE CASES ─────────────────────────────────────── */}
-      <section style={section}>
-        <div style={{ ...narrowContainer, marginBottom: 64 }}>
-          <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)" }}>
-              For agents that need continuity, not just recall.
-            </h2>
-          </ScrollReveal>
-        </div>
-
-        <div style={wideContainer}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 24 }}>
-            {USE_CASES.map((uc, i) => (
-              <ScrollReveal key={uc.title} delay={i * 100}>
-                <div style={cardBase}>
-                  <h3 style={{ ...body, fontSize: "1.125rem", fontWeight: 500, marginBottom: 12, color: "var(--text-primary)" }}>
-                    {uc.title}
-                  </h3>
-                  <p style={{ fontSize: "0.9375rem", lineHeight: 1.7, color: "var(--text-secondary)" }}>
-                    {uc.description}
-                  </p>
-                </div>
-              </ScrollReveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── SECTION 8: PRIVACY ───────────────────────────────────────── */}
-      <section style={section}>
-        <div style={narrowContainer}>
-          <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(1.75rem, 3.5vw, 2.5rem)", marginBottom: 32 }}>
-              If memory gets more useful, privacy gets more important.
-            </h2>
-          </ScrollReveal>
-
-          <ScrollReveal delay={100}>
             <p style={{ ...bodyText, marginBottom: 24 }}>
-              Engram runs locally or on infrastructure you control. Each
-              brain is sovereign &mdash; owned by its person, stored where
-              they choose, deletable at any time. There is no shared
-              memory pool, no cross-user training, no silent data
-              harvesting.
+              Engram still has the cognitive architecture story: ACT-R activation, cue-dependent recall, complementary learning systems, reconsolidation, and offline consolidation. The redesign puts installation and trust first, then lets users go deeper when they want the theory.
             </p>
-          </ScrollReveal>
-
-          <ScrollReveal delay={150}>
-            <p style={{ ...bodyText, marginBottom: 40 }}>
-              Future federated learning should work the same way
-              differential privacy works in other domains: aggregate
-              patterns from many brains without ever reading individual
-              memories. The policy layer travels with the brain, not the
-              platform.
-            </p>
-          </ScrollReveal>
-
-          <ScrollReveal delay={250}>
-            <div style={glowCard}>
-              <p style={{ ...serif, fontSize: "clamp(1.25rem, 2.5vw, 1.5rem)", lineHeight: 1.4, color: "var(--accent)" }}>
-                &ldquo;Learn from many private brains without reading
-                their thoughts.&rdquo;
-              </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <Link to="/science" style={btnSecondary}>
+                Science and architecture
+              </Link>
+              <Link to="/roadmap" style={btnSecondary}>
+                Roadmap
+              </Link>
             </div>
           </ScrollReveal>
         </div>
       </section>
 
-      {/* ── SECTION 9: CTA ───────────────────────────────────────────── */}
-      <section style={section}>
-        {/* Accent glow */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            background: "radial-gradient(ellipse 60% 50% at 50% 60%, rgba(103,232,249,0.06) 0%, transparent 70%)",
-          }}
-        />
-
-        <div style={{ ...narrowContainer, position: "relative", textAlign: "center" }}>
+      <section style={{ ...section, paddingBottom: "8rem" }}>
+        <div style={{ ...narrowContainer, textAlign: "center" }}>
           <ScrollReveal>
-            <h2 style={{ ...heading, fontSize: "clamp(2rem, 4.5vw, 3.25rem)", lineHeight: 1.15, marginBottom: 24 }}>
-              Give your AI continuity.
+            <h2 className="operator-section-title" style={heading}>
+              Install the local brain. Inspect it. Then let agents use it.
             </h2>
-          </ScrollReveal>
-
-          <ScrollReveal delay={100}>
-            <p style={{ ...bodyText, marginBottom: 40, maxWidth: 540, marginInline: "auto" }}>
-              Start with native Helix through PyO3: full graph, vector, and BM25
-              memory without Docker. Use lite as the fallback/demo path and Docker
-              full mode only when you explicitly need that compatibility lane.
+            <p style={{ ...bodyText, marginBottom: 32 }}>
+              Start with native Helix, connect an MCP client, bootstrap project context, inspect storage, and run doctor before trusting the runtime.
             </p>
-          </ScrollReveal>
-
-          <ScrollReveal delay={200}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "center" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
               <Link to="/docs" style={btnPrimary}>
-                Get Started
+                Start with docs
               </Link>
-              <Link to="/vision" style={btnSecondary}>
-                Read The Vision
-              </Link>
-              <Link to="/roadmap" style={btnSecondary}>
-                View Roadmap
+              <Link to="/docs#openclaw" style={btnSecondary}>
+                Install for OpenClaw
               </Link>
             </div>
           </ScrollReveal>

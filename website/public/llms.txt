@@ -2,7 +2,7 @@
 
 > Persistent long-term memory for AI agents. Temporal knowledge graphs, cue-based recall, ACT-R inspired activation, and 17-phase offline consolidation. Open source, privacy-first, runs locally.
 
-Engram gives AI agents one local brain that persists across sessions, projects, and compatible harnesses. It captures episodes cheaply, keeps latent cues searchable, projects durable evidence into a knowledge graph, recalls relevant context, and consolidates memory in the background.
+Engram gives AI agents one local brain that persists across sessions, projects, and compatible harnesses. The public website is operator-forward: install native Helix, connect an MCP client, bootstrap project context, inspect local storage, and run doctor before trusting the runtime.
 
 ## Recommended Startup
 
@@ -28,14 +28,25 @@ The OpenClaw path installs the `engram-brain` skill, configures MCP at `http://1
 
 ## Key Capabilities
 
+- **Operator startup**: Install -> Start -> Connect -> Bootstrap -> Inspect Storage -> Verify Doctor
 - **Lifecycle**: Capture -> Cue -> Project -> Recall -> Consolidate
 - **Native Helix**: PyO3 in-process graph/vector/BM25 backend with no Docker requirement
+- **Fallbacks**: Lite is SQLite fallback/demo; Docker full is explicit legacy compatibility
 - **CQRS ingestion**: `observe` for fast cueable capture, `remember` for full extraction
 - **Activation-aware recall**: recency, frequency, relevance, graph structure, and cue signals
 - **17-phase consolidation**: triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream
 - **Storage visibility**: `engramctl storage` and `/api/storage` show resolved paths, usage, counts, and growth
 - **MCP server**: 27 tools for capture, recall, memory authority, evaluation, management, and system control
 - **Privacy-first**: memory storage is local; no centralized data collection
+
+## Trust Surfaces
+
+- Native Helix default storage: `~/.helix/engram-native`
+- Lite default storage: `~/.engram/engram.db`
+- Basic deterministic capture/recall can run without an API key; richer extraction can use Anthropic or local Ollama.
+- `engramctl uninstall` removes the install while preserving data by default.
+- `engramctl uninstall --purge-data` is the explicit delete-data path.
+- Dashboard and CLI surfaces expose storage diagnostics, lifecycle state, and doctor readiness.
 
 ## MCP Tools
 

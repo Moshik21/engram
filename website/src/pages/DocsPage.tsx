@@ -138,6 +138,44 @@ const CONFIG_FIELDS = [
   { field: "ANTHROPIC_API_KEY", values: "sk-ant-...", desc: "Optional. Enables LLM-backed extraction. Without it, the narrow deterministic pipeline handles extraction." },
 ] as const;
 
+const TASK_FLOW = [
+  {
+    step: "Install",
+    command: "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix",
+    outcome: "Installs Engram plus the native Helix/PyO3 runtime. No Docker is used by default.",
+  },
+  {
+    step: "Start",
+    command: "engramctl start",
+    outcome: "Starts the local API and MCP runtime so agents and the dashboard can reach the brain.",
+  },
+  {
+    step: "Connect",
+    command: "engramctl connect claude-code",
+    outcome: "Writes MCP configuration for a supported client. Use openclaw, cursor, windsurf, or claude-desktop when needed.",
+  },
+  {
+    step: "Bootstrap",
+    command: "engramctl bootstrap /path/to/project",
+    outcome: "Indexes selected project docs, notes, and exports as artifacts and cueable episodes.",
+  },
+  {
+    step: "Inspect Storage",
+    command: "engramctl storage",
+    outcome: "Shows resolved data paths, disk usage, counts, and growth since startup.",
+  },
+  {
+    step: "Verify Doctor",
+    command: "engramctl doctor",
+    outcome: "Runs the installed-user readiness gate before you trust the runtime.",
+  },
+  {
+    step: "Troubleshoot",
+    command: "engramctl logs && engramctl uninstall --purge-data",
+    outcome: "Use logs for diagnosis. Purge only when you intentionally want to remove local Engram data.",
+  },
+] as const;
+
 /* ──────────────────────────── sub-components ──────────────────────── */
 
 const serif = { fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: "italic" as const };
@@ -202,6 +240,48 @@ export function DocsPage() {
               and inspect where memory is stored.
             </p>
           </ScrollReveal>
+        </div>
+      </section>
+
+      {/* ── TASK FLOW ───────────────────────────────────────── */}
+      <section style={{ paddingTop: 24, paddingBottom: 96 }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 24px" }}>
+          <ScrollReveal>
+            <Label>OPERATOR TASK FLOW</Label>
+            <Heading>Install, connect, bootstrap, inspect, verify.</Heading>
+            <p style={{ ...body, fontSize: 15, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 28, maxWidth: 680 }}>
+              Follow this path when you want Engram running as a real local memory
+              runtime, not just cloned as source code.
+            </p>
+          </ScrollReveal>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12 }}>
+            {TASK_FLOW.map((item, index) => (
+              <ScrollReveal key={item.step} delay={index * 45}>
+                <article
+                  style={{
+                    minHeight: "100%",
+                    padding: 18,
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <span style={{ ...mono, display: "grid", placeItems: "center", width: 26, height: 26, borderRadius: 8, background: "rgba(103,232,249,0.10)", color: "#67e8f9", fontSize: 11 }}>
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <h3 style={{ ...body, fontSize: 16, fontWeight: 600 }}>{item.step}</h3>
+                  </div>
+                  <code style={{ ...mono, display: "block", fontSize: 12, lineHeight: 1.6, color: "#67e8f9", wordBreak: "break-word", marginBottom: 10 }}>
+                    {item.command}
+                  </code>
+                  <p style={{ ...body, fontSize: 13, lineHeight: 1.65, color: "var(--text-secondary)", margin: 0 }}>
+                    {item.outcome}
+                  </p>
+                </article>
+              </ScrollReveal>
+            ))}
+          </div>
         </div>
       </section>
 

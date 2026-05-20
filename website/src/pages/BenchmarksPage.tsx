@@ -19,6 +19,27 @@ const METHODOLOGY = [
   "Website numbers come from exported benchmark artifacts, not hand-edited copy.",
 ] as const;
 
+const HOW_TO_READ = [
+  {
+    label: "Measured",
+    body: "The suite executed the baseline under the shared scenario contract and exported comparable metrics.",
+  },
+  {
+    label: "Control",
+    body: "A deliberately simpler memory shape that keeps the comparison honest without pretending to be a full product.",
+  },
+  {
+    label: "Spec only",
+    body: "A relevant external target tracked for product context, but not yet runnable in the local suite.",
+  },
+] as const;
+
+const CAVEATS = [
+  "A benchmark does not prove that memory is always useful; it shows behavior under named scenarios.",
+  "Spec-only targets are not treated as measured wins.",
+  "Fresh exports should be regenerated before release claims change.",
+] as const;
+
 function Label({ children }: { children: string }) {
   return (
     <span
@@ -253,6 +274,61 @@ export function BenchmarksPage() {
           </div>
         </section>
       ) : null}
+
+      <section style={{ padding: "0 24px 88px" }}>
+        <div style={{ maxWidth: 1080, margin: "0 auto" }}>
+          <ScrollReveal>
+            <Label>How To Read This</Label>
+            <h2 style={{ ...serif, fontSize: "2.55rem", marginBottom: 18, textWrap: "balance" }}>
+              Separate evidence from comparison targets.
+            </h2>
+            <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.75, maxWidth: 760, marginBottom: 28 }}>
+              Treat the numbers as exported benchmark evidence, then read each
+              baseline card for whether it was measured, used as a control, or
+              kept as a spec-only context target.
+            </p>
+          </ScrollReveal>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16, marginBottom: 18 }}>
+            {HOW_TO_READ.map((item, index) => (
+              <ScrollReveal key={item.label} delay={index * 70}>
+                <article
+                  style={{
+                    minHeight: "100%",
+                    borderRadius: 14,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.02)",
+                    padding: 20,
+                  }}
+                >
+                  <h3 style={{ ...body, fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{item.label}</h3>
+                  <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.65, margin: 0 }}>{item.body}</p>
+                </article>
+              </ScrollReveal>
+            ))}
+          </div>
+          <ScrollReveal delay={220}>
+            <div
+              style={{
+                borderRadius: 14,
+                border: "1px solid rgba(251,191,36,0.22)",
+                background: "rgba(251,191,36,0.07)",
+                padding: 18,
+              }}
+            >
+              <div style={{ ...mono, fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase", color: "#fbbf24", marginBottom: 10 }}>
+                Caveats
+              </div>
+              <ul style={{ listStyle: "none", display: "grid", gap: 10 }}>
+                {CAVEATS.map((item) => (
+                  <li key={item} style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.65 }}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </ScrollReveal>
+        </div>
+      </section>
 
       <section style={{ padding: "0 24px 88px" }}>
         <div style={{ maxWidth: 1080, margin: "0 auto" }}>
