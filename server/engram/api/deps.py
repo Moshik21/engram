@@ -12,6 +12,7 @@ from engram.events.bus import EventBus
 from engram.graph_manager import GraphManager
 from engram.notifications.surface import NotificationSurfaceService
 from engram.security.rate_limit import RateLimiter
+from engram.storage.diagnostics import StorageDiagnostics
 
 
 def get_manager() -> GraphManager:
@@ -143,3 +144,13 @@ def get_rate_limiter() -> RateLimiter | None:
 
     rate_limiter = _app_state.get("rate_limiter")
     return cast(RateLimiter | None, rate_limiter)
+
+
+def get_storage_diagnostics() -> StorageDiagnostics:
+    """Retrieve storage diagnostics from app state."""
+    from engram.main import _app_state
+
+    diagnostics = _app_state.get("storage_diagnostics")
+    if not diagnostics:
+        raise RuntimeError("Storage diagnostics not initialized")
+    return cast(StorageDiagnostics, diagnostics)

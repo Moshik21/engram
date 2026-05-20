@@ -31,6 +31,7 @@ What it does:
 ```bash
 engramctl start        # start server in background
 engramctl status       # show running state, port, DB path
+engramctl storage      # show DB path, disk usage, counts, growth
 engramctl logs         # tail server log
 engramctl stop         # stop background server
 engramctl update       # upgrade to latest version
@@ -57,6 +58,10 @@ Run the local doctor before trusting a lite install:
 ```bash
 engramctl doctor
 ```
+
+Use `engramctl storage` while the server is running to see the same storage
+report exposed to the dashboard. If the server is down, it falls back to the
+resolved local SQLite path and any existing companion/log files.
 
 The doctor loads configuration, resolves the engine mode, checks the local API
 and MCP endpoints when the server is running, includes the current local

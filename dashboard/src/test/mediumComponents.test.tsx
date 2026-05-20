@@ -164,6 +164,7 @@ vi.mock("../api/client", () => ({
       topConnected: [],
       growthTimeline: [],
     }),
+    getStorage: vi.fn().mockResolvedValue(null),
     getEpisodes: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getGraphAt: vi.fn(),
     updateEntity: vi.fn(),

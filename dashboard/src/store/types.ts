@@ -308,6 +308,45 @@ export interface GraphStats {
   growthTimeline: Array<{ date: string; entities: number; episodes: number }>;
 }
 
+export interface StorageCounts {
+  episodes: number;
+  entities: number;
+  relationships: number;
+  cues: number;
+}
+
+export interface StorageGrowth extends StorageCounts {
+  bytes: number;
+}
+
+export interface StoragePathInfo {
+  label: string;
+  path: string;
+  exists: boolean;
+  kind: "file" | "directory" | "missing" | string;
+  bytes: number;
+  humanSize: string;
+}
+
+export interface StorageReport {
+  mode: string;
+  configuredMode: string;
+  backend: string;
+  groupId: string;
+  startedAt: string;
+  uptimeSeconds: number;
+  counts: StorageCounts;
+  startupCounts: StorageCounts;
+  growthSinceStartup: StorageGrowth;
+  disk: {
+    totalBytes: number;
+    humanSize: string;
+    startupBytes: number;
+    startupHumanSize: string;
+  };
+  paths: StoragePathInfo[];
+}
+
 export type AgentAdoptionStatus =
   | "fresh_runtime"
   | "needs_project_bootstrap"
@@ -1045,8 +1084,11 @@ export interface EpisodeSlice {
 
 export interface StatsSlice {
   stats: GraphStats | null;
+  storage: StorageReport | null;
   isLoadingStats: boolean;
+  isLoadingStorage: boolean;
   loadStats: () => Promise<void>;
+  loadStorage: () => Promise<void>;
 }
 
 export interface LifecycleSlice {

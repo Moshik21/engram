@@ -15,8 +15,8 @@ def _run_engramctl(tmp_path: Path, *args: str) -> tuple[str, str]:
     home = tmp_path / "home"
     bin_dir = tmp_path / "bin"
     engram_home = home / ".engram"
-    home.mkdir()
-    bin_dir.mkdir()
+    home.mkdir(exist_ok=True)
+    bin_dir.mkdir(exist_ok=True)
 
     env = os.environ.copy()
     env.update(
@@ -145,10 +145,36 @@ def test_engramctl_exposes_release_startup_commands() -> None:
     assert "connect <client>" in engramctl
     assert "claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
     assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
+    assert "storage                        Show resolved storage paths and disk growth" in engramctl
     assert "quickstart) command_quickstart" in engramctl
     assert "doctor) command_doctor" in engramctl
     assert "connect) command_connect" in engramctl
     assert "bootstrap) command_bootstrap" in engramctl
+    assert "storage) command_storage" in engramctl
+
+
+def test_engramctl_storage_reports_native_and_sqlite_paths() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert (
+        'local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"'
+        in engramctl
+    )
+    assert 'local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"' in engramctl
+    assert '"http://127.0.0.1:${port}/api/storage"' in engramctl
+    assert "format_storage_json" in engramctl
+    assert "offline_storage_status" in engramctl
+    assert "Engram Storage" in engramctl
+
+
+def test_engramctl_storage_offline_smoke_shows_native_data_path(tmp_path: Path) -> None:
+    _content, _output = _run_engramctl_setup(tmp_path, "helix")
+
+    _content, output = _run_engramctl(tmp_path, "storage")
+
+    assert "Engram Storage (offline)" in output
+    assert "Server API is not responding" in output
+    assert ".helix/engram-native" in output
 
 
 def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:

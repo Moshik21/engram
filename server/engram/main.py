@@ -25,6 +25,7 @@ from engram.api.ingest_ws import router as ingest_ws_router
 from engram.api.knowledge import router as knowledge_router
 from engram.api.lifecycle import router as lifecycle_router
 from engram.api.stats import router as stats_router
+from engram.api.storage import router as storage_router
 from engram.api.websocket import router as ws_router
 from engram.config import EngramConfig
 from engram.consolidation_trigger import run_shutdown_consolidation
@@ -290,6 +291,15 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         mode=mode,
     )
 
+    from engram.storage.diagnostics import StorageDiagnostics
+
+    storage_diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode=mode.value,
+        graph_store=graph_store,
+        group_id=config.default_group_id,
+    )
+
     _app_state.update(
         {
             "config": config,
@@ -317,6 +327,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "notification_surface_service": notification_surface_service,
             "notification_collector": notification_collector,
             "temporal_scanner": temporal_scanner,
+            "storage_diagnostics": storage_diagnostics,
         }
     )
 
@@ -431,6 +442,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(entities_router)
     app.include_router(episodes_router)
     app.include_router(stats_router)
+    app.include_router(storage_router)
     app.include_router(lifecycle_router)
     app.include_router(activation_router)
     app.include_router(admin_router)

@@ -38,6 +38,7 @@ vi.mock("../api/client", () => ({
     recordRecallEvaluation: vi.fn(),
     recordSessionContinuityEvaluation: vi.fn(),
     getStats: vi.fn(),
+    getStorage: vi.fn(),
     getEpisodes: vi.fn(),
     getGraphAt: vi.fn(),
     updateEntity: vi.fn(),
@@ -880,6 +881,49 @@ describe("statsSlice", () => {
     expect(store.getState().stats?.cueMetrics?.cueCoverage).toBe(0.8);
     expect(store.getState().stats?.projectionMetrics?.stateCounts.projected).toBe(5);
     expect(store.getState().isLoadingStats).toBe(false);
+  });
+
+  it("loadStorage populates storage diagnostics", async () => {
+    mockedApi.getStorage.mockResolvedValueOnce({
+      mode: "helix",
+      configuredMode: "helix",
+      backend: "helix_native",
+      groupId: "default",
+      startedAt: "2026-05-19T12:00:00Z",
+      uptimeSeconds: 10,
+      counts: { episodes: 3, entities: 4, relationships: 5, cues: 2 },
+      startupCounts: { episodes: 1, entities: 2, relationships: 3, cues: 1 },
+      growthSinceStartup: {
+        bytes: 2048,
+        episodes: 2,
+        entities: 2,
+        relationships: 2,
+        cues: 1,
+      },
+      disk: {
+        totalBytes: 4096,
+        humanSize: "4.0 KB",
+        startupBytes: 2048,
+        startupHumanSize: "2.0 KB",
+      },
+      paths: [
+        {
+          label: "Helix native data",
+          path: "/tmp/engram-native",
+          exists: true,
+          kind: "directory",
+          bytes: 4096,
+          humanSize: "4.0 KB",
+        },
+      ],
+    });
+
+    const store = createTestStore();
+    await store.getState().loadStorage();
+
+    expect(store.getState().storage?.backend).toBe("helix_native");
+    expect(store.getState().storage?.growthSinceStartup.bytes).toBe(2048);
+    expect(store.getState().isLoadingStorage).toBe(false);
   });
 });
 

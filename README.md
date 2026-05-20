@@ -111,6 +111,7 @@ Release startup commands:
 engramctl quickstart --mode helix
 engramctl start
 engramctl status
+engramctl storage
 engramctl doctor
 engramctl connect claude-code
 engramctl bootstrap /path/to/project
@@ -125,6 +126,9 @@ Use Helix native as the main no-Docker path when you want the full graph/vector
 backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
 available for the legacy Docker full stack and starts a fresh graph store with
 SQLite data preserved on disk for reference.
+Use `engramctl storage` to inspect resolved storage paths, disk usage, current
+counts, and growth since startup. Native Helix defaults to
+`~/.helix/engram-native`; lite defaults to `~/.engram/engram.db`.
 
 Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
@@ -308,6 +312,7 @@ HelixDB is the recommended backend, unifying graph, vector, and full-text search
 # Option A: Native mode (recommended — no Docker)
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 engramctl status
+engramctl storage
 engramctl doctor
 engramctl connect claude-code
 engramctl bootstrap /path/to/project
@@ -1380,6 +1385,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | DELETE | `/api/entities/{id}` | Soft-delete entity |
 | GET | `/api/episodes` | List episodes (paginated) |
 | GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
+| GET | `/api/storage` | Resolved storage paths, disk usage, and growth since startup |
 | GET | `/api/lifecycle/summary` | Shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
 | GET | `/api/activation/snapshot` | Top activated entities |
 | GET | `/api/activation/{id}/curve` | ACT-R decay curve |

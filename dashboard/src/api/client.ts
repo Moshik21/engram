@@ -8,6 +8,7 @@ import type {
   EntityDetail,
   Episode,
   GraphStats,
+  StorageReport,
   RuntimeState,
   BrainLoopEvaluationReport,
   HumanLabelEvidence,
@@ -900,6 +901,8 @@ export const api = {
       growthTimeline: raw.growthTimeline ?? [],
     };
   },
+
+  getStorage: () => fetchJSON<StorageReport>("/api/storage"),
 
   getLifecycleSummary: () =>
     fetchJSON<LifecycleSummary>("/api/lifecycle/summary"),

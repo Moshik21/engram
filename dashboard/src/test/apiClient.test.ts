@@ -92,6 +92,60 @@ describe("api.getStats", () => {
   });
 });
 
+describe("api.getStorage", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("loads the shared storage report", async () => {
+    const payload = {
+      mode: "helix",
+      configuredMode: "helix",
+      backend: "helix_native",
+      groupId: "default",
+      startedAt: "2026-05-19T12:00:00Z",
+      uptimeSeconds: 10,
+      counts: { episodes: 3, entities: 4, relationships: 5, cues: 2 },
+      startupCounts: { episodes: 1, entities: 2, relationships: 3, cues: 1 },
+      growthSinceStartup: {
+        bytes: 2048,
+        episodes: 2,
+        entities: 2,
+        relationships: 2,
+        cues: 1,
+      },
+      disk: {
+        totalBytes: 4096,
+        humanSize: "4.0 KB",
+        startupBytes: 2048,
+        startupHumanSize: "2.0 KB",
+      },
+      paths: [
+        {
+          label: "Helix native data",
+          path: "/tmp/engram-native",
+          exists: true,
+          kind: "directory",
+          bytes: 4096,
+          humanSize: "4.0 KB",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => payload,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const storage = await api.getStorage();
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/storage", expect.any(Object));
+    expect(storage.backend).toBe("helix_native");
+    expect(storage.paths[0].path).toBe("/tmp/engram-native");
+  });
+});
+
 describe("api.getRuntimeState", () => {
   afterEach(() => {
     vi.restoreAllMocks();

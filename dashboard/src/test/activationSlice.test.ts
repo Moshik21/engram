@@ -28,6 +28,7 @@ vi.mock("../api/client", () => ({
     recordRecallEvaluation: vi.fn(),
     recordSessionContinuityEvaluation: vi.fn(),
     getStats: vi.fn(),
+    getStorage: vi.fn(),
     getEpisodes: vi.fn(),
     getGraphAt: vi.fn(),
     updateEntity: vi.fn(),

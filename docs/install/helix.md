@@ -24,6 +24,7 @@ graph/vector/BM25 backend without Docker or a network hop.
 ```bash
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
 engramctl status
+engramctl storage
 engramctl doctor
 engramctl connect claude-code
 engramctl bootstrap /path/to/project
@@ -151,6 +152,7 @@ Installed-user lifecycle:
 engramctl quickstart --mode helix
 engramctl start
 engramctl status
+engramctl storage
 engramctl doctor
 engramctl connect claude-code
 engramctl bootstrap /path/to/project
@@ -159,6 +161,11 @@ engramctl logs
 engramctl stop
 engramctl update
 ```
+
+`engramctl storage` reports the resolved native data directory, disk usage,
+graph/cue counts, and growth since server startup. With the default native
+configuration, the Helix data directory is `~/.helix/engram-native`; override it
+with `ENGRAM_HELIX__DATA_DIR` or `--helix-data-dir`.
 
 Developer/source lifecycle:
 

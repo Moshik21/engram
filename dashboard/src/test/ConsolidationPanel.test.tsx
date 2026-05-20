@@ -21,6 +21,7 @@ vi.mock("../api/client", () => ({
     recordRecallEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
     recordSessionContinuityEvaluation: vi.fn().mockResolvedValue({ status: "stored" }),
     getStats: vi.fn().mockResolvedValue({ totalEntities: 0, totalRelationships: 0, totalEpisodes: 0, entityTypeCounts: {}, topActivated: [], topConnected: [], growthTimeline: [] }),
+    getStorage: vi.fn().mockResolvedValue(null),
     getEpisodes: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   },
 }));

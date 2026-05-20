@@ -151,6 +151,7 @@ vi.mock("../api/client", () => ({
       topConnected: [],
       growthTimeline: [],
     }),
+    getStorage: vi.fn().mockResolvedValue(null),
     getEpisodes: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getGraphAt: vi.fn(),
     updateEntity: vi.fn(),
@@ -228,7 +229,9 @@ function resetStore() {
     hasMoreEpisodes: true,
     isLoadingEpisodes: false,
     stats: null,
+    storage: null,
     isLoadingStats: false,
+    isLoadingStorage: false,
     lifecycleSummary: null,
     isLoadingLifecycleSummary: false,
     evaluationReport: null,
@@ -610,6 +613,7 @@ describe("StatsPanel", () => {
 
   it("renders stats when loaded", () => {
     const loadStats = vi.fn();
+    const loadStorage = vi.fn();
     act(() => {
       useEngramStore.setState({
         stats: {
@@ -662,8 +666,42 @@ describe("StatsPanel", () => {
           topConnected: [],
           growthTimeline: [],
         },
+        storage: {
+          mode: "helix",
+          configuredMode: "helix",
+          backend: "helix_native",
+          groupId: "default",
+          startedAt: "2026-05-19T12:00:00Z",
+          uptimeSeconds: 20,
+          counts: { episodes: 16, entities: 43, relationships: 101, cues: 12 },
+          startupCounts: { episodes: 11, entities: 41, relationships: 91, cues: 8 },
+          growthSinceStartup: {
+            bytes: 2048,
+            episodes: 5,
+            entities: 2,
+            relationships: 10,
+            cues: 4,
+          },
+          disk: {
+            totalBytes: 4096,
+            humanSize: "4.0 KB",
+            startupBytes: 2048,
+            startupHumanSize: "2.0 KB",
+          },
+          paths: [
+            {
+              label: "Helix native data",
+              path: "/tmp/engram-native",
+              exists: true,
+              kind: "directory",
+              bytes: 4096,
+              humanSize: "4.0 KB",
+            },
+          ],
+        },
         isLoadingStats: false,
         loadStats,
+        loadStorage,
       });
     });
     render(<StatsPanel />);
@@ -672,6 +710,8 @@ describe("StatsPanel", () => {
     expect(screen.getByText("15")).toBeInTheDocument();
     expect(screen.getByText("Cue Layer")).toBeInTheDocument();
     expect(screen.getByText("Projection Health")).toBeInTheDocument();
+    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/engram-native")).toBeInTheDocument();
     expect(screen.getByText("80%")).toBeInTheDocument();
     expect(screen.getByText("16.7%")).toBeInTheDocument();
   });

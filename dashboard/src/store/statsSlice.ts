@@ -9,7 +9,9 @@ export const createStatsSlice: StateCreator<
   StatsSlice
 > = (set, get) => ({
   stats: null,
+  storage: null,
   isLoadingStats: false,
+  isLoadingStorage: false,
 
   loadStats: async () => {
     if (get().isLoadingStats) return;
@@ -25,6 +27,24 @@ export const createStatsSlice: StateCreator<
     } catch {
       set((s) => {
         s.isLoadingStats = false;
+      });
+    }
+  },
+
+  loadStorage: async () => {
+    if (get().isLoadingStorage) return;
+    set((s) => {
+      s.isLoadingStorage = true;
+    });
+    try {
+      const data = await api.getStorage();
+      set((s) => {
+        s.storage = data;
+        s.isLoadingStorage = false;
+      });
+    } catch {
+      set((s) => {
+        s.isLoadingStorage = false;
       });
     }
   },

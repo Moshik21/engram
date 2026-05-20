@@ -218,6 +218,7 @@ Commands:
   start
   stop
   status
+  storage                        Show resolved storage paths and disk growth
   logs [service]
   update
   upgrade                        Upgrade from local mode to full
@@ -738,6 +739,8 @@ lite_status() {
   load_existing_env "$LITE_ENV_FILE"
   local port="${ENGRAM_API_PORT:-8100}"
   local engine_mode="${ENGRAM_MODE:-lite}"
+  local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"
+  local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"
 
   echo -e "  ${BOLD}Engram Status (local mode)${RESET}"
   echo ""
@@ -752,13 +755,16 @@ lite_status() {
 
   if [ "$engine_mode" = "helix" ]; then
     dim "Mode:   helix native (PyO3)"
-    dim "Data:   ${ENGRAM_HELIX__DATA_DIR:-helix_native default}"
+    dim "Data:   $helix_data_dir"
+    storage_path_line "Size:   " "$helix_data_dir"
   elif [ "$engine_mode" = "auto" ]; then
     dim "Mode:   auto (local resolver)"
-    dim "Data:   auto-detected by Engram"
+    dim "Helix:  $helix_data_dir"
+    dim "DB:     $sqlite_path"
   else
     dim "Mode:   lite (SQLite/local)"
-    dim "DB:     $LITE_DB_FILE"
+    dim "DB:     $sqlite_path"
+    storage_path_line "Size:   " "$sqlite_path"
   fi
   dim "Port:   $port"
   dim "Logs:   $LITE_LOG_FILE"
@@ -770,6 +776,139 @@ lite_status() {
   else
     warn "API is not responding on port $port."
   fi
+}
+
+storage_size() {
+  local path="$1"
+  if [ ! -e "$path" ]; then
+    printf 'missing'
+    return
+  fi
+  du -sh "$path" 2>/dev/null | awk '{print $1}'
+}
+
+storage_path_line() {
+  local label="$1"
+  local path="$2"
+  if [ -e "$path" ]; then
+    dim "${label}$(storage_size "$path")"
+  else
+    dim "${label}missing"
+  fi
+}
+
+format_storage_json() {
+  local json_file="$1"
+  python3 - "$json_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+counts = payload.get("counts") or {}
+growth = payload.get("growthSinceStartup") or {}
+disk = payload.get("disk") or {}
+paths = payload.get("paths") or []
+
+
+def signed(value, suffix=""):
+    try:
+        value = int(value)
+    except Exception:
+        value = 0
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value}{suffix}"
+
+
+def human_bytes(value):
+    try:
+        value = int(value)
+    except Exception:
+        value = 0
+    units = ("B", "KB", "MB", "GB", "TB")
+    size = float(abs(value))
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def signed_human_bytes(value):
+    try:
+        value = int(value)
+    except Exception:
+        value = 0
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}{human_bytes(value)}"
+
+
+print("  Engram Storage")
+print("")
+print(f"  Mode:    {payload.get('mode', 'unknown')} ({payload.get('backend', 'unknown')})")
+print(f"  Group:   {payload.get('groupId', 'default')}")
+print(
+    "  Disk:    "
+    f"{disk.get('humanSize', '0 B')} "
+    f"({signed_human_bytes(growth.get('bytes', 0))} since startup)"
+)
+print(
+    "  Counts:  "
+    f"{counts.get('episodes', 0)} episodes ({signed(growth.get('episodes', 0))}), "
+    f"{counts.get('entities', 0)} entities ({signed(growth.get('entities', 0))}), "
+    f"{counts.get('relationships', 0)} relationships "
+    f"({signed(growth.get('relationships', 0))}), "
+    f"{counts.get('cues', 0)} cues ({signed(growth.get('cues', 0))})"
+)
+print("")
+print("  Paths:")
+for item in paths:
+    status = item.get("humanSize", "0 B") if item.get("exists") else "missing"
+    print(f"  - {item.get('label', 'Storage')}: {status}")
+    print(f"    {item.get('path', '')}")
+PY
+}
+
+offline_storage_status() {
+  load_existing_env "$LITE_ENV_FILE"
+  local engine_mode="${ENGRAM_MODE:-lite}"
+  local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"
+  local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"
+
+  echo -e "  ${BOLD}Engram Storage (offline)${RESET}"
+  echo ""
+  dim "Server API is not responding; showing filesystem paths from local config."
+  echo ""
+  dim "Mode:   $engine_mode"
+  if [ "$engine_mode" = "helix" ]; then
+    dim "Data:   $helix_data_dir"
+    storage_path_line "Size:   " "$helix_data_dir"
+  else
+    dim "DB:     $sqlite_path"
+    storage_path_line "Size:   " "$sqlite_path"
+  fi
+  dim "Config: $LITE_ENV_FILE"
+  dim "Logs:   $LITE_LOG_FILE"
+  echo ""
+  echo "  Paths:"
+
+  local paths=(
+    "$helix_data_dir"
+    "$sqlite_path"
+    "$sqlite_path-wal"
+    "$sqlite_path-shm"
+    "$ENGRAM_HOME/capture-queue.jsonl"
+    "$LITE_LOG_FILE"
+  )
+  local path
+  for path in "${paths[@]}"; do
+    if [ -e "$path" ]; then
+      echo "  - $(storage_size "$path")  $path"
+    fi
+  done
 }
 
 lite_logs() {
@@ -1383,6 +1522,44 @@ command_status() {
   fi
 }
 
+command_storage() {
+  local variant
+  variant="$(detect_variant)"
+
+  if [ -z "$variant" ]; then
+    die "No install found. Run engramctl quickstart first."
+  fi
+
+  if [ "$variant" = "lite" ]; then
+    load_existing_env "$LITE_ENV_FILE"
+    local port="${ENGRAM_API_PORT:-8100}"
+    local tmp_file
+    tmp_file="$(mktemp)"
+    if curl -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+      format_storage_json "$tmp_file"
+      rm -f "$tmp_file"
+      return
+    fi
+    rm -f "$tmp_file"
+    offline_storage_status
+    return
+  fi
+
+  load_existing_env "$FULL_ENV_FILE"
+  local port="${ENGRAM_API_PORT:-8100}"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  if curl -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+    format_storage_json "$tmp_file"
+    rm -f "$tmp_file"
+    return
+  fi
+  rm -f "$tmp_file"
+  warn "Engram API is not responding on port $port."
+  dim "Full mode graph/vector storage is managed by Docker services."
+  dim "Run: engramctl status"
+}
+
 command_logs() {
   local service="${1:-}"
   local variant
@@ -1597,6 +1774,7 @@ main() {
     start) command_start ;;
     stop) command_stop ;;
     status) command_status ;;
+    storage) command_storage ;;
     logs) command_logs "$@" ;;
     update) command_update ;;
     upgrade) command_upgrade ;;

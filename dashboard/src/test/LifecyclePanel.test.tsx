@@ -21,6 +21,7 @@ vi.mock("../api/client", () => ({
       topConnected: [],
       growthTimeline: [],
     }),
+    getStorage: vi.fn().mockResolvedValue(null),
     getEpisodes: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     getConsolidationStatus: vi.fn().mockResolvedValue({
       is_running: false,

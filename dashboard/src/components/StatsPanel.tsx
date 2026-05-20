@@ -10,6 +10,7 @@ import {
 import { useEngramStore } from "../store";
 import { entityColor, entityColorDim } from "../lib/colors";
 import { CerebralProfile } from "../views/CerebralProfile";
+import type { StorageReport } from "../store/types";
 
 const EMPTY_CUE_METRICS = {
   cueCount: 0,
@@ -73,6 +74,25 @@ function formatDuration(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "0 ms";
   if (value >= 1000) return `${formatNumber(value / 1000)} s`;
   return `${formatNumber(value, value >= 100 ? 0 : 1)} ms`;
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return unitIndex === 0
+    ? `${Math.round(size)} B`
+    : `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatSigned(value: number, formatter = (n: number) => n.toLocaleString()) {
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}${formatter(Math.abs(value))}`;
 }
 
 function MetricCard({
@@ -296,21 +316,138 @@ function RatioBar({
   );
 }
 
+function StorageCard({ storage }: { storage: StorageReport }) {
+  const primaryPath = storage.paths.find((path) => path.exists) ?? storage.paths[0];
+  const visiblePaths = storage.paths.slice(0, 4);
+
+  return (
+    <SectionCard
+      title="Storage"
+      subtitle={`${storage.mode} / ${storage.backend}`}
+      testId="stats-storage-section"
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        <MiniMetric
+          label="Disk"
+          value={storage.disk.humanSize}
+          accent="#22d3ee"
+          helper={`${formatSigned(storage.growthSinceStartup.bytes, formatBytes)} since start`}
+        />
+        <MiniMetric
+          label="Episodes"
+          value={storage.counts.episodes.toLocaleString()}
+          accent="#f97316"
+          helper={`${formatSigned(storage.growthSinceStartup.episodes)} since start`}
+        />
+        <MiniMetric
+          label="Entities"
+          value={storage.counts.entities.toLocaleString()}
+          accent="#34d399"
+          helper={`${formatSigned(storage.growthSinceStartup.entities)} since start`}
+        />
+        <MiniMetric
+          label="Cues"
+          value={storage.counts.cues.toLocaleString()}
+          accent="#818cf8"
+          helper={`${formatSigned(storage.growthSinceStartup.cues)} since start`}
+        />
+      </div>
+
+      {primaryPath ? (
+        <div
+          style={{
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: 10,
+            display: "flex",
+            flexDirection: "column",
+            gap: 7,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            <span>{primaryPath.label}</span>
+            <span className="mono tabular-nums">
+              {primaryPath.exists ? primaryPath.humanSize : "missing"}
+            </span>
+          </div>
+          <div
+            className="mono"
+            style={{
+              fontSize: 11,
+              color: "var(--text-secondary)",
+              overflowWrap: "anywhere",
+              lineHeight: 1.45,
+            }}
+          >
+            {primaryPath.path}
+          </div>
+          {visiblePaths.length > 1 ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                marginTop: 4,
+              }}
+            >
+              {visiblePaths.slice(1).map((path) => (
+                <div
+                  key={`${path.label}-${path.path}`}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  <span>{path.label}</span>
+                  <span className="mono tabular-nums">
+                    {path.exists ? path.humanSize : "missing"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </SectionCard>
+  );
+}
+
 export function StatsPanel() {
   const dashboardMode = useEngramStore((s) => s.dashboardMode);
   if (dashboardMode === "nerve") {
     return <CerebralProfile />;
   }
   const stats = useEngramStore((s) => s.stats);
+  const storage = useEngramStore((s) => s.storage);
   const isLoading = useEngramStore((s) => s.isLoadingStats);
+  const isLoadingStorage = useEngramStore((s) => s.isLoadingStorage);
   const loadStats = useEngramStore((s) => s.loadStats);
+  const loadStorage = useEngramStore((s) => s.loadStorage);
   const lifecycleDrilldownStage = useEngramStore((s) => s.lifecycleDrilldownStage);
   const cueSectionRef = useRef<HTMLDivElement>(null);
   const projectSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadStats();
-  }, [loadStats]);
+    loadStorage();
+  }, [loadStats, loadStorage]);
 
   useEffect(() => {
     if (!stats) return;
@@ -399,6 +536,17 @@ export function StatsPanel() {
           accent="#f97316"
         />
       </div>
+
+      {storage ? (
+        <StorageCard storage={storage} />
+      ) : isLoadingStorage ? (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="label" style={{ marginBottom: 8 }}>
+            Storage
+          </div>
+          <div className="skeleton" style={{ width: "40%", height: 12 }} />
+        </div>
+      ) : null}
 
       <div
         style={{
