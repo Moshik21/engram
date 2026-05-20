@@ -16,7 +16,8 @@ const BrainVisualization = lazy(async () => {
 const PROOF_PILLS = [
   "Private by default",
   "Works with MCP agents",
-  "Lite mode or full graph stack",
+  "Helix native first",
+  "OpenClaw ready",
   "Cue-based memory",
 ] as const;
 
@@ -54,7 +55,7 @@ const HOW_CARDS = [
   {
     title: "Consolidate offline",
     description:
-      "Triage, merge, infer, mature, and prune in the background. Twelve consolidation phases run on a tiered schedule \u2014 sharpening the graph without blocking inference.",
+      "Triage, project, adjudicate, calibrate, immunize, and dream in the background. The full consolidation loop sharpens the graph without blocking inference.",
   },
 ] as const;
 
@@ -614,9 +615,9 @@ export function HomePage() {
 
           <ScrollReveal delay={100}>
             <p style={{ ...bodyText, marginBottom: 40, maxWidth: 540, marginInline: "auto" }}>
-              Start in lite mode with a single SQLite file. Scale to
-              FalkorDB and Redis when you need the full graph stack. No
-              vendor lock-in, no cloud dependency, no shared memory pool.
+              Start with native Helix through PyO3: full graph, vector, and BM25
+              memory without Docker. Use lite as the fallback/demo path and Docker
+              full mode only when you explicitly need that compatibility lane.
             </p>
           </ScrollReveal>
 

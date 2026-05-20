@@ -5,32 +5,32 @@ const COLUMNS = [
   {
     heading: "Product",
     links: [
-      { label: "Features", to: "/#features" },
+      { label: "Home", to: "/" },
       { label: "Benchmarks", to: "/benchmarks" },
       { label: "Science", to: "/science" },
       { label: "Roadmap", to: "/roadmap" },
-      { label: "Dashboard", to: "/#dashboard" },
+      { label: "Vision", to: "/vision" },
     ],
   },
   {
     heading: "Resources",
     links: [
       { label: "Documentation", to: "/docs" },
-      { label: "Benchmark Page", to: "/benchmarks" },
+      { label: "OpenClaw", to: "/docs#openclaw" },
+      { label: "Storage Visibility", to: "/docs" },
       {
         label: "GitHub",
         to: "https://github.com/Moshik21/engram",
         external: true,
       },
-      { label: "API Reference", to: "/docs#api" },
     ],
   },
   {
-    heading: "Company",
+    heading: "Runtime",
     links: [
-      { label: "Vision", to: "/vision" },
-      { label: "About", to: "/vision#about" },
-      { label: "Blog", to: "/docs#blog" },
+      { label: "Native Helix", to: "/docs" },
+      { label: "Lite Fallback", to: "/docs" },
+      { label: "Docker Legacy", to: "/docs" },
     ],
   },
 ] as const;

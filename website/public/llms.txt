@@ -1,59 +1,56 @@
 # Engram
 
-> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 15-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
+> Persistent long-term memory for AI agents. Temporal knowledge graphs, cue-based recall, ACT-R inspired activation, and 17-phase offline consolidation. Open source, privacy-first, runs locally.
 
-Engram gives AI agents a brain that persists across sessions. Instead of losing context when a conversation ends, Engram builds a knowledge graph of entities, relationships, and facts extracted from conversations — then retrieves them using spreading activation when relevant.
+Engram gives AI agents one local brain that persists across sessions, projects, and compatible harnesses. It captures episodes cheaply, keeps latent cues searchable, projects durable evidence into a knowledge graph, recalls relevant context, and consolidates memory in the background.
+
+## Recommended Startup
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
+engramctl status
+engramctl storage
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+```
+
+Native Helix through PyO3 is the default public path: full graph, vector, and BM25 memory without Docker. Lite is the SQLite fallback/demo path. Docker full mode is an explicit legacy compatibility lane.
+
+## OpenClaw
+
+```bash
+openclaw skills install engram-brain
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
+```
+
+The OpenClaw path installs the `engram-brain` skill, configures MCP at `http://127.0.0.1:8100/mcp`, uses native Helix by default, and runs `engramctl doctor`.
 
 ## Key Capabilities
 
-- **Dual mode**: SQLite (lite, zero infrastructure) or FalkorDB + Redis (full, production-ready)
-- **CQRS ingestion**: `observe` (fast, no LLM) vs `remember` (full extraction + entity resolution)
-- **ACT-R activation**: Recency/frequency ranking computed lazily from access history
-- **15-phase consolidation**: triage, merge, infer, evidence_adjudicate, edge_adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, dream
-- **Memory maturation**: Entities graduate episodic → transitional → semantic with differential decay
-- **MCP server**: 19 tools via stdio transport for any MCP-compatible agent
-- **Privacy-first**: Memory storage is local. No centralized data collection.
+- **Lifecycle**: Capture -> Cue -> Project -> Recall -> Consolidate
+- **Native Helix**: PyO3 in-process graph/vector/BM25 backend with no Docker requirement
+- **CQRS ingestion**: `observe` for fast cueable capture, `remember` for full extraction
+- **Activation-aware recall**: recency, frequency, relevance, graph structure, and cue signals
+- **17-phase consolidation**: triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream
+- **Storage visibility**: `engramctl storage` and `/api/storage` show resolved paths, usage, counts, and growth
+- **MCP server**: 27 tools for capture, recall, memory authority, evaluation, management, and system control
+- **Privacy-first**: memory storage is local; no centralized data collection
 
-## Install
+## MCP Tools
 
-```
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-```
-
-Or manually: `git clone https://github.com/Moshik21/engram.git && cd engram/server && uv sync && uv run engram setup`
-
-## CLI
-
-- `engram setup` — Interactive setup wizard
-- `engram serve` — Start REST API at localhost:8100
-- `engram mcp` — Start MCP server (stdio transport)
-- `engram health` — Check if server is running
-- `engram config` — Edit settings
-
-## Integration
-
-- [MCP Server](https://engram-roan.vercel.app/docs): `engram mcp` — recommended for Claude Code, Cursor, Windsurf
-- [REST API](https://engram-roan.vercel.app/docs): `engram serve` — HTTP server at port 8100 with OpenAPI docs
-- [OpenClaw Skill](https://github.com/Moshik21/engram/tree/main/skills/engram-memory): ClawHub skill for persistent agent memory
-- [Docker Full Stack](https://engram-roan.vercel.app/docs): `docker compose up -d --build` for FalkorDB + Redis + dashboard
-
-## MCP Tools (19)
-
-Capture: observe, remember, adjudicate_evidence, forget, bootstrap_project
+Capture: observe, remember, observe_image, observe_file, adjudicate_evidence, forget, bootstrap_project
 Retrieval: recall, search_entities, search_facts, search_artifacts, get_context, route_question
-Management: mark_identity_core, intend, dismiss_intention, list_intentions
-System: get_consolidation_status, trigger_consolidation, get_graph_state, get_runtime_state
+Authority/evaluation: claim_authority, get_runtime_state, get_lifecycle_summary, get_evaluation_report, record_recall_evaluation, record_session_continuity_evaluation
+Management: mark_identity_core, feedback, intend, dismiss_intention, list_intentions
+System: get_graph_state, get_consolidation_status, trigger_consolidation
 
 ## Links
 
 - [GitHub Repository](https://github.com/Moshik21/engram)
 - [Documentation](https://engram-roan.vercel.app/docs)
+- [OpenClaw Setup](https://engram-roan.vercel.app/docs#openclaw)
 - [Science & Architecture](https://engram-roan.vercel.app/science)
+- [Benchmarks](https://engram-roan.vercel.app/benchmarks)
 - [Vision](https://engram-roan.vercel.app/vision)
 - [Roadmap](https://engram-roan.vercel.app/roadmap)
-
-## Optional
-
-- [Consolidation Deep Dive](https://engram-roan.vercel.app/docs#consolidation)
-- [Cognitive Science Foundations](https://engram-roan.vercel.app/science)
-- [Federated Policy Intelligence Vision](https://engram-roan.vercel.app/roadmap)

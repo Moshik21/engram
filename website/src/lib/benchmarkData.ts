@@ -83,7 +83,7 @@ const FALLBACK_METADATA: Record<string, Omit<BaselineCard, "scenario_pass_rate" 
     accent: "#67e8f9",
     archetype: "Cue-first long-term memory with graph recall and prospective triggers.",
     description: "Full Engram memory loop using episodic capture, selective projection, cue recall, graph-aware retrieval, and prospective memory.",
-    fairness_notes: "Real GraphManager path in lite mode; no fixture-only shortcuts.",
+    fairness_notes: "Real GraphManager path; no fixture-only shortcuts.",
     known_limitations: "Hybrid vector search is optional and not enabled in the default run.",
     why_included: "Headline system under test.",
   },

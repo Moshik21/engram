@@ -7,13 +7,14 @@ const NAV_LINKS = [
   { to: "/science", label: "Science" },
   { to: "/vision", label: "Vision" },
   { to: "/roadmap", label: "Roadmap" },
+  { to: "/docs#openclaw", label: "OpenClaw" },
   { to: "/docs", label: "Docs" },
 ] as const;
 
 const GITHUB_URL = "https://github.com/Moshik21/engram";
 
 export function Navigation() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -28,7 +29,7 @@ export function Navigation() {
   /* Close mobile menu on route change */
   useEffect(() => {
     setMobileOpen(false);
-  }, [pathname]);
+  }, [pathname, hash]);
 
   /* Close mobile menu on Escape */
   useEffect(() => {
@@ -54,8 +55,25 @@ export function Navigation() {
 
   const toggleMenu = useCallback(() => setMobileOpen((v) => !v), []);
 
-  const isActive = (to: string) =>
-    pathname === to || (to !== "/" && pathname.startsWith(to));
+  const splitLink = (to: string) => {
+    const [path, rawHash] = to.split("#");
+    return { path: path || "/", hash: rawHash ? `#${rawHash}` : "" };
+  };
+
+  const isActive = (to: string) => {
+    const target = splitLink(to);
+    if (target.hash) {
+      return pathname === target.path && hash === target.hash;
+    }
+
+    const hashSpecificActive = NAV_LINKS.some((link) => {
+      const candidate = splitLink(link.to);
+      return candidate.hash && candidate.path === target.path && pathname === candidate.path && hash === candidate.hash;
+    });
+
+    if (hashSpecificActive) return false;
+    return pathname === target.path || (target.path !== "/" && pathname.startsWith(target.path));
+  };
 
   return (
     <>

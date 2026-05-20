@@ -6,37 +6,69 @@ import { ScrollReveal } from "../components/ScrollReveal";
 
 const INSTALL_TABS = [
   {
-    id: "mcp",
-    label: "MCP Server",
+    id: "helix",
+    label: "Native Helix",
     badge: "Recommended",
-    heading: "MCP SERVER",
-    commands: ["cd server", "uv sync", "uv run engram mcp"],
+    heading: "NATIVE HELIX",
+    commands: [
+      "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix",
+      "engramctl status",
+      "engramctl storage",
+      "engramctl doctor",
+      "engramctl connect claude-code",
+      "engramctl bootstrap /path/to/project",
+    ],
     description:
-      "Starts Engram in lite mode with SQLite. Zero dependencies beyond Python. Connect any MCP-compatible agent and start building memory immediately.",
+      "Installs the PyO3 Helix runtime, starts the local brain, shows where storage lives, verifies readiness, connects an MCP client, and bootstraps selected project context.",
+  },
+  {
+    id: "openclaw",
+    label: "OpenClaw",
+    badge: null,
+    heading: "OPENCLAW",
+    commands: [
+      "openclaw skills install engram-brain",
+      "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw",
+      "engramctl status",
+      "engramctl doctor",
+    ],
+    description:
+      "Installs the public OpenClaw skill, configures MCP at the local Engram runtime, and keeps the default path native Helix instead of Docker.",
+  },
+  {
+    id: "lite",
+    label: "Lite Fallback",
+    badge: null,
+    heading: "LITE",
+    commands: [
+      "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- lite",
+      "engramctl status",
+      "engramctl storage",
+      "engramctl doctor",
+    ],
+    description:
+      "SQLite-only fallback for demos and zero-infra local use. It keeps the same memory loop and diagnostics, but native Helix is the default public path.",
   },
   {
     id: "docker",
-    label: "Docker Full Stack",
+    label: "Docker Legacy",
     badge: null,
     heading: "DOCKER",
-    commands: ["docker compose up -d --build"],
+    commands: [
+      "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- full",
+      "engramctl status",
+      "engramctl logs",
+    ],
     description:
-      "Full mode with FalkorDB, Redis, and the real-time dashboard at localhost:3000. Best for production deployments and graph exploration.",
-  },
-  {
-    id: "rest",
-    label: "REST API",
-    badge: null,
-    heading: "REST API",
-    commands: ["cd server", "uv run engram serve"],
-    description:
-      "Lightweight HTTP server for non-MCP integrations. Interactive docs available at localhost:8100/docs.",
+      "Explicit compatibility lane for the FalkorDB + Redis stack. Use native Helix first unless you specifically need Docker services.",
   },
 ] as const;
 
 const MCP_TOOLS = [
-  { name: "observe", desc: "Store raw text for background processing", cat: "capture" },
   { name: "remember", desc: "Store important information with full extraction", cat: "capture" },
+  { name: "observe", desc: "Store raw text for cueable background processing", cat: "capture" },
+  { name: "observe_image", desc: "Attach image evidence to an observed episode", cat: "capture" },
+  { name: "observe_file", desc: "Attach file evidence to an observed episode", cat: "capture" },
   { name: "adjudicate_evidence", desc: "Resolve ambiguous entity or relationship evidence", cat: "capture" },
   { name: "forget", desc: "Remove outdated information", cat: "capture" },
   { name: "bootstrap_project", desc: "Auto-observe key project files", cat: "capture" },
@@ -46,19 +78,26 @@ const MCP_TOOLS = [
   { name: "search_artifacts", desc: "Search bootstrapped project artifacts", cat: "retrieval" },
   { name: "get_context", desc: "Get broad overview of what you know", cat: "retrieval" },
   { name: "route_question", desc: "Classify questions for epistemic routing", cat: "retrieval" },
+  { name: "claim_authority", desc: "Decide what Engram owns vs project-local memory", cat: "authority" },
+  { name: "get_runtime_state", desc: "Check mode, flags, bootstrap freshness, and adoption guidance", cat: "authority" },
+  { name: "get_lifecycle_summary", desc: "Inspect Capture -> Cue -> Project -> Recall -> Consolidate state", cat: "authority" },
+  { name: "get_evaluation_report", desc: "Review local brain-loop evaluation and release evidence", cat: "authority" },
+  { name: "record_recall_evaluation", desc: "Label whether recall helped and whether false recall occurred", cat: "authority" },
+  { name: "record_session_continuity_evaluation", desc: "Label memory continuity against a baseline", cat: "authority" },
   { name: "mark_identity_core", desc: "Protect important entities from pruning", cat: "management" },
+  { name: "feedback", desc: "Rate an entity to influence future retrieval", cat: "management" },
   { name: "intend", desc: "Create prospective memory intentions", cat: "management" },
   { name: "dismiss_intention", desc: "Disable an active intention", cat: "management" },
   { name: "list_intentions", desc: "List active intentions with warmth info", cat: "management" },
+  { name: "get_graph_state", desc: "Inspect graph statistics and activated nodes", cat: "system" },
   { name: "get_consolidation_status", desc: "Check consolidation state", cat: "system" },
   { name: "trigger_consolidation", desc: "Run consolidation manually", cat: "system" },
-  { name: "get_graph_state", desc: "Inspect the knowledge graph", cat: "system" },
-  { name: "get_runtime_state", desc: "Check effective mode, profiles, and flags", cat: "system" },
 ] as const;
 
 const CATEGORIES: { key: string; label: string; color: string }[] = [
   { key: "capture", label: "Capture", color: "#67e8f9" },
   { key: "retrieval", label: "Retrieval", color: "#34d399" },
+  { key: "authority", label: "Authority", color: "#fb7185" },
   { key: "management", label: "Management", color: "#a78bfa" },
   { key: "system", label: "System", color: "#fbbf24" },
 ];
@@ -68,16 +107,17 @@ const CONCEPT_CARDS = [
   { title: "Entities", desc: "People, projects, concepts extracted into a knowledge graph that matures over time." },
   { title: "Relationships", desc: "Typed edges between entities: WORKS_AT, PREFERS, KNOWS. ~25 canonical predicates." },
   { title: "Activation", desc: "ACT-R inspired recency/frequency ranking. Computed lazily from access history." },
-  { title: "Consolidation", desc: "15 offline phases on a three-tier schedule. Triage, merge, infer, adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph embed, microglia, dream." },
+  { title: "Consolidation", desc: "17 offline phases on a tiered schedule. Triage, merge, calibrate, infer, adjudicate, replay, prune, compact, mature, semanticize, schema, reindex, graph embed, microglia, immunity, dream." },
   { title: "Cues", desc: "Lightweight latent memory traces that surface relevant context before full extraction." },
 ] as const;
 
 const PHASES = [
   { name: "triage", tier: "Hot", interval: "15 min", desc: "Score queued episodes, promote top ~35% for extraction" },
   { name: "merge", tier: "Warm", interval: "2 hr", desc: "Fuzzy-match duplicate entities via multi-signal scoring" },
+  { name: "calibrate", tier: "Warm", interval: "2 hr", desc: "Learn from labels and audit traces to tune phase decisions" },
   { name: "infer", tier: "Warm", interval: "2 hr", desc: "Create edges for co-occurring entities via PMI" },
-  { name: "evidence_adjudicate", tier: "Warm", interval: "2 hr", desc: "Resolve ambiguous entity and relationship evidence" },
-  { name: "edge_adjudicate", tier: "Warm", interval: "2 hr", desc: "Budgeted offline adjudication of unresolved edges" },
+  { name: "evidence_adjudication", tier: "Warm", interval: "2 hr", desc: "Resolve ambiguous entity and relationship evidence" },
+  { name: "edge_adjudication", tier: "Warm", interval: "2 hr", desc: "Budgeted offline adjudication of unresolved edges" },
   { name: "replay", tier: "Cold", interval: "6 hr", desc: "Re-extract recent episodes to find missed entities" },
   { name: "prune", tier: "Cold", interval: "6 hr", desc: "Soft-delete dead entities with low access" },
   { name: "compact", tier: "Warm", interval: "2 hr", desc: "Logarithmic bucketing of access history" },
@@ -87,6 +127,7 @@ const PHASES = [
   { name: "reindex", tier: "Warm", interval: "2 hr", desc: "Re-embed entities affected by earlier phases" },
   { name: "graph_embed", tier: "Cold", interval: "6 hr", desc: "Train structural embeddings (Node2Vec, TransE)" },
   { name: "microglia", tier: "Warm", interval: "2 hr", desc: "Graph immune surveillance — prune bad edges, fix summaries" },
+  { name: "immunity", tier: "Warm", interval: "2 hr", desc: "Dissolve low-gravity noise before it spreads through the graph" },
   { name: "dream", tier: "Cold", interval: "6 hr", desc: "Spreading activation + cross-domain connections" },
 ] as const;
 
@@ -138,7 +179,7 @@ function TierBadge({ tier }: { tier: string }) {
 /* ════════════════════════════ DOCS PAGE ════════════════════════════ */
 
 export function DocsPage() {
-  const [tab, setTab] = useState("mcp");
+  const [tab, setTab] = useState("helix");
   const active = INSTALL_TABS.find((t) => t.id === tab) ?? INSTALL_TABS[0];
 
   return (
@@ -157,7 +198,8 @@ export function DocsPage() {
           </ScrollReveal>
           <ScrollReveal delay={160}>
             <p style={{ ...body, fontSize: 18, lineHeight: 1.7, color: "var(--text-secondary)", maxWidth: 520 }}>
-              Set up private AI memory in minutes. Three options, zero complexity.
+              Set up a native Helix brain, connect an agent, verify readiness,
+              and inspect where memory is stored.
             </p>
           </ScrollReveal>
         </div>
@@ -168,7 +210,7 @@ export function DocsPage() {
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px" }}>
           <ScrollReveal>
             <Label>QUICK START</Label>
-            <Heading>Three ways to run Engram</Heading>
+            <Heading>Release-current startup path</Heading>
           </ScrollReveal>
 
           {/* Tabs */}
@@ -276,14 +318,64 @@ export function DocsPage() {
         </div>
       </section>
 
+      {/* ── OPENCLAW ─────────────────────────────────────────── */}
+      <section id="openclaw" style={{ paddingTop: 64, paddingBottom: 96 }}>
+        <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px" }}>
+          <ScrollReveal>
+            <Label>OPENCLAW</Label>
+            <Heading>First-class memory for OpenClaw agents</Heading>
+            <p style={{ ...body, fontSize: 15, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 24, maxWidth: 620 }}>
+              The OpenClaw release path uses the same native Helix runtime as the
+              default install. It installs the `engram-brain` skill, writes MCP
+              configuration for `http://127.0.0.1:8100/mcp`, and runs the doctor
+              readiness gate.
+            </p>
+          </ScrollReveal>
+          <ScrollReveal delay={80}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {[
+                ["Install skill", "openclaw skills install engram-brain"],
+                ["Install runtime", "curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw"],
+                ["Existing runtime", "engramctl quickstart --mode helix --install-openclaw --connect openclaw"],
+              ].map(([label, command]) => (
+                <div
+                  key={label}
+                  style={{
+                    padding: 18,
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "#67e8f9", marginBottom: 8 }}>
+                    {label}
+                  </div>
+                  <code style={{ ...mono, fontSize: 12, lineHeight: 1.6, color: "var(--text-secondary)", wordBreak: "break-word" }}>
+                    {command}
+                  </code>
+                </div>
+              ))}
+            </div>
+          </ScrollReveal>
+        </div>
+      </section>
+
       {/* ── MCP TOOLS ────────────────────────────────────────── */}
       <section style={{ paddingTop: 64, paddingBottom: 96 }}>
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px" }}>
           <ScrollReveal>
             <Label>MCP TOOLS</Label>
-            <Heading>19 tools for memory management</Heading>
+            <Heading>Memory authority, recall, evaluation, and control</Heading>
             <p style={{ ...body, fontSize: 15, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 40, maxWidth: 600 }}>
-              Engram exposes a complete memory interface through the Model Context Protocol. Every tool is available via stdio transport.
+              Engram exposes a complete memory interface through the Model
+              Context Protocol. Installed clients connect to the local HTTP MCP
+              runtime, while source users can still run stdio when needed.
             </p>
           </ScrollReveal>
 
@@ -345,19 +437,22 @@ export function DocsPage() {
         <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 24px" }}>
           <ScrollReveal>
             <Label>ARCHITECTURE</Label>
-            <Heading>Dual mode, CQRS, offline consolidation</Heading>
+            <Heading>Native Helix, cue-first capture, offline consolidation</Heading>
           </ScrollReveal>
 
           {/* Mode cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 48 }}>
             <ScrollReveal delay={60}>
               <div style={{ padding: 24, borderRadius: 14, background: "var(--surface)", border: "1px solid var(--border)", height: "100%" }}>
-                <h3 style={{ ...body, fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Dual Mode</h3>
+                <h3 style={{ ...body, fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Backend Paths</h3>
                 <p style={{ ...body, fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 8 }}>
-                  <strong style={{ color: "var(--text-primary)" }}>Lite:</strong> SQLite only. Single file, zero infrastructure. Great for local agents and development.
+                  <strong style={{ color: "var(--text-primary)" }}>Native Helix:</strong> PyO3 in-process graph, vector, and BM25. This is the recommended no-Docker path.
+                </p>
+                <p style={{ ...body, fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 8 }}>
+                  <strong style={{ color: "var(--text-primary)" }}>Lite:</strong> SQLite fallback/demo path with the same memory loop and diagnostics.
                 </p>
                 <p style={{ ...body, fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)" }}>
-                  <strong style={{ color: "var(--text-primary)" }}>Full:</strong> FalkorDB + Redis. Graph database, vector search, real-time dashboard. Production-ready.
+                  <strong style={{ color: "var(--text-primary)" }}>Docker full:</strong> Explicit compatibility lane for FalkorDB + Redis, not the default install.
                 </p>
               </div>
             </ScrollReveal>
@@ -378,7 +473,9 @@ export function DocsPage() {
           <ScrollReveal delay={160}>
             <h3 style={{ ...body, fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Consolidation Pipeline</h3>
             <p style={{ ...body, fontSize: 13, lineHeight: 1.7, color: "var(--text-secondary)", marginBottom: 20 }}>
-              Fifteen phases on a three-tier schedule. Manual triggers bypass tiering and run all phases.
+              The consolidation engine follows the same Capture {"->"} Cue {"->"} Project
+              {"->"} Recall {"->"} Consolidate contract shown in the dashboard and
+              lifecycle API. Manual triggers can run selected phases directly.
             </p>
 
             <div style={{ borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>

@@ -1,197 +1,196 @@
 # Engram
 
-> Persistent long-term memory for AI agents. Temporal knowledge graphs, ACT-R cognitive architecture for activation-aware retrieval, and 15-phase offline consolidation inspired by biological memory. Open source, privacy-first, runs locally.
+> Persistent long-term memory for AI agents. Temporal knowledge graphs, cue-based recall, ACT-R inspired activation, and 17-phase offline consolidation. Open source, privacy-first, runs locally.
 
 ## What Engram Does
 
-Engram gives AI agents a brain that persists across sessions. Instead of losing context when a conversation ends, Engram builds a knowledge graph of entities, relationships, and facts extracted from conversations — then retrieves them using spreading activation when relevant.
+Engram gives AI agents a brain that persists across sessions. Instead of resetting when a conversation ends, Engram captures episodes, extracts entities and relationships, builds a knowledge graph, recalls relevant context through cues and activation, and consolidates the graph in the background.
 
-One brain per person. Not one brain per project. Projects are topology (regions of a single knowledge graph), not tenancy (separate databases).
+The product model is one brain per person, not one brain per project. Projects are topology inside the same knowledge graph, not separate tenants by default.
 
-## Architecture
+## Runtime Paths
 
-### Dual Mode
-- **Lite mode** (default): SQLite only. Single file, zero infrastructure. FTS5 full-text search, WAL journaling. Great for local agents and development.
-- **Full mode**: FalkorDB (graph database) + Redis (activation store + vector search via HNSW). Real-time dashboard at localhost:3000. Production-ready.
-- Auto-detected: probes FalkorDB and Redis connectivity, falls back to lite mode.
+### Native Helix
 
-### CQRS Ingestion Pattern
-- `observe` — Fast write path. Stores raw text as a QUEUED episode. No LLM call. Used for bulk capture.
-- `remember` — Slow write path. Runs LLM extraction (Claude Haiku), entity resolution, embedding generation.
-- `store_episode()` — Internal fast path (called by observe)
-- `project_episode()` — Internal slow path (extraction + resolution + embedding)
-- `ingest_episode()` — Legacy wrapper that calls both sequentially
-- System prompt biases toward `observe` by default. "If uncertain, observe it."
+Native Helix through PyO3 is the recommended public path. The Helix engine runs in-process and provides graph traversal, vector search, and BM25 search without Docker or a network hop.
 
-### ACT-R Activation
-- Recency/frequency ranking inspired by Anderson's ACT-R cognitive architecture
-- Activation computed lazily from access_history on read — never stored as a decaying float
-- Spreading activation does NOT record access (prevents phantom reinforcement loops)
-- Differential decay exponents: episodic (0.5), transitional (0.4), semantic (0.3)
+```bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
+engramctl quickstart --mode helix
+engramctl status
+engramctl storage
+engramctl doctor
+engramctl connect claude-code
+engramctl bootstrap /path/to/project
+```
 
-### Retrieval Pipeline
-- Hybrid search: FTS5 text search (weight 0.3) + vector cosine similarity (weight 0.7), fused via Reciprocal Rank Fusion
-- Spreading activation through knowledge graph for structural relevance
-- Memory-tier-aware scoring
-- Reconsolidation: recently recalled entities enter 5-minute labile window for summary updates (max 3 modifications)
+`engramctl storage` reports resolved storage paths, disk usage, graph/cue counts, and growth since startup. Native Helix defaults to `~/.helix/engram-native`.
 
-## 15-Phase Consolidation Pipeline
+### Lite Fallback
 
-Offline cycles that run on a three-tier schedule:
-- **Hot tier** (every 15 min): triage
-- **Warm tier** (every 2 hr): merge, infer, evidence_adjudicate, compact, mature, semanticize, reindex, microglia
-- **Cold tier** (every 6 hr): replay, prune, schema, graph_embed, dream
+Lite mode is the SQLite fallback for demos, disposable local testing, and zero-infra smoke checks. It keeps the same Capture -> Cue -> Project -> Recall -> Consolidate loop, but it is not the preferred public release path when full graph/vector/BM25 memory is desired.
 
-Manual/pressure/scheduled triggers bypass tiering and run all phases.
+```bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- lite
+engramctl status
+engramctl storage
+engramctl doctor
+```
 
-### Phase Details
+Lite defaults to `~/.engram/engram.db`.
 
-1. **Triage**: Scores QUEUED episodes by heuristics (length, keyword density, novelty via FTS5). Promotes top ~35% for extraction, skips the rest.
-2. **Merge**: Fuzzy-matches duplicate entities. 6-signal scoring: name analysis (0.35) + embedding cosine (0.25) + neighbor Jaccard (0.15) + summary Dice (0.10) + referential exclusivity (0.15). Handles acronyms (JS/JavaScript), numeronyms (K8s/Kubernetes), tech suffixes. Union-find clustering.
-3. **Infer**: Creates edges for co-occurring entities via PMI + 6-signal validation (embedding coherence, type compatibility, ubiquity penalty, structural plausibility). Self-correcting via Dream LTD.
-4. **Evidence Adjudicate**: Resolve ambiguous entity and relationship evidence that extraction could not commit with high confidence.
-5. **Edge Adjudicate**: Budgeted offline adjudication of unresolved ambiguous edges.
-6. **Replay**: Re-extracts recent episodes to find missed entities. Skips during tiered scheduling if no upstream graph changes.
-7. **Prune**: Soft-deletes dead entities (no relationships, access_count <= 2, older than 14 days). Activation safety net: entities with activation > 0.05 survive. Memory-tier-aware: semantic entities survive 180 days.
-8. **Compact**: Logarithmic bucketing of access history to bound storage growth.
-9. **Mature**: Graduates entities episodic → transitional → semantic based on maturity score (source diversity, temporal span, relationship richness, access regularity). Identity core entities auto-promote.
-10. **Semanticize**: Promotes episodes from episodic → transitional → semantic based on entity coverage fraction and consolidation cycle count.
-11. **Schema**: Detects recurring structural motifs (predicate-type fingerprints), promotes to first-class Schema entities. Instances connect via INSTANCE_OF edges.
-12. **Reindex**: Re-embeds entities affected by earlier phases.
-13. **Graph Embed**: Trains structural graph embeddings (Node2Vec, TransE, GNN). Incremental retraining with 5% change threshold.
-14. **Microglia**: Graph immune surveillance — prune bad edges, fix meta-contaminated summaries, enforce type constraints.
-15. **Dream**: Offline spreading activation to strengthen pathways. Dream associations discover cross-domain entity pairs via embedding similarity, create temporary DREAM_ASSOCIATED edges with TTL. LTD decay for unboosted edges (0.005/cycle, floor 0.1).
+### Docker Compatibility
+
+Docker full mode is explicit legacy compatibility for the FalkorDB + Redis stack. Use it only when that lane is specifically needed.
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- full
+engramctl status
+engramctl logs
+```
+
+## OpenClaw
+
+Engram is published for OpenClaw agents as the `engram-brain` skill.
+
+```bash
+openclaw skills install engram-brain
+curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
+```
+
+The OpenClaw installer mode:
+
+- installs Engram and the Helix native runtime
+- runs `engramctl quickstart --mode helix`
+- installs the OpenClaw skill at `~/.openclaw/skills/engram-brain`
+- writes MCP config for `http://127.0.0.1:8100/mcp`
+- runs readiness checks through `engramctl doctor`
+
+For an existing Engram install:
+
+```bash
+engramctl quickstart --mode helix --install-openclaw --connect openclaw
+engramctl doctor
+```
+
+Expected OpenClaw MCP entry:
+
+```json
+{
+  "url": "http://127.0.0.1:8100/mcp",
+  "transport": "streamable-http"
+}
+```
+
+## Lifecycle
+
+The public lifecycle contract is:
+
+1. **Capture**: `observe`, `remember`, image/file observation, and project bootstrap write raw episodes and important facts.
+2. **Cue**: lightweight cue traces make unprojected episodes searchable before full extraction.
+3. **Project**: triage and projection extract evidence into graph-ready entities and relationships.
+4. **Recall**: cue search, entity search, artifact search, activation, graph context, and routing decide what should surface.
+5. **Consolidate**: background phases clean, merge, calibrate, reinforce, and mature the graph.
+
+## 17-Phase Consolidation Pipeline
+
+Offline cycles run on tiered schedules and can also be triggered manually.
+
+- **Hot tier**: triage
+- **Warm tier**: merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, mature, semanticize, reindex, microglia, immunity
+- **Cold tier**: replay, prune, schema, graph_embed, dream
+
+Phase details:
+
+1. **Triage**: scores queued episodes and promotes high-signal items for extraction.
+2. **Merge**: fuzzy-matches duplicate entities using name, embedding, neighbor, summary, and referential signals.
+3. **Calibrate**: learns from labels and audit traces to tune runtime decisions.
+4. **Infer**: creates candidate edges for co-occurring entities with validation signals.
+5. **Evidence Adjudication**: resolves ambiguous entity and relationship evidence.
+6. **Edge Adjudication**: performs budgeted offline adjudication of unresolved edges.
+7. **Replay**: re-extracts recent episodes to find missed entities.
+8. **Prune**: soft-deletes low-value entities with activation and memory-tier safeguards.
+9. **Compact**: buckets access history to bound storage growth.
+10. **Mature**: graduates entities through episodic, transitional, and semantic tiers.
+11. **Semanticize**: promotes episodes based on entity coverage and cycle count.
+12. **Schema**: detects recurring graph motifs and promotes them to schema entities.
+13. **Reindex**: re-embeds changed entities.
+14. **Graph Embed**: trains structural graph embeddings for topology-aware retrieval.
+15. **Microglia**: runs graph immune surveillance for bad edges, summaries, and type constraints.
+16. **Immunity**: dissolves low-gravity noise nodes before weak topology spreads.
+17. **Dream**: strengthens pathways through offline spreading activation and cross-domain associations.
 
 ## MCP Server
 
-19 tools exposed via stdio transport for any MCP-compatible agent (Claude Code, Cursor, Windsurf, etc.).
+Installed clients connect to the local HTTP MCP runtime at `http://127.0.0.1:8100/mcp`. Source users can still run stdio when needed.
+
+Engram exposes 27 MCP tools.
 
 ### Capture Tools
-- `observe` — Store raw text for background processing. Fast, cheap, no LLM call.
-- `remember` — Store important information with full extraction. Extracts entities and relationships.
+
+- `observe` — Store raw text for background processing.
+- `remember` — Store important information with full extraction.
+- `observe_image` — Attach image evidence to an observed episode.
+- `observe_file` — Attach file evidence to an observed episode.
 - `adjudicate_evidence` — Resolve ambiguous entity or relationship evidence.
-- `forget` — Mark a memory, entity, or fact as forgotten (soft delete).
-- `bootstrap_project` — Auto-observe key project files (README, Makefile, etc.) and create a Project entity.
+- `forget` — Mark a memory, entity, or fact as forgotten.
+- `bootstrap_project` — Auto-observe key project files and create project context.
 
 ### Retrieval Tools
-- `recall` — Retrieve memories relevant to a query using activation-aware search.
+
+- `recall` — Retrieve memories relevant to a query.
 - `search_entities` — Search for specific entities by name or type.
-- `search_facts` — Search for facts and relationships in the knowledge graph.
-- `search_artifacts` — Search bootstrapped project artifacts (README, design docs, config).
-- `get_context` — Return pre-assembled context string of most activated memories. Use at conversation start.
-- `route_question` — Classify questions for epistemic routing (memory vs artifact vs reconciliation).
+- `search_facts` — Search for facts and relationships.
+- `search_artifacts` — Search bootstrapped project artifacts.
+- `get_context` — Return a broad context summary for session start.
+- `route_question` — Classify questions for memory, artifact, or reconciliation routing.
+
+### Authority And Evaluation Tools
+
+- `claim_authority` — Decide what Engram owns versus project-local memory.
+- `get_runtime_state` — Check mode, flags, bootstrap freshness, and adoption guidance.
+- `get_lifecycle_summary` — Inspect Capture -> Cue -> Project -> Recall -> Consolidate state.
+- `get_evaluation_report` — Review local brain-loop evaluation evidence.
+- `record_recall_evaluation` — Label recall usefulness and false recall.
+- `record_session_continuity_evaluation` — Label memory continuity against a baseline.
 
 ### Management Tools
-- `mark_identity_core` — Protect important entities from pruning. For core personal identity.
-- `intend` — Create graph-embedded prospective memory intention ("remind me when...").
-- `dismiss_intention` — Disable or delete a prospective memory intention.
-- `list_intentions` — List active intentions with warmth info (how close to firing).
+
+- `mark_identity_core` — Protect important entities from pruning.
+- `feedback` — Rate an entity to influence future retrieval.
+- `intend` — Create graph-embedded prospective memory intentions.
+- `dismiss_intention` — Disable an active intention.
+- `list_intentions` — List active intentions.
 
 ### System Tools
+
+- `get_graph_state` — Return graph statistics and activated nodes.
 - `get_consolidation_status` — Check consolidation state and latest cycle summary.
-- `trigger_consolidation` — Run a consolidation cycle manually.
-- `get_graph_state` — Return graph statistics and top-activated nodes.
-- `get_runtime_state` — Check effective mode, active profiles, enabled flags.
-
-## Install
-
-One-line install:
-```
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-```
-
-Or manually:
-```
-git clone https://github.com/Moshik21/engram.git
-cd engram/server && uv sync
-uv run engram setup
-```
-
-## CLI Commands
-
-- `engram setup` — Interactive setup wizard (API keys, mode, profiles, security)
-- `engram serve` — Start REST API at localhost:8100
-- `engram serve --port 9000` — Custom port
-- `engram mcp` — Start MCP server (stdio transport)
-- `engram health` — Check if server is running
-- `engram config` — Edit settings interactively
-- `engram hooks` — Install AutoCapture hooks for Claude Code
-
-## Quick Start
-
-### MCP Server (Recommended)
-```
-cd server
-uv sync
-uv run engram mcp
-```
-
-### REST API
-```
-cd server
-uv run engram serve
-```
-Interactive docs at localhost:8100/docs.
-
-### Docker Full Stack
-```
-docker compose up -d --build
-```
-Runs FalkorDB, Redis, server (port 8100), and dashboard (port 3000).
-
-### OpenClaw Skill
-```
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-cd ~/engram/server && uv run engram serve
-cp -r ~/engram/skills/engram-memory ~/.openclaw/skills/
-```
+- `trigger_consolidation` — Run consolidation manually.
 
 ## Configuration
 
-All settings in `server/engram/config.py`, overridable via environment variables.
-
-- `consolidation_profile`: off (default) | observe | conservative | standard
-- `recall_profile`: off (default) | wave1 | wave2 | wave3 | wave4 | all
-- `extraction_provider`: auto | anthropic | ollama | narrow (auto tries Anthropic → Ollama → narrow deterministic pipeline)
-- `ANTHROPIC_API_KEY`: Optional. Enables LLM-backed extraction. Without it, the narrow deterministic pipeline handles extraction.
-- `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard` — env var format
-
-Standard profile enables: triage, worker, dream associations, graph embeddings, LLM merge/infer judges, pressure-triggered scheduling, three-tier scheduling.
-
-## Key Concepts
-
-- **Episodes**: Raw conversation turns stored as temporal events. Low-cost capture first, extraction later.
-- **Entities**: People, projects, concepts extracted into a knowledge graph. Mature over time through memory tiers.
-- **Relationships**: Typed edges between entities (WORKS_AT, PREFERS, KNOWS, etc.). ~25 canonical predicates from ~73 synonyms.
-- **Activation**: ACT-R inspired recency/frequency ranking. Computed lazily from access history, never stored as decaying float.
-- **Cues**: Lightweight latent memory traces that surface relevant context before full extraction.
-- **Memory Tiers**: Episodic (recent, fast decay) → Transitional (intermediate) → Semantic (durable, slow decay).
-- **Identity Core**: Protected entities (family, workplace, location) that survive pruning and auto-promote through tiers.
-- **Prospective Memory**: Graph-embedded intentions that fire via spreading activation when related entities are accessed.
-- **Dream Associations**: Cross-domain creative connections discovered via embedding similarity during dream phase.
-
-## Cognitive Science Foundations
-
-Engram's architecture draws from established cognitive science:
-- **Engram theory** (Richard Semon, 1904): Memory as physical trace reactivated by partial cues
-- **Complementary Learning Systems** (McClelland et al., 1995): Fast episodic capture + slow semantic consolidation
-- **Encoding Specificity** (Tulving & Thomson, 1973): Retrieval cues must match encoding context
-- **ACT-R** (John Anderson): Activation-based memory retrieval with base-level learning equation
-- **Reconsolidation** (Nader et al., 2000): Recalled memories enter labile state, can be updated
-- **Desirable Difficulty** (Bjork, 1992): Harder retrieval strengthens traces more
+- `consolidation_profile`: off | observe | conservative | standard
+- `recall_profile`: off | wave1 | wave2 | wave3 | wave4 | all
+- `extraction_provider`: auto | anthropic | ollama | narrow
+- `ANTHROPIC_API_KEY`: optional for richer LLM-backed extraction; deterministic capture and basic recall do not require it
+- `ENGRAM_HELIX__TRANSPORT=native`: recommended native PyO3 transport
+- `ENGRAM_HELIX__DATA_DIR=/path/to/native-data`: override native storage path
 
 ## Use Cases
 
-- **AI coding assistants**: Remember project architecture, decisions, and patterns across sessions
-- **Personal AI assistants**: Track preferences, relationships, health, goals — one unified brain
-- **Research agents**: Build knowledge graphs from papers, conversations, and notes
-- **Always-on agents**: 24/7 agents that accumulate context and improve retrieval over time
-- **OpenClaw skills**: Give any OpenClaw agent persistent memory via MCP or REST API
+- AI coding assistants that remember project architecture, decisions, and preferences across sessions.
+- Personal AI assistants that maintain one local user brain across compatible harnesses.
+- Research agents that build knowledge graphs from papers, notes, exports, and conversations.
+- OpenClaw agents that need persistent memory through MCP.
+- Operator workflows that need visible local storage, doctor checks, and bootstrap commands.
 
 ## Links
 
 - [GitHub Repository](https://github.com/Moshik21/engram)
 - [Documentation](https://engram-roan.vercel.app/docs)
+- [OpenClaw Setup](https://engram-roan.vercel.app/docs#openclaw)
 - [Science & Architecture](https://engram-roan.vercel.app/science)
+- [Benchmarks](https://engram-roan.vercel.app/benchmarks)
 - [Vision — One Brain Per Person](https://engram-roan.vercel.app/vision)
 - [Roadmap](https://engram-roan.vercel.app/roadmap)

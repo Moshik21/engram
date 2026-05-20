@@ -82,12 +82,34 @@ function RouteFallback() {
 }
 
 export function App() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
 
-  /* Scroll to top on every route change */
+  /* Scroll to top or to a hash target on every route change */
   useEffect(() => {
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-  }, [pathname]);
+    if (!hash) {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      return;
+    }
+
+    const targetId = hash.slice(1);
+    const scrollToTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target) return false;
+      target.scrollIntoView({ block: "start", behavior: "auto" });
+      return true;
+    };
+
+    let timeout: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollToTarget()) return;
+      timeout = window.setTimeout(scrollToTarget, 250);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (timeout) window.clearTimeout(timeout);
+    };
+  }, [pathname, hash]);
 
   return (
     <Layout>

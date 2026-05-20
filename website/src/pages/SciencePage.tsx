@@ -116,12 +116,20 @@ const consolidationPhases = [
     desc: "Detect duplicate entities across sessions using fuzzy name analysis, embeddings, and structural signals.",
   },
   {
+    name: "Calibrate",
+    desc: "Use labels and audit traces to tune thresholds, confidence, and phase decisions over time.",
+  },
+  {
     name: "Infer",
     desc: "Discover implicit relationships between entities that co-occur but were never explicitly linked.",
   },
   {
-    name: "Adjudicate",
+    name: "Evidence Adjudication",
     desc: "Resolve ambiguous entity and relationship evidence that extraction could not commit with high confidence.",
+  },
+  {
+    name: "Edge Adjudication",
+    desc: "Run budgeted offline adjudication for unresolved edges before they become durable graph structure.",
   },
   {
     name: "Replay",
@@ -158,6 +166,10 @@ const consolidationPhases = [
   {
     name: "Microglia",
     desc: "Graph immune surveillance — prune bad edges, fix meta-contaminated summaries, enforce type constraints.",
+  },
+  {
+    name: "Immunity",
+    desc: "Dissolve low-gravity noise nodes before weak topology spreads through the graph.",
   },
   {
     name: "Dream",
