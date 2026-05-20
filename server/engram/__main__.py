@@ -8,6 +8,7 @@ Usage:
     engram hooks          Install AutoCapture hooks
     engram lifecycle      Print local Capture -> Cue -> Project -> Recall -> Consolidate state
     engram evaluate       Print local brain-loop evaluation report
+    engram axi            Print compact agent-facing AXI context
     engram authority      Generate claim_authority payload for adoption validation
     engram adoption       Validate MCP client adoption transcript
     engram doctor         Run diagnostics and brain-loop readiness smoke
@@ -40,6 +41,10 @@ def main():
         "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
         "                            Verify the native Helix brain loop end to end\n"
+        "  engram axi --project $PWD\n"
+        "                            Print compact agent-facing runtime/context packet\n"
+        "  engram axi recall \"query\" --limit 5\n"
+        "                            Search memory from a shell-capable agent\n"
         "  engram authority --out claim-authority.json\n"
         "                            Generate memory authority payload for clients\n"
         "  engram adoption --authority claim-authority.json --calls mcp-calls.jsonl\n"
@@ -150,6 +155,15 @@ def main():
     from engram.evaluation.cli import configure_evaluate_parser
 
     configure_evaluate_parser(evaluate_parser)
+
+    # --- axi ---
+    axi_parser = subparsers.add_parser(
+        "axi",
+        help="Print compact agent-facing AXI packets",
+    )
+    from engram.axi.cli import configure_axi_parser
+
+    configure_axi_parser(axi_parser)
 
     # --- authority ---
     authority_parser = subparsers.add_parser(
@@ -291,6 +305,12 @@ def main():
 
         asyncio.run(run_evaluate_command(args))
         return
+
+    # --- axi ---
+    if args.command == "axi":
+        from engram.axi.cli import run_axi_command
+
+        sys.exit(run_axi_command(args))
 
     # --- authority ---
     if args.command == "authority":

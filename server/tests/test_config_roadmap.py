@@ -29,6 +29,7 @@ class TestRoadmapConfigDefaults:
     def test_reranker_defaults(self):
         cfg = ActivationConfig()
         assert cfg.reranker_enabled is True
+        assert cfg.reranker_provider == "noop"
         assert cfg.reranker_top_n == 10
 
     def test_mmr_defaults(self):

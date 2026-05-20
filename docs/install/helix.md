@@ -26,9 +26,11 @@ curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install
 engramctl status
 engramctl storage
 engramctl doctor
-engramctl connect claude-code
+engramctl connect claude-code --axi
 engramctl bootstrap /path/to/project
 engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
+engram axi --project "$PWD"
+engram axi recall "current task" --limit 5 --timeout 5
 ```
 
 The one-click path selects native Helix, installs Engram, adds the
@@ -36,6 +38,12 @@ The one-click path selects native Helix, installs Engram, adds the
 runtime is importable before accepting the configuration. Bootstrap indexes the
 selected project metadata plus generic docs, notes, and memory-export folders;
 use `--include` for any additional user-approved folders or export globs.
+`engram axi` is the compact shell-native agent surface; use it to inspect
+runtime context or recall without depending on MCP tool discovery. MCP remains
+the structured integration protocol for capable clients. `engramctl connect
+codex --axi` and `engramctl connect claude-code --axi` add read-only
+session-start AXI context; capture remains disabled unless `--capture` is
+passed.
 
 Release wheels are preferred. If no compatible wheel is available for the
 current platform, the installer builds `helix-native` from Engram's bundled
@@ -154,7 +162,7 @@ engramctl start
 engramctl status
 engramctl storage
 engramctl doctor
-engramctl connect claude-code
+engramctl connect claude-code --axi
 engramctl bootstrap /path/to/project
 engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 engramctl logs
@@ -184,7 +192,7 @@ make logs-helix        # Tail all container logs
 For installed users, connect an MCP client to the local HTTP runtime:
 
 ```bash
-engramctl connect claude-code
+engramctl connect claude-code --axi
 engramctl connect cursor
 engramctl connect windsurf
 engramctl connect claude-desktop

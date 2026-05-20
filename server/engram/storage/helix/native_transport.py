@@ -164,6 +164,15 @@ class NativeTransport:
                 or "no entry point found for hnsw index" in exc_str.lower()
             ):
                 return []
+            if (
+                "invalid vector dimensions" in exc_str.lower()
+                or "mis-match in vector dimensions" in exc_str.lower()
+            ):
+                logger.debug(
+                    "Native query %s skipped due to vector dimension mismatch",
+                    endpoint,
+                )
+                return []
             logger.error("Native query %s failed: %s", endpoint, exc)
             return []
 

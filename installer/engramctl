@@ -197,7 +197,7 @@ install_engram_tool_with_native() {
     fi
   fi
   info "Using Helix native runtime: $helix_native_req"
-  uv tool install --force --with "$helix_native_req" "$package_spec"
+  uv tool install --force --reinstall-package engram --with "$helix_native_req" "$package_spec"
 }
 
 usage() {
@@ -209,8 +209,10 @@ Commands:
   setup --mode helix|lite|auto   Preselect a local no-Docker backend
   quickstart [--project PATH]    Setup native mode, start, connect, bootstrap, doctor
              [--install-openclaw] [--connect CLIENT]
+             [--axi-hooks] [--capture]
   doctor                         Run the installed-user readiness gate
   connect <client>               Configure MCP for codex|claude-code|cursor|windsurf|claude-desktop|openclaw
+                                  Add --axi for read-only AXI startup context on codex|claude-code
   bootstrap [--include GLOB] <project-dir> [...]
                                   Index selected project docs, notes, exports
   install [--mode full] [--no-open]
@@ -608,6 +610,35 @@ configure_openclaw_mcp() {
   fi
 }
 
+install_axi_hook_for_client() {
+  local client="$1"
+  local capture="${2:-0}"
+
+  case "$client" in
+    codex) ;;
+    claude-code|claude) client="claude-code" ;;
+    *)
+      warn "AXI hooks are currently supported for Codex and Claude Code only."
+      dim "For shell-capable clients, run: engram axi --project \"\$PWD\" --budget 800 --timeout 3"
+      return 0
+      ;;
+  esac
+
+  local engram_cmd
+  engram_cmd="$(find_engram_command)"
+  local args=(
+    axi hooks install "$client"
+    --server-url "$(api_base_url)"
+    --timeout 3
+    --budget 800
+    --engram-command "$engram_cmd"
+  )
+  if [ "$capture" = "1" ]; then
+    args+=(--capture)
+  fi
+  "$engram_cmd" "${args[@]}"
+}
+
 install_openclaw_skill() {
   load_existing_env
   local source_dir="$INSTALL_ROOT/current/skills/engram-memory"
@@ -679,7 +710,7 @@ find_engram_command() {
 find_engram_command_optional() {
   # Find the engram CLI command (uv tool or pip installed)
   if command -v engram >/dev/null 2>&1; then
-    echo "engram"
+    command -v engram
     return
   fi
   # Check uv tool bin
@@ -1206,11 +1237,13 @@ command_doctor() {
 
 command_connect() {
   local client="${1:-}"
-  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify]"
+  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify] [--axi] [--capture]"
   shift || true
 
   local project_path="$PWD"
   local verify=0
+  local install_axi=0
+  local axi_capture=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --project)
@@ -1219,6 +1252,15 @@ command_connect() {
         ;;
       --verify)
         verify=1
+        shift
+        ;;
+      --axi)
+        install_axi=1
+        shift
+        ;;
+      --capture)
+        install_axi=1
+        axi_capture=1
         shift
         ;;
       *)
@@ -1287,6 +1329,10 @@ command_connect() {
       die "Unknown MCP client: $client"
       ;;
   esac
+
+  if [ "$install_axi" = "1" ]; then
+    install_axi_hook_for_client "$client" "$axi_capture"
+  fi
 }
 
 command_bootstrap() {
@@ -1328,8 +1374,9 @@ command_bootstrap() {
     [ -d "$source_path" ] || die "Bootstrap source must be a project directory: $source_path"
     local absolute_path payload
     absolute_path="$(cd "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)/$(basename "$source_path")"
-    payload="$(
-      python3 - "$absolute_path" "${include_patterns[@]}" <<'PY'
+    if [ "${#include_patterns[@]}" -gt 0 ]; then
+      payload="$(
+        python3 - "$absolute_path" "${include_patterns[@]}" <<'PY'
 import json
 import sys
 
@@ -1338,12 +1385,23 @@ if len(sys.argv) > 2:
     body["include_patterns"] = sys.argv[2:]
 print(json.dumps(body))
 PY
-    )"
+      )"
+    else
+      payload="$(
+        python3 - "$absolute_path" <<'PY'
+import json
+import sys
+
+body = {"project_path": sys.argv[1]}
+print(json.dumps(body))
+PY
+      )"
+    fi
     info "Bootstrapping selected source: $absolute_path"
     curl -fsS -X POST "$base/api/knowledge/bootstrap" \
       -H "Content-Type: application/json" \
       --data "$payload" \
-      --connect-timeout 2 --max-time 30
+      --connect-timeout 2 --max-time 180
     echo ""
   done
 }
@@ -1353,7 +1411,8 @@ command_quickstart() {
   local project_path=""
   local connect_client=""
   local install_openclaw=0
-  local install_hooks=0
+  local install_axi_hooks=0
+  local axi_capture=0
   local no_start=0
   local no_doctor=0
 
@@ -1375,8 +1434,13 @@ command_quickstart() {
         install_openclaw=1
         shift
         ;;
-      --hooks)
-        install_hooks=1
+      --hooks|--axi-hooks)
+        install_axi_hooks=1
+        shift
+        ;;
+      --capture)
+        install_axi_hooks=1
+        axi_capture=1
         shift
         ;;
       --no-start)
@@ -1434,10 +1498,14 @@ command_quickstart() {
     fi
   fi
 
-  if [ "$install_hooks" = "1" ]; then
-    local engram_cmd
-    engram_cmd="$(find_engram_command)"
-    "$engram_cmd" hooks || warn "AutoCapture hook install did not complete."
+  if [ "$install_axi_hooks" = "1" ]; then
+    if [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
+      install_axi_hook_for_client "$connect_client" "$axi_capture"
+    else
+      warn "AXI hook install was requested but no Codex or Claude Code client was selected."
+      dim "Run later: engramctl connect codex --axi"
+      dim "Or:        engramctl connect claude-code --axi"
+    fi
   fi
 
   if [ -z "$project_path" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then

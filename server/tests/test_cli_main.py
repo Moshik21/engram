@@ -387,6 +387,43 @@ def test_authority_dispatches_to_command(monkeypatch, tmp_path) -> None:
     ]
 
 
+def test_axi_dispatches_to_command(monkeypatch) -> None:
+    cli = importlib.import_module("engram.__main__")
+    calls: list[dict] = []
+
+    def fake_run_axi_command(args) -> int:
+        calls.append(
+            {
+                "command": args.command,
+                "axi_command": args.axi_command,
+                "query": args.query,
+                "limit": args.limit,
+                "json": args.json,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["engram", "axi", "recall", "Engram AXI", "--limit", "3", "--json"],
+    )
+    monkeypatch.setattr("engram.axi.cli.run_axi_command", fake_run_axi_command)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 0
+    assert calls == [
+        {
+            "command": "axi",
+            "axi_command": "recall",
+            "query": "Engram AXI",
+            "limit": 3,
+            "json": True,
+        }
+    ]
+
+
 def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> None:
     cli = importlib.import_module("engram.__main__")
     monkeypatch.setattr("sys.argv", ["engram", "--help"])
@@ -397,6 +434,7 @@ def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> 
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert "engram doctor" in output
+    assert "engram axi" in output
     assert "engram adoption" in output
     assert "engram authority" in output
     assert "readiness smoke" in output

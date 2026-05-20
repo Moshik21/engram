@@ -127,6 +127,26 @@ class HelixClient:
     # Core query methods
     # ------------------------------------------------------------------
 
+    async def health_check(self) -> None:
+        """Run a cheap connectivity check without scanning the active graph."""
+        payload = {"gid": "__health_check__"}
+        if self._native_transport:
+            await self._native_transport.query("find_entities_by_group", payload)
+            return
+        if self._grpc_transport:
+            await self._grpc_transport.query("find_entities_by_group", payload)
+            return
+
+        if self._client is None:
+            raise RuntimeError("HelixClient not initialized")
+
+        resp = await self._client.post(
+            "/find_entities_by_group",
+            content=json.dumps(payload),
+        )
+        if resp.status_code >= 500:
+            raise RuntimeError(f"Helix health check failed with {resp.status_code}")
+
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a single query. Returns unwrapped results.
 

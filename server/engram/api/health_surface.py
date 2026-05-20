@@ -51,8 +51,12 @@ async def probe_graph_store_health(
         if timeout_seconds is not None
         else _health_probe_timeout_seconds()
     )
+    health_check = getattr(graph_store, "health_check", None)
     try:
-        probe = graph_store.get_stats(group_id=group_id)
+        if health_check is not None:
+            probe = health_check(group_id=group_id)
+        else:
+            probe = graph_store.get_stats(group_id=group_id)
         if timeout <= 0:
             await probe
         else:

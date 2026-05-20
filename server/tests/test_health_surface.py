@@ -32,6 +32,20 @@ class SlowGraphStore:
         return {}
 
 
+class FastHealthGraphStore:
+    def __init__(self) -> None:
+        self.health_group_ids: list[str] = []
+        self.stats_called = False
+
+    async def health_check(self, *, group_id: str | None = None) -> None:
+        self.health_group_ids.append(group_id or "")
+
+    async def get_stats(self, *, group_id: str | None = None) -> dict:
+        self.stats_called = True
+        await asyncio.sleep(0.2)
+        return {}
+
+
 def test_aggregate_service_statuses_reports_degraded_without_unhealthy() -> None:
     status = aggregate_service_statuses(
         {
@@ -52,6 +66,22 @@ async def test_probe_graph_store_health_uses_default_group() -> None:
         == ServiceStatus.HEALTHY
     )
     assert graph_store.group_ids == ["native_brain"]
+
+
+@pytest.mark.asyncio
+async def test_probe_graph_store_health_prefers_fast_health_check() -> None:
+    graph_store = FastHealthGraphStore()
+
+    assert (
+        await probe_graph_store_health(
+            graph_store,
+            group_id="native_brain",
+            timeout_seconds=0.01,
+        )
+        == ServiceStatus.HEALTHY
+    )
+    assert graph_store.health_group_ids == ["native_brain"]
+    assert graph_store.stats_called is False
 
 
 @pytest.mark.asyncio

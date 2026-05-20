@@ -68,6 +68,25 @@ openclaw mcp set engram '{"url":"http://127.0.0.1:8100/mcp","transport":"streama
 If the OpenClaw CLI is not installed, `engramctl` reports the blocker and prints
 the manual command.
 
+## AXI Shell Fallback
+
+OpenClaw should remain MCP-first when its MCP client is available. For agents
+with shell access, Engram also exposes a compact AXI surface:
+
+```bash
+engram axi --project "$PWD"
+engram axi context --project "$PWD" --budget 800 --timeout 5
+engram axi recall "current task" --limit 5 --timeout 5
+```
+
+This is a lightweight context and fallback layer, not a replacement for the
+OpenClaw MCP configuration above. Hook installation for OpenClaw is still
+planned separately after the current OpenClaw hook mechanism is confirmed.
+Codex and Claude Code can enable the same read-only startup packet with
+`engramctl connect codex --axi` or `engramctl connect claude-code --axi`; do
+not translate those hook semantics to OpenClaw until OpenClaw exposes a stable
+hook mechanism.
+
 ## Verify
 
 ```bash

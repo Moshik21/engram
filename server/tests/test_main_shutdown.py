@@ -199,3 +199,33 @@ async def test_shutdown_consolidation_helper_logs_failed_cycle() -> None:
 
     engine.run_cycle.assert_awaited_once()
     logger.warning.assert_called_once_with("Shutdown consolidation failed", exc_info=True)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_consolidation_helper_times_out_and_cancels() -> None:
+    from engram.config import EngramConfig
+    from engram.consolidation_trigger import run_shutdown_consolidation
+
+    config = EngramConfig()
+    config.activation.consolidation_enabled = True
+    config.activation.consolidation_shutdown_timeout_seconds = 0.01
+
+    async def slow_cycle(**_kwargs):
+        import asyncio
+
+        await asyncio.sleep(1)
+
+    engine = SimpleNamespace(
+        is_running=False,
+        run_cycle=AsyncMock(side_effect=slow_cycle),
+        cancel=Mock(),
+    )
+    logger = SimpleNamespace(warning=Mock())
+
+    await run_shutdown_consolidation(engine, config=config, logger=logger)
+
+    engine.run_cycle.assert_awaited_once()
+    engine.cancel.assert_called_once_with()
+    logger.warning.assert_called_once_with(
+        "Shutdown consolidation timed out; cancelled final cycle"
+    )

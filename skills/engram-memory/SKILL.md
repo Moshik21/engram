@@ -84,6 +84,20 @@ All optional:
 
 The REST API is available at `http://127.0.0.1:8100`. The OpenClaw MCP endpoint is available at `http://127.0.0.1:8100/mcp`. When MCP tools are visible, prefer the MCP tools; use the REST examples below as the manual fallback.
 
+For shell-capable OpenClaw sessions where MCP tools are not visible yet, use
+the compact AXI fallback before answering:
+
+```bash
+engram axi --project "$PWD" --budget 800 --timeout 3
+engram axi context --project "$PWD" --budget 800 --timeout 5
+engram axi recall "current task" --limit 5 --timeout 5
+```
+
+AXI is read-only unless the user explicitly asks you to capture with
+`engram axi observe --stdin` or `engram axi remember --stdin`. OpenClaw hook
+installation is not assumed; Codex and Claude Code have separate
+`engramctl connect <client> --axi` startup hook support.
+
 If you know the current project path, bootstrap it once at session start so
 artifact-backed routing has parity with memory:
 ```

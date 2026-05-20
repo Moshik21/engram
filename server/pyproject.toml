@@ -78,6 +78,9 @@ engram = "engram.__main__:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["engram"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100

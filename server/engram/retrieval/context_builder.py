@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -88,6 +89,13 @@ async def build_mcp_context_tool_surface(
 
 class MemoryContextBuilder:
     """Assemble the active memory context exposed through REST and MCP."""
+
+    _CONTEXT_RECALL_TIMEOUT_SECONDS = 8.0
+    _CONTEXT_GRAPH_LOOKUP_TIMEOUT_SECONDS = 3.0
+    _CONTEXT_IDENTITY_LIMIT = 12
+    _CONTEXT_PROJECT_RECALL_LIMIT = 5
+    _CONTEXT_PROJECT_NEIGHBOR_LIMIT = 12
+    _CONTEXT_RECENCY_LIMIT = 20
 
     def __init__(
         self,
@@ -270,6 +278,42 @@ class MemoryContextBuilder:
 
         now = time.time()
         seen_ids: set[str] = set()
+        identity_limit = self._budgeted_entity_limit(
+            max_tokens,
+            default=self._CONTEXT_IDENTITY_LIMIT,
+            tokens_per_entity=160,
+            minimum=2,
+        )
+        project_recall_limit = self._budgeted_entity_limit(
+            max_tokens,
+            default=self._CONTEXT_PROJECT_RECALL_LIMIT,
+            tokens_per_entity=160,
+            minimum=1,
+        )
+        project_recall_timeout = min(
+            self._CONTEXT_RECALL_TIMEOUT_SECONDS,
+            self._budgeted_timeout(max_tokens, default=4.0),
+        )
+        project_lookup_timeout = min(
+            self._CONTEXT_GRAPH_LOOKUP_TIMEOUT_SECONDS,
+            self._budgeted_timeout(max_tokens, default=2.0),
+        )
+        project_neighbor_timeout = min(
+            self._CONTEXT_GRAPH_LOOKUP_TIMEOUT_SECONDS,
+            self._budgeted_timeout(max_tokens, default=3.0),
+        )
+        project_neighbor_limit = self._budgeted_entity_limit(
+            max_tokens,
+            default=self._CONTEXT_PROJECT_NEIGHBOR_LIMIT,
+            tokens_per_entity=100,
+            minimum=2,
+        )
+        recency_limit = self._budgeted_entity_limit(
+            max_tokens,
+            default=self._CONTEXT_RECENCY_LIMIT,
+            tokens_per_entity=100,
+            minimum=2,
+        )
 
         project_entity_id: str | None = None
         if project_path:
@@ -277,15 +321,28 @@ class MemoryContextBuilder:
             if project_dir.name and str(project_dir) != str(Path.home()):
                 if not topic_hint:
                     topic_hint = project_dir.name
-                existing_projects = await self._graph.find_entities(
-                    name=project_dir.name,
-                    entity_type="Project",
-                    group_id=group_id,
-                    limit=1,
-                )
+                project_lookup_timed_out = False
+                try:
+                    existing_projects = await asyncio.wait_for(
+                        self._graph.find_entities(
+                            name=project_dir.name,
+                            entity_type="Project",
+                            group_id=group_id,
+                            limit=1,
+                        ),
+                        timeout=project_lookup_timeout,
+                    )
+                except TimeoutError:
+                    project_lookup_timed_out = True
+                    logger.debug(
+                        "Context project lookup timed out for path=%r; "
+                        "continuing without project graph expansion",
+                        project_path,
+                    )
+                    existing_projects = []
                 if existing_projects:
                     project_entity_id = existing_projects[0].id
-                else:
+                elif not project_lookup_timed_out:
                     project_entity_id = f"ent_{uuid.uuid4().hex[:12]}"
                     project_entity = Entity(
                         id=project_entity_id,
@@ -307,7 +364,7 @@ class MemoryContextBuilder:
         if self._cfg.identity_core_enabled and hasattr(self._graph, "get_identity_core_entities"):
             try:
                 core_entities = await self._graph.get_identity_core_entities(group_id)
-                for core_entity in core_entities:
+                for core_entity in core_entities[:identity_limit]:
                     entity_data = await self.entity_to_context_data(
                         core_entity.id,
                         core_entity.name,
@@ -328,7 +385,17 @@ class MemoryContextBuilder:
         layer2_entities: list[dict] = []
         layer2_facts: list[str] = []
         if topic_hint:
-            results = await self._recall(query=topic_hint, group_id=group_id, limit=15)
+            try:
+                results = await asyncio.wait_for(
+                    self._recall(query=topic_hint, group_id=group_id, limit=project_recall_limit),
+                    timeout=project_recall_timeout,
+                )
+            except TimeoutError:
+                logger.debug(
+                    "Context topic recall timed out for hint=%r; continuing without layer 2 recall",
+                    topic_hint,
+                )
+                results = []
             for result in results:
                 if result.get("result_type") in {"episode", "cue_episode"}:
                     continue
@@ -357,12 +424,15 @@ class MemoryContextBuilder:
 
         if project_entity_id:
             try:
-                neighbors = await self._graph.get_neighbors(
-                    project_entity_id,
-                    hops=1,
-                    group_id=group_id,
+                neighbors = await asyncio.wait_for(
+                    self._graph.get_neighbors(
+                        project_entity_id,
+                        hops=1,
+                        group_id=group_id,
+                    ),
+                    timeout=project_neighbor_timeout,
                 )
-                for neighbor_entity, _relationship in neighbors:
+                for neighbor_entity, _relationship in neighbors[:project_neighbor_limit]:
                     if neighbor_entity.id in seen_ids:
                         continue
                     entity_data = await self.entity_to_context_data(
@@ -392,7 +462,7 @@ class MemoryContextBuilder:
 
         layer3_entities: list[dict] = []
         layer3_facts: list[str] = []
-        top = await self._activation.get_top_activated(group_id=group_id, limit=20)
+        top = await self._activation.get_top_activated(group_id=group_id, limit=recency_limit)
         for entity_id, state in top:
             if entity_id in seen_ids:
                 continue
@@ -560,3 +630,18 @@ class MemoryContextBuilder:
         if pinned_contexts:
             result["pinned_contexts"] = pinned_contexts
         return result
+
+    @staticmethod
+    def _budgeted_entity_limit(
+        max_tokens: int,
+        *,
+        default: int,
+        tokens_per_entity: int,
+        minimum: int,
+    ) -> int:
+        budget_limit = max(minimum, max_tokens // tokens_per_entity)
+        return max(1, min(default, budget_limit))
+
+    @staticmethod
+    def _budgeted_timeout(max_tokens: int, *, default: float) -> float:
+        return min(default, max(0.75, max_tokens / 500.0))

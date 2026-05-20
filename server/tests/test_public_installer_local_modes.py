@@ -1,5 +1,6 @@
 """Regression coverage for public installer local mode selection."""
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -19,6 +20,8 @@ def _run_engramctl(tmp_path: Path, *args: str) -> tuple[str, str]:
     bin_dir.mkdir(exist_ok=True)
 
     env = os.environ.copy()
+    for key in ("ENGRAM_MODE", "ENGRAM_HELIX__TRANSPORT", "ENGRAM_HELIX__DATA_DIR"):
+        env.pop(key, None)
     env.update(
         {
             "HOME": str(home),
@@ -41,6 +44,61 @@ def _run_engramctl(tmp_path: Path, *args: str) -> tuple[str, str]:
         text=True,
     )
     return (engram_home / ".env").read_text(), result.stdout + result.stderr
+
+
+def _engramctl_env(tmp_path: Path) -> dict[str, str]:
+    home = tmp_path / "home"
+    bin_dir = tmp_path / "bin"
+    engram_home = home / ".engram"
+    home.mkdir(exist_ok=True)
+    bin_dir.mkdir(exist_ok=True)
+
+    env = os.environ.copy()
+    for key in ("ENGRAM_MODE", "ENGRAM_HELIX__TRANSPORT", "ENGRAM_HELIX__DATA_DIR"):
+        env.pop(key, None)
+    env.update(
+        {
+            "HOME": str(home),
+            "ENGRAM_HOME": str(engram_home),
+            "ENGRAM_INSTALL_BIN_DIR": str(bin_dir),
+            "ENGRAM_INSTALL_NONINTERACTIVE": "1",
+            "ENGRAM_INSTALL_SKIP_NATIVE_VERIFY": "1",
+            "ENGRAM_API_PORT": "18100",
+            "ENGRAM_ANTHROPIC_API_KEY": "sk-test",
+            "ENGRAM_SKILL_SOURCE": str(ROOT / "skills/engram-memory"),
+            "PATH": f"{bin_dir}:{env.get('PATH', '')}",
+        }
+    )
+    return env
+
+
+def _write_fake_engram(bin_dir: Path, calls_file: Path) -> None:
+    fake_engram = bin_dir / "engram"
+    fake_engram.write_text(
+        """#!/usr/bin/env bash
+python3 - "$ENGRAM_FAKE_CALLS" "$@" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(sys.argv[2:]) + "\\n")
+PY
+echo "fake engram $*"
+""",
+    )
+    fake_engram.chmod(0o755)
+    calls_file.write_text("")
+
+
+def _run_engramctl_with_env(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(ROOT / "installer/engramctl"), *args],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_engramctl_setup_helix_configures_local_native_mode(tmp_path: Path) -> None:
@@ -83,7 +141,10 @@ def test_install_script_forwards_explicit_helix_mode() -> None:
         < install_script.index('uv_tool_install_engram "$package_spec" "PyPI"')
     )
     assert "resolve_helix_native_requirement" in install_script
-    assert 'uv tool install --with "$helix_native_req" "$package_spec"' in install_script
+    assert (
+        'uv tool install --reinstall-package engram --with "$helix_native_req" "$package_spec"'
+        in install_script
+    )
     assert "HELIX_NATIVE_SUBDIR" in install_script
     assert "discover_helix_native_release_wheel" in install_script
     assert "local_helix_native_requirement" in install_script
@@ -143,8 +204,10 @@ def test_engramctl_exposes_release_startup_commands() -> None:
 
     assert "quickstart [--project PATH]" in engramctl
     assert "[--install-openclaw] [--connect CLIENT]" in engramctl
+    assert "[--axi-hooks] [--capture]" in engramctl
     assert "doctor                         Run the installed-user readiness gate" in engramctl
     assert "connect <client>" in engramctl
+    assert "Add --axi for read-only AXI startup context" in engramctl
     assert "codex|claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
     assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
     assert "storage                        Show resolved storage paths and disk growth" in engramctl
@@ -153,6 +216,78 @@ def test_engramctl_exposes_release_startup_commands() -> None:
     assert "connect) command_connect" in engramctl
     assert "bootstrap) command_bootstrap" in engramctl
     assert "storage) command_storage" in engramctl
+
+
+def test_engramctl_connect_can_install_axi_hooks() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "install_axi_hook_for_client" in engramctl
+    assert "--axi)" in engramctl
+    assert "--capture)" in engramctl
+    assert "local args=(" in engramctl
+    assert 'axi hooks install "$client"' in engramctl
+    assert '--engram-command "$engram_cmd"' in engramctl
+    assert "engramctl connect codex --axi" in engramctl
+    assert "engramctl connect claude-code --axi" in engramctl
+    assert '"$engram_cmd" "${args[@]}"' in engramctl
+    assert '"$engram_cmd" hooks' not in engramctl
+
+
+def test_engramctl_connect_codex_axi_executes_installed_hook_command(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    calls_file = tmp_path / "fake-engram-calls.jsonl"
+    env["ENGRAM_FAKE_CALLS"] = str(calls_file)
+    _write_fake_engram(tmp_path / "bin", calls_file)
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+    result = _run_engramctl_with_env(env, "connect", "codex", "--axi")
+
+    calls = [line for line in calls_file.read_text().splitlines() if line.strip()]
+    assert "Configured Codex MCP" in result.stdout + result.stderr
+    assert len(calls) == 1
+    args = json.loads(calls[0])
+    assert args == [
+        "axi",
+        "hooks",
+        "install",
+        "codex",
+        "--server-url",
+        "http://127.0.0.1:18100",
+        "--timeout",
+        "3",
+        "--budget",
+        "800",
+        "--engram-command",
+        str(tmp_path / "bin/engram"),
+    ]
+    config = (tmp_path / "home/.codex/config.toml").read_text()
+    assert "[mcp_servers.engram]" in config
+    assert 'url = "http://127.0.0.1:18100/mcp"' in config
+
+
+def test_engramctl_connect_claude_axi_keeps_capture_opt_in(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    calls_file = tmp_path / "fake-engram-calls.jsonl"
+    env["ENGRAM_FAKE_CALLS"] = str(calls_file)
+    _write_fake_engram(tmp_path / "bin", calls_file)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+    _run_engramctl_with_env(
+        env,
+        "connect",
+        "claude-code",
+        "--project",
+        str(project),
+        "--axi",
+    )
+
+    args = json.loads(calls_file.read_text().splitlines()[0])
+    assert args[:4] == ["axi", "hooks", "install", "claude-code"]
+    assert "--capture" not in args
+    config = (project / ".mcp.json").read_text()
+    assert '"url": "http://127.0.0.1:18100/mcp"' in config
 
 
 def test_engramctl_storage_reports_native_and_sqlite_paths() -> None:
@@ -240,6 +375,46 @@ def test_engramctl_bootstrap_supports_user_approved_include_patterns() -> None:
     assert "--include)" in engramctl
     assert "include_patterns" in engramctl
     assert 'body["include_patterns"] = sys.argv[2:]' in engramctl
+    assert "--max-time 180" in engramctl
+
+
+def test_engramctl_bootstrap_works_without_include_patterns(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    engram_home = Path(env["ENGRAM_HOME"])
+    bin_dir = Path(env["ENGRAM_INSTALL_BIN_DIR"])
+    project = tmp_path / "project"
+    payloads = tmp_path / "payloads.jsonl"
+    project.mkdir()
+    engram_home.mkdir(parents=True, exist_ok=True)
+    (engram_home / ".env").write_text("ENGRAM_API_PORT=18100\n")
+    fake_curl = bin_dir / "curl"
+    fake_curl.write_text(
+        """#!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--data" ]; then
+    printf '%s\n' "$2" >> "$ENGRAM_CAPTURED_PAYLOADS"
+    shift 2
+    continue
+  fi
+  shift
+done
+exit 0
+"""
+    )
+    fake_curl.chmod(0o755)
+    env["ENGRAM_CAPTURED_PAYLOADS"] = str(payloads)
+
+    subprocess.run(
+        ["bash", str(ROOT / "installer/engramctl"), "bootstrap", str(project)],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(payloads.read_text().strip())
+    assert payload == {"project_path": str(project)}
 
 
 def test_engramctl_setup_helix_verifies_native_runtime() -> None:
@@ -256,7 +431,10 @@ def test_engramctl_update_preserves_helix_native_package_extras() -> None:
     assert 'engine_mode="${ENGRAM_MODE:-lite}"' in engramctl
     assert 'package_spec="engram[local,native]"' in engramctl
     assert 'install_engram_tool_with_native "$package_spec"' in engramctl
-    assert 'uv tool install --force --with "$helix_native_req" "$package_spec"' in engramctl
+    assert (
+        'uv tool install --force --reinstall-package engram --with "$helix_native_req"'
+        in engramctl
+    )
     assert "resolve_helix_native_requirement" in engramctl
     assert "discover_helix_native_release_wheel" in engramctl
     assert "local_helix_native_requirement" in engramctl
@@ -298,3 +476,10 @@ def test_custom_helix_native_source_is_packaged_for_release() -> None:
     assert (native_root / "src/queries.rs").exists()
     assert "abi3-py310" in (native_root / "Cargo.toml").read_text()
     assert 'join("src/queries.rs")' in (native_root / "build.rs").read_text()
+
+
+def test_engram_wheel_build_includes_package_directory_without_vcs_filter() -> None:
+    pyproject = (ROOT / "server/pyproject.toml").read_text()
+
+    assert "[tool.hatch.build.targets.wheel]" in pyproject
+    assert 'packages = ["engram"]' in pyproject

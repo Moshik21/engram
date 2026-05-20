@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -111,11 +112,20 @@ async def run_shutdown_consolidation(
     if config is None or not config.activation.consolidation_enabled:
         return
     try:
-        await engine.run_cycle(
+        run = engine.run_cycle(
             group_id=config.default_group_id,
             trigger="shutdown",
             dry_run=False,
         )
+        timeout = getattr(config.activation, "consolidation_shutdown_timeout_seconds", 5.0)
+        if timeout and timeout > 0:
+            await asyncio.wait_for(run, timeout=timeout)
+        else:
+            await run
+    except TimeoutError:
+        engine.cancel()
+        if logger is not None:
+            logger.warning("Shutdown consolidation timed out; cancelled final cycle")
     except Exception:
         if logger is not None:
             logger.warning("Shutdown consolidation failed", exc_info=True)

@@ -113,7 +113,7 @@ engramctl start
 engramctl status
 engramctl storage
 engramctl doctor
-engramctl connect claude-code
+engramctl connect claude-code --axi
 engramctl bootstrap /path/to/project
 engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 engramctl logs
@@ -129,6 +129,35 @@ SQLite data preserved on disk for reference.
 Use `engramctl storage` to inspect resolved storage paths, disk usage, current
 counts, and growth since startup. Native Helix defaults to
 `~/.helix/engram-native`; lite defaults to `~/.engram/engram.db`.
+
+For shell-capable agents, `engram axi` provides a compact AXI packet without
+requiring the agent to read the full MCP tool catalog first:
+
+```bash
+engram axi --project "$PWD"
+engram axi context --project "$PWD" --budget 800 --timeout 5
+engram axi recall "current task" --limit 5 --timeout 5
+engram axi storage
+engram axi doctor --hooks codex claude-code --require-hook-run --require-followup
+engram axi hooks print codex
+engram axi hooks status codex
+engram axi hooks install codex --dry-run
+engram axi hooks uninstall codex --dry-run
+```
+
+AXI is a lightweight context and fallback layer. MCP remains the structured
+tool protocol for agents that support it. To enable read-only session-start
+context through the installer, run `engramctl connect codex --axi` or
+`engramctl connect claude-code --axi`; capture stays disabled unless you pass
+`--capture`. Startup hooks also write metadata-only run records to
+`~/.engram/axi-hook-runs.jsonl` so you can confirm the hook ran without storing
+prompt text, recalled context, or memory bodies. The strict doctor gate requires
+startup records to come from `trace-origin=session-start-hook`; the optional
+follow-up gate requires a later metadata-only `context` or `recall` record from
+`trace-origin=agent-followup`. Manual checks do not masquerade as client startup
+or adoption proof. Codex may show a hook-review prompt the first time the
+managed hook changes; after trust, the TUI surfaces the session-start packet on
+the first submitted prompt.
 
 Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
@@ -314,9 +343,11 @@ curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install
 engramctl status
 engramctl storage
 engramctl doctor
-engramctl connect claude-code
+engramctl connect claude-code --axi
 engramctl bootstrap /path/to/project
 engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
+engram axi --project "$PWD"
+engram axi recall "current task" --limit 5 --timeout 5
 
 # Option B: Helix CLI (HTTP mode)
 helix push dev

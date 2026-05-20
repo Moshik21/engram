@@ -226,11 +226,11 @@ uv_tool_install_engram() {
     fi
     info "Using Helix native runtime: $helix_native_req"
 
-    uv tool install --with "$helix_native_req" "$package_spec"
+    uv tool install --reinstall-package engram --with "$helix_native_req" "$package_spec"
     return
   fi
 
-  uv tool install "$package_spec"
+  uv tool install --reinstall-package engram "$package_spec"
 }
 
 install_engram_package() {

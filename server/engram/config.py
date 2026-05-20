@@ -206,7 +206,7 @@ class ActivationConfig(BaseModel):
 
     # --- Re-ranker ---
     reranker_enabled: bool = Field(default=True)
-    reranker_provider: str = Field(default="local", pattern="^(cohere|local|noop)$")
+    reranker_provider: str = Field(default="noop", pattern="^(cohere|local|noop)$")
     reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")
     reranker_top_n: int = Field(default=10, ge=1, le=50)
 
@@ -513,6 +513,15 @@ class ActivationConfig(BaseModel):
     consolidation_enabled: bool = Field(default=False)
     consolidation_interval_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
     consolidation_dry_run: bool = Field(default=True)
+    consolidation_shutdown_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=300.0,
+        description=(
+            "Maximum time to spend on opportunistic shutdown consolidation; "
+            "0 disables the timeout."
+        ),
+    )
 
     # --- Three-tier scheduling ---
     consolidation_tiered_enabled: bool = Field(

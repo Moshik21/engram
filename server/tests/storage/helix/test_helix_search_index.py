@@ -13,6 +13,7 @@ use a ``FakeEmbeddingProvider`` that returns deterministic mock vectors.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.util
 import socket
@@ -77,6 +78,92 @@ class FakeEmbeddingProvider:
             byte = h[i % len(h)]
             vec.append(byte / 255.0)
         return vec
+
+
+@pytest.mark.asyncio
+async def test_get_graph_embeddings_native_skips_uncached_dimension_probe():
+    index = HelixSearchIndex(
+        helix_config=HelixDBConfig(transport="native"),
+        provider=FakeEmbeddingProvider(dim=768),
+        embed_config=EmbeddingConfig(),
+    )
+    calls: list[int] = []
+
+    async def fake_query(_endpoint: str, payload: dict) -> list[dict]:
+        calls.append(len(payload["vec"]))
+        return []
+
+    index._query = fake_query  # type: ignore[method-assign]
+
+    loaded = await index.get_graph_embeddings(
+        ["ent_graph_a"],
+        method="node2vec",
+        group_id="brain",
+    )
+
+    assert loaded == {}
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_get_graph_embeddings_native_uses_cached_dimension():
+    index = HelixSearchIndex(
+        helix_config=HelixDBConfig(transport="native"),
+        provider=FakeEmbeddingProvider(dim=768),
+        embed_config=EmbeddingConfig(),
+    )
+    index._graph_embed_dim_cache[("brain", "node2vec")] = 64
+    calls: list[int] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append(len(payload["vec"]))
+        assert endpoint == "search_graph_embed_vectors"
+        if len(payload["vec"]) == 64:
+            return [
+                {
+                    "entity_id": "ent_graph_a",
+                    "group_id": "brain",
+                    "method": "node2vec",
+                    "vec": [0.1] * 64,
+                }
+            ]
+        return []
+
+    index._query = fake_query  # type: ignore[method-assign]
+
+    loaded = await index.get_graph_embeddings(
+        ["ent_graph_a"],
+        method="node2vec",
+        group_id="brain",
+    )
+
+    assert calls == [64]
+    assert loaded["ent_graph_a"] == pytest.approx([0.1] * 64)
+
+
+@pytest.mark.asyncio
+async def test_get_graph_embeddings_times_out_optional_probe():
+    index = HelixSearchIndex(
+        helix_config=HelixDBConfig(transport="native"),
+        provider=FakeEmbeddingProvider(dim=768),
+        embed_config=EmbeddingConfig(),
+    )
+    index._GRAPH_EMBED_QUERY_TIMEOUT_SECONDS = 0.001
+    index._graph_embed_dim_cache[("brain", "node2vec")] = 64
+
+    async def fake_query(_endpoint: str, _payload: dict) -> list[dict]:
+        await asyncio.sleep(1)
+        return []
+
+    index._query = fake_query  # type: ignore[method-assign]
+
+    loaded = await index.get_graph_embeddings(
+        ["ent_graph_a"],
+        method="node2vec",
+        group_id="brain",
+    )
+
+    assert loaded == {}
 
 
 @pytest_asyncio.fixture

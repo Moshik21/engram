@@ -100,6 +100,7 @@ class HelixSearchIndex:
     _EMBED_MAX_RETRIES = 3
     _EMBED_BASE_DELAY = 1.0  # seconds
     _EMBED_MAX_DELAY = 30.0  # seconds
+    _GRAPH_EMBED_QUERY_TIMEOUT_SECONDS = 1.0
 
     def __init__(
         self,
@@ -148,6 +149,7 @@ class HelixSearchIndex:
             "retries": 0,
             "fallback_used": 0,
         }
+        self._graph_embed_dim_cache: dict[tuple[str | None, str], int] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1478,19 +1480,53 @@ class HelixSearchIndex:
         target_ids = set(entity_ids)
         results: dict[str, list[float]] = {}
 
-        # Try known graph-embedding dimensions (64 is the default for
-        # Node2Vec/TransE/GNN).  If the index was populated with the wrong
-        # dimension we try the common text-embedding sizes as a fallback so
-        # we can still read whatever is stored.
-        for graph_dim in (64, 32, 16, 128):
+        is_native = getattr(self._helix_config, "transport", "http") == "native"
+        dims: list[int] = []
+        cache_key = (group_id, method)
+        cached_dim = self._graph_embed_dim_cache.get(cache_key)
+        if cached_dim:
+            dims.append(cached_dim)
+        elif is_native:
+            # Native Helix prints vector-dimension mismatches from Rust before
+            # Python can catch the exception. Graph structural similarity is an
+            # optional recall signal, so avoid blind dimension probes on native
+            # stores unless this process has already synced a known-good
+            # dimension for the method/group.
+            logger.debug(
+                "Skipping native graph embedding lookup without cached dimension "
+                "(group=%s, method=%s)",
+                group_id,
+                method,
+            )
+            return {}
+
+        provider_dim = self._storage_dim if self._storage_dim > 0 else self._provider.dimension()
+        method_dims = {
+            "node2vec": [64, 32, 16, 128],
+            "transe": [64, 32, 16, 128],
+            "gnn": [64, 128, 32, 16, 256],
+        }.get(method, [64, 32, 16, 128])
+
+        if not is_native:
+            dims.extend(method_dims)
+            if provider_dim > 0:
+                dims.append(provider_dim)
+
+        ordered_dims = list(dict.fromkeys(dim for dim in dims if dim > 0))
+
+        for graph_dim in ordered_dims:
             try:
                 zero_vec = [0.0] * graph_dim
-                rows = await self._query(
-                    "search_graph_embed_vectors",
-                    {"vec": zero_vec, "k": max(len(entity_ids) * 5, 200)},
+                rows = await asyncio.wait_for(
+                    self._query(
+                        "search_graph_embed_vectors",
+                        {"vec": zero_vec, "k": max(len(entity_ids) * 5, 200)},
+                    ),
+                    timeout=self._GRAPH_EMBED_QUERY_TIMEOUT_SECONDS,
                 )
                 if not rows:
                     continue
+                self._graph_embed_dim_cache[cache_key] = graph_dim
 
                 for row in rows:
                     eid = str(row.get("entity_id", ""))
@@ -1516,6 +1552,13 @@ class HelixSearchIndex:
                             break
 
                 # Found results at this dimension — stop trying others
+                break
+            except TimeoutError:
+                logger.debug(
+                    "get_graph_embeddings timed out probing %sd vectors for method=%s",
+                    graph_dim,
+                    method,
+                )
                 break
             except Exception:
                 # Dimension mismatch or other error — try next dimension
@@ -1546,6 +1589,10 @@ class HelixSearchIndex:
         if client is None:
             logger.warning("sync_graph_embeddings: no HelixDB client available")
             return 0
+
+        first_vec = next(iter(embeddings.values()), [])
+        if first_vec:
+            self._graph_embed_dim_cache[(group_id, method)] = len(first_vec)
 
         payloads = [
             {
@@ -1599,8 +1646,27 @@ class HelixSearchIndex:
         recreate the schema and reset the index.
         """
         deleted = 0
+        is_native = getattr(self._helix_config, "transport", "http") == "native"
 
-        for dim in (3072, 1536, 768, 384, 128, 64, 32, 16):
+        if is_native:
+            dims = [
+                dim
+                for (cached_group, cached_method), dim in self._graph_embed_dim_cache.items()
+                if (not group_id or cached_group == group_id)
+                and (not method or cached_method == method)
+            ]
+            if not dims:
+                logger.debug(
+                    "Skipping native graph embedding clear without cached dimension "
+                    "(group=%s, method=%s)",
+                    group_id or "*",
+                    method or "*",
+                )
+                return 0
+        else:
+            dims = [3072, 1536, 768, 384, 128, 64, 32, 16]
+
+        for dim in list(dict.fromkeys(dims)):
             try:
                 zero_vec = [0.0] * dim
                 rows = await self._query(

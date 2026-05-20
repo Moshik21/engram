@@ -306,6 +306,14 @@ class HelixGraphStore:
                 return []
             raise
 
+    async def health_check(self, *, group_id: str | None = None) -> None:
+        """Verify Helix connectivity without scanning the active group."""
+        _ = group_id
+        if self._helix_client is not None:
+            await self._helix_client.health_check()
+            return
+        await self._query("find_entities_by_group", {"gid": "__health_check__"})
+
     # ------------------------------------------------------------------
     # Internal helpers: extract Helix internal ID from response
     # ------------------------------------------------------------------
