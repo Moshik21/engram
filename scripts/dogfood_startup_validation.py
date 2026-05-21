@@ -30,6 +30,7 @@ EXPECTED_MCP_TOOLS = {
     "claim_authority",
     "route_question",
 }
+EXPECTED_OPENCLAW_TRANSPORT = "streamable-http"
 
 MANAGED_AXI_HOOK_ID = "engram-axi-context"
 TRACE_FILE_RELATIVE = ".engram/axi-hook-runs.jsonl"
@@ -834,9 +835,22 @@ def check_openclaw(home: Path, expected_mcp_url: str, *, require_openclaw: bool)
     evidence["command"] = command_evidence(result, clean)
     payload = extract_last_json(clean)
     evidence["payload"] = payload
-    if result.returncode == 0 and payload and payload.get("url") == expected_mcp_url:
+    if (
+        result.returncode == 0
+        and payload
+        and payload.get("url") == expected_mcp_url
+        and payload.get("transport") == EXPECTED_OPENCLAW_TRANSPORT
+    ):
         return Check(
             "OpenClaw MCP config", "pass", "OpenClaw MCP config points at Engram.", evidence
+        )
+    if result.returncode == 0 and payload and payload.get("url") == expected_mcp_url:
+        return Check(
+            "OpenClaw MCP config",
+            "fail",
+            "OpenClaw MCP config points at Engram but is missing the streamable-http transport.",
+            evidence,
+            [f"Run: {manual_command}"],
         )
     return Check(
         "OpenClaw MCP config",

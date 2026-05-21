@@ -65,6 +65,11 @@ MCP entry is:
 openclaw mcp set engram '{"url":"http://127.0.0.1:8100/mcp","transport":"streamable-http"}'
 ```
 
+OpenClaw's `mcp set` / `mcp show` commands manage OpenClaw's saved MCP
+registry. They do not open a live session to Engram or prove the target server
+is reachable; use `engramctl doctor` and the dogfood validator for Engram-side
+readiness and tool-catalog checks.
+
 If the OpenClaw CLI is not installed, `engramctl` reports the blocker and prints
 the manual command.
 
@@ -96,7 +101,8 @@ openclaw skills list --eligible
 openclaw mcp show engram --json
 ```
 
-Then start a new OpenClaw session so its skill snapshot includes Engram.
+Then start a new OpenClaw session so its skill snapshot includes Engram and the
+runtime adapter can consume the saved MCP registry entry.
 
 ## Bootstrap A Project
 

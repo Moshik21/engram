@@ -90,6 +90,40 @@ echo "fake engram $*"
     calls_file.write_text("")
 
 
+def _write_fake_openclaw(bin_dir: Path, calls_file: Path) -> None:
+    fake_openclaw = bin_dir / "openclaw"
+    fake_openclaw.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+python3 - "$ENGRAM_FAKE_OPENCLAW_CALLS" "$@" <<'PY'
+import json
+import sys
+
+calls_path = sys.argv[1]
+args = sys.argv[2:]
+with open(calls_path, "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(args) + "\\n")
+
+state_path = calls_path + ".state.json"
+if args[:3] == ["mcp", "set", "engram"] and len(args) == 4:
+    payload = json.loads(args[3])
+    with open(state_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, sort_keys=True)
+    sys.exit(0)
+
+if args == ["mcp", "show", "engram", "--json"]:
+    with open(state_path, encoding="utf-8") as handle:
+        print(handle.read())
+    sys.exit(0)
+
+sys.exit(2)
+PY
+""",
+    )
+    fake_openclaw.chmod(0o755)
+    calls_file.write_text("")
+
+
 def _run_engramctl_with_env(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["bash", str(ROOT / "installer/engramctl"), *args],
@@ -348,6 +382,35 @@ def test_engramctl_connect_codex_writes_global_toml(tmp_path: Path) -> None:
     assert "remote_mcp_client_enabled = true" in config
     assert "[mcp_servers.engram]" in config
     assert 'url = "http://127.0.0.1:18100/mcp"' in config
+
+
+def test_engramctl_connect_openclaw_executes_mcp_registry_commands(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    calls_file = tmp_path / "fake-openclaw-calls.jsonl"
+    env["ENGRAM_FAKE_OPENCLAW_CALLS"] = str(calls_file)
+    _write_fake_openclaw(Path(env["ENGRAM_INSTALL_BIN_DIR"]), calls_file)
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+    result = _run_engramctl_with_env(env, "connect", "openclaw", "--verify")
+
+    output = result.stdout + result.stderr
+    calls = [json.loads(line) for line in calls_file.read_text().splitlines()]
+    payload = json.loads(calls[0][3])
+    assert "Configured OpenClaw MCP server 'engram'" in output
+    assert calls == [
+        [
+            "mcp",
+            "set",
+            "engram",
+            '{"url": "http://127.0.0.1:18100/mcp", "transport": "streamable-http"}',
+        ],
+        ["mcp", "show", "engram", "--json"],
+    ]
+    assert payload == {
+        "url": "http://127.0.0.1:18100/mcp",
+        "transport": "streamable-http",
+    }
+    assert "streamable-http" in output
 
 
 def test_engramctl_install_mode_keeps_openclaw_native_first() -> None:

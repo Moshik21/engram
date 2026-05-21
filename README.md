@@ -199,6 +199,10 @@ This uses native Helix through PyO3, installs the shared OpenClaw skill,
 configures OpenClaw MCP at `http://127.0.0.1:8100/mcp`, and runs
 `engramctl doctor`.
 
+OpenClaw's `mcp set` / `mcp show` commands save registry config; they do not
+connect to the target MCP server. `engramctl doctor` and the dogfood validator
+cover Engram-side readiness and tool-catalog checks.
+
 Details: [`docs/install/openclaw.md`](docs/install/openclaw.md)
 
 ### Developer / Source Install

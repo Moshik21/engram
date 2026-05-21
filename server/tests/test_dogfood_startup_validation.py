@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -129,6 +131,65 @@ def test_find_managed_hook_and_trace_summary() -> None:
     assert summary["codex"]["session_start"]["status"] == "healthy"
     assert summary["codex"]["followup"]["operation"] == "context"
     assert summary["claude-code"]["session_start"] is None
+
+
+def test_openclaw_command_uses_streamable_http_transport() -> None:
+    runner = _load_runner()
+
+    command = runner.openclaw_mcp_set_command("http://127.0.0.1:8100/mcp")
+
+    assert command == (
+        "openclaw mcp set engram "
+        '\'{"url":"http://127.0.0.1:8100/mcp","transport":"streamable-http"}\''
+    )
+
+
+def test_openclaw_check_requires_streamable_http_transport(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = _load_runner()
+    bin_dir = tmp_path / "bin"
+    home = tmp_path / "home"
+    skill_path = home / ".openclaw/skills/engram-brain/SKILL.md"
+    bin_dir.mkdir()
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text("# Engram Brain\n")
+    fake_openclaw = bin_dir / "openclaw"
+    payload = {"url": "http://127.0.0.1:8100/mcp", "transport": "streamable-http"}
+    fake_openclaw.write_text(
+        f"""#!/usr/bin/env bash
+if [ "$1 $2 $3 $4" = "mcp show engram --json" ]; then
+  printf '%s\\n' '{json.dumps(payload)}'
+  exit 0
+fi
+exit 2
+"""
+    )
+    fake_openclaw.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
+    check = runner.check_openclaw(
+        home, "http://127.0.0.1:8100/mcp", require_openclaw=True
+    )
+
+    assert check.status == "pass"
+
+    fake_openclaw.write_text(
+        """#!/usr/bin/env bash
+if [ "$1 $2 $3 $4" = "mcp show engram --json" ]; then
+  printf '%s\\n' '{"url":"http://127.0.0.1:8100/mcp","type":"http"}'
+  exit 0
+fi
+exit 2
+"""
+    )
+
+    check = runner.check_openclaw(
+        home, "http://127.0.0.1:8100/mcp", require_openclaw=True
+    )
+
+    assert check.status == "fail"
+    assert "streamable-http transport" in check.detail
 
 
 def test_matrix_detects_stopped_validation_payload() -> None:
