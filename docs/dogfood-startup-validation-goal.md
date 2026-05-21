@@ -66,10 +66,26 @@ Lite mode only as a fallback smoke path.
    report with exact next actions. Keep destructive cleanup behind explicit
    flags.
 
+   Current runner:
+
+   ```bash
+   python3 scripts/dogfood_startup_validation.py
+   python3 scripts/dogfood_startup_validation.py --skip-slow
+   ```
+
+   The full run includes `engramctl doctor` and a live MCP tool-catalog probe.
+   `--skip-slow` is for quick startup/config inspection when the runtime is
+   warming or when a shell agent needs a fast status packet.
+
 3. Fix `engramctl` lifecycle parity.
    `start`, `stop`, and `status` must agree with the configured local
    supervisor. If LaunchAgent is the active native dogfood path, the CLI should
    not rely only on a PID file created by `nohup`.
+
+   The local-mode CLI recognizes an existing macOS LaunchAgent at
+   `~/Library/LaunchAgents/dev.engram.local.plist` by default, or
+   `ENGRAM_LAUNCH_AGENT_LABEL` / `ENGRAM_LAUNCH_AGENT_PLIST` when overridden.
+   If no LaunchAgent exists, it falls back to the PID-file `nohup` path.
 
 4. Harden readiness probes.
    Distinguish "process not listening", "HTTP health not ready", "native graph

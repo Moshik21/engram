@@ -194,6 +194,10 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert 'local port="${ENGRAM_API_PORT:-8100}"' in engramctl
     assert '"$engram_cmd" serve --host 127.0.0.1 --port "$port"' in engramctl
     assert "curl --connect-timeout 1 --max-time 5 -fsS" in engramctl
+    assert "launch_agent_available" in engramctl
+    assert "launch_agent_start" in engramctl
+    assert "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}" in engramctl
+    assert "local_startup_attempts" in engramctl
     assert 'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)"' in engramctl
     assert "return 1" in engramctl
     assert "Quickstart could not confirm Engram is ready." in engramctl

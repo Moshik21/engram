@@ -43,6 +43,8 @@ LITE_PID_FILE="$ENGRAM_HOME/engram.pid"
 LITE_LOG_DIR="$ENGRAM_HOME/logs"
 LITE_LOG_FILE="$LITE_LOG_DIR/engram.log"
 LITE_DB_FILE="$ENGRAM_HOME/engram.db"
+LITE_LAUNCH_AGENT_LABEL="${ENGRAM_LAUNCH_AGENT_LABEL:-dev.engram.local}"
+LITE_LAUNCH_AGENT_PLIST="${ENGRAM_LAUNCH_AGENT_PLIST:-$HOME/Library/LaunchAgents/${LITE_LAUNCH_AGENT_LABEL}.plist}"
 
 # Full mode paths
 FULL_ENV_FILE="$INSTALL_ROOT/.env"
@@ -720,7 +722,59 @@ find_engram_command_optional() {
   fi
 }
 
-lite_is_running() {
+launch_agent_domain() {
+  printf 'gui/%s' "$(id -u)"
+}
+
+launch_agent_service() {
+  printf '%s/%s' "$(launch_agent_domain)" "$LITE_LAUNCH_AGENT_LABEL"
+}
+
+launch_agent_available() {
+  [ "$(uname -s)" = "Darwin" ] || return 1
+  command -v launchctl >/dev/null 2>&1 || return 1
+  [ -f "$LITE_LAUNCH_AGENT_PLIST" ] || return 1
+}
+
+launch_agent_print() {
+  launch_agent_available || return 1
+  launchctl print "$(launch_agent_service)" 2>/dev/null
+}
+
+launch_agent_is_running() {
+  launch_agent_print | grep -q 'state = running'
+}
+
+launch_agent_pid() {
+  launch_agent_print | awk -F'= ' '/^[[:space:]]*pid = / {print $2; exit}'
+}
+
+launch_agent_start() {
+  launch_agent_available || return 1
+  if launch_agent_is_running; then
+    return 0
+  fi
+
+  local domain service
+  domain="$(launch_agent_domain)"
+  service="$(launch_agent_service)"
+  if ! launchctl print "$service" >/dev/null 2>&1; then
+    launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
+  fi
+  launchctl kickstart -k "$service" >/dev/null 2>&1 || true
+  launch_agent_is_running
+}
+
+launch_agent_stop() {
+  launch_agent_available || return 1
+  if ! launchctl print "$(launch_agent_service)" >/dev/null 2>&1; then
+    return 0
+  fi
+  launchctl bootout "$(launch_agent_service)" >/dev/null 2>&1 \
+    || launchctl bootout "$(launch_agent_domain)" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1
+}
+
+lite_pid_is_running() {
   if [ -f "$LITE_PID_FILE" ]; then
     local pid
     pid="$(cat "$LITE_PID_FILE")"
@@ -733,8 +787,38 @@ lite_is_running() {
   return 1
 }
 
+lite_is_running() {
+  lite_pid_is_running || launch_agent_is_running
+}
+
+local_startup_attempts() {
+  if [ -n "${ENGRAM_STARTUP_TIMEOUT_SECONDS:-}" ]; then
+    printf '%s' "$ENGRAM_STARTUP_TIMEOUT_SECONDS"
+    return
+  fi
+  if [ "${ENGRAM_MODE:-lite}" = "helix" ]; then
+    printf '90'
+  else
+    printf '30'
+  fi
+}
+
+wait_for_local_health() {
+  local port="$1"
+  local attempts
+  attempts="$(local_startup_attempts)"
+  while [ "$attempts" -gt 0 ]; do
+    if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+  return 1
+}
+
 lite_start() {
-  if lite_is_running; then
+  if lite_pid_is_running; then
     local pid
     pid="$(cat "$LITE_PID_FILE")"
     info "Engram is already running (PID $pid)."
@@ -748,6 +832,26 @@ lite_start() {
   engram_cmd="$(find_engram_command)"
   local port="${ENGRAM_API_PORT:-8100}"
 
+  if launch_agent_available; then
+    if launch_agent_start; then
+      local agent_pid
+      agent_pid="$(launch_agent_pid || true)"
+      if wait_for_local_health "$port"; then
+        info "Engram started with LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}${agent_pid:+ (PID $agent_pid)}."
+        dim "API: http://127.0.0.1:${port}"
+        dim "Logs: $LITE_LOG_FILE"
+        dim "LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
+        return 0
+      fi
+      warn "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL} is loaded but health is not responding yet."
+      dim "Check logs: tail -f $LITE_LOG_FILE"
+      return 1
+    fi
+    warn "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL} exists but could not be started."
+    dim "LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
+    return 1
+  fi
+
   # Start engram serve in background, bound to loopback only
   nohup env $(grep -v '^#' "$LITE_ENV_FILE" | grep '=' | xargs) \
     "$engram_cmd" serve --host 127.0.0.1 --port "$port" \
@@ -755,26 +859,20 @@ lite_start() {
   local pid=$!
   echo "$pid" > "$LITE_PID_FILE"
 
-  # Wait for health
-  local attempts=30
-  while [ "$attempts" -gt 0 ]; do
-    if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
-      local engine_mode="${ENGRAM_MODE:-lite}"
-      info "Engram started (PID $pid, $engine_mode mode)."
-      dim "API: http://127.0.0.1:${port}"
-      dim "Logs: $LITE_LOG_FILE"
-      if [ "$engine_mode" = "helix" ]; then
-        dim "Native data: ${ENGRAM_HELIX__DATA_DIR:-helix_native default}"
-      elif [ "$engine_mode" = "auto" ]; then
-        dim "Data: auto-detected by Engram"
-      else
-        dim "DB: $LITE_DB_FILE"
-      fi
-      return 0
+  if wait_for_local_health "$port"; then
+    local engine_mode="${ENGRAM_MODE:-lite}"
+    info "Engram started (PID $pid, $engine_mode mode)."
+    dim "API: http://127.0.0.1:${port}"
+    dim "Logs: $LITE_LOG_FILE"
+    if [ "$engine_mode" = "helix" ]; then
+      dim "Native data: ${ENGRAM_HELIX__DATA_DIR:-helix_native default}"
+    elif [ "$engine_mode" = "auto" ]; then
+      dim "Data: auto-detected by Engram"
+    else
+      dim "DB: $LITE_DB_FILE"
     fi
-    attempts=$((attempts - 1))
-    sleep 1
-  done
+    return 0
+  fi
 
   warn "Engram process started (PID $pid) but health check not responding yet."
   dim "Check logs: tail -f $LITE_LOG_FILE"
@@ -782,27 +880,43 @@ lite_start() {
 }
 
 lite_stop() {
-  if ! lite_is_running; then
+  local stopped=0
+  if lite_pid_is_running; then
+    local pid
+    pid="$(cat "$LITE_PID_FILE")"
+    kill "$pid" 2>/dev/null || true
+
+    # Wait for process to exit
+    local attempts=10
+    while [ "$attempts" -gt 0 ] && kill -0 "$pid" 2>/dev/null; do
+      attempts=$((attempts - 1))
+      sleep 1
+    done
+
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+
+    rm -f "$LITE_PID_FILE"
+    stopped=1
+  elif [ -f "$LITE_PID_FILE" ]; then
+    rm -f "$LITE_PID_FILE"
+  fi
+
+  if launch_agent_is_running; then
+    if launch_agent_stop; then
+      stopped=1
+    else
+      warn "Could not stop LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}."
+      dim "Run: launchctl bootout $(launch_agent_service)"
+      return 1
+    fi
+  fi
+
+  if [ "$stopped" != "1" ]; then
     info "Engram is not running."
     return 0
   fi
-
-  local pid
-  pid="$(cat "$LITE_PID_FILE")"
-  kill "$pid" 2>/dev/null || true
-
-  # Wait for process to exit
-  local attempts=10
-  while [ "$attempts" -gt 0 ] && kill -0 "$pid" 2>/dev/null; do
-    attempts=$((attempts - 1))
-    sleep 1
-  done
-
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -9 "$pid" 2>/dev/null || true
-  fi
-
-  rm -f "$LITE_PID_FILE"
   info "Engram stopped."
 }
 
@@ -822,10 +936,14 @@ lite_status() {
   echo -e "  ${BOLD}Engram Status (local mode)${RESET}"
   echo ""
 
-  if lite_is_running; then
+  if lite_pid_is_running; then
     local pid
     pid="$(cat "$LITE_PID_FILE")"
     info "Server: running (PID $pid)"
+  elif launch_agent_is_running; then
+    local agent_pid
+    agent_pid="$(launch_agent_pid || true)"
+    info "Server: running (LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}${agent_pid:+ PID $agent_pid})"
   elif [ "$api_ok" = "1" ]; then
     info "Server: running (API on port $port)"
   else
@@ -848,6 +966,9 @@ lite_status() {
   dim "Port:   $port"
   dim "Logs:   $LITE_LOG_FILE"
   dim "Config: $LITE_ENV_FILE"
+  if launch_agent_available; then
+    dim "Agent:  $LITE_LAUNCH_AGENT_PLIST"
+  fi
   echo ""
 
   if [ "$api_ok" = "1" ]; then

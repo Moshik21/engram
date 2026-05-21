@@ -44,11 +44,20 @@ export ENGRAM_INSTALL_BIN_DIR="$BIN_DIR"
 export ENGRAM_INSTALL_NONINTERACTIVE=1
 export ENGRAM_ANTHROPIC_API_KEY="test-key-smoke"
 export ENGRAM_PACKAGE_SOURCE="$ROOT_DIR/server[local]"
+export ENGRAM_API_PORT="${ENGRAM_API_PORT:-$(python3 - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)}"
 
 # Ensure uv tool bin and our bin dir are on PATH
 export PATH="$BIN_DIR:$HOME/.local/bin:$PATH"
 
 pass "Temp root: $TMP_ROOT"
+pass "API port: $ENGRAM_API_PORT"
 
 # ─── Phase 1: Bootstrap ──────────────────────────────────────────────
 
@@ -128,6 +137,16 @@ else
   cat "$ENGRAM_HOME/logs/engram.log" 2>/dev/null || true
   echo "--- end ---"
   fail "Health check failed after 30s"
+fi
+
+if command -v lsof >/dev/null 2>&1; then
+  pid_file_value="$(cat "$ENGRAM_HOME/engram.pid")"
+  listener_pid="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN | head -n 1 || true)"
+  if [ "$listener_pid" = "$pid_file_value" ]; then
+    pass "PID owns isolated test port"
+  else
+    fail "PID file ($pid_file_value) does not own isolated port $PORT (listener: ${listener_pid:-none})"
+  fi
 fi
 
 # Status should mention lite; fall back to the env contract if terminal

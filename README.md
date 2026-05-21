@@ -122,6 +122,19 @@ engramctl update
 engramctl uninstall
 ```
 
+For local dogfood and release startup checks, run the non-destructive validator
+from a source checkout:
+
+```bash
+python3 scripts/dogfood_startup_validation.py
+```
+
+It checks the native config, `/health`, port owner, LaunchAgent/PID parity,
+`engramctl status`, `engramctl storage`, `engramctl doctor`, the live MCP tool
+catalog including `remember`, Codex and Claude Code MCP config, AXI hook traces,
+OpenClaw MCP posture, and storage paths. Use `--skip-slow` for a quick config
+pass that skips doctor and the live MCP catalog probe.
+
 Use Helix native as the main no-Docker path when you want the full graph/vector
 backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
 available for the legacy Docker full stack and starts a fresh graph store with
