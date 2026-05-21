@@ -583,32 +583,67 @@ print(json.dumps({"url": sys.argv[1], "transport": "streamable-http"}))
 PY
 }
 
+openclaw_command_label() {
+  if [ -n "${ENGRAM_OPENCLAW_COMMAND:-}" ]; then
+    printf '%s' "$ENGRAM_OPENCLAW_COMMAND"
+    return 0
+  fi
+  if command -v openclaw >/dev/null 2>&1; then
+    printf 'openclaw'
+    return 0
+  fi
+  if [ "${ENGRAM_OPENCLAW_DISABLE_NPX:-0}" != "1" ] && command -v npx >/dev/null 2>&1; then
+    printf 'npx -y openclaw'
+    return 0
+  fi
+  return 1
+}
+
+run_openclaw_command() {
+  if [ -n "${ENGRAM_OPENCLAW_COMMAND:-}" ]; then
+    # shellcheck disable=SC2086
+    $ENGRAM_OPENCLAW_COMMAND "$@"
+    return
+  fi
+  if command -v openclaw >/dev/null 2>&1; then
+    openclaw "$@"
+    return
+  fi
+  if [ "${ENGRAM_OPENCLAW_DISABLE_NPX:-0}" != "1" ] && command -v npx >/dev/null 2>&1; then
+    npx -y openclaw "$@"
+    return
+  fi
+  return 127
+}
+
 configure_openclaw_mcp() {
   local url="$1"
   local verify="${2:-0}"
   local payload
   payload="$(openclaw_mcp_json "$url")"
+  local openclaw_cmd
+  openclaw_cmd="$(openclaw_command_label || true)"
 
-  if ! command -v openclaw >/dev/null 2>&1; then
-    warn "OpenClaw CLI not found; MCP config was not written."
-    dim "Install OpenClaw, then run:"
-    dim "  openclaw mcp set engram '$payload'"
+  if [ -z "$openclaw_cmd" ]; then
+    warn "OpenClaw CLI not found and npx is unavailable; MCP config was not written."
+    dim "Install OpenClaw or npm/npx, then run:"
+    dim "  npx -y openclaw mcp set engram '$payload'"
     return 0
   fi
 
-  if openclaw mcp set engram "$payload"; then
-    info "Configured OpenClaw MCP server 'engram'"
+  if run_openclaw_command mcp set engram "$payload"; then
+    info "Configured OpenClaw MCP server 'engram' with $openclaw_cmd"
   else
     warn "OpenClaw MCP config failed."
     dim "Manual command:"
-    dim "  openclaw mcp set engram '$payload'"
+    dim "  $openclaw_cmd mcp set engram '$payload'"
     return 0
   fi
 
   if [ "$verify" = "1" ]; then
-    openclaw mcp show engram --json || warn "OpenClaw MCP config was written, but verification failed."
+    run_openclaw_command mcp show engram --json || warn "OpenClaw MCP config was written, but verification failed."
   else
-    dim "Verify: openclaw mcp show engram --json"
+    dim "Verify: $openclaw_cmd mcp show engram --json"
   fi
 }
 
@@ -1673,8 +1708,11 @@ command_quickstart() {
 
   echo ""
   echo -e "  ${BOLD}${GREEN}Quickstart complete.${RESET}"
+  local openclaw_cmd
+  openclaw_cmd="$(openclaw_command_label || true)"
+  openclaw_cmd="${openclaw_cmd:-openclaw}"
   dim "Use:      open your MCP client and ask it to call claim_authority before answering"
-  dim "OpenClaw: openclaw skills list --eligible && openclaw mcp show engram --json"
+  dim "OpenClaw: $openclaw_cmd skills list --eligible && $openclaw_cmd mcp show engram --json"
   dim "Status:   engramctl status"
   dim "Doctor:   engramctl doctor"
   dim "Bootstrap another project: engramctl bootstrap /path/to/project"

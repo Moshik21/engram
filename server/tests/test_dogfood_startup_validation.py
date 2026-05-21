@@ -133,15 +133,25 @@ def test_find_managed_hook_and_trace_summary() -> None:
     assert summary["claude-code"]["session_start"] is None
 
 
-def test_openclaw_command_uses_streamable_http_transport() -> None:
+def test_openclaw_command_uses_streamable_http_transport(monkeypatch) -> None:
     runner = _load_runner()
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.delenv("ENGRAM_OPENCLAW_COMMAND", raising=False)
 
     command = runner.openclaw_mcp_set_command("http://127.0.0.1:8100/mcp")
 
     assert command == (
-        "openclaw mcp set engram "
+        "npx -y openclaw mcp set engram "
         '\'{"url":"http://127.0.0.1:8100/mcp","transport":"streamable-http"}\''
     )
+
+
+def test_resolve_openclaw_command_prefers_configured_command(monkeypatch) -> None:
+    runner = _load_runner()
+
+    monkeypatch.setenv("ENGRAM_OPENCLAW_COMMAND", "npx -y openclaw")
+
+    assert runner.resolve_openclaw_command() == ["npx", "-y", "openclaw"]
 
 
 def test_openclaw_check_requires_streamable_http_transport(
@@ -238,3 +248,14 @@ def test_matrix_renders_commands_and_summary() -> None:
 
     assert "Summary: 1 pass, 0 warn, 0 fail, 0 skip" in markdown
     assert "`engramctl status`" in markdown
+
+
+def test_matrix_health_url_uses_configured_local_port(tmp_path: Path, monkeypatch) -> None:
+    matrix = _load_matrix()
+    home = tmp_path / "home"
+    env_path = home / ".engram/.env"
+    env_path.parent.mkdir(parents=True)
+    env_path.write_text("ENGRAM_API_PORT=18100\n")
+    monkeypatch.setenv("HOME", str(home))
+
+    assert matrix.health_url_from_env() == "http://127.0.0.1:18100/health"

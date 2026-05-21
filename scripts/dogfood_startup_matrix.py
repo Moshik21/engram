@@ -10,6 +10,8 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -234,6 +236,15 @@ def run_stale_pid_simulation(repo: Path, evidence_dir: Path) -> MatrixStep:
             evidence={"pid_file": str(pid_file)},
         )
 
+    healthy, health_evidence = wait_for_healthy_runtime()
+    if not healthy:
+        return MatrixStep(
+            name="stale PID simulation",
+            status="fail",
+            detail="Runtime did not return healthy before stale PID simulation.",
+            evidence=health_evidence,
+        )
+
     fake_pid = choose_fake_pid()
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     pid_file.write_text(f"{fake_pid}\n", encoding="utf-8")
@@ -264,6 +275,43 @@ def run_stale_pid_simulation(repo: Path, evidence_dir: Path) -> MatrixStep:
                 pid_file.unlink()
         except OSError:
             pass
+
+
+def wait_for_healthy_runtime(timeout: float = 90.0) -> tuple[bool, dict[str, Any]]:
+    url = health_url_from_env()
+    deadline = time.monotonic() + timeout
+    attempts = 0
+    last_payload: Any = None
+    last_error: str | None = None
+    while time.monotonic() < deadline:
+        attempts += 1
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            last_payload = payload
+            if payload.get("status") == "healthy":
+                return True, {"url": url, "attempts": attempts, "payload": payload}
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+            last_error = str(exc)
+        time.sleep(1)
+    return False, {
+        "url": url,
+        "attempts": attempts,
+        "last_payload": last_payload,
+        "last_error": last_error,
+    }
+
+
+def health_url_from_env() -> str:
+    env_path = Path.home() / ".engram/.env"
+    port = "8100"
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if line.startswith("ENGRAM_API_PORT="):
+                port = line.split("=", 1)[1].strip().strip("'\"") or port
+                break
+    return f"http://127.0.0.1:{port}/health"
 
 
 def choose_fake_pid() -> int:

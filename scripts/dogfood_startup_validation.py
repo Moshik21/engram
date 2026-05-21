@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -814,23 +815,24 @@ def check_openclaw(home: Path, expected_mcp_url: str, *, require_openclaw: bool)
         "skill_installed": skill_path.exists(),
     }
     manual_command = openclaw_mcp_set_command(expected_mcp_url)
-    openclaw = shutil.which("openclaw")
-    if not openclaw:
+    openclaw_command = resolve_openclaw_command()
+    evidence["command_prefix"] = openclaw_command
+    if not openclaw_command:
         status = "fail" if require_openclaw else "warn"
         return Check(
             "OpenClaw MCP config",
             status,
             (
-                "OpenClaw CLI is not installed; skill files can be checked "
-                "but MCP config cannot be verified."
+                "OpenClaw CLI is not installed and npx is unavailable; skill files "
+                "can be checked but MCP config cannot be verified."
             ),
             evidence,
             [
-                "Install OpenClaw, then run:",
+                "Install OpenClaw or npm/npx, then run:",
                 manual_command,
             ],
         )
-    result = run_command(["openclaw", "mcp", "show", "engram", "--json"], timeout=20)
+    result = run_command([*openclaw_command, "mcp", "show", "engram", "--json"], timeout=60)
     clean = strip_ansi(result.stdout)
     evidence["command"] = command_evidence(result, clean)
     payload = extract_last_json(clean)
@@ -866,7 +868,19 @@ def openclaw_mcp_set_command(expected_mcp_url: str) -> str:
         {"url": expected_mcp_url, "transport": "streamable-http"},
         separators=(",", ":"),
     )
-    return f"openclaw mcp set engram '{payload}'"
+    prefix = " ".join(resolve_openclaw_command() or ["npx", "-y", "openclaw"])
+    return f"{prefix} mcp set engram '{payload}'"
+
+
+def resolve_openclaw_command() -> list[str] | None:
+    configured = os.environ.get("ENGRAM_OPENCLAW_COMMAND", "").strip()
+    if configured:
+        return shlex.split(configured)
+    if shutil.which("openclaw"):
+        return ["openclaw"]
+    if os.environ.get("ENGRAM_OPENCLAW_DISABLE_NPX") != "1" and shutil.which("npx"):
+        return ["npx", "-y", "openclaw"]
+    return None
 
 
 def run_command(cmd: list[str], *, timeout: float, cwd: Path | None = None) -> CommandResult:

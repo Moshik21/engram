@@ -49,7 +49,7 @@ Lite mode only as a fallback smoke path.
 | Native startup | vector integrity phase, health latency, MCP readiness after warmup, no duplicate background processes |
 | Codex | MCP tools exposed, `remember` visible, `get_context` works, AXI startup trace recorded, follow-up context trace recorded |
 | Claude Code | no conflicting MCP scopes, project HTTP MCP connected, AXI hook installed if requested, startup/follow-up evidence recorded |
-| OpenClaw | MCP config written, docs match installed config, AXI fallback documented and smoke-tested where possible |
+| OpenClaw | MCP config written, global CLI or `npx -y openclaw` fallback verified, docs match installed config, AXI fallback documented and smoke-tested where possible |
 | Tool catalog | expected MCP tool count, `remember`, `observe`, `recall`, `get_context`, `bootstrap_project`, `claim_authority`, `route_question` exposed |
 | Storage visibility | paths, sizes, counts, growth since startup, old data dirs called out before deletion |
 | Failure handling | offline runtime, half-started runtime, stale PID file, port occupied, MCP probe timeout, duplicate client config |
@@ -100,6 +100,9 @@ Lite mode only as a fallback smoke path.
    Detect duplicate Claude Code scopes, stale stdio entries, project/user
    endpoint mismatches, missing Codex server entries, and missing OpenClaw
    config. Print exact cleanup commands before changing anything.
+   OpenClaw config should prefer a global `openclaw` command, fall back to
+   `npx -y openclaw` when npm/npx is available, and still write the same
+   streamable HTTP MCP registry entry.
 
 6. Add tool-catalog verification.
    Assert the installed MCP server exposes the expected tool set, including
