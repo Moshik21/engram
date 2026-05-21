@@ -762,7 +762,15 @@ launch_agent_start() {
     launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
   fi
   launchctl kickstart -k "$service" >/dev/null 2>&1 || true
-  launch_agent_is_running
+  local attempts=10
+  while [ "$attempts" -gt 0 ]; do
+    if launch_agent_is_running; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+  return 1
 }
 
 launch_agent_stop() {
@@ -809,6 +817,19 @@ wait_for_local_health() {
   attempts="$(local_startup_attempts)"
   while [ "$attempts" -gt 0 ]; do
     if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+  return 1
+}
+
+wait_for_local_offline() {
+  local port="$1"
+  local attempts="${2:-15}"
+  while [ "$attempts" -gt 0 ]; do
+    if ! curl --connect-timeout 1 --max-time 2 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
       return 0
     fi
     attempts=$((attempts - 1))
@@ -880,6 +901,8 @@ lite_start() {
 }
 
 lite_stop() {
+  load_existing_env "$LITE_ENV_FILE"
+  local port="${ENGRAM_API_PORT:-8100}"
   local stopped=0
   if lite_pid_is_running; then
     local pid
@@ -916,6 +939,11 @@ lite_stop() {
   if [ "$stopped" != "1" ]; then
     info "Engram is not running."
     return 0
+  fi
+  if ! wait_for_local_offline "$port"; then
+    warn "Engram stop was requested, but API still responds on port $port."
+    dim "Check listener: lsof -nP -iTCP:${port} -sTCP:LISTEN"
+    return 1
   fi
   info "Engram stopped."
 }

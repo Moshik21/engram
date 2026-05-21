@@ -71,11 +71,14 @@ Lite mode only as a fallback smoke path.
    ```bash
    python3 scripts/dogfood_startup_validation.py
    python3 scripts/dogfood_startup_validation.py --skip-slow
+   python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle
    ```
 
    The full run includes `engramctl doctor` and a live MCP tool-catalog probe.
    `--skip-slow` is for quick startup/config inspection when the runtime is
-   warming or when a shell agent needs a fast status packet.
+   warming or when a shell agent needs a fast status packet. The matrix runner
+   records exact commands and raw outputs for warmed, stopped, restarted, and
+   stale-PID states into `/tmp/engram-dogfood-startup-*` by default.
 
 3. Fix `engramctl` lifecycle parity.
    `start`, `stop`, and `status` must agree with the configured local

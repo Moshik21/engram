@@ -6,10 +6,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/dogfood_startup_validation.py"
+MATRIX_SCRIPT = ROOT / "scripts/dogfood_startup_matrix.py"
 
 
 def _load_runner():
-    spec = importlib.util.spec_from_file_location("dogfood_startup_validation", SCRIPT)
+    return _load_module("dogfood_startup_validation", SCRIPT)
+
+
+def _load_matrix():
+    return _load_module("dogfood_startup_matrix", MATRIX_SCRIPT)
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -120,3 +129,51 @@ def test_find_managed_hook_and_trace_summary() -> None:
     assert summary["codex"]["session_start"]["status"] == "healthy"
     assert summary["codex"]["followup"]["operation"] == "context"
     assert summary["claude-code"]["session_start"] is None
+
+
+def test_matrix_detects_stopped_validation_payload() -> None:
+    matrix = _load_matrix()
+
+    payload = {
+        "checks": [
+            {"name": "HTTP health", "status": "fail"},
+            {"name": "engramctl status", "status": "fail"},
+            {"name": "engramctl storage", "status": "warn"},
+        ]
+    }
+
+    assert matrix.stopped_state_detected(payload) is True
+    assert matrix.validation_summary(payload) == {
+        "pass": 0,
+        "warn": 1,
+        "fail": 2,
+        "skip": 0,
+    }
+
+
+def test_matrix_renders_commands_and_summary() -> None:
+    matrix = _load_matrix()
+
+    report = {
+        "context": {
+            "generated_at": "2026-05-20T00:00:00Z",
+            "repo": str(ROOT),
+            "evidence_dir": "/tmp/evidence",
+            "confirm_lifecycle": True,
+        },
+        "summary": {"pass": 1, "warn": 0, "fail": 0, "skip": 0},
+        "steps": [
+            {
+                "name": "status",
+                "status": "pass",
+                "command": ["engramctl", "status"],
+                "output_path": "/tmp/evidence/status.log",
+                "detail": "Command completed.",
+            }
+        ],
+    }
+
+    markdown = matrix.render_markdown(report)
+
+    assert "Summary: 1 pass, 0 warn, 0 fail, 0 skip" in markdown
+    assert "`engramctl status`" in markdown

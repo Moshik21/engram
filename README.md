@@ -135,6 +135,17 @@ catalog including `remember`, Codex and Claude Code MCP config, AXI hook traces,
 OpenClaw MCP posture, and storage paths. Use `--skip-slow` for a quick config
 pass that skips doctor and the live MCP catalog probe.
 
+For release-style evidence, use the matrix recorder. It writes exact commands,
+raw outputs, JSON payloads, and a Markdown summary into `/tmp` by default:
+
+```bash
+python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle
+```
+
+`--confirm-lifecycle` intentionally stops and restarts the local runtime, then
+records warmed, stopped, restarted, and stale-PID states. Without that flag it
+only records the warmed runtime checks.
+
 Use Helix native as the main no-Docker path when you want the full graph/vector
 backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
 available for the legacy Docker full stack and starts a fresh graph store with
