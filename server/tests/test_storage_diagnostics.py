@@ -84,6 +84,19 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
 
     snapshot = await diagnostics.snapshot(group_id="default")
 
+    assert snapshot["counts"] == {
+        "episodes": 3,
+        "entities": 5,
+        "relationships": 7,
+        "cues": 2,
+    }
+    assert snapshot["growthSinceStartup"]["episodes"] == 0
+    assert snapshot["growthSinceStartup"]["bytes"] == 0
+    assert snapshot["diagnostics"]["countsStatus"] == "cached"
+    assert graph_store.group_ids == ["default"]
+
+    snapshot = await diagnostics.snapshot(group_id="default", live=True)
+
     assert snapshot["backend"] == "helix_native"
     assert snapshot["groupId"] == "default"
     assert snapshot["counts"] == {
@@ -98,6 +111,9 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
     assert snapshot["growthSinceStartup"]["cues"] == 1
     assert snapshot["growthSinceStartup"]["bytes"] >= 512
     assert snapshot["disk"]["totalBytes"] >= snapshot["disk"]["startupBytes"]
+    assert snapshot["diagnostics"]["live"] is True
+    assert snapshot["diagnostics"]["countsStatus"] == "live"
+    assert snapshot["diagnostics"]["pathsStatus"] == "live"
     assert {item["label"] for item in snapshot["paths"]} >= {
         "Helix native data",
         "Packet cache",
@@ -139,6 +155,25 @@ async def test_storage_diagnostics_startup_timeout_uses_empty_baseline(
         "cues": 0,
     }
     assert diagnostics.startup_bytes == 0
+
+    snapshot = await diagnostics.snapshot(live=False)
+    assert snapshot["counts"] == {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+    assert snapshot["diagnostics"]["countsStatus"] == "cached"
+    assert snapshot["diagnostics"]["pathsStatus"] == "cached"
+
+    live_snapshot = await diagnostics.snapshot(live=True, timeout_seconds=0.01)
+    assert live_snapshot["counts"] == {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+    assert live_snapshot["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
 
 
 def test_storage_paths_use_native_default_when_unconfigured(

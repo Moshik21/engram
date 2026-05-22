@@ -297,7 +297,7 @@ def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
 
 def build_storage_payload(client: AxiRestClient) -> AxiResult:
     try:
-        storage = client.storage()
+        storage = client.storage(live=True, timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS)
     except AxiRestError as exc:
         return _error_result("storage", exc)
     payload = {
@@ -409,7 +409,7 @@ def _home_probe_payloads(
 ) -> dict[str, Any]:
     calls = {
         "health": client.health,
-        "runtime": lambda: client.runtime(project_path=project_path),
+        "runtime": lambda: _home_runtime_packet(client, project_path=project_path),
         "storage": client.storage,
     }
     payloads: dict[str, Any] = {}
@@ -423,6 +423,13 @@ def _home_probe_payloads(
                 payloads[name] = {"status": "degraded", "error": exc.message}
                 payloads[f"{name}_error"] = exc
     return payloads
+
+
+def _home_runtime_packet(client: AxiRestClient, *, project_path: str | None) -> dict[str, Any]:
+    runtime_fast = getattr(client, "runtime_fast", None)
+    if callable(runtime_fast):
+        return runtime_fast(project_path=project_path)
+    return client.runtime(project_path=project_path)
 
 
 def _is_timeout_error(exc: AxiRestError) -> bool:

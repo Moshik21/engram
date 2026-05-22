@@ -25,6 +25,70 @@ async def build_runtime_state_surface(
     )
 
 
+def build_fast_runtime_packet(
+    cfg: ActivationConfig,
+    *,
+    runtime_mode: str,
+    project_path: str | None = None,
+) -> dict:
+    """Return startup-safe runtime metadata without graph or artifact reads."""
+    return {
+        "projectName": Path(project_path).name if project_path else "Engram",
+        "runtime": {
+            "mode": runtime_mode,
+            "surface": "fast_packet",
+            "loadedGraphTouched": False,
+        },
+        "activation": {
+            "consolidationProfile": cfg.consolidation_profile,
+            "recallProfile": cfg.recall_profile,
+            "integrationProfile": cfg.integration_profile,
+        },
+        "features": {
+            "epistemicRoutingEnabled": cfg.epistemic_routing_enabled,
+            "artifactBootstrapEnabled": cfg.artifact_bootstrap_enabled,
+            "artifactRecallEnabled": cfg.artifact_recall_enabled,
+            "runtimeExecutorEnabled": cfg.epistemic_runtime_executor_enabled,
+            "decisionGraphEnabled": cfg.decision_graph_enabled,
+            "epistemicReconcileEnabled": cfg.epistemic_reconcile_enabled,
+            "answerContractEnabled": cfg.answer_contract_enabled,
+            "claimStateModelingEnabled": cfg.claim_state_modeling_enabled,
+            "recallNeedAnalyzerEnabled": cfg.recall_need_analyzer_enabled,
+            "recallNeedGraphProbeEnabled": cfg.recall_need_graph_probe_enabled,
+        },
+        "artifactBootstrap": {
+            "enabled": cfg.artifact_bootstrap_enabled,
+            "projectPath": project_path,
+            "artifactCount": 0,
+            "freshArtifactCount": 0,
+            "staleArtifactCount": 0,
+            "lastObservedAt": None,
+            "status": "not_inspected",
+        },
+        "agentAdoption": {
+            "status": "startup_probe",
+            "doNotTreatEmptyAsFailure": True,
+            "requiredNextTools": ["get_context"],
+            "beforeAnswer": {
+                "required": False,
+                "tools": ["get_context"],
+                "reason": (
+                    "Fast runtime packet intentionally skips graph and artifact inspection; "
+                    "load context when prior memory could matter."
+                ),
+            },
+            "reason": (
+                "Startup-safe runtime metadata only; deep runtime and artifact state were not read."
+            ),
+        },
+        "stats": {
+            "source": "fast_runtime_packet",
+            "packetCache": {},
+        },
+        "generatedAt": utc_now_iso(),
+    }
+
+
 class RuntimeStateService:
     """Build the shared runtime/config state exposed through GraphManager."""
 

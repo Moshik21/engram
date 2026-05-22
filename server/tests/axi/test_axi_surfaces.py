@@ -27,7 +27,7 @@ class FakeClient:
         self.timeout_seconds = 10.0
 
     def _maybe_fail(self, name: str) -> None:
-        if name in self.fail:
+        if name in self.fail or (name == "runtime_fast" and "runtime" in self.fail):
             raise AxiRestError(f"{name} failed", url=f"{self.server_url}/{name}")
 
     def with_timeout(self, timeout_seconds: float):
@@ -56,7 +56,33 @@ class FakeClient:
             "stats": {"packetCache": {"fresh_count": 2, "hit_count": 5}},
         }
 
-    def storage(self) -> dict:
+    def runtime_fast(self, *, project_path: str | None = None) -> dict:
+        self.calls.append("runtime_fast")
+        self._maybe_fail("runtime_fast")
+        return {
+            "projectName": "Engram",
+            "runtime": {
+                "mode": "helix",
+                "surface": "fast_packet",
+                "loadedGraphTouched": False,
+            },
+            "artifactBootstrap": {
+                "projectPath": project_path,
+                "artifactCount": 3,
+            },
+            "agentAdoption": {
+                "status": "ready",
+                "requiredNextTools": ["get_context", "recall"],
+            },
+            "stats": {"packetCache": {"fresh_count": 2, "hit_count": 5}},
+        }
+
+    def storage(
+        self,
+        *,
+        live: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict:
         self.calls.append("storage")
         self._maybe_fail("storage")
         return {
@@ -77,6 +103,14 @@ class FakeClient:
                     "humanSize": "10.0 MB",
                 }
             ],
+            "diagnostics": {
+                "live": live,
+                "countsStatus": "live" if live else "cached",
+                "countsAgeSeconds": 0,
+                "pathsStatus": "live" if live else "cached",
+                "pathsAgeSeconds": 0,
+                "timeoutSeconds": timeout_seconds,
+            },
         }
 
     def context(
@@ -195,7 +229,7 @@ def test_home_payload_compacts_healthy_runtime() -> None:
     assert result.payload["context"]["cmd"].startswith("engram axi context")
     assert result.payload["next"][0]["cmd"].startswith("engram axi context")
     assert client.timeouts == [2.5]
-    assert set(client.calls) == {"health", "runtime", "storage"}
+    assert set(client.calls) == {"health", "runtime_fast", "storage"}
 
 
 def test_home_payload_adds_metadata_trace_flags_to_read_followups() -> None:
@@ -421,11 +455,13 @@ def test_recall_payload_compacts_rest_items_shape() -> None:
 
 
 def test_storage_payload_includes_paths() -> None:
-    result = build_storage_payload(FakeClient())
+    client = FakeClient()
+    result = build_storage_payload(client)
 
     assert result.payload["operation"] == "storage"
     assert result.payload["backend"] == "helix_native"
     assert result.payload["paths"][0]["path"] == "/tmp/helix"
+    assert result.payload["counts"]["episodes"] == 2
 
 
 def test_value_payload_compacts_memory_value_report() -> None:

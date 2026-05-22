@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,9 @@ class StorageDiagnostics:
     started_at: float
     startup_counts: dict[str, int]
     startup_bytes: int
+    startup_paths: list[dict[str, Any]]
+    count_cache: dict[str, _CachedCounts] = field(default_factory=dict)
+    path_cache: _CachedPaths | None = None
 
     @classmethod
     async def create(
@@ -76,29 +79,66 @@ class StorageDiagnostics:
             timeout_seconds=timeout_seconds,
             fallback=list,
         )
+        captured_at = time.time()
+        startup_counts = _clone_counts(counts)
+        startup_paths = _clone_paths(paths)
         return cls(
             config=config,
             mode=mode,
             graph_store=graph_store,
             group_id=group_id,
             started_at=started_at,
-            startup_counts=counts,
-            startup_bytes=sum(item["bytes"] for item in paths),
+            startup_counts=startup_counts,
+            startup_bytes=sum(item["bytes"] for item in startup_paths),
+            startup_paths=startup_paths,
+            count_cache={
+                group_id: _CachedCounts(
+                    counts=startup_counts,
+                    captured_at=captured_at,
+                    status="startup",
+                )
+            },
+            path_cache=_CachedPaths(
+                paths=startup_paths,
+                captured_at=captured_at,
+                status="startup",
+            ),
         )
 
-    async def snapshot(self, *, group_id: str | None = None) -> dict[str, Any]:
-        """Return a JSON-serializable storage report."""
+    async def snapshot(
+        self,
+        *,
+        group_id: str | None = None,
+        live: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Return a JSON-serializable storage report.
+
+        The default path is startup-safe: it returns cached counts and paths without
+        touching the loaded graph store. Operator surfaces can request ``live`` for
+        a bounded refresh that updates the cache on success.
+        """
         resolved_group = group_id or self.group_id
-        counts = await _startup_baseline(
-            _read_counts(self.graph_store, resolved_group),
-            label="storage count snapshot",
-            timeout_seconds=_startup_timeout_seconds(),
-            fallback=_empty_counts,
+        timeout = _snapshot_timeout_seconds(timeout_seconds)
+        count_snapshot = await self._counts_snapshot(
+            group_id=resolved_group,
+            live=live,
+            timeout_seconds=timeout,
         )
-        baseline_counts = self.startup_counts if resolved_group == self.group_id else counts
-        paths = await asyncio.to_thread(collect_storage_paths, self.config, self.mode)
+        path_snapshot = await self._paths_snapshot(
+            live=live,
+            timeout_seconds=timeout,
+        )
+        counts = _clone_counts(count_snapshot.counts)
+        baseline_counts = (
+            _clone_counts(self.startup_counts)
+            if resolved_group == self.group_id
+            else _clone_counts(counts)
+        )
+        paths = _clone_paths(path_snapshot.paths)
         total_bytes = sum(item["bytes"] for item in paths)
         started_at = datetime.fromtimestamp(self.started_at, tz=UTC).isoformat()
+        now = time.time()
 
         return {
             "mode": self.mode,
@@ -123,7 +163,105 @@ class StorageDiagnostics:
                 "startupHumanSize": human_bytes(self.startup_bytes),
             },
             "paths": paths,
+            "diagnostics": {
+                "live": live,
+                "countsStatus": count_snapshot.status,
+                "countsAgeSeconds": _age_seconds(count_snapshot.captured_at, now=now),
+                "pathsStatus": path_snapshot.status,
+                "pathsAgeSeconds": _age_seconds(path_snapshot.captured_at, now=now),
+            },
         }
+
+    async def _counts_snapshot(
+        self,
+        *,
+        group_id: str,
+        live: bool,
+        timeout_seconds: float,
+    ) -> _CachedCounts:
+        cached = self.count_cache.get(group_id)
+        if not live:
+            if cached is not None:
+                return _cached_counts(
+                    cached.counts,
+                    captured_at=cached.captured_at,
+                    status="cached",
+                )
+            return _cached_counts(_empty_counts(), captured_at=self.started_at, status="missing")
+
+        try:
+            counts = await _bounded(
+                _read_counts(self.graph_store, group_id),
+                timeout_seconds=timeout_seconds,
+            )
+        except TimeoutError:
+            LOGGER.warning(
+                "storage count snapshot timed out after %.1f seconds; using cached counts",
+                timeout_seconds,
+            )
+            if cached is not None:
+                return _cached_counts(
+                    cached.counts,
+                    captured_at=cached.captured_at,
+                    status="cached_timeout",
+                )
+            return _cached_counts(_empty_counts(), captured_at=time.time(), status="timeout")
+
+        snapshot = _cached_counts(counts, captured_at=time.time(), status="live")
+        self.count_cache[group_id] = snapshot
+        return snapshot
+
+    async def _paths_snapshot(
+        self,
+        *,
+        live: bool,
+        timeout_seconds: float,
+    ) -> _CachedPaths:
+        cached = self.path_cache
+        if not live:
+            if cached is not None:
+                return _cached_paths(
+                    cached.paths,
+                    captured_at=cached.captured_at,
+                    status="cached",
+                )
+            return _cached_paths([], captured_at=self.started_at, status="missing")
+
+        try:
+            paths = await _bounded(
+                asyncio.to_thread(collect_storage_paths, self.config, self.mode),
+                timeout_seconds=timeout_seconds,
+            )
+        except TimeoutError:
+            LOGGER.warning(
+                "storage disk snapshot timed out after %.1f seconds; using cached paths",
+                timeout_seconds,
+            )
+            if cached is not None:
+                return _cached_paths(
+                    cached.paths,
+                    captured_at=cached.captured_at,
+                    status="cached_timeout",
+                )
+            return _cached_paths([], captured_at=time.time(), status="timeout")
+
+        snapshot = _cached_paths(paths, captured_at=time.time(), status="live")
+        self.path_cache = snapshot
+        return snapshot
+
+
+@dataclass(frozen=True)
+class _CachedCounts:
+    counts: dict[str, int]
+    captured_at: float
+    status: str
+
+
+@dataclass(frozen=True)
+class _CachedPaths:
+    paths: list[dict[str, Any]]
+    captured_at: float
+    status: str
 
 
 def collect_storage_paths(config: EngramConfig, mode: str) -> list[dict[str, Any]]:
@@ -239,6 +377,12 @@ def _startup_timeout_seconds() -> float:
         return DEFAULT_STARTUP_TIMEOUT_SECONDS
 
 
+def _snapshot_timeout_seconds(timeout_seconds: float | None) -> float:
+    if timeout_seconds is None:
+        return _startup_timeout_seconds()
+    return max(0.0, float(timeout_seconds))
+
+
 async def _startup_baseline(
     operation: Any,
     *,
@@ -257,6 +401,55 @@ async def _startup_baseline(
             timeout_seconds,
         )
         return fallback()
+
+
+async def _bounded(operation: Any, *, timeout_seconds: float) -> Any:
+    if timeout_seconds <= 0:
+        return await operation
+    return await asyncio.wait_for(operation, timeout=timeout_seconds)
+
+
+def _cached_counts(
+    counts: dict[str, int],
+    *,
+    captured_at: float,
+    status: str,
+) -> _CachedCounts:
+    return _CachedCounts(
+        counts=_clone_counts(counts),
+        captured_at=captured_at,
+        status=status,
+    )
+
+
+def _cached_paths(
+    paths: list[dict[str, Any]],
+    *,
+    captured_at: float,
+    status: str,
+) -> _CachedPaths:
+    return _CachedPaths(
+        paths=_clone_paths(paths),
+        captured_at=captured_at,
+        status=status,
+    )
+
+
+def _clone_counts(counts: dict[str, int]) -> dict[str, int]:
+    return {
+        "episodes": _int_stat(counts, "episodes"),
+        "entities": _int_stat(counts, "entities"),
+        "relationships": _int_stat(counts, "relationships"),
+        "cues": _int_stat(counts, "cues"),
+    }
+
+
+def _clone_paths(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(item) for item in paths if isinstance(item, dict)]
+
+
+def _age_seconds(captured_at: float, *, now: float) -> int:
+    return max(0, int(now - captured_at))
 
 
 def _int_stat(payload: dict[str, Any], *keys: str) -> int:

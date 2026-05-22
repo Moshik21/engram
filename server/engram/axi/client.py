@@ -60,8 +60,20 @@ class AxiRestClient:
         query = {"project_path": project_path} if project_path else None
         return self.request_json("GET", "/api/knowledge/runtime", query=query)
 
-    def storage(self) -> dict[str, Any]:
-        return self.request_json("GET", "/api/storage")
+    def runtime_fast(self, *, project_path: str | None = None) -> dict[str, Any]:
+        query = {"project_path": project_path} if project_path else None
+        return self.request_json("GET", "/api/knowledge/runtime/fast", query=query)
+
+    def storage(
+        self,
+        *,
+        live: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] | None = None
+        if live or timeout_seconds is not None:
+            query = {"live": live, "timeoutSeconds": timeout_seconds}
+        return self.request_json("GET", "/api/storage", query=query)
 
     def context(
         self,

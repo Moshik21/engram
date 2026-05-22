@@ -374,7 +374,7 @@ def test_engramctl_storage_reports_native_and_sqlite_paths() -> None:
         in engramctl
     )
     assert 'local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"' in engramctl
-    assert '"http://127.0.0.1:${port}/api/storage"' in engramctl
+    assert '"http://127.0.0.1:${port}/api/storage?live=true&timeoutSeconds=5"' in engramctl
     assert "format_storage_json" in engramctl
     assert "offline_storage_status" in engramctl
     assert "Engram Storage" in engramctl

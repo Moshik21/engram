@@ -618,6 +618,24 @@ class TestEpistemicEndpoints:
         assert "claim_authority" in data["agentAdoption"]["beforeAnswer"]["tools"]
         assert "onboarding state" in data["agentAdoption"]["emptyRuntimePolicy"]
 
+    @pytest.mark.asyncio
+    async def test_fast_runtime_endpoint_skips_graph_inspection(
+        self,
+        empty_knowledge_client,
+        tmp_path,
+    ):
+        resp = await empty_knowledge_client.get(
+            "/api/knowledge/runtime/fast",
+            params={"project_path": str(tmp_path)},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["runtime"]["surface"] == "fast_packet"
+        assert data["runtime"]["loadedGraphTouched"] is False
+        assert data["artifactBootstrap"]["status"] == "not_inspected"
+        assert data["agentAdoption"]["status"] == "startup_probe"
+
 
 # ─── Recall ──────────────────────────────────────────────────────
 

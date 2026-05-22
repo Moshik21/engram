@@ -239,13 +239,13 @@ agent path aligned with dashboard and MCP behavior.
 Mapping:
 
 ```text
-engram axi                       GET  /health, /api/knowledge/runtime, /api/storage
+engram axi                       GET  /health, /api/knowledge/runtime/fast, /api/storage
 engram axi context               GET  /api/knowledge/context
 engram axi recall                GET  /api/knowledge/recall?q=...
 engram axi observe --stdin       POST /api/knowledge/observe
 engram axi remember --stdin      POST /api/knowledge/remember
 engram axi bootstrap             POST /api/knowledge/bootstrap
-engram axi storage               GET  /api/storage
+engram axi storage               GET  /api/storage?live=true&timeoutSeconds=10
 engram axi doctor                call existing doctor runner, plus REST probes
 ```
 

@@ -19,7 +19,7 @@ class HealthyClient:
             "agentAdoption": {"status": "ready", "requiredNextTools": ["get_context"]},
         }
 
-    def storage(self) -> dict:
+    def storage(self, **_kwargs) -> dict:
         return {
             "mode": "helix",
             "backend": "helix_native",

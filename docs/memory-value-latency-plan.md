@@ -115,6 +115,12 @@ Latest verification checkpoint:
 - After importing the reviewed dogfood labels, `engram axi value --server-url
   http://127.0.0.1:8100 --timeout 20 --json` reports `status=measured`,
   `operation_count=2`, and `p95_added_latency_ms≈693`.
+- Startup storage/runtime probes now avoid deep graph paths by default:
+  `/api/storage` returns cached last-known counts and paths unless `live=true`
+  is requested, AXI home uses `/api/knowledge/runtime/fast`, and
+  `engram axi storage` / `engramctl storage` are the explicit live diagnostic
+  paths. Memory operation p95 now uses nearest-rank percentile math so small
+  samples cannot report p95 below a slower average.
 - The live `/api/evaluation/brain-loop/report` path is now bounded around
   expensive graph-state reads. Before the change, the loaded native store could
   exceed a 30 second client timeout; after reinstall/restart, the endpoint

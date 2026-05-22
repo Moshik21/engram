@@ -151,7 +151,9 @@ backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
 available for the legacy Docker full stack and starts a fresh graph store with
 SQLite data preserved on disk for reference.
 Use `engramctl storage` to inspect resolved storage paths, disk usage, current
-counts, and growth since startup. Native Helix defaults to
+counts, and growth since startup. Operator storage commands request a bounded
+live refresh; agent startup probes use cached last-known counts so a loaded graph
+store cannot stall session startup. Native Helix defaults to
 `~/.helix/engram-native`; lite defaults to `~/.engram/engram.db`.
 
 For shell-capable agents, `engram axi` provides a compact AXI packet without
@@ -1455,7 +1457,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | DELETE | `/api/entities/{id}` | Soft-delete entity |
 | GET | `/api/episodes` | List episodes (paginated) |
 | GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
-| GET | `/api/storage` | Resolved storage paths, disk usage, and growth since startup |
+| GET | `/api/storage` | Startup-safe cached storage paths, disk usage, and growth since startup (`?live=true&timeoutSeconds=5` refreshes counts/paths for operator diagnostics) |
 | GET | `/api/lifecycle/summary` | Shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
 | GET | `/api/activation/snapshot` | Top activated entities |
 | GET | `/api/activation/{id}/curve` | ACT-R decay curve |
@@ -1468,6 +1470,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | POST | `/api/knowledge/route` | Deterministic epistemic routing plus `answerContract`, `requiredNextSources`, and source-query metadata |
 | GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
 | GET | `/api/knowledge/runtime` | Effective mode/profile/feature state, artifact freshness, and agent adoption guidance |
+| GET | `/api/knowledge/runtime/fast` | Startup-safe runtime packet that skips graph and artifact inspection |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
 | POST | `/api/knowledge/intentions` | Create a graph-embedded intention or refresh-context pinned query |

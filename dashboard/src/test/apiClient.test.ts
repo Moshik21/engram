@@ -140,7 +140,10 @@ describe("api.getStorage", () => {
 
     const storage = await api.getStorage();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/storage", expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/storage?live=true&timeoutSeconds=1",
+      expect.any(Object),
+    );
     expect(storage.backend).toBe("helix_native");
     expect(storage.paths[0].path).toBe("/tmp/engram-native");
   });

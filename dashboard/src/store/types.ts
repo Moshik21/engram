@@ -345,6 +345,13 @@ export interface StorageReport {
     startupHumanSize: string;
   };
   paths: StoragePathInfo[];
+  diagnostics?: {
+    live: boolean;
+    countsStatus: string;
+    countsAgeSeconds: number;
+    pathsStatus: string;
+    pathsAgeSeconds: number;
+  };
 }
 
 export type AgentAdoptionStatus =

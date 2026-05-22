@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from engram.api.deps import (
     get_config,
     get_manager,
+    get_mode,
     get_notification_surface_service,
     get_optional_conversation_store,
     get_rate_limiter,
@@ -54,7 +55,7 @@ from engram.retrieval.prospective import (
     build_intention_list_surface,
 )
 from engram.retrieval.recall_surface import build_api_recall_surface
-from engram.retrieval.runtime_state import build_runtime_state_surface
+from engram.retrieval.runtime_state import build_fast_runtime_packet, build_runtime_state_surface
 from engram.security.middleware import get_tenant
 from engram.utils.offline_queue import drain_queue
 
@@ -215,7 +216,8 @@ def _get_conv_top_entity_names(manager) -> list[str]:
 
 
 def _operation_source(request: Request, operation: str) -> str:
-    client = request.headers.get("x-engram-client", "").strip().lower()
+    headers = getattr(request, "headers", {}) or {}
+    client = headers.get("x-engram-client", "").strip().lower()
     if client == "axi":
         return f"axi_{operation}"
     return f"api_{operation}"
@@ -540,6 +542,19 @@ async def get_runtime_state(
     result = await build_runtime_state_surface(
         manager,
         group_id=group_id,
+        project_path=project_path,
+    )
+    return JSONResponse(content=result)
+
+
+@router.get("/runtime/fast")
+async def get_fast_runtime_packet(
+    project_path: str | None = Query(None, description="Optional project path context"),
+) -> JSONResponse:
+    """Return startup-safe runtime metadata without graph or artifact inspection."""
+    result = build_fast_runtime_packet(
+        get_config().activation,
+        runtime_mode=get_mode(),
         project_path=project_path,
     )
     return JSONResponse(content=result)

@@ -87,6 +87,41 @@ def test_rest_client_clears_packet_cache(monkeypatch) -> None:
     assert seen["data"] is None
 
 
+def test_rest_client_requests_fast_runtime_packet(monkeypatch) -> None:
+    seen = {}
+
+    def fake_urlopen(request, timeout: float):
+        seen["url"] = request.full_url
+        return FakeResponse(b'{"runtime":{"surface":"fast_packet"}}')
+
+    monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
+
+    client = AxiRestClient(server_url="http://localhost:8100", timeout_seconds=1)
+    payload = client.runtime_fast(project_path="/tmp/Engram")
+
+    assert payload == {"runtime": {"surface": "fast_packet"}}
+    assert (
+        seen["url"]
+        == "http://localhost:8100/api/knowledge/runtime/fast?project_path=%2Ftmp%2FEngram"
+    )
+
+
+def test_rest_client_can_request_live_storage(monkeypatch) -> None:
+    seen = {}
+
+    def fake_urlopen(request, timeout: float):
+        seen["url"] = request.full_url
+        return FakeResponse(b'{"backend":"helix_native"}')
+
+    monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
+
+    client = AxiRestClient(server_url="http://localhost:8100", timeout_seconds=1)
+    payload = client.storage(live=True, timeout_seconds=3)
+
+    assert payload == {"backend": "helix_native"}
+    assert seen["url"] == "http://localhost:8100/api/storage?live=True&timeoutSeconds=3"
+
+
 def test_rest_client_rejects_malformed_json(monkeypatch) -> None:
     def fake_urlopen(_request, timeout: float):
         return FakeResponse(b"not json")

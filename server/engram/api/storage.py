@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from engram.api.deps import get_storage_diagnostics
@@ -12,9 +12,26 @@ router = APIRouter(prefix="/api/storage", tags=["storage"])
 
 
 @router.get("")
-async def storage_summary(request: Request) -> JSONResponse:
+async def storage_summary(
+    request: Request,
+    live: bool = Query(
+        False,
+        description="Refresh graph counts and disk paths before returning the report.",
+    ),
+    timeout_seconds: float | None = Query(
+        None,
+        alias="timeoutSeconds",
+        ge=0,
+        le=30,
+        description="Optional live refresh budget in seconds.",
+    ),
+) -> JSONResponse:
     """Return resolved local storage paths, disk usage, and graph-count growth."""
     tenant = get_tenant(request)
     diagnostics = get_storage_diagnostics()
-    payload = await diagnostics.snapshot(group_id=tenant.group_id)
+    payload = await diagnostics.snapshot(
+        group_id=tenant.group_id,
+        live=live,
+        timeout_seconds=timeout_seconds,
+    )
     return JSONResponse(content=payload)

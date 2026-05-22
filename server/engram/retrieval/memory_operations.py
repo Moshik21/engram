@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import math
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable, Mapping
@@ -200,7 +201,7 @@ def _latency_summary(values: list[float]) -> dict[str, float]:
     if not values:
         return {"avg": 0.0, "p95": 0.0}
     ordered = sorted(values)
-    p95_index = min(len(ordered) - 1, int((len(ordered) - 1) * 0.95))
+    p95_index = min(len(ordered) - 1, max(0, math.ceil(len(ordered) * 0.95) - 1))
     return {
         "avg": round(sum(ordered) / len(ordered), 4),
         "p95": round(ordered[p95_index], 4),

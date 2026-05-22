@@ -59,8 +59,8 @@ def test_memory_operation_metrics_collector_aggregates_costs_by_mode() -> None:
     metrics = collector.snapshot("default")
 
     assert metrics["operation_count"] == 3
-    assert metrics["duration_ms"] == {"avg": 20.3333, "p95": 20.0}
-    assert metrics["budget_ms"] == {"avg": 343.3333, "p95": 250.0}
+    assert metrics["duration_ms"] == {"avg": 20.3333, "p95": 40.0}
+    assert metrics["budget_ms"] == {"avg": 343.3333, "p95": 750.0}
     assert metrics["avg_budget_tokens"] == 400
     assert metrics["completed_count"] == 2
     assert metrics["skipped_count"] == 1

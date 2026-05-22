@@ -1048,7 +1048,7 @@ export const api = {
     };
   },
 
-  getStorage: () => fetchJSON<StorageReport>("/api/storage"),
+  getStorage: () => fetchJSON<StorageReport>("/api/storage?live=true&timeoutSeconds=1"),
 
   getLifecycleSummary: () =>
     fetchJSON<LifecycleSummary>("/api/lifecycle/summary"),

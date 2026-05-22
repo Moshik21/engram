@@ -587,6 +587,9 @@ def _get_cached_packets(
         if callable(close):
             close()
         return None
+    packets = getattr(hit, "packets", None)
+    if hit is not None and not isinstance(packets, list):
+        return None
     return hit
 
 

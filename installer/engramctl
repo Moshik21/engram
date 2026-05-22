@@ -1846,7 +1846,7 @@ command_storage() {
     local port="${ENGRAM_API_PORT:-8100}"
     local tmp_file
     tmp_file="$(mktemp)"
-    if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+    if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage?live=true&timeoutSeconds=5" -o "$tmp_file" 2>/dev/null; then
       format_storage_json "$tmp_file"
       rm -f "$tmp_file"
       return
@@ -1860,7 +1860,7 @@ command_storage() {
   local port="${ENGRAM_API_PORT:-8100}"
   local tmp_file
   tmp_file="$(mktemp)"
-  if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage" -o "$tmp_file" 2>/dev/null; then
+  if curl --connect-timeout 1 --max-time 15 -fsS "http://127.0.0.1:${port}/api/storage?live=true&timeoutSeconds=5" -o "$tmp_file" 2>/dev/null; then
     format_storage_json "$tmp_file"
     rm -f "$tmp_file"
     return
