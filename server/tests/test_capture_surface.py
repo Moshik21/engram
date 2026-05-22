@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from engram.config import ActivationConfig
 from engram.ingestion.capture_surface import (
     build_api_attachment_observe_write_surface,
+    build_api_auto_observe_surface,
     build_api_observe_write_surface,
     build_api_remember_write_surface,
     build_mcp_attachment_observe_write_surface,
@@ -19,6 +21,11 @@ from engram.ingestion.capture_surface import (
     parse_conversation_date,
     store_observation,
 )
+
+
+def _latest_memory_operation(manager: MagicMock) -> tuple[str, Any]:
+    group_id, sample = manager.record_memory_operation.call_args.args
+    return group_id, sample
 
 
 def test_parse_conversation_date_accepts_iso_and_ignores_bad_values() -> None:
@@ -128,6 +135,13 @@ async def test_build_api_observe_write_surface_presents_observed_payload() -> No
     assert response["operation"] == "observe"
     assert response["episodeId"] == "ep_observe"
     assert response["lifecycle"]["stage"] == "cue"
+    group_id, sample = _latest_memory_operation(manager)
+    assert group_id == "native_brain"
+    assert sample.operation == "observe"
+    assert sample.source == "api_observe"
+    assert sample.mode == "api_observe"
+    assert sample.status == "ok"
+    assert sample.result_count == 1
 
 
 @pytest.mark.asyncio
@@ -185,6 +199,13 @@ async def test_build_api_remember_write_surface_loads_client_adjudications() -> 
     assert response["status"] == "remembered"
     assert response["operation"] == "remember"
     assert response["adjudicationRequests"][0]["requestId"] == "adj_1"
+    group_id, sample = _latest_memory_operation(manager)
+    assert group_id == "native_brain"
+    assert sample.operation == "remember"
+    assert sample.source == "api_remember"
+    assert sample.mode == "api_remember"
+    assert sample.status == "ok"
+    assert sample.result_count == 1
 
 
 @pytest.mark.asyncio
@@ -239,6 +260,13 @@ async def test_build_mcp_remember_write_surface_runs_capture_project_side_effect
     assert response["operation"] == "remember"
     assert response["adjudication_requests"][0]["request_id"] == "adj_1"
     assert response["recalled_context"] == {"source": "recall_lite"}
+    group_id, sample = _latest_memory_operation(manager)
+    assert group_id == "native_brain"
+    assert sample.operation == "remember"
+    assert sample.source == "mcp_remember"
+    assert sample.mode == "mcp_remember"
+    assert sample.status == "ok"
+    assert sample.result_count == 1
 
 
 @pytest.mark.asyncio
@@ -276,6 +304,54 @@ async def test_build_mcp_observe_write_surface_runs_capture_side_effects() -> No
     recall_middleware.assert_awaited_once()
     assert response["operation"] == "observe"
     assert response["lifecycle"]["stage"] == "cue"
+    group_id, sample = _latest_memory_operation(manager)
+    assert group_id == "native_brain"
+    assert sample.operation == "observe"
+    assert sample.source == "mcp_observe"
+    assert sample.mode == "mcp_observe"
+    assert sample.status == "ok"
+    assert sample.result_count == 1
+
+
+@pytest.mark.asyncio
+async def test_build_api_auto_observe_surface_records_skip_metrics() -> None:
+    manager = MagicMock()
+
+    response = await build_api_auto_observe_surface(
+        manager,
+        content="short",
+        group_id="native_brain",
+        source="auto:prompt",
+    )
+
+    assert response["status"] == "skipped"
+    assert response["reason"] == "too_short"
+    group_id, sample = _latest_memory_operation(manager)
+    assert group_id == "native_brain"
+    assert sample.operation == "observe"
+    assert sample.source == "api_auto_observe"
+    assert sample.mode == "api_auto_observe"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "too_short"
+    assert sample.result_count == 0
+
+
+@pytest.mark.asyncio
+async def test_build_api_observe_write_surface_ignores_metrics_record_failure() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+    manager.record_memory_operation.side_effect = RuntimeError("metrics unavailable")
+
+    response = await build_api_observe_write_surface(
+        manager,
+        content="Observed operator preference.",
+        group_id="native_brain",
+        source="dashboard",
+    )
+
+    assert response["status"] == "observed"
+    assert response["episodeId"] == "ep_observe"
+    manager.record_memory_operation.assert_called_once()
 
 
 @pytest.mark.asyncio

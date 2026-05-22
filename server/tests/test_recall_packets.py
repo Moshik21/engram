@@ -54,6 +54,65 @@ class TestRecallPackets:
         assert packet.packet_type == "state_packet"
         assert packet.entity_ids == ["ent_auth"]
         assert "blocked by OAuth Rollout" in packet.evidence_lines[0]
+        assert packet.trust == {
+            "freshness": "unknown",
+            "source": "entity",
+            "confidence": 0.82,
+            "why_now": "Relevant to project_state for this turn.",
+            "provenance_count": 4,
+            "evidence_count": 1,
+            "belief_status": "unknown",
+            "confirmed_count": 0,
+            "corrected_count": 0,
+            "dismissed_count": 0,
+            "last_confirmed_at": None,
+            "last_corrected_at": None,
+            "last_dismissed_at": None,
+        }
+        assert packet.to_dict()["trust"]["source"] == "entity"
+
+    async def test_packet_trust_includes_entity_feedback_summary(self):
+        results = [
+            {
+                "entity": {
+                    "id": "ent_memory",
+                    "name": "Engram Memory",
+                    "type": "Project",
+                    "summary": "Packet trust should show correction history.",
+                },
+                "score": 0.91,
+                "score_breakdown": {"planner_support": 0.4},
+                "relationships": [],
+            }
+        ]
+
+        packets = await assemble_memory_packets(
+            results,
+            "What changed in Engram memory?",
+            memory_need=MemoryNeed(
+                need_type="project_state",
+                should_recall=True,
+                confidence=0.8,
+            ),
+            feedback_lookup={
+                "ent_memory": {
+                    "confirmed_count": 2,
+                    "corrected_count": 1,
+                    "dismissed_count": 3,
+                    "last_confirmed_at": "2026-05-21T18:00:00Z",
+                    "last_corrected_at": "2026-05-21T18:05:00Z",
+                    "last_dismissed_at": "2026-05-21T18:06:00Z",
+                }
+            },
+        )
+
+        trust = packets[0].trust or {}
+        assert trust["confirmed_count"] == 2
+        assert trust["corrected_count"] == 1
+        assert trust["dismissed_count"] == 3
+        assert trust["last_confirmed_at"] == "2026-05-21T18:00:00Z"
+        assert trust["last_corrected_at"] == "2026-05-21T18:05:00Z"
+        assert trust["last_dismissed_at"] == "2026-05-21T18:06:00Z"
 
     async def test_builds_open_loop_packet(self):
         results = [
@@ -201,6 +260,8 @@ class TestRecallPackets:
         assert packets[0].packet_type == "cue_packet"
         assert packets[0].episode_ids == ["ep_cue_1"]
         assert "Phoenix redesign" in packets[0].summary
+        assert packets[0].trust["source"] == "cue"
+        assert packets[0].trust["evidence_count"] == 1
 
 
 async def _resolve_name(

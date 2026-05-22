@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -296,6 +298,81 @@ async def test_build_lite_auto_recall_surface_dispatches_medium() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_records_short_content_skip() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    cfg = ActivationConfig()
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="ok",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+    )
+
+    assert result is None
+    manager.recall_lite.assert_not_called()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.operation == "auto_recall_gate"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "skipped_low_signal"
+    assert sample.budget_ms == cfg.recall_budget_auto_lite_ms
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_records_empty_result_skip() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.recall_lite.return_value = []
+    cfg = ActivationConfig()
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Working on the React migration today",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+    )
+
+    assert result is None
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "skipped_no_results"
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_degrades_on_probe_timeout() -> None:
+    async def slow_recall_lite(**_kwargs):
+        await asyncio.sleep(0.05)
+        return [{"name": "Engram"}]
+
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.recall_lite.side_effect = slow_recall_lite
+    cfg = ActivationConfig(recall_budget_auto_lite_ms=10)
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Working on the Engram native Helix path",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+    )
+
+    assert result is None
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.operation == "auto_recall_gate"
+    assert sample.status == "degraded"
+    assert sample.skip_reason == "recall_timeout"
+    assert sample.timeout is True
+    assert sample.degraded is True
+
+
+@pytest.mark.asyncio
 async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
     manager = AsyncMock()
     manager.recall.return_value = [
@@ -306,7 +383,10 @@ async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
             "score": 0.9,
         }
     ]
-    cfg = ActivationConfig(auto_recall_enabled=True)
+    cfg = ActivationConfig(
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=True,
+    )
 
     result = await build_full_auto_recall_surface(
         manager,
@@ -320,8 +400,16 @@ async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
 
     assert result == {
         "source": "auto_recall",
-        "query_used": "Working Engram Helix",
+        "query_used": "Helix",
         "packets": [],
+        "gate": {
+            "decision": "triggered",
+            "needType": "fact_lookup",
+            "modeRequested": "deep",
+            "modeExecuted": "deep",
+            "budgetProfile": "auto_deep",
+            "cacheHit": False,
+        },
         "entities": [
             {
                 "name": "Engram",
@@ -337,8 +425,109 @@ async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_uses_cached_packets_without_deep_recall() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.record_memory_need_analysis = Mock()
+    manager.get_cached_memory_packets = Mock(
+        return_value=SimpleNamespace(
+            packets=[
+                {
+                    "packet_type": "project_state",
+                    "title": "Project: Engram AXI",
+                    "trust": {"source": "cache", "freshness": "fresh"},
+                }
+            ]
+        )
+    )
+    cfg = ActivationConfig(
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=True,
+        recall_packets_enabled=True,
+        recall_packet_auto_limit=1,
+    )
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="What changed with Engram AXI startup?",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is not None
+    assert result["packets"][0]["title"] == "Project: Engram AXI"
+    assert result["gate"] == {
+        "decision": "skipped_cache_satisfied",
+        "needType": "temporal_update",
+        "modeRequested": "deep",
+        "modeExecuted": "cached",
+        "budgetProfile": "auto_deep",
+        "skipReason": "skipped_cache_satisfied",
+        "cacheHit": True,
+        "cacheSatisfied": True,
+    }
+    manager.recall.assert_not_called()
+    group_id, need = manager.record_memory_need_analysis.call_args.args
+    assert group_id == "native_brain"
+    assert need.cache_satisfied is True
+    assert need.mode_executed == "cached"
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_records_budget_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.record_memory_need_analysis = Mock()
+    cfg = ActivationConfig(
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=True,
+    )
+
+    def budget_exhausted(*_args, **_kwargs):
+        return SimpleNamespace(
+            profile="auto_deep",
+            max_results=0,
+            max_output_tokens=300,
+            budget_ms=750,
+            budget_tokens=300,
+            timeout_degrades=True,
+            exceeded=lambda _duration_ms=None: False,
+        )
+
+    monkeypatch.setattr(
+        "engram.retrieval.auto_recall.recall_budget_for_profile",
+        budget_exhausted,
+    )
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="What changed with Engram AXI startup?",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is None
+    manager.recall.assert_not_called()
+    group_id, need = manager.record_memory_need_analysis.call_args.args
+    assert group_id == "native_brain"
+    assert need.skip_reason == "skipped_budget"
+    assert need.budget_skipped is True
+    assert need.mode_requested == "deep"
+    assert need.mode_executed == "none"
+
+
+@pytest.mark.asyncio
 async def test_build_full_auto_recall_surface_skips_recent_explicit_recall() -> None:
     manager = AsyncMock()
+    manager.record_memory_operation = Mock()
     cfg = ActivationConfig(auto_recall_enabled=True)
 
     result = await build_full_auto_recall_surface(
@@ -353,6 +542,75 @@ async def test_build_full_auto_recall_surface_skips_recent_explicit_recall() -> 
 
     assert result is None
     manager.recall.assert_not_called()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "skipped_recent_explicit"
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_records_disabled_skip() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    cfg = ActivationConfig(auto_recall_enabled=False)
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Working on Engram native Helix recall surfaces",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is None
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "skipped_disabled"
+    assert sample.budget_ms == cfg.recall_budget_auto_deep_ms
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_records_memory_need_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+
+    async def fake_analyze_memory_need(*_args, **_kwargs):
+        return SimpleNamespace(
+            should_recall=False,
+            query_hint="",
+            reasons=["acknowledgement"],
+        )
+
+    monkeypatch.setattr(
+        "engram.retrieval.auto_recall.analyze_memory_need",
+        fake_analyze_memory_need,
+    )
+    cfg = ActivationConfig(
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=True,
+    )
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Thanks for the update",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is None
+    manager.recall.assert_not_called()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "skipped_ack"
 
 
 @pytest.mark.asyncio
@@ -379,7 +637,42 @@ async def test_build_session_prime_surface_fetches_context_and_marks_primed() ->
         max_tokens=256,
         topic_hint="Planning Engram Helix",
         format="structured",
+        operation_source="mcp_session_prime",
     )
+
+
+@pytest.mark.asyncio
+async def test_build_session_prime_surface_degrades_on_context_timeout() -> None:
+    async def slow_get_context(**_kwargs):
+        await asyncio.sleep(0.05)
+        return {"context": "late"}
+
+    manager = AsyncMock()
+    manager.get_context.side_effect = slow_get_context
+    manager.record_memory_operation = Mock()
+    cfg = ActivationConfig(
+        auto_recall_session_prime=True,
+        recall_budget_startup_ms=25,
+    )
+
+    surface = await build_session_prime_surface(
+        manager,
+        content="Planning Engram native Helix parity",
+        group_id="native_brain",
+        cfg=cfg,
+        already_primed=False,
+    )
+
+    assert surface.context is None
+    assert surface.should_mark_primed is True
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.operation == "context"
+    assert sample.source == "mcp_session_prime"
+    assert sample.status == "degraded"
+    assert sample.skip_reason == "context_timeout"
+    assert sample.timeout is True
+    assert sample.degraded is True
 
 
 @pytest.mark.asyncio

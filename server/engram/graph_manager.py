@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engram.benchmark_loader import BenchmarkLoadService
 from engram.config import ActivationConfig, NerveCenterConfig
@@ -71,6 +73,12 @@ from engram.public_surface_policy import (
     PublicSurfacePolicyService,
 )
 from engram.retrieval.artifacts import ArtifactSearchService
+from engram.retrieval.budgets import (
+    RecallBudget,
+    budget_profile_for_source,
+    recall_budget_for_profile,
+    surface_for_source,
+)
 from engram.retrieval.confidence import RecallConfidenceApplier
 from engram.retrieval.context import (
     ConversationRuntimeService,
@@ -94,7 +102,13 @@ from engram.retrieval.forgetting import MemoryForgettingService
 from engram.retrieval.graph_state import GraphStateService
 from engram.retrieval.identity_core import IdentityCoreService
 from engram.retrieval.lookup import EntityFactLookupService
+from engram.retrieval.memory_operations import (
+    MemoryOperationMetricsCollector,
+    MemoryOperationSample,
+    memory_operation_sample_from_mapping,
+)
 from engram.retrieval.near_miss import RecallNearMissBuilder, RecallNearMissMaterializer
+from engram.retrieval.packet_cache import MemoryPacketCache, MemoryPacketCacheHit
 from engram.retrieval.post_process import RecallPostProcessor
 from engram.retrieval.preference_feedback import PreferenceFeedbackRecorder
 from engram.retrieval.primary_results import RecallPrimaryResultMaterializer
@@ -123,6 +137,16 @@ def _extract_message_text(blocks: object) -> str:
         if isinstance(text, str) and text:
             parts.append(text)
     return "".join(parts)
+
+
+def _session_cache_hit_signal(
+    session_cache: dict[str, tuple[float, dict]] | None,
+    results: list[dict],
+) -> bool | None:
+    """Return cache-hit telemetry only when the caller can infer it safely."""
+    if session_cache is None or not results:
+        return None
+    return None
 
 
 class GraphManager:
@@ -236,6 +260,16 @@ class GraphManager:
             self._goal_priming_cache = None
 
         self._recall_need_controller = RecallNeedController(self._cfg)
+        self._memory_operation_metrics = MemoryOperationMetricsCollector()
+        self._packet_cache = MemoryPacketCache(
+            max_entries=self._cfg.recall_packet_cache_max_entries,
+            default_ttl_seconds=self._cfg.recall_packet_cache_ttl_seconds,
+            persistence_path=(
+                self._cfg.recall_packet_cache_path
+                if self._cfg.recall_packet_cache_persistence_enabled
+                else None
+            ),
+        )
         self._recall_interaction_recorder = RecallInteractionRecorder(
             cfg=self._cfg,
             event_bus=self._event_bus,
@@ -363,12 +397,15 @@ class GraphManager:
             resolve_entity_name=self._context_resolve_entity_name,
             publish_access_event=self._context_publish_access_event,
             briefing_cache=self._briefing_cache,
+            get_cached_packets=self.get_cached_memory_packets,
+            cache_packets=self.cache_memory_packets,
         )
         self._graph_state_service = GraphStateService(
             graph_store=self._graph,
             activation_store=self._activation,
             cfg=self._cfg,
             get_recall_metrics=self._graph_state_recall_metrics,
+            get_memory_operation_metrics=self._graph_state_memory_operation_metrics,
             get_epistemic_metrics=self._graph_state_epistemic_metrics,
             resolve_entity_name=self._graph_state_resolve_entity_name,
         )
@@ -390,7 +427,9 @@ class GraphManager:
             list_project_artifacts=self._runtime_state_list_project_artifacts,
             artifact_is_stale=self._runtime_state_artifact_is_stale,
             get_recall_metrics=self._runtime_state_recall_metrics,
+            get_memory_operation_metrics=self._runtime_state_memory_operation_metrics,
             get_epistemic_metrics=self._runtime_state_epistemic_metrics,
+            get_packet_cache_summary=self._runtime_state_packet_cache_summary,
         )
         self._consolidation_trigger_service = ConsolidationTriggerService(
             graph_store=self._graph,
@@ -772,11 +811,14 @@ class GraphManager:
         group_id: str = "default",
     ) -> EvidenceMaterializationOutcome:
         """Compatibility API for consolidation evidence materialization."""
-        return await self._evidence_adjudication_service.materialize_stored_evidence(
+        outcome = await self._evidence_adjudication_service.materialize_stored_evidence(
             episode_id,
             evidence_rows,
             group_id=group_id,
         )
+        if outcome.materialized:
+            self.invalidate_memory_packet_cache(group_id)
+        return outcome
 
     async def submit_adjudication_resolution(
         self,
@@ -791,7 +833,7 @@ class GraphManager:
         group_id: str = "default",
     ) -> AdjudicationResolutionOutcome:
         """Compatibility API for resolving ambiguous evidence work items."""
-        return await self._evidence_adjudication_service.submit_adjudication_resolution(
+        outcome = await self._evidence_adjudication_service.submit_adjudication_resolution(
             request_id,
             entities=entities,
             relationships=relationships,
@@ -801,6 +843,9 @@ class GraphManager:
             rationale=rationale,
             group_id=group_id,
         )
+        if outcome.status in {"materialized", "rejected", "expired"}:
+            self.invalidate_memory_packet_cache(group_id)
+        return outcome
 
     @staticmethod
     def _is_meta_summary(text: str) -> bool:
@@ -870,6 +915,136 @@ class GraphManager:
     def get_recall_metrics(self, group_id: str = "default") -> dict:
         """Return rolling recall metrics for stats surfaces."""
         return self._recall_need_controller.snapshot(group_id)
+
+    def get_recall_feedback_summary(
+        self,
+        group_id: str = "default",
+        memory_ids: Sequence[str] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return compact per-memory feedback for packet trust summaries."""
+        return self._recall_need_controller.memory_feedback_summary(
+            group_id,
+            list(memory_ids or []),
+        )
+
+    def record_memory_operation(
+        self,
+        group_id: str,
+        sample: MemoryOperationSample | Mapping[str, Any],
+    ) -> None:
+        """Track a measured memory operation for value/latency reporting."""
+        payload = (
+            sample
+            if isinstance(sample, MemoryOperationSample)
+            else memory_operation_sample_from_mapping(sample)
+        )
+        self._memory_operation_metrics.record(group_id, payload)
+
+    def get_memory_operation_metrics(self, group_id: str = "default") -> dict:
+        """Return rolling memory operation cost metrics for stats surfaces."""
+        return self._memory_operation_metrics.snapshot(group_id)
+
+    def get_cached_memory_packets(
+        self,
+        group_id: str,
+        *,
+        scope: str,
+        topic_hint: str | None = None,
+        project_path: str | None = None,
+    ) -> MemoryPacketCacheHit | None:
+        """Return fresh cached packet payloads for a public recall surface."""
+        if not self._cfg.recall_packet_cache_enabled:
+            return None
+        return self._packet_cache.get(
+            group_id=group_id,
+            scope=scope,
+            topic_hint=topic_hint,
+            project_path=project_path,
+        )
+
+    def cache_memory_packets(
+        self,
+        group_id: str,
+        *,
+        scope: str,
+        packets: Sequence[Mapping[str, Any]],
+        topic_hint: str | None = None,
+        project_path: str | None = None,
+        build_duration_ms: float = 0.0,
+    ) -> dict:
+        """Store serialized packet payloads in the runtime packet cache."""
+        if not self._cfg.recall_packet_cache_enabled or not packets:
+            return {}
+        entry = self._packet_cache.put(
+            group_id=group_id,
+            scope=scope,
+            packets=packets,
+            topic_hint=topic_hint,
+            project_path=project_path,
+            ttl_seconds=self._cfg.recall_packet_cache_ttl_seconds,
+            build_duration_ms=build_duration_ms,
+        )
+        return entry.to_dict()
+
+    def invalidate_memory_packet_cache(
+        self,
+        group_id: str | None = None,
+        *,
+        entity_ids: Sequence[str] | None = None,
+        episode_ids: Sequence[str] | None = None,
+        relationship_ids: Sequence[str] | None = None,
+        scopes: Sequence[str] | None = None,
+    ) -> int:
+        """Invalidate cached packets after graph or episode mutations."""
+        return self._packet_cache.invalidate(
+            group_id=group_id,
+            entity_ids=entity_ids,
+            episode_ids=episode_ids,
+            relationship_ids=relationship_ids,
+            scopes=scopes,
+        )
+
+    def clear_memory_packet_cache(self, group_id: str | None = None) -> int:
+        """Clear packet cache entries for an operator/debug surface."""
+        return self._packet_cache.clear(group_id=group_id)
+
+    def get_memory_packet_cache_summary(self, group_id: str | None = None) -> dict:
+        """Return packet cache health for runtime diagnostics."""
+        return self._packet_cache.summary(group_id=group_id)
+
+    def _memory_operation_budget(
+        self,
+        source: str,
+        *,
+        mode: str | None = None,
+        max_results: int | None = None,
+        max_packets: int | None = None,
+        max_output_tokens: int | None = None,
+    ) -> RecallBudget:
+        """Resolve the budget profile attached to a memory operation."""
+        return recall_budget_for_profile(
+            self._cfg,
+            budget_profile_for_source(source),
+            surface=surface_for_source(source),
+            mode=mode,
+            max_results=max_results,
+            max_packets=max_packets,
+            max_output_tokens=max_output_tokens,
+        )
+
+    @staticmethod
+    def _budget_fields(
+        budget: RecallBudget,
+        duration_ms: float,
+    ) -> dict[str, Any]:
+        """Return common budget telemetry fields for operation samples."""
+        budget_miss = budget.exceeded(duration_ms)
+        return {
+            "budget_ms": budget.budget_ms,
+            "budget_tokens": budget.budget_tokens,
+            "budget_miss": budget_miss,
+            "degraded": bool(budget.timeout_degrades and budget_miss),
+        }
 
     def get_epistemic_metrics(self, group_id: str = "default") -> dict:
         """Return rolling epistemic routing metrics for stats surfaces."""
@@ -1013,6 +1188,19 @@ class GraphManager:
             query=query,
             source=source,
             result_lookup=result_lookup,
+        )
+        self.invalidate_memory_packet_cache(
+            group_id,
+            entity_ids=[
+                memory_id
+                for memory_id in memory_ids
+                if memory_id and not memory_id.startswith(("cue:", "episode:"))
+            ],
+            episode_ids=[
+                memory_id.split(":", 1)[1]
+                for memory_id in memory_ids
+                if memory_id.startswith(("cue:", "episode:")) and ":" in memory_id
+            ],
         )
 
     async def _update_episode_status(
@@ -1197,7 +1385,7 @@ class GraphManager:
         Returns the episode ID. The episode is created with QUEUED status.
         Call project_episode() later to run extraction.
         """
-        return await self._capture_service.store_episode(
+        episode_id = await self._capture_service.store_episode(
             content=content,
             group_id=group_id,
             source=source,
@@ -1205,6 +1393,11 @@ class GraphManager:
             conversation_date=conversation_date,
             attachments=attachments,
         )
+        self.invalidate_memory_packet_cache(
+            group_id,
+            scopes=["session_prime"],
+        )
+        return episode_id
 
     async def project_episode(
         self,
@@ -1218,13 +1411,20 @@ class GraphManager:
 
         Raises on failure after setting FAILED status.
         """
-        return await self._projection_service.project_episode(
+        result = await self._projection_service.project_episode(
             episode_id,
             group_id=group_id,
             proposed_entities=proposed_entities,
             proposed_relationships=proposed_relationships,
             model_tier=model_tier,
         )
+        self.invalidate_memory_packet_cache(
+            group_id,
+            episode_ids=[episode_id],
+        )
+        if result.outcome == "projected":
+            self.invalidate_memory_packet_cache(group_id)
+        return result
 
     async def _episode_ingestion_store_episode(self, *args, **kwargs) -> str:
         """Late-bound store adapter for one-shot ingestion."""
@@ -1472,6 +1672,14 @@ class GraphManager:
         """Late-bound recall metrics adapter for runtime state."""
         return self.get_recall_metrics(group_id)
 
+    def _runtime_state_memory_operation_metrics(self, group_id: str) -> dict:
+        """Late-bound memory operation metrics adapter for runtime state."""
+        return self.get_memory_operation_metrics(group_id)
+
+    def _runtime_state_packet_cache_summary(self, group_id: str) -> dict:
+        """Late-bound packet-cache adapter for runtime state."""
+        return self.get_memory_packet_cache_summary(group_id)
+
     def _runtime_state_epistemic_metrics(self, group_id: str) -> dict:
         """Late-bound epistemic metrics adapter for runtime state."""
         return self.get_epistemic_metrics(group_id)
@@ -1718,20 +1926,54 @@ class GraphManager:
         memory_need=None,
     ) -> list[dict]:
         """Retrieve relevant entities and their context using activation-aware scoring."""
-        recall_result = await self._recall_service.recall(
-            query=query,
-            group_id=group_id,
-            limit=limit,
-            record_access=record_access,
-            interaction_type=interaction_type,
-            interaction_source=interaction_source,
-            conv_context=self._conv_context,
-            working_memory=self._working_memory,
-            priming_buffer=self._priming_buffer,
-            goal_cache=self._goal_priming_cache,
-            memory_need=memory_need,
+        started = time.perf_counter()
+        budget = self._memory_operation_budget(
+            interaction_source,
+            mode=interaction_source,
+            max_results=limit,
         )
+        try:
+            recall_result = await self._recall_service.recall(
+                query=query,
+                group_id=group_id,
+                limit=limit,
+                record_access=record_access,
+                interaction_type=interaction_type,
+                interaction_source=interaction_source,
+                conv_context=self._conv_context,
+                working_memory=self._working_memory,
+                priming_buffer=self._priming_buffer,
+                goal_cache=self._goal_priming_cache,
+                memory_need=memory_need,
+            )
+        except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            self.record_memory_operation(
+                group_id,
+                MemoryOperationSample(
+                    operation="recall",
+                    source=interaction_source,
+                    mode=interaction_source,
+                    status="error",
+                    duration_ms=duration_ms,
+                    **self._budget_fields(budget, duration_ms),
+                ),
+            )
+            raise
         self._last_near_misses = recall_result.near_misses
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        self.record_memory_operation(
+            group_id,
+            MemoryOperationSample(
+                operation="recall",
+                source=interaction_source,
+                mode=interaction_source,
+                status="ok",
+                duration_ms=duration_ms,
+                result_count=len(recall_result.results),
+                **self._budget_fields(budget, duration_ms),
+            ),
+        )
 
         return recall_result.results
 
@@ -1805,13 +2047,52 @@ class GraphManager:
             List of compact entity dicts with keys: name, type, summary, confidence,
             identity_core, top_facts
         """
-        return await self._entity_probe_recall_service.recall_lite(
-            text=text,
-            group_id=group_id,
-            session_cache=session_cache,
-            token_budget=token_budget,
-            cache_ttl=cache_ttl,
+        started = time.perf_counter()
+        budget = recall_budget_for_profile(
+            self._cfg,
+            "auto_lite",
+            surface="mcp",
+            mode="lite",
+            max_results=5,
+            max_output_tokens=token_budget,
         )
+        try:
+            results = await self._entity_probe_recall_service.recall_lite(
+                text=text,
+                group_id=group_id,
+                session_cache=session_cache,
+                token_budget=token_budget,
+                cache_ttl=cache_ttl,
+            )
+        except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            self.record_memory_operation(
+                group_id,
+                MemoryOperationSample(
+                    operation="recall_lite",
+                    source="auto_recall",
+                    mode="lite",
+                    status="error",
+                    duration_ms=duration_ms,
+                    **self._budget_fields(budget, duration_ms),
+                ),
+            )
+            raise
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        self.record_memory_operation(
+            group_id,
+            MemoryOperationSample(
+                operation="recall_lite",
+                source="auto_recall",
+                mode="lite",
+                status="ok",
+                duration_ms=duration_ms,
+                result_count=len(results),
+                cache_hit=_session_cache_hit_signal(session_cache, results),
+                **self._budget_fields(budget, duration_ms),
+            ),
+        )
+        return results
 
     async def recall_medium(
         self,
@@ -1841,15 +2122,54 @@ class GraphManager:
         Returns:
             List of compact entity dicts (same format as recall_lite + freshness)
         """
-        return await self._entity_probe_recall_service.recall_medium(
-            text=text,
-            group_id=group_id,
-            session_cache=session_cache,
-            token_budget=token_budget,
-            cache_ttl=cache_ttl,
-            fts_weight=fts_weight,
-            vec_weight=vec_weight,
+        started = time.perf_counter()
+        budget = recall_budget_for_profile(
+            self._cfg,
+            "auto_lite",
+            surface="mcp",
+            mode="medium",
+            max_results=5,
+            max_output_tokens=token_budget,
         )
+        try:
+            results = await self._entity_probe_recall_service.recall_medium(
+                text=text,
+                group_id=group_id,
+                session_cache=session_cache,
+                token_budget=token_budget,
+                cache_ttl=cache_ttl,
+                fts_weight=fts_weight,
+                vec_weight=vec_weight,
+            )
+        except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            self.record_memory_operation(
+                group_id,
+                MemoryOperationSample(
+                    operation="recall_medium",
+                    source="auto_recall",
+                    mode="medium",
+                    status="error",
+                    duration_ms=duration_ms,
+                    **self._budget_fields(budget, duration_ms),
+                ),
+            )
+            raise
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        self.record_memory_operation(
+            group_id,
+            MemoryOperationSample(
+                operation="recall_medium",
+                source="auto_recall",
+                mode="medium",
+                status="ok",
+                duration_ms=duration_ms,
+                result_count=len(results),
+                cache_hit=_session_cache_hit_signal(session_cache, results),
+                **self._budget_fields(budget, duration_ms),
+            ),
+        )
+        return results
 
     # ─── Entity name resolution ─────────────────────────────────────
 
@@ -1918,11 +2238,13 @@ class GraphManager:
         reason: str | None = None,
     ) -> dict:
         """Compatibility API for entity forgetting."""
-        return await self._forgetting_service.forget_entity(
+        result = await self._forgetting_service.forget_entity(
             entity_name,
             group_id=group_id,
             reason=reason,
         )
+        self.invalidate_memory_packet_cache(group_id)
+        return result
 
     # ─── Forget fact ────────────────────────────────────────────────
 
@@ -1935,13 +2257,15 @@ class GraphManager:
         reason: str | None = None,
     ) -> dict:
         """Compatibility API for fact invalidation."""
-        return await self._forgetting_service.forget_fact(
+        result = await self._forgetting_service.forget_fact(
             subject_name,
             predicate,
             object_name,
             group_id=group_id,
             reason=reason,
         )
+        self.invalidate_memory_packet_cache(group_id)
+        return result
 
     async def mark_identity_core(
         self,
@@ -2114,6 +2438,7 @@ class GraphManager:
 
     async def _context_recall(self, **kwargs) -> list[dict]:
         """Late-bound recall adapter for context builders and test fakes."""
+        kwargs.setdefault("interaction_source", "context_recall")
         return await self.recall(**kwargs)
 
     async def _context_list_intentions(self, *args, **kwargs) -> list:
@@ -2195,21 +2520,64 @@ class GraphManager:
         topic_hint: str | None = None,
         project_path: str | None = None,
         format: str = "structured",
+        operation_source: str = "context",
     ) -> dict:
         """Build a tiered context summary through the shared retrieval service."""
-        return await self._context_builder.get_context(
-            group_id=group_id,
-            max_tokens=max_tokens,
-            topic_hint=topic_hint,
-            project_path=project_path,
-            format=format,
+        started = time.perf_counter()
+        budget = self._memory_operation_budget(
+            operation_source,
+            mode=operation_source,
+            max_results=max_tokens,
+            max_output_tokens=max_tokens,
         )
+        try:
+            result = await self._context_builder.get_context(
+                group_id=group_id,
+                max_tokens=max_tokens,
+                topic_hint=topic_hint,
+                project_path=project_path,
+                format=format,
+            )
+        except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            self.record_memory_operation(
+                group_id,
+                MemoryOperationSample(
+                    operation="context",
+                    source=operation_source,
+                    mode=operation_source,
+                    status="error",
+                    duration_ms=duration_ms,
+                    **self._budget_fields(budget, duration_ms),
+                ),
+            )
+            raise
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        self.record_memory_operation(
+            group_id,
+            MemoryOperationSample(
+                operation="context",
+                source=operation_source,
+                mode=operation_source,
+                status="ok",
+                duration_ms=duration_ms,
+                result_count=int(result.get("entity_count") or 0),
+                packet_count=len(result.get("cached_packets") or []),
+                cache_hit=bool((result.get("packet_cache") or {}).get("hit")),
+                **self._budget_fields(budget, duration_ms),
+            ),
+        )
+        return result
 
     # ─── Get graph state ────────────────────────────────────────────
 
     def _graph_state_recall_metrics(self, group_id: str) -> dict:
         """Late-bound recall metrics adapter for graph-state readers."""
         return self.get_recall_metrics(group_id)
+
+    def _graph_state_memory_operation_metrics(self, group_id: str) -> dict:
+        """Late-bound memory operation metrics adapter for graph-state readers."""
+        return self.get_memory_operation_metrics(group_id)
 
     def _graph_state_epistemic_metrics(self, group_id: str) -> dict:
         """Late-bound epistemic metrics adapter for graph-state readers."""

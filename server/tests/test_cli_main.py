@@ -424,6 +424,52 @@ def test_axi_dispatches_to_command(monkeypatch) -> None:
     ]
 
 
+def test_dogfood_dispatches_exit_code(monkeypatch, tmp_path) -> None:
+    cli = importlib.import_module("engram.__main__")
+    labels_path = tmp_path / "labels.json"
+    calls: list[dict] = []
+
+    async def fake_run_dogfood_command(args) -> int:
+        calls.append(
+            {
+                "command": args.command,
+                "dogfood_command": args.dogfood_command,
+                "labels": args.labels,
+                "require_ready": args.require_ready,
+            }
+        )
+        return 1
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "engram",
+            "dogfood",
+            "closeout",
+            "--labels",
+            str(labels_path),
+            "--require-ready",
+        ],
+    )
+    monkeypatch.setattr(
+        "engram.evaluation.dogfood.run_dogfood_command",
+        fake_run_dogfood_command,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 1
+    assert calls == [
+        {
+            "command": "dogfood",
+            "dogfood_command": "closeout",
+            "labels": labels_path,
+            "require_ready": True,
+        }
+    ]
+
+
 def test_top_level_help_mentions_doctor_readiness_smoke(monkeypatch, capsys) -> None:
     cli = importlib.import_module("engram.__main__")
     monkeypatch.setattr("sys.argv", ["engram", "--help"])

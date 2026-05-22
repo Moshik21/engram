@@ -34,6 +34,7 @@ BRAIN_LOOP_REPORT_SECTION_KEYS = (
 )
 BRAIN_LOOP_REPORT_MARKER_KEYS = BRAIN_LOOP_REPORT_SECTION_KEYS + (
     "loop",
+    "memory_value",
     "evaluation_signals",
     "coverage_gaps",
 )
@@ -54,6 +55,14 @@ def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
         _mapping(metrics or {})
     )
     return total_analyses > 0
+
+
+def has_memory_operation_metrics(metrics: Mapping[str, Any] | None) -> bool:
+    """Return whether metrics include real memory operation cost coverage."""
+    operation_count, _p95_ms, signal_count = _memory_operation_score(
+        _mapping(metrics or {})
+    )
+    return operation_count > 0 or signal_count > 0
 
 
 def unmeasured_evaluation_signals(
@@ -96,6 +105,41 @@ def evaluation_signal_failure_message(
         report,
         min_evidence_count=min_evidence_count,
     )
+    if not failures:
+        return None
+    return f"{prefix}: {failures}"
+
+
+def unmeasured_memory_value(report: Mapping[str, Any]) -> list[str]:
+    """Return memory-value gate failures for cost/benefit evidence."""
+    memory_value = _mapping(_get(report, "memory_value", "memoryValue"))
+    if not memory_value:
+        return ["memory_value:missing"]
+
+    failures: list[str] = []
+    status = str(memory_value.get("status") or "missing")
+    if status != "measured":
+        failures.append(f"memory_value:{status}")
+
+    cost = _mapping(memory_value.get("cost"))
+    cost_status = str(cost.get("status") or "missing")
+    if cost_status != "measured":
+        failures.append(f"memory_value.cost:{cost_status}")
+
+    benefit = _mapping(memory_value.get("benefit"))
+    benefit_status = str(benefit.get("status") or "missing")
+    if benefit_status != "measured":
+        failures.append(f"memory_value.benefit:{benefit_status}")
+    return failures
+
+
+def memory_value_failure_message(
+    report: Mapping[str, Any],
+    *,
+    prefix: str,
+) -> str | None:
+    """Return a human-readable failure message for memory-value gates."""
+    failures = unmeasured_memory_value(report)
     if not failures:
         return None
     return f"{prefix}: {failures}"
@@ -203,6 +247,29 @@ def merge_recall_runtime_metrics(
     return stats_payload
 
 
+def merge_memory_operation_metrics(
+    stats: Mapping[str, Any],
+    saved_metrics: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Overlay saved memory operation metrics when live stats have less coverage."""
+    stats_payload = dict(_mapping(stats))
+    saved = _mapping(saved_metrics or {})
+    if not has_memory_operation_metrics(saved):
+        return stats_payload
+
+    current = _mapping(
+        _get(
+            stats_payload,
+            "memory_operation_metrics",
+            "memoryOperationMetrics",
+            default={},
+        )
+    )
+    if _memory_operation_score(saved) > _memory_operation_score(current):
+        stats_payload["memory_operation_metrics"] = dict(saved)
+    return stats_payload
+
+
 def build_brain_loop_report(
     stats: Mapping[str, Any],
     *,
@@ -223,6 +290,14 @@ def build_brain_loop_report(
     cue_metrics = _mapping(stats_payload.get("cue_metrics"))
     projection_metrics = _mapping(stats_payload.get("projection_metrics"))
     recall_metrics = _mapping(stats_payload.get("recall_metrics"))
+    memory_operation_metrics = _mapping(
+        _get(
+            stats_payload,
+            "memory_operation_metrics",
+            "memoryOperationMetrics",
+            default={},
+        )
+    )
     adjudication_metrics = _mapping(stats_payload.get("adjudication_metrics"))
 
     episode_count = _int(stats_payload.get("episodes"))
@@ -234,6 +309,7 @@ def build_brain_loop_report(
     cue = _cue_summary(cue_metrics, episode_count)
     project = _project_summary(projection_metrics)
     recall = _recall_summary(recall_metrics, recall_samples, session_samples)
+    memory_value = _memory_value_summary(recall, memory_operation_metrics)
     consolidate = _consolidation_summary(
         recent_cycles or [],
         calibration_snapshots or [],
@@ -245,6 +321,7 @@ def build_brain_loop_report(
         cue=cue,
         project=project,
         recall=recall,
+        memory_value=memory_value,
         consolidate=consolidate,
     )
     evaluation_signals = _evaluation_signals(
@@ -268,6 +345,7 @@ def build_brain_loop_report(
         "cue": cue,
         "project": project,
         "recall": recall,
+        "memory_value": memory_value,
         "consolidate": consolidate,
         "evaluation_signals": evaluation_signals,
         "coverage_gaps": coverage_gaps,
@@ -289,6 +367,9 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
     probe_latency = _mapping(recall_latency.get("probe_ms"))
     recall_control = _mapping(recall.get("control"))
     thresholds = _mapping(recall_control.get("thresholds"))
+    memory_value = _mapping(_get(report, "memory_value", "memoryValue"))
+    memory_cost = _mapping(memory_value.get("cost"))
+    memory_benefit = _mapping(memory_value.get("benefit"))
     consolidate = _mapping(report.get("consolidate"))
     latest_cycle = _mapping(_get(consolidate, "latest_cycle", "latestCycle"))
     latest_cycle_error = _get(latest_cycle, "error")
@@ -356,6 +437,8 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             f"- Labeled quality: precision {_pct(recall_eval.get('memory_need_precision'))}, "
             f"need recall {_pct(recall_eval.get('memory_need_recall'))}, "
             f"useful packet rate {_pct(recall_eval.get('useful_packet_rate'))}, "
+            f"stale packet rate {_pct(recall_eval.get('stale_packet_rate'))}, "
+            f"corrected packet rate {_pct(recall_eval.get('corrected_packet_rate'))}, "
             f"false recall {_pct(recall_eval.get('false_recall_rate'))}, "
             f"missed recall {_pct(recall_eval.get('missed_recall_rate'))}"
         ),
@@ -363,6 +446,29 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             f"- Continuity: lift {_number(continuity.get('session_continuity_lift'))}, "
             f"open-loop recovery {_pct(continuity.get('open_loop_recovery_rate'))}, "
             f"temporal correctness {_pct(continuity.get('temporal_correctness'))}"
+        ),
+        "",
+        "## Memory Value",
+        "",
+        (
+            f"- Status: {memory_value.get('status', 'needs_samples')} | operations "
+            f"{memory_cost.get('operation_count', 0)} | avg added "
+            f"{_duration(memory_cost.get('avg_added_latency_ms'))} | p95 added "
+            f"{_duration(memory_cost.get('p95_added_latency_ms'))}"
+        ),
+        (
+            f"- Cost controls: timeout {_pct(memory_cost.get('timeout_rate'))}, "
+            f"budget miss {_pct(memory_cost.get('budget_miss_rate'))}, "
+            f"cache hit {_pct(memory_cost.get('cache_hit_rate'))}, "
+            f"skipped {memory_cost.get('skipped_count', 0)}"
+        ),
+        (
+            f"- Benefit: precision {_pct(memory_benefit.get('memory_need_precision'))}, "
+            f"need recall {_pct(memory_benefit.get('memory_need_recall'))}, "
+            f"useful packet rate {_pct(memory_benefit.get('useful_packet_rate'))}, "
+            f"stale packet rate {_pct(memory_benefit.get('stale_packet_rate'))}, "
+            f"corrected packet rate {_pct(memory_benefit.get('corrected_packet_rate'))}, "
+            f"continuity lift {_number(memory_benefit.get('session_continuity_lift'))}"
         ),
         "",
         "## Consolidate",
@@ -628,6 +734,43 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def format_memory_value_markdown(report: Mapping[str, Any]) -> str:
+    """Render just the memory value section for CLI value gates."""
+    memory_value = _mapping(_get(report, "memory_value", "memoryValue"))
+    cost = _mapping(memory_value.get("cost"))
+    benefit = _mapping(memory_value.get("benefit"))
+    lines = [
+        "# Engram Memory Value",
+        "",
+        f"Group: `{report.get('group_id', 'default')}`",
+        f"Generated: `{report.get('generated_at', '')}`",
+        "",
+        f"- Status: {memory_value.get('status', 'needs_samples')}",
+        (
+            f"- Cost: operations {cost.get('operation_count', 0)} | "
+            f"avg added {_duration(cost.get('avg_added_latency_ms'))} | "
+            f"p95 added {_duration(cost.get('p95_added_latency_ms'))} | "
+            f"timeout {_pct(cost.get('timeout_rate'))} | "
+            f"budget miss {_pct(cost.get('budget_miss_rate'))} | "
+            f"cache hit {_pct(cost.get('cache_hit_rate'))}"
+        ),
+        (
+            f"- Benefit: precision {_pct(benefit.get('memory_need_precision'))} | "
+            f"need recall {_pct(benefit.get('memory_need_recall'))} | "
+            f"useful packets {_pct(benefit.get('useful_packet_rate'))} | "
+            f"continuity lift {_number(benefit.get('session_continuity_lift'))}"
+        ),
+        (
+            f"- Trust: stale packets {_pct(benefit.get('stale_packet_rate'))} | "
+            f"corrected packets {_pct(benefit.get('corrected_packet_rate'))}"
+        ),
+    ]
+    failures = unmeasured_memory_value(report)
+    if failures:
+        lines.extend(["", "## Gate", "", f"- Failures: {', '.join(failures)}"])
+    return "\n".join(lines).strip() + "\n"
+
+
 def _release_evaluation_signal_component(report: Mapping[str, Any]) -> dict[str, Any]:
     evaluation_signals = _mapping(report.get("evaluation_signals"))
     if not evaluation_signals:
@@ -806,6 +949,14 @@ def _recall_summary(
         min(max(0, sample.packets_used), max(0, sample.packets_surfaced))
         for sample in recall_eval_samples
     )
+    stale = sum(
+        min(max(0, sample.stale_packets), max(0, sample.packets_surfaced))
+        for sample in recall_eval_samples
+    )
+    corrected = sum(
+        min(max(0, sample.corrected_packets), max(0, sample.packets_surfaced))
+        for sample in recall_eval_samples
+    )
     need_labeled = [
         sample for sample in recall_eval_samples if sample.recall_needed is not None
     ]
@@ -838,6 +989,10 @@ def _recall_summary(
         ),
         "surfaced_count": surfaced,
         "used_count": used,
+        "stale_packet_count": stale,
+        "stale_packet_rate": _ratio_or_none(stale, surfaced),
+        "corrected_packet_count": corrected,
+        "corrected_packet_rate": _ratio_or_none(corrected, surfaced),
         "surfaced_to_used_ratio": _ratio_or_none(surfaced, used),
     }
     continuity = {
@@ -885,6 +1040,183 @@ def _recall_summary(
         "family_contributions": dict(_mapping(recall_metrics.get("family_contributions"))),
         "evaluation": evaluation,
         "continuity": continuity,
+    }
+
+
+def _memory_value_summary(
+    recall: Mapping[str, Any],
+    operation_metrics: Mapping[str, Any],
+) -> dict[str, Any]:
+    cost = _memory_operation_cost_summary(operation_metrics)
+    benefit = _memory_operation_benefit_summary(recall)
+    cost_measured = cost.get("status") == "measured"
+    benefit_measured = benefit.get("status") == "measured"
+    if cost_measured and benefit_measured:
+        status = "measured"
+    elif cost_measured:
+        status = "needs_benefit_labels"
+    elif benefit_measured:
+        status = "needs_cost_samples"
+    else:
+        status = "needs_samples"
+    return {
+        "status": status,
+        "cost": cost,
+        "benefit": benefit,
+    }
+
+
+def _memory_operation_cost_summary(
+    metrics: Mapping[str, Any],
+    *,
+    include_modes: bool = True,
+) -> dict[str, Any]:
+    operation_count = _int(
+        _get(
+            metrics,
+            "operation_count",
+            "operationCount",
+            "total_operations",
+            "totalOperations",
+            "count",
+        )
+    )
+    duration = _latency_summary(
+        _get(
+            metrics,
+            "added_latency_ms",
+            "addedLatencyMs",
+            "duration_ms",
+            "durationMs",
+            "latency_ms",
+            "latencyMs",
+            default={},
+        )
+    )
+    budget = _latency_summary(_get(metrics, "budget_ms", "budgetMs", default={}))
+    status_counts = dict(_mapping(_get(metrics, "status_counts", "statusCounts")))
+    skip_reason_counts = dict(
+        _mapping(_get(metrics, "skip_reason_counts", "skipReasonCounts"))
+    )
+    completed_count = _int(
+        _get(
+            metrics,
+            "completed_count",
+            "completedCount",
+            default=status_counts.get("ok", 0) + status_counts.get("completed", 0),
+        )
+    )
+    skipped_count = _int(
+        _get(
+            metrics,
+            "skipped_count",
+            "skippedCount",
+            default=status_counts.get("skipped", 0),
+        )
+    )
+    error_count = _int(
+        _get(metrics, "error_count", "errorCount", default=status_counts.get("error", 0))
+    )
+    timeout_count = _int(
+        _get(metrics, "timeout_count", "timeoutCount", default=status_counts.get("timeout", 0))
+    )
+    degraded_count = _int(
+        _get(
+            metrics,
+            "degraded_count",
+            "degradedCount",
+            default=status_counts.get("degraded", 0),
+        )
+    )
+    budget_miss_count = _int(_get(metrics, "budget_miss_count", "budgetMissCount"))
+    cache_hit_count = _int(_get(metrics, "cache_hit_count", "cacheHitCount"))
+    cache_miss_count = _int(_get(metrics, "cache_miss_count", "cacheMissCount"))
+    cache_total = cache_hit_count + cache_miss_count
+    explicit_cache_hit_rate = _get(metrics, "cache_hit_rate", "cacheHitRate")
+    explicit_timeout_rate = _get(metrics, "timeout_rate", "timeoutRate")
+    explicit_degraded_rate = _get(metrics, "degraded_rate", "degradedRate")
+    explicit_budget_miss_rate = _get(metrics, "budget_miss_rate", "budgetMissRate")
+
+    summary = {
+        "status": "measured"
+        if operation_count > 0 or duration["p95_ms"] > 0 or duration["avg_ms"] > 0
+        else "needs_samples",
+        "operation_count": operation_count,
+        "avg_added_latency_ms": duration["avg_ms"],
+        "p95_added_latency_ms": duration["p95_ms"],
+        "avg_budget_ms": budget["avg_ms"],
+        "p95_budget_ms": budget["p95_ms"],
+        "avg_budget_tokens": _int(
+            _get(metrics, "avg_budget_tokens", "avgBudgetTokens")
+        ),
+        "completed_count": completed_count,
+        "skipped_count": skipped_count,
+        "error_count": error_count,
+        "status_counts": status_counts,
+        "skip_reason_counts": skip_reason_counts,
+        "timeout_count": timeout_count,
+        "timeout_rate": _rate(explicit_timeout_rate, timeout_count, operation_count),
+        "degraded_count": degraded_count,
+        "degraded_rate": _rate(explicit_degraded_rate, degraded_count, operation_count),
+        "budget_miss_count": budget_miss_count,
+        "budget_miss_rate": _rate(
+            explicit_budget_miss_rate,
+            budget_miss_count,
+            operation_count,
+        ),
+        "cache_hit_count": cache_hit_count,
+        "cache_miss_count": cache_miss_count,
+        "cache_hit_rate": _rate(
+            explicit_cache_hit_rate,
+            cache_hit_count,
+            cache_total or operation_count,
+        ),
+    }
+    if include_modes:
+        raw_modes = _mapping(
+            _get(
+                metrics,
+                "modes",
+                "by_mode",
+                "byMode",
+                "mode_metrics",
+                "modeMetrics",
+                default={},
+            )
+        )
+        summary["by_mode"] = {
+            str(mode): _memory_operation_cost_summary(
+                _mapping(mode_metrics),
+                include_modes=False,
+            )
+            for mode, mode_metrics in raw_modes.items()
+        }
+    return summary
+
+
+def _memory_operation_benefit_summary(recall: Mapping[str, Any]) -> dict[str, Any]:
+    recall_eval = _mapping(recall.get("evaluation"))
+    continuity = _mapping(recall.get("continuity"))
+    recall_measured = recall_eval.get("status") == "measured"
+    continuity_measured = continuity.get("status") == "measured"
+    return {
+        "status": "measured"
+        if recall_measured or continuity_measured
+        else "needs_samples",
+        "recall_sample_count": _int(recall_eval.get("sample_count")),
+        "session_sample_count": _int(continuity.get("sample_count")),
+        "memory_need_precision": recall_eval.get("memory_need_precision"),
+        "memory_need_recall": recall_eval.get("memory_need_recall"),
+        "missed_recall_rate": recall_eval.get("missed_recall_rate"),
+        "useful_packet_rate": recall_eval.get("useful_packet_rate"),
+        "stale_packet_rate": recall_eval.get("stale_packet_rate"),
+        "corrected_packet_rate": recall_eval.get("corrected_packet_rate"),
+        "stale_packet_count": _int(recall_eval.get("stale_packet_count")),
+        "corrected_packet_count": _int(recall_eval.get("corrected_packet_count")),
+        "false_recall_rate": recall_eval.get("false_recall_rate"),
+        "session_continuity_lift": continuity.get("session_continuity_lift"),
+        "open_loop_recovery_rate": continuity.get("open_loop_recovery_rate"),
+        "temporal_correctness": continuity.get("temporal_correctness"),
     }
 
 
@@ -1089,6 +1421,7 @@ def _coverage_gaps(
     cue: Mapping[str, Any],
     project: Mapping[str, Any],
     recall: Mapping[str, Any],
+    memory_value: Mapping[str, Any],
     consolidate: Mapping[str, Any],
 ) -> list[str]:
     gaps: list[str] = []
@@ -1117,6 +1450,9 @@ def _coverage_gaps(
         gaps.append("recall gate latency needs analyzer samples")
     if continuity.get("status") != "measured":
         gaps.append("session continuity needs session_samples input")
+    memory_cost = _mapping(memory_value.get("cost"))
+    if memory_cost.get("status") != "measured":
+        gaps.append("memory value needs memory operation cost samples")
     calibration = _mapping(consolidate.get("calibration"))
     calibration_status = calibration.get("status")
     if _int(consolidate.get("cycle_count")) == 0:
@@ -1268,6 +1604,42 @@ def _recall_runtime_score(metrics: Mapping[str, Any]) -> tuple[int, float, int]:
         _int(_get(metrics, "total_analyses", "totalAnalyses")),
         _float(_get(analyzer_latency, "p95", "p95_ms", "p95Ms")),
         surfaced,
+    )
+
+
+def _memory_operation_score(metrics: Mapping[str, Any]) -> tuple[int, float, int]:
+    duration = _mapping(
+        _get(
+            metrics,
+            "added_latency_ms",
+            "addedLatencyMs",
+            "duration_ms",
+            "durationMs",
+            "latency_ms",
+            "latencyMs",
+            default={},
+        )
+    )
+    signal_count = (
+        _int(_get(metrics, "timeout_count", "timeoutCount"))
+        + _int(_get(metrics, "degraded_count", "degradedCount"))
+        + _int(_get(metrics, "cache_hit_count", "cacheHitCount"))
+        + _int(_get(metrics, "cache_miss_count", "cacheMissCount"))
+        + _int(_get(metrics, "budget_miss_count", "budgetMissCount"))
+    )
+    return (
+        _int(
+            _get(
+                metrics,
+                "operation_count",
+                "operationCount",
+                "total_operations",
+                "totalOperations",
+                "count",
+            )
+        ),
+        _float(_get(duration, "p95", "p95_ms", "p95Ms")),
+        signal_count,
     )
 
 
@@ -1534,6 +1906,8 @@ def _recall_sample(sample: RecallEvalSample | Mapping[str, Any]) -> RecallEvalSa
         packets_surfaced=_int(_get(sample, "packets_surfaced", "packetsSurfaced")),
         packets_used=_int(_get(sample, "packets_used", "packetsUsed")),
         false_recalls=_int(_get(sample, "false_recalls", "falseRecalls")),
+        stale_packets=_int(_get(sample, "stale_packets", "stalePackets")),
+        corrected_packets=_int(_get(sample, "corrected_packets", "correctedPackets")),
         recall_needed=None if recall_needed is None else bool(recall_needed),
     )
 
@@ -1602,6 +1976,13 @@ def _ratio_or_none(numerator: int, denominator: int) -> float | None:
     if denominator <= 0:
         return None
     return round(numerator / denominator, 4)
+
+
+def _rate(value: Any, numerator: int, denominator: int) -> float | None:
+    explicit = _optional_float(value)
+    if explicit is not None:
+        return explicit
+    return _ratio_or_none(numerator, denominator)
 
 
 def _append_optional_float(values: list[float], value: Any) -> None:

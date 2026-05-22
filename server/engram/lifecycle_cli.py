@@ -118,6 +118,7 @@ async def build_lifecycle_summary_for_config(
     )
     try:
         consolidation_store = await _create_consolidation_store(mode, config, graph_store)
+        config.configure_runtime_packet_cache(mode.value)
         manager = GraphManager(
             graph_store,
             activation_store,

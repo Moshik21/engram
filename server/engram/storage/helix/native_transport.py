@@ -128,6 +128,12 @@ class NativeTransport:
             executor.shutdown(wait=True, cancel_futures=True)
         gc.collect()
 
+    async def health_check(self) -> None:
+        """Verify the in-process engine is ready without scanning graph data."""
+        if self._engine is None or self._executor is None:
+            raise RuntimeError("NativeTransport not initialized")
+        await asyncio.sleep(0)
+
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a single query via in-process engine."""
         if self._engine is None:

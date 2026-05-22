@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -35,6 +37,7 @@ async def test_api_context_surface_maps_rest_keys() -> None:
         topic_hint="Alice",
         project_path="/tmp/engram",
         format="briefing",
+        operation_source="api_context",
     )
 
     assert payload == {
@@ -50,7 +53,79 @@ async def test_api_context_surface_maps_rest_keys() -> None:
         topic_hint="Alice",
         project_path="/tmp/engram",
         format="briefing",
+        operation_source="api_context",
     )
+
+
+@pytest.mark.asyncio
+async def test_api_context_surface_forwards_cached_packet_metadata() -> None:
+    manager = MagicMock()
+    manager.get_context = AsyncMock(
+        return_value={
+            **CONTEXT_RESULT,
+            "cached_packets": [
+                {
+                    "packet_type": "project_home",
+                    "title": "Project Home: Engram",
+                    "trust": {"source": "cache", "freshness": "fresh"},
+                }
+            ],
+            "packet_cache": {
+                "hit": True,
+                "packet_count": 1,
+                "scopes": {"project_home": 1},
+            },
+        }
+    )
+
+    payload = await build_api_context_surface(
+        manager,
+        group_id="native_brain",
+        project_path="/tmp/engram",
+    )
+
+    assert payload["cachedPackets"][0]["title"] == "Project Home: Engram"
+    assert payload["cachedPackets"][0]["trust"]["source"] == "cache"
+    assert payload["packetCache"] == {
+        "hit": True,
+        "packet_count": 1,
+        "scopes": {"project_home": 1},
+    }
+
+
+@pytest.mark.asyncio
+async def test_api_context_surface_maps_degraded_budget_metadata() -> None:
+    manager = MagicMock()
+    manager.get_context = AsyncMock(
+        return_value={
+            **CONTEXT_RESULT,
+            "status": "degraded",
+            "budget": {
+                "profile": "explicit",
+                "surface": "rest",
+                "mode": "api_context",
+                "max_wall_ms": 2000,
+                "duration_ms": 2001.0,
+                "budget_miss": True,
+                "timeout": True,
+                "degraded": True,
+                "skip_reason": "context_timeout",
+            },
+            "lifecycle": {
+                "stage": "recall",
+                "degraded": True,
+                "timeout": True,
+                "skip_reason": "context_timeout",
+            },
+        }
+    )
+
+    payload = await build_api_context_surface(manager, group_id="native_brain")
+
+    assert payload["status"] == "degraded"
+    assert payload["budget"]["maxWallMs"] == 2000
+    assert payload["budget"]["skipReason"] == "context_timeout"
+    assert payload["lifecycle"]["skipReason"] == "context_timeout"
 
 
 @pytest.mark.asyncio
@@ -71,7 +146,38 @@ async def test_mcp_context_surface_preserves_raw_manager_shape() -> None:
         topic_hint="Alice",
         project_path=None,
         format="structured",
+        operation_source="mcp_context",
     )
+
+
+@pytest.mark.asyncio
+async def test_mcp_context_surface_degrades_on_timeout() -> None:
+    async def slow_get_context(**_kwargs):
+        await asyncio.sleep(0.15)
+        return CONTEXT_RESULT
+
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(recall_budget_explicit_ms=100)
+    manager.get_context = AsyncMock(side_effect=slow_get_context)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint="Engram",
+        operation_source="mcp_context",
+    )
+
+    assert payload["status"] == "degraded"
+    assert payload["entity_count"] == 0
+    assert payload["budget"]["skip_reason"] == "context_timeout"
+    assert payload["budget"]["timeout"] is True
+    assert payload["lifecycle"]["degraded"] is True
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.operation == "context"
+    assert sample.source == "mcp_context"
+    assert sample.timeout is True
 
 
 @pytest.mark.asyncio
@@ -179,6 +285,80 @@ async def test_memory_context_builder_uses_budget_to_cap_project_expansion() -> 
     assert "Neighbor 0" in result["context"]
     assert "Neighbor 1" in result["context"]
     assert "Neighbor 2" not in result["context"]
+
+
+@pytest.mark.asyncio
+async def test_memory_context_builder_includes_cached_project_packets() -> None:
+    graph = MagicMock()
+    graph.find_entities = AsyncMock(return_value=[])
+    graph.create_entity = AsyncMock()
+    graph.get_entity = AsyncMock(return_value=None)
+    graph.get_relationships = AsyncMock(return_value=[])
+    activation = MagicMock()
+    activation.record_access = AsyncMock()
+    activation.get_activation = AsyncMock(return_value=None)
+    activation.get_top_activated = AsyncMock(return_value=[])
+    cache_packets = MagicMock()
+    recall = AsyncMock(
+        return_value=[
+            {
+                "entity": {
+                    "id": "ent_engram",
+                    "name": "Engram",
+                    "type": "Project",
+                    "summary": "Memory runtime",
+                },
+                "score_breakdown": {},
+            }
+        ]
+    )
+
+    def get_cached_packets(_group_id: str, *, scope: str, **_kwargs):
+        if scope == "project_home":
+            return SimpleNamespace(
+                packets=[
+                    {
+                        "packet_type": "project_home",
+                        "title": "Project Home: Engram",
+                        "summary": "Cached Engram project packet.",
+                        "why_now": "Project startup context.",
+                        "trust": {
+                            "source": "cache",
+                            "freshness": "recent",
+                            "why_now": "Project startup context.",
+                        },
+                    }
+                ]
+            )
+        return None
+
+    builder = MemoryContextBuilder(
+        graph_store=graph,
+        activation_store=activation,
+        cfg=ActivationConfig(identity_core_enabled=False),
+        recall=recall,
+        list_intentions=AsyncMock(return_value=[]),
+        resolve_entity_name=AsyncMock(return_value=""),
+        publish_access_event=AsyncMock(),
+        get_cached_packets=get_cached_packets,
+        cache_packets=cache_packets,
+    )
+
+    result = await builder.get_context(
+        group_id="brain",
+        project_path="/Users/konnermoshier/Engram",
+        max_tokens=800,
+    )
+
+    assert "## Cached Memory Packets" in result["context"]
+    assert "Project Home: Engram" in result["context"]
+    assert result["packet_cache"] == {
+        "hit": True,
+        "packet_count": 1,
+        "scopes": {"project_home": 1},
+    }
+    assert result["cached_packets"][0]["trust"]["source"] == "cache"
+    assert cache_packets.called
 
 
 @pytest.mark.asyncio

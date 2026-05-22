@@ -82,6 +82,26 @@ class TestEngramConfig:
         assert config.helix.host == "localhost"
         assert config.helix.port == 6969
 
+    def test_packet_cache_path_defaults_to_sqlite_sidecar(self, tmp_path):
+        config = EngramConfig(
+            sqlite={"path": str(tmp_path / "engram.db")},
+            _env_file=None,
+        )
+
+        assert config.get_packet_cache_path("lite") == tmp_path / "engram.packet-cache.db"
+
+    def test_runtime_packet_cache_path_uses_native_helix_data_dir(self, tmp_path):
+        config = EngramConfig(
+            mode="helix",
+            helix={"transport": "native", "data_dir": str(tmp_path / "helix")},
+            _env_file=None,
+        )
+        config.configure_runtime_packet_cache("helix")
+
+        assert config.activation.recall_packet_cache_path == str(
+            tmp_path / "helix" / "packet-cache.sqlite3"
+        )
+
     def test_default_env_file_order_includes_repo_root(self):
         repo_root_env = str(Path(__file__).resolve().parents[2] / ".env")
         assert DEFAULT_ENV_FILES[0].endswith(".engram/.env")

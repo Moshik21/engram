@@ -16,7 +16,8 @@ from engram.axi.client import AxiRestClient, AxiRestError
 LIFECYCLE = "Capture -> Cue -> Project -> Recall -> Consolidate"
 DESCRIPTION = "Long-term memory brain for AI agents"
 HOME_PROBE_TIMEOUT_SECONDS = 2.5
-FOLLOWUP_TIMEOUT_SECONDS = 5.0
+FOLLOWUP_TIMEOUT_SECONDS = 10.0
+VALUE_TIMEOUT_SECONDS = 20.0
 
 
 @dataclass
@@ -140,6 +141,18 @@ def build_context_payload(
         "original_chars": original_len,
         "context": rendered,
     }
+    packet_cache = context.get("packet_cache") or context.get("packetCache")
+    cached_packets = context.get("cached_packets") or context.get("cachedPackets") or []
+    if isinstance(packet_cache, dict):
+        payload["packet_cache"] = {
+            "hit": bool(packet_cache.get("hit")),
+            "packet_count": packet_cache.get("packet_count")
+            or packet_cache.get("packetCount")
+            or 0,
+            "scopes": packet_cache.get("scopes") or {},
+        }
+    if isinstance(cached_packets, list) and cached_packets:
+        payload["packets"] = _compact_context_packets(cached_packets, budget=budget)
     if truncated:
         payload["next"] = [
             {
@@ -178,6 +191,106 @@ def build_recall_payload(
         "total_result_count": lifecycle.get("resultCount")
         or (len(results) if isinstance(results, list) else 0),
         "results": compact_results,
+    }
+    if isinstance(lifecycle, dict) and lifecycle:
+        payload["lifecycle"] = lifecycle
+    budget_payload = recall.get("budget")
+    if isinstance(budget_payload, dict):
+        payload["budget"] = budget_payload
+    return AxiResult(payload=payload)
+
+
+def build_value_payload(client: AxiRestClient) -> AxiResult:
+    """Build a compact memory value report for agent startup/follow-up."""
+    try:
+        report = client.evaluation_report()
+    except AxiRestError as exc:
+        return _error_result("value", exc)
+
+    memory_value = report.get("memory_value") or report.get("memoryValue") or {}
+    cost = memory_value.get("cost") or {}
+    benefit = memory_value.get("benefit") or {}
+    payload = {
+        "operation": "value",
+        "status": memory_value.get("status") or "needs_samples",
+        "cost": {
+            "operation_count": cost.get("operation_count") or cost.get("operationCount") or 0,
+            "p95_added_latency_ms": (
+                cost.get("p95_added_latency_ms") or cost.get("p95AddedLatencyMs") or 0
+            ),
+            "cache_hit_rate": cost.get("cache_hit_rate") or cost.get("cacheHitRate") or 0,
+            "budget_miss_rate": (
+                cost.get("budget_miss_rate") or cost.get("budgetMissRate") or 0
+            ),
+            "skipped_count": cost.get("skipped_count") or cost.get("skippedCount") or 0,
+        },
+        "benefit": {
+            "memory_need_precision": (
+                benefit.get("memory_need_precision")
+                or benefit.get("memoryNeedPrecision")
+                or 0
+            ),
+            "useful_packet_rate": (
+                benefit.get("useful_packet_rate") or benefit.get("usefulPacketRate") or 0
+            ),
+            "continuity_lift": (
+                benefit.get("session_continuity_lift")
+                or benefit.get("sessionContinuityLift")
+                or 0
+            ),
+        },
+        "next": [
+            {
+                "cmd": (
+                    'engram axi context --project "$PWD" --budget 800 '
+                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                ),
+                "reason": "Use cached/project context when prior memory matters",
+            },
+            {
+                "cmd": (
+                    'engram axi recall "query" --limit 5 '
+                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                ),
+                "reason": "Use explicit recall for long-tail memory searches",
+            },
+        ],
+    }
+    return AxiResult(payload=payload)
+
+
+def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
+    """Build the manual packet-cache clear command payload."""
+    try:
+        result = client.clear_packet_cache()
+    except AxiRestError as exc:
+        return _error_result("packet-cache.clear", exc)
+
+    packet_cache = result.get("packetCache") or result.get("packet_cache") or {}
+    payload = {
+        "operation": "packet-cache.clear",
+        "status": result.get("status") or "cleared",
+        "cleared_count": result.get("clearedCount") or result.get("cleared_count") or 0,
+        "packet_cache": {
+            "entry_count": packet_cache.get("entryCount")
+            or packet_cache.get("entry_count")
+            or 0,
+            "fresh_count": packet_cache.get("freshCount")
+            or packet_cache.get("fresh_count")
+            or 0,
+            "hit_count": packet_cache.get("hitCount") or packet_cache.get("hit_count") or 0,
+            "persistent": bool(packet_cache.get("persistent")),
+            "path": packet_cache.get("path"),
+        },
+        "next": [
+            {
+                "cmd": (
+                    'engram axi context --project "$PWD" '
+                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                ),
+                "reason": "Rebuild cached project context on demand",
+            }
+        ],
     }
     return AxiResult(payload=payload)
 
@@ -328,16 +441,25 @@ def _home_probe_client(client: AxiRestClient) -> AxiRestClient:
 
 
 def _error_result(operation: str, exc: AxiRestError) -> AxiResult:
+    next_actions = [
+        {"cmd": "engramctl status", "reason": "Inspect local runtime status"},
+        {"cmd": "engramctl start", "reason": "Start the local Engram runtime"},
+    ]
+    if operation == "value" and _is_timeout_error(exc):
+        next_actions = [
+            {
+                "cmd": f"engram axi value --timeout {VALUE_TIMEOUT_SECONDS:g}",
+                "reason": "Retry the value report with the native-store report budget",
+            },
+            {"cmd": "engramctl status", "reason": "Inspect local runtime status"},
+        ]
     return AxiResult(
         payload={
             "operation": operation,
             "status": "error",
             "server": exc.url,
             "error": exc.message,
-            "next": [
-                {"cmd": "engramctl status", "reason": "Inspect local runtime status"},
-                {"cmd": "engramctl start", "reason": "Start the local Engram runtime"},
-            ],
+            "next": next_actions,
         },
         exit_code=1,
     )
@@ -388,7 +510,7 @@ def _home_unavailable_next_actions(*, timed_out: bool) -> list[dict[str, str]]:
                 "reason": "Inspect whether the local runtime is busy or degraded",
             },
             {
-                "cmd": "engram axi --timeout 5",
+                "cmd": f"engram axi --timeout {FOLLOWUP_TIMEOUT_SECONDS:g}",
                 "reason": "Retry the home packet with a longer probe budget",
             },
         ]
@@ -463,11 +585,18 @@ def _primary_storage_path(storage: dict[str, Any]) -> str | None:
 def _compact_brain(runtime: dict[str, Any], *, project_path: str | None) -> dict[str, Any]:
     adoption = runtime.get("agentAdoption") or {}
     artifact = runtime.get("artifactBootstrap") or {}
+    packet_cache = (runtime.get("stats") or {}).get("packetCache") or {}
+    fresh_packets = int(packet_cache.get("fresh_count") or packet_cache.get("freshCount") or 0)
     return {
         "lifecycle": LIFECYCLE,
         "project": project_path or artifact.get("projectPath") or runtime.get("projectName"),
         "artifact_status": adoption.get("status") or "unknown",
         "artifact_count": artifact.get("artifactCount", 0),
+        "packet_cache": {
+            "status": "warm" if fresh_packets > 0 else "cold",
+            "fresh": fresh_packets,
+            "hits": packet_cache.get("hit_count") or packet_cache.get("hitCount") or 0,
+        },
         "required_next_tools": adoption.get("requiredNextTools") or [],
     }
 
@@ -493,6 +622,66 @@ def _compact_context(
         "truncated": truncated,
         "original_chars": original_len,
     }
+
+
+def _compact_context_packets(
+    packets: list[Any],
+    *,
+    budget: int,
+) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    per_packet_budget = max(40, min(120, budget // max(1, min(len(packets), 5))))
+    for packet in packets[:5]:
+        if not isinstance(packet, dict):
+            continue
+        trust = packet.get("trust") if isinstance(packet.get("trust"), dict) else {}
+        summary, truncated, original_len = truncate_text(
+            compact_whitespace(str(packet.get("summary") or "")),
+            budget_tokens=per_packet_budget,
+            minimum_chars=120,
+        )
+        compact.append(
+            {
+                "type": packet.get("packet_type") or packet.get("packetType") or "memory",
+                "title": packet.get("title") or "Memory",
+                "summary": summary,
+                "truncated": truncated,
+                "original_chars": original_len,
+                "trust": {
+                    "freshness": trust.get("freshness") or "unknown",
+                    "source": trust.get("source") or "cache",
+                    "confidence": trust.get("confidence") or packet.get("confidence") or 0,
+                    "why": trust.get("why_now")
+                    or trust.get("whyNow")
+                    or packet.get("why_now")
+                    or packet.get("whyNow")
+                    or "",
+                    "provenance": trust.get("provenance_count")
+                    or trust.get("provenanceCount")
+                    or len(packet.get("provenance") or []),
+                    "evidence": trust.get("evidence_count")
+                    or trust.get("evidenceCount")
+                    or len(packet.get("evidence_lines") or packet.get("evidenceLines") or []),
+                    "belief": trust.get("belief_status")
+                    or trust.get("beliefStatus")
+                    or "unknown",
+                    "confirmed": trust.get("confirmed_count")
+                    or trust.get("confirmedCount")
+                    or 0,
+                    "corrected": trust.get("corrected_count")
+                    or trust.get("correctedCount")
+                    or 0,
+                    "dismissed": trust.get("dismissed_count")
+                    or trust.get("dismissedCount")
+                    or 0,
+                    "last_confirmed": trust.get("last_confirmed_at")
+                    or trust.get("lastConfirmedAt"),
+                    "last_corrected": trust.get("last_corrected_at")
+                    or trust.get("lastCorrectedAt"),
+                },
+            }
+        )
+    return compact
 
 
 def _context_pointer(

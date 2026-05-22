@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from engram.config import ActivationConfig
@@ -34,6 +36,15 @@ class FakeSearchIndex:
 
     async def index_episode_cue(self, cue):
         self.indexed_cues.append(cue)
+
+
+class SlowSearchIndex:
+    def __init__(self) -> None:
+        self.started = False
+
+    async def index_episode_cue(self, cue):
+        self.started = True
+        await asyncio.sleep(1)
 
 
 @pytest.mark.asyncio
@@ -70,6 +81,41 @@ async def test_capture_service_stores_episode_cue_and_events():
     assert episode_id in graph.cues
     assert search.indexed_cues[0].episode_id == episode_id
     assert any(update[1]["projection_state"] for update in graph.updates)
+    assert [event for _, event, _ in events][:2] == ["episode.queued", "episode.cued"]
+
+
+@pytest.mark.asyncio
+async def test_capture_service_timeboxes_cue_vector_indexing():
+    graph = FakeGraphStore()
+    search = SlowSearchIndex()
+    events = []
+
+    async def materialize_decisions(*_args, **_kwargs):
+        return None
+
+    service = EpisodeCaptureService(
+        graph_store=graph,
+        search_index=search,
+        cfg=ActivationConfig(
+            cue_layer_enabled=True,
+            cue_vector_index_enabled=True,
+            capture_cue_vector_index_timeout_ms=10,
+        ),
+        publish_event=lambda group_id, event, payload: events.append(
+            (group_id, event, payload),
+        ),
+        materialize_decisions=materialize_decisions,
+    )
+
+    episode_id = await service.store_episode(
+        "Alex decided Engram capture should stay fast under native Helix.",
+        group_id="default",
+        source="test",
+    )
+
+    assert episode_id in graph.cues
+    assert search.started is True
+    assert any(update[0] == episode_id for update in graph.updates)
     assert [event for _, event, _ in events][:2] == ["episode.queued", "episode.cued"]
 
 
@@ -137,3 +183,32 @@ async def test_capture_service_runs_decision_materializer_with_episode_context()
             "default",
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_capture_service_defers_decision_materializer_for_auto_sources():
+    graph = FakeGraphStore()
+    search = FakeSearchIndex()
+    calls = []
+
+    async def materialize_decisions(content: str, *, episode_id: str, group_id: str):
+        calls.append((content, episode_id, group_id))
+
+    service = EpisodeCaptureService(
+        graph_store=graph,
+        search_index=search,
+        cfg=ActivationConfig(
+            cue_layer_enabled=False,
+            decision_graph_enabled=True,
+        ),
+        publish_event=lambda *_args: None,
+        materialize_decisions=materialize_decisions,
+    )
+
+    await service.store_episode(
+        "We decided Engram hook capture should stay cheap.",
+        group_id="default",
+        source="auto:prompt",
+    )
+
+    assert calls == []

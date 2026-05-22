@@ -131,7 +131,11 @@ class HelixClient:
         """Run a cheap connectivity check without scanning the active graph."""
         payload = {"gid": "__health_check__"}
         if self._native_transport:
-            await self._native_transport.query("find_entities_by_group", payload)
+            health_check = getattr(self._native_transport, "health_check", None)
+            if callable(health_check):
+                await health_check()
+            else:
+                await self._native_transport.query("find_entities_by_group", payload)
             return
         if self._grpc_transport:
             await self._grpc_transport.query("find_entities_by_group", payload)

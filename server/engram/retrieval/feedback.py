@@ -257,6 +257,7 @@ class RecallCueFeedbackRecorder:
                 episode.group_id,
                 interaction_type,
                 result_type="cue_episode",
+                memory_id=f"cue:{episode.id}",
             )
 
         promotable_states = {
@@ -406,6 +407,7 @@ class RecallInteractionRecorder:
             group_id,
             interaction_type,
             result_type=result_type,
+            memory_id=memory_id,
         )
 
 
@@ -521,6 +523,7 @@ class RecallMemoryInteractionApplier:
             group_id,
             interaction_type,
             result_type="cue_episode",
+            memory_id=f"cue:{episode_id}",
         )
 
     async def _apply_entity_interaction(

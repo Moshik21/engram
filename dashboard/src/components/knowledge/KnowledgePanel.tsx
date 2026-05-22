@@ -3,6 +3,7 @@ import { useEngramStore } from "../../store";
 import { ChatProvider } from "./ChatProvider";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { MemoryPulse } from "./MemoryPulse";
+import { RecallPacketDrilldown } from "./RecallPacketDrilldown";
 import { KnowledgeChatStream } from "./KnowledgeChatStream";
 import { KnowledgeInputBar } from "./KnowledgeInputBar";
 import { EntityDetailDrawer } from "./EntityDetailDrawer";
@@ -47,6 +48,7 @@ export function KnowledgePanel() {
           }}
         >
           <MemoryPulse />
+          <RecallPacketDrilldown />
           <KnowledgeChatStream />
           <KnowledgeInputBar />
         </div>

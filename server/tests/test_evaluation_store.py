@@ -4,8 +4,10 @@ import aiosqlite
 import pytest
 
 from engram.evaluation.store import (
+    MEMORY_OPERATION_METRICS_RETENTION,
     RECALL_RUNTIME_SNAPSHOT_RETENTION,
     SQLiteEvaluationStore,
+    StoredMemoryOperationMetricsSnapshot,
     StoredRecallEvalSample,
     StoredRecallRuntimeMetricsSnapshot,
     StoredSessionContinuitySample,
@@ -27,6 +29,8 @@ async def test_evaluation_store_round_trips_recall_and_session_samples(tmp_path)
                 packets_surfaced=4,
                 packets_used=1,
                 false_recalls=2,
+                stale_packets=3,
+                corrected_packets=1,
                 query="What did I decide?",
                 timestamp=10.0,
             )
@@ -56,6 +60,8 @@ async def test_evaluation_store_round_trips_recall_and_session_samples(tmp_path)
         assert recall_samples[0].packets_surfaced == 4
         assert recall_samples[0].packets_used == 1
         assert recall_samples[0].false_recalls == 2
+        assert recall_samples[0].stale_packets == 3
+        assert recall_samples[0].corrected_packets == 1
         assert len(session_samples) == 1
         assert session_samples[0].baseline_score == 0.2
         assert session_samples[0].memory_score == 0.8
@@ -230,5 +236,110 @@ async def test_evaluation_store_round_trips_recall_runtime_metrics(tmp_path) -> 
         assert metrics["trigger_count"] == 1
         assert metrics["analyzer_latency_ms"]["p95"] == 16.0
         assert metrics["surfaced_count"] == 3
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_evaluation_store_round_trips_memory_operation_metrics(tmp_path) -> None:
+    store = SQLiteEvaluationStore(str(tmp_path / "engram.db"))
+    await store.initialize()
+    try:
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_old",
+                group_id="default",
+                metrics={"operation_count": 1, "duration_ms": {"p95": 12.0}},
+                source="test",
+                timestamp=1.0,
+            )
+        )
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_new",
+                group_id="default",
+                metrics={
+                    "operation_count": 4,
+                    "duration_ms": {"avg": 7.0, "p95": 18.0},
+                    "timeout_count": 1,
+                    "cache_hit_count": 3,
+                    "cache_miss_count": 1,
+                },
+                source="test",
+                timestamp=2.0,
+            )
+        )
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_other",
+                group_id="other",
+                metrics={"operation_count": 9},
+                source="test",
+                timestamp=3.0,
+            )
+        )
+
+        metrics = await store.get_latest_memory_operation_metrics_snapshot("default")
+
+        assert metrics["operation_count"] == 4
+        assert metrics["duration_ms"]["p95"] == 18.0
+        assert metrics["timeout_count"] == 1
+        assert metrics["cache_hit_count"] == 3
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_evaluation_store_prunes_memory_operation_metrics_by_group(tmp_path) -> None:
+    store = SQLiteEvaluationStore(str(tmp_path / "engram.db"))
+    await store.initialize()
+    try:
+        for index in range(MEMORY_OPERATION_METRICS_RETENTION + 4):
+            await store.save_memory_operation_metrics_snapshot(
+                StoredMemoryOperationMetricsSnapshot(
+                    id=f"emo_default_{index}",
+                    group_id="default",
+                    metrics={"operation_count": index},
+                    source="test",
+                    timestamp=float(index),
+                )
+            )
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_other",
+                group_id="other",
+                metrics={"operation_count": 99},
+                source="test",
+                timestamp=1.0,
+            )
+        )
+
+        default_count = await (
+            await store.db.execute(
+                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics "
+                "WHERE group_id = ?",
+                ("default",),
+            )
+        ).fetchone()
+        other_count = await (
+            await store.db.execute(
+                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics "
+                "WHERE group_id = ?",
+                ("other",),
+            )
+        ).fetchone()
+        oldest_default = await (
+            await store.db.execute(
+                "SELECT MIN(timestamp) FROM evaluation_memory_operation_metrics "
+                "WHERE group_id = ?",
+                ("default",),
+            )
+        ).fetchone()
+        latest = await store.get_latest_memory_operation_metrics_snapshot("default")
+
+        assert default_count[0] == MEMORY_OPERATION_METRICS_RETENTION
+        assert other_count[0] == 1
+        assert oldest_default[0] == 4.0
+        assert latest["operation_count"] == MEMORY_OPERATION_METRICS_RETENTION + 3
     finally:
         await store.close()

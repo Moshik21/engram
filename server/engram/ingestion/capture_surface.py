@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from json import JSONDecodeError
@@ -16,7 +17,14 @@ from engram.ingestion.presenter import (
     present_mcp_memory_write,
 )
 from engram.models.episode import Attachment
+from engram.retrieval.memory_operations import (
+    MemoryOperationSample,
+    measured_memory_operation,
+    record_manager_memory_operation,
+)
 from engram.utils.dates import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 def _string_value(value: Any) -> str | None:
@@ -142,6 +150,29 @@ def parse_conversation_date(value: str | None) -> datetime | None:
         return None
 
 
+async def _record_write_operation(
+    manager: Any,
+    group_id: str,
+    finish_operation: Callable[..., MemoryOperationSample],
+    *,
+    status: str = "ok",
+    skip_reason: str | None = None,
+    result_count: int = 1,
+) -> None:
+    try:
+        await record_manager_memory_operation(
+            manager,
+            group_id,
+            finish_operation(
+                status=status,
+                skip_reason=skip_reason,
+                result_count=result_count,
+            ),
+        )
+    except Exception:
+        logger.debug("failed to record capture memory operation", exc_info=True)
+
+
 def build_observation_attachment(
     *,
     mime_type: str,
@@ -228,13 +259,42 @@ async def build_api_auto_observe_surface(
     dedup_check: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
     """Run the REST auto-observe Capture policy behind an ingestion boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="api_auto_observe",
+        mode="api_auto_observe",
+    )
     if not auto_observe_enabled:
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="disabled",
+            result_count=0,
+        )
         return present_api_observe_skip("skipped", reason="disabled")
 
     if not content or len(content.strip()) < 10:
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="too_short",
+            result_count=0,
+        )
         return present_api_observe_skip("skipped", reason="too_short")
 
     if dedup_check is not None and dedup_check(content):
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="dedup_skipped",
+            result_count=0,
+        )
         return present_api_observe_skip("dedup_skipped")
 
     episode_id = await store_observation(
@@ -246,6 +306,7 @@ async def build_api_auto_observe_surface(
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
     )
+    await _record_write_operation(manager, group_id, finish_operation)
     return present_api_memory_write(
         memory_write_contract("observe", episode_id),
         status="observed",
@@ -261,12 +322,33 @@ async def build_api_auto_observe_request_surface(
     dedup_check: Callable[[str], bool] | None = None,
 ) -> dict[str, Any]:
     """Parse and run the REST auto-observe Capture policy behind one boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="api_auto_observe",
+        mode="api_auto_observe",
+    )
     try:
         raw_body = await request.json()
     except JSONDecodeError:
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="invalid_json",
+            result_count=0,
+        )
         return build_api_auto_observe_skip_surface("invalid_json")
 
     if not isinstance(raw_body, Mapping):
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="unsupported_payload",
+            result_count=0,
+        )
         return build_api_auto_observe_skip_surface("unsupported_payload")
 
     body = normalize_auto_observe_payload(raw_body)
@@ -291,6 +373,11 @@ async def build_api_observe_write_surface(
     conversation_date: str | None = None,
 ) -> dict[str, Any]:
     """Run the REST observe write path behind a Capture-stage surface boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="api_observe",
+        mode="api_observe",
+    )
     episode_id = await store_observation(
         manager,
         content=content,
@@ -299,6 +386,7 @@ async def build_api_observe_write_surface(
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
     )
+    await _record_write_operation(manager, group_id, finish_operation)
     return present_api_memory_write(
         memory_write_contract("observe", episode_id),
         status="observed",
@@ -317,6 +405,11 @@ async def build_api_attachment_observe_write_surface(
     source: str = "api",
 ) -> dict[str, Any]:
     """Run a REST image/file observe write behind a Capture-stage boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="api_observe_attachment",
+        mode="api_observe_attachment",
+    )
     attachment = build_observation_attachment(
         mime_type=mime_type,
         data_url=data_url,
@@ -329,6 +422,7 @@ async def build_api_attachment_observe_write_surface(
         source=source,
         attachments=[attachment],
     )
+    await _record_write_operation(manager, group_id, finish_operation)
     return present_api_memory_write(
         memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
         status="stored",
@@ -348,6 +442,11 @@ async def build_api_remember_write_surface(
     model_tier: str = "default",
 ) -> dict[str, Any]:
     """Run the REST remember write path behind a Capture -> Project boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="remember",
+        source="api_remember",
+        mode="api_remember",
+    )
     episode_id = await ingest_projecting_memory(
         manager,
         content=content,
@@ -363,6 +462,7 @@ async def build_api_remember_write_surface(
         episode_id=episode_id,
         group_id=group_id,
     )
+    await _record_write_operation(manager, group_id, finish_operation)
     return present_api_memory_write(
         memory_write_contract(
             "remember",
@@ -397,6 +497,11 @@ async def build_mcp_remember_write_surface(
     recall_middleware: Callable[..., Any],
 ) -> dict[str, Any]:
     """Run the MCP remember write path behind a Capture-stage surface boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="remember",
+        source="mcp_remember",
+        mode="mcp_remember",
+    )
     attachments = []
     if image_data:
         attachments.append(
@@ -444,6 +549,7 @@ async def build_mcp_remember_write_surface(
         message=message,
     )
     await recall_middleware(content, response, tool_name="remember")
+    await _record_write_operation(manager, group_id, finish_operation)
     return response
 
 
@@ -459,6 +565,11 @@ async def build_mcp_observe_write_surface(
     recall_middleware: Callable[..., Any],
 ) -> dict[str, Any]:
     """Run the MCP observe write path behind a Capture-stage surface boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="mcp_observe",
+        mode="mcp_observe",
+    )
     episode_id = await store_observation(
         manager,
         content=content,
@@ -476,6 +587,7 @@ async def build_mcp_observe_write_surface(
         message="Stored for background processing.",
     )
     await recall_middleware(content, response, tool_name="observe")
+    await _record_write_operation(manager, group_id, finish_operation)
     return response
 
 
@@ -492,6 +604,11 @@ async def build_mcp_attachment_observe_write_surface(
     source: str = "mcp",
 ) -> dict[str, Any]:
     """Run the MCP image/file observe path behind a Capture-stage boundary."""
+    _started, finish_operation = measured_memory_operation(
+        operation="observe",
+        source="mcp_observe_attachment",
+        mode="mcp_observe_attachment",
+    )
     content = description or fallback_content
     attachment = build_observation_attachment(
         mime_type=mime_type,
@@ -508,6 +625,7 @@ async def build_mcp_attachment_observe_write_surface(
         pass_session_id=True,
     )
     record_mcp_memory_write_activity(session)
+    await _record_write_operation(manager, group_id, finish_operation)
     return present_mcp_memory_write(
         memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
         message=f"{attachment_kind.title()} stored for background processing.",

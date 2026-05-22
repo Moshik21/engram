@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 
@@ -112,3 +113,88 @@ async def test_migration_idempotent(tmp_path):
     # Second init should not raise
     await store.initialize()
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_graph_initialize_migrates_legacy_entity_table_before_indexes(
+    tmp_path,
+):
+    """Existing lite DBs missing entity facets should start cleanly."""
+    from engram.storage.sqlite.graph import SQLiteGraphStore
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE entities (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            summary TEXT,
+            attributes TEXT,
+            group_id TEXT NOT NULL DEFAULT 'default',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            activation_base REAL NOT NULL DEFAULT 0.5,
+            activation_current REAL NOT NULL DEFAULT 0.5,
+            access_count INTEGER NOT NULL DEFAULT 0,
+            last_accessed TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE episodes (
+            id TEXT PRIMARY KEY,
+            content TEXT NOT NULL,
+            source TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            group_id TEXT NOT NULL DEFAULT 'default',
+            session_id TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE relationships (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            weight REAL NOT NULL DEFAULT 1.0,
+            valid_from TEXT,
+            valid_to TEXT,
+            created_at TEXT NOT NULL,
+            source_episode TEXT,
+            group_id TEXT NOT NULL DEFAULT 'default'
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = SQLiteGraphStore(str(db_path))
+    await store.initialize()
+    try:
+        entity_cursor = await store.db.execute("PRAGMA table_info(entities)")
+        entity_columns = {row[1] for row in await entity_cursor.fetchall()}
+        relationship_cursor = await store.db.execute("PRAGMA table_info(relationships)")
+        relationship_columns = {
+            row[1] for row in await relationship_cursor.fetchall()
+        }
+        index_cursor = await store.db.execute("PRAGMA index_list(entities)")
+        indexes = {row[1] for row in await index_cursor.fetchall()}
+    finally:
+        await store.close()
+
+    assert "lexical_regime" in entity_columns
+    assert "canonical_identifier" in entity_columns
+    assert "identifier_label" in entity_columns
+    assert "source_episode_ids" in entity_columns
+    assert "evidence_count" in entity_columns
+    assert "evidence_span_start" in entity_columns
+    assert "evidence_span_end" in entity_columns
+    assert "polarity" in relationship_columns
+    assert "idx_entities_lexical_regime" in indexes

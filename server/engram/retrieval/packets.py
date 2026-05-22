@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any
 
 from engram.models.recall import MemoryNeed, MemoryPacket
 
 ResolveNameFn = Callable[[str], Awaitable[str]]
+FeedbackLookup = Mapping[str, Mapping[str, Any]]
 
 _PROJECT_ENTITY_TYPES = {"Project", "Task", "Issue", "Goal", "Organization"}
 
@@ -19,6 +21,7 @@ async def assemble_memory_packets(
     memory_need: MemoryNeed | None = None,
     max_packets: int = 3,
     resolve_entity_name: ResolveNameFn | None = None,
+    feedback_lookup: FeedbackLookup | None = None,
 ) -> list[MemoryPacket]:
     """Assemble compact packets from raw recall results."""
     if not results or max_packets <= 0:
@@ -45,6 +48,7 @@ async def assemble_memory_packets(
                     query,
                     memory_need,
                     resolve_entity_name=resolve_entity_name,
+                    feedback_lookup=feedback_lookup,
                 )
                 if timeline_packet is not None:
                     packets.append(timeline_packet)
@@ -56,6 +60,7 @@ async def assemble_memory_packets(
                     result,
                     query,
                     memory_need,
+                    feedback_lookup=feedback_lookup,
                 )
             )
             used_episodes.add(episode_id)
@@ -73,6 +78,7 @@ async def assemble_memory_packets(
                     result,
                     query,
                     memory_need,
+                    feedback_lookup=feedback_lookup,
                 )
             )
             used_episodes.add(episode_id)
@@ -88,6 +94,7 @@ async def assemble_memory_packets(
             query,
             memory_need,
             resolve_entity_name=resolve_entity_name,
+            feedback_lookup=feedback_lookup,
         )
         packets.append(packet)
         used_entities.add(entity_id)
@@ -109,21 +116,35 @@ def _build_episode_packet(
     result: dict,
     query: str,
     memory_need: MemoryNeed | None,
+    *,
+    feedback_lookup: FeedbackLookup | None = None,
 ) -> MemoryPacket:
     episode = result["episode"]
     content = (episode.get("content") or "").strip()
     created_at = episode.get("created_at") or "unknown time"
     score = float(result.get("score", 0.0))
     relevance = float(result.get("score_breakdown", {}).get("relevance_confidence", 0.0))
+    confidence = _confidence(score, 0.0, relevance)
+    why_now = _why_now(query, memory_need, "episode_packet")
+    provenance = [f"episode:{episode['id']}", f"score:{round(score, 4)}"]
+    evidence_lines = [content[:180]]
     return MemoryPacket(
         packet_type="episode_packet",
         title=f"Episode: {created_at}",
         summary=content[:180],
-        why_now=_why_now(query, memory_need, "episode_packet"),
-        confidence=_confidence(score, 0.0, relevance),
+        why_now=why_now,
+        confidence=confidence,
         episode_ids=[episode["id"]],
-        evidence_lines=[content[:180]],
-        provenance=[f"episode:{episode['id']}", f"score:{round(score, 4)}"],
+        evidence_lines=evidence_lines,
+        provenance=provenance,
+        trust=_trust_summary(
+            source="episode",
+            confidence=confidence,
+            why_now=why_now,
+            evidence_lines=evidence_lines,
+            provenance=provenance,
+            feedback=_feedback_for(feedback_lookup, episode["id"], f"episode:{episode['id']}"),
+        ),
     )
 
 
@@ -131,6 +152,8 @@ def _build_cue_packet(
     result: dict,
     query: str,
     memory_need: MemoryNeed | None,
+    *,
+    feedback_lookup: FeedbackLookup | None = None,
 ) -> MemoryPacket:
     cue = result.get("cue", {})
     episode = result.get("episode", {})
@@ -142,19 +165,30 @@ def _build_cue_packet(
     summary = cue_text[:180] if cue_text else f"Latent memory from {episode_id}"
     evidence_lines = [span[:180] for span in supporting_spans[:2]] or [summary]
     projection_state = cue.get("projection_state") or "cue_only"
+    confidence = _confidence(score, 0.0, relevance)
+    why_now = _why_now(query, memory_need, "cue_packet")
+    provenance = [
+        f"cue:{episode_id}",
+        f"projection_state:{projection_state}",
+        f"score:{round(score, 4)}",
+    ]
     return MemoryPacket(
         packet_type="cue_packet",
         title=f"Latent Memory: {episode_id}",
         summary=summary,
-        why_now=_why_now(query, memory_need, "cue_packet"),
-        confidence=_confidence(score, 0.0, relevance),
+        why_now=why_now,
+        confidence=confidence,
         episode_ids=[episode_id],
         evidence_lines=evidence_lines,
-        provenance=[
-            f"cue:{episode_id}",
-            f"projection_state:{projection_state}",
-            f"score:{round(score, 4)}",
-        ],
+        provenance=provenance,
+        trust=_trust_summary(
+            source="cue",
+            confidence=confidence,
+            why_now=why_now,
+            evidence_lines=evidence_lines,
+            provenance=provenance,
+            feedback=_feedback_for(feedback_lookup, f"cue:{episode_id}", episode_id),
+        ),
     )
 
 
@@ -164,6 +198,7 @@ async def _build_entity_packet(
     memory_need: MemoryNeed | None,
     *,
     resolve_entity_name: ResolveNameFn | None = None,
+    feedback_lookup: FeedbackLookup | None = None,
 ) -> MemoryPacket:
     entity = result["entity"]
     entity_type = entity.get("type") or "Entity"
@@ -186,19 +221,31 @@ async def _build_entity_packet(
     intents = result.get("supporting_intents", [])
     provenance = [f"entity:{entity['id']}", f"score:{round(score, 4)}"]
     provenance.extend(f"intent:{intent}" for intent in intents)
+    confidence = _confidence(score, planner_support, relevance)
+    why_now = _why_now(query, memory_need, packet_type, intents=intents)
+    source = "entity"
 
     return MemoryPacket(
         packet_type=packet_type,
         title=_packet_title(packet_type, entity["name"]),
         summary=summary,
-        why_now=_why_now(query, memory_need, packet_type, intents=intents),
-        confidence=_confidence(score, planner_support, relevance),
+        why_now=why_now,
+        confidence=confidence,
         belief_map=result.get("belief_map"),
         entity_ids=[entity["id"]],
         relationship_ids=relationship_ids,
         evidence_lines=evidence_lines[:3],
         provenance=provenance,
         supporting_intents=intents,
+        trust=_trust_summary(
+            source=source,
+            confidence=confidence,
+            why_now=why_now,
+            evidence_lines=evidence_lines[:3],
+            provenance=provenance,
+            belief_map=result.get("belief_map"),
+            feedback=_feedback_for(feedback_lookup, entity["id"]),
+        ),
     )
 
 
@@ -208,6 +255,7 @@ def _build_timeline_packet(
     memory_need: MemoryNeed | None,
     *,
     resolve_entity_name: ResolveNameFn | None = None,
+    feedback_lookup: FeedbackLookup | None = None,
 ) -> tuple[MemoryPacket | None, list[str]]:
     del resolve_entity_name  # reserved for future episode/entity enrichment
     episodes = [result for result in results if result.get("result_type") == "episode"][:2]
@@ -236,17 +284,32 @@ def _build_timeline_packet(
     summary = evidence_lines[0]
     if len(evidence_lines) > 1:
         summary = f"{evidence_lines[0]} | {evidence_lines[1]}"
+    confidence = _confidence(max_score, 0.0, max_relevance)
+    why_now = _why_now(query, memory_need, "timeline_packet")
 
     return (
         MemoryPacket(
             packet_type="timeline_packet",
             title=f"Timeline: {query[:60]}",
             summary=summary[:220],
-            why_now=_why_now(query, memory_need, "timeline_packet"),
-            confidence=_confidence(max_score, 0.0, max_relevance),
+            why_now=why_now,
+            confidence=confidence,
             episode_ids=episode_ids,
             evidence_lines=evidence_lines,
             provenance=provenance,
+            trust=_trust_summary(
+                source="episode",
+                confidence=confidence,
+                why_now=why_now,
+                evidence_lines=evidence_lines,
+                provenance=provenance,
+                feedback=_aggregate_feedback(
+                    [
+                        _feedback_for(feedback_lookup, episode_id, f"episode:{episode_id}")
+                        for episode_id in episode_ids
+                    ]
+                ),
+            ),
         ),
         episode_ids,
     )
@@ -360,3 +423,94 @@ def _confidence(
     clamped_score = max(0.0, min(score, 1.0))
     clamped_support = max(0.0, min(planner_support, 1.0))
     return min(0.99, max(clamped_score, (clamped_score * 0.7) + (clamped_support * 0.3)))
+
+
+def _trust_summary(
+    *,
+    source: str,
+    confidence: float,
+    why_now: str,
+    evidence_lines: list[str],
+    provenance: list[str],
+    belief_map: dict | None = None,
+    feedback: Mapping[str, Any] | None = None,
+) -> dict:
+    return {
+        "freshness": "unknown",
+        "source": source,
+        "confidence": round(confidence, 4),
+        "why_now": why_now,
+        "provenance_count": len(provenance),
+        "evidence_count": len(evidence_lines),
+        "belief_status": _belief_status(belief_map),
+        "confirmed_count": _feedback_count(feedback, "confirmed_count"),
+        "corrected_count": _feedback_count(feedback, "corrected_count"),
+        "dismissed_count": _feedback_count(feedback, "dismissed_count"),
+        "last_confirmed_at": _feedback_text(feedback, "last_confirmed_at"),
+        "last_corrected_at": _feedback_text(feedback, "last_corrected_at"),
+        "last_dismissed_at": _feedback_text(feedback, "last_dismissed_at"),
+    }
+
+
+def _belief_status(belief_map: dict | None) -> str:
+    if not belief_map:
+        return "unknown"
+    status = str(belief_map.get("status") or belief_map.get("belief_status") or "")
+    if status:
+        return status
+    if belief_map.get("conflicts") or belief_map.get("conflicting"):
+        return "conflicting"
+    if belief_map.get("confidence") is not None:
+        return "supported"
+    return "unknown"
+
+
+def _feedback_for(
+    feedback_lookup: FeedbackLookup | None,
+    *memory_ids: str,
+) -> Mapping[str, Any] | None:
+    if feedback_lookup is None:
+        return None
+    for memory_id in memory_ids:
+        feedback = feedback_lookup.get(memory_id)
+        if feedback is not None:
+            return feedback
+    return None
+
+
+def _aggregate_feedback(feedback_items: list[Mapping[str, Any] | None]) -> dict[str, Any] | None:
+    items = [item for item in feedback_items if item]
+    if not items:
+        return None
+    return {
+        "confirmed_count": sum(_feedback_count(item, "confirmed_count") for item in items),
+        "corrected_count": sum(_feedback_count(item, "corrected_count") for item in items),
+        "dismissed_count": sum(_feedback_count(item, "dismissed_count") for item in items),
+        "last_confirmed_at": _latest_feedback_text(items, "last_confirmed_at"),
+        "last_corrected_at": _latest_feedback_text(items, "last_corrected_at"),
+        "last_dismissed_at": _latest_feedback_text(items, "last_dismissed_at"),
+    }
+
+
+def _feedback_count(feedback: Mapping[str, Any] | None, key: str) -> int:
+    if feedback is None:
+        return 0
+    value = feedback.get(key)
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _feedback_text(feedback: Mapping[str, Any] | None, key: str) -> str | None:
+    if feedback is None:
+        return None
+    value = feedback.get(key)
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _latest_feedback_text(items: list[Mapping[str, Any]], key: str) -> str | None:
+    values = [_feedback_text(item, key) for item in items]
+    values = [value for value in values if value]
+    return max(values) if values else None

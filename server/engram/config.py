@@ -909,6 +909,15 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Index cue text for vector search when cue layer is enabled",
     )
+    capture_cue_vector_index_timeout_ms: int = Field(
+        default=500,
+        ge=0,
+        le=30000,
+        description=(
+            "Max synchronous wait for cue vector indexing during live capture; "
+            "0 disables the timeout."
+        ),
+    )
     targeted_projection_enabled: bool = Field(
         default=True,
         description="Allow long episodes to use targeted span selection before extraction",
@@ -1314,6 +1323,46 @@ class ActivationConfig(BaseModel):
         le=1800.0,
         description="TTL for session entity cache in recall_lite",
     )
+    recall_budget_startup_ms: int = Field(
+        default=250,
+        ge=25,
+        le=5000,
+        description="Strict wall-clock budget for startup/cache-only recall surfaces",
+    )
+    recall_budget_auto_lite_ms: int = Field(
+        default=75,
+        ge=10,
+        le=5000,
+        description="Wall-clock budget for lite/medium auto-recall probes",
+    )
+    recall_budget_auto_deep_ms: int = Field(
+        default=750,
+        ge=50,
+        le=10000,
+        description="Wall-clock budget for high-confidence full auto-recall",
+    )
+    recall_budget_explicit_ms: int = Field(
+        default=2000,
+        ge=100,
+        le=30000,
+        description="Wall-clock budget for explicit user/agent recall",
+    )
+    recall_budget_chat_ms: int = Field(
+        default=1200,
+        ge=100,
+        le=30000,
+        description="Wall-clock budget for chat recall before response generation",
+    )
+    recall_budget_cache_ttl_seconds: float = Field(
+        default=300.0,
+        ge=30.0,
+        le=7200.0,
+        description="Default TTL for future recall packet/cache budgets",
+    )
+    recall_budget_timeout_degrades: bool = Field(
+        default=True,
+        description="Treat budget overrun as degraded telemetry instead of hard failure",
+    )
     auto_recall_level: str = Field(
         default="lite",
         description="Recall level: 'lite' (FTS5) or 'medium' (FTS5+embedding)",
@@ -1449,6 +1498,32 @@ class ActivationConfig(BaseModel):
     recall_packets_enabled: bool = Field(
         default=True,
         description="Return packetized memory alongside raw recall results",
+    )
+    recall_packet_cache_enabled: bool = Field(
+        default=True,
+        description="Cache serialized memory packets for repeated recall surfaces",
+    )
+    recall_packet_cache_ttl_seconds: float = Field(
+        default=300.0,
+        ge=0.0,
+        description="TTL for cached serialized memory packet payloads",
+    )
+    recall_packet_cache_max_entries: int = Field(
+        default=128,
+        ge=1,
+        le=2048,
+        description="Maximum in-process memory packet cache entries",
+    )
+    recall_packet_cache_persistence_enabled: bool = Field(
+        default=True,
+        description="Persist memory packet cache entries to a local SQLite sidecar",
+    )
+    recall_packet_cache_path: str = Field(
+        default="",
+        description=(
+            "SQLite sidecar path for persistent memory packet cache entries. "
+            "When blank, runtime entrypoints derive a mode-appropriate local path."
+        ),
     )
     recall_packet_auto_limit: int = Field(
         default=2,
@@ -2137,3 +2212,32 @@ class EngramConfig(BaseSettings):
         path = Path(self.sqlite.path).expanduser()
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
+
+    def get_packet_cache_path(self, mode: str | None = None) -> Path:
+        """Return the local SQLite sidecar path for durable packet cache entries."""
+        configured = self.activation.recall_packet_cache_path
+        if configured:
+            path = Path(configured).expanduser()
+        else:
+            mode_label = (mode or self.mode or "auto").lower()
+            if mode_label == "helix" and self.helix.transport in {"native", "auto"}:
+                base = (
+                    Path(self.helix.data_dir).expanduser()
+                    if self.helix.data_dir
+                    else Path.home() / ".helix" / "engram-native"
+                )
+                path = base / "packet-cache.sqlite3"
+            else:
+                sqlite_path = Path(self.sqlite.path).expanduser()
+                suffix = sqlite_path.suffix or ".db"
+                path = sqlite_path.with_name(f"{sqlite_path.stem}.packet-cache{suffix}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def configure_runtime_packet_cache(self, mode: str) -> None:
+        """Populate the packet-cache sidecar path for runtime entrypoints."""
+        if not self.activation.recall_packet_cache_persistence_enabled:
+            return
+        if self.activation.recall_packet_cache_path:
+            return
+        self.activation.recall_packet_cache_path = str(self.get_packet_cache_path(mode))

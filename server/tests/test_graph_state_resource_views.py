@@ -216,6 +216,7 @@ def _service() -> GraphStateService:
         activation_store=FakeActivationStore(),
         cfg=ActivationConfig(),
         get_recall_metrics=lambda _group_id: {},
+        get_memory_operation_metrics=lambda _group_id: {},
         get_epistemic_metrics=lambda _group_id: {},
         resolve_entity_name=_resolve_entity_name,
     )

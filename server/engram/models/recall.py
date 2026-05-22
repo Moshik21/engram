@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -32,6 +33,13 @@ class MemoryNeed:
     probe_triggered: bool = False
     probe_latency_ms: float = 0.0
     graph_override_used: bool = False
+    mode_requested: str | None = None
+    mode_executed: str | None = None
+    skip_reason: str | None = None
+    budget_profile: str | None = None
+    cache_hit: bool | None = None
+    cache_satisfied: bool = False
+    budget_skipped: bool = False
 
     def to_payload(
         self,
@@ -78,6 +86,20 @@ class MemoryNeed:
             payload["probeLatencyMs"] = round(self.probe_latency_ms, 4)
         if self.graph_override_used:
             payload["graphOverrideUsed"] = True
+        if self.mode_requested:
+            payload["modeRequested"] = self.mode_requested
+        if self.mode_executed:
+            payload["modeExecuted"] = self.mode_executed
+        if self.skip_reason:
+            payload["skipReason"] = self.skip_reason
+        if self.budget_profile:
+            payload["budgetProfile"] = self.budget_profile
+        if self.cache_hit is not None:
+            payload["cacheHit"] = self.cache_hit
+        if self.cache_satisfied:
+            payload["cacheSatisfied"] = True
+        if self.budget_skipped:
+            payload["budgetSkipped"] = True
         return payload
 
 
@@ -129,6 +151,7 @@ class MemoryPacket:
     evidence_lines: list[str] = field(default_factory=list)
     provenance: list[str] = field(default_factory=list)
     supporting_intents: list[str] = field(default_factory=list)
+    trust: dict[str, Any] | None = None
 
     def to_dict(self) -> dict:
         """Serialize for APIs and MCP."""
@@ -147,6 +170,8 @@ class MemoryPacket:
         }
         if self.belief_map:
             res["belief_map"] = self.belief_map
+        if self.trust:
+            res["trust"] = self.trust
         return res
 
 

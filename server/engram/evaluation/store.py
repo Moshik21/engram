@@ -13,6 +13,7 @@ import aiosqlite
 from engram.benchmark.metrics import RecallEvalSample, SessionContinuitySample
 
 RECALL_RUNTIME_SNAPSHOT_RETENTION = 25
+MEMORY_OPERATION_METRICS_RETENTION = 25
 
 
 @dataclass
@@ -25,6 +26,8 @@ class StoredRecallEvalSample:
     packets_surfaced: int = 0
     packets_used: int = 0
     false_recalls: int = 0
+    stale_packets: int = 0
+    corrected_packets: int = 0
     recall_needed: bool | None = None
     source: str = "manual"
     query: str | None = None
@@ -39,6 +42,8 @@ class StoredRecallEvalSample:
             packets_surfaced=self.packets_surfaced,
             packets_used=self.packets_used,
             false_recalls=self.false_recalls,
+            stale_packets=self.stale_packets,
+            corrected_packets=self.corrected_packets,
             recall_needed=self.recall_needed,
         )
 
@@ -82,6 +87,17 @@ class StoredRecallRuntimeMetricsSnapshot:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass
+class StoredMemoryOperationMetricsSnapshot:
+    """Persisted memory operation cost metrics for value reports."""
+
+    group_id: str
+    metrics: dict[str, Any]
+    source: str = "runtime"
+    id: str = field(default_factory=lambda: f"emo_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
 class SQLiteEvaluationStore:
     """Stores local labels used by the brain-loop evaluation report."""
 
@@ -108,6 +124,8 @@ class SQLiteEvaluationStore:
                 packets_surfaced INTEGER NOT NULL DEFAULT 0,
                 packets_used INTEGER NOT NULL DEFAULT 0,
                 false_recalls INTEGER NOT NULL DEFAULT 0,
+                stale_packets INTEGER NOT NULL DEFAULT 0,
+                corrected_packets INTEGER NOT NULL DEFAULT 0,
                 recall_needed INTEGER,
                 source TEXT NOT NULL DEFAULT 'manual',
                 query TEXT,
@@ -119,6 +137,16 @@ class SQLiteEvaluationStore:
             "evaluation_recall_samples",
             "recall_needed",
             "INTEGER",
+        )
+        await self._ensure_column(
+            "evaluation_recall_samples",
+            "stale_packets",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        await self._ensure_column(
+            "evaluation_recall_samples",
+            "corrected_packets",
+            "INTEGER NOT NULL DEFAULT 0",
         )
         await self.db.execute("""
             CREATE INDEX IF NOT EXISTS idx_eval_recall_group_time
@@ -157,6 +185,19 @@ class SQLiteEvaluationStore:
             CREATE INDEX IF NOT EXISTS idx_eval_recall_runtime_group_time
                 ON evaluation_recall_runtime_metrics(group_id, timestamp)
         """)
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS evaluation_memory_operation_metrics (
+                id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL,
+                metrics_json TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'runtime',
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_eval_memory_operation_group_time
+                ON evaluation_memory_operation_metrics(group_id, timestamp)
+        """)
         await self.db.commit()
 
     @property
@@ -167,10 +208,11 @@ class SQLiteEvaluationStore:
 
     async def save_recall_sample(self, sample: StoredRecallEvalSample) -> None:
         await self.db.execute(
-            "INSERT INTO evaluation_recall_samples "
+            "INSERT OR REPLACE INTO evaluation_recall_samples "
             "(id, group_id, recall_triggered, recall_helped, packets_surfaced, "
-            "packets_used, false_recalls, recall_needed, source, query, notes, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "packets_used, false_recalls, stale_packets, corrected_packets, "
+            "recall_needed, source, query, notes, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 sample.id,
                 sample.group_id,
@@ -179,6 +221,8 @@ class SQLiteEvaluationStore:
                 max(0, sample.packets_surfaced),
                 max(0, sample.packets_used),
                 max(0, sample.false_recalls),
+                max(0, sample.stale_packets),
+                max(0, sample.corrected_packets),
                 None if sample.recall_needed is None else int(sample.recall_needed),
                 sample.source,
                 sample.query,
@@ -190,7 +234,7 @@ class SQLiteEvaluationStore:
 
     async def save_session_sample(self, sample: StoredSessionContinuitySample) -> None:
         await self.db.execute(
-            "INSERT INTO evaluation_session_samples "
+            "INSERT OR REPLACE INTO evaluation_session_samples "
             "(id, group_id, baseline_score, memory_score, open_loop_expected, "
             "open_loop_recovered, temporal_expected, temporal_correct, source, "
             "scenario, notes, timestamp) "
@@ -256,6 +300,53 @@ class SQLiteEvaluationStore:
             return payload
         return {}
 
+    async def save_memory_operation_metrics_snapshot(
+        self,
+        snapshot: StoredMemoryOperationMetricsSnapshot,
+    ) -> None:
+        await self.db.execute(
+            "INSERT INTO evaluation_memory_operation_metrics "
+            "(id, group_id, metrics_json, source, timestamp) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                snapshot.id,
+                snapshot.group_id,
+                json.dumps(snapshot.metrics, sort_keys=True),
+                snapshot.source,
+                snapshot.timestamp,
+            ),
+        )
+        await self.db.execute(
+            "DELETE FROM evaluation_memory_operation_metrics "
+            "WHERE group_id = ? AND id NOT IN ("
+            "SELECT id FROM evaluation_memory_operation_metrics "
+            "WHERE group_id = ? ORDER BY timestamp DESC, id DESC LIMIT ?"
+            ")",
+            (
+                snapshot.group_id,
+                snapshot.group_id,
+                MEMORY_OPERATION_METRICS_RETENTION,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_latest_memory_operation_metrics_snapshot(
+        self,
+        group_id: str,
+    ) -> dict[str, Any]:
+        cursor = await self.db.execute(
+            "SELECT metrics_json FROM evaluation_memory_operation_metrics "
+            "WHERE group_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (group_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return {}
+        payload = json.loads(row["metrics_json"])
+        if isinstance(payload, dict):
+            return payload
+        return {}
+
     async def get_recall_samples(
         self,
         group_id: str,
@@ -298,6 +389,8 @@ class SQLiteEvaluationStore:
             packets_surfaced=row["packets_surfaced"],
             packets_used=row["packets_used"],
             false_recalls=row["false_recalls"],
+            stale_packets=row["stale_packets"],
+            corrected_packets=row["corrected_packets"],
             recall_needed=(
                 None if row["recall_needed"] is None else bool(row["recall_needed"])
             ),

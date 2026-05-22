@@ -149,56 +149,21 @@ class SQLiteGraphStore:
 
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
+        await self._run_schema_migrations()
         await self._db.executescript(schema_sql)
         await self._db.commit()
 
-        # Migrations — add new columns idempotently
-        migrations = [
-            # Week 2
-            "ALTER TABLE entities ADD COLUMN pii_detected INTEGER DEFAULT 0",
-            "ALTER TABLE entities ADD COLUMN pii_categories TEXT",
-            "ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 1.0",
-            # Week 6 — episode pipeline fields
-            "ALTER TABLE episodes ADD COLUMN updated_at TEXT",
-            "ALTER TABLE episodes ADD COLUMN error TEXT",
-            "ALTER TABLE episodes ADD COLUMN retry_count INTEGER DEFAULT 0",
-            "ALTER TABLE episodes ADD COLUMN processing_duration_ms INTEGER",
-            "ALTER TABLE episodes ADD COLUMN skipped_meta INTEGER DEFAULT 0",
-            "ALTER TABLE episodes ADD COLUMN skipped_triage INTEGER DEFAULT 0",
-            "ALTER TABLE episodes ADD COLUMN projection_state TEXT DEFAULT 'queued'",
-            "ALTER TABLE episodes ADD COLUMN last_projection_reason TEXT",
-            "ALTER TABLE episodes ADD COLUMN last_projected_at TEXT",
-            # Identity core
-            "ALTER TABLE entities ADD COLUMN identity_core INTEGER DEFAULT 0",
-            # Negation/uncertainty polarity
-            "ALTER TABLE relationships ADD COLUMN polarity TEXT DEFAULT 'positive'",
-            "ALTER TABLE episode_cues ADD COLUMN surfaced_count INTEGER DEFAULT 0",
-            "ALTER TABLE episode_cues ADD COLUMN selected_count INTEGER DEFAULT 0",
-            "ALTER TABLE episode_cues ADD COLUMN used_count INTEGER DEFAULT 0",
-            "ALTER TABLE episode_cues ADD COLUMN near_miss_count INTEGER DEFAULT 0",
-            "ALTER TABLE episode_cues ADD COLUMN policy_score REAL DEFAULT 0.0",
-            "ALTER TABLE episode_cues ADD COLUMN last_feedback_at TEXT",
-            # Identifier-aware entity facets
-            "ALTER TABLE entities ADD COLUMN lexical_regime TEXT",
-            "ALTER TABLE entities ADD COLUMN canonical_identifier TEXT",
-            "ALTER TABLE entities ADD COLUMN identifier_label INTEGER DEFAULT 0",
-            # Evidence v3 ambiguity metadata
-            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_tags_json "
-            "TEXT NOT NULL DEFAULT '[]'",
-            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_score REAL NOT NULL DEFAULT 0.0",
-            "ALTER TABLE episode_evidence ADD COLUMN adjudication_request_id TEXT",
-            "ALTER TABLE episodes ADD COLUMN conversation_date TEXT",
-            "ALTER TABLE episodes ADD COLUMN attachments_json TEXT DEFAULT '[]'",
-        ]
-        for sql in migrations:
-            try:
-                await self._db.execute(sql)
-            except Exception:
-                pass  # Column already exists
+        await self._run_schema_migrations()
         for sql in [
             "CREATE INDEX IF NOT EXISTS idx_entities_lexical_regime ON entities(lexical_regime)",
             "CREATE INDEX IF NOT EXISTS idx_entities_canonical_identifier "
             "ON entities(canonical_identifier)",
+            "CREATE INDEX IF NOT EXISTS idx_episode_cues_projection_state "
+            "ON episode_cues(projection_state)",
+            "CREATE INDEX IF NOT EXISTS idx_episode_cues_priority "
+            "ON episode_cues(projection_priority)",
+            "CREATE INDEX IF NOT EXISTS idx_episode_cues_policy_score "
+            "ON episode_cues(policy_score)",
             "CREATE INDEX IF NOT EXISTS idx_evidence_adjudication_request "
             "ON episode_evidence(adjudication_request_id)",
             """CREATE TABLE IF NOT EXISTS episode_adjudications (
@@ -228,6 +193,76 @@ class SQLiteGraphStore:
         await self._db.commit()
 
         logger.info("SQLite graph store initialized at %s", self._db_path)
+
+    async def _run_schema_migrations(self) -> None:
+        """Add columns that newer schema/index statements depend on."""
+        if self._db is None:
+            raise RuntimeError("SQLite graph store not initialized.")
+        migrations = [
+            # Week 2
+            "ALTER TABLE entities ADD COLUMN pii_detected INTEGER DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN pii_categories TEXT",
+            "ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 1.0",
+            # Week 6 — episode pipeline fields
+            "ALTER TABLE episodes ADD COLUMN updated_at TEXT",
+            "ALTER TABLE episodes ADD COLUMN error TEXT",
+            "ALTER TABLE episodes ADD COLUMN retry_count INTEGER DEFAULT 0",
+            "ALTER TABLE episodes ADD COLUMN processing_duration_ms INTEGER",
+            "ALTER TABLE episodes ADD COLUMN skipped_meta INTEGER DEFAULT 0",
+            "ALTER TABLE episodes ADD COLUMN skipped_triage INTEGER DEFAULT 0",
+            "ALTER TABLE episodes ADD COLUMN projection_state TEXT DEFAULT 'queued'",
+            "ALTER TABLE episodes ADD COLUMN last_projection_reason TEXT",
+            "ALTER TABLE episodes ADD COLUMN last_projected_at TEXT",
+            # Identity core
+            "ALTER TABLE entities ADD COLUMN identity_core INTEGER DEFAULT 0",
+            # Negation/uncertainty polarity
+            "ALTER TABLE relationships ADD COLUMN polarity TEXT DEFAULT 'positive'",
+            # Cue policy/scoring fields
+            "ALTER TABLE episode_cues ADD COLUMN cue_version INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE episode_cues ADD COLUMN discourse_class TEXT NOT NULL DEFAULT 'world'",
+            "ALTER TABLE episode_cues ADD COLUMN projection_state TEXT NOT NULL DEFAULT 'cued'",
+            "ALTER TABLE episode_cues ADD COLUMN cue_score REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_cues ADD COLUMN salience_score REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_cues ADD COLUMN projection_priority REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_cues ADD COLUMN route_reason TEXT",
+            "ALTER TABLE episode_cues ADD COLUMN entity_mentions_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_cues ADD COLUMN temporal_markers_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_cues ADD COLUMN quote_spans_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_cues ADD COLUMN contradiction_keys_json "
+            "TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_cues ADD COLUMN first_spans_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_cues ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN surfaced_count INTEGER DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN selected_count INTEGER DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN used_count INTEGER DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN near_miss_count INTEGER DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN policy_score REAL DEFAULT 0.0",
+            "ALTER TABLE episode_cues ADD COLUMN projection_attempts INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE episode_cues ADD COLUMN last_hit_at TEXT",
+            "ALTER TABLE episode_cues ADD COLUMN last_feedback_at TEXT",
+            "ALTER TABLE episode_cues ADD COLUMN last_projected_at TEXT",
+            # Identifier-aware entity facets
+            "ALTER TABLE entities ADD COLUMN lexical_regime TEXT",
+            "ALTER TABLE entities ADD COLUMN canonical_identifier TEXT",
+            "ALTER TABLE entities ADD COLUMN identifier_label INTEGER DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN source_episode_ids TEXT DEFAULT '[]'",
+            "ALTER TABLE entities ADD COLUMN evidence_count INTEGER DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN evidence_span_start TEXT",
+            "ALTER TABLE entities ADD COLUMN evidence_span_end TEXT",
+            # Evidence v3 ambiguity metadata
+            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_tags_json "
+            "TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE episode_evidence ADD COLUMN ambiguity_score REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_evidence ADD COLUMN adjudication_request_id TEXT",
+            "ALTER TABLE episodes ADD COLUMN conversation_date TEXT",
+            "ALTER TABLE episodes ADD COLUMN attachments_json TEXT DEFAULT '[]'",
+        ]
+        for sql in migrations:
+            try:
+                await self._db.execute(sql)
+            except Exception:
+                pass  # Column already exists
+        await self._db.commit()
 
     async def close(self) -> None:
         if self._db:

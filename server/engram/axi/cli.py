@@ -20,13 +20,16 @@ from engram.axi.hooks import (
     uninstall_hook,
 )
 from engram.axi.surfaces import (
+    VALUE_TIMEOUT_SECONDS,
     AxiResult,
     build_bootstrap_payload,
     build_context_payload,
     build_doctor_payload,
     build_home_payload,
+    build_packet_cache_clear_payload,
     build_recall_payload,
     build_storage_payload,
+    build_value_payload,
     build_write_payload,
 )
 from engram.axi.toon import render_toon
@@ -35,6 +38,7 @@ from engram.axi.toon import render_toon
 def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
     """Configure `engram axi` arguments."""
     parser.description = "Compact agent-facing AXI interface for Engram"
+    parser.set_defaults(_axi_timeout_default=DEFAULT_TIMEOUT_SECONDS)
     _add_common_args(parser)
     parser.add_argument(
         "--project",
@@ -73,6 +77,28 @@ def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
         "storage",
         parents=[common],
         help="Print storage paths, counts, and size.",
+    )
+
+    value_parser = subparsers.add_parser(
+        "value",
+        parents=[common],
+        help="Print compact memory value and latency status.",
+    )
+    value_parser.set_defaults(_axi_timeout_default=VALUE_TIMEOUT_SECONDS)
+
+    packet_cache_parser = subparsers.add_parser(
+        "packet-cache",
+        parents=[common],
+        help="Inspect or clear cached memory packets.",
+    )
+    packet_cache_subparsers = packet_cache_parser.add_subparsers(
+        dest="packet_cache_command",
+        required=True,
+    )
+    packet_cache_subparsers.add_parser(
+        "clear",
+        parents=[common],
+        help="Clear tenant-local packet-cache entries.",
     )
 
     doctor_parser = subparsers.add_parser(
@@ -172,9 +198,10 @@ def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
 def run_axi_command(args: argparse.Namespace) -> int:
     """Run an AXI command and print its output."""
     started = time.perf_counter()
+    timeout_seconds = _resolved_timeout(args)
     client = AxiRestClient(
         server_url=args.server_url,
-        timeout_seconds=args.timeout,
+        timeout_seconds=timeout_seconds,
         auth_token=args.auth_token,
     )
     result = _dispatch(args, client)
@@ -198,7 +225,7 @@ def _add_common_args(
     parser.add_argument(
         "--timeout",
         type=float,
-        default=argparse.SUPPRESS if suppress_defaults else DEFAULT_TIMEOUT_SECONDS,
+        default=argparse.SUPPRESS if suppress_defaults else None,
         help="Per-request timeout in seconds.",
     )
     parser.add_argument(
@@ -272,6 +299,19 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
         )
     if command == "storage":
         return build_storage_payload(client)
+    if command == "value":
+        return build_value_payload(client)
+    if command == "packet-cache":
+        if getattr(args, "packet_cache_command", None) == "clear":
+            return build_packet_cache_clear_payload(client)
+        return AxiResult(
+            payload={
+                "operation": "packet-cache",
+                "status": "error",
+                "error": "Unknown packet-cache command",
+            },
+            exit_code=2,
+        )
     if command == "doctor":
         result = build_doctor_payload(
             client,
@@ -316,7 +356,7 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
     if command == "hooks":
         try:
             home = Path(args.home).expanduser() if getattr(args, "home", None) else None
-            hook_timeout = _hook_timeout(args.timeout)
+            hook_timeout = _hook_timeout(_resolved_timeout(args))
             if args.hooks_command == "print":
                 return build_hook_print_payload(
                     args.client,
@@ -436,6 +476,8 @@ def _write_trace(args: argparse.Namespace, result: AxiResult, *, duration_ms: in
     command = getattr(args, "axi_command", None) or "home"
     if command == "hooks":
         command = f"hooks.{getattr(args, 'hooks_command', 'unknown')}"
+    elif command == "packet-cache":
+        command = f"packet-cache.{getattr(args, 'packet_cache_command', 'unknown')}"
     payload = result.payload
     record = {
         "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -449,7 +491,7 @@ def _write_trace(args: argparse.Namespace, result: AxiResult, *, duration_ms: in
         "server": getattr(args, "server_url", None),
         "project": _normalize_project_path(getattr(args, "project_path", None)),
         "budget": getattr(args, "budget", None),
-        "timeoutSeconds": getattr(args, "timeout", None),
+        "timeoutSeconds": _resolved_timeout(args),
     }
     path = Path(raw_trace_file).expanduser()
     try:
@@ -478,3 +520,10 @@ def _hook_timeout(timeout: float) -> float:
     if timeout == DEFAULT_TIMEOUT_SECONDS:
         return DEFAULT_HOOK_TIMEOUT_SECONDS
     return timeout
+
+
+def _resolved_timeout(args: argparse.Namespace) -> float:
+    timeout = getattr(args, "timeout", None)
+    if timeout is not None:
+        return float(timeout)
+    return float(getattr(args, "_axi_timeout_default", DEFAULT_TIMEOUT_SECONDS))

@@ -10,6 +10,10 @@ export const createKnowledgeSlice: StateCreator<
 > = (set, get) => ({
   knowledgeQuery: "",
   knowledgeResults: [],
+  knowledgePackets: [],
+  knowledgeRecallStatus: null,
+  knowledgeRecallLifecycle: null,
+  knowledgeRecallBudget: null,
   isRecalling: false,
   activeTypeFilter: null,
   entityGroups: {},
@@ -41,6 +45,10 @@ export const createKnowledgeSlice: StateCreator<
     if (!query.trim()) {
       set((s) => {
         s.knowledgeResults = [];
+        s.knowledgePackets = [];
+        s.knowledgeRecallStatus = null;
+        s.knowledgeRecallLifecycle = null;
+        s.knowledgeRecallBudget = null;
         s.isRecalling = false;
       });
       return;
@@ -52,10 +60,18 @@ export const createKnowledgeSlice: StateCreator<
       const data = await api.recall({ q: query, limit: 20 });
       set((s) => {
         s.knowledgeResults = data.items;
+        s.knowledgePackets = data.packets ?? [];
+        s.knowledgeRecallStatus = data.status ?? "ok";
+        s.knowledgeRecallLifecycle = data.lifecycle ?? null;
+        s.knowledgeRecallBudget = data.budget ?? null;
         s.isRecalling = false;
       });
     } catch {
       set((s) => {
+        s.knowledgePackets = [];
+        s.knowledgeRecallStatus = "error";
+        s.knowledgeRecallLifecycle = null;
+        s.knowledgeRecallBudget = null;
         s.isRecalling = false;
       });
     }

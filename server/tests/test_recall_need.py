@@ -179,6 +179,13 @@ class TestRecallNeedTelemetry:
         assert need.probe_triggered is False
         assert need.probe_latency_ms == 0.0
         assert need.graph_override_used is False
+        assert need.mode_requested is None
+        assert need.mode_executed is None
+        assert need.skip_reason is None
+        assert need.budget_profile is None
+        assert need.cache_hit is None
+        assert need.cache_satisfied is False
+        assert need.budget_skipped is False
 
     def test_to_payload_includes_signal_metadata(self):
         need = MemoryNeed(
@@ -196,6 +203,12 @@ class TestRecallNeedTelemetry:
             analyzer_latency_ms=2.4,
             probe_triggered=True,
             probe_latency_ms=1.3,
+            mode_requested="deep",
+            mode_executed="cached",
+            skip_reason="skipped_cache_satisfied",
+            budget_profile="auto_deep",
+            cache_hit=True,
+            cache_satisfied=True,
         )
         payload = need.to_payload(source="mcp", mode="auto_recall", turn_preview="my son")
         assert payload["signalScores"]["pragmatic"] == 0.35
@@ -209,6 +222,12 @@ class TestRecallNeedTelemetry:
         assert payload["analyzerLatencyMs"] == 2.4
         assert payload["probeTriggered"] is True
         assert payload["probeLatencyMs"] == 1.3
+        assert payload["modeRequested"] == "deep"
+        assert payload["modeExecuted"] == "cached"
+        assert payload["skipReason"] == "skipped_cache_satisfied"
+        assert payload["budgetProfile"] == "auto_deep"
+        assert payload["cacheHit"] is True
+        assert payload["cacheSatisfied"] is True
 
     def test_to_payload_omits_empty_signal_metadata(self):
         need = MemoryNeed(need_type="none", should_recall=False, confidence=0.8)
@@ -612,6 +631,25 @@ class TestRecallNeedController:
                 probe_triggered=True,
                 probe_latency_ms=1.4,
                 decision_path="graph_lift",
+                mode_requested="deep",
+                mode_executed="cached",
+                skip_reason="skipped_cache_satisfied",
+                budget_profile="auto_deep",
+                cache_hit=True,
+                cache_satisfied=True,
+            ),
+        )
+        controller.record_analysis(
+            "default",
+            MemoryNeed(
+                need_type="none",
+                should_recall=False,
+                confidence=0.95,
+                mode_requested="deep",
+                mode_executed="none",
+                skip_reason="skipped_budget",
+                budget_profile="auto_deep",
+                budget_skipped=True,
             ),
         )
         controller.record_interaction("default", "surfaced")
@@ -625,8 +663,58 @@ class TestRecallNeedController:
         assert snapshot["dismissed_count"] == 1
         assert snapshot["surfaced_count"] == 1
         assert snapshot["graph_lift_rate"] == pytest.approx(1.0)
-        assert snapshot["probe_trigger_rate"] == pytest.approx(1.0)
+        assert snapshot["probe_trigger_rate"] == pytest.approx(0.5)
         assert snapshot["family_contributions"]["structural"] == 1
+        assert snapshot["mode_requested_counts"] == {"deep": 2}
+        assert snapshot["mode_executed_counts"] == {"cached": 1, "none": 1}
+        assert snapshot["skip_reason_counts"] == {
+            "skipped_budget": 1,
+            "skipped_cache_satisfied": 1,
+        }
+        assert snapshot["budget_profile_counts"] == {"auto_deep": 2}
+        assert snapshot["cache_hit_count"] == 1
+        assert snapshot["cache_satisfied_count"] == 1
+        assert snapshot["budget_skipped_count"] == 1
+
+    def test_memory_feedback_summary_tracks_confirmed_corrected_and_dismissed(self):
+        controller = RecallNeedController(
+            ActivationConfig(
+                recall_need_adaptive_thresholds_enabled=False,
+            )
+        )
+
+        controller.record_interaction(
+            "default",
+            "confirmed",
+            memory_id="ent_engram",
+            timestamp=1779386400.0,
+        )
+        controller.record_interaction(
+            "default",
+            "corrected",
+            memory_id="ent_engram",
+            timestamp=1779386700.0,
+        )
+        controller.record_interaction(
+            "default",
+            "dismissed",
+            memory_id="cue:ep_1",
+            result_type="cue_episode",
+            timestamp=1779387000.0,
+        )
+
+        summary = controller.memory_feedback_summary(
+            "default",
+            ["ent_engram", "cue:ep_1", "missing"],
+        )
+
+        assert summary["ent_engram"]["confirmed_count"] == 1
+        assert summary["ent_engram"]["corrected_count"] == 1
+        assert summary["ent_engram"]["last_confirmed_at"] == "2026-05-21T18:00:00Z"
+        assert summary["ent_engram"]["last_corrected_at"] == "2026-05-21T18:05:00Z"
+        assert summary["cue:ep_1"]["dismissed_count"] == 1
+        assert summary["cue:ep_1"]["last_dismissed_at"] == "2026-05-21T18:10:00Z"
+        assert "missing" not in summary
 
     def test_adaptive_thresholds_stay_within_bounds(self):
         controller = RecallNeedController(

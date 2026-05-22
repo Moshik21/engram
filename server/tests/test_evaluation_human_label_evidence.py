@@ -111,7 +111,9 @@ def test_human_label_evidence_requires_sample_source_traceability() -> None:
 def test_human_label_evidence_requires_reviewable_sample_text() -> None:
     artifact = _human_label_artifact(recall_count=2, session_count=1)
     artifact["recallSamples"][0].pop("query")
-    artifact["recallSamples"][1]["notes"] = "<why the recalled packet was useful>"
+    artifact["recallSamples"][1]["notes"] = (
+        "dogfood_transcript=abc; review_notes=<why memory helped>"
+    )
     artifact["sessionSamples"][0].pop("scenario")
 
     evidence = build_human_label_evidence(
@@ -310,6 +312,61 @@ async def test_evaluate_cli_outputs_human_label_template(capsys) -> None:
 
 
 @pytest.mark.asyncio
+async def test_evaluate_cli_outputs_and_gates_memory_value(
+    capsys,
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    report = _measured_report()
+    report["memory_value"] = _measured_memory_value()
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--memory-value",
+            "--require-memory-value",
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["memory_value"]["status"] == "measured"
+    assert output["memory_value"]["cost"]["operation_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_rejects_missing_memory_value_when_required(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "brain-loop-report.json"
+    report_path.write_text(json.dumps(_measured_report()), encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--from-json",
+            str(report_path),
+            "--require-memory-value",
+            "--format",
+            "json",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == (
+        "Memory value evidence failed gates: ['memory_value:missing']"
+    )
+
+
+@pytest.mark.asyncio
 async def test_evaluate_cli_writes_human_label_template_artifact(
     capsys,
     tmp_path: Path,
@@ -426,4 +483,33 @@ def _measured_report() -> dict:
             for signal in EVALUATION_SIGNAL_ORDER
         },
         "coverage_gaps": [],
+    }
+
+
+def _measured_memory_value() -> dict:
+    return {
+        "status": "measured",
+        "cost": {
+            "status": "measured",
+            "operation_count": 3,
+            "avg_added_latency_ms": 12.0,
+            "p95_added_latency_ms": 18.0,
+            "timeout_rate": 0.0,
+            "budget_miss_rate": 0.0,
+            "cache_hit_rate": 0.6667,
+        },
+        "benefit": {
+            "status": "measured",
+            "recall_sample_count": 2,
+            "session_sample_count": 1,
+            "memory_need_precision": 1.0,
+            "memory_need_recall": 1.0,
+            "useful_packet_rate": 0.75,
+            "false_recall_rate": 0.0,
+            "session_continuity_lift": 0.4,
+            "open_loop_recovery_rate": 1.0,
+            "temporal_correctness": 1.0,
+            "stale_packet_rate": 0.0,
+            "corrected_packet_rate": 0.0,
+        },
     }

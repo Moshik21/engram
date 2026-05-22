@@ -238,6 +238,10 @@ function resetStore() {
     isLoadingEvaluationReport: false,
     isSavingRecallEvaluation: false,
     isSavingSessionEvaluation: false,
+    knowledgePackets: [],
+    knowledgeRecallStatus: null,
+    knowledgeRecallLifecycle: null,
+    knowledgeRecallBudget: null,
     readyState: "disconnected",
     lastSeq: 0,
     reconnectAttempt: 0,
@@ -800,10 +804,59 @@ describe("EvaluationPanel", () => {
     };
   }
 
+  function makeMemoryValueFixture(): BrainLoopEvaluationReport["memoryValue"] {
+    return {
+      status: "measured",
+      cost: {
+        status: "measured",
+        operationCount: 6,
+        avgAddedLatencyMs: 9.5,
+        p95AddedLatencyMs: 24,
+        avgBudgetMs: 600,
+        p95BudgetMs: 1200,
+        avgBudgetTokens: 300,
+        completedCount: 4,
+        skippedCount: 1,
+        errorCount: 1,
+        statusCounts: { ok: 4, skipped: 1, error: 1 },
+        skipReasonCounts: { skipped_low_signal: 1 },
+        timeoutCount: 1,
+        timeoutRate: 0.1667,
+        degradedCount: 0,
+        degradedRate: 0,
+        budgetMissCount: 2,
+        budgetMissRate: 0.3333,
+        cacheHitCount: 3,
+        cacheMissCount: 3,
+        cacheHitRate: 0.5,
+        byMode: {},
+      },
+      benefit: {
+        status: "measured",
+        recallSampleCount: 2,
+        sessionSampleCount: 1,
+        memoryNeedPrecision: 0.5,
+        memoryNeedRecall: 0.5,
+        missedRecallRate: 0.5,
+        usefulPacketRate: 0.4,
+        stalePacketRate: 0.2,
+        correctedPacketRate: 0.1,
+        stalePacketCount: 1,
+        correctedPacketCount: 1,
+        falseRecallRate: 0.2,
+        sessionContinuityLift: 0.3,
+        openLoopRecoveryRate: 1,
+        temporalCorrectness: 0,
+      },
+    };
+  }
+
   function makeEvaluationReportFixture(): BrainLoopEvaluationReport {
     return {
       groupId: "default",
       generatedAt: new Date().toISOString(),
+      degraded: false,
+      degradations: [],
       loop: ["capture", "cue", "project", "recall", "consolidate"],
       totals: { episodes: 8, entities: 12, relationships: 5, activeEntities: 3 },
       capture: { status: "ready", episodeCount: 8, activeCount: 0 },
@@ -892,6 +945,10 @@ describe("EvaluationPanel", () => {
           memoryNeedRecall: 0.5,
           missedRecallRate: 0.5,
           usefulPacketRate: 0.4,
+          stalePacketRate: 0.2,
+          correctedPacketRate: 0.1,
+          stalePacketCount: 1,
+          correctedPacketCount: 1,
           falseRecallRate: 0.2,
           surfacedCount: 5,
           usedCount: 2,
@@ -905,6 +962,7 @@ describe("EvaluationPanel", () => {
           temporalCorrectness: 0,
         },
       },
+      memoryValue: makeMemoryValueFixture(),
       consolidate: {
         status: "attention",
         cycleCount: 1,
@@ -1048,6 +1106,10 @@ describe("EvaluationPanel", () => {
           memoryNeedRecall: 0.5,
           missedRecallRate: 0.5,
           usefulPacketRate: 0.4,
+          stalePacketRate: 0.2,
+          correctedPacketRate: 0.1,
+          stalePacketCount: 1,
+          correctedPacketCount: 1,
           falseRecallRate: 0.2,
           surfacedCount: 5,
           usedCount: 2,
@@ -1061,6 +1123,7 @@ describe("EvaluationPanel", () => {
           temporalCorrectness: 0,
         },
       },
+      memoryValue: makeMemoryValueFixture(),
       consolidate: {
         status: "attention",
         cycleCount: 1,
@@ -1130,6 +1193,15 @@ describe("EvaluationPanel", () => {
     expect(screen.getByText("probe p95")).toBeInTheDocument();
     expect(screen.getByText("31ms")).toBeInTheDocument();
     expect(screen.getByText("19ms")).toBeInTheDocument();
+    expect(screen.getByText("Memory Value")).toBeInTheDocument();
+    expect(screen.getByText("p95 added")).toBeInTheDocument();
+    expect(screen.getByText("24ms")).toBeInTheDocument();
+    expect(screen.getByText("skipped")).toBeInTheDocument();
+    expect(screen.getByText("budget p95")).toBeInTheDocument();
+    expect(screen.getByText("1.2s")).toBeInTheDocument();
+    expect(screen.getByText("cache hit")).toBeInTheDocument();
+    expect(screen.getByText("stale packets")).toBeInTheDocument();
+    expect(screen.getByText("corrected packets")).toBeInTheDocument();
     expect(screen.getByText("Recall Gate")).toBeInTheDocument();
     expect(screen.getByText("Signal Readiness")).toBeInTheDocument();
     expect(screen.getByText("6/6 measured")).toBeInTheDocument();
@@ -1143,7 +1215,7 @@ describe("EvaluationPanel", () => {
     expect(screen.getByText("effect")).toBeInTheDocument();
     expect(screen.getAllByText("50.0%").length).toBeGreaterThan(0);
     expect(screen.getByText("adjudication")).toBeInTheDocument();
-    expect(screen.getByText("33.3%")).toBeInTheDocument();
+    expect(screen.getAllByText("33.3%").length).toBeGreaterThan(0);
     expect(screen.getByText("unaffected")).toBeInTheDocument();
     expect(screen.getAllByText("0.120").length).toBeGreaterThan(0);
     expect(screen.getByText("latest issue")).toBeInTheDocument();
@@ -1164,6 +1236,27 @@ describe("EvaluationPanel", () => {
 
     expect(await screen.findByText("latest issue")).toBeInTheDocument();
     expect(screen.getByText("edge_adjudication: judge unavailable")).toBeInTheDocument();
+  });
+
+  it("renders degraded report fallbacks in evaluation output", async () => {
+    const report = makeEvaluationReportFixture();
+    report.degraded = true;
+    report.degradations = [
+      {
+        surface: null,
+        stage: "graph_state",
+        status: "degraded",
+        skipReason: "graph_state_timeout",
+        timeoutMs: 2000,
+      },
+    ];
+    vi.mocked(api.getEvaluationReport).mockResolvedValueOnce(report);
+
+    render(<EvaluationPanel />);
+
+    expect(await screen.findByText("Report degraded")).toBeInTheDocument();
+    expect(screen.getByText("1 fallback")).toBeInTheDocument();
+    expect(screen.getByText("graph_state · graph_state_timeout · 2.0s")).toBeInTheDocument();
   });
 
   it("renders release evidence gate state", async () => {
@@ -1401,6 +1494,10 @@ describe("EvaluationPanel", () => {
     await user.type(screen.getByLabelText("Used"), "2");
     await user.clear(screen.getByLabelText("False"));
     await user.type(screen.getByLabelText("False"), "1");
+    await user.clear(screen.getByLabelText("Stale"));
+    await user.type(screen.getByLabelText("Stale"), "1");
+    await user.clear(screen.getByLabelText("Corrected"));
+    await user.type(screen.getByLabelText("Corrected"), "1");
     await user.type(screen.getByLabelText("Query"), "open loop");
     await user.click(screen.getByRole("button", { name: "Store Recall" }));
 
@@ -1412,6 +1509,8 @@ describe("EvaluationPanel", () => {
         packetsSurfaced: 3,
         packetsUsed: 2,
         falseRecalls: 1,
+        stalePackets: 1,
+        correctedPackets: 1,
         source: "dashboard",
         query: "open loop",
         notes: null,
@@ -1457,6 +1556,7 @@ describe("EvaluationPanel", () => {
 // --- Knowledge Tab Redesign Tests ---
 
 import { MemoryPulse } from "../components/knowledge/MemoryPulse";
+import { RecallPacketDrilldown } from "../components/knowledge/RecallPacketDrilldown";
 import { IntentIndicator } from "../components/knowledge/IntentIndicator";
 import { ConfirmDialog } from "../components/knowledge/ConfirmDialog";
 import { SearchOverlay } from "../components/knowledge/SearchOverlay";
@@ -1510,6 +1610,87 @@ describe("MemoryPulse", () => {
       "data-lifecycle-focus",
       "true",
     );
+  });
+});
+
+describe("RecallPacketDrilldown", () => {
+  it("renders packet trust and provenance details", () => {
+    act(() => {
+      useEngramStore.setState({
+        knowledgePackets: [
+          {
+            packetType: "state_packet",
+            title: "State: Engram",
+            summary: "Cached project context.",
+            trust: {
+              source: "cache",
+              freshness: "recent",
+              confidence: 0.8,
+              whyNow: "Cached project context for the current workspace.",
+              provenanceCount: 1,
+              evidenceCount: 2,
+              beliefStatus: "supported",
+              confirmedCount: 1,
+              correctedCount: 1,
+              dismissedCount: 0,
+              lastConfirmedAt: "2026-05-21T18:00:00Z",
+              lastCorrectedAt: "2026-05-21T18:05:00Z",
+            },
+          },
+        ],
+      });
+    });
+
+    render(<RecallPacketDrilldown />);
+
+    expect(screen.getByText("Recall Packets")).toBeInTheDocument();
+    expect(screen.getByText("State: Engram")).toBeInTheDocument();
+    expect(screen.getByText("state_packet | cache | recent")).toBeInTheDocument();
+    expect(screen.getByText("confidence 80%")).toBeInTheDocument();
+    expect(screen.getByText(/feedback confirmed 1/)).toBeInTheDocument();
+    expect(screen.getByText(/corrected 2026-05-21T18:05:00Z/)).toBeInTheDocument();
+    expect(screen.getByText("Cached project context for the current workspace.")).toBeInTheDocument();
+  });
+
+  it("renders bounded recall runtime budget when no packets surfaced", () => {
+    act(() => {
+      useEngramStore.setState({
+        knowledgePackets: [],
+        knowledgeRecallStatus: "degraded",
+        knowledgeRecallLifecycle: {
+          stage: "recall",
+          recallMode: "explicit",
+          resultCount: 0,
+          packetCount: 0,
+          degraded: true,
+          skipReason: "recall_timeout",
+          timeout: true,
+        },
+        knowledgeRecallBudget: {
+          profile: "explicit",
+          surface: "axi",
+          mode: "axi_recall",
+          maxWallMs: 2000,
+          maxSearchMs: 1200,
+          maxResults: 3,
+          durationMs: 1201,
+          budgetMiss: true,
+          timeout: true,
+          degraded: true,
+          skipReason: "recall_timeout",
+        },
+      });
+    });
+
+    render(<RecallPacketDrilldown />);
+
+    expect(screen.getByText("Recall Packets")).toBeInTheDocument();
+    expect(screen.getByText("0 surfaced")).toBeInTheDocument();
+    expect(screen.getByText("degraded")).toBeInTheDocument();
+    expect(screen.getByText("axi/explicit")).toBeInTheDocument();
+    expect(screen.getByText("1,201ms")).toBeInTheDocument();
+    expect(screen.getByText("budget 2,000ms")).toBeInTheDocument();
+    expect(screen.getByText("recall_timeout")).toBeInTheDocument();
   });
 });
 

@@ -107,6 +107,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             logger.warning("Failed to initialize predicate cache", exc_info=True)
             predicate_cache = None
 
+    config.configure_runtime_packet_cache(mode.value)
     manager = GraphManager(
         graph_store,
         activation_store,

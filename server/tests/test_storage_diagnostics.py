@@ -100,6 +100,7 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
     assert snapshot["disk"]["totalBytes"] >= snapshot["disk"]["startupBytes"]
     assert {item["label"] for item in snapshot["paths"]} >= {
         "Helix native data",
+        "Packet cache",
         "SQLite companion",
         "Capture queue",
         "Server log",

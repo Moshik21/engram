@@ -85,6 +85,12 @@ class AxiRestClient:
             query={"q": query_text, "limit": limit},
         )
 
+    def evaluation_report(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/evaluation/brain-loop/report")
+
+    def clear_packet_cache(self) -> dict[str, Any]:
+        return self.request_json("POST", "/api/knowledge/packet-cache/clear")
+
     def observe(
         self,
         *,
@@ -130,7 +136,7 @@ class AxiRestClient:
     ) -> dict[str, Any]:
         url = self._url(path, query=query)
         data = None
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "X-Engram-Client": "axi"}
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"

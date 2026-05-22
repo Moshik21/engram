@@ -28,8 +28,11 @@ from engram.evaluation.brain_loop_report import (
     build_brain_loop_report,
     evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
+    format_memory_value_markdown,
     is_brain_loop_report_payload,
     looks_like_partial_brain_loop_report,
+    memory_value_failure_message,
+    merge_memory_operation_metrics,
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
     with_release_evidence_summary,
@@ -138,6 +141,19 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             "Composite release gate: require measured evaluation signals, "
             "real human-label evidence, and a passed live-client adoption report."
+        ),
+    )
+    parser.add_argument(
+        "--memory-value",
+        action="store_true",
+        help="Print only the memory value/cost section of the brain-loop report.",
+    )
+    parser.add_argument(
+        "--require-memory-value",
+        action="store_true",
+        help=(
+            "Exit non-zero unless the report has measured memory value cost and "
+            "benefit evidence."
         ),
     )
     parser.add_argument(
@@ -501,6 +517,13 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         )
         if failure_message:
             raise SystemExit(failure_message)
+    if getattr(args, "require_memory_value", False):
+        failure_message = memory_value_failure_message(
+            report,
+            prefix="Memory value evidence failed gates",
+        )
+        if failure_message:
+            raise SystemExit(failure_message)
     if getattr(args, "require_benchmark_evidence", False):
         failure_message = benchmark_evidence_failure_message(
             report.get("benchmark_evidence"),
@@ -536,6 +559,22 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
         if failure_message:
             raise SystemExit(failure_message)
     _write_evidence_bundle_from_args(report, args)
+    if getattr(args, "memory_value", False):
+        if args.format == "json":
+            print(
+                json.dumps(
+                    {
+                        "group_id": report.get("group_id"),
+                        "generated_at": report.get("generated_at"),
+                        "memory_value": report.get("memory_value"),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
+        print(format_memory_value_markdown(report), end="")
+        return
     if args.format == "json":
         print(json.dumps(report, indent=2, sort_keys=True))
         return
@@ -724,6 +763,7 @@ def build_evidence_bundle(
             "require_release_evidence": bool(
                 getattr(args, "require_release_evidence", False)
             ),
+            "require_memory_value": bool(getattr(args, "require_memory_value", False)),
             "min_evaluation_signal_evidence": max(
                 1,
                 getattr(args, "min_evaluation_signal_evidence", 1),
@@ -784,6 +824,8 @@ def _evidence_bundle_status(args: argparse.Namespace) -> str:
 def _evidence_bundle_gate_profile(args: argparse.Namespace) -> str:
     if getattr(args, "require_release_evidence", False):
         return "release"
+    if getattr(args, "require_memory_value", False):
+        return "memory_value"
     if (
         getattr(args, "require_benchmark_evidence", False)
         or getattr(args, "require_human_label_evidence", False)
@@ -812,6 +854,7 @@ def _evidence_bundle_has_requested_gate(args: argparse.Namespace) -> bool:
         (
             getattr(args, "require_evaluation_signals", False),
             getattr(args, "require_release_evidence", False),
+            getattr(args, "require_memory_value", False),
             getattr(args, "require_benchmark_evidence", False),
             getattr(args, "require_human_label_evidence", False),
             getattr(args, "require_adoption_evidence", False),
@@ -969,6 +1012,10 @@ async def _load_live_report(
             stats = merge_recall_runtime_metrics(
                 stats,
                 await evaluation_store.get_latest_recall_metrics_snapshot(group_id),
+            )
+            stats = merge_memory_operation_metrics(
+                stats,
+                await evaluation_store.get_latest_memory_operation_metrics_snapshot(group_id),
             )
             recall_samples = await evaluation_store.get_recall_samples(group_id, sample_limit)
             session_samples = await evaluation_store.get_session_samples(group_id, sample_limit)

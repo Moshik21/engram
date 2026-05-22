@@ -89,6 +89,7 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
         mode=mode,
     )
     try:
+        config.configure_runtime_packet_cache(mode.value)
         manager = GraphManager(
             graph_store,
             activation_store,

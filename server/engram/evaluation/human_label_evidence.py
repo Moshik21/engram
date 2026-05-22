@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 from collections.abc import Mapping
 from datetime import datetime
@@ -19,6 +20,7 @@ _SYNTHETIC_SOURCE_TOKENS = {
     "smoke",
     "synthetic",
 }
+_PLACEHOLDER_TOKEN_RE = re.compile(r"<[^>\n]{1,120}>")
 _RECALL_SAMPLE_TEXT_REQUIREMENTS = {
     "queries": ("query", "prompt", "turn", "userMessage", "user_message"),
     "notes": ("notes", "reviewNotes", "review_notes", "labelNotes", "label_notes"),
@@ -620,4 +622,6 @@ def _looks_synthetic(source: str) -> bool:
 
 def _looks_placeholder(value: str) -> bool:
     stripped = value.strip()
-    return stripped.startswith("<") and stripped.endswith(">")
+    return stripped.startswith("<") and stripped.endswith(">") or bool(
+        _PLACEHOLDER_TOKEN_RE.search(stripped)
+    )

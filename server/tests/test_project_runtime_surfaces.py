@@ -84,7 +84,9 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
         list_project_artifacts=list_project_artifacts,
         artifact_is_stale=lambda *_: False,
         get_recall_metrics=lambda _: {},
+        get_memory_operation_metrics=lambda _: {},
         get_epistemic_metrics=lambda _: {},
+        get_packet_cache_summary=lambda _: {"fresh_count": 1, "hit_count": 2},
     )
 
     result = await service.get_runtime_state(
@@ -93,6 +95,7 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
     )
 
     guidance = result["agentAdoption"]
+    assert result["stats"]["packetCache"] == {"fresh_count": 1, "hit_count": 2}
     assert guidance["status"] == "fresh_runtime"
     assert guidance["doNotTreatEmptyAsFailure"] is True
     assert guidance["requiredNextTools"] == [

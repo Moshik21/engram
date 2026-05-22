@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from engram.consolidation.finalization import ConsolidationFinalizationService
+from engram.models.consolidation import CycleContext
 
 
 @pytest.mark.asyncio
@@ -16,7 +17,38 @@ async def test_finalization_service_noops_without_graph_manager():
     result = await service.refresh_after_cycle("test")
 
     assert result.refreshed_pinned_contexts == 0
-    assert result.event_payload() == {"refreshedPinnedContexts": 0}
+    assert result.invalidated_packet_cache_entries == 0
+    assert result.event_payload() == {
+        "refreshedPinnedContexts": 0,
+        "invalidatedPacketCacheEntries": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_finalization_service_invalidates_packet_cache_from_cycle_context():
+    context = CycleContext(trigger="manual")
+    context.affected_entity_ids.update({"ent_changed"})
+    context.merge_survivor_ids.update({"ent_survivor"})
+    context.pruned_entity_ids.update({"ent_pruned"})
+    context.transitioned_episode_ids.update({"ep_transitioned"})
+    context.microglia_demoted_edge_ids.update({"rel_demoted"})
+    graph_manager = SimpleNamespace(
+        invalidate_memory_packet_cache=MagicMock(return_value=3),
+        list_intentions=AsyncMock(return_value=[]),
+        get_context=AsyncMock(),
+        update_intention_meta=AsyncMock(),
+    )
+    service = ConsolidationFinalizationService(graph_manager=graph_manager)
+
+    result = await service.refresh_after_cycle("test", context=context)
+
+    assert result.invalidated_packet_cache_entries == 3
+    graph_manager.invalidate_memory_packet_cache.assert_called_once_with(
+        "test",
+        entity_ids=["ent_changed", "ent_pruned", "ent_survivor"],
+        episode_ids=["ep_transitioned"],
+        relationship_ids=["rel_demoted"],
+    )
 
 
 @pytest.mark.asyncio

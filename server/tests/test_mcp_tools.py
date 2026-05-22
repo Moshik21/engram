@@ -1045,6 +1045,8 @@ class TestJSONResponses:
             packets_surfaced=4,
             packets_used=1,
             false_recalls=2,
+            stale_packets=1,
+            corrected_packets=1,
             query="What did I decide?",
             notes="one misleading packet",
         )
@@ -1056,6 +1058,8 @@ class TestJSONResponses:
         assert sample.source == "mcp"
         assert sample.recall_needed is True
         assert sample.false_recalls == 2
+        assert sample.stale_packets == 1
+        assert sample.corrected_packets == 1
 
         data = json.loads(raw)
         assert data["status"] == "stored"
@@ -1064,6 +1068,8 @@ class TestJSONResponses:
         assert data["sample"]["recall_triggered"] is True
         assert data["sample"]["recall_needed"] is True
         assert data["sample"]["packets_used"] == 1
+        assert data["sample"]["stale_packets"] == 1
+        assert data["sample"]["corrected_packets"] == 1
 
     @pytest.mark.asyncio
     async def test_mcp_records_session_continuity_evaluation_sample(self, monkeypatch):
@@ -1162,6 +1168,8 @@ class TestJSONResponses:
             get_session_samples=AsyncMock(return_value=[session_sample.to_sample()]),
             get_latest_recall_metrics_snapshot=AsyncMock(return_value={}),
             save_recall_metrics_snapshot=AsyncMock(),
+            get_latest_memory_operation_metrics_snapshot=AsyncMock(return_value={}),
+            save_memory_operation_metrics_snapshot=AsyncMock(),
         )
         monkeypatch.setattr(mcp_server, "_manager", manager)
         monkeypatch.setattr(mcp_server, "_evaluation_store", store)
@@ -1263,6 +1271,8 @@ class TestJSONResponses:
                 }
             ),
             save_recall_metrics_snapshot=AsyncMock(),
+            get_latest_memory_operation_metrics_snapshot=AsyncMock(return_value={}),
+            save_memory_operation_metrics_snapshot=AsyncMock(),
         )
         monkeypatch.setattr(mcp_server, "_manager", manager)
         monkeypatch.setattr(mcp_server, "_evaluation_store", store)

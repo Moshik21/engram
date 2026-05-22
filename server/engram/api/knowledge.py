@@ -44,6 +44,7 @@ from engram.retrieval.context_builder import build_api_context_surface
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.forgetting import build_api_forget_response_surface
 from engram.retrieval.lookup import build_api_fact_search_surface
+from engram.retrieval.packet_cache_surface import build_api_packet_cache_clear_surface
 from engram.retrieval.preference_feedback import (
     build_api_explicit_feedback_surface,
 )
@@ -213,6 +214,13 @@ def _get_conv_top_entity_names(manager) -> list[str]:
     return manager_conversation_top_entity_names(manager)
 
 
+def _operation_source(request: Request, operation: str) -> str:
+    client = request.headers.get("x-engram-client", "").strip().lower()
+    if client == "axi":
+        return f"axi_{operation}"
+    return f"api_{operation}"
+
+
 # ─── Endpoints ───────────────────────────────────────────────────
 
 
@@ -365,6 +373,7 @@ async def recall(
         group_id=group_id,
         query=q,
         limit=limit,
+        operation_source=_operation_source(request, "recall"),
     )
     return JSONResponse(content=payload)
 
@@ -421,6 +430,7 @@ async def get_context(
         topic_hint=topic_hint,
         project_path=project_path,
         format=format,
+        operation_source=_operation_source(request, "context"),
     )
 
     return JSONResponse(content=payload)
@@ -533,6 +543,16 @@ async def get_runtime_state(
         project_path=project_path,
     )
     return JSONResponse(content=result)
+
+
+@router.post("/packet-cache/clear")
+async def clear_packet_cache(request: Request) -> JSONResponse:
+    """Clear tenant-local packet cache entries for operator troubleshooting."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    payload = build_api_packet_cache_clear_surface(manager, group_id=group_id)
+    return JSONResponse(content=payload)
 
 
 @router.post("/intentions")

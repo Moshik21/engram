@@ -38,6 +38,19 @@ class HealthyClient:
     def context(self, **_kwargs) -> dict:
         return {"context": "Engram context", "entityCount": 1, "factCount": 1}
 
+    def clear_packet_cache(self) -> dict:
+        return {
+            "status": "cleared",
+            "clearedCount": 2,
+            "packetCache": {
+                "entryCount": 0,
+                "freshCount": 0,
+                "hitCount": 4,
+                "persistent": True,
+                "path": "/tmp/engram-packet-cache.sqlite3",
+            },
+        }
+
 
 def _parse_axi_args(*argv: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -66,6 +79,60 @@ def test_axi_parser_accepts_common_flags_after_subcommand() -> None:
     assert args.json is True
 
 
+def test_axi_value_uses_report_timeout_default_without_overriding_explicit_timeout() -> None:
+    value_args = _parse_axi_args("value")
+    explicit_subcommand_args = _parse_axi_args("value", "--timeout", "7")
+    explicit_global_args = _parse_axi_args("--timeout", "3", "value")
+
+    assert value_args.timeout is None
+    assert value_args._axi_timeout_default == 20.0
+    assert explicit_subcommand_args.timeout == 7.0
+    assert explicit_global_args.timeout == 3.0
+
+
+def test_run_axi_value_uses_report_timeout_default(monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class ValueClient:
+        server_url = "http://127.0.0.1:8100"
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def evaluation_report(self) -> dict:
+            return {
+                "memory_value": {
+                    "status": "measured",
+                    "cost": {
+                        "operation_count": 1,
+                        "p95_added_latency_ms": 12,
+                    },
+                    "benefit": {
+                        "memory_need_precision": 1,
+                        "useful_packet_rate": 1,
+                        "session_continuity_lift": 0.5,
+                    },
+                }
+            }
+
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", ValueClient)
+    args = _parse_axi_args("value", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    assert captured["timeout_seconds"] == 20.0
+    assert json.loads(capsys.readouterr().out)["operation"] == "value"
+
+
+def test_axi_parser_accepts_packet_cache_clear() -> None:
+    args = _parse_axi_args("packet-cache", "clear", "--json")
+
+    assert args.axi_command == "packet-cache"
+    assert args.packet_cache_command == "clear"
+    assert args.json is True
+
+
 def test_run_axi_command_prints_json_home(monkeypatch, capsys) -> None:
     monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
     args = _parse_axi_args("--json", "--project", "/tmp/project")
@@ -77,6 +144,32 @@ def test_run_axi_command_prints_json_home(monkeypatch, capsys) -> None:
     assert payload["status"] == "healthy"
     assert payload["mode"] == "helix"
     assert payload["brain"]["project"] == "/tmp/project"
+
+
+def test_run_axi_packet_cache_clear_prints_json_and_traces(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    trace_file = tmp_path / "axi-runs.jsonl"
+    args = _parse_axi_args(
+        "packet-cache",
+        "clear",
+        "--json",
+        "--trace-file",
+        str(trace_file),
+    )
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation"] == "packet-cache.clear"
+    assert payload["cleared_count"] == 2
+    trace = json.loads(trace_file.read_text().splitlines()[0])
+    assert trace["operation"] == "packet-cache.clear"
+    assert trace["status"] == "cleared"
 
 
 def test_run_axi_command_writes_metadata_only_trace(monkeypatch, tmp_path, capsys) -> None:

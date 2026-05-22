@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from engram.models.consolidation import CycleContext
 from engram.utils.dates import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -17,10 +18,14 @@ class ConsolidationFinalizationResult:
     """Summary of non-phase work completed after a consolidation cycle."""
 
     refreshed_pinned_contexts: int = 0
+    invalidated_packet_cache_entries: int = 0
 
     def event_payload(self) -> dict[str, int]:
         """Return event-safe finalization metrics."""
-        return {"refreshedPinnedContexts": self.refreshed_pinned_contexts}
+        return {
+            "refreshedPinnedContexts": self.refreshed_pinned_contexts,
+            "invalidatedPacketCacheEntries": self.invalidated_packet_cache_entries,
+        }
 
 
 class ConsolidationFinalizationService:
@@ -29,10 +34,60 @@ class ConsolidationFinalizationService:
     def __init__(self, *, graph_manager: object | None) -> None:
         self._graph_manager = graph_manager
 
-    async def refresh_after_cycle(self, group_id: str) -> ConsolidationFinalizationResult:
+    async def refresh_after_cycle(
+        self,
+        group_id: str,
+        *,
+        context: CycleContext | None = None,
+    ) -> ConsolidationFinalizationResult:
         """Run post-cycle finalizers that should happen after successful consolidation."""
+        invalidated = self._invalidate_packet_cache(group_id, context)
         refreshed = await self._refresh_pinned_contexts(group_id)
-        return ConsolidationFinalizationResult(refreshed_pinned_contexts=refreshed)
+        return ConsolidationFinalizationResult(
+            refreshed_pinned_contexts=refreshed,
+            invalidated_packet_cache_entries=invalidated,
+        )
+
+    def _invalidate_packet_cache(
+        self,
+        group_id: str,
+        context: CycleContext | None,
+    ) -> int:
+        """Invalidate packet-cache entries touched by consolidation graph mutations."""
+        gm = self._graph_manager
+        if gm is None or context is None:
+            return 0
+
+        invalidate = getattr(gm, "invalidate_memory_packet_cache", None)
+        if not callable(invalidate):
+            return 0
+
+        entity_ids = set(context.affected_entity_ids)
+        entity_ids.update(context.merge_survivor_ids)
+        entity_ids.update(context.inferred_edge_entity_ids)
+        entity_ids.update(context.pruned_entity_ids)
+        entity_ids.update(context.replay_new_entity_ids)
+        entity_ids.update(context.dream_seed_ids)
+        entity_ids.update(context.dream_association_ids)
+        entity_ids.update(context.triage_promoted_ids)
+        entity_ids.update(context.matured_entity_ids)
+        entity_ids.update(context.schema_entity_ids)
+        entity_ids.update(context.microglia_repaired_entity_ids)
+
+        relationship_ids = set(context.microglia_demoted_edge_ids)
+        episode_ids = set(context.transitioned_episode_ids)
+        if not entity_ids and not relationship_ids and not episode_ids:
+            return 0
+
+        return int(
+            invalidate(
+                group_id,
+                entity_ids=sorted(entity_ids) or None,
+                episode_ids=sorted(episode_ids) or None,
+                relationship_ids=sorted(relationship_ids) or None,
+            )
+            or 0
+        )
 
     async def _refresh_pinned_contexts(self, group_id: str) -> int:
         """Refresh pinned context intentions after consolidation."""

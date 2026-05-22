@@ -63,7 +63,10 @@ class ConsolidationCycleCompletionService:
 
         if cycle.status == "completed":
             try:
-                finalization_result = await self._finalization.refresh_after_cycle(group_id)
+                finalization_result = await self._finalization.refresh_after_cycle(
+                    group_id,
+                    context=context,
+                )
                 finalization_payload = finalization_result.event_payload()
             except Exception:
                 logger.warning(

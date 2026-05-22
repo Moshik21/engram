@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { useEngramStore } from "../store";
-import type { BrainLoopEvaluationReport, BrainLoopEvaluationSignalKey } from "../store/types";
+import type {
+  BrainLoopEvaluationReport,
+  BrainLoopEvaluationSignalKey,
+  BrainLoopReportDegradation,
+} from "../store/types";
 
 function pct(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "n/a";
@@ -74,6 +78,15 @@ function fallbackReleaseEvidenceStatus(report: BrainLoopEvaluationReport) {
     report.adoptionClientEvidence?.status,
   ].filter((status) => status === "measured").length;
   return `${measuredCount}/3 measured`;
+}
+
+function formatDegradation(item: BrainLoopReportDegradation) {
+  const parts = [
+    item.stage,
+    item.skipReason,
+    item.timeoutMs != null ? duration(item.timeoutMs) : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function EvidenceColumn({
@@ -376,6 +389,8 @@ export function EvaluationPanel() {
     packetsSurfaced: "0",
     packetsUsed: "0",
     falseRecalls: "0",
+    stalePackets: "0",
+    correctedPackets: "0",
     query: "",
     notes: "",
   });
@@ -445,6 +460,7 @@ export function EvaluationPanel() {
       ]),
     );
   }, [report]);
+  const reportDegradations = report?.degradations ?? [];
 
   const submitRecallLabel = async (event: FormEvent) => {
     event.preventDefault();
@@ -457,6 +473,8 @@ export function EvaluationPanel() {
         packetsSurfaced: clampInt(recallLabel.packetsSurfaced),
         packetsUsed: clampInt(recallLabel.packetsUsed),
         falseRecalls: clampInt(recallLabel.falseRecalls),
+        stalePackets: clampInt(recallLabel.stalePackets),
+        correctedPackets: clampInt(recallLabel.correctedPackets),
         query: recallLabel.query.trim() || null,
         notes: recallLabel.notes.trim() || null,
       });
@@ -466,6 +484,8 @@ export function EvaluationPanel() {
         packetsSurfaced: "0",
         packetsUsed: "0",
         falseRecalls: "0",
+        stalePackets: "0",
+        correctedPackets: "0",
         query: "",
         notes: "",
       }));
@@ -579,6 +599,58 @@ export function EvaluationPanel() {
         </button>
       </header>
 
+      {report.degraded ? (
+        <section
+          className="card"
+          style={{
+            padding: 14,
+            borderColor: "rgba(250, 204, 21, 0.28)",
+            background: "rgba(250, 204, 21, 0.06)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <div className="label" style={{ color: "#facc15" }}>
+              Report degraded
+            </div>
+            <span className="label" style={{ color: "var(--text-muted)" }}>
+              {reportDegradations.length.toLocaleString()} fallback
+              {reportDegradations.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              color: "var(--text-secondary)",
+              fontSize: 12,
+            }}
+          >
+            {reportDegradations.length > 0 ? (
+              reportDegradations.map((item, index) => (
+                <span
+                  key={`${item.stage}-${item.skipReason ?? "none"}-${index}`}
+                  className="mono"
+                  style={{
+                    border: "1px solid rgba(250, 204, 21, 0.22)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "4px 7px",
+                    background: "rgba(0,0,0,0.18)",
+                  }}
+                >
+                  {formatDegradation(item)}
+                </span>
+              ))
+            ) : (
+              <span className="mono">degraded fallback used</span>
+            )}
+          </div>
+        </section>
+      ) : null}
+
       <div
         style={{
           display: "grid",
@@ -611,9 +683,30 @@ export function EvaluationPanel() {
           <Metric label="missed need" value={pct(report.recall.evaluation.missedRecallRate)} accent="#fb7185" />
           <Metric label="false recall" value={pct(report.recall.evaluation.falseRecallRate)} accent="#fb7185" />
           <Metric label="useful packets" value={pct(report.recall.evaluation.usefulPacketRate)} />
+          <Metric label="stale packets" value={pct(report.recall.evaluation.stalePacketRate)} accent="#facc15" />
+          <Metric label="corrected packets" value={pct(report.recall.evaluation.correctedPacketRate)} accent="#fb7185" />
           <Metric label="analysis p95" value={duration(report.recall.latency.analyzerMs.p95Ms)} accent="#22d3ee" />
           <Metric label="probe p95" value={duration(report.recall.latency.probeMs.p95Ms)} />
           <Metric label="labels" value={report.recall.evaluation.sampleCount.toLocaleString()} />
+        </Section>
+
+        <Section title="Memory Value" status={report.memoryValue.status} accent="#14b8a6">
+          <Metric label="operations" value={report.memoryValue.cost.operationCount.toLocaleString()} accent="#14b8a6" />
+          <Metric label="skipped" value={report.memoryValue.cost.skippedCount.toLocaleString()} accent="#facc15" />
+          <Metric label="errors" value={report.memoryValue.cost.errorCount.toLocaleString()} accent="#fb7185" />
+          <Metric label="avg added" value={duration(report.memoryValue.cost.avgAddedLatencyMs)} />
+          <Metric label="p95 added" value={duration(report.memoryValue.cost.p95AddedLatencyMs)} accent="#22d3ee" />
+          <Metric label="budget p95" value={duration(report.memoryValue.cost.p95BudgetMs)} />
+          <Metric label="timeout" value={pct(report.memoryValue.cost.timeoutRate)} accent="#fb7185" />
+          <Metric label="degraded" value={pct(report.memoryValue.cost.degradedRate)} accent="#fb7185" />
+          <Metric label="budget miss" value={pct(report.memoryValue.cost.budgetMissRate)} accent="#facc15" />
+          <Metric label="cache hit" value={pct(report.memoryValue.cost.cacheHitRate)} accent="#34d399" />
+          <Metric label="stale packet" value={pct(report.memoryValue.benefit.stalePacketRate)} accent="#facc15" />
+          <Metric label="corrected packet" value={pct(report.memoryValue.benefit.correctedPacketRate)} accent="#fb7185" />
+          <Metric label="dismissed" value={report.recall.control.dismissedCount.toLocaleString()} accent="#fb7185" />
+          <Metric label="corrected" value={report.recall.control.correctedCount.toLocaleString()} accent="#facc15" />
+          <Metric label="benefit labels" value={report.memoryValue.benefit.recallSampleCount.toLocaleString()} />
+          <Metric label="continuity lift" value={num(report.memoryValue.benefit.sessionContinuityLift, 3)} />
         </Section>
 
         <Section
@@ -1022,7 +1115,7 @@ export function EvaluationPanel() {
                 onChange={(checked) => setRecallLabel((current) => ({ ...current, recallNeeded: checked }))}
               />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(86px, 1fr))", gap: 8 }}>
               <CompactInput
                 label="Surfaced"
                 type="number"
@@ -1046,6 +1139,22 @@ export function EvaluationPanel() {
                 step={1}
                 value={recallLabel.falseRecalls}
                 onChange={(value) => setRecallLabel((current) => ({ ...current, falseRecalls: value }))}
+              />
+              <CompactInput
+                label="Stale"
+                type="number"
+                min={0}
+                step={1}
+                value={recallLabel.stalePackets}
+                onChange={(value) => setRecallLabel((current) => ({ ...current, stalePackets: value }))}
+              />
+              <CompactInput
+                label="Corrected"
+                type="number"
+                min={0}
+                step={1}
+                value={recallLabel.correctedPackets}
+                onChange={(value) => setRecallLabel((current) => ({ ...current, correctedPackets: value }))}
               />
             </div>
             <CompactInput

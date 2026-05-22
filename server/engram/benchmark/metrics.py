@@ -16,6 +16,8 @@ class RecallEvalSample:
     packets_surfaced: int = 0
     packets_used: int = 0
     false_recalls: int = 0
+    stale_packets: int = 0
+    corrected_packets: int = 0
     recall_needed: bool | None = None
 
 

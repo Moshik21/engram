@@ -265,7 +265,9 @@ class TestConsolidationEngine:
         cycle = await engine.run_cycle(group_id="test", dry_run=True, phase_names=set())
 
         assert cycle.status == "completed"
-        engine._finalization.refresh_after_cycle.assert_awaited_once_with("test")
+        engine._finalization.refresh_after_cycle.assert_awaited_once()
+        assert engine._finalization.refresh_after_cycle.await_args.args == ("test",)
+        assert "context" in engine._finalization.refresh_after_cycle.await_args.kwargs
 
     @pytest.mark.asyncio
     async def test_run_cycle_rejects_unknown_phase_names(self, engine):
@@ -307,7 +309,10 @@ class TestConsolidationEngine:
         while not queue.empty():
             events.append(queue.get_nowait())
         completed = next(event for event in events if event["type"] == "consolidation.completed")
-        assert completed["payload"]["finalization"] == {"refreshedPinnedContexts": 2}
+        assert completed["payload"]["finalization"] == {
+            "refreshedPinnedContexts": 2,
+            "invalidatedPacketCacheEntries": 0,
+        }
 
     @pytest.mark.asyncio
     async def test_empty_graph_completes(self, engine):

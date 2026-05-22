@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -67,7 +68,11 @@ class EpisodeCaptureService:
         if self._cfg.cue_layer_enabled:
             await self._store_episode_cue(episode)
 
-        if self._cfg.decision_graph_enabled and source != "auto:bootstrap" and content.strip():
+        if (
+            self._cfg.decision_graph_enabled
+            and not _is_auto_capture_source(source)
+            and content.strip()
+        ):
             try:
                 await self._materialize_decisions(
                     content,
@@ -109,7 +114,7 @@ class EpisodeCaptureService:
                     self._search,
                     "index_episode_cue",
                 ):
-                    await self._search.index_episode_cue(cue)
+                    await self._index_episode_cue_best_effort(cue)
                 await sync_projection_state(
                     self._graph,
                     episode.id,
@@ -154,3 +159,28 @@ class EpisodeCaptureService:
                 )
         except Exception:
             logger.warning("Failed to generate/store episode cue", exc_info=True)
+
+    async def _index_episode_cue_best_effort(self, cue) -> None:
+        """Index cue vectors without letting embedding latency block capture."""
+        index_cue = getattr(self._search, "index_episode_cue", None)
+        if not callable(index_cue):
+            return
+        timeout_ms = int(getattr(self._cfg, "capture_cue_vector_index_timeout_ms", 0) or 0)
+        try:
+            if timeout_ms > 0:
+                await asyncio.wait_for(index_cue(cue), timeout=timeout_ms / 1000)
+            else:
+                await index_cue(cue)
+        except TimeoutError:
+            logger.warning(
+                "Timed out indexing episode cue %s after %sms; capture continuing",
+                cue.episode_id,
+                timeout_ms,
+            )
+        except Exception:
+            logger.warning("Failed to index episode cue %s", cue.episode_id, exc_info=True)
+
+
+def _is_auto_capture_source(source: str | None) -> bool:
+    """Return whether a source is a hook/bootstrap capture that should project later."""
+    return bool(source and source.startswith("auto:"))

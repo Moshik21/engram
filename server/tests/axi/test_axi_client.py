@@ -31,6 +31,10 @@ def test_rest_client_parses_json_response(monkeypatch) -> None:
         seen["url"] = request.full_url
         seen["timeout"] = timeout
         seen["auth"] = request.headers.get("Authorization")
+        seen["client"] = (
+            request.get_header("X-Engram-Client")
+            or request.get_header("X-engram-client")
+        )
         return FakeResponse(b'{"status":"healthy"}')
 
     monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
@@ -46,6 +50,7 @@ def test_rest_client_parses_json_response(monkeypatch) -> None:
     assert seen["url"] == "http://localhost:8100/health?q=Engram+AXI"
     assert seen["timeout"] == 1.5
     assert seen["auth"] == "Bearer secret"
+    assert seen["client"] == "axi"
 
 
 def test_rest_client_can_clone_with_shorter_timeout() -> None:
@@ -60,6 +65,26 @@ def test_rest_client_can_clone_with_shorter_timeout() -> None:
     assert clone.server_url == "http://localhost:8100"
     assert clone.timeout_seconds == 0.75
     assert clone.auth_token == "secret"
+
+
+def test_rest_client_clears_packet_cache(monkeypatch) -> None:
+    seen = {}
+
+    def fake_urlopen(request, timeout: float):
+        seen["url"] = request.full_url
+        seen["method"] = request.get_method()
+        seen["data"] = request.data
+        return FakeResponse(b'{"status":"cleared","clearedCount":2}')
+
+    monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
+
+    client = AxiRestClient(server_url="http://localhost:8100", timeout_seconds=1)
+    payload = client.clear_packet_cache()
+
+    assert payload == {"status": "cleared", "clearedCount": 2}
+    assert seen["url"] == "http://localhost:8100/api/knowledge/packet-cache/clear"
+    assert seen["method"] == "POST"
+    assert seen["data"] is None
 
 
 def test_rest_client_rejects_malformed_json(monkeypatch) -> None:

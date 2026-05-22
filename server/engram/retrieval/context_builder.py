@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
 from engram.models.entity import Entity
+from engram.retrieval.budgets import (
+    RecallBudget,
+    budget_profile_for_source,
+    recall_budget_for_profile,
+    surface_for_source,
+)
+from engram.retrieval.memory_operations import (
+    MemoryOperationSample,
+    record_manager_memory_operation,
+)
 from engram.storage.protocols import ActivationStore, GraphStore
 
 logger = logging.getLogger(__name__)
@@ -26,6 +37,7 @@ async def build_api_context_surface(
     topic_hint: str | None = None,
     project_path: str | None = None,
     format: str = "structured",
+    operation_source: str = "api_context",
 ) -> dict:
     """Build the REST context response from the shared context manager facade."""
     result = await build_mcp_context_surface(
@@ -35,14 +47,43 @@ async def build_api_context_surface(
         topic_hint=topic_hint,
         project_path=project_path,
         format=format,
+        operation_source=operation_source,
     )
-    return {
+    payload = {
         "context": result["context"],
         "entityCount": result["entity_count"],
         "factCount": result["fact_count"],
         "tokenEstimate": result["token_estimate"],
         "format": result.get("format", "structured"),
     }
+    if "cached_packets" in result:
+        payload["cachedPackets"] = result["cached_packets"]
+    if "packet_cache" in result:
+        payload["packetCache"] = result["packet_cache"]
+    if "status" in result:
+        payload["status"] = result["status"]
+    if "budget" in result:
+        budget = result["budget"]
+        payload["budget"] = {
+            "profile": budget.get("profile"),
+            "surface": budget.get("surface"),
+            "mode": budget.get("mode"),
+            "maxWallMs": budget.get("max_wall_ms"),
+            "durationMs": budget.get("duration_ms"),
+            "budgetMiss": budget.get("budget_miss"),
+            "timeout": budget.get("timeout"),
+            "degraded": budget.get("degraded"),
+            "skipReason": budget.get("skip_reason"),
+        }
+    if "lifecycle" in result:
+        lifecycle = result["lifecycle"]
+        payload["lifecycle"] = {
+            "stage": lifecycle.get("stage"),
+            "degraded": lifecycle.get("degraded"),
+            "timeout": lifecycle.get("timeout"),
+            "skipReason": lifecycle.get("skip_reason"),
+        }
+    return payload
 
 
 async def build_mcp_context_surface(
@@ -53,15 +94,72 @@ async def build_mcp_context_surface(
     topic_hint: str | None = None,
     project_path: str | None = None,
     format: str = "structured",
+    operation_source: str = "mcp_context",
 ) -> dict:
     """Build the MCP context response from the shared context manager facade."""
-    return await manager.get_context(
-        group_id=group_id,
-        max_tokens=max_tokens,
-        topic_hint=topic_hint,
-        project_path=project_path,
-        format=format,
+    cfg = _manager_activation_config(manager)
+    budget = recall_budget_for_profile(
+        cfg,
+        budget_profile_for_source(operation_source),
+        surface=surface_for_source(operation_source),
+        mode=operation_source,
+        max_output_tokens=max_tokens,
     )
+    timeout_seconds = budget.stage_timeout_seconds(budget.max_wall_ms)
+    started = time.perf_counter()
+    if timeout_seconds <= 0:
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        await _record_context_timeout(
+            manager,
+            group_id=group_id,
+            operation_source=operation_source,
+            budget=budget,
+            status="skipped",
+            skip_reason="skipped_budget",
+            duration_ms=duration_ms,
+            timeout=False,
+        )
+        return _context_timeout_payload(
+            format=format,
+            budget=budget,
+            duration_ms=duration_ms,
+            status="skipped",
+            skip_reason="skipped_budget",
+            timeout=False,
+        )
+
+    try:
+        return await asyncio.wait_for(
+            manager.get_context(
+                group_id=group_id,
+                max_tokens=max_tokens,
+                topic_hint=topic_hint,
+                project_path=project_path,
+                format=format,
+                operation_source=operation_source,
+            ),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        await _record_context_timeout(
+            manager,
+            group_id=group_id,
+            operation_source=operation_source,
+            budget=budget,
+            status="degraded",
+            skip_reason="context_timeout",
+            duration_ms=duration_ms,
+            timeout=True,
+        )
+        return _context_timeout_payload(
+            format=format,
+            budget=budget,
+            duration_ms=duration_ms,
+            status="degraded",
+            skip_reason="context_timeout",
+            timeout=True,
+        )
 
 
 async def build_mcp_context_tool_surface(
@@ -73,6 +171,7 @@ async def build_mcp_context_tool_surface(
     project_path: str | None = None,
     format: str = "structured",
     recall_middleware: Callable[..., Awaitable[None]],
+    operation_source: str = "mcp_context",
 ) -> dict:
     """Build the MCP context tool payload and run read-tool middleware."""
     result = await build_mcp_context_surface(
@@ -82,6 +181,7 @@ async def build_mcp_context_tool_surface(
         topic_hint=topic_hint,
         project_path=project_path,
         format=format,
+        operation_source=operation_source,
     )
     await recall_middleware(topic_hint or project_path or "", result, tool_name="get_context")
     return result
@@ -108,6 +208,8 @@ class MemoryContextBuilder:
         resolve_entity_name: Callable[[str, str], Awaitable[str]],
         publish_access_event: Callable[[str, str, str, str, str], Awaitable[None]],
         briefing_cache: dict[tuple[str, str | None], tuple[float, str]] | None = None,
+        get_cached_packets: Callable[..., Any] | None = None,
+        cache_packets: Callable[..., Any] | None = None,
     ) -> None:
         self._graph = graph_store
         self._activation = activation_store
@@ -117,6 +219,8 @@ class MemoryContextBuilder:
         self._resolve_entity_name = resolve_entity_name
         self._publish_access_event = publish_access_event
         self._briefing_cache = briefing_cache if briefing_cache is not None else {}
+        self._get_cached_packets = get_cached_packets
+        self._cache_packets = cache_packets
 
     @property
     def briefing_cache(self) -> dict[tuple[str, str | None], tuple[float, str]]:
@@ -277,6 +381,16 @@ class MemoryContextBuilder:
         from engram.activation.engine import compute_activation
 
         now = time.time()
+        if project_path:
+            project_dir = Path(project_path).expanduser()
+            if project_dir.name and str(project_dir) != str(Path.home()) and not topic_hint:
+                topic_hint = project_dir.name
+        cached_packets = self._load_cached_context_packets(
+            group_id=group_id,
+            topic_hint=topic_hint,
+            project_path=project_path,
+        )
+        cached_packet_text = self.render_cached_packets(cached_packets)
         seen_ids: set[str] = set()
         identity_limit = self._budgeted_entity_limit(
             max_tokens,
@@ -319,8 +433,6 @@ class MemoryContextBuilder:
         if project_path:
             project_dir = Path(project_path).expanduser()
             if project_dir.name and str(project_dir) != str(Path.home()):
-                if not topic_hint:
-                    topic_hint = project_dir.name
                 project_lookup_timed_out = False
                 try:
                     existing_projects = await asyncio.wait_for(
@@ -584,7 +696,15 @@ class MemoryContextBuilder:
             unique_facts.append(fact)
 
         sections = [
-            section for section in [layer1_text, layer2_text, layer3_text, layer4_text, layer5_text]
+            section
+            for section in [
+                cached_packet_text,
+                layer1_text,
+                layer2_text,
+                layer3_text,
+                layer4_text,
+                layer5_text,
+            ]
             if section
         ]
         context_text = (
@@ -607,6 +727,19 @@ class MemoryContextBuilder:
                 "context",
             )
 
+        self._cache_context_packets(
+            group_id=group_id,
+            topic_hint=topic_hint,
+            project_path=project_path,
+            identity_entities=layer1_entities,
+            project_entities=layer2_entities,
+        )
+        packet_cache = {
+            "hit": bool(cached_packets),
+            "packet_count": len(cached_packets),
+            "scopes": _packet_scope_counts(cached_packets),
+        }
+
         if format == "briefing" and self._cfg.briefing_enabled and all_entities:
             briefing = self.template_briefing(context_text, group_id, topic_hint)
             result = {
@@ -615,6 +748,8 @@ class MemoryContextBuilder:
                 "fact_count": len(unique_facts),
                 "token_estimate": self.estimate_tokens(briefing),
                 "format": "briefing",
+                "cached_packets": cached_packets,
+                "packet_cache": packet_cache,
             }
             if pinned_contexts:
                 result["pinned_contexts"] = pinned_contexts
@@ -626,10 +761,134 @@ class MemoryContextBuilder:
             "fact_count": len(unique_facts),
             "token_estimate": token_estimate,
             "format": "structured",
+            "cached_packets": cached_packets,
+            "packet_cache": packet_cache,
         }
         if pinned_contexts:
             result["pinned_contexts"] = pinned_contexts
         return result
+
+    @staticmethod
+    def render_cached_packets(packets: Sequence[Mapping[str, Any]]) -> str:
+        """Render cached packets as a compact context tier."""
+        if not packets:
+            return ""
+        lines = ["## Cached Memory Packets", ""]
+        for packet in packets[:5]:
+            trust = packet.get("trust") if isinstance(packet.get("trust"), Mapping) else {}
+            source = trust.get("source") or packet.get("source") or "cache"
+            freshness = trust.get("freshness") or "unknown"
+            title = str(packet.get("title") or packet.get("packet_type") or "Memory")
+            summary = str(packet.get("summary") or "").strip()
+            if summary:
+                lines.append(f"- [{source}/{freshness}] {title} — {summary[:180]}")
+            else:
+                lines.append(f"- [{source}/{freshness}] {title}")
+            why_now = trust.get("why_now") or packet.get("why_now") or packet.get("whyNow")
+            if why_now:
+                lines.append(f"  - why: {str(why_now)[:160]}")
+        return "\n".join(lines)
+
+    def _load_cached_context_packets(
+        self,
+        *,
+        group_id: str,
+        topic_hint: str | None,
+        project_path: str | None,
+    ) -> list[dict[str, Any]]:
+        if not self._cfg.recall_packet_cache_enabled or self._get_cached_packets is None:
+            return []
+        packets: list[dict[str, Any]] = []
+        for scope, scope_topic, scope_project in (
+            ("identity_core", None, None),
+            ("project_home", topic_hint, project_path),
+        ):
+            if scope == "project_home" and not (scope_topic or scope_project):
+                continue
+            try:
+                hit = self._get_cached_packets(
+                    group_id,
+                    scope=scope,
+                    topic_hint=scope_topic,
+                    project_path=scope_project,
+                )
+            except Exception:
+                logger.debug("Context packet-cache lookup failed", exc_info=True)
+                continue
+            if inspect.isawaitable(hit):
+                _close_awaitable(hit)
+                continue
+            hit_packets = getattr(hit, "packets", None)
+            if not isinstance(hit_packets, list):
+                continue
+            for packet in hit_packets:
+                if isinstance(packet, Mapping):
+                    packets.append({**dict(packet), "_cache_scope": scope})
+        return packets
+
+    def _cache_context_packets(
+        self,
+        *,
+        group_id: str,
+        topic_hint: str | None,
+        project_path: str | None,
+        identity_entities: Sequence[Mapping[str, Any]],
+        project_entities: Sequence[Mapping[str, Any]],
+    ) -> None:
+        if not self._cfg.recall_packet_cache_enabled or self._cache_packets is None:
+            return
+        self._cache_context_scope(
+            group_id=group_id,
+            scope="identity_core",
+            packets=[
+                _context_entity_packet(
+                    entity,
+                    packet_type="identity_core",
+                    why_now="Stable identity and preference context for this agent session.",
+                )
+                for entity in identity_entities
+            ],
+        )
+        if topic_hint or project_path:
+            self._cache_context_scope(
+                group_id=group_id,
+                scope="project_home",
+                topic_hint=topic_hint,
+                project_path=project_path,
+                packets=[
+                    _context_entity_packet(
+                        entity,
+                        packet_type="project_home",
+                        why_now="Cached project context for the current workspace.",
+                    )
+                    for entity in project_entities
+                ],
+            )
+
+    def _cache_context_scope(
+        self,
+        *,
+        group_id: str,
+        scope: str,
+        packets: Sequence[Mapping[str, Any]],
+        topic_hint: str | None = None,
+        project_path: str | None = None,
+    ) -> None:
+        if not packets or self._cache_packets is None:
+            return
+        try:
+            result = self._cache_packets(
+                group_id,
+                scope=scope,
+                topic_hint=topic_hint,
+                project_path=project_path,
+                packets=packets,
+            )
+        except Exception:
+            logger.debug("Context packet-cache write failed", exc_info=True)
+            return
+        if inspect.isawaitable(result):
+            _close_awaitable(result)
 
     @staticmethod
     def _budgeted_entity_limit(
@@ -645,3 +904,150 @@ class MemoryContextBuilder:
     @staticmethod
     def _budgeted_timeout(max_tokens: int, *, default: float) -> float:
         return min(default, max(0.75, max_tokens / 500.0))
+
+
+def _context_entity_packet(
+    entity: Mapping[str, Any],
+    *,
+    packet_type: str,
+    why_now: str,
+) -> dict[str, Any]:
+    entity_id = str(entity.get("id") or "")
+    facts = [str(fact) for fact in entity.get("facts", [])[:3]]
+    summary = str(entity.get("summary") or "").strip()
+    title = f"{packet_type.replace('_', ' ').title()}: {entity.get('name') or 'Memory'}"
+    packet = {
+        "packet_type": packet_type,
+        "title": title,
+        "summary": summary or "; ".join(facts)[:180],
+        "why_now": why_now,
+        "confidence": 0.8,
+        "entity_ids": [entity_id] if entity_id else [],
+        "relationship_ids": [],
+        "episode_ids": [],
+        "evidence_lines": facts,
+        "provenance": [f"entity:{entity_id}"] if entity_id else [],
+        "supporting_intents": ["context_cache"],
+        "trust": {
+            "freshness": "recent",
+            "source": "cache",
+            "confidence": 0.8,
+            "why_now": why_now,
+            "provenance_count": 1 if entity_id else 0,
+            "evidence_count": len(facts),
+            "belief_status": "unknown",
+            "confirmed_count": 0,
+            "corrected_count": 0,
+            "dismissed_count": 0,
+            "last_confirmed_at": None,
+            "last_corrected_at": None,
+            "last_dismissed_at": None,
+        },
+    }
+    return packet
+
+
+def _packet_scope_counts(packets: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for packet in packets:
+        scope = str(packet.get("_cache_scope") or "unknown")
+        counts[scope] = counts.get(scope, 0) + 1
+    return counts
+
+
+def _manager_activation_config(manager: Any) -> ActivationConfig:
+    get_cfg = getattr(manager, "get_activation_config", None)
+    if callable(get_cfg):
+        try:
+            cfg = get_cfg()
+        except Exception:
+            cfg = None
+        if isinstance(cfg, ActivationConfig):
+            return cfg
+    get_cfg = getattr(manager, "get_memory_need_config", None)
+    if callable(get_cfg):
+        try:
+            cfg = get_cfg()
+        except Exception:
+            cfg = None
+        if isinstance(cfg, ActivationConfig):
+            return cfg
+    return ActivationConfig()
+
+
+async def _record_context_timeout(
+    manager: Any,
+    *,
+    group_id: str,
+    operation_source: str,
+    budget: RecallBudget,
+    status: str,
+    skip_reason: str,
+    duration_ms: float,
+    timeout: bool,
+) -> None:
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="context",
+            source=operation_source,
+            mode=operation_source,
+            status=status,
+            duration_ms=duration_ms,
+            skip_reason=skip_reason,
+            timeout=timeout,
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+            budget_miss=True,
+            degraded=bool(timeout or budget.timeout_degrades),
+        ),
+    )
+
+
+def _context_timeout_payload(
+    *,
+    format: str,
+    budget: RecallBudget,
+    duration_ms: float,
+    status: str,
+    skip_reason: str,
+    timeout: bool,
+) -> dict[str, Any]:
+    context = (
+        "## Active Memory Context\n\n"
+        "Context lookup degraded before fresh memory context could be assembled."
+    )
+    return {
+        "context": context,
+        "entity_count": 0,
+        "fact_count": 0,
+        "token_estimate": MemoryContextBuilder.estimate_tokens(context),
+        "format": "structured",
+        "status": status,
+        "budget": {
+            "profile": budget.profile,
+            "surface": budget.surface,
+            "mode": budget.mode,
+            "max_wall_ms": budget.max_wall_ms,
+            "duration_ms": duration_ms,
+            "budget_miss": True,
+            "timeout": timeout,
+            "degraded": True,
+            "skip_reason": skip_reason,
+        },
+        "lifecycle": {
+            "stage": "recall",
+            "degraded": True,
+            "timeout": timeout,
+            "skip_reason": skip_reason,
+        },
+        "cached_packets": [],
+        "packet_cache": {"hit": False, "packet_count": 0, "scopes": {}},
+    }
+
+
+def _close_awaitable(value: Any) -> None:
+    close = getattr(value, "close", None)
+    if callable(close):
+        close()

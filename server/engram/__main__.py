@@ -156,6 +156,15 @@ def main():
 
     configure_evaluate_parser(evaluate_parser)
 
+    # --- dogfood ---
+    dogfood_parser = subparsers.add_parser(
+        "dogfood",
+        help="Replay local transcripts through Engram memory modes",
+    )
+    from engram.evaluation.dogfood import configure_dogfood_parser
+
+    configure_dogfood_parser(dogfood_parser)
+
     # --- axi ---
     axi_parser = subparsers.add_parser(
         "axi",
@@ -305,6 +314,14 @@ def main():
 
         asyncio.run(run_evaluate_command(args))
         return
+
+    # --- dogfood ---
+    if args.command == "dogfood":
+        import asyncio
+
+        from engram.evaluation.dogfood import run_dogfood_command
+
+        sys.exit(asyncio.run(run_dogfood_command(args)))
 
     # --- axi ---
     if args.command == "axi":

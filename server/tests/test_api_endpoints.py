@@ -162,6 +162,34 @@ async def empty_client(tmp_path):
     _app_state.clear()
 
 
+@pytest.mark.asyncio
+async def test_packet_cache_clear_endpoint_clears_tenant_entries(api_client):
+    manager = _app_state["graph_manager"]
+    manager.cache_memory_packets(
+        "default",
+        scope="project_home",
+        packets=[
+            {
+                "packet_type": "project_home",
+                "title": "Project Home",
+                "summary": "Cached project context",
+            }
+        ],
+        project_path="/tmp/project",
+    )
+    assert manager.get_memory_packet_cache_summary("default")["entry_count"] == 1
+
+    response = await api_client.post("/api/knowledge/packet-cache/clear")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["operation"] == "packet_cache.clear"
+    assert payload["status"] == "cleared"
+    assert payload["clearedCount"] == 1
+    assert payload["packetCache"]["entryCount"] == 0
+    assert manager.get_memory_packet_cache_summary("default")["entry_count"] == 0
+
+
 class TestConsolidationAPI:
     @pytest.mark.asyncio
     async def test_status_and_history_include_cycle_and_phase_errors(self, api_client):
@@ -752,6 +780,8 @@ class TestEvaluation:
                 "packetsSurfaced": 3,
                 "packetsUsed": 2,
                 "falseRecalls": 1,
+                "stalePackets": 1,
+                "correctedPackets": 1,
                 "query": "What did I decide?",
             },
         )
@@ -761,6 +791,8 @@ class TestEvaluation:
         assert recall_data["groupId"] == "default"
         assert recall_data["sample"]["recallTriggered"] is True
         assert recall_data["sample"]["recallNeeded"] is True
+        assert recall_data["sample"]["stalePackets"] == 1
+        assert recall_data["sample"]["correctedPackets"] == 1
 
         session_resp = await api_client.post(
             "/api/evaluation/session-samples",
@@ -870,19 +902,34 @@ class TestEvaluation:
                 graph_override_used=True,
             ),
         )
+        manager.record_memory_operation(
+            "default",
+            {
+                "operation": "recall",
+                "source": "api_recall",
+                "mode": "api_recall",
+                "duration_ms": 17.0,
+                "result_count": 2,
+            },
+        )
 
         resp = await api_client.get("/api/evaluation/brain-loop/report")
         assert resp.status_code == 200
         report = resp.json()
         saved = await store.get_latest_recall_metrics_snapshot("default")
+        saved_memory = await store.get_latest_memory_operation_metrics_snapshot("default")
 
         assert report["recall"]["total_analyses"] == 1
         assert report["recall"]["latency"]["analyzer_ms"]["p95_ms"] == 11.0
         assert report["recall"]["latency"]["probe_ms"]["p95_ms"] == 5.0
+        assert report["memory_value"]["cost"]["operation_count"] == 1
+        assert report["memory_value"]["cost"]["p95_added_latency_ms"] == 17.0
         assert saved["total_analyses"] == 1
         assert saved["trigger_count"] == 1
         assert saved["analyzer_latency_ms"]["p95"] == 11.0
         assert saved["graph_lift_rate"] == 1.0
+        assert saved_memory["operation_count"] == 1
+        assert saved_memory["duration_ms"]["p95"] == 17.0
 
 
 # ─── TestEpisodes ────────────────────────────────────────────────

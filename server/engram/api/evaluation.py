@@ -30,6 +30,8 @@ class RecallSampleRequest(BaseModel):
     packets_surfaced: int = Field(default=0, ge=0, alias="packetsSurfaced")
     packets_used: int = Field(default=0, ge=0, alias="packetsUsed")
     false_recalls: int = Field(default=0, ge=0, alias="falseRecalls")
+    stale_packets: int = Field(default=0, ge=0, alias="stalePackets")
+    corrected_packets: int = Field(default=0, ge=0, alias="correctedPackets")
     source: str = "manual"
     query: str | None = None
     notes: str | None = None
@@ -71,6 +73,8 @@ async def create_recall_sample(
         packets_surfaced=body.packets_surfaced,
         packets_used=body.packets_used,
         false_recalls=body.false_recalls,
+        stale_packets=body.stale_packets,
+        corrected_packets=body.corrected_packets,
         source=body.source,
         query=body.query,
         notes=body.notes,

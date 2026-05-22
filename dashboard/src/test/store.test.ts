@@ -226,6 +226,10 @@ function makeEvaluationReport(
         memoryNeedRecall: 1,
         missedRecallRate: 0,
         usefulPacketRate: 0.5,
+        stalePacketRate: 0,
+        correctedPacketRate: 0,
+        stalePacketCount: 0,
+        correctedPacketCount: 0,
         falseRecallRate: 0,
         surfacedCount: 2,
         usedCount: 1,
@@ -234,6 +238,50 @@ function makeEvaluationReport(
       continuity: {
         status: "needs_samples",
         sampleCount: 0,
+        sessionContinuityLift: null,
+        openLoopRecoveryRate: null,
+        temporalCorrectness: null,
+      },
+    },
+    memoryValue: {
+      status: "needs_cost_samples",
+      cost: {
+        status: "needs_samples",
+        operationCount: 0,
+        avgAddedLatencyMs: 0,
+        p95AddedLatencyMs: 0,
+        avgBudgetMs: 0,
+        p95BudgetMs: 0,
+        avgBudgetTokens: 0,
+        completedCount: 0,
+        skippedCount: 0,
+        errorCount: 0,
+        statusCounts: {},
+        skipReasonCounts: {},
+        timeoutCount: 0,
+        timeoutRate: null,
+        degradedCount: 0,
+        degradedRate: null,
+        budgetMissCount: 0,
+        budgetMissRate: null,
+        cacheHitCount: 0,
+        cacheMissCount: 0,
+        cacheHitRate: null,
+        byMode: {},
+      },
+      benefit: {
+        status: "measured",
+        recallSampleCount: 1,
+        sessionSampleCount: 0,
+        memoryNeedPrecision: 1,
+        memoryNeedRecall: 1,
+        missedRecallRate: 0,
+        usefulPacketRate: 0.5,
+        stalePacketRate: 0,
+        correctedPacketRate: 0,
+        stalePacketCount: 0,
+        correctedPacketCount: 0,
+        falseRecallRate: 0,
         sessionContinuityLift: null,
         openLoopRecoveryRate: null,
         temporalCorrectness: null,
@@ -1105,6 +1153,8 @@ describe("evaluationSlice", () => {
         packetsSurfaced: 3,
         packetsUsed: 2,
         falseRecalls: 1,
+        stalePackets: 1,
+        correctedPackets: 1,
         source: "dashboard",
         query: "open loop",
         notes: null,
@@ -1418,5 +1468,45 @@ describe("knowledgeSlice — new features", () => {
     expect(store.getState().browseOverlayOpen).toBe(false);
     store.getState().setBrowseOverlayOpen(true);
     expect(store.getState().browseOverlayOpen).toBe(true);
+  });
+
+  it("executeRecall keeps lifecycle and budget telemetry from bounded recall", async () => {
+    mockedApi.recall.mockResolvedValueOnce({
+      operation: "recall",
+      status: "degraded",
+      lifecycle: {
+        stage: "recall",
+        recallMode: "explicit",
+        resultCount: 0,
+        packetCount: 0,
+        degraded: true,
+        skipReason: "recall_timeout",
+        timeout: true,
+      },
+      items: [],
+      packets: [],
+      budget: {
+        profile: "explicit",
+        surface: "axi",
+        mode: "axi_recall",
+        maxWallMs: 2000,
+        maxSearchMs: 1200,
+        maxResults: 3,
+        durationMs: 1200,
+        budgetMiss: true,
+        timeout: true,
+        degraded: true,
+        skipReason: "recall_timeout",
+      },
+      query: "Engram recall",
+    });
+
+    const store = createTestStore();
+    await store.getState().executeRecall("Engram recall");
+
+    expect(store.getState().knowledgeRecallStatus).toBe("degraded");
+    expect(store.getState().knowledgeRecallLifecycle?.skipReason).toBe("recall_timeout");
+    expect(store.getState().knowledgeRecallBudget?.surface).toBe("axi");
+    expect(store.getState().knowledgeRecallBudget?.timeout).toBe(true);
   });
 });

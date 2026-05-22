@@ -184,6 +184,7 @@ async def _init() -> None:
 
     extractor = create_extractor(config)
     event_bus = get_event_bus()
+    config.configure_runtime_packet_cache(mode.value)
     _manager = GraphManager(
         graph_store,
         activation_store,
@@ -962,6 +963,8 @@ async def record_recall_evaluation(
     packets_surfaced: int = 0,
     packets_used: int = 0,
     false_recalls: int = 0,
+    stale_packets: int = 0,
+    corrected_packets: int = 0,
     source: str = "mcp",
     query: str | None = None,
     notes: str | None = None,
@@ -975,6 +978,8 @@ async def record_recall_evaluation(
         packets_surfaced: Number of memory packets/results surfaced
         packets_used: Number of surfaced packets/results actually used
         false_recalls: Number of surfaced memories judged misleading or irrelevant
+        stale_packets: Number of surfaced packets judged stale
+        corrected_packets: Number of surfaced packets that needed correction
         source: Label source, defaults to "mcp"
         query: Optional query or task that triggered recall
         notes: Optional short operator/agent note
@@ -993,6 +998,8 @@ async def record_recall_evaluation(
         packets_surfaced=packets_surfaced,
         packets_used=packets_used,
         false_recalls=false_recalls,
+        stale_packets=stale_packets,
+        corrected_packets=corrected_packets,
         source=source,
         query=query,
         notes=notes,

@@ -148,6 +148,13 @@ def collect_storage_paths(config: EngramConfig, mode: str) -> list[dict[str, Any
             ("Server log", engram_home / "logs" / "engram.log"),
         ]
     )
+    if config.activation.recall_packet_cache_persistence_enabled:
+        paths.extend(
+            _sqlite_companion_paths(
+                config.get_packet_cache_path(mode),
+                label_prefix="Packet cache",
+            )
+        )
 
     seen: set[str] = set()
     result: list[dict[str, Any]] = []

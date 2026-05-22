@@ -126,6 +126,7 @@ class TestRecallInteractionRecorder:
             "default",
             "used",
             result_type="entity",
+            memory_id="ent_react",
         )
 
     def test_no_interaction_type_is_noop(self):
@@ -219,6 +220,7 @@ class TestRecallCueFeedbackRecorder:
             "default",
             "surfaced",
             result_type="cue_episode",
+            memory_id="cue:ep_hot_cue",
         )
 
 
@@ -341,6 +343,7 @@ class TestRecallMemoryInteractionApplier:
             "default",
             "confirmed",
             result_type="entity",
+            memory_id=entity.id,
         )
 
 

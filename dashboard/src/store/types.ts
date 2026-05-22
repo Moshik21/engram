@@ -516,6 +516,55 @@ export interface BrainLoopEvaluationSignal {
   gap: string | null;
 }
 
+export interface MemoryValueCost {
+  status: string;
+  operationCount: number;
+  avgAddedLatencyMs: number;
+  p95AddedLatencyMs: number;
+  avgBudgetMs: number;
+  p95BudgetMs: number;
+  avgBudgetTokens: number;
+  completedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  statusCounts: Record<string, number>;
+  skipReasonCounts: Record<string, number>;
+  timeoutCount: number;
+  timeoutRate: number | null;
+  degradedCount: number;
+  degradedRate: number | null;
+  budgetMissCount: number;
+  budgetMissRate: number | null;
+  cacheHitCount: number;
+  cacheMissCount: number;
+  cacheHitRate: number | null;
+  byMode: Record<string, MemoryValueCost>;
+}
+
+export interface MemoryValueBenefit {
+  status: string;
+  recallSampleCount: number;
+  sessionSampleCount: number;
+  memoryNeedPrecision: number | null;
+  memoryNeedRecall: number | null;
+  missedRecallRate: number | null;
+  usefulPacketRate: number | null;
+  stalePacketRate: number | null;
+  correctedPacketRate: number | null;
+  stalePacketCount: number;
+  correctedPacketCount: number;
+  falseRecallRate: number | null;
+  sessionContinuityLift: number | null;
+  openLoopRecoveryRate: number | null;
+  temporalCorrectness: number | null;
+}
+
+export interface MemoryValueSummary {
+  status: string;
+  cost: MemoryValueCost;
+  benefit: MemoryValueBenefit;
+}
+
 export interface HumanLabelEvidence {
   status: string;
   artifactPath: string | null;
@@ -621,9 +670,19 @@ export interface ReleaseEvidenceSummary {
   failures: string[];
 }
 
+export interface BrainLoopReportDegradation {
+  surface: string | null;
+  stage: string;
+  status: string;
+  skipReason: string | null;
+  timeoutMs: number | null;
+}
+
 export interface BrainLoopEvaluationReport {
   groupId: string;
   generatedAt: string;
+  degraded?: boolean;
+  degradations?: BrainLoopReportDegradation[];
   loop: LifecycleStageKey[];
   totals: {
     episodes: number;
@@ -731,6 +790,10 @@ export interface BrainLoopEvaluationReport {
       memoryNeedRecall: number | null;
       missedRecallRate: number | null;
       usefulPacketRate: number | null;
+      stalePacketRate: number | null;
+      correctedPacketRate: number | null;
+      stalePacketCount: number;
+      correctedPacketCount: number;
       falseRecallRate: number | null;
       surfacedCount: number;
       usedCount: number;
@@ -744,6 +807,7 @@ export interface BrainLoopEvaluationReport {
       temporalCorrectness: number | null;
     };
   };
+  memoryValue: MemoryValueSummary;
   consolidate: {
     status: string;
     cycleCount: number;
@@ -817,6 +881,8 @@ export interface RecallEvaluationInput {
   packetsSurfaced: number;
   packetsUsed: number;
   falseRecalls: number;
+  stalePackets?: number;
+  correctedPackets?: number;
   source?: string;
   query?: string | null;
   notes?: string | null;
@@ -833,6 +899,8 @@ export interface RecallEvaluationWriteResponse {
     packetsSurfaced: number;
     packetsUsed: number;
     falseRecalls: number;
+    stalePackets: number;
+    correctedPackets: number;
     source: string;
     query: string | null;
     notes: string | null;
@@ -927,18 +995,85 @@ export interface RecallResultCueEpisode {
 
 export type RecallResult = RecallResultEntity | RecallResultEpisode | RecallResultCueEpisode;
 
+export interface RecallPacketTrust {
+  freshness?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+  whyNow?: string | null;
+  why_now?: string | null;
+  provenanceCount?: number | null;
+  provenance_count?: number | null;
+  evidenceCount?: number | null;
+  evidence_count?: number | null;
+  beliefStatus?: string | null;
+  belief_status?: string | null;
+  confirmedCount?: number | null;
+  confirmed_count?: number | null;
+  correctedCount?: number | null;
+  corrected_count?: number | null;
+  dismissedCount?: number | null;
+  dismissed_count?: number | null;
+  lastConfirmedAt?: string | null;
+  last_confirmed_at?: string | null;
+  lastCorrectedAt?: string | null;
+  last_corrected_at?: string | null;
+  lastDismissedAt?: string | null;
+  last_dismissed_at?: string | null;
+}
+
+export interface RecallPacket {
+  packetType?: string;
+  packet_type?: string;
+  title?: string;
+  summary?: string;
+  whyNow?: string;
+  why_now?: string;
+  confidence?: number;
+  entityIds?: string[];
+  entity_ids?: string[];
+  relationshipIds?: string[];
+  relationship_ids?: string[];
+  episodeIds?: string[];
+  episode_ids?: string[];
+  evidenceLines?: string[];
+  evidence_lines?: string[];
+  provenance?: string[];
+  supportingIntents?: string[];
+  supporting_intents?: string[];
+  trust?: RecallPacketTrust;
+}
+
 export interface RecallResponseLifecycle {
   stage: "recall";
   recallMode: "explicit";
   resultCount: number;
   packetCount: number;
+  degraded?: boolean;
+  skipReason?: string | null;
+  timeout?: boolean;
+}
+
+export interface RecallResponseBudget {
+  profile: string;
+  surface: string;
+  mode: string;
+  maxWallMs: number;
+  maxSearchMs: number;
+  maxResults: number;
+  durationMs: number;
+  budgetMiss: boolean;
+  timeout: boolean;
+  degraded: boolean;
+  skipReason: string | null;
 }
 
 export interface RecallResponse {
   operation: "recall";
+  status?: string;
   lifecycle: RecallResponseLifecycle;
   items: RecallResult[];
-  packets?: Array<Record<string, unknown>>;
+  packets?: RecallPacket[];
+  budget?: RecallResponseBudget;
   query: string;
 }
 
@@ -1273,6 +1408,10 @@ export interface KnowledgeSlice {
   // Existing state
   knowledgeQuery: string;
   knowledgeResults: RecallResult[];
+  knowledgePackets: RecallPacket[];
+  knowledgeRecallStatus: string | null;
+  knowledgeRecallLifecycle: RecallResponseLifecycle | null;
+  knowledgeRecallBudget: RecallResponseBudget | null;
   isRecalling: boolean;
   activeTypeFilter: string | null;
   entityGroups: Record<string, SearchResult[]>;

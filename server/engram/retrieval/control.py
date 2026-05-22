@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, cast
 
 
@@ -58,18 +60,45 @@ class _AnalysisSample:
     probe_latency_ms: float
     decision_path: str | None
     graph_override_used: bool
+    mode_requested: str | None
+    mode_executed: str | None
+    skip_reason: str | None
+    budget_profile: str | None
+    cache_hit: bool | None
+    cache_satisfied: bool
+    budget_skipped: bool
 
 
 @dataclass
 class _InteractionSample:
     interaction_type: str
     result_type: str = "entity"
+    memory_id: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class _MemoryFeedbackState:
+    memory_id: str
+    result_type: str = "entity"
+    confirmed_count: int = 0
+    corrected_count: int = 0
+    dismissed_count: int = 0
+    used_count: int = 0
+    surfaced_count: int = 0
+    selected_count: int = 0
+    last_confirmed_at: float | None = None
+    last_corrected_at: float | None = None
+    last_dismissed_at: float | None = None
+    last_used_at: float | None = None
+    last_interaction_at: float | None = None
 
 
 @dataclass
 class _GroupState:
     analyses: deque[_AnalysisSample]
     interactions: deque[_InteractionSample]
+    feedback_by_memory: dict[str, _MemoryFeedbackState] = field(default_factory=dict)
     thresholds: RecallNeedThresholds = field(default_factory=RecallNeedThresholds)
 
 
@@ -99,6 +128,13 @@ class RecallNeedController:
                 probe_latency_ms=float(getattr(need, "probe_latency_ms", 0.0) or 0.0),
                 decision_path=getattr(need, "decision_path", None),
                 graph_override_used=bool(getattr(need, "graph_override_used", False)),
+                mode_requested=getattr(need, "mode_requested", None),
+                mode_executed=getattr(need, "mode_executed", None),
+                skip_reason=getattr(need, "skip_reason", None),
+                budget_profile=getattr(need, "budget_profile", None),
+                cache_hit=getattr(need, "cache_hit", None),
+                cache_satisfied=bool(getattr(need, "cache_satisfied", False)),
+                budget_skipped=bool(getattr(need, "budget_skipped", False)),
             )
         )
         self._update_thresholds(state)
@@ -109,16 +145,58 @@ class RecallNeedController:
         interaction_type: str,
         *,
         result_type: str = "entity",
+        memory_id: str | None = None,
+        timestamp: float | None = None,
     ) -> None:
         """Record a recall interaction outcome."""
         state = self._get_state(group_id)
+        occurred_at = time.time() if timestamp is None else timestamp
         state.interactions.append(
             _InteractionSample(
                 interaction_type=interaction_type,
                 result_type=result_type,
+                memory_id=memory_id,
+                timestamp=occurred_at,
             )
         )
+        if memory_id:
+            self._record_memory_feedback(
+                state,
+                memory_id=memory_id,
+                result_type=result_type,
+                interaction_type=interaction_type,
+                timestamp=occurred_at,
+            )
         self._update_thresholds(state)
+
+    def memory_feedback_summary(
+        self,
+        group_id: str,
+        memory_ids: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Return compact per-memory feedback summaries for trust surfaces."""
+        state = self._get_state(group_id)
+        summaries: dict[str, dict[str, Any]] = {}
+        for memory_id in memory_ids:
+            feedback = state.feedback_by_memory.get(memory_id)
+            if feedback is None:
+                continue
+            summaries[memory_id] = {
+                "memory_id": feedback.memory_id,
+                "result_type": feedback.result_type,
+                "confirmed_count": feedback.confirmed_count,
+                "corrected_count": feedback.corrected_count,
+                "dismissed_count": feedback.dismissed_count,
+                "used_count": feedback.used_count,
+                "surfaced_count": feedback.surfaced_count,
+                "selected_count": feedback.selected_count,
+                "last_confirmed_at": _iso_z(feedback.last_confirmed_at),
+                "last_corrected_at": _iso_z(feedback.last_corrected_at),
+                "last_dismissed_at": _iso_z(feedback.last_dismissed_at),
+                "last_used_at": _iso_z(feedback.last_used_at),
+                "last_interaction_at": _iso_z(feedback.last_interaction_at),
+            }
+        return summaries
 
     def snapshot(self, group_id: str) -> dict:
         """Return rolling recall-need metrics for a group."""
@@ -141,6 +219,8 @@ class RecallNeedController:
         probe_triggered = sum(1 for sample in analyses if sample.probe_triggered)
         graph_lift_count = sum(1 for sample in analyses if sample.decision_path == "graph_lift")
         graph_override_count = sum(1 for sample in analyses if sample.graph_override_used)
+        cache_hit_count = sum(1 for sample in analyses if sample.cache_hit is True)
+        cache_miss_count = sum(1 for sample in analyses if sample.cache_hit is False)
         used_count = interaction_counts["used"] + interaction_counts["confirmed"]
         surfaced_count = interaction_counts["surfaced"] + interaction_counts["selected"]
         dismissed_count = interaction_counts["dismissed"]
@@ -168,6 +248,22 @@ class RecallNeedController:
             ),
             "graph_override_count": graph_override_count,
             "family_contributions": dict(family_counts),
+            "mode_requested_counts": _counter_dict(
+                sample.mode_requested for sample in analyses if sample.mode_requested
+            ),
+            "mode_executed_counts": _counter_dict(
+                sample.mode_executed for sample in analyses if sample.mode_executed
+            ),
+            "skip_reason_counts": _counter_dict(
+                sample.skip_reason for sample in analyses if sample.skip_reason
+            ),
+            "budget_profile_counts": _counter_dict(
+                sample.budget_profile for sample in analyses if sample.budget_profile
+            ),
+            "cache_hit_count": cache_hit_count,
+            "cache_miss_count": cache_miss_count,
+            "cache_satisfied_count": sum(1 for sample in analyses if sample.cache_satisfied),
+            "budget_skipped_count": sum(1 for sample in analyses if sample.budget_skipped),
             "thresholds": state.thresholds.to_dict(),
             "adaptive_thresholds_enabled": bool(
                 getattr(self._cfg, "recall_need_adaptive_thresholds_enabled", False)
@@ -191,6 +287,50 @@ class RecallNeedController:
         )
         self._states[group_id] = state
         return state
+
+    def _record_memory_feedback(
+        self,
+        state: _GroupState,
+        *,
+        memory_id: str,
+        result_type: str,
+        interaction_type: str,
+        timestamp: float,
+    ) -> None:
+        feedback = state.feedback_by_memory.get(memory_id)
+        if feedback is None:
+            feedback = _MemoryFeedbackState(memory_id=memory_id, result_type=result_type)
+            state.feedback_by_memory[memory_id] = feedback
+        feedback.result_type = result_type or feedback.result_type
+        feedback.last_interaction_at = timestamp
+        if interaction_type == "confirmed":
+            feedback.confirmed_count += 1
+            feedback.last_confirmed_at = timestamp
+        elif interaction_type == "corrected":
+            feedback.corrected_count += 1
+            feedback.last_corrected_at = timestamp
+        elif interaction_type == "dismissed":
+            feedback.dismissed_count += 1
+            feedback.last_dismissed_at = timestamp
+        elif interaction_type == "used":
+            feedback.used_count += 1
+            feedback.last_used_at = timestamp
+        elif interaction_type == "surfaced":
+            feedback.surfaced_count += 1
+        elif interaction_type == "selected":
+            feedback.selected_count += 1
+        self._prune_memory_feedback(state)
+
+    def _prune_memory_feedback(self, state: _GroupState) -> None:
+        max_entries = max(20, (state.interactions.maxlen or 100) * 4)
+        if len(state.feedback_by_memory) <= max_entries:
+            return
+        ordered = sorted(
+            state.feedback_by_memory.items(),
+            key=lambda item: item[1].last_interaction_at or 0.0,
+        )
+        for memory_id, _feedback in ordered[: len(state.feedback_by_memory) - max_entries]:
+            state.feedback_by_memory.pop(memory_id, None)
 
     def _update_thresholds(self, state: _GroupState) -> None:
         if not getattr(self._cfg, "recall_need_adaptive_thresholds_enabled", False):
@@ -249,3 +389,13 @@ class RecallNeedController:
             "avg": round(sum(ordered) / len(ordered), 4),
             "p95": round(ordered[min(len(ordered) - 1, int((len(ordered) - 1) * 0.95))], 4),
         }
+
+
+def _counter_dict(values) -> dict[str, int]:
+    return dict(Counter(str(value) for value in values))
+
+
+def _iso_z(timestamp: float | None) -> str | None:
+    if not timestamp:
+        return None
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")

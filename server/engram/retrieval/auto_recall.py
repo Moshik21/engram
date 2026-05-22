@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
@@ -13,6 +14,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.ingestion.capture_surface import store_observation
+from engram.retrieval.budgets import recall_budget_for_profile
 from engram.retrieval.context import (
     manager_conversation_context,
     manager_conversation_recent_turns,
@@ -23,6 +25,10 @@ from engram.retrieval.control import (
     resolve_manager_recall_need_thresholds,
 )
 from engram.retrieval.feedback import publish_memory_need_analysis
+from engram.retrieval.memory_operations import (
+    MemoryOperationSample,
+    record_manager_memory_operation,
+)
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 
@@ -177,6 +183,7 @@ def compact_auto_recall_surface(
     *,
     query: str,
     packets: Sequence[Mapping[str, Any]] | None = None,
+    gate: Mapping[str, Any] | None = None,
     min_score: float,
 ) -> dict[str, Any] | None:
     """Compact raw recall results into the additive MCP auto-recall surface."""
@@ -216,15 +223,18 @@ def compact_auto_recall_surface(
                 }
             )
 
-    if not entities and not cue_episodes:
+    packet_list = list(packets or [])
+    if not entities and not cue_episodes and not packet_list:
         return None
 
     response: dict[str, Any] = {
         "source": "auto_recall",
         "query_used": query,
-        "packets": list(packets or []),
+        "packets": packet_list,
         "entities": entities,
     }
+    if gate:
+        response["gate"] = dict(gate)
     if cue_episodes:
         response["cue_episodes"] = cue_episodes
     return response
@@ -244,6 +254,258 @@ def compact_lite_auto_recall_surface(
     }
 
 
+async def _record_auto_recall_gate(
+    manager: Any,
+    *,
+    group_id: str,
+    cfg: ActivationConfig,
+    profile: str,
+    mode: str,
+    status: str,
+    skip_reason: str | None = None,
+    duration_ms: float = 0.0,
+    timeout: bool = False,
+) -> None:
+    budget = recall_budget_for_profile(
+        cfg,
+        profile,
+        surface="mcp",
+        mode=mode,
+        max_results=cfg.auto_recall_limit,
+        max_packets=cfg.recall_packet_auto_limit,
+        max_output_tokens=cfg.auto_recall_token_budget,
+    )
+    budget_miss = budget.exceeded(duration_ms)
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="auto_recall_gate",
+            source="auto_recall",
+            mode=mode,
+            status=status,
+            duration_ms=duration_ms,
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+            skip_reason=skip_reason,
+            timeout=timeout,
+            budget_miss=budget_miss,
+            degraded=bool(timeout or (budget.timeout_degrades and budget_miss)),
+        ),
+    )
+
+
+async def _record_packet_cache_operation(
+    manager: Any,
+    *,
+    group_id: str,
+    cache_hit: bool,
+    packet_count: int,
+    duration_ms: float = 0.0,
+) -> None:
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="packet_cache",
+            source="auto_recall",
+            mode="auto_recall_packet",
+            status="ok",
+            duration_ms=duration_ms,
+            cache_hit=cache_hit,
+            packet_count=packet_count,
+        ),
+    )
+
+
+def _annotate_memory_need_gate(
+    need: Any,
+    *,
+    mode_requested: str | None = None,
+    mode_executed: str | None = None,
+    skip_reason: str | None = None,
+    budget_profile: str | None = None,
+    cache_hit: bool | None = None,
+    cache_satisfied: bool = False,
+    budget_skipped: bool = False,
+) -> None:
+    if need is None:
+        return
+    if mode_requested is not None:
+        need.mode_requested = mode_requested
+    if mode_executed is not None:
+        need.mode_executed = mode_executed
+    if skip_reason is not None:
+        need.skip_reason = skip_reason
+    if budget_profile is not None:
+        need.budget_profile = budget_profile
+    if cache_hit is not None:
+        need.cache_hit = cache_hit
+    if cache_satisfied:
+        need.cache_satisfied = True
+    if budget_skipped:
+        need.budget_skipped = True
+
+
+async def _finish_memory_need_gate(
+    manager: Any,
+    *,
+    group_id: str,
+    cfg: ActivationConfig,
+    event_bus: Any,
+    need: Any,
+    content: str,
+    mode_executed: str,
+    skip_reason: str | None = None,
+    cache_hit: bool | None = None,
+    cache_satisfied: bool = False,
+    budget_skipped: bool = False,
+) -> None:
+    if need is None:
+        return
+    _annotate_memory_need_gate(
+        need,
+        mode_executed=mode_executed,
+        skip_reason=skip_reason,
+        cache_hit=cache_hit,
+        cache_satisfied=cache_satisfied,
+        budget_skipped=budget_skipped,
+    )
+    await record_manager_memory_need_analysis(manager, group_id, need)
+    if cfg.recall_telemetry_enabled:
+        publish_memory_need_analysis(
+            event_bus,
+            group_id,
+            need,
+            source="auto_recall",
+            mode="auto_recall",
+            turn_text=content,
+        )
+
+
+def _memory_need_gate_payload(need: Any, *, decision: str) -> dict[str, Any]:
+    payload = {
+        "decision": decision,
+        "needType": getattr(need, "need_type", None),
+        "modeRequested": getattr(need, "mode_requested", None),
+        "modeExecuted": getattr(need, "mode_executed", None),
+        "budgetProfile": getattr(need, "budget_profile", None),
+    }
+    skip_reason = getattr(need, "skip_reason", None)
+    if skip_reason:
+        payload["skipReason"] = skip_reason
+    cache_hit = getattr(need, "cache_hit", None)
+    if cache_hit is not None:
+        payload["cacheHit"] = cache_hit
+    if getattr(need, "cache_satisfied", False):
+        payload["cacheSatisfied"] = True
+    if getattr(need, "budget_skipped", False):
+        payload["budgetSkipped"] = True
+    return payload
+
+
+def _get_cached_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    scope: str,
+    topic_hint: str,
+) -> list[dict[str, Any]] | None:
+    get_cached = getattr(manager, "get_cached_memory_packets", None)
+    if not callable(get_cached):
+        return None
+    hit = get_cached(group_id, scope=scope, topic_hint=topic_hint)
+    if inspect.isawaitable(hit):
+        close = getattr(hit, "close", None)
+        if callable(close):
+            close()
+        return None
+    return hit.packets if hit is not None else None
+
+
+def _cache_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    scope: str,
+    topic_hint: str,
+    packets: Sequence[Mapping[str, Any]],
+    build_duration_ms: float,
+) -> None:
+    cache = getattr(manager, "cache_memory_packets", None)
+    if not callable(cache) or inspect.iscoroutinefunction(cache):
+        return
+    result = cache(
+        group_id,
+        scope=scope,
+        topic_hint=topic_hint,
+        packets=packets,
+        build_duration_ms=build_duration_ms,
+    )
+    if inspect.isawaitable(result):
+        close = getattr(result, "close", None)
+        if callable(close):
+            close()
+        return
+
+
+def _get_packet_feedback_lookup(
+    manager: Any,
+    group_id: str,
+    results: Sequence[dict],
+) -> dict[str, dict[str, Any]]:
+    memory_ids = _packet_feedback_ids(results)
+    if not memory_ids:
+        return {}
+    getter = getattr(manager, "get_recall_feedback_summary", None)
+    if not callable(getter):
+        return {}
+    lookup = getter(group_id=group_id, memory_ids=memory_ids)
+    if inspect.isawaitable(lookup):
+        close = getattr(lookup, "close", None)
+        if callable(close):
+            close()
+        return {}
+    return dict(lookup or {})
+
+
+def _packet_feedback_ids(results: Sequence[dict]) -> list[str]:
+    memory_ids: list[str] = []
+    for result in results:
+        result_type = result.get("result_type")
+        if result_type == "cue_episode":
+            cue = result.get("cue") if isinstance(result.get("cue"), dict) else {}
+            episode = result.get("episode") if isinstance(result.get("episode"), dict) else {}
+            episode_id = cue.get("episode_id") or episode.get("id")
+            if episode_id:
+                memory_ids.extend([f"cue:{episode_id}", episode_id, f"episode:{episode_id}"])
+            continue
+        if result_type == "episode":
+            episode = result.get("episode") if isinstance(result.get("episode"), dict) else {}
+            episode_id = episode.get("id")
+            if episode_id:
+                memory_ids.extend([episode_id, f"episode:{episode_id}"])
+            continue
+        entity = result.get("entity") if isinstance(result.get("entity"), dict) else {}
+        entity_id = entity.get("id")
+        if entity_id:
+            memory_ids.append(entity_id)
+    return list(dict.fromkeys(memory_ids))
+
+
+def _memory_need_skip_reason(need: Any) -> str:
+    reasons = [str(reason) for reason in getattr(need, "reasons", []) or []]
+    if "acknowledgement" in reasons:
+        return "skipped_ack"
+    if "empty_turn" in reasons:
+        return "skipped_low_signal"
+    if "recent_duplicate" in reasons:
+        return "skipped_recent_duplicate"
+    if reasons:
+        return "skipped_low_signal"
+    return "skipped_low_signal"
+
+
 async def build_lite_auto_recall_surface(
     manager: Any,
     *,
@@ -254,30 +516,103 @@ async def build_lite_auto_recall_surface(
 ) -> dict[str, Any] | None:
     """Dispatch lite/medium MCP auto-recall and compact the additive surface."""
     if len(content) < 20:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(getattr(cfg, "auto_recall_level", "lite")),
+            status="skipped",
+            skip_reason="skipped_low_signal",
+        )
         return None
 
     level = getattr(cfg, "auto_recall_level", "lite")
-    try:
-        if level == "medium" and hasattr(manager, "recall_medium"):
-            results = await manager.recall_medium(
-                text=content,
-                group_id=group_id,
-                session_cache=session_cache,
-                token_budget=cfg.auto_recall_token_budget,
-                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
-            )
-        else:
-            results = await manager.recall_lite(
-                text=content,
-                group_id=group_id,
-                session_cache=session_cache,
-                token_budget=cfg.auto_recall_token_budget,
-                cache_ttl=cfg.auto_recall_cache_ttl_seconds,
-            )
-    except Exception:
+    budget = recall_budget_for_profile(
+        cfg,
+        "auto_lite",
+        surface="mcp",
+        mode=str(level),
+        max_results=5,
+        max_output_tokens=cfg.auto_recall_token_budget,
+    )
+    timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
+    started = time.perf_counter()
+    if timeout_seconds <= 0:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(level),
+            status="skipped",
+            skip_reason="skipped_budget",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
 
-    return compact_lite_auto_recall_surface(results, level=level)
+    try:
+        if level == "medium" and hasattr(manager, "recall_medium"):
+            results = await asyncio.wait_for(
+                manager.recall_medium(
+                    text=content,
+                    group_id=group_id,
+                    session_cache=session_cache,
+                    token_budget=cfg.auto_recall_token_budget,
+                    cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+                ),
+                timeout=timeout_seconds,
+            )
+        else:
+            results = await asyncio.wait_for(
+                manager.recall_lite(
+                    text=content,
+                    group_id=group_id,
+                    session_cache=session_cache,
+                    token_budget=cfg.auto_recall_token_budget,
+                    cache_ttl=cfg.auto_recall_cache_ttl_seconds,
+                ),
+                timeout=timeout_seconds,
+            )
+    except TimeoutError:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(level),
+            status="degraded",
+            skip_reason="recall_timeout",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+            timeout=True,
+        )
+        return None
+    except Exception:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(level),
+            status="error",
+            skip_reason="error",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
+        return None
+
+    response = compact_lite_auto_recall_surface(results, level=level)
+    if response is None:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(level),
+            status="skipped",
+            skip_reason="skipped_no_results",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
+    return response
 
 
 async def build_full_auto_recall_surface(
@@ -292,7 +627,26 @@ async def build_full_auto_recall_surface(
     now: float | None = None,
 ) -> dict[str, Any] | None:
     """Run full MCP auto-recall and compact the additive recall surface."""
+    started = time.perf_counter()
+    budget = recall_budget_for_profile(
+        cfg,
+        "auto_deep",
+        surface="mcp",
+        mode="auto_recall",
+        max_results=cfg.auto_recall_limit,
+        max_packets=cfg.recall_packet_auto_limit,
+        max_output_tokens=cfg.auto_recall_token_budget,
+    )
     if not cfg.auto_recall_enabled:
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_disabled",
+        )
         return None
 
     need = None
@@ -321,33 +675,136 @@ async def build_full_auto_recall_surface(
             cfg=cfg,
             thresholds=await resolve_manager_recall_need_thresholds(manager, group_id),
         )
-        await record_manager_memory_need_analysis(manager, group_id, need)
-        if cfg.recall_telemetry_enabled:
-            publish_memory_need_analysis(
-                event_bus,
-                group_id,
-                need,
-                source="auto_recall",
-                mode="auto_recall",
-                turn_text=content,
-            )
+        _annotate_memory_need_gate(
+            need,
+            mode_requested="deep" if need.should_recall else "none",
+            budget_profile=budget.profile,
+        )
         if not need.should_recall:
+            skip_reason = _memory_need_skip_reason(need)
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason=skip_reason,
+            )
+            await _record_auto_recall_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                profile="auto_deep",
+                mode="auto_recall",
+                status="skipped",
+                skip_reason=skip_reason,
+                duration_ms=round((time.perf_counter() - started) * 1000, 4),
+            )
             return None
         query = need.query_hint or extract_recall_query(content)
     else:
         query = extract_recall_query(content)
 
     if not query:
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason="skipped_low_signal",
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_low_signal",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
 
     current_time = time.time() if now is None else now
     if cooldown and cooldown.is_throttled(query, current_time):
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason="skipped_recent_duplicate",
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_recent_duplicate",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
 
     if session_last_recall_time and (current_time - session_last_recall_time) < 30.0:
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason="skipped_recent_explicit",
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_recent_explicit",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
 
     recall_limit = cfg.auto_recall_limit
+    if budget.max_results <= 0 or budget.max_output_tokens <= 0:
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason="skipped_budget",
+                budget_skipped=True,
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_budget",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
+        return None
     if (
         cfg.conv_topic_shift_enabled
         and conv_context is not None
@@ -363,6 +820,50 @@ async def build_full_auto_recall_surface(
             interaction_type = "surfaced"
         if cfg.recall_usage_feedback_enabled:
             record_access = False
+        cached_packets = None
+        if cfg.recall_packets_enabled:
+            cached_packets = _get_cached_packets(
+                manager,
+                group_id=group_id,
+                scope="auto_recall_packet",
+                topic_hint=query,
+            )
+            if cached_packets is not None:
+                await _record_packet_cache_operation(
+                    manager,
+                    group_id=group_id,
+                    cache_hit=True,
+                    packet_count=len(cached_packets),
+                )
+                if need is not None:
+                    await _finish_memory_need_gate(
+                        manager,
+                        group_id=group_id,
+                        cfg=cfg,
+                        event_bus=event_bus,
+                        need=need,
+                        content=content,
+                        mode_executed="cached",
+                        skip_reason="skipped_cache_satisfied",
+                        cache_hit=True,
+                        cache_satisfied=True,
+                    )
+                if cooldown:
+                    cooldown.record(query, current_time)
+                return compact_auto_recall_surface(
+                    [],
+                    query=query,
+                    packets=cached_packets,
+                    gate=(
+                        _memory_need_gate_payload(
+                            need,
+                            decision="skipped_cache_satisfied",
+                        )
+                        if need is not None
+                        else None
+                    ),
+                    min_score=cfg.auto_recall_min_score,
+                )
         results = await manager.recall(
             query=query,
             group_id=group_id,
@@ -374,33 +875,131 @@ async def build_full_auto_recall_surface(
         )
     except Exception:
         logger.debug("auto_recall failed", exc_info=True)
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="none",
+                skip_reason="error",
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="error",
+            skip_reason="error",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
 
     packets = []
+    packet_cache_hit: bool | None = None
     if cfg.recall_packets_enabled:
-        packets = [
-            packet.to_dict()
-            for packet in await assemble_memory_packets(
-                results,
-                query,
-                mode="auto_surface",
-                memory_need=need,
-                max_packets=cfg.recall_packet_auto_limit,
-                resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
-                    entity_id,
-                    group_id,
-                ),
+        packet_scope = "auto_recall_packet"
+        cached_packets = _get_cached_packets(
+            manager,
+            group_id=group_id,
+            scope=packet_scope,
+            topic_hint=query,
+        )
+        if cached_packets is not None:
+            packets = cached_packets
+            packet_cache_hit = True
+            await _record_packet_cache_operation(
+                manager,
+                group_id=group_id,
+                cache_hit=True,
+                packet_count=len(packets),
             )
-        ]
+        else:
+            packet_started = time.perf_counter()
+            packets = [
+                packet.to_dict()
+                for packet in await assemble_memory_packets(
+                    results,
+                    query,
+                    mode="auto_surface",
+                    memory_need=need,
+                    max_packets=cfg.recall_packet_auto_limit,
+                    resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                        entity_id,
+                        group_id,
+                    ),
+                    feedback_lookup=_get_packet_feedback_lookup(manager, group_id, results),
+                )
+            ]
+            packet_duration_ms = round((time.perf_counter() - packet_started) * 1000, 4)
+            _cache_packets(
+                manager,
+                group_id=group_id,
+                scope=packet_scope,
+                topic_hint=query,
+                packets=packets,
+                build_duration_ms=packet_duration_ms,
+            )
+            packet_cache_hit = False
+            await _record_packet_cache_operation(
+                manager,
+                group_id=group_id,
+                cache_hit=False,
+                packet_count=len(packets),
+                duration_ms=packet_duration_ms,
+            )
 
     response = compact_auto_recall_surface(
         results,
         query=query,
         packets=packets,
+        gate=(
+            _memory_need_gate_payload(need, decision="triggered")
+            if need is not None
+            else None
+        ),
         min_score=cfg.auto_recall_min_score,
     )
     if response is None:
+        if need is not None:
+            await _finish_memory_need_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                event_bus=event_bus,
+                need=need,
+                content=content,
+                mode_executed="deep",
+                skip_reason="skipped_no_results",
+                cache_hit=packet_cache_hit,
+            )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_deep",
+            mode="auto_recall",
+            status="skipped",
+            skip_reason="skipped_no_results",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
         return None
+
+    if need is not None:
+        await _finish_memory_need_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            event_bus=event_bus,
+            need=need,
+            content=content,
+            mode_executed="deep",
+            cache_hit=packet_cache_hit,
+        )
+        response["gate"] = _memory_need_gate_payload(need, decision="triggered")
 
     if cooldown:
         cooldown.record(query, current_time)
@@ -421,14 +1020,65 @@ async def build_session_prime_surface(
     if plan is None:
         return SessionPrimeSurface(context=None, should_mark_primed=False)
 
+    budget = recall_budget_for_profile(
+        cfg,
+        "startup",
+        surface="mcp",
+        mode="mcp_session_prime",
+        max_output_tokens=plan.max_tokens,
+    )
+    timeout_seconds = budget.stage_timeout_seconds(budget.max_wall_ms)
+    started = time.perf_counter()
+    if timeout_seconds <= 0:
+        await record_manager_memory_operation(
+            manager,
+            group_id,
+            MemoryOperationSample(
+                operation="context",
+                source="mcp_session_prime",
+                mode="mcp_session_prime",
+                status="skipped",
+                duration_ms=round((time.perf_counter() - started) * 1000, 4),
+                skip_reason="skipped_budget",
+                budget_ms=budget.budget_ms,
+                budget_tokens=budget.budget_tokens,
+                budget_miss=True,
+                degraded=bool(budget.timeout_degrades),
+            ),
+        )
+        return SessionPrimeSurface(context=None, should_mark_primed=True)
+
     try:
-        result = await manager.get_context(
-            group_id=group_id,
-            max_tokens=plan.max_tokens,
-            topic_hint=plan.topic_hint,
-            format="structured",
+        result = await asyncio.wait_for(
+            manager.get_context(
+                group_id=group_id,
+                max_tokens=plan.max_tokens,
+                topic_hint=plan.topic_hint,
+                format="structured",
+                operation_source="mcp_session_prime",
+            ),
+            timeout=timeout_seconds,
         )
         return SessionPrimeSurface(context=result, should_mark_primed=True)
+    except TimeoutError:
+        await record_manager_memory_operation(
+            manager,
+            group_id,
+            MemoryOperationSample(
+                operation="context",
+                source="mcp_session_prime",
+                mode="mcp_session_prime",
+                status="degraded",
+                duration_ms=round((time.perf_counter() - started) * 1000, 4),
+                skip_reason="context_timeout",
+                timeout=True,
+                budget_ms=budget.budget_ms,
+                budget_tokens=budget.budget_tokens,
+                budget_miss=True,
+                degraded=True,
+            ),
+        )
+        return SessionPrimeSurface(context=None, should_mark_primed=True)
     except Exception:
         logger.debug("session_prime failed", exc_info=True)
         return SessionPrimeSurface(context=None, should_mark_primed=True)

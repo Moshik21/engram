@@ -159,9 +159,11 @@ requiring the agent to read the full MCP tool catalog first:
 
 ```bash
 engram axi --project "$PWD"
-engram axi context --project "$PWD" --budget 800 --timeout 5
-engram axi recall "current task" --limit 5 --timeout 5
+engram axi context --project "$PWD" --budget 800 --timeout 10
+engram axi recall "current task" --limit 5 --timeout 10
+engram axi value --budget 800 --timeout 20
 engram axi storage
+engram axi packet-cache clear
 engram axi doctor --hooks codex claude-code --require-hook-run --require-followup
 engram axi hooks print codex
 engram axi hooks status codex
@@ -179,9 +181,11 @@ prompt text, recalled context, or memory bodies. The strict doctor gate requires
 startup records to come from `trace-origin=session-start-hook`; the optional
 follow-up gate requires a later metadata-only `context` or `recall` record from
 `trace-origin=agent-followup`. Manual checks do not masquerade as client startup
-or adoption proof. Codex may show a hook-review prompt the first time the
-managed hook changes; after trust, the TUI surfaces the session-start packet on
-the first submitted prompt.
+or adoption proof. `engram axi packet-cache clear` is the fallback for clearing
+stale cached packets; it does not delete memories, graph data, labels, or native
+Helix storage. Codex may show a hook-review prompt the first time the managed
+hook changes; after trust, the TUI surfaces the session-start packet on the
+first submitted prompt.
 
 Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
@@ -379,7 +383,9 @@ engramctl connect claude-code --axi
 engramctl bootstrap /path/to/project
 engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
 engram axi --project "$PWD"
-engram axi recall "current task" --limit 5 --timeout 5
+engram axi context --project "$PWD" --budget 800 --timeout 10
+engram axi recall "current task" --limit 5 --timeout 10
+engram axi value --budget 800 --timeout 20
 
 # Option B: Helix CLI (HTTP mode)
 helix push dev
@@ -1117,6 +1123,7 @@ Engram ships with built-in MCP instructions that teach compatible AI agents (Cla
 - **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
 - **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (evidence-first extraction by default)
 - **Auto-recall**: With `wave1+`, piggyback recall runs on `observe`/`remember` and all read-oriented tools — memory context flows even when the LLM only calls `recall()` or `search_entities()`. The need analyzer gates firing, surfacing compact packets only when prior context is likely useful
+- **Bounded latency**: MCP session priming, `get_context()`, explicit recall, and lite/medium auto-recall use shared budgets. Slow graph or packet paths return degraded telemetry instead of blocking the agent turn.
 - **Corrections**: When you correct a previously stored fact, the agent calls `forget()` on the old information then `remember()` with the correction
 
 The system prompt biases toward `observe` by default — "if uncertain whether something is worth remembering, use observe." This reduces extraction cost while the background worker and triage phase ensure high-value content still gets fully extracted.
@@ -1418,7 +1425,7 @@ The real-time dashboard provides a 3D neural brain visualization of your knowled
 | **Stats** | Entity counts, type distribution, growth timeline, cue coverage, projection health, and extraction yield observability |
 | **Consolidation** | Cycle history, phase timeline, pressure gauge, trigger controls |
 | **Evaluate** | Brain-loop quality signals, operator labels, human-label/adoption release evidence, and multi-client adoption coverage |
-| **Knowledge** | Chat interface with memory recall, entity browsing, search overlay, streaming responses |
+| **Knowledge** | Chat interface with memory recall, packet trust/provenance drilldowns, entity browsing, search overlay, streaming responses |
 
 When paired with the MCP server (Option 3), the dashboard updates live via a Redis pub/sub bridge — store a memory in Claude, watch the new entities appear in the 3D graph instantly.
 
@@ -1607,6 +1614,7 @@ For local native Helix or lite installs, the operator report combines Capture
 cd server
 uv run engram evaluate
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
+uv run engram evaluate --memory-value --require-memory-value --format markdown
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
@@ -1615,6 +1623,17 @@ uv run engram evaluate --human-label-template --human-label-template-out human-l
 uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report cursor-adoption-report.json --require-adoption-client Cursor --additional-adoption-report windsurf-adoption-report.json --require-adoption-clients Cursor Windsurf --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
 uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
+uv run engram dogfood prepare --transcript ~/.codex/sessions/YYYY/MM/DD/session.jsonl --trace ~/.engram/axi-hook-runs.jsonl --project "$PWD" --out-dir dogfood-review --label-template-include-content
+uv run engram dogfood scan --root ~/.codex/sessions --project "$PWD" --project-only --limit 10
+uv run engram dogfood replay --transcript ~/.codex/sessions/YYYY/MM/DD/session.jsonl --project "$PWD" --label-template-out dogfood-labels.json --out dogfood-replay.json
+uv run engram dogfood review --labels dogfood-labels.json --need-type open_loop --command-limit 2 --include-content --context 1
+uv run engram dogfood label-turn --labels dogfood-review/dogfood-labels.json --turn 0 --memory-needed yes --best-mode cached --helpful-mode deep --notes "memory was useful"
+uv run engram dogfood label-session --labels dogfood-review/dogfood-labels.json --scenario "Codex continuity review" --baseline-score 0.2 --memory-score 0.8 --open-loop-expected --open-loop-recovered
+uv run engram dogfood review --labels dogfood-labels.json --require-ready
+uv run engram dogfood import-labels --labels dogfood-labels.json --sqlite-path ~/.engram/engram.db
+uv run engram dogfood export-evidence --labels dogfood-labels.json --out human-labels.json --source native_dogfood_harness --client Codex --captured-at 2026-05-21T18:00:00Z --labeler operator
+uv run engram dogfood closeout --labels dogfood-labels.json --human-label-artifact human-labels.json --sqlite-path ~/.engram/engram.db --mode helix --require-ready
+ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram dogfood finalize --labels dogfood-labels.json --replay-report dogfood-replay.json --human-label-artifact human-labels.json --sqlite-path ~/.engram/engram.db --source native_dogfood_harness --client Codex --captured-at 2026-05-21T18:00:00Z --labeler operator --mode helix
 uv run python scripts/brain_loop_report.py
 uv run python scripts/brain_loop_report.py --format json
 ```
@@ -1625,6 +1644,10 @@ consolidation phase yield, adjudication pressure, and calibration snapshots.
 Labeled recall and session-continuity samples are read from the local SQLite
 evaluation-label store by default, or from JSON files via `--recall-samples`
 and `--session-samples`.
+
+Use `--memory-value` when you only want the value/cost section. Add
+`--require-memory-value` to fail unless both runtime operation cost metrics and
+benefit labels are measured.
 
 Add `--require-evaluation-signals` when the report should be a hard gate: the
 command exits non-zero unless cue usefulness, projection yield, recall quality,
@@ -1673,6 +1696,76 @@ and 3 session samples unless the operator explicitly sets different thresholds.
 When loaded from disk, the report records the `human-labels.json` SHA-256
 digest so the archived evidence bundle points back to the exact reviewed
 artifact.
+
+For local dogfood value checks, use `engram dogfood replay` on a real local
+transcript to produce a redacted mode comparison and review template. The
+`engram dogfood scan --root ~/.codex/sessions --project "$PWD" --project-only`
+command finds redacted candidate transcripts with labelable turns, prefers
+sessions whose recorded `cwd` belongs to the current project, and prints prepare
+commands without copying prompt text. The convenience path is
+`engram dogfood prepare`, which can merge a separate AXI
+hook trace file via `--trace ~/.engram/axi-hook-runs.jsonl` and writes
+`dogfood-replay.json`, `dogfood-labels.json`, `dogfood-review.json`, and
+`dogfood-review.md` into one local output directory. Codex bootstrap payloads
+such as injected `AGENTS.md`, `<environment_context>`, and `<goal_context>`
+blocks are skipped so setup instructions do not become review labels. Exact
+Codex smoke prompts such as `Reply exactly OK.` are skipped for the same reason.
+If no labelable turns remain, prepare/review reports `trace_only`: AXI trace
+cost evidence is kept, but no import/export/finalize label command is suggested.
+After a human reviewer fills the template, `engram dogfood review` checks
+reviewed/importable turns, missing labels, invalid mode references, and sample
+thresholds without writing anything. It only prints import/export closeout
+commands after the reviewed labels satisfy the configured sample thresholds,
+so an incomplete review queue does not lead operators into a doomed import.
+Markdown review output includes suggested
+`inspect-turn --include-content`, `label-turn`, and `label-session` commands for
+the remaining queue, so local dogfood closeout does not require hand-editing
+nested JSON. When `--need-type` is provided, the suggested commands and visible
+queue preview focus on that need type while the full readiness counts stay
+intact. Add `--include-content --context N` to `engram dogfood review` when you
+want a bounded local review packet that inlines source transcript context for
+the suggested turns; without that explicit opt-in, review output stays redacted.
+Review and inspect output label the memory-needed and memory-not-needed
+commands as alternatives, so the first command is not implied to be the default.
+Suggested turn-label commands omit placeholder `--notes`; add
+`--notes` only with a real observed reason. Suggested session-label commands
+follow the same rule for session notes. The review template is redacted by default;
+add `--label-template-include-content` only when you intentionally want a local
+contentful review artifact. Operators can edit the JSON directly or use
+`engram dogfood inspect-turn`, `engram dogfood label-turn`, and
+`engram dogfood label-session` to inspect local source turns and write reviewed
+turn/session labels without hand-editing nested fields. Then
+`engram dogfood import-labels` writes only explicit labels into the local evaluation store, and
+`engram dogfood export-evidence` converts the same reviewed labels into the
+standard `engram_human_label_evidence` artifact accepted by
+`engram evaluate --human-label-artifact`. Export validates the artifact before
+writing it, so placeholder source/client/capturedAt/labeler metadata exits
+non-zero without leaving an invalid `human-labels.json` behind. Dogfood
+review/import/export/finalize also reject copied placeholder review text such
+as `<why memory helped>` or `<session-level review notes>`, so placeholder
+metadata cannot accidentally become passing human-label evidence. `engram dogfood
+closeout` checks the reviewed label counts, verifies the exported evidence
+artifact when supplied, and stages the final operator commands: no import/export
+commands before reviewed labels meet the sample minimums, import/export once
+reviewed labels are ready, and native memory-value only after the human-label
+artifact validates. Add `--require-ready` to make the closeout a hard gate that
+fails until reviewed labels and exported human-label evidence are present. Replay
+reports include redaction-safe AXI trace evidence when present, so hook
+operation counts, statuses, duration avg/p95/max, cache hits, and
+degraded/timeout counts can be reviewed alongside the mode comparison. Replay
+output stays separate from synthetic benchmark evidence, and unlabeled turns
+are skipped. When the reviewed labels are ready, `engram dogfood finalize`
+runs the same path as one hard gate: review, idempotent import, evidence export,
+closeout, measured AXI trace-cost import from `--replay-report`, and native
+memory-value evaluation. Finalize preflights source/client/capturedAt/labeler
+metadata and placeholder label text before import, so incomplete review
+templates cannot pollute the local evaluation store. Use `--skip-evaluate` only
+when you want to stop after export and run the final `engram evaluate` command
+manually; skipped evaluation reports `needs_evaluation` and is not treated as
+finalized. If `--replay-report` is omitted, the final evaluation must find
+existing persisted memory-operation cost metrics in the configured evaluation
+store.
+
 For release packaging, also attach the matching `engram adoption --format json`
 output with `--adoption-report adoption-report.json --require-adoption-evidence`.
 That gate requires a passed live-client adoption report validated with

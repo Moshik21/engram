@@ -314,6 +314,15 @@ describe("api.getEvaluationReport", () => {
       json: async () => ({
         group_id: "default",
         generated_at: "2026-05-11T12:00:00Z",
+        degraded: true,
+        degradations: [
+          {
+            stage: "graph_state",
+            status: "degraded",
+            skip_reason: "graph_state_timeout",
+            timeout_ms: 2000,
+          },
+        ],
         loop: ["capture", "cue", "project", "recall", "consolidate"],
         totals: { episodes: 5, entities: 3, relationships: 2, active_entities: 1 },
         capture: { status: "ready", episode_count: 5, active_count: 0 },
@@ -392,6 +401,10 @@ describe("api.getEvaluationReport", () => {
             memory_need_recall: 0.5,
             missed_recall_rate: 0.5,
             useful_packet_rate: 0.4,
+            stale_packet_rate: 0.2,
+            corrected_packet_rate: 0.1,
+            stale_packet_count: 1,
+            corrected_packet_count: 1,
             false_recall_rate: 0.2,
             surfaced_count: 5,
             used_count: 2,
@@ -400,6 +413,61 @@ describe("api.getEvaluationReport", () => {
           continuity: {
             status: "measured",
             sample_count: 1,
+            session_continuity_lift: 0.3,
+            open_loop_recovery_rate: 1,
+            temporal_correctness: 0,
+          },
+        },
+        memory_value: {
+          status: "measured",
+          cost: {
+            status: "measured",
+            operation_count: 6,
+            avg_added_latency_ms: 9.5,
+            p95_added_latency_ms: 24,
+            avg_budget_ms: 600,
+            p95_budget_ms: 1200,
+            avg_budget_tokens: 300,
+            completed_count: 4,
+            skipped_count: 1,
+            error_count: 1,
+            status_counts: { ok: 4, skipped: 1, error: 1 },
+            skip_reason_counts: { skipped_low_signal: 1 },
+            timeout_count: 1,
+            timeout_rate: 0.1667,
+            degraded_count: 0,
+            degraded_rate: 0,
+            budget_miss_count: 2,
+            budget_miss_rate: 0.3333,
+            cache_hit_count: 3,
+            cache_miss_count: 3,
+            cache_hit_rate: 0.5,
+            by_mode: {
+              cached: {
+                status: "measured",
+                operation_count: 3,
+                avg_added_latency_ms: 3,
+                p95_added_latency_ms: 6,
+                skipped_count: 0,
+                error_count: 0,
+                cache_hit_count: 3,
+                cache_miss_count: 0,
+                cache_hit_rate: 1,
+              },
+            },
+          },
+          benefit: {
+            status: "measured",
+            recall_sample_count: 2,
+            session_sample_count: 1,
+            memory_need_precision: 0.5,
+            memory_need_recall: 0.5,
+            useful_packet_rate: 0.4,
+            stale_packet_rate: 0.2,
+            corrected_packet_rate: 0.1,
+            stale_packet_count: 1,
+            corrected_packet_count: 1,
+            false_recall_rate: 0.2,
             session_continuity_lift: 0.3,
             open_loop_recovery_rate: 1,
             temporal_correctness: 0,
@@ -643,6 +711,16 @@ describe("api.getEvaluationReport", () => {
       expect.any(Object),
     );
     expect(report.groupId).toBe("default");
+    expect(report.degraded).toBe(true);
+    expect(report.degradations).toEqual([
+      {
+        surface: null,
+        stage: "graph_state",
+        status: "degraded",
+        skipReason: "graph_state_timeout",
+        timeoutMs: 2000,
+      },
+    ]);
     expect(report.cue.usedRate).toBe(0.3333);
     expect(report.project.stateCounts.cueOnly).toBe(1);
     expect(report.project.trackedCount).toBe(5);
@@ -653,11 +731,26 @@ describe("api.getEvaluationReport", () => {
     expect(report.recall.evaluation.memoryNeedPrecision).toBe(0.5);
     expect(report.recall.evaluation.memoryNeedRecall).toBe(0.5);
     expect(report.recall.evaluation.missedRecallRate).toBe(0.5);
+    expect(report.recall.evaluation.stalePacketRate).toBe(0.2);
+    expect(report.recall.evaluation.correctedPacketRate).toBe(0.1);
     expect(report.recall.latency.analyzerMs.p95Ms).toBe(31);
     expect(report.recall.latency.probeMs.avgMs).toBe(7);
     expect(report.recall.control.graphOverrideCount).toBe(2);
     expect(report.recall.control.thresholds.resonance).toBe(0.5);
     expect(report.recall.continuity.sessionContinuityLift).toBe(0.3);
+    expect(report.memoryValue.status).toBe("measured");
+    expect(report.memoryValue.cost.operationCount).toBe(6);
+    expect(report.memoryValue.cost.p95AddedLatencyMs).toBe(24);
+    expect(report.memoryValue.cost.p95BudgetMs).toBe(1200);
+    expect(report.memoryValue.cost.skippedCount).toBe(1);
+    expect(report.memoryValue.cost.errorCount).toBe(1);
+    expect(report.memoryValue.cost.skipReasonCounts.skipped_low_signal).toBe(1);
+    expect(report.memoryValue.cost.budgetMissRate).toBe(0.3333);
+    expect(report.memoryValue.cost.byMode.cached.cacheHitRate).toBe(1);
+    expect(report.memoryValue.benefit.recallSampleCount).toBe(2);
+    expect(report.memoryValue.benefit.stalePacketRate).toBe(0.2);
+    expect(report.memoryValue.benefit.correctedPacketRate).toBe(0.1);
+    expect(report.memoryValue.benefit.sessionContinuityLift).toBe(0.3);
     expect(report.consolidate.phaseTotals.triage.itemsAffected).toBe(2);
     expect(report.consolidate.phaseTotals.triage.effectRate).toBe(0.5);
     expect(report.consolidate.adjudication.itemsUnaffected).toBe(2);
@@ -782,6 +875,8 @@ describe("api evaluation label writes", () => {
           packetsSurfaced: 3,
           packetsUsed: 2,
           falseRecalls: 1,
+          stalePackets: 1,
+          correctedPackets: 1,
           source: "dashboard",
           query: "open loop",
           notes: null,
@@ -798,6 +893,8 @@ describe("api evaluation label writes", () => {
       packetsSurfaced: 3,
       packetsUsed: 2,
       falseRecalls: 1,
+      stalePackets: 1,
+      correctedPackets: 1,
       source: "dashboard",
       query: "open loop",
       notes: null,
@@ -814,6 +911,8 @@ describe("api evaluation label writes", () => {
           packetsSurfaced: 3,
           packetsUsed: 2,
           falseRecalls: 1,
+          stalePackets: 1,
+          correctedPackets: 1,
           source: "dashboard",
           query: "open loop",
           notes: null,

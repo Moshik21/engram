@@ -36,14 +36,18 @@ class RuntimeStateService:
         list_project_artifacts: Callable[..., Awaitable[list[Entity]]],
         artifact_is_stale: Callable[[Entity, int], bool],
         get_recall_metrics: Callable[[str], dict],
+        get_memory_operation_metrics: Callable[[str], dict],
         get_epistemic_metrics: Callable[[str], dict],
+        get_packet_cache_summary: Callable[[str], dict] | None = None,
     ) -> None:
         self._cfg = cfg
         self._runtime_mode = runtime_mode
         self._list_project_artifacts = list_project_artifacts
         self._artifact_is_stale = artifact_is_stale
         self._get_recall_metrics = get_recall_metrics
+        self._get_memory_operation_metrics = get_memory_operation_metrics
         self._get_epistemic_metrics = get_epistemic_metrics
+        self._get_packet_cache_summary = get_packet_cache_summary or (lambda _group_id: {})
 
     async def get_runtime_state(
         self,
@@ -77,10 +81,14 @@ class RuntimeStateService:
             "staleAfterSeconds": stale_seconds,
         }
         recall_metrics = self._get_recall_metrics(group_id)
+        memory_operation_metrics = self._get_memory_operation_metrics(group_id)
         epistemic_metrics = self._get_epistemic_metrics(group_id)
+        packet_cache = self._get_packet_cache_summary(group_id)
         stats = {
             "recallMetrics": recall_metrics,
+            "memoryOperationMetrics": memory_operation_metrics,
             "epistemicMetrics": epistemic_metrics,
+            "packetCache": packet_cache,
         }
 
         return {

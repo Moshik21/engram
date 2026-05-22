@@ -25,6 +25,8 @@ async def test_persist_recall_eval_sample_clamps_counts_and_saves() -> None:
         packets_surfaced=-2,
         packets_used=-1,
         false_recalls=-3,
+        stale_packets=-4,
+        corrected_packets=-5,
         source="mcp",
         query="native recall",
         notes="operator label",
@@ -37,6 +39,8 @@ async def test_persist_recall_eval_sample_clamps_counts_and_saves() -> None:
     assert sample.packets_surfaced == 0
     assert sample.packets_used == 0
     assert sample.false_recalls == 0
+    assert sample.stale_packets == 0
+    assert sample.corrected_packets == 0
     assert sample.source == "mcp"
     assert sample.query == "native recall"
     assert sample.notes == "operator label"
@@ -86,6 +90,8 @@ async def test_recall_evaluation_write_surface_persists_and_presents() -> None:
         recall_helped=True,
         packets_surfaced=2,
         packets_used=1,
+        stale_packets=1,
+        corrected_packets=1,
         source="mcp",
     )
 
@@ -94,6 +100,8 @@ async def test_recall_evaluation_write_surface_persists_and_presents() -> None:
     assert payload["operation"] == "record_recall_evaluation"
     assert payload["group_id"] == "brain_a"
     assert payload["sample"]["packets_used"] == 1
+    assert payload["sample"]["stale_packets"] == 1
+    assert payload["sample"]["corrected_packets"] == 1
 
 
 @pytest.mark.asyncio

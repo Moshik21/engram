@@ -11,6 +11,7 @@ import type {
   StorageReport,
   RuntimeState,
   BrainLoopEvaluationReport,
+  BrainLoopReportDegradation,
   HumanLabelEvidence,
   AdoptionEvidence,
   AdoptionClientEvidence,
@@ -277,6 +278,14 @@ interface RawEvaluationReport {
       memory_need_recall?: number | null;
       missed_recall_rate?: number | null;
       useful_packet_rate?: number | null;
+      stale_packet_rate?: number | null;
+      stalePacketRate?: number | null;
+      corrected_packet_rate?: number | null;
+      correctedPacketRate?: number | null;
+      stale_packet_count?: number;
+      stalePacketCount?: number;
+      corrected_packet_count?: number;
+      correctedPacketCount?: number;
       false_recall_rate?: number | null;
       surfaced_count?: number;
       used_count?: number;
@@ -290,6 +299,8 @@ interface RawEvaluationReport {
       temporal_correctness?: number | null;
     };
   };
+  memory_value?: unknown;
+  memoryValue?: unknown;
   consolidate?: {
     status?: string;
     cycle_count?: number;
@@ -371,6 +382,8 @@ interface RawEvaluationReport {
   additionalAdoptionEvidence?: unknown;
   adoption_client_evidence?: unknown;
   adoptionClientEvidence?: unknown;
+  degraded?: boolean;
+  degradations?: unknown;
 }
 
 interface RawLatencySummary {
@@ -446,6 +459,110 @@ function mapLatencySummary(summary?: RawLatencySummary) {
   };
 }
 
+function mapMemoryValue(raw: unknown): BrainLoopEvaluationReport["memoryValue"] {
+  const data = asRecord(raw) ?? {};
+  return {
+    status: stringOrNull(readField(data, "status")) ?? "needs_samples",
+    cost: mapMemoryValueCost(readField(data, "cost")),
+    benefit: mapMemoryValueBenefit(readField(data, "benefit")),
+  };
+}
+
+function mapMemoryValueCost(raw: unknown): BrainLoopEvaluationReport["memoryValue"]["cost"] {
+  const data = asRecord(raw) ?? {};
+  const byModeRaw = asRecord(readField(data, "by_mode", "byMode")) ?? {};
+  return {
+    status: stringOrNull(readField(data, "status")) ?? "needs_samples",
+    operationCount: numberOrZero(readField(data, "operation_count", "operationCount")),
+    avgAddedLatencyMs: numberOrZero(
+      readField(data, "avg_added_latency_ms", "avgAddedLatencyMs"),
+    ),
+    p95AddedLatencyMs: numberOrZero(
+      readField(data, "p95_added_latency_ms", "p95AddedLatencyMs"),
+    ),
+    avgBudgetMs: numberOrZero(readField(data, "avg_budget_ms", "avgBudgetMs")),
+    p95BudgetMs: numberOrZero(readField(data, "p95_budget_ms", "p95BudgetMs")),
+    avgBudgetTokens: numberOrZero(
+      readField(data, "avg_budget_tokens", "avgBudgetTokens"),
+    ),
+    completedCount: numberOrZero(readField(data, "completed_count", "completedCount")),
+    skippedCount: numberOrZero(readField(data, "skipped_count", "skippedCount")),
+    errorCount: numberOrZero(readField(data, "error_count", "errorCount")),
+    statusCounts: numberRecord(readField(data, "status_counts", "statusCounts")),
+    skipReasonCounts: numberRecord(
+      readField(data, "skip_reason_counts", "skipReasonCounts"),
+    ),
+    timeoutCount: numberOrZero(readField(data, "timeout_count", "timeoutCount")),
+    timeoutRate: numberOrNull(readField(data, "timeout_rate", "timeoutRate")),
+    degradedCount: numberOrZero(readField(data, "degraded_count", "degradedCount")),
+    degradedRate: numberOrNull(readField(data, "degraded_rate", "degradedRate")),
+    budgetMissCount: numberOrZero(
+      readField(data, "budget_miss_count", "budgetMissCount"),
+    ),
+    budgetMissRate: numberOrNull(readField(data, "budget_miss_rate", "budgetMissRate")),
+    cacheHitCount: numberOrZero(readField(data, "cache_hit_count", "cacheHitCount")),
+    cacheMissCount: numberOrZero(readField(data, "cache_miss_count", "cacheMissCount")),
+    cacheHitRate: numberOrNull(readField(data, "cache_hit_rate", "cacheHitRate")),
+    byMode: Object.fromEntries(
+      Object.entries(byModeRaw).map(([mode, metrics]) => [
+        mode,
+        mapMemoryValueCost(metrics),
+      ]),
+    ),
+  };
+}
+
+function mapMemoryValueBenefit(
+  raw: unknown,
+): BrainLoopEvaluationReport["memoryValue"]["benefit"] {
+  const data = asRecord(raw) ?? {};
+  return {
+    status: stringOrNull(readField(data, "status")) ?? "needs_samples",
+    recallSampleCount: numberOrZero(
+      readField(data, "recall_sample_count", "recallSampleCount"),
+    ),
+    sessionSampleCount: numberOrZero(
+      readField(data, "session_sample_count", "sessionSampleCount"),
+    ),
+    memoryNeedPrecision: numberOrNull(
+      readField(data, "memory_need_precision", "memoryNeedPrecision"),
+    ),
+    memoryNeedRecall: numberOrNull(
+      readField(data, "memory_need_recall", "memoryNeedRecall"),
+    ),
+    missedRecallRate: numberOrNull(
+      readField(data, "missed_recall_rate", "missedRecallRate"),
+    ),
+    usefulPacketRate: numberOrNull(
+      readField(data, "useful_packet_rate", "usefulPacketRate"),
+    ),
+    stalePacketRate: numberOrNull(
+      readField(data, "stale_packet_rate", "stalePacketRate"),
+    ),
+    correctedPacketRate: numberOrNull(
+      readField(data, "corrected_packet_rate", "correctedPacketRate"),
+    ),
+    stalePacketCount: numberOrZero(
+      readField(data, "stale_packet_count", "stalePacketCount"),
+    ),
+    correctedPacketCount: numberOrZero(
+      readField(data, "corrected_packet_count", "correctedPacketCount"),
+    ),
+    falseRecallRate: numberOrNull(
+      readField(data, "false_recall_rate", "falseRecallRate"),
+    ),
+    sessionContinuityLift: numberOrNull(
+      readField(data, "session_continuity_lift", "sessionContinuityLift"),
+    ),
+    openLoopRecoveryRate: numberOrNull(
+      readField(data, "open_loop_recovery_rate", "openLoopRecoveryRate"),
+    ),
+    temporalCorrectness: numberOrNull(
+      readField(data, "temporal_correctness", "temporalCorrectness"),
+    ),
+  };
+}
+
 function mapEvaluationSignal(raw: RawEvaluationSignal | undefined) {
   return {
     status: raw?.status ?? "needs_data",
@@ -472,6 +589,23 @@ function mapEvaluationSignals(
   };
 }
 
+function mapReportDegradations(raw: unknown): BrainLoopReportDegradation[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      const data = asRecord(item);
+      if (!data) return null;
+      return {
+        surface: stringOrNull(readField(data, "surface")),
+        stage: stringOrNull(readField(data, "stage")) ?? "unknown",
+        status: stringOrNull(readField(data, "status")) ?? "degraded",
+        skipReason: stringOrNull(readField(data, "skip_reason", "skipReason")),
+        timeoutMs: numberOrNull(readField(data, "timeout_ms", "timeoutMs")),
+      };
+    })
+    .filter((item): item is BrainLoopReportDegradation => item != null);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -493,6 +627,18 @@ function stringOrNull(value: unknown): string | null {
 
 function numberOrZero(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function numberRecord(value: unknown): Record<string, number> {
+  const record = asRecord(value);
+  if (!record) return {};
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entry]) => [key, numberOrZero(entry)]),
+  );
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function booleanOrFalse(value: unknown): boolean {
@@ -927,6 +1073,8 @@ export const api = {
     return {
       groupId: raw.group_id ?? "default",
       generatedAt: raw.generated_at ?? "",
+      degraded: raw.degraded === true,
+      degradations: mapReportDegradations(raw.degradations),
       loop: raw.loop ?? ["capture", "cue", "project", "recall", "consolidate"],
       totals: {
         episodes: totals.episodes ?? 0,
@@ -1034,6 +1182,14 @@ export const api = {
           memoryNeedRecall: evaluation.memory_need_recall ?? null,
           missedRecallRate: evaluation.missed_recall_rate ?? null,
           usefulPacketRate: evaluation.useful_packet_rate ?? null,
+          stalePacketRate:
+            evaluation.stale_packet_rate ?? evaluation.stalePacketRate ?? null,
+          correctedPacketRate:
+            evaluation.corrected_packet_rate ?? evaluation.correctedPacketRate ?? null,
+          stalePacketCount:
+            evaluation.stale_packet_count ?? evaluation.stalePacketCount ?? 0,
+          correctedPacketCount:
+            evaluation.corrected_packet_count ?? evaluation.correctedPacketCount ?? 0,
           falseRecallRate: evaluation.false_recall_rate ?? null,
           surfacedCount: evaluation.surfaced_count ?? 0,
           usedCount: evaluation.used_count ?? 0,
@@ -1047,6 +1203,7 @@ export const api = {
           temporalCorrectness: continuity.temporal_correctness ?? null,
         },
       },
+      memoryValue: mapMemoryValue(raw.memory_value ?? raw.memoryValue),
       consolidate: {
         status: consolidate.status ?? "needs_cycles",
         cycleCount: consolidate.cycle_count ?? 0,

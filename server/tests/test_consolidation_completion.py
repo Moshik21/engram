@@ -36,11 +36,19 @@ class FakeLearningService:
 
 class FakeFinalizationService:
     def __init__(self) -> None:
-        self.groups: list[str] = []
+        self.calls: list[tuple[str, CycleContext]] = []
 
-    async def refresh_after_cycle(self, group_id: str) -> ConsolidationFinalizationResult:
-        self.groups.append(group_id)
-        return ConsolidationFinalizationResult(refreshed_pinned_contexts=2)
+    async def refresh_after_cycle(
+        self,
+        group_id: str,
+        *,
+        context: CycleContext,
+    ) -> ConsolidationFinalizationResult:
+        self.calls.append((group_id, context))
+        return ConsolidationFinalizationResult(
+            refreshed_pinned_contexts=2,
+            invalidated_packet_cache_entries=1,
+        )
 
 
 async def test_completion_service_updates_store_learning_finalization_and_events():
@@ -69,7 +77,7 @@ async def test_completion_service_updates_store_learning_finalization_and_events
     assert cycle.total_duration_ms is not None
     assert store.updated_cycles == [cycle]
     assert learning.calls == [(cycle, context)]
-    assert finalization.groups == ["test"]
+    assert finalization.calls == [("test", context)]
 
     events = []
     while not queue.empty():
@@ -78,7 +86,10 @@ async def test_completion_service_updates_store_learning_finalization_and_events
         "consolidation.learning.updated",
         "consolidation.completed",
     ]
-    assert events[-1]["payload"]["finalization"] == {"refreshedPinnedContexts": 2}
+    assert events[-1]["payload"]["finalization"] == {
+        "refreshedPinnedContexts": 2,
+        "invalidatedPacketCacheEntries": 1,
+    }
 
 
 async def test_completion_service_skips_finalization_for_failed_cycle():
@@ -105,7 +116,7 @@ async def test_completion_service_skips_finalization_for_failed_cycle():
         context=CycleContext(trigger="manual"),
     )
 
-    assert finalization.groups == []
+    assert finalization.calls == []
     completed = queue.get_nowait()
     assert completed["type"] == "consolidation.completed"
     assert completed["payload"]["status"] == "failed"

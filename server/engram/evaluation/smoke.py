@@ -147,6 +147,7 @@ async def run_projected_consolidated_smoke(
     )
 
     try:
+        config.configure_runtime_packet_cache(mode.value)
         manager = GraphManager(
             graph_store,
             activation_store,

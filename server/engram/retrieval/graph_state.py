@@ -227,6 +227,7 @@ class GraphStateService:
         activation_store: ActivationStore,
         cfg: ActivationConfig,
         get_recall_metrics: Callable[[str], dict],
+        get_memory_operation_metrics: Callable[[str], dict],
         get_epistemic_metrics: Callable[[str], dict],
         resolve_entity_name: Callable[[str, str], Awaitable[str]],
     ) -> None:
@@ -234,6 +235,7 @@ class GraphStateService:
         self._activation = activation_store
         self._cfg = cfg
         self._get_recall_metrics = get_recall_metrics
+        self._get_memory_operation_metrics = get_memory_operation_metrics
         self._get_epistemic_metrics = get_epistemic_metrics
         self._resolve_entity_name = resolve_entity_name
 
@@ -665,6 +667,7 @@ class GraphStateService:
         stats["active_entities"] = active_count
         stats["dormant_entities"] = dormant_count
         stats["recall_metrics"] = self._get_recall_metrics(group_id)
+        stats["memory_operation_metrics"] = self._get_memory_operation_metrics(group_id)
         stats["epistemic_metrics"] = self._get_epistemic_metrics(group_id)
 
         result: dict = {

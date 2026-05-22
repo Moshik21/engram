@@ -9,11 +9,15 @@ from engram.evaluation.brain_loop_report import (
     build_release_evidence_summary,
     evaluation_signal_failure_message,
     format_brain_loop_report_markdown,
+    format_memory_value_markdown,
     is_brain_loop_report_payload,
     looks_like_partial_brain_loop_report,
+    memory_value_failure_message,
+    merge_memory_operation_metrics,
     merge_recall_runtime_metrics,
     missing_brain_loop_report_sections,
     unmeasured_evaluation_signals,
+    unmeasured_memory_value,
     with_release_evidence_summary,
 )
 from engram.models.consolidation import CalibrationSnapshot, ConsolidationCycle, PhaseResult
@@ -24,10 +28,12 @@ def test_evaluation_package_exports_report_artifact_helpers() -> None:
 
     for name in (
         "evaluation_signal_failure_message",
+        "memory_value_failure_message",
         "is_brain_loop_report_payload",
         "looks_like_partial_brain_loop_report",
         "missing_brain_loop_report_sections",
         "unmeasured_evaluation_signals",
+        "unmeasured_memory_value",
         "build_release_evidence_summary",
         "with_release_evidence_summary",
     ):
@@ -107,6 +113,31 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
             "probe_latency_ms": {"avg_ms": 8.1, "p95_ms": 22.7},
             "family_contributions": {"linguistic": 2, "graph": 1},
         },
+        "memory_operation_metrics": {
+            "operation_count": 6,
+            "duration_ms": {"avg": 9.5, "p95": 24.0},
+            "budget_ms": {"avg": 600.0, "p95": 1200.0},
+            "avg_budget_tokens": 300,
+            "completed_count": 4,
+            "skipped_count": 1,
+            "error_count": 1,
+            "status_counts": {"ok": 4, "skipped": 1, "error": 1},
+            "skip_reason_counts": {"skipped_low_signal": 1},
+            "timeout_count": 1,
+            "budget_miss_count": 2,
+            "cache_hit_count": 3,
+            "cache_miss_count": 3,
+            "modes": {
+                "cached": {
+                    "operation_count": 3,
+                    "duration_ms": {"avg": 3.0, "p95": 6.0},
+                    "skipped_count": 0,
+                    "error_count": 0,
+                    "cache_hit_count": 3,
+                    "cache_miss_count": 0,
+                }
+            },
+        },
     }
     cycle = ConsolidationCycle(
         id="cyc_test",
@@ -154,6 +185,8 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
                 "packetsSurfaced": 4,
                 "packetsUsed": 2,
                 "falseRecalls": 1,
+                "stalePackets": 1,
+                "correctedPackets": 1,
             },
             RecallEvalSample(
                 recall_triggered=True,
@@ -161,6 +194,8 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
                 packets_surfaced=2,
                 packets_used=0,
                 false_recalls=1,
+                stale_packets=1,
+                corrected_packets=0,
                 recall_needed=True,
             ),
             RecallEvalSample(
@@ -169,6 +204,8 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
                 packets_surfaced=1,
                 packets_used=0,
                 false_recalls=0,
+                stale_packets=0,
+                corrected_packets=0,
                 recall_needed=True,
             ),
         ],
@@ -206,6 +243,10 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert report["recall"]["evaluation"]["needed_count"] == 3
     assert report["recall"]["evaluation"]["missed_count"] == 1
     assert report["recall"]["evaluation"]["useful_packet_rate"] == 0.2857
+    assert report["recall"]["evaluation"]["stale_packet_count"] == 2
+    assert report["recall"]["evaluation"]["stale_packet_rate"] == 0.2857
+    assert report["recall"]["evaluation"]["corrected_packet_count"] == 1
+    assert report["recall"]["evaluation"]["corrected_packet_rate"] == 0.1429
     assert report["recall"]["evaluation"]["false_recall_rate"] == 0.2857
     assert report["recall"]["evaluation"]["surfaced_to_used_ratio"] == 3.5
     assert report["recall"]["latency"]["analyzer_ms"] == {"avg_ms": 12.5, "p95_ms": 31.2}
@@ -223,6 +264,25 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     }
     assert report["recall"]["continuity"]["session_continuity_lift"] == 0.3
     assert report["recall"]["continuity"]["open_loop_recovery_rate"] == 1.0
+    assert report["memory_value"]["status"] == "measured"
+    assert report["memory_value"]["cost"]["operation_count"] == 6
+    assert report["memory_value"]["cost"]["avg_added_latency_ms"] == 9.5
+    assert report["memory_value"]["cost"]["p95_added_latency_ms"] == 24.0
+    assert report["memory_value"]["cost"]["p95_budget_ms"] == 1200.0
+    assert report["memory_value"]["cost"]["avg_budget_tokens"] == 300
+    assert report["memory_value"]["cost"]["skipped_count"] == 1
+    assert report["memory_value"]["cost"]["error_count"] == 1
+    assert report["memory_value"]["cost"]["skip_reason_counts"] == {
+        "skipped_low_signal": 1
+    }
+    assert report["memory_value"]["cost"]["timeout_rate"] == 0.1667
+    assert report["memory_value"]["cost"]["budget_miss_rate"] == 0.3333
+    assert report["memory_value"]["cost"]["cache_hit_rate"] == 0.5
+    assert report["memory_value"]["cost"]["by_mode"]["cached"]["cache_hit_rate"] == 1.0
+    assert report["memory_value"]["benefit"]["memory_need_precision"] == 0.5
+    assert report["memory_value"]["benefit"]["stale_packet_rate"] == 0.2857
+    assert report["memory_value"]["benefit"]["corrected_packet_rate"] == 0.1429
+    assert report["memory_value"]["benefit"]["session_continuity_lift"] == 0.3
     assert report["consolidate"]["status"] == "attention"
     assert report["consolidate"]["latest_status"] == "completed"
     assert report["consolidate"]["latest_cycle"]["error"] is None
@@ -320,6 +380,10 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert "probe p95 23ms" in markdown
     assert "Runtime control: surfaced 5 | used 3 | dismissed 1 | graph overrides 2" in markdown
     assert "resonance threshold 0.5000" in markdown
+    assert "## Memory Value" in markdown
+    assert "operations 6 | avg added 10ms | p95 added 24ms" in markdown
+    assert "cache hit 50.0%" in markdown
+    assert "skipped 1" in markdown
     assert "triage accuracy 75.0%, ECE 0.1000" in markdown
     assert "Effect 42.9%" in markdown
     assert "Phase issue: edge_adjudication: judge unavailable" in markdown
@@ -338,6 +402,8 @@ def test_brain_loop_report_empty_data_surfaces_gaps() -> None:
     assert report["cue"]["coverage"] == 0.0
     assert report["project"]["projected_count"] == 0
     assert report["recall"]["evaluation"]["status"] == "needs_samples"
+    assert report["memory_value"]["status"] == "needs_samples"
+    assert report["memory_value"]["cost"]["status"] == "needs_samples"
     assert report["consolidate"]["status"] == "needs_cycles"
     assert report["evaluation_signals"]["false_recall"] == {
         "status": "needs_labels",
@@ -419,6 +485,29 @@ def test_evaluation_signal_failure_message_formats_failures() -> None:
         evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate")
         is None
     )
+
+
+def test_memory_value_failure_message_formats_failures() -> None:
+    report = build_brain_loop_report(
+        {
+            "memory_operation_metrics": {
+                "operation_count": 1,
+                "duration_ms": {"avg": 5.0, "p95": 5.0},
+            }
+        }
+    )
+
+    assert unmeasured_memory_value(report) == [
+        "memory_value:needs_benefit_labels",
+        "memory_value.benefit:needs_samples",
+    ]
+    assert memory_value_failure_message(report, prefix="Memory value") == (
+        "Memory value: ['memory_value:needs_benefit_labels', "
+        "'memory_value.benefit:needs_samples']"
+    )
+    markdown = format_memory_value_markdown(report)
+    assert "# Engram Memory Value" in markdown
+    assert "memory_value.benefit:needs_samples" in markdown
 
 
 def test_release_evidence_summary_measures_shared_release_contract() -> None:
@@ -711,6 +800,36 @@ def test_brain_loop_report_flags_false_recall_without_surfaced_packets() -> None
     )
 
 
+def test_brain_loop_report_flags_memory_value_without_cost_samples() -> None:
+    report = build_brain_loop_report(
+        {
+            "recall_metrics": {
+                "total_analyses": 1,
+                "trigger_count": 1,
+                "analyzer_latency_ms": {"avg": 3.0, "p95": 5.0},
+            },
+        },
+        recall_samples=[
+            RecallEvalSample(
+                recall_triggered=True,
+                recall_helped=True,
+                recall_needed=True,
+                packets_surfaced=2,
+                packets_used=1,
+            )
+        ],
+        session_samples=[SessionContinuitySample(baseline_score=0.2, memory_score=0.8)],
+    )
+
+    assert report["memory_value"]["status"] == "needs_cost_samples"
+    assert report["memory_value"]["cost"]["status"] == "needs_samples"
+    assert report["memory_value"]["benefit"]["status"] == "measured"
+    assert (
+        "memory value needs memory operation cost samples"
+        in report["coverage_gaps"]
+    )
+
+
 def test_brain_loop_report_flags_unscored_calibration_snapshots() -> None:
     report = build_brain_loop_report(
         {
@@ -848,6 +967,35 @@ def test_merge_recall_runtime_metrics_prefers_saved_gate_coverage() -> None:
 
     assert stronger_live["recall_metrics"]["total_analyses"] == 3
     assert stronger_live["recall_metrics"]["analyzer_latency_ms"]["p95"] == 20.0
+
+
+def test_merge_memory_operation_metrics_prefers_saved_cost_coverage() -> None:
+    stats = {
+        "memory_operation_metrics": {"operation_count": 0},
+    }
+    saved = {
+        "operation_count": 5,
+        "duration_ms": {"avg": 7.0, "p95": 19.0},
+        "timeout_count": 1,
+    }
+
+    merged = merge_memory_operation_metrics(stats, saved)
+
+    assert merged["memory_operation_metrics"]["operation_count"] == 5
+    assert merged["memory_operation_metrics"]["duration_ms"]["p95"] == 19.0
+
+    stronger_live = merge_memory_operation_metrics(
+        {
+            "memory_operation_metrics": {
+                "operation_count": 7,
+                "duration_ms": {"avg": 8.0, "p95": 21.0},
+            }
+        },
+        saved,
+    )
+
+    assert stronger_live["memory_operation_metrics"]["operation_count"] == 7
+    assert stronger_live["memory_operation_metrics"]["duration_ms"]["p95"] == 21.0
 
 
 def test_brain_loop_report_accepts_graph_state_and_lifecycle_cycle_shape() -> None:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -159,6 +160,137 @@ async def test_execute_chat_tool_unknown_tool_returns_error() -> None:
     )
 
     assert payload == {"error": "Unknown tool: missing_tool"}
+
+
+@pytest.mark.asyncio
+async def test_execute_chat_tool_recall_records_packet_budget_metrics() -> None:
+    manager = MagicMock()
+    manager.get_chat_tool_recall_policy.return_value = SimpleNamespace(
+        record_access=True,
+        interaction_type="used",
+        interaction_source="chat_tool_use",
+        packets_enabled=True,
+        packet_limit=2,
+    )
+    manager.get_memory_need_config.return_value = SimpleNamespace(
+        recall_budget_chat_ms=1000,
+        auto_recall_token_budget=300,
+        recall_budget_timeout_degrades=True,
+        recall_need_graph_probe_enabled=False,
+    )
+    manager.recall = AsyncMock(
+        return_value=[
+            {
+                "entity": {
+                    "id": "ent_engram",
+                    "name": "Engram",
+                    "type": "Project",
+                    "summary": "Memory layer",
+                },
+                "score": 0.9,
+            }
+        ]
+    )
+    manager.record_memory_operation = MagicMock()
+    packet = SimpleNamespace(
+        packet_type="state_packet",
+        title="State: Engram",
+        summary="Memory layer",
+        why_now="Relevant to chat.",
+        confidence=0.9,
+        evidence_lines=["Engram is a memory layer."],
+        provenance=["entity:ent_engram"],
+    )
+
+    with (
+        patch("engram.retrieval.chat_tools.analyze_memory_need", AsyncMock(return_value=None)),
+        patch(
+            "engram.retrieval.chat_tools.resolve_manager_recall_need_thresholds",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "engram.retrieval.chat_tools.assemble_memory_packets",
+            AsyncMock(return_value=[packet]),
+        ),
+    ):
+        payload = await execute_chat_tool(
+            manager,
+            group_id="tenant_brain",
+            tool_name="recall",
+            tool_input={"query": "Engram", "limit": 5},
+        )
+
+    assert payload["budget"]["profile"] == "chat"
+    assert payload["budget"]["degraded"] is False
+    assert payload["packets"][0]["title"] == "State: Engram"
+    sample = manager.record_memory_operation.call_args.args[1]
+    assert sample.operation == "chat_recall_packets"
+    assert sample.source == "chat_tool_use"
+    assert sample.status == "ok"
+    assert sample.packet_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_chat_tool_recall_degrades_when_packet_budget_times_out() -> None:
+    manager = MagicMock()
+    manager.get_chat_tool_recall_policy.return_value = SimpleNamespace(
+        record_access=True,
+        interaction_type="used",
+        interaction_source="chat_tool_use",
+        packets_enabled=True,
+        packet_limit=2,
+    )
+    manager.get_memory_need_config.return_value = SimpleNamespace(
+        recall_budget_chat_ms=1,
+        auto_recall_token_budget=300,
+        recall_budget_timeout_degrades=True,
+        recall_need_graph_probe_enabled=False,
+    )
+    manager.recall = AsyncMock(
+        return_value=[
+            {
+                "entity": {
+                    "id": "ent_engram",
+                    "name": "Engram",
+                    "type": "Project",
+                    "summary": "Memory layer",
+                },
+                "score": 0.9,
+            }
+        ]
+    )
+    manager.record_memory_operation = MagicMock()
+
+    async def slow_packet_assembly(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return []
+
+    with (
+        patch("engram.retrieval.chat_tools.analyze_memory_need", AsyncMock(return_value=None)),
+        patch(
+            "engram.retrieval.chat_tools.resolve_manager_recall_need_thresholds",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "engram.retrieval.chat_tools.assemble_memory_packets",
+            slow_packet_assembly,
+        ),
+    ):
+        payload = await execute_chat_tool(
+            manager,
+            group_id="tenant_brain",
+            tool_name="recall",
+            tool_input={"query": "Engram", "limit": 5},
+        )
+
+    assert payload["results"][0]["name"] == "Engram"
+    assert payload["packets"] == []
+    assert payload["budget"]["degraded"] is True
+    assert payload["budget"]["skipReason"] == "packet_timeout"
+    sample = manager.record_memory_operation.call_args.args[1]
+    assert sample.status == "degraded"
+    assert sample.timeout is True
+    assert sample.budget_miss is True
 
 
 @pytest.mark.asyncio

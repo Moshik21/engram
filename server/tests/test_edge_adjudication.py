@@ -88,6 +88,12 @@ class TestEdgeAdjudicationHotPath:
             source="test",
         )
         request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
+        edge_manager.cache_memory_packets(
+            "default",
+            scope="project_home",
+            packets=[{"title": "Cached before adjudication"}],
+        )
+        assert edge_manager.get_cached_memory_packets("default", scope="project_home")
 
         outcome = await edge_manager.submit_adjudication_resolution(
             request["request_id"],
@@ -125,6 +131,7 @@ class TestEdgeAdjudicationHotPath:
 
         assert outcome.status == "materialized"
         assert outcome.committed_ids
+        assert edge_manager.get_cached_memory_packets("default", scope="project_home") is None
         assert original_relationship["status"] == "superseded"
         assert replacement_relationship["status"] == "committed"
         assert replacement_relationship["adjudication_request_id"] == request["request_id"]

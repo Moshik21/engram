@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from engram.retrieval.budgets import RecallBudget, recall_budget_for_profile
 from engram.retrieval.chat_events import (
     accumulate_chat_tool_result,
     build_chat_tool_result_message,
 )
 from engram.retrieval.chat_feedback import build_memory_grounding_retry_system_prompt
 from engram.retrieval.control import resolve_manager_recall_need_thresholds
+from engram.retrieval.memory_operations import (
+    MemoryOperationSample,
+    record_manager_memory_operation,
+)
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
 from engram.retrieval.presenter import present_chat_recall_items
@@ -277,17 +284,21 @@ async def _execute_recall_tool(
 ) -> dict[str, Any]:
     policy = manager.get_chat_tool_recall_policy()
     query = str(tool_input["query"])
+    limit = _bounded_limit(tool_input.get("limit"), default=5, maximum=20)
+    budget = _chat_recall_budget(manager, mode=policy.interaction_source, limit=limit)
 
     results = await manager.recall(
         query=query,
         group_id=group_id,
-        limit=_bounded_limit(tool_input.get("limit"), default=5, maximum=20),
+        limit=limit,
         record_access=policy.record_access,
         interaction_type=policy.interaction_type,
         interaction_source=policy.interaction_source,
     )
 
     packets: list[dict[str, Any]] = []
+    budget_degraded = False
+    budget_skip_reason: str | None = None
     if policy.packets_enabled:
         packet_need = await analyze_memory_need(
             query,
@@ -296,23 +307,206 @@ async def _execute_recall_tool(
             cfg=manager.get_memory_need_config(),
             thresholds=await resolve_manager_recall_need_thresholds(manager, group_id),
         )
-        packets = [
-            _packet_to_chat_tool_dict(packet)
-            for packet in await assemble_memory_packets(
+        packets, budget_degraded, budget_skip_reason = await _assemble_chat_packets(
+            manager,
+            group_id=group_id,
+            query=query,
+            results=results,
+            packet_need=packet_need,
+            packet_limit=policy.packet_limit,
+            budget=budget,
+            source=policy.interaction_source,
+        )
+
+    items = present_chat_recall_items(results)
+    payload: dict[str, Any] = {"packets": packets, "results": items, "total": len(items)}
+    if budget is not None:
+        payload["budget"] = {
+            "profile": budget.profile,
+            "mode": budget.mode,
+            "maxWallMs": budget.max_wall_ms,
+            "maxPacketMs": budget.max_packet_ms,
+            "degraded": budget_degraded,
+            **({"skipReason": budget_skip_reason} if budget_skip_reason else {}),
+        }
+    return payload
+
+
+async def _assemble_chat_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    results: list[dict],
+    packet_need: Any,
+    packet_limit: int,
+    budget: RecallBudget | None,
+    source: str,
+) -> tuple[list[dict[str, Any]], bool, str | None]:
+    started = time.perf_counter()
+    if budget is None:
+        raw_packets = await assemble_memory_packets(
+            results,
+            query,
+            mode="chat_tool_use",
+            memory_need=packet_need,
+            max_packets=packet_limit,
+            resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
+                entity_id,
+                group_id,
+            ),
+            feedback_lookup=_get_packet_feedback_lookup(manager, group_id, results),
+        )
+        return [_packet_to_chat_tool_dict(packet) for packet in raw_packets], False, None
+
+    timeout_seconds = budget.stage_timeout_seconds(budget.max_packet_ms)
+    if timeout_seconds <= 0:
+        await _record_chat_packet_operation(
+            manager,
+            group_id=group_id,
+            source=source,
+            budget=budget,
+            status="skipped",
+            started=started,
+            skip_reason="packet_budget_exhausted",
+            budget_miss=True,
+        )
+        return [], True, "packet_budget_exhausted"
+
+    try:
+        raw_packets = await asyncio.wait_for(
+            assemble_memory_packets(
                 results,
                 query,
                 mode="chat_tool_use",
                 memory_need=packet_need,
-                max_packets=policy.packet_limit,
+                max_packets=min(packet_limit, budget.max_packets),
                 resolve_entity_name=lambda entity_id: manager.resolve_entity_name(
                     entity_id,
                     group_id,
                 ),
-            )
-        ]
+                feedback_lookup=_get_packet_feedback_lookup(manager, group_id, results),
+            ),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        await _record_chat_packet_operation(
+            manager,
+            group_id=group_id,
+            source=source,
+            budget=budget,
+            status="degraded",
+            started=started,
+            skip_reason="packet_timeout",
+            timeout=True,
+            degraded=True,
+            budget_miss=True,
+        )
+        return [], True, "packet_timeout"
 
-    items = present_chat_recall_items(results)
-    return {"packets": packets, "results": items, "total": len(items)}
+    packets = [_packet_to_chat_tool_dict(packet) for packet in raw_packets]
+    await _record_chat_packet_operation(
+        manager,
+        group_id=group_id,
+        source=source,
+        budget=budget,
+        status="ok",
+        started=started,
+        packet_count=len(packets),
+    )
+    return packets, False, None
+
+
+def _get_packet_feedback_lookup(
+    manager: Any,
+    group_id: str,
+    results: list[dict],
+) -> dict[str, dict[str, Any]]:
+    memory_ids = _packet_feedback_ids(results)
+    if not memory_ids:
+        return {}
+    getter = getattr(manager, "get_recall_feedback_summary", None)
+    if not callable(getter):
+        return {}
+    return dict(getter(group_id=group_id, memory_ids=memory_ids) or {})
+
+
+def _packet_feedback_ids(results: list[dict]) -> list[str]:
+    memory_ids: list[str] = []
+    for result in results:
+        result_type = result.get("result_type")
+        if result_type == "cue_episode":
+            cue = result.get("cue") if isinstance(result.get("cue"), dict) else {}
+            episode = result.get("episode") if isinstance(result.get("episode"), dict) else {}
+            episode_id = cue.get("episode_id") or episode.get("id")
+            if episode_id:
+                memory_ids.extend([f"cue:{episode_id}", episode_id, f"episode:{episode_id}"])
+            continue
+        if result_type == "episode":
+            episode = result.get("episode") if isinstance(result.get("episode"), dict) else {}
+            episode_id = episode.get("id")
+            if episode_id:
+                memory_ids.extend([episode_id, f"episode:{episode_id}"])
+            continue
+        entity = result.get("entity") if isinstance(result.get("entity"), dict) else {}
+        entity_id = entity.get("id")
+        if entity_id:
+            memory_ids.append(entity_id)
+    return list(dict.fromkeys(memory_ids))
+
+
+async def _record_chat_packet_operation(
+    manager: Any,
+    *,
+    group_id: str,
+    source: str,
+    budget: RecallBudget,
+    status: str,
+    started: float,
+    skip_reason: str | None = None,
+    timeout: bool = False,
+    degraded: bool = False,
+    budget_miss: bool = False,
+    packet_count: int = 0,
+) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000, 4)
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="chat_recall_packets",
+            source=source,
+            mode="chat",
+            status=status,
+            duration_ms=duration_ms,
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+            skip_reason=skip_reason,
+            timeout=timeout,
+            degraded=degraded,
+            budget_miss=budget_miss or budget.exceeded(duration_ms),
+            packet_count=packet_count,
+        ),
+    )
+
+
+def _chat_recall_budget(manager: Any, *, mode: str, limit: int) -> RecallBudget | None:
+    cfg_getter = getattr(manager, "get_memory_need_config", None)
+    if not callable(cfg_getter):
+        return None
+    try:
+        cfg = cfg_getter()
+    except Exception:
+        return None
+    if cfg is None:
+        return None
+    return recall_budget_for_profile(
+        cfg,
+        "chat",
+        surface="chat",
+        mode=mode,
+        max_results=limit,
+    )
 
 
 async def _execute_search_entities_tool(
@@ -379,6 +573,7 @@ async def _execute_search_facts_tool(
         len(results),
     )
     return {"facts": items, "total": len(items)}
+
 
 def _bounded_limit(value: Any, *, default: int, maximum: int) -> int:
     try:
