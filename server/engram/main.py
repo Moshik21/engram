@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -41,6 +42,7 @@ from engram.storage.bootstrap import (
     create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
     stop_if_supported,
+    stop_task_if_running,
 )
 from engram.storage.factory import create_stores
 from engram.storage.protocols import AtlasStore, ConsolidationStore
@@ -108,6 +110,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             predicate_cache = None
 
     config.configure_runtime_packet_cache(mode.value)
+    config.configure_runtime_cue_index_outbox(mode.value)
     manager = GraphManager(
         graph_store,
         activation_store,
@@ -236,6 +239,14 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         )
         episode_worker.start(config.default_group_id, event_bus)
 
+    cue_index_outbox_task = None
+    if config.activation.cue_index_outbox_enabled:
+        cue_index_outbox_task = asyncio.create_task(
+            manager.drain_cue_index_outbox(
+                limit=config.activation.cue_index_outbox_replay_limit,
+            ),
+        )
+
     # Rate limiter + usage meter (Redis-backed in full mode)
     from engram.security.rate_limit import RateLimiter
     from engram.security.usage import UsageMeter
@@ -300,6 +311,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_store=graph_store,
         group_id=config.default_group_id,
     )
+    manager.attach_storage_diagnostics(storage_diagnostics)
 
     _app_state.update(
         {
@@ -329,6 +341,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "notification_collector": notification_collector,
             "temporal_scanner": temporal_scanner,
             "storage_diagnostics": storage_diagnostics,
+            "cue_index_outbox_task": cue_index_outbox_task,
         }
     )
 
@@ -341,6 +354,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
 async def _shutdown() -> None:
     """Cleanup on shutdown."""
+    cue_index_outbox_task = _app_state.get("cue_index_outbox_task")
+    await stop_task_if_running(cue_index_outbox_task)
+
     # Stop Redis event subscriber
     await stop_if_supported(_app_state.get("redis_subscriber"))
 

@@ -47,6 +47,11 @@ class SlowSearchIndex:
         await asyncio.sleep(1)
 
 
+class FailingSearchIndex:
+    async def index_episode_cue(self, cue):
+        raise RuntimeError("index unavailable")
+
+
 @pytest.mark.asyncio
 async def test_capture_service_stores_episode_cue_and_events():
     graph = FakeGraphStore()
@@ -76,12 +81,104 @@ async def test_capture_service_stores_episode_cue_and_events():
     )
 
     episode = graph.episodes[episode_id]
+    await service.drain_cue_indexing()
     assert episode.status == EpisodeStatus.QUEUED
     assert episode.source == "test"
     assert episode_id in graph.cues
     assert search.indexed_cues[0].episode_id == episode_id
+    timings = service.last_stage_timings()
+    assert timings["capture_store"] >= 0
+    assert timings["cue_store"] >= 0
+    assert timings["cue_index_enqueue"] >= 0
+    assert timings["cue_index"] >= 0
     assert any(update[1]["projection_state"] for update in graph.updates)
     assert [event for _, event, _ in events][:2] == ["episode.queued", "episode.cued"]
+
+
+@pytest.mark.asyncio
+async def test_capture_service_records_write_through_storage_deltas():
+    graph = FakeGraphStore()
+    search = FakeSearchIndex()
+    deltas = []
+
+    async def materialize_decisions(*_args, **_kwargs):
+        return None
+
+    service = EpisodeCaptureService(
+        graph_store=graph,
+        search_index=search,
+        cfg=ActivationConfig(
+            cue_layer_enabled=True,
+            cue_vector_index_enabled=False,
+        ),
+        publish_event=lambda *_args: None,
+        materialize_decisions=materialize_decisions,
+        record_storage_counts=lambda group_id, **counts: deltas.append(
+            (group_id, counts),
+        ),
+    )
+
+    episode_id = await service.store_episode(
+        "Alex wants storage diagnostics to update without live Helix count scans.",
+        group_id="brain",
+        source="test",
+    )
+
+    assert episode_id in graph.cues
+    assert deltas == [
+        ("brain", {"episodes": 1}),
+        ("brain", {"cues": 1}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_capture_service_replays_durable_cue_index_outbox(tmp_path):
+    graph = FakeGraphStore()
+    outbox_path = tmp_path / "cue-index-outbox.sqlite3"
+
+    async def materialize_decisions(*_args, **_kwargs):
+        return None
+
+    capture_service = EpisodeCaptureService(
+        graph_store=graph,
+        search_index=FailingSearchIndex(),
+        cfg=ActivationConfig(
+            cue_layer_enabled=True,
+            cue_vector_index_enabled=True,
+            cue_index_outbox_path=str(outbox_path),
+        ),
+        publish_event=lambda *_args: None,
+        materialize_decisions=materialize_decisions,
+    )
+
+    episode_id = await capture_service.store_episode(
+        "Alex wants cue vector indexing to survive a process restart.",
+        group_id="brain",
+        source="test",
+    )
+    await capture_service.drain_cue_indexing()
+
+    assert episode_id in graph.cues
+    assert capture_service.cue_index_outbox_pending_count() == 1
+
+    search = FakeSearchIndex()
+    replay_service = EpisodeCaptureService(
+        graph_store=graph,
+        search_index=search,
+        cfg=ActivationConfig(
+            cue_layer_enabled=True,
+            cue_vector_index_enabled=True,
+            cue_index_outbox_path=str(outbox_path),
+        ),
+        publish_event=lambda *_args: None,
+        materialize_decisions=materialize_decisions,
+    )
+
+    replayed = await replay_service.drain_cue_index_outbox(limit=10)
+
+    assert replayed == 1
+    assert search.indexed_cues[0].episode_id == episode_id
+    assert replay_service.cue_index_outbox_pending_count() == 0
 
 
 @pytest.mark.asyncio
@@ -107,14 +204,18 @@ async def test_capture_service_timeboxes_cue_vector_indexing():
         materialize_decisions=materialize_decisions,
     )
 
+    started = asyncio.get_running_loop().time()
     episode_id = await service.store_episode(
         "Alex decided Engram capture should stay fast under native Helix.",
         group_id="default",
         source="test",
     )
+    elapsed = asyncio.get_running_loop().time() - started
+    await service.drain_cue_indexing()
 
     assert episode_id in graph.cues
     assert search.started is True
+    assert elapsed < 0.1
     assert any(update[0] == episode_id for update in graph.updates)
     assert [event for _, event, _ in events][:2] == ["episode.queued", "episode.cued"]
 

@@ -130,6 +130,7 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert retrieve_kwargs["goal_cache"] is goal_cache
     assert retrieve_kwargs["record_feedback"] is False
     assert retrieve_kwargs["memory_need"] == {"urgency": "high"}
+    assert isinstance(retrieve_kwargs["stage_timings_ms"], dict)
 
     primary_ids, primary_kwargs = events[1][1]
     assert primary_ids == ["ent_primary", "ep_primary"]
@@ -157,3 +158,6 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
         {"result_type": "cue_episode", "episode": {"id": "ep_2"}},
     ]
     assert result.near_misses == [{"result_type": "entity", "entity": {"name": "near"}}]
+    assert result.stage_timings_ms["recall_retrieve"] >= 0
+    assert result.stage_timings_ms["recall_materialize"] >= 0
+    assert result.stage_timings_ms["recall_post_process"] >= 0

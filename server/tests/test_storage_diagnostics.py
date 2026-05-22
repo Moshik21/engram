@@ -117,11 +117,72 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
     assert {item["label"] for item in snapshot["paths"]} >= {
         "Helix native data",
         "Packet cache",
+        "Cue index outbox",
         "SQLite companion",
         "Capture queue",
         "Server log",
     }
     assert graph_store.group_ids == ["default", "default"]
+
+
+@pytest.mark.asyncio
+async def test_storage_diagnostics_default_counts_use_write_through_deltas(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engram_home = tmp_path / "home" / ".engram"
+    engram_home.mkdir(parents=True)
+    monkeypatch.setenv("ENGRAM_HOME", str(engram_home))
+    config = EngramConfig(mode="helix")
+    config.helix.transport = "native"
+    config.helix.data_dir = str(tmp_path / "helix-native")
+    config.sqlite.path = str(tmp_path / "engram.db")
+    graph_store = FakeGraphStore(
+        {
+            "episodes": 3,
+            "entities": 5,
+            "relationships": 7,
+            "cue_metrics": {"cue_count": 2},
+        }
+    )
+    diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=graph_store,
+        group_id="default",
+    )
+
+    diagnostics.record_counts_delta(
+        "default",
+        episodes=1,
+        entities=2,
+        relationships=3,
+        cues=1,
+    )
+    graph_store.stats = {
+        "episodes": 99,
+        "entities": 99,
+        "relationships": 99,
+        "cue_metrics": {"cue_count": 99},
+    }
+
+    snapshot = await diagnostics.snapshot(group_id="default")
+
+    assert snapshot["counts"] == {
+        "episodes": 4,
+        "entities": 7,
+        "relationships": 10,
+        "cues": 3,
+    }
+    assert snapshot["growthSinceStartup"] == {
+        "bytes": 0,
+        "episodes": 1,
+        "entities": 2,
+        "relationships": 3,
+        "cues": 1,
+    }
+    assert snapshot["diagnostics"]["countsStatus"] == "write_through"
+    assert graph_store.group_ids == ["default"]
 
 
 @pytest.mark.asyncio

@@ -1078,6 +1078,8 @@ def test_mcp_public_surfaces_do_not_dispatch_store_or_session_methods_directly()
 
 def test_mcp_public_surfaces_only_await_route_facing_helpers() -> None:
     allowed_names = {
+        "_get_consolidation_store",
+        "_get_evaluation_store",
         "resolve_mcp_consolidation_trigger_store",
     }
     allowed_prefixes = (

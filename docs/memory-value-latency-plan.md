@@ -127,6 +127,33 @@ Latest verification checkpoint:
   `live=true` as the explicit deep refresh. Runtime, storage, and MCP init
   surfaces now expose first-stage timing keys (`runtime_state`, `storage_counts`,
   `storage_paths`, and `mcp_init`) to make the next bottleneck measurable.
+- MCP startup now defers evaluation and consolidation store initialization until
+  the report/label/consolidation tools actually need those stores. The lazy
+  initialization timings are recorded separately as
+  `mcp_evaluation_store_lazy_init` and `mcp_consolidation_store_lazy_init` so
+  cheap tools do not pay that startup cost silently.
+  A live isolated lite MCP probe with noop embeddings initialized in about 62ms;
+  `get_runtime_state` and `observe` left both stores uninitialized, while
+  `get_evaluation_report` initialized them lazily and surfaced both lazy timing
+  keys.
+  The same isolated PyO3 native Helix probe initialized in about 145ms with 171
+  native routes loaded; `get_runtime_state` still left evaluation and
+  consolidation stores uninitialized.
+- Storage diagnostics now keep cached counts warm with write-through deltas
+  from Capture, Project, and known consolidation mutations, so default
+  `/api/storage` can show growth without scanning Helix. Live storage refreshes
+  remain the reconciliation path.
+  Capture cue vector indexing is persisted to a SQLite cue-index outbox and then
+  queued in the background after the cue is written, so observe/remember
+  acknowledgements no longer wait on embeddings and restart-time replay can
+  recover unfinished cue indexing work.
+  Explicit recall responses now include diagnostic stage timings for recall
+  search, packet assembly, MCP presentation, and lower-level manager stages
+  such as graph expansion/retrieve/materialize/post-process when available.
+  If the deep explicit-recall path times out, REST/MCP now attempt a bounded
+  fast fallback over cue and episode search plus already-cached explicit
+  recall packets, so degraded responses can still carry useful context instead
+  of returning only an empty timeout payload.
 - The live `/api/evaluation/brain-loop/report` path is now bounded around
   expensive graph-state reads. Before the change, the loaded native store could
   exceed a 30 second client timeout; after reinstall/restart, the endpoint

@@ -914,9 +914,26 @@ class ActivationConfig(BaseModel):
         ge=0,
         le=30000,
         description=(
-            "Max synchronous wait for cue vector indexing during live capture; "
-            "0 disables the timeout."
+            "Max background cue vector indexing wait after live capture has acknowledged; "
+            "0 disables the background timeout."
         ),
+    )
+    cue_index_outbox_enabled: bool = Field(
+        default=True,
+        description="Persist cue-vector indexing work before running it in the background",
+    )
+    cue_index_outbox_path: str = Field(
+        default="",
+        description=(
+            "SQLite sidecar path for durable cue vector indexing work. "
+            "When blank, runtime entrypoints derive a mode-appropriate local path."
+        ),
+    )
+    cue_index_outbox_replay_limit: int = Field(
+        default=100,
+        ge=1,
+        le=5000,
+        description="Max pending cue-index outbox rows to replay on runtime startup",
     )
     targeted_projection_enabled: bool = Field(
         default=True,
@@ -2241,3 +2258,32 @@ class EngramConfig(BaseSettings):
         if self.activation.recall_packet_cache_path:
             return
         self.activation.recall_packet_cache_path = str(self.get_packet_cache_path(mode))
+
+    def get_cue_index_outbox_path(self, mode: str | None = None) -> Path:
+        """Return the local SQLite sidecar path for durable cue-indexing work."""
+        configured = self.activation.cue_index_outbox_path
+        if configured:
+            path = Path(configured).expanduser()
+        else:
+            mode_label = (mode or self.mode or "auto").lower()
+            if mode_label == "helix" and self.helix.transport in {"native", "auto"}:
+                base = (
+                    Path(self.helix.data_dir).expanduser()
+                    if self.helix.data_dir
+                    else Path.home() / ".helix" / "engram-native"
+                )
+                path = base / "cue-index-outbox.sqlite3"
+            else:
+                sqlite_path = Path(self.sqlite.path).expanduser()
+                suffix = sqlite_path.suffix or ".db"
+                path = sqlite_path.with_name(f"{sqlite_path.stem}.cue-index-outbox{suffix}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def configure_runtime_cue_index_outbox(self, mode: str) -> None:
+        """Populate the cue-index outbox sidecar path for runtime entrypoints."""
+        if not self.activation.cue_index_outbox_enabled:
+            return
+        if self.activation.cue_index_outbox_path:
+            return
+        self.activation.cue_index_outbox_path = str(self.get_cue_index_outbox_path(mode))

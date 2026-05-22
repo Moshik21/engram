@@ -93,6 +93,7 @@ from engram.storage.bootstrap import (
     create_evaluation_store_for_graph,
     initialize_search_index_for_graph,
     stop_if_supported,
+    stop_task_if_running,
 )
 from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode, resolve_mode
@@ -102,6 +103,8 @@ logger = logging.getLogger(__name__)
 
 _lifespan_lock: asyncio.Lock | None = None
 _lifespan_lock_loop: asyncio.AbstractEventLoop | None = None
+_lazy_store_lock: asyncio.Lock | None = None
+_lazy_store_lock_loop: asyncio.AbstractEventLoop | None = None
 _lifespan_refcount = 0
 _mcp_init_timings: dict[str, float] = {}
 
@@ -114,6 +117,16 @@ def _get_lifespan_lock() -> asyncio.Lock:
         _lifespan_lock = asyncio.Lock()
         _lifespan_lock_loop = loop
     return _lifespan_lock
+
+
+def _get_lazy_store_lock() -> asyncio.Lock:
+    global _lazy_store_lock, _lazy_store_lock_loop
+
+    loop = asyncio.get_running_loop()
+    if _lazy_store_lock is None or _lazy_store_lock_loop is not loop:
+        _lazy_store_lock = asyncio.Lock()
+        _lazy_store_lock_loop = loop
+    return _lazy_store_lock
 
 
 @asynccontextmanager
@@ -163,15 +176,19 @@ _recall_cooldown: RecallCooldown | None = None
 _activation_cfg: ActivationConfig | None = None
 _evaluation_store: SQLiteEvaluationStore | None = None
 _consolidation_store: Any | None = None
+_runtime_config: EngramConfig | None = None
+_runtime_mode: EngineMode | None = None
+_runtime_graph_store: Any | None = None
 _episode_worker: Any | None = None
 _redis_publisher: Any | None = None
+_cue_index_outbox_task: asyncio.Task[int] | None = None
 
 
 async def _init() -> None:
     """Initialize storage and services."""
     global _manager, _group_id, _session, _recall_cooldown
-    global _activation_cfg, _evaluation_store, _consolidation_store
-    global _episode_worker, _redis_publisher, _mcp_init_timings
+    global _activation_cfg, _runtime_config, _runtime_mode, _runtime_graph_store
+    global _episode_worker, _redis_publisher, _cue_index_outbox_task, _mcp_init_timings
 
     started = time.perf_counter()
     timings: dict[str, float] = {}
@@ -179,6 +196,9 @@ async def _init() -> None:
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
     graph_store, activation_store, search_index = create_stores(mode, config)
+    _runtime_config = config
+    _runtime_mode = mode
+    _runtime_graph_store = graph_store
     timings["mcp_config"] = _elapsed_ms(stage)
 
     stage = time.perf_counter()
@@ -196,6 +216,7 @@ async def _init() -> None:
     extractor = create_extractor(config)
     event_bus = get_event_bus()
     config.configure_runtime_packet_cache(mode.value)
+    config.configure_runtime_cue_index_outbox(mode.value)
     _manager = GraphManager(
         graph_store,
         activation_store,
@@ -214,21 +235,6 @@ async def _init() -> None:
         max_per_minute=config.activation.auto_recall_max_per_minute,
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
-    stage = time.perf_counter()
-    _evaluation_store = await create_evaluation_store_for_graph(
-        config,
-        graph_store=graph_store,
-        mode=mode,
-    )
-    timings["mcp_evaluation_store_init"] = _elapsed_ms(stage)
-    stage = time.perf_counter()
-    _consolidation_store = await create_consolidation_store_for_graph(
-        config,
-        graph_store=graph_store,
-        mode=mode,
-    )
-    timings["mcp_consolidation_store_init"] = _elapsed_ms(stage)
-
     # Background episode worker
     from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
     from engram.worker import EpisodeWorker
@@ -246,6 +252,14 @@ async def _init() -> None:
         )
         _episode_worker.start(_group_id, event_bus)
         timings["mcp_worker_start"] = _elapsed_ms(stage)
+
+    if config.activation.cue_index_outbox_enabled:
+        stage = time.perf_counter()
+        _cue_index_outbox_task = _start_cue_index_outbox_replay(
+            _manager,
+            limit=config.activation.cue_index_outbox_replay_limit,
+        )
+        timings["mcp_cue_index_outbox_start"] = _elapsed_ms(stage)
 
     # In full mode, bridge events to Redis so the REST API/dashboard can see them
     if mode == EngineMode.FULL:
@@ -270,7 +284,12 @@ async def _init() -> None:
 async def _shutdown() -> None:
     """Close MCP-owned runtime resources."""
     global _manager, _session, _recall_cooldown, _activation_cfg
+    global _runtime_config, _runtime_mode, _runtime_graph_store
     global _evaluation_store, _consolidation_store, _episode_worker, _redis_publisher
+    global _cue_index_outbox_task
+
+    await stop_task_if_running(_cue_index_outbox_task)
+    _cue_index_outbox_task = None
 
     await stop_if_supported(_episode_worker)
     _episode_worker = None
@@ -292,6 +311,9 @@ async def _shutdown() -> None:
     _session = None
     _recall_cooldown = None
     _activation_cfg = None
+    _runtime_config = None
+    _runtime_mode = None
+    _runtime_graph_store = None
 
 
 def _get_manager() -> GraphManager:
@@ -306,10 +328,49 @@ def _get_session() -> SessionState:
     return _session
 
 
-def _get_evaluation_store() -> SQLiteEvaluationStore:
-    if _evaluation_store is None:
+def _start_cue_index_outbox_replay(runtime: Any, *, limit: int) -> asyncio.Task[int]:
+    """Schedule durable cue-index replay without blocking MCP startup."""
+    return asyncio.create_task(runtime.drain_cue_index_outbox(limit=limit))
+
+
+async def _get_evaluation_store() -> SQLiteEvaluationStore:
+    global _evaluation_store
+
+    if _evaluation_store is not None:
+        return _evaluation_store
+    if _runtime_config is None or _runtime_mode is None or _runtime_graph_store is None:
         raise RuntimeError("EvaluationStore not initialized")
+    async with _get_lazy_store_lock():
+        if _evaluation_store is None:
+            started = time.perf_counter()
+            _evaluation_store = await create_evaluation_store_for_graph(
+                _runtime_config,
+                graph_store=_runtime_graph_store,
+                mode=_runtime_mode,
+            )
+            _mcp_init_timings["mcp_evaluation_store_lazy_init"] = _elapsed_ms(started)
     return _evaluation_store
+
+
+async def _get_consolidation_store() -> Any | None:
+    global _consolidation_store
+
+    if _consolidation_store is not None:
+        return _consolidation_store
+    if _runtime_config is None or _runtime_mode is None or _runtime_graph_store is None:
+        return None
+    async with _get_lazy_store_lock():
+        if _consolidation_store is None:
+            started = time.perf_counter()
+            _consolidation_store = await create_consolidation_store_for_graph(
+                _runtime_config,
+                graph_store=_runtime_graph_store,
+                mode=_runtime_mode,
+            )
+            _mcp_init_timings["mcp_consolidation_store_lazy_init"] = _elapsed_ms(
+                started,
+            )
+    return _consolidation_store
 
 
 def _shutdown_on_idle() -> bool:
@@ -991,10 +1052,11 @@ async def get_graph_state(
 async def get_lifecycle_summary(episode_limit: int = 5, cycle_limit: int = 10) -> str:
     """Return the shared Capture -> Cue -> Project -> Recall -> Consolidate summary."""
     manager = _get_manager()
+    consolidation_store = await _get_consolidation_store()
     summary = await build_mcp_lifecycle_summary_surface(
         manager,
         group_id=_group_id,
-        consolidation_store=_consolidation_store,
+        consolidation_store=consolidation_store,
         activation_config=_activation_cfg,
         episode_limit=episode_limit,
         cycle_limit=cycle_limit,
@@ -1034,7 +1096,7 @@ async def record_recall_evaluation(
     Returns:
         JSON acknowledgement with the persisted sample contract.
     """
-    store = _get_evaluation_store()
+    store = await _get_evaluation_store()
     payload = await build_recall_evaluation_write_surface(
         store,
         group_id=_group_id,
@@ -1082,7 +1144,7 @@ async def record_session_continuity_evaluation(
     Returns:
         JSON acknowledgement with the persisted sample contract.
     """
-    store = _get_evaluation_store()
+    store = await _get_evaluation_store()
     payload = await build_session_continuity_evaluation_write_surface(
         store,
         group_id=_group_id,
@@ -1115,11 +1177,12 @@ async def get_evaluation_report(
         JSON brain-loop evaluation report for the current group.
     """
     manager = _get_manager()
-    store = _get_evaluation_store()
+    store = await _get_evaluation_store()
+    consolidation_store = await _get_consolidation_store()
     report = await build_mcp_evaluation_report_surface(
         manager,
         store,
-        consolidation_store=_consolidation_store,
+        consolidation_store=consolidation_store,
         group_id=_group_id,
         cycle_limit=cycle_limit,
         sample_limit=sample_limit,
@@ -1165,7 +1228,10 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     """
     manager = _get_manager()
 
-    store = await resolve_mcp_consolidation_trigger_store(manager, _consolidation_store)
+    store = await resolve_mcp_consolidation_trigger_store(
+        manager,
+        await _get_consolidation_store(),
+    )
 
     result = await build_mcp_consolidation_trigger_surface(
         manager,
@@ -1184,8 +1250,9 @@ async def get_consolidation_status() -> str:
     Returns:
         JSON with is_running flag and latest cycle summary if available.
     """
+    consolidation_store = await _get_consolidation_store()
     result = await build_mcp_consolidation_status_surface(
-        _consolidation_store,
+        consolidation_store,
         group_id=_group_id,
     )
     return json.dumps(result)

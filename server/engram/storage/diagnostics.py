@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from engram.config import EngramConfig
@@ -49,6 +50,7 @@ class StorageDiagnostics:
     startup_paths: list[dict[str, Any]]
     count_cache: dict[str, _CachedCounts] = field(default_factory=dict)
     path_cache: _CachedPaths | None = None
+    _count_lock: Lock = field(default_factory=Lock, repr=False)
 
     @classmethod
     async def create(
@@ -104,6 +106,39 @@ class StorageDiagnostics:
                 status="startup",
             ),
         )
+
+    def record_counts_delta(
+        self,
+        group_id: str | None = None,
+        *,
+        episodes: int = 0,
+        entities: int = 0,
+        relationships: int = 0,
+        cues: int = 0,
+    ) -> None:
+        """Update cached graph counts after a successful write-path mutation."""
+        resolved_group = group_id or self.group_id
+        deltas = {
+            "episodes": episodes,
+            "entities": entities,
+            "relationships": relationships,
+            "cues": cues,
+        }
+        if not any(deltas.values()):
+            return
+        with self._count_lock:
+            cached = self.count_cache.get(resolved_group)
+            base_counts = cached.counts if cached is not None else _empty_counts()
+            updated = {
+                key: max(0, int(base_counts.get(key, 0)) + int(delta))
+                for key, delta in deltas.items()
+            }
+            captured_at = time.time()
+            self.count_cache[resolved_group] = _CachedCounts(
+                counts=updated,
+                captured_at=captured_at,
+                status="write_through",
+            )
 
     async def snapshot(
         self,
@@ -195,7 +230,7 @@ class StorageDiagnostics:
                 return _cached_counts(
                     cached.counts,
                     captured_at=cached.captured_at,
-                    status="cached",
+                    status="cached" if cached.status == "startup" else cached.status,
                 )
             return _cached_counts(_empty_counts(), captured_at=self.started_at, status="missing")
 
@@ -301,6 +336,13 @@ def collect_storage_paths(config: EngramConfig, mode: str) -> list[dict[str, Any
             _sqlite_companion_paths(
                 config.get_packet_cache_path(mode),
                 label_prefix="Packet cache",
+            )
+        )
+    if config.activation.cue_index_outbox_enabled:
+        paths.extend(
+            _sqlite_companion_paths(
+                config.get_cue_index_outbox_path(mode),
+                label_prefix="Cue index outbox",
             )
         )
 

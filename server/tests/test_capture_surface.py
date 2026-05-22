@@ -9,6 +9,8 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.ingestion.capture_surface import (
+    attach_api_capture_diagnostics,
+    attach_mcp_capture_diagnostics,
     build_api_attachment_observe_write_surface,
     build_api_auto_observe_surface,
     build_api_observe_write_surface,
@@ -46,6 +48,30 @@ def test_build_observation_attachment_preserves_payload() -> None:
     assert attachment.mime_type == "image/png"
     assert attachment.data_url == "data:image/png;base64,abc"
     assert attachment.description == "lathe setup"
+
+
+def test_capture_diagnostics_expose_stage_timings_for_api_and_mcp() -> None:
+    manager = SimpleNamespace(
+        get_last_capture_stage_timings=lambda: {
+            "capture_store": 1.25,
+            "cue_index": 3.5,
+            "projection_enqueue": 0.75,
+        },
+    )
+
+    api_response = attach_api_capture_diagnostics({"status": "observed"}, manager)
+    mcp_response = attach_mcp_capture_diagnostics({"status": "stored"}, manager)
+
+    assert api_response["diagnostics"]["stageTimingsMs"] == {
+        "captureStore": 1.25,
+        "cueIndex": 3.5,
+        "projectionEnqueue": 0.75,
+    }
+    assert mcp_response["diagnostics"]["stage_timings_ms"] == {
+        "capture_store": 1.25,
+        "cue_index": 3.5,
+        "projection_enqueue": 0.75,
+    }
 
 
 @pytest.mark.asyncio

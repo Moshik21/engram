@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -234,3 +236,12 @@ async def stop_if_supported(resource: Any) -> None:
     result = stop()
     if inspect.isawaitable(result):
         await result
+
+
+async def stop_task_if_running(task: asyncio.Task | None) -> None:
+    """Stop and await a background task if it is still running."""
+    if task is None or task.done():
+        return
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task

@@ -9,6 +9,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.extraction.discourse import classify_discourse
+from engram.extraction.models import ApplyOutcome
 from engram.extraction.planner import summarize_plan
 from engram.ingestion.projection_execution import (
     EvidenceProjectionExecutor,
@@ -46,6 +47,7 @@ class EpisodeProjectionService:
         index_projected_bundle: Any,
         store_emotional_encoding_context: Any,
         invalidate_briefing_cache: Any,
+        record_storage_counts: Any = None,
     ) -> None:
         self._graph = graph_store
         self._cfg = cfg
@@ -65,6 +67,7 @@ class EpisodeProjectionService:
         self._index_projected_bundle = index_projected_bundle
         self._store_emotional_encoding_context = store_emotional_encoding_context
         self._invalidate_briefing_cache = invalidate_briefing_cache
+        self._record_storage_counts = record_storage_counts
 
     async def project_episode(
         self,
@@ -195,6 +198,8 @@ class EpisodeProjectionService:
                 entity_map = legacy_outcome.entity_map
                 now = legacy_outcome.now
                 used_evidence_materializer = legacy_outcome.used_evidence_materializer
+
+            self._record_projection_storage_counts(group_id, apply_outcome)
 
             await self._run_surprise_detection(
                 entity_map=entity_map,
@@ -342,3 +347,24 @@ class EpisodeProjectionService:
                 failure_result.to_event_payload(),
             )
             raise
+
+    def _record_projection_storage_counts(
+        self,
+        group_id: str,
+        apply_outcome: ApplyOutcome,
+    ) -> None:
+        if self._record_storage_counts is None:
+            return
+        relationship_count = sum(
+            1
+            for result in apply_outcome.relationship_results
+            if getattr(result, "created", False)
+        )
+        try:
+            self._record_storage_counts(
+                group_id,
+                entities=len(apply_outcome.new_entity_names),
+                relationships=relationship_count,
+            )
+        except Exception:
+            logger.debug("failed to record projection storage count delta", exc_info=True)

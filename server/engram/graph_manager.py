@@ -117,6 +117,7 @@ from engram.retrieval.prospective import ProspectiveMemoryService
 from engram.retrieval.response_state import RecallResponseStateService
 from engram.retrieval.result_builder import RecallResultBuilder
 from engram.retrieval.runtime_state import RuntimeStateService
+from engram.retrieval.scorer import ScoredResult
 from engram.retrieval.service import RecallService
 from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
@@ -179,6 +180,7 @@ class GraphManager:
         self._predicate_cache = predicate_cache
         self._nerve_center_cfg = nerve_center_cfg or NerveCenterConfig()
         self._runtime_mode = runtime_mode or "unknown"
+        self._storage_diagnostics: Any | None = None
         self._public_surface_policy_service = PublicSurfacePolicyService(self._cfg)
         self._benchmark_load_service = BenchmarkLoadService(
             graph_store=self._graph,
@@ -232,6 +234,7 @@ class GraphManager:
             search_index=self._search,
         )
         self._last_near_misses: list[dict] = []
+        self._last_recall_stage_timings_ms: dict[str, float] = {}
 
         # Surprise cache (Wave 3)
         if self._cfg.surprise_detection_enabled:
@@ -496,6 +499,7 @@ class GraphManager:
             cfg=self._cfg,
             publish_event=self._publish,
             materialize_decisions=self._materialize_conversation_decisions,
+            record_storage_counts=self._record_storage_counts,
         )
 
         # Evidence extraction pipeline (v2) — lazy init
@@ -572,6 +576,7 @@ class GraphManager:
             index_projected_bundle=self._index_projected_bundle,
             store_emotional_encoding_context=self._store_emotional_encoding_context,
             invalidate_briefing_cache=self.invalidate_briefing_cache,
+            record_storage_counts=self._record_storage_counts,
         )
         self._episode_ingestion_service = EpisodeIngestionService(
             store_episode=self._episode_ingestion_store_episode,
@@ -903,6 +908,23 @@ class GraphManager:
         """Publish event if bus is configured."""
         if self._event_bus:
             self._event_bus.publish(group_id, event_type, payload)
+
+    def attach_storage_diagnostics(self, diagnostics: Any) -> None:
+        """Attach startup-safe storage counters after diagnostics are initialized."""
+        self._storage_diagnostics = diagnostics
+
+    def _record_storage_counts(self, group_id: str, **deltas: int) -> None:
+        diagnostics = self._storage_diagnostics
+        if diagnostics is None:
+            return
+        recorder = getattr(diagnostics, "record_counts_delta", None)
+        if not callable(recorder):
+            return
+        recorder(group_id, **deltas)
+
+    def record_storage_count_delta(self, group_id: str, **deltas: int) -> None:
+        """Update startup-safe storage counters for non-capture mutation paths."""
+        self._record_storage_counts(group_id, **deltas)
 
     def get_recall_need_thresholds(self, group_id: str = "default") -> RecallNeedThresholds:
         """Return active recall-need thresholds for a group."""
@@ -1965,6 +1987,7 @@ class GraphManager:
             )
             raise
         self._last_near_misses = recall_result.near_misses
+        self._last_recall_stage_timings_ms = dict(recall_result.stage_timings_ms)
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         self.record_memory_operation(
             group_id,
@@ -1980,6 +2003,117 @@ class GraphManager:
         )
 
         return recall_result.results
+
+    def get_last_recall_stage_timings(self) -> dict[str, float]:
+        """Return the latest Recall stage timings collected below the facade."""
+        return dict(self._last_recall_stage_timings_ms)
+
+    def get_last_capture_stage_timings(self) -> dict[str, float]:
+        """Return latest Capture-stage timings collected below the facade."""
+        return self._capture_service.last_stage_timings()
+
+    async def drain_cue_index_outbox(self, *, limit: int | None = None) -> int:
+        """Replay durable cue-indexing work from the capture outbox."""
+        return await self._capture_service.drain_cue_index_outbox(limit=limit)
+
+    def get_cue_index_outbox_pending_count(self) -> int:
+        """Return durable cue-index work still waiting for replay."""
+        return self._capture_service.cue_index_outbox_pending_count()
+
+    async def fast_recall_fallback(
+        self,
+        *,
+        query: str,
+        group_id: str = "default",
+        limit: int = 5,
+    ) -> list[dict]:
+        """Return useful episode/cue hits without running graph expansion."""
+        max_results = max(1, int(limit or 1))
+        results: list[dict] = []
+        seen_episode_ids: set[str] = set()
+
+        async def add_hits(method_name: str, result_type: str, fetch_limit: int) -> None:
+            search = getattr(self._search, method_name, None)
+            if not callable(search) or len(results) >= max_results:
+                return
+            try:
+                hits = await search(query=query, group_id=group_id, limit=fetch_limit)
+            except Exception:
+                logger.debug("fast recall fallback %s failed", method_name, exc_info=True)
+                return
+            for episode_id, score in hits or []:
+                if len(results) >= max_results or episode_id in seen_episode_ids:
+                    continue
+                materialized = await self._fallback_episode_recall_result(
+                    str(episode_id),
+                    float(score or 0.0),
+                    group_id=group_id,
+                    result_type=result_type,
+                )
+                if materialized is None:
+                    continue
+                seen_episode_ids.add(str(episode_id))
+                results.append(materialized)
+
+        await add_hits("search_episode_cues", "cue_episode", max_results * 2)
+        await add_hits("search_episodes", "episode", max_results * 2)
+        return results
+
+    async def _fallback_episode_recall_result(
+        self,
+        episode_id: str,
+        score: float,
+        *,
+        group_id: str,
+        result_type: str,
+    ) -> dict | None:
+        try:
+            episode = await self._graph.get_episode_by_id(episode_id, group_id)
+        except Exception:
+            logger.debug(
+                "fast recall fallback failed to fetch episode %s",
+                episode_id,
+                exc_info=True,
+            )
+            return None
+        if (
+            episode is None
+            or self._episode_projection_state_value(episode)
+            == EpisodeProjectionState.MERGED.value
+        ):
+            return None
+        try:
+            linked_entities = await self._graph.get_episode_entities(
+                episode_id,
+                group_id=group_id,
+            )
+        except Exception:
+            linked_entities = []
+
+        scored_result = ScoredResult(
+            node_id=episode_id,
+            score=score,
+            semantic_similarity=score,
+            activation=0.0,
+            spreading=0.0,
+            edge_proximity=0.0,
+            exploration_bonus=0.0,
+            result_type=result_type,
+        )
+        if result_type == "cue_episode":
+            cue = await self._get_episode_cue(episode_id, group_id)
+            if cue is not None:
+                return self._recall_result_builder.cue_episode_result(
+                    episode,
+                    cue,
+                    scored_result,
+                    linked_entities=linked_entities,
+                )
+        return self._recall_result_builder.episode_result(
+            episode,
+            scored_result,
+            linked_entities=linked_entities,
+        )
 
     def drain_triggered_intention_views(self) -> list[dict]:
         """Return triggered intention views and clear the transient queue."""

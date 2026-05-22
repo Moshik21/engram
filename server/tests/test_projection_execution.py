@@ -22,6 +22,8 @@ from engram.ingestion.projection_execution import (
     ProjectionError,
     ProjectionLifecycleResult,
 )
+from engram.ingestion.projection_service import EpisodeProjectionService
+from engram.models.consolidation import RelationshipApplyResult
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 
 
@@ -75,6 +77,47 @@ def test_projection_lifecycle_result_event_payload_preserves_legacy_keys():
         "planStrategy": "full",
         "usedEvidenceMaterializer": True,
     }
+
+
+def test_projection_service_records_write_through_storage_deltas():
+    calls = []
+    service = EpisodeProjectionService(
+        graph_store=AsyncMock(),
+        cfg=ActivationConfig(),
+        projection_planner=MagicMock(),
+        evidence_projection_executor=AsyncMock(),
+        legacy_projection_executor=AsyncMock(),
+        content_hashes=set(),
+        content_hashes_inflight=set(),
+        update_episode_status=AsyncMock(),
+        sync_projection_state=AsyncMock(),
+        get_episode_cue=AsyncMock(),
+        publish_event=MagicMock(),
+        should_use_evidence_pipeline=MagicMock(return_value=False),
+        run_surprise_detection=AsyncMock(),
+        run_prospective_memory=AsyncMock(),
+        publish_projection_graph_changes=AsyncMock(),
+        index_projected_bundle=AsyncMock(),
+        store_emotional_encoding_context=AsyncMock(),
+        invalidate_briefing_cache=MagicMock(),
+        record_storage_counts=lambda group_id, **counts: calls.append((group_id, counts)),
+    )
+
+    service._record_projection_storage_counts(
+        "brain",
+        ApplyOutcome(
+            new_entity_names=["Engram", "AXI"],
+            relationship_results=[
+                RelationshipApplyResult(created=True),
+                RelationshipApplyResult(created=False),
+                RelationshipApplyResult(created=True),
+            ],
+        ),
+    )
+
+    assert calls == [
+        ("brain", {"entities": 2, "relationships": 2}),
+    ]
 
 
 @pytest.mark.asyncio

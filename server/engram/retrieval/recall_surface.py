@@ -31,6 +31,16 @@ from engram.retrieval.presenter import (
 PacketSerializer = Callable[[MemoryPacket], dict[str, Any]]
 ResolveNameFn = Callable[[str], Awaitable[str]]
 AccessCountFn = Callable[[str], Awaitable[int]]
+FAST_RECALL_FALLBACK_TIMEOUT_SECONDS = 0.2
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 4)
+
+
+def _camel_stage_name(value: str) -> str:
+    parts = value.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
 
 
 async def build_api_recall_surface(
@@ -44,6 +54,18 @@ async def build_api_recall_surface(
     """Build the REST explicit-recall payload."""
     packet_policy = manager.get_explicit_recall_packet_policy()
     cfg = manager.get_memory_need_config()
+    pre_stage_timings: dict[str, float] = {}
+    packet_started = time.perf_counter()
+    packets = await cached_explicit_recall_packet_payloads(
+        manager,
+        group_id=group_id,
+        query=query,
+        max_packets=packet_policy.max_packets,
+        cfg=cfg,
+        operation_source=operation_source,
+        enabled=packet_policy.enabled,
+    )
+    pre_stage_timings["packet_cache"] = _elapsed_ms(packet_started)
     results, recall_metadata = await _run_explicit_recall_with_budget(
         manager,
         group_id=group_id,
@@ -52,8 +74,9 @@ async def build_api_recall_surface(
         cfg=cfg,
         operation_source=operation_source,
     )
-    packets = []
-    if recall_metadata["status"] == "ok":
+    recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
+    if recall_metadata["status"] == "ok" and not packets:
+        packet_started = time.perf_counter()
         packets = await assemble_explicit_recall_packet_payloads(
             manager,
             group_id=group_id,
@@ -64,6 +87,9 @@ async def build_api_recall_surface(
             cfg=cfg,
             serializer=memory_packet_to_api_dict,
             operation_source=operation_source,
+        )
+        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
+            _elapsed_ms(packet_started)
         )
     response = present_api_recall_response(query=query, results=results, packets=packets)
     _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
@@ -81,6 +107,20 @@ async def build_mcp_recall_surface(
     get_access_count: AccessCountFn | None = None,
 ) -> dict[str, Any]:
     """Build the MCP explicit-recall payload without transport-only metadata."""
+    pre_stage_timings: dict[str, float] = {}
+    packet_enabled = bool(getattr(cfg, "recall_packets_enabled", False))
+    max_packets = int(getattr(cfg, "recall_packet_explicit_limit", 0) or 0)
+    packet_started = time.perf_counter()
+    packets = await cached_explicit_recall_packet_payloads(
+        manager,
+        group_id=group_id,
+        query=query,
+        max_packets=max_packets,
+        cfg=cfg,
+        operation_source="mcp_recall",
+        enabled=packet_enabled,
+    )
+    pre_stage_timings["packet_cache"] = _elapsed_ms(packet_started)
     results, recall_metadata = await _run_explicit_recall_with_budget(
         manager,
         group_id=group_id,
@@ -89,28 +129,36 @@ async def build_mcp_recall_surface(
         cfg=cfg,
         operation_source="mcp_recall",
     )
+    recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
     if resolve_entity_name is None:
         resolve_entity_name = _mcp_recall_entity_name_resolver(manager, group_id)
     if get_access_count is None:
         get_access_count = _mcp_recall_access_count_resolver(manager)
 
+    present_started = time.perf_counter()
     formatted = await present_mcp_recall_items(
         results,
         resolve_entity_name=resolve_entity_name,
         get_access_count=get_access_count,
     )
-    packets = []
-    if recall_metadata["status"] == "ok":
+    recall_metadata.setdefault("stage_timings_ms", {})["recall_present"] = _elapsed_ms(
+        present_started,
+    )
+    if recall_metadata["status"] == "ok" and not packets:
+        packet_started = time.perf_counter()
         packets = await assemble_explicit_recall_packet_payloads(
             manager,
             group_id=group_id,
             query=query,
             results=results,
-            enabled=bool(getattr(cfg, "recall_packets_enabled", False)),
-            max_packets=int(getattr(cfg, "recall_packet_explicit_limit", 0) or 0),
+            enabled=packet_enabled,
+            max_packets=max_packets,
             cfg=cfg,
             serializer=lambda packet: packet.to_dict(),
             operation_source="mcp_recall",
+        )
+        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
+            _elapsed_ms(packet_started)
         )
     response = present_mcp_recall_response(
         query=query,
@@ -145,6 +193,15 @@ async def _run_explicit_recall_with_budget(
     )
     timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
     started = time.perf_counter()
+    stage_timings: dict[str, float] = {}
+    fallback_started = time.perf_counter()
+    fallback_results, fallback_status = await _run_fast_recall_fallback(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+    )
+    stage_timings["recall_fallback"] = _elapsed_ms(fallback_started)
     if timeout_seconds <= 0:
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await _record_recall_budget_event(
@@ -157,17 +214,22 @@ async def _run_explicit_recall_with_budget(
             duration_ms=duration_ms,
             timeout=False,
             budget_miss=True,
+            result_count=len(fallback_results),
         )
-        return [], _recall_budget_metadata(
+        return list(fallback_results), _recall_budget_metadata(
             budget,
             status="skipped",
             duration_ms=duration_ms,
             skip_reason="skipped_budget",
             timeout=False,
             budget_miss=True,
+            stage_timings_ms=stage_timings,
+            fallback_status=fallback_status,
+            fallback_result_count=len(fallback_results),
         )
 
     try:
+        recall_started = time.perf_counter()
         results = await asyncio.wait_for(
             manager.recall(
                 query=query,
@@ -178,7 +240,10 @@ async def _run_explicit_recall_with_budget(
             ),
             timeout=timeout_seconds,
         )
+        stage_timings["recall_search"] = _elapsed_ms(recall_started)
+        stage_timings.update(_manager_recall_stage_timings(manager))
     except asyncio.TimeoutError:
+        stage_timings["recall_search"] = _elapsed_ms(recall_started)
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await _record_recall_budget_event(
             manager,
@@ -190,14 +255,18 @@ async def _run_explicit_recall_with_budget(
             duration_ms=duration_ms,
             timeout=True,
             budget_miss=True,
+            result_count=len(fallback_results),
         )
-        return [], _recall_budget_metadata(
+        return list(fallback_results), _recall_budget_metadata(
             budget,
             status="degraded",
             duration_ms=duration_ms,
             skip_reason="recall_timeout",
             timeout=True,
             budget_miss=True,
+            stage_timings_ms=stage_timings,
+            fallback_status=fallback_status,
+            fallback_result_count=len(fallback_results),
         )
 
     duration_ms = round((time.perf_counter() - started) * 1000, 4)
@@ -206,6 +275,9 @@ async def _run_explicit_recall_with_budget(
         status="ok",
         duration_ms=duration_ms,
         budget_miss=budget.exceeded(duration_ms),
+        stage_timings_ms=stage_timings,
+        fallback_status=fallback_status,
+        fallback_result_count=len(fallback_results),
     )
 
 
@@ -220,6 +292,7 @@ async def _record_recall_budget_event(
     duration_ms: float,
     timeout: bool,
     budget_miss: bool,
+    result_count: int = 0,
 ) -> None:
     await record_manager_memory_operation(
         manager,
@@ -236,6 +309,7 @@ async def _record_recall_budget_event(
             budget_miss=budget_miss,
             budget_ms=budget.budget_ms,
             budget_tokens=budget.budget_tokens,
+            result_count=result_count,
         ),
     )
 
@@ -248,6 +322,9 @@ def _recall_budget_metadata(
     skip_reason: str | None = None,
     timeout: bool = False,
     budget_miss: bool = False,
+    stage_timings_ms: dict[str, float] | None = None,
+    fallback_status: str | None = None,
+    fallback_result_count: int = 0,
 ) -> dict[str, Any]:
     return {
         "status": status,
@@ -257,7 +334,55 @@ def _recall_budget_metadata(
         "degraded": bool(timeout or (budget.timeout_degrades and budget_miss)),
         "budget_miss": budget_miss,
         "budget": budget.to_dict(),
+        "stage_timings_ms": dict(stage_timings_ms or {}),
+        "fallback_status": fallback_status,
+        "fallback_result_count": max(0, int(fallback_result_count)),
     }
+
+
+def _manager_recall_stage_timings(manager: Any) -> dict[str, float]:
+    getter = getattr(manager, "get_last_recall_stage_timings", None)
+    if not callable(getter):
+        return {}
+    timings = getter()
+    if inspect.isawaitable(timings):
+        close = getattr(timings, "close", None)
+        if callable(close):
+            close()
+        return {}
+    if not isinstance(timings, dict):
+        return {}
+    return {
+        str(key): float(value)
+        for key, value in timings.items()
+        if isinstance(value, int | float)
+    }
+
+
+async def _run_fast_recall_fallback(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+) -> tuple[list[dict], str]:
+    fallback = getattr(manager, "fast_recall_fallback", None)
+    if not callable(fallback):
+        return [], "unavailable"
+    try:
+        value = fallback(query=query, group_id=group_id, limit=limit)
+        if inspect.isawaitable(value):
+            value = await asyncio.wait_for(
+                value,
+                timeout=FAST_RECALL_FALLBACK_TIMEOUT_SECONDS,
+            )
+    except asyncio.TimeoutError:
+        return [], "timeout"
+    except Exception:
+        return [], "error"
+    if not isinstance(value, list):
+        return [], "invalid"
+    return list(value), "hit" if value else "miss"
 
 
 def _attach_recall_budget_metadata(
@@ -268,6 +393,7 @@ def _attach_recall_budget_metadata(
 ) -> None:
     response["status"] = metadata["status"]
     budget = metadata["budget"]
+    stage_timings = dict(metadata.get("stage_timings_ms") or {})
     if camel_case:
         response["budget"] = {
             "profile": budget["profile"],
@@ -286,6 +412,11 @@ def _attach_recall_budget_metadata(
         lifecycle["degraded"] = metadata["degraded"]
         lifecycle["skipReason"] = metadata["skip_reason"]
         lifecycle["timeout"] = metadata["timeout"]
+        lifecycle["fallbackStatus"] = metadata.get("fallback_status")
+        lifecycle["fallbackResultCount"] = metadata.get("fallback_result_count", 0)
+        response.setdefault("diagnostics", {})["stageTimingsMs"] = {
+            _camel_stage_name(key): value for key, value in stage_timings.items()
+        }
         return
     response["budget"] = {
         "profile": budget["profile"],
@@ -304,6 +435,9 @@ def _attach_recall_budget_metadata(
     lifecycle["degraded"] = metadata["degraded"]
     lifecycle["skip_reason"] = metadata["skip_reason"]
     lifecycle["timeout"] = metadata["timeout"]
+    lifecycle["fallback_status"] = metadata.get("fallback_status")
+    lifecycle["fallback_result_count"] = metadata.get("fallback_result_count", 0)
+    response.setdefault("diagnostics", {})["stage_timings_ms"] = stage_timings
 
 
 async def build_mcp_explicit_recall_tool_surface(
@@ -504,6 +638,55 @@ async def assemble_explicit_recall_packet_payloads(
         ),
     )
     return payloads
+
+
+async def cached_explicit_recall_packet_payloads(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    max_packets: int,
+    cfg: Any,
+    operation_source: str,
+    enabled: bool = True,
+) -> list[dict[str, Any]]:
+    """Return only already-cached explicit-recall packets for degraded paths."""
+    if not enabled:
+        return []
+    budget = recall_budget_for_profile(
+        cfg,
+        budget_profile_for_source(operation_source),
+        surface=surface_for_source(operation_source),
+        mode=operation_source,
+        max_packets=max_packets,
+    )
+    if max_packets <= 0 or budget.max_packets <= 0:
+        return []
+    cache_scope = f"explicit_recall:{operation_source}"
+    cache_hit = _get_cached_packets(
+        manager,
+        group_id=group_id,
+        scope=cache_scope,
+        topic_hint=query,
+    )
+    if cache_hit is None:
+        return []
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="packet_cache",
+            source=operation_source,
+            mode=cache_scope,
+            status="ok",
+            duration_ms=0.0,
+            cache_hit=True,
+            packet_count=len(cache_hit.packets),
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+        ),
+    )
+    return cache_hit.packets
 
 
 async def _assemble_live_explicit_packet_payloads(

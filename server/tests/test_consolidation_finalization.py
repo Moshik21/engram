@@ -52,6 +52,31 @@ async def test_finalization_service_invalidates_packet_cache_from_cycle_context(
 
 
 @pytest.mark.asyncio
+async def test_finalization_service_records_storage_count_deltas_from_cycle_context():
+    context = CycleContext(trigger="manual")
+    context.replay_new_entity_ids.update({"ent_replay"})
+    context.schema_entity_ids.update({"ent_schema"})
+    context.pruned_entity_ids.update({"ent_pruned"})
+    context.microglia_demoted_edge_ids.update({"rel_demoted"})
+    graph_manager = SimpleNamespace(
+        record_storage_count_delta=MagicMock(),
+        invalidate_memory_packet_cache=MagicMock(return_value=0),
+        list_intentions=AsyncMock(return_value=[]),
+        get_context=AsyncMock(),
+        update_intention_meta=AsyncMock(),
+    )
+    service = ConsolidationFinalizationService(graph_manager=graph_manager)
+
+    await service.refresh_after_cycle("test", context=context)
+
+    graph_manager.record_storage_count_delta.assert_called_once_with(
+        "test",
+        entities=1,
+        relationships=-1,
+    )
+
+
+@pytest.mark.asyncio
 async def test_finalization_service_refreshes_after_consolidation_pinned_contexts():
     pinned = SimpleNamespace(
         id="intent_pinned",

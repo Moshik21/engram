@@ -41,6 +41,7 @@ class ConsolidationFinalizationService:
         context: CycleContext | None = None,
     ) -> ConsolidationFinalizationResult:
         """Run post-cycle finalizers that should happen after successful consolidation."""
+        self._record_storage_count_delta(group_id, context)
         invalidated = self._invalidate_packet_cache(group_id, context)
         refreshed = await self._refresh_pinned_contexts(group_id)
         return ConsolidationFinalizationResult(
@@ -88,6 +89,30 @@ class ConsolidationFinalizationService:
             )
             or 0
         )
+
+    def _record_storage_count_delta(
+        self,
+        group_id: str,
+        context: CycleContext | None,
+    ) -> None:
+        """Update cached storage counters for known consolidation graph mutations."""
+        gm = self._graph_manager
+        if gm is None or context is None:
+            return
+        recorder = getattr(gm, "record_storage_count_delta", None)
+        if not callable(recorder):
+            return
+
+        new_entity_ids = set(context.replay_new_entity_ids)
+        new_entity_ids.update(context.schema_entity_ids)
+        entities = len(new_entity_ids) - len(context.pruned_entity_ids)
+        relationships = -len(context.microglia_demoted_edge_ids)
+        if entities == 0 and relationships == 0:
+            return
+        try:
+            recorder(group_id, entities=entities, relationships=relationships)
+        except Exception:
+            logger.debug("failed to record consolidation storage count delta", exc_info=True)
 
     async def _refresh_pinned_contexts(self, group_id: str) -> int:
         """Refresh pinned context intentions after consolidation."""

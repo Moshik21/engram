@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 import pytest_asyncio
 
-from engram.config import ActivationConfig
+from engram.config import ActivationConfig, EngramConfig
 from engram.evaluation.store import StoredRecallEvalSample, StoredSessionContinuitySample
 from engram.graph_manager import GraphManager
 from engram.mcp.server import SessionState
@@ -1351,6 +1351,117 @@ class TestJSONResponses:
         assert mcp_server._manager is None
         assert mcp_server._evaluation_store is None
         assert mcp_server._consolidation_store is None
+
+    @pytest.mark.asyncio
+    async def test_mcp_init_defers_evaluation_and_consolidation_stores(
+        self,
+        monkeypatch,
+    ):
+        from engram.mcp import server as mcp_server
+
+        config = EngramConfig(_env_file=None)
+        config.activation.worker_enabled = False
+        config.activation.cue_index_outbox_enabled = False
+        graph_store = SimpleNamespace(initialize=AsyncMock())
+        activation_store = SimpleNamespace()
+        search_index = SimpleNamespace()
+        manager = SimpleNamespace(
+            drain_cue_index_outbox=AsyncMock(return_value=0),
+            close_runtime_resources=AsyncMock(),
+        )
+        evaluation_factory = AsyncMock(return_value=SimpleNamespace())
+        consolidation_factory = AsyncMock(return_value=SimpleNamespace())
+
+        monkeypatch.setattr(mcp_server, "_manager", None)
+        monkeypatch.setattr(mcp_server, "_session", None)
+        monkeypatch.setattr(mcp_server, "_evaluation_store", None)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", None)
+        monkeypatch.setattr(mcp_server, "_runtime_config", None)
+        monkeypatch.setattr(mcp_server, "_runtime_mode", None)
+        monkeypatch.setattr(mcp_server, "_runtime_graph_store", None)
+        monkeypatch.setattr(mcp_server, "_mcp_init_timings", {})
+        monkeypatch.setattr(mcp_server, "EngramConfig", lambda: config)
+        monkeypatch.setattr(
+            mcp_server,
+            "resolve_mode",
+            AsyncMock(return_value=mcp_server.EngineMode.LITE),
+        )
+        monkeypatch.setattr(
+            mcp_server,
+            "create_stores",
+            Mock(return_value=(graph_store, activation_store, search_index)),
+        )
+        monkeypatch.setattr(mcp_server, "initialize_search_index_for_graph", AsyncMock())
+        monkeypatch.setattr(mcp_server, "create_extractor", Mock(return_value=object()))
+        monkeypatch.setattr(mcp_server, "GraphManager", Mock(return_value=manager))
+        monkeypatch.setattr(
+            mcp_server,
+            "create_evaluation_store_for_graph",
+            evaluation_factory,
+        )
+        monkeypatch.setattr(
+            mcp_server,
+            "create_consolidation_store_for_graph",
+            consolidation_factory,
+        )
+
+        await mcp_server._init()
+
+        graph_store.initialize.assert_awaited_once()
+        mcp_server.initialize_search_index_for_graph.assert_awaited_once()
+        evaluation_factory.assert_not_awaited()
+        consolidation_factory.assert_not_awaited()
+        assert mcp_server._evaluation_store is None
+        assert mcp_server._consolidation_store is None
+        assert "mcp_evaluation_store_init" not in mcp_server._mcp_init_timings
+        assert "mcp_consolidation_store_init" not in mcp_server._mcp_init_timings
+        assert mcp_server._mcp_init_timings["mcp_init"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_mcp_lazy_store_helpers_initialize_on_first_use(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        config = EngramConfig(_env_file=None)
+        graph_store = SimpleNamespace()
+        evaluation_store = SimpleNamespace()
+        consolidation_store = SimpleNamespace()
+        evaluation_factory = AsyncMock(return_value=evaluation_store)
+        consolidation_factory = AsyncMock(return_value=consolidation_store)
+
+        monkeypatch.setattr(mcp_server, "_evaluation_store", None)
+        monkeypatch.setattr(mcp_server, "_consolidation_store", None)
+        monkeypatch.setattr(mcp_server, "_runtime_config", config)
+        monkeypatch.setattr(mcp_server, "_runtime_mode", mcp_server.EngineMode.LITE)
+        monkeypatch.setattr(mcp_server, "_runtime_graph_store", graph_store)
+        monkeypatch.setattr(mcp_server, "_mcp_init_timings", {})
+        monkeypatch.setattr(
+            mcp_server,
+            "create_evaluation_store_for_graph",
+            evaluation_factory,
+        )
+        monkeypatch.setattr(
+            mcp_server,
+            "create_consolidation_store_for_graph",
+            consolidation_factory,
+        )
+
+        assert await mcp_server._get_evaluation_store() is evaluation_store
+        assert await mcp_server._get_evaluation_store() is evaluation_store
+        assert await mcp_server._get_consolidation_store() is consolidation_store
+        assert await mcp_server._get_consolidation_store() is consolidation_store
+
+        evaluation_factory.assert_awaited_once_with(
+            config,
+            graph_store=graph_store,
+            mode=mcp_server.EngineMode.LITE,
+        )
+        consolidation_factory.assert_awaited_once_with(
+            config,
+            graph_store=graph_store,
+            mode=mcp_server.EngineMode.LITE,
+        )
+        assert mcp_server._mcp_init_timings["mcp_evaluation_store_lazy_init"] >= 0
+        assert mcp_server._mcp_init_timings["mcp_consolidation_store_lazy_init"] >= 0
 
     @pytest.mark.asyncio
     async def test_mcp_trigger_consolidation_includes_failure_errors(self, monkeypatch):

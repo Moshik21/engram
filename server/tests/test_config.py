@@ -89,6 +89,10 @@ class TestEngramConfig:
         )
 
         assert config.get_packet_cache_path("lite") == tmp_path / "engram.packet-cache.db"
+        assert (
+            config.get_cue_index_outbox_path("lite")
+            == tmp_path / "engram.cue-index-outbox.db"
+        )
 
     def test_runtime_packet_cache_path_uses_native_helix_data_dir(self, tmp_path):
         config = EngramConfig(
@@ -97,9 +101,13 @@ class TestEngramConfig:
             _env_file=None,
         )
         config.configure_runtime_packet_cache("helix")
+        config.configure_runtime_cue_index_outbox("helix")
 
         assert config.activation.recall_packet_cache_path == str(
             tmp_path / "helix" / "packet-cache.sqlite3"
+        )
+        assert config.activation.cue_index_outbox_path == str(
+            tmp_path / "helix" / "cue-index-outbox.sqlite3"
         )
 
     def test_default_env_file_order_includes_repo_root(self):

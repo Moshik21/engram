@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -173,6 +174,46 @@ async def _record_write_operation(
         logger.debug("failed to record capture memory operation", exc_info=True)
 
 
+def _camel_stage_name(value: str) -> str:
+    parts = value.split("_")
+    return parts[0] + "".join(part.capitalize() for part in parts[1:])
+
+
+def _capture_stage_timings(manager: Any) -> dict[str, float]:
+    getter = getattr(manager, "get_last_capture_stage_timings", None)
+    if not callable(getter):
+        return {}
+    timings = getter()
+    if inspect.isawaitable(timings):
+        close = getattr(timings, "close", None)
+        if callable(close):
+            close()
+        return {}
+    if not isinstance(timings, Mapping):
+        return {}
+    return {
+        str(key): float(value)
+        for key, value in timings.items()
+        if isinstance(value, int | float)
+    }
+
+
+def attach_api_capture_diagnostics(response: dict[str, Any], manager: Any) -> dict[str, Any]:
+    timings = _capture_stage_timings(manager)
+    if timings:
+        response.setdefault("diagnostics", {})["stageTimingsMs"] = {
+            _camel_stage_name(key): value for key, value in timings.items()
+        }
+    return response
+
+
+def attach_mcp_capture_diagnostics(response: dict[str, Any], manager: Any) -> dict[str, Any]:
+    timings = _capture_stage_timings(manager)
+    if timings:
+        response.setdefault("diagnostics", {})["stage_timings_ms"] = timings
+    return response
+
+
 def build_observation_attachment(
     *,
     mime_type: str,
@@ -307,10 +348,10 @@ async def build_api_auto_observe_surface(
         pass_conversation_date=True,
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return present_api_memory_write(
+    return attach_api_capture_diagnostics(present_api_memory_write(
         memory_write_contract("observe", episode_id),
         status="observed",
-    )
+    ), manager)
 
 
 async def build_api_auto_observe_request_surface(
@@ -387,10 +428,10 @@ async def build_api_observe_write_surface(
         pass_conversation_date=True,
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return present_api_memory_write(
+    return attach_api_capture_diagnostics(present_api_memory_write(
         memory_write_contract("observe", episode_id),
         status="observed",
-    )
+    ), manager)
 
 
 async def build_api_attachment_observe_write_surface(
@@ -423,11 +464,11 @@ async def build_api_attachment_observe_write_surface(
         attachments=[attachment],
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return present_api_memory_write(
+    return attach_api_capture_diagnostics(present_api_memory_write(
         memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
         status="stored",
         include_legacy_episode_id=True,
-    )
+    ), manager)
 
 
 async def build_api_remember_write_surface(
@@ -463,14 +504,14 @@ async def build_api_remember_write_surface(
         group_id=group_id,
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return present_api_memory_write(
+    return attach_api_capture_diagnostics(present_api_memory_write(
         memory_write_contract(
             "remember",
             episode_id,
             adjudication_requests=adjudications,
         ),
         status="remembered",
-    )
+    ), manager)
 
 
 def record_mcp_memory_write_activity(session: Any) -> None:
@@ -540,14 +581,14 @@ async def build_mcp_remember_write_surface(
             activation_cfg=activation_cfg,
         )
 
-    response = present_mcp_memory_write(
+    response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
         memory_write_contract(
             "remember",
             episode_id,
             adjudication_requests=adjudications,
         ),
         message=message,
-    )
+    ), manager)
     await recall_middleware(content, response, tool_name="remember")
     await _record_write_operation(manager, group_id, finish_operation)
     return response
@@ -582,10 +623,10 @@ async def build_mcp_observe_write_surface(
     )
     record_mcp_memory_write_activity(session)
     await ingest_live_turn(manager, content, source="observe")
-    response = present_mcp_memory_write(
+    response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
         memory_write_contract("observe", episode_id),
         message="Stored for background processing.",
-    )
+    ), manager)
     await recall_middleware(content, response, tool_name="observe")
     await _record_write_operation(manager, group_id, finish_operation)
     return response
@@ -626,7 +667,7 @@ async def build_mcp_attachment_observe_write_surface(
     )
     record_mcp_memory_write_activity(session)
     await _record_write_operation(manager, group_id, finish_operation)
-    return present_mcp_memory_write(
+    return attach_mcp_capture_diagnostics(present_mcp_memory_write(
         memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
         message=f"{attachment_kind.title()} stored for background processing.",
-    )
+    ), manager)

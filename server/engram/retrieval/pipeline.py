@@ -172,6 +172,17 @@ def _merge_special_results(
     return special_results
 
 
+def _add_stage_timing(
+    stage_timings_ms: dict[str, float] | None,
+    key: str,
+    started: float,
+) -> None:
+    if stage_timings_ms is None:
+        return
+    elapsed = round((time.perf_counter() - started) * 1000, 4)
+    stage_timings_ms[key] = round(stage_timings_ms.get(key, 0.0) + elapsed, 4)
+
+
 def _optional_recall_capability(
     search_index,
     method_name: str,
@@ -215,6 +226,7 @@ async def retrieve(
     goal_cache=None,
     record_feedback: bool = True,
     memory_need=None,
+    stage_timings_ms: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -249,6 +261,7 @@ async def retrieve(
     # HyDE is disabled (production default).
     graph_expanded_query = query  # default: unchanged
     if cfg.graph_query_expansion_enabled:
+        stage_started = time.perf_counter()
         try:
             from engram.retrieval.graph_expansion import expand_query_from_graph
 
@@ -257,6 +270,8 @@ async def retrieve(
             )
         except Exception:
             pass  # Fall back to original query
+        finally:
+            _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
 
     # Step 0.1b: Template reformulation — convert question to statement form
     # for better embedding match.  Zero cost, <1ms.  If it produces a result,
@@ -332,9 +347,11 @@ async def retrieve(
     else:
         # Original single-pool path — scale retrieval_top_k
         top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
+        search_started = time.perf_counter()
         search_results = await search_index.search(
             query=hyde_query, group_id=group_id, limit=top_k,
         )
+        _add_stage_timing(stage_timings_ms, "recall_embed", search_started)
         candidates = search_results or []
 
         # Step 1.5: Classify query and override weights
@@ -485,11 +502,13 @@ async def retrieve(
         )
         if search_episodes is not None:
             try:
+                episode_search_started = time.perf_counter()
                 ep_results = await search_episodes(
                     query=query,
                     group_id=group_id,
                     limit=cfg.episode_retrieval_max * 3 * _ep_budget_mult,
                 )
+                _add_stage_timing(stage_timings_ms, "recall_embed", episode_search_started)
                 for ep_id, sem_sim in ep_results:
                     ep_score = original_weight_semantic * sem_sim * _ep_score_weight
                     episode_candidates.append(
@@ -518,11 +537,13 @@ async def retrieve(
         )
         if search_episode_cues is not None:
             try:
+                cue_search_started = time.perf_counter()
                 cue_results = await search_episode_cues(
                     query=query,
                     group_id=group_id,
                     limit=cfg.cue_recall_max * 3,
                 )
+                _add_stage_timing(stage_timings_ms, "recall_embed", cue_search_started)
                 for ep_id, sem_sim in cue_results:
                     cue_score = original_weight_semantic * sem_sim * cfg.cue_recall_weight
                     cue_candidates.append(
@@ -764,11 +785,13 @@ async def retrieve(
     if new_ids:
         new_states = await activation_store.batch_get(new_ids)
         activation_states.update(new_states)
+        similarity_started = time.perf_counter()
         discovered_sims = await search_index.compute_similarity(
             query=query,
             entity_ids=new_ids,
             group_id=group_id,
         )
+        _add_stage_timing(stage_timings_ms, "recall_embed", similarity_started)
         candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
 
     # Step 4.6: Fingerprint similarity computation (Wave 2)

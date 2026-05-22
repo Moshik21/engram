@@ -25,6 +25,9 @@ async def test_api_recall_surface_threads_operation_source_into_manager_recall()
             max_packets=0,
         ),
         get_memory_need_config=lambda: SimpleNamespace(),
+        get_last_recall_stage_timings=Mock(
+            return_value={"graph_expand": 1.25, "recall_retrieve": 2.5},
+        ),
     )
 
     result = await build_api_recall_surface(
@@ -36,6 +39,9 @@ async def test_api_recall_surface_threads_operation_source_into_manager_recall()
     )
 
     assert result["query"] == "Engram recall"
+    assert result["diagnostics"]["stageTimingsMs"]["recallSearch"] >= 0
+    assert result["diagnostics"]["stageTimingsMs"]["graphExpand"] == 1.25
+    assert result["diagnostics"]["stageTimingsMs"]["recallRetrieve"] == 2.5
     manager.recall.assert_awaited_once_with(
         query="Engram recall",
         group_id="native_brain",
@@ -72,6 +78,8 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
     assert result["lifecycle"]["degraded"] is False
     assert result["lifecycle"]["timeout"] is False
     assert result["budget"]["profile"] == "explicit"
+    assert result["diagnostics"]["stage_timings_ms"]["recall_search"] >= 0
+    assert result["diagnostics"]["stage_timings_ms"]["recall_present"] >= 0
     assert result["results"] == []
     assert result["near_misses"] == [{"entity": "Near Miss"}]
     assert result["surprise_connections"] == [{"entity": "Surprise"}]
@@ -117,6 +125,7 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None
     assert result["lifecycle"]["degraded"] is True
     assert result["lifecycle"]["timeout"] is True
     assert result["lifecycle"]["skipReason"] == "recall_timeout"
+    assert result["diagnostics"]["stageTimingsMs"]["recallSearch"] >= 100
     assert result["budget"]["surface"] == "axi"
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"
@@ -125,6 +134,141 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None
     assert sample.status == "degraded"
     assert sample.timeout is True
     assert sample.degraded is True
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_runs_fast_cascade_before_deep_recall() -> None:
+    calls = []
+    cached_packet = {
+        "packet_type": "state_packet",
+        "title": "Cached state",
+        "summary": "Cached packet is first in the cascade.",
+    }
+    deep_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_deep",
+            "content": "Deep recall result",
+            "source": "deep",
+            "created_at": None,
+        },
+        "score": 0.9,
+        "score_breakdown": {"semantic": 0.9},
+        "linked_entities": [],
+    }
+
+    def cached_packets(*_args, **_kwargs):
+        calls.append("packet_cache")
+        return SimpleNamespace(packets=[cached_packet])
+
+    async def fast_fallback(*_args, **_kwargs):
+        calls.append("fallback")
+        return [
+            {
+                "result_type": "episode",
+                "episode": {"id": "ep_fast", "content": "Fast", "source": "fast"},
+                "score": 0.5,
+                "score_breakdown": {"semantic": 0.5},
+                "linked_entities": [],
+            }
+        ]
+
+    async def deep_recall(*_args, **_kwargs):
+        calls.append("deep")
+        return [deep_result]
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=deep_recall),
+        fast_recall_fallback=AsyncMock(side_effect=fast_fallback),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(),
+        get_cached_memory_packets=Mock(side_effect=cached_packets),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram latency",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert calls == ["packet_cache", "fallback", "deep"]
+    assert result["status"] == "ok"
+    assert result["items"][0]["episode"]["id"] == "ep_deep"
+    assert result["packets"] == [cached_packet]
+    assert result["lifecycle"]["fallbackStatus"] == "hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert result["diagnostics"]["stageTimingsMs"]["packetCache"] >= 0
+    assert result["diagnostics"]["stageTimingsMs"]["recallFallback"] >= 0
+    assert result["diagnostics"]["stageTimingsMs"]["recallSearch"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_fast_fallback_and_cached_packets_on_timeout() -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    cached_packet = {
+        "packet_type": "state_packet",
+        "title": "Cached state",
+        "summary": "Cached packet survives recall timeout.",
+    }
+    fallback_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_fast",
+            "content": "Fast cue fallback about Engram latency.",
+            "source": "cue_fallback",
+            "created_at": None,
+        },
+        "score": 0.82,
+        "score_breakdown": {"semantic": 0.82},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[fallback_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=100),
+        get_cached_memory_packets=Mock(
+            return_value=SimpleNamespace(packets=[cached_packet]),
+        ),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram latency",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"][0]["episode"]["id"] == "ep_fast"
+    assert result["packets"] == [cached_packet]
+    assert result["lifecycle"]["timeout"] is True
+    assert result["lifecycle"]["fallbackStatus"] == "hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert result["diagnostics"]["stageTimingsMs"]["recallFallback"] >= 0
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="Engram latency",
+        group_id="native_brain",
+        limit=3,
+    )
+    recorded_operations = [
+        call.args[1].operation for call in manager.record_memory_operation.call_args_list
+    ]
+    assert recorded_operations == ["packet_cache", "recall"]
 
 
 @pytest.mark.asyncio
@@ -205,6 +349,7 @@ async def test_mcp_recall_surface_uses_cached_packet_payloads() -> None:
 
     assert result["packets"] == [cached_packet]
     assert result["lifecycle"]["packet_count"] == 1
+    assert result["diagnostics"]["stage_timings_ms"]["packet_cache"] >= 0
     manager.cache_memory_packets.assert_not_called()
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"
@@ -261,6 +406,7 @@ async def test_mcp_recall_surface_degrades_when_packet_assembly_times_out(
     assert result["results"]
     assert result["packets"] == []
     assert result["lifecycle"]["packet_count"] == 0
+    assert result["diagnostics"]["stage_timings_ms"]["packet_assembly"] >= 100
     manager.cache_memory_packets.assert_not_called()
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"

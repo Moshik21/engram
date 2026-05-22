@@ -1457,7 +1457,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | DELETE | `/api/entities/{id}` | Soft-delete entity |
 | GET | `/api/episodes` | List episodes (paginated) |
 | GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
-| GET | `/api/storage` | Startup-safe cached storage paths, disk usage, and growth since startup (`?live=true&timeoutSeconds=5` refreshes counts/paths for operator diagnostics) |
+| GET | `/api/storage` | Startup-safe cached storage paths, disk usage, cue-index outbox, and write-through graph growth counts (`?live=true&timeoutSeconds=5` reconciles counts/paths for operator diagnostics) |
 | GET | `/api/lifecycle/summary` | Shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
 | GET | `/api/activation/snapshot` | Top activated entities |
 | GET | `/api/activation/{id}/curve` | ACT-R decay curve |

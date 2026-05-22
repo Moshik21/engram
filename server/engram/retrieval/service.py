@@ -29,6 +29,7 @@ class RecallServiceResult:
 
     results: list[dict[str, Any]]
     near_misses: list[dict[str, Any]]
+    stage_timings_ms: dict[str, float]
 
 
 class RecallService:
@@ -87,6 +88,8 @@ class RecallService:
             interaction_type=interaction_type,
         )
 
+        stage_timings_ms: dict[str, float] = {}
+        retrieve_started = time.perf_counter()
         scored_results = await self._retrieve(
             query=query,
             group_id=group_id,
@@ -104,7 +107,9 @@ class RecallService:
             goal_cache=goal_cache,
             record_feedback=record_feedback,
             memory_need=memory_need,
+            stage_timings_ms=stage_timings_ms,
         )
+        stage_timings_ms["recall_retrieve"] = _elapsed_ms(retrieve_started)
 
         primary_results, near_miss_results = split_primary_and_near_miss_results(
             scored_results,
@@ -113,6 +118,7 @@ class RecallService:
         )
 
         now = self._time()
+        materialize_started = time.perf_counter()
         primary_materialization = await self._primary_materializer.materialize(
             primary_results,
             group_id=group_id,
@@ -123,7 +129,9 @@ class RecallService:
             now=now,
             working_memory=working_memory,
         )
+        stage_timings_ms["recall_materialize"] = _elapsed_ms(materialize_started)
 
+        post_started = time.perf_counter()
         post_processed = await self._post_processor.process(
             primary_materialization.results,
             group_id=group_id,
@@ -137,8 +145,14 @@ class RecallService:
             interaction_type=interaction_type,
             interaction_source=interaction_source,
         )
+        stage_timings_ms["recall_post_process"] = _elapsed_ms(post_started)
 
         return RecallServiceResult(
             results=post_processed.results,
             near_misses=post_processed.near_misses,
+            stage_timings_ms=stage_timings_ms,
         )
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 4)

@@ -226,6 +226,7 @@ class TestPipelineEpisodeRetrieval:
     async def test_episode_retrieval_enabled_returns_episodes(self):
         """Pipeline with episode_retrieval_enabled=True returns episode results."""
         cfg = ActivationConfig(episode_retrieval_enabled=True, episode_retrieval_max=2)
+        stage_timings = {}
 
         results = await retrieve(
             query="test query",
@@ -234,9 +235,11 @@ class TestPipelineEpisodeRetrieval:
             activation_store=_mock_activation_store(),
             search_index=_mock_search_index_with_episodes(),
             cfg=cfg,
+            stage_timings_ms=stage_timings,
         )
         episode_results = [r for r in results if r.result_type == "episode"]
         assert len(episode_results) > 0
+        assert stage_timings["recall_embed"] >= 0
 
     @pytest.mark.asyncio
     async def test_episode_retrieval_disabled_no_episodes(self):
@@ -400,6 +403,54 @@ class TestPipelineEpisodeRetrieval:
 
 
 class TestGraphManagerRecallEpisodes:
+    @pytest.mark.asyncio
+    async def test_fast_recall_fallback_materializes_cue_then_episode_hits(self):
+        """GraphManager fast fallback skips graph expansion and returns cue/episode hits."""
+        from engram.graph_manager import GraphManager
+
+        graph = _mock_graph_store()
+        graph.get_episode_by_id = AsyncMock(
+            side_effect=lambda episode_id, _group_id: Episode(
+                id=episode_id,
+                content=f"content for {episode_id}",
+                source="test",
+                status=EpisodeStatus.COMPLETED,
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                group_id="default",
+                created_at=utc_now(),
+            )
+        )
+        graph.get_episode_cue = AsyncMock(
+            side_effect=lambda episode_id, _group_id: EpisodeCue(
+                episode_id=episode_id,
+                group_id="default",
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                cue_text=f"cue for {episode_id}",
+                first_spans=[f"content for {episode_id}"],
+                route_reason="fallback_test",
+            )
+        )
+        activation = _mock_activation_store()
+        search = _mock_search_index_with_episodes(
+            episode_results=[("ep_2", 0.7)],
+            cue_results=[("ep_1", 0.9)],
+        )
+        extractor = AsyncMock()
+        gm = GraphManager(graph, activation, search, extractor, cfg=ActivationConfig())
+
+        results = await gm.fast_recall_fallback(
+            query="Engram latency",
+            group_id="default",
+            limit=2,
+        )
+
+        assert [result["result_type"] for result in results] == ["cue_episode", "episode"]
+        assert results[0]["cue"]["episode_id"] == "ep_1"
+        assert results[1]["episode"]["id"] == "ep_2"
+        search.search.assert_not_awaited()
+        search.search_episode_cues.assert_awaited_once()
+        search.search_episodes.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_recall_formats_episode_results(self):
         """GraphManager.recall() formats episode results correctly."""
