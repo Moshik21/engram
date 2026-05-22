@@ -926,6 +926,8 @@ class TestJSONResponses:
         manager.get_runtime_state.assert_awaited_once_with(
             group_id=GROUP,
             project_path="/tmp/engram",
+            live=False,
+            timeout_seconds=None,
         )
 
     @pytest.mark.asyncio

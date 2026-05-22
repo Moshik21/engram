@@ -121,6 +121,12 @@ Latest verification checkpoint:
   `engram axi storage` / `engramctl storage` are the explicit live diagnostic
   paths. Memory operation p95 now uses nearest-rank percentile math so small
   samples cannot report p95 below a slower average.
+- MCP now keeps its initialized runtime process-local by default instead of
+  tearing down GraphManager/storage on every streamable HTTP lifespan close.
+  Deep `/api/knowledge/runtime` is cache-first and budgeted by default, with
+  `live=true` as the explicit deep refresh. Runtime, storage, and MCP init
+  surfaces now expose first-stage timing keys (`runtime_state`, `storage_counts`,
+  `storage_paths`, and `mcp_init`) to make the next bottleneck measurable.
 - The live `/api/evaluation/brain-loop/report` path is now bounded around
   expensive graph-state reads. Before the change, the loaded native store could
   exceed a 30 second client timeout; after reinstall/restart, the endpoint

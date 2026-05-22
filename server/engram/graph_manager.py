@@ -1633,11 +1633,15 @@ class GraphManager:
         *,
         group_id: str = "default",
         project_path: str | None = None,
+        live: bool = False,
+        timeout_seconds: float | None = None,
     ) -> dict:
         """Return effective runtime/config state plus artifact freshness."""
         return await self._runtime_state_service.get_runtime_state(
             group_id=group_id,
             project_path=project_path,
+            live=live,
+            timeout_seconds=timeout_seconds,
         )
 
     async def trigger_consolidation_cycle(

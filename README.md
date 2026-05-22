@@ -1469,7 +1469,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | GET | `/api/knowledge/context` | Assembled memory context (structured or briefing) |
 | POST | `/api/knowledge/route` | Deterministic epistemic routing plus `answerContract`, `requiredNextSources`, and source-query metadata |
 | GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
-| GET | `/api/knowledge/runtime` | Effective mode/profile/feature state, artifact freshness, and agent adoption guidance |
+| GET | `/api/knowledge/runtime` | Cache-first, budgeted mode/profile/feature state, artifact freshness, and adoption guidance (`?live=true&timeoutSeconds=5` refreshes deep state) |
 | GET | `/api/knowledge/runtime/fast` | Startup-safe runtime packet that skips graph and artifact inspection |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |

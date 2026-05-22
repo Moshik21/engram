@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from numbers import Number
 from pathlib import Path
@@ -11,17 +14,23 @@ from engram.config import ActivationConfig
 from engram.models.entity import Entity
 from engram.utils.dates import utc_now_iso
 
+DEFAULT_RUNTIME_STATE_TIMEOUT_SECONDS = 1.0
+
 
 async def build_runtime_state_surface(
     manager: Any,
     *,
     group_id: str,
     project_path: str | None = None,
+    live: bool = False,
+    timeout_seconds: float | None = None,
 ) -> dict:
     """Read runtime state through the shared manager compatibility facade."""
     return await manager.get_runtime_state(
         group_id=group_id,
         project_path=project_path,
+        live=live,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -112,18 +121,96 @@ class RuntimeStateService:
         self._get_memory_operation_metrics = get_memory_operation_metrics
         self._get_epistemic_metrics = get_epistemic_metrics
         self._get_packet_cache_summary = get_packet_cache_summary or (lambda _group_id: {})
+        self._cache: dict[tuple[str, str | None], tuple[dict[str, Any], float]] = {}
 
     async def get_runtime_state(
         self,
         *,
         group_id: str = "default",
         project_path: str | None = None,
+        live: bool = False,
+        timeout_seconds: float | None = None,
     ) -> dict:
-        """Return effective runtime/config state plus artifact freshness."""
+        """Return effective runtime/config state plus artifact freshness.
+
+        The default path is budgeted and cache-first so agent startup probes do
+        not inherit deep artifact or graph-state latency. Operator callers can
+        pass ``live=True`` for a fresh read.
+        """
+        cache_key = (group_id, project_path)
+        cached = self._cache.get(cache_key)
+        if not live and cached is not None:
+            return _with_cache_metadata(
+                cached[0],
+                live=False,
+                cache_status="hit",
+                cached_at=cached[1],
+            )
+
+        budget = (
+            DEFAULT_RUNTIME_STATE_TIMEOUT_SECONDS
+            if timeout_seconds is None and not live
+            else timeout_seconds
+        )
+        try:
+            if budget is None or budget <= 0:
+                result = await self._build_live_runtime_state(
+                    group_id=group_id,
+                    project_path=project_path,
+                )
+            else:
+                result = await asyncio.wait_for(
+                    self._build_live_runtime_state(
+                        group_id=group_id,
+                        project_path=project_path,
+                    ),
+                    timeout=budget,
+                )
+        except TimeoutError:
+            if cached is not None:
+                return _with_cache_metadata(
+                    cached[0],
+                    live=live,
+                    cache_status="stale_timeout",
+                    cached_at=cached[1],
+                    timeout=True,
+                )
+            result = build_fast_runtime_packet(
+                self._cfg,
+                runtime_mode=self._runtime_mode,
+                project_path=project_path,
+            )
+            return _with_cache_metadata(
+                result,
+                live=live,
+                cache_status="miss_timeout",
+                cached_at=None,
+                timeout=True,
+            )
+
+        cached_at = time.time()
+        self._cache[cache_key] = (copy.deepcopy(result), cached_at)
+        return _with_cache_metadata(
+            result,
+            live=True,
+            cache_status="refreshed",
+            cached_at=cached_at,
+        )
+
+    async def _build_live_runtime_state(
+        self,
+        *,
+        group_id: str = "default",
+        project_path: str | None = None,
+    ) -> dict:
+        """Build runtime/config state from live artifact and metric sources."""
+        started = time.perf_counter()
+        artifact_started = time.perf_counter()
         artifacts = await self._list_project_artifacts(
             group_id=group_id,
             project_path=project_path,
         )
+        artifact_ms = _elapsed_ms(artifact_started)
         stale_seconds = int(self._cfg.artifact_bootstrap_stale_seconds)
         stale_count = sum(
             1 for artifact in artifacts if self._artifact_is_stale(artifact, stale_seconds)
@@ -135,6 +222,7 @@ class RuntimeStateService:
             if observed and (last_observed is None or observed > last_observed):
                 last_observed = observed
 
+        metrics_started = time.perf_counter()
         artifact_bootstrap = {
             "enabled": self._cfg.artifact_bootstrap_enabled,
             "projectPath": project_path,
@@ -148,6 +236,7 @@ class RuntimeStateService:
         memory_operation_metrics = self._get_memory_operation_metrics(group_id)
         epistemic_metrics = self._get_epistemic_metrics(group_id)
         packet_cache = self._get_packet_cache_summary(group_id)
+        metrics_ms = _elapsed_ms(metrics_started)
         stats = {
             "recallMetrics": recall_metrics,
             "memoryOperationMetrics": memory_operation_metrics,
@@ -185,6 +274,17 @@ class RuntimeStateService:
                 project_path=project_path,
             ),
             "stats": stats,
+            "diagnostics": {
+                "live": True,
+                "cacheStatus": "live",
+                "runtimeStateAgeSeconds": 0,
+                "timeout": False,
+                "stageTimingsMs": {
+                    "runtime_state": _elapsed_ms(started),
+                    "artifact_bootstrap": artifact_ms,
+                    "runtime_metrics": metrics_ms,
+                },
+            },
             "generatedAt": utc_now_iso(),
         }
 
@@ -295,3 +395,34 @@ def _numeric_values(value: Any):
     if isinstance(value, list | tuple):
         for nested in value:
             yield from _numeric_values(nested)
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 4)
+
+
+def _with_cache_metadata(
+    payload: dict[str, Any],
+    *,
+    live: bool,
+    cache_status: str,
+    cached_at: float | None,
+    timeout: bool = False,
+) -> dict[str, Any]:
+    result = copy.deepcopy(payload)
+    now = time.time()
+    diagnostics = dict(result.get("diagnostics") or {})
+    stage_timings = dict(diagnostics.get("stageTimingsMs") or {})
+    diagnostics.update(
+        {
+            "live": live,
+            "cacheStatus": cache_status,
+            "runtimeStateAgeSeconds": 0
+            if cached_at is None
+            else max(0, int(now - cached_at)),
+            "timeout": timeout,
+            "stageTimingsMs": stage_timings,
+        }
+    )
+    result["diagnostics"] = diagnostics
+    return result

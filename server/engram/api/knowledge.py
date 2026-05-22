@@ -534,6 +534,17 @@ async def search_artifacts(
 async def get_runtime_state(
     request: Request,
     project_path: str | None = Query(None, description="Optional project path context"),
+    live: bool = Query(
+        False,
+        description="Refresh artifact and metric state instead of returning cached state.",
+    ),
+    timeout_seconds: float | None = Query(
+        None,
+        alias="timeoutSeconds",
+        ge=0,
+        le=30,
+        description="Optional live/runtime-state refresh budget in seconds.",
+    ),
 ) -> JSONResponse:
     """Return effective runtime/config state, artifact freshness, and adoption guidance."""
     tenant = get_tenant(request)
@@ -543,6 +554,8 @@ async def get_runtime_state(
         manager,
         group_id=group_id,
         project_path=project_path,
+        live=live,
+        timeout_seconds=timeout_seconds,
     )
     return JSONResponse(content=result)
 

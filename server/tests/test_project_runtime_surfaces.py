@@ -70,6 +70,8 @@ async def test_runtime_state_surface_forwards_group_and_project_path() -> None:
     manager.get_runtime_state.assert_awaited_once_with(
         group_id="native_brain",
         project_path="/tmp/engram",
+        live=False,
+        timeout_seconds=None,
     )
 
 
@@ -92,6 +94,7 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
     result = await service.get_runtime_state(
         group_id="native_brain",
         project_path="/tmp/engram",
+        live=True,
     )
 
     guidance = result["agentAdoption"]
@@ -127,6 +130,37 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
             "that Engram has no useful memory."
         ),
     }
+    assert result["diagnostics"]["cacheStatus"] == "refreshed"
+    assert result["diagnostics"]["stageTimingsMs"]["runtime_state"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_runtime_state_cache_serves_default_without_live_artifact_read() -> None:
+    calls = 0
+
+    async def list_project_artifacts(**_: object) -> list[object]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    service = RuntimeStateService(
+        cfg=ActivationConfig(artifact_bootstrap_enabled=True),
+        runtime_mode="helix",
+        list_project_artifacts=list_project_artifacts,
+        artifact_is_stale=lambda *_: False,
+        get_recall_metrics=lambda _: {},
+        get_memory_operation_metrics=lambda _: {},
+        get_epistemic_metrics=lambda _: {},
+        get_packet_cache_summary=lambda _: {},
+    )
+
+    first = await service.get_runtime_state(group_id="native_brain", live=True)
+    second = await service.get_runtime_state(group_id="native_brain")
+
+    assert first["diagnostics"]["cacheStatus"] == "refreshed"
+    assert second["diagnostics"]["cacheStatus"] == "hit"
+    assert second["diagnostics"]["live"] is False
+    assert calls == 1
 
 
 @pytest.mark.asyncio

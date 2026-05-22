@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -102,6 +103,7 @@ logger = logging.getLogger(__name__)
 _lifespan_lock: asyncio.Lock | None = None
 _lifespan_lock_loop: asyncio.AbstractEventLoop | None = None
 _lifespan_refcount = 0
+_mcp_init_timings: dict[str, float] = {}
 
 
 def _get_lifespan_lock() -> asyncio.Lock:
@@ -116,12 +118,12 @@ def _get_lifespan_lock() -> asyncio.Lock:
 
 @asynccontextmanager
 async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
-    """Initialize storage on the same event loop as the MCP server."""
+    """Initialize process-level storage on the same event loop as the MCP server."""
     global _lifespan_refcount
 
     lock = _get_lifespan_lock()
     async with lock:
-        if _lifespan_refcount == 0:
+        if _manager is None:
             await _init()
         _lifespan_refcount += 1
     try:
@@ -129,7 +131,7 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     finally:
         async with lock:
             _lifespan_refcount -= 1
-            if _lifespan_refcount == 0:
+            if _lifespan_refcount == 0 and _shutdown_on_idle():
                 await _shutdown()
 
 
@@ -169,19 +171,28 @@ async def _init() -> None:
     """Initialize storage and services."""
     global _manager, _group_id, _session, _recall_cooldown
     global _activation_cfg, _evaluation_store, _consolidation_store
-    global _episode_worker, _redis_publisher
+    global _episode_worker, _redis_publisher, _mcp_init_timings
 
+    started = time.perf_counter()
+    timings: dict[str, float] = {}
+    stage = time.perf_counter()
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
     graph_store, activation_store, search_index = create_stores(mode, config)
+    timings["mcp_config"] = _elapsed_ms(stage)
 
+    stage = time.perf_counter()
     await graph_store.initialize()
+    timings["mcp_graph_init"] = _elapsed_ms(stage)
+    stage = time.perf_counter()
     await initialize_search_index_for_graph(
         search_index,
         graph_store=graph_store,
         mode=mode,
     )
+    timings["mcp_search_init"] = _elapsed_ms(stage)
 
+    stage = time.perf_counter()
     extractor = create_extractor(config)
     event_bus = get_event_bus()
     config.configure_runtime_packet_cache(mode.value)
@@ -195,6 +206,7 @@ async def _init() -> None:
         nerve_center_cfg=config.nerve_center,
         runtime_mode=mode.value,
     )
+    timings["mcp_manager_init"] = _elapsed_ms(stage)
     _group_id = os.environ.get("ENGRAM_GROUP_ID", config.default_group_id)
     _session = SessionState(group_id=_group_id)
     _activation_cfg = config.activation
@@ -202,22 +214,27 @@ async def _init() -> None:
         max_per_minute=config.activation.auto_recall_max_per_minute,
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
+    stage = time.perf_counter()
     _evaluation_store = await create_evaluation_store_for_graph(
         config,
         graph_store=graph_store,
         mode=mode,
     )
+    timings["mcp_evaluation_store_init"] = _elapsed_ms(stage)
+    stage = time.perf_counter()
     _consolidation_store = await create_consolidation_store_for_graph(
         config,
         graph_store=graph_store,
         mode=mode,
     )
+    timings["mcp_consolidation_store_init"] = _elapsed_ms(stage)
 
     # Background episode worker
     from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
     from engram.worker import EpisodeWorker
 
     if config.activation.worker_enabled:
+        stage = time.perf_counter()
         _episode_worker = EpisodeWorker(
             _manager,
             config.activation,
@@ -228,6 +245,7 @@ async def _init() -> None:
             ),
         )
         _episode_worker.start(_group_id, event_bus)
+        timings["mcp_worker_start"] = _elapsed_ms(stage)
 
     # In full mode, bridge events to Redis so the REST API/dashboard can see them
     if mode == EngineMode.FULL:
@@ -237,9 +255,15 @@ async def _init() -> None:
         if publisher:
             _redis_publisher = publisher
             event_bus.add_on_publish_hook(publisher)
+    timings["mcp_init"] = _elapsed_ms(started)
+    _mcp_init_timings = timings
 
     logger.info(
-        "Engram MCP server initialized (%s mode, session=%s)", mode.value, _session.session_id
+        "Engram MCP server initialized (%s mode, session=%s, %.1fms, timings=%s)",
+        mode.value,
+        _session.session_id,
+        timings["mcp_init"],
+        timings,
     )
 
 
@@ -286,6 +310,19 @@ def _get_evaluation_store() -> SQLiteEvaluationStore:
     if _evaluation_store is None:
         raise RuntimeError("EvaluationStore not initialized")
     return _evaluation_store
+
+
+def _shutdown_on_idle() -> bool:
+    """Return whether MCP should tear down runtime resources when sessions close."""
+    return os.environ.get("ENGRAM_MCP_SHUTDOWN_ON_IDLE", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 4)
 
 
 def _get_conv_context(manager: GraphManager):
@@ -897,7 +934,11 @@ async def claim_authority(
 
 
 @mcp.tool()
-async def get_runtime_state(project_path: str | None = None) -> str:
+async def get_runtime_state(
+    project_path: str | None = None,
+    live: bool = False,
+    timeout_seconds: float | None = None,
+) -> str:
     """Return runtime/config state plus mandatory adoption guidance.
 
     If `agentAdoption.beforeAnswer.required` is true, follow that tool sequence
@@ -909,7 +950,13 @@ async def get_runtime_state(project_path: str | None = None) -> str:
         manager,
         group_id=_group_id,
         project_path=project_path,
+        live=live,
+        timeout_seconds=timeout_seconds,
     )
+    diagnostics = result.setdefault("diagnostics", {})
+    stage_timings = diagnostics.setdefault("stageTimingsMs", {})
+    if _mcp_init_timings:
+        stage_timings.setdefault("mcp_init", _mcp_init_timings.get("mcp_init", 0.0))
     return json.dumps(result)
 
 

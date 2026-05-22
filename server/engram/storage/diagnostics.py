@@ -120,15 +120,20 @@ class StorageDiagnostics:
         """
         resolved_group = group_id or self.group_id
         timeout = _snapshot_timeout_seconds(timeout_seconds)
+        started = time.perf_counter()
+        count_started = time.perf_counter()
         count_snapshot = await self._counts_snapshot(
             group_id=resolved_group,
             live=live,
             timeout_seconds=timeout,
         )
+        count_ms = _elapsed_ms(count_started)
+        path_started = time.perf_counter()
         path_snapshot = await self._paths_snapshot(
             live=live,
             timeout_seconds=timeout,
         )
+        path_ms = _elapsed_ms(path_started)
         counts = _clone_counts(count_snapshot.counts)
         baseline_counts = (
             _clone_counts(self.startup_counts)
@@ -169,6 +174,11 @@ class StorageDiagnostics:
                 "countsAgeSeconds": _age_seconds(count_snapshot.captured_at, now=now),
                 "pathsStatus": path_snapshot.status,
                 "pathsAgeSeconds": _age_seconds(path_snapshot.captured_at, now=now),
+                "stageTimingsMs": {
+                    "storage_counts": count_ms,
+                    "storage_paths": path_ms,
+                    "storage_snapshot": _elapsed_ms(started),
+                },
             },
         }
 
@@ -450,6 +460,10 @@ def _clone_paths(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _age_seconds(captured_at: float, *, now: float) -> int:
     return max(0, int(now - captured_at))
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 4)
 
 
 def _int_stat(payload: dict[str, Any], *keys: str) -> int:
