@@ -75,6 +75,20 @@ Lite mode only as a fallback smoke path.
   exact marker/date/id context queries. Final live probes returned the two fresh
   `rubymarker`/`emeraldmarker` observations through MCP context in `0.3724ms`,
   AXI context in `0.4443ms`, and AXI recall in `6.9803ms`.
+- A resumed 2026-05-28 read-tool pass found the remaining rolling `medium`
+  degraded samples were MCP auto-recall gate timeouts, not explicit recall.
+  Auto-recall now checks `session_recent` packets before medium recall, and AXI
+  value reports per-mode operation/source/status/skip-reason attribution plus
+  recent problem samples. After reinstall/restart to LaunchAgent PID `95327`,
+  marker probes returned through `session_recent`: MCP recall in `0.7616ms`,
+  MCP context in `0.1077ms`, AXI recall in `1.1359ms`, and AXI context in
+  `0.0625ms`. `engram axi value --json` reported read-path p95 `22.4422ms`,
+  cache hit rate `1.0`, zero read degradation/timeouts, and `medium` as two
+  `auto_recall_gate` samples with `cache_satisfied` and no timeouts.
+- The same reinstall exposed a startup-latency caveat: `engramctl stop &&
+  engramctl start` took `1:22` wall time, while server logs reached healthy
+  after roughly 30 seconds. Full startup validation still passed all checks
+  against the current runtime, but startup wall time remains a goal item.
 
 2026-05-22 native PyO3 dogfood validation passes on the warmed local runtime:
 

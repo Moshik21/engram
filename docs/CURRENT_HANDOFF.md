@@ -38,6 +38,35 @@ approved existing sources, stale/noisy recall visibility, human-controlled
 identity core, and client transcripts that prove agents did not route around
 Engram because the graph looked fresh or a local memory file was available.
 
+Latest resumed native PyO3 dogfood pass: the remaining `medium` degraded samples
+were not coming from explicit recall anymore; they were MCP read-tool
+auto-recall gate samples. The middleware checked `identity_core`,
+`project_home`, and `explicit_recall` packets before falling through to medium,
+but it ignored the fresh `session_recent` packets that now carry Codex
+continuity evidence. Auto-recall now includes `session_recent` in the
+startup-safe recent-packet lookup, so read-tool enrichment can return the fresh
+observation and record `modeExecuted=cached` instead of timing out in medium.
+AXI value reporting also now surfaces operation/source/status/skip-reason
+counts and recent problem samples, so future medium timeouts identify whether
+they are `auto_recall_gate`, explicit recall, packet cache, or another source.
+After reinstall/restart to LaunchAgent PID `95327`, live marker
+`sapphiremarker`/`zirconmarker` proved the path: MCP `recall` returned the
+fresh `session_recent` packet with `duration_ms=0.7616`,
+`skip_reason=cache_satisfied`, and attached
+`recalled_context.gate.modeExecuted=cached`; MCP
+`get_context` returned the same packet with `duration_ms=0.1077`; AXI recall was
+`cache_satisfied` in `1.1359ms`; AXI context returned from packet cache in
+`0.0625ms`; and `engram axi value --json` reported read-path p95 `22.4422ms`,
+read cache hit rate `1.0`, and zero read degradation/timeouts. The `medium`
+mode now shows `operation_counts.auto_recall_gate=2`,
+`skip_reason_counts.cache_satisfied=2`, `timeout_count=0`, and
+`degraded_count=0`. Focused backend/AXI tests passed with `88 passed`; ruff
+passed on touched files; full startup validation passed against the current
+runtime. Caveat: the reinstall restart itself still took `1:22` wall time, with
+server startup logs reaching healthy after roughly 30 seconds, so startup
+latency remains a live goal item even though the read-tool medium timeout is
+fixed.
+
 Latest native PyO3 dogfood performance hardening checkpoint: MCP `observe` no
 longer awaits recall middleware on the write path, agent capture waits are
 bounded to `100ms`, and `session_recent` packets remain in the in-memory packet

@@ -168,17 +168,32 @@ class FakeClient:
                     "cache_hit_rate": 0.5,
                     "budget_miss_rate": 0.1,
                     "skipped_count": 3,
+                    "recent_problem_samples": [
+                        {
+                            "operation": "auto_recall_gate",
+                            "source": "auto_recall",
+                            "mode": "medium",
+                            "status": "degraded",
+                            "skip_reason": "recall_timeout",
+                            "duration_ms": 75.0,
+                            "timeout": True,
+                        }
+                    ],
                     "by_mode": {
                         "mcp_context": {
                             "operation_count": 3,
                             "p95_added_latency_ms": 20,
                             "cache_hit_count": 2,
                             "cache_miss_count": 1,
+                            "status_counts": {"ok": 3},
+                            "operation_counts": {"context": 3},
+                            "source_counts": {"mcp_context": 3},
                         },
                         "api_auto_observe": {
                             "operation_count": 2,
                             "p95_added_latency_ms": 8000,
                             "skipped_count": 1,
+                            "skip_reason_counts": {"background_capture": 1},
                         },
                     },
                 },
@@ -654,6 +669,13 @@ def test_value_payload_compacts_memory_value_report() -> None:
     assert result.payload["cost"]["read_path"]["operation_count"] == 3
     assert result.payload["cost"]["read_path"]["p95_added_latency_ms"] == 20
     assert result.payload["cost"]["read_path"]["cache_hit_rate"] == 0.6667
+    assert result.payload["cost"]["recent_problem_samples"][0]["mode"] == "medium"
+    assert result.payload["cost"]["mode_breakdown"]["mcp_context"]["operation_counts"] == {
+        "context": 3
+    }
+    assert result.payload["cost"]["mode_breakdown"]["api_auto_observe"][
+        "skip_reason_counts"
+    ] == {"background_capture": 1}
     assert result.payload["cost"]["write_path"]["operation_count"] == 2
     assert result.payload["cost"]["write_path"]["p95_added_latency_ms"] == 8000
     assert result.payload["cost"]["top_modes_by_p95"][0]["mode"] == "api_auto_observe"

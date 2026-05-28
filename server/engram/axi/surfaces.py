@@ -286,6 +286,13 @@ def _compact_value_cost(cost: Any) -> dict[str, Any]:
         ),
         "skipped_count": _value_int(cost, "skipped_count", "skippedCount"),
     }
+    recent_problem_samples = _value_list(
+        cost,
+        "recent_problem_samples",
+        "recentProblemSamples",
+    )
+    if recent_problem_samples:
+        payload["recent_problem_samples"] = recent_problem_samples
     modes = _compact_value_modes(cost)
     if modes:
         payload["read_path"] = _value_path_cost(modes, _is_value_read_mode)
@@ -343,6 +350,18 @@ def _compact_value_modes(cost: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 "cacheMissCount",
             ),
             "skipped_count": _value_int(mode_cost, "skipped_count", "skippedCount"),
+            "status_counts": _value_counts(mode_cost, "status_counts", "statusCounts"),
+            "skip_reason_counts": _value_counts(
+                mode_cost,
+                "skip_reason_counts",
+                "skipReasonCounts",
+            ),
+            "operation_counts": _value_counts(
+                mode_cost,
+                "operation_counts",
+                "operationCounts",
+            ),
+            "source_counts": _value_counts(mode_cost, "source_counts", "sourceCounts"),
         }
     return modes
 
@@ -422,6 +441,28 @@ def _value_float(mapping: dict[str, Any], *keys: str) -> float:
             except ValueError:
                 continue
     return 0
+
+
+def _value_counts(mapping: dict[str, Any], *keys: str) -> dict[str, int]:
+    for key in keys:
+        value = mapping.get(key)
+        if not isinstance(value, dict):
+            continue
+        counts: dict[str, int] = {}
+        for item_key, item_value in value.items():
+            count = _value_int({"value": item_value}, "value")
+            if count:
+                counts[str(item_key)] = count
+        return counts
+    return {}
+
+
+def _value_list(mapping: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, list):
+            return [dict(item) for item in value if isinstance(item, dict)]
+    return []
 
 
 def _value_rate(numerator: int, denominator: int) -> float:

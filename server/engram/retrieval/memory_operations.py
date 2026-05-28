@@ -138,6 +138,7 @@ def _aggregate_samples(samples: list[MemoryOperationSample]) -> dict[str, Any]:
         return {}
     return {
         **_operation_summary(samples),
+        "recent_problem_samples": _recent_problem_samples(samples),
         "by_mode": {
             mode: _operation_summary(mode_samples)
             for mode, mode_samples in _grouped_samples(samples).items()
@@ -195,6 +196,58 @@ def _operation_summary(samples: list[MemoryOperationSample]) -> dict[str, Any]:
         "result_count": sum(max(0, sample.result_count) for sample in samples),
         "packet_count": sum(max(0, sample.packet_count) for sample in samples),
     }
+
+
+def _recent_problem_samples(
+    samples: list[MemoryOperationSample],
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    problems = [
+        sample
+        for sample in samples
+        if sample.timeout
+        or sample.degraded
+        or sample.budget_miss
+        or sample.status in {"timeout", "degraded", "error"}
+    ]
+    if not problems:
+        return []
+    now = time.time()
+    return [
+        _sample_summary(sample, now=now)
+        for sample in sorted(problems, key=lambda item: item.timestamp, reverse=True)[:limit]
+    ]
+
+
+def _sample_summary(sample: MemoryOperationSample, *, now: float) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "operation": sample.operation,
+        "source": sample.source,
+        "mode": sample.mode,
+        "status": sample.status,
+        "duration_ms": round(max(0.0, sample.duration_ms), 4),
+        "age_seconds": round(max(0.0, now - sample.timestamp), 3),
+    }
+    if sample.skip_reason:
+        payload["skip_reason"] = sample.skip_reason
+    if sample.budget_ms is not None:
+        payload["budget_ms"] = round(max(0.0, sample.budget_ms), 4)
+    if sample.budget_tokens is not None:
+        payload["budget_tokens"] = max(0, sample.budget_tokens)
+    if sample.timeout:
+        payload["timeout"] = True
+    if sample.degraded:
+        payload["degraded"] = True
+    if sample.budget_miss:
+        payload["budget_miss"] = True
+    if sample.cache_hit is not None:
+        payload["cache_hit"] = sample.cache_hit
+    if sample.result_count:
+        payload["result_count"] = max(0, sample.result_count)
+    if sample.packet_count:
+        payload["packet_count"] = max(0, sample.packet_count)
+    return payload
 
 
 def _latency_summary(values: list[float]) -> dict[str, float]:

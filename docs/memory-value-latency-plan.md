@@ -8,6 +8,22 @@ Owner surface: recall, AXI, evaluation, and dashboard runtime contracts
 
 Current checkpoint:
 
+- 2026-05-28 resumed dogfood latency pass: MCP read-tool auto-recall now
+  considers `session_recent` packets before dispatching medium entity-probe
+  recall. This closes the rolling `medium` timeout samples that remained after
+  explicit MCP/AXI recall became cache-satisfied: fresh Codex observations can
+  satisfy read-tool enrichment with `modeExecuted=cached` instead of falling
+  through to medium. `engram axi value` now includes per-mode
+  `operation_counts`, `source_counts`, `status_counts`, `skip_reason_counts`,
+  and top-level `recent_problem_samples` so the next degraded sample identifies
+  its actual source. Live installed-runtime evidence after reinstall/restart:
+  MCP `recall` returned the marker `session_recent` packet in `0.7616ms`, MCP
+  `get_context` returned it in `0.1077ms`, AXI recall returned
+  `cache_satisfied` in `1.1359ms`, AXI context hit packet cache in `0.0625ms`,
+  and `engram axi value --json` reported read-path p95 `22.4422ms`, cache hit
+  rate `1.0`, and zero read timeouts/degradation. The `medium` mode was
+  measured as `auto_recall_gate=2`, `cache_satisfied=2`, with
+  `timeout_count=0` and `degraded_count=0`.
 - 2026-05-28 live dogfood performance pass: MCP observe no longer waits on
   recall middleware, agent capture waits are bounded to `100ms`, and
   `session_recent` cache entries are kept in memory and preserved across normal

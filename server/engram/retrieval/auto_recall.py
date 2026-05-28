@@ -20,7 +20,10 @@ from engram.retrieval.context import (
     manager_conversation_recent_turns,
     manager_conversation_top_entity_names,
 )
-from engram.retrieval.context_builder import MemoryContextBuilder
+from engram.retrieval.context_builder import (
+    SESSION_RECENT_PACKET_SCOPE,
+    MemoryContextBuilder,
+)
 from engram.retrieval.control import (
     record_manager_memory_need_analysis,
     resolve_manager_recall_need_thresholds,
@@ -453,7 +456,12 @@ def _get_recent_cached_packets_for_query(
     try:
         packets = get_recent(
             group_id,
-            scopes=("identity_core", "project_home", EXPLICIT_RECALL_PACKET_CACHE_SCOPE),
+            scopes=(
+                SESSION_RECENT_PACKET_SCOPE,
+                "identity_core",
+                "project_home",
+                EXPLICIT_RECALL_PACKET_CACHE_SCOPE,
+            ),
             limit_packets=max_packets * 2,
             sync_persistent=False,
         )

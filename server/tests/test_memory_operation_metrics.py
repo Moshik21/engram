@@ -80,6 +80,23 @@ def test_memory_operation_metrics_collector_aggregates_costs_by_mode() -> None:
         "mcp_recall": 1,
         "auto_recall": 1,
     }
+    assert metrics["recent_problem_samples"] == [
+        {
+            "operation": "recall",
+            "source": "mcp_recall",
+            "mode": "mcp_recall",
+            "status": "ok",
+            "duration_ms": 40.0,
+            "age_seconds": metrics["recent_problem_samples"][0]["age_seconds"],
+            "budget_ms": 30.0,
+            "budget_tokens": 600,
+            "timeout": True,
+            "budget_miss": True,
+            "cache_hit": False,
+            "result_count": 2,
+            "packet_count": 1,
+        }
+    ]
     assert metrics["result_count"] == 5
     assert metrics["packet_count"] == 1
     assert metrics["by_mode"]["axi_context"]["operation_count"] == 1

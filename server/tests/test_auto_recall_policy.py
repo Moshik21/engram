@@ -333,6 +333,7 @@ async def test_build_lite_auto_recall_surface_uses_cached_packets_before_medium(
     assert result["gate"]["modeExecuted"] == "cached"
     manager.get_recent_cached_memory_packets.assert_called_once()
     assert manager.get_recent_cached_memory_packets.call_args.kwargs["scopes"] == (
+        "session_recent",
         "identity_core",
         "project_home",
         "explicit_recall",
@@ -346,6 +347,42 @@ async def test_build_lite_auto_recall_surface_uses_cached_packets_before_medium(
         and sample.skip_reason == "cache_satisfied"
         for sample in samples
     )
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_uses_session_recent_before_medium() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.get_recent_cached_memory_packets = Mock(
+        return_value=[
+            {
+                "_cache_scope": "session_recent",
+                "packet_type": "recent_observation",
+                "title": "Recent Observation: ep_perf",
+                "summary": "Engram PyO3 dogfood medium timeout evidence",
+                "evidence_lines": ["AXI value found medium recall_timeout samples"],
+            }
+        ]
+    )
+    cfg = ActivationConfig(
+        auto_recall_level="medium",
+        recall_packets_enabled=True,
+        recall_packet_auto_limit=1,
+    )
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Where do we stand on Engram PyO3 medium timeout evidence?",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+    )
+
+    assert result is not None
+    assert result["source"] == "auto_recall"
+    assert result["packets"][0]["packet_type"] == "recent_observation"
+    assert result["gate"]["modeExecuted"] == "cached"
+    manager.recall_medium.assert_not_called()
 
 
 @pytest.mark.asyncio

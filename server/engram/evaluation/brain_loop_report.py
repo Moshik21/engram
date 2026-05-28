@@ -1098,6 +1098,19 @@ def _memory_operation_cost_summary(
     skip_reason_counts = dict(
         _mapping(_get(metrics, "skip_reason_counts", "skipReasonCounts"))
     )
+    operation_counts = dict(_mapping(_get(metrics, "operation_counts", "operationCounts")))
+    source_counts = dict(_mapping(_get(metrics, "source_counts", "sourceCounts")))
+    raw_recent_problem_samples = _get(
+        metrics,
+        "recent_problem_samples",
+        "recentProblemSamples",
+        default=[],
+    )
+    recent_problem_samples = (
+        [dict(item) for item in raw_recent_problem_samples if isinstance(item, Mapping)]
+        if isinstance(raw_recent_problem_samples, list)
+        else []
+    )
     completed_count = _int(
         _get(
             metrics,
@@ -1154,6 +1167,9 @@ def _memory_operation_cost_summary(
         "error_count": error_count,
         "status_counts": status_counts,
         "skip_reason_counts": skip_reason_counts,
+        "operation_counts": operation_counts,
+        "source_counts": source_counts,
+        "recent_problem_samples": recent_problem_samples,
         "timeout_count": timeout_count,
         "timeout_rate": _rate(explicit_timeout_rate, timeout_count, operation_count),
         "degraded_count": degraded_count,

@@ -123,6 +123,20 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
             "error_count": 1,
             "status_counts": {"ok": 4, "skipped": 1, "error": 1},
             "skip_reason_counts": {"skipped_low_signal": 1},
+            "operation_counts": {"context": 3, "recall": 2, "auto_recall_gate": 1},
+            "source_counts": {"mcp_context": 3, "mcp_recall": 2, "auto_recall": 1},
+            "recent_problem_samples": [
+                {
+                    "operation": "auto_recall_gate",
+                    "source": "auto_recall",
+                    "mode": "medium",
+                    "status": "degraded",
+                    "skip_reason": "recall_timeout",
+                    "duration_ms": 75.0,
+                    "timeout": True,
+                    "degraded": True,
+                }
+            ],
             "timeout_count": 1,
             "budget_miss_count": 2,
             "cache_hit_count": 3,
@@ -275,6 +289,9 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert report["memory_value"]["cost"]["skip_reason_counts"] == {
         "skipped_low_signal": 1
     }
+    assert report["memory_value"]["cost"]["operation_counts"]["auto_recall_gate"] == 1
+    assert report["memory_value"]["cost"]["source_counts"]["auto_recall"] == 1
+    assert report["memory_value"]["cost"]["recent_problem_samples"][0]["mode"] == "medium"
     assert report["memory_value"]["cost"]["timeout_rate"] == 0.1667
     assert report["memory_value"]["cost"]["budget_miss_rate"] == 0.3333
     assert report["memory_value"]["cost"]["cache_hit_rate"] == 0.5
