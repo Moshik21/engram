@@ -857,6 +857,180 @@ async def test_mcp_context_surface_soft_waits_loaded_store_before_project_fallba
 
 
 @pytest.mark.asyncio
+async def test_mcp_context_surface_reuses_recent_relevant_project_file_cache(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    topic = "semanticgravity cold exact project file scan latency packet reuse"
+    recent_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Semanticgravity cold exact project file scan latency packet reuse evidence.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_project_file_fallback_topic_hint": "older nearby topic",
+        "_project_file_fallback_project_path": str(project_dir),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    unrelated_identity_packet = {
+        "packet_type": "identity_core",
+        "title": "Identity Core",
+        "summary": "Durable unrelated preference.",
+        "trust": {"source": "graph", "freshness": "fresh"},
+        "provenance": ["entity:user"],
+    }
+
+    async def fail_project_file_executor(*_args, **_kwargs):
+        raise AssertionError("recent relevant project-file cache should avoid scan")
+
+    def get_cached_packets(
+        _group_id,
+        *,
+        scope,
+        topic_hint=None,
+        project_path=None,
+        **_kwargs,
+    ):
+        if scope == "identity_core":
+            return SimpleNamespace(packets=[unrelated_identity_packet])
+        if (
+            scope == "project_home"
+            and topic_hint == "Engram"
+            and project_path == str(project_dir)
+        ):
+            return SimpleNamespace(packets=[recent_packet])
+        return None
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_run_project_file_executor",
+        fail_project_file_executor,
+    )
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_packet_cache_enabled=True,
+        context_fast_preflight_timeout_ms=100,
+    )
+    manager.get_cached_memory_packets.side_effect = get_cached_packets
+    manager.get_recent_cached_memory_packets.return_value = [recent_packet]
+    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.cache_memory_packets = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=topic,
+        project_path=str(project_dir),
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["packet_cache"] == {
+        "hit": True,
+        "packet_count": 1,
+        "scopes": {"project_file_recent_reuse": 1},
+    }
+    assert payload["cached_packets"][0]["summary"] == recent_packet["summary"]
+    assert (
+        payload["cached_packets"][0]["_project_file_fallback_recent_cache_reuse"]
+        is True
+    )
+    manager.get_recent_cached_memory_packets.assert_called_once_with(
+        "native_brain",
+        scopes=("project_home",),
+        limit_packets=12,
+        sync_persistent=True,
+    )
+    manager.fast_recall_fallback.assert_not_awaited()
+    manager.get_context.assert_not_awaited()
+    manager.cache_memory_packets.assert_not_called()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.cache_hit is True
+
+
+@pytest.mark.asyncio
+async def test_mcp_context_surface_ignores_unrelated_recent_project_file_cache(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    topic = "semanticgravity cold exact project file scan latency packet reuse"
+    unrelated_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Unrelated onboarding instructions.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:README.md"],
+        "_project_file_fallback_topic_hint": "older unrelated topic",
+        "_project_file_fallback_project_path": str(project_dir),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    fresh_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Fresh semanticgravity cold exact project file scan latency evidence.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_cache_scope": "project_file_fallback",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+
+    async def fake_run_project_file_executor(function, /, *args, **kwargs):
+        assert function.__name__ == "_build_project_file_context_fallback_packets"
+        return [fresh_packet], 5.0
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_run_project_file_executor",
+        fake_run_project_file_executor,
+    )
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_packet_cache_enabled=True,
+        context_fast_preflight_timeout_ms=100,
+        context_fast_preflight_soft_wait_ms=50,
+    )
+    manager.get_cached_memory_packets.return_value = None
+    manager.get_recent_cached_memory_packets.return_value = [unrelated_packet]
+    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.cache_memory_packets = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=topic,
+        project_path=str(project_dir),
+        operation_source="axi_context",
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["packet_cache"] == {
+        "hit": False,
+        "packet_count": 1,
+        "scopes": {"project_file_fallback": 1},
+    }
+    assert payload["cached_packets"][0]["summary"] == fresh_packet["summary"]
+    assert "Unrelated onboarding instructions" not in payload["context"]
+    manager.get_recent_cached_memory_packets.assert_called_once_with(
+        "native_brain",
+        scopes=("project_home",),
+        limit_packets=12,
+        sync_persistent=True,
+    )
+    manager.get_context.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.cache_hit is False
+
+
+@pytest.mark.asyncio
 async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_runs(
     monkeypatch,
     tmp_path,

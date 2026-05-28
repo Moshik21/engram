@@ -2290,7 +2290,135 @@ def _load_cached_context_packets_from_manager(
                         }
                     )
                 )
+    if _should_attempt_recent_project_file_cache_reuse(
+        packets,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    ):
+        for packet in _recent_project_file_cache_reuse_packets_from_manager(
+            manager,
+            group_id=group_id,
+            topic_hint=topic_hint,
+            project_path=project_path,
+            max_packets=_PROJECT_FILE_RECENT_CACHE_REUSE_LIMIT,
+        ):
+            _append_or_upgrade_cached_packet(packets, seen_packets, packet)
     return packets
+
+
+def _should_attempt_recent_project_file_cache_reuse(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    topic_hint: str | None,
+    project_path: str | None,
+) -> bool:
+    if not project_path:
+        return False
+    if not _topic_specific_context_requested(
+        topic_hint=topic_hint,
+        project_path=project_path,
+    ):
+        return False
+    relevant_packets = _select_relevant_context_packets(
+        packets,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    )
+    for packet in relevant_packets:
+        if not isinstance(packet, Mapping):
+            continue
+        if _context_packet_has_loaded_store_provenance(packet):
+            return False
+        if _context_packet_is_exact_project_file_cache_hit(
+            packet,
+            topic_hint=topic_hint,
+            project_path=project_path,
+        ):
+            return False
+    return True
+
+
+def _recent_project_file_cache_reuse_packets_from_manager(
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    project_path: str | None,
+    max_packets: int,
+) -> list[dict[str, Any]]:
+    if not project_path or max_packets <= 0:
+        return []
+    get_recent_packets = getattr(manager, "get_recent_cached_memory_packets", None)
+    cfg = _manager_activation_config(manager)
+    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(
+        get_recent_packets
+    ):
+        return []
+    try:
+        recent_packets = get_recent_packets(
+            group_id,
+            scopes=("project_home",),
+            limit_packets=max_packets,
+            sync_persistent=True,
+        )
+    except Exception:
+        logger.debug("Recent project-file cache reuse lookup failed", exc_info=True)
+        return []
+    if inspect.isawaitable(recent_packets):
+        _close_awaitable(recent_packets)
+        return []
+    if not isinstance(recent_packets, list):
+        return []
+    packets: list[dict[str, Any]] = []
+    seen_packets: set[tuple[str, str, str]] = set()
+    for packet in recent_packets:
+        if len(packets) >= max_packets:
+            break
+        if not isinstance(packet, Mapping):
+            continue
+        if not _context_packet_is_project_file_cache_rescue_candidate(
+            packet,
+            project_path=project_path,
+            cache_project_path=project_path,
+        ):
+            continue
+        reuse_packet = _redact_packet_payload(
+            {
+                **dict(packet),
+                "_cache_scope": "project_file_recent_reuse",
+                "_project_file_fallback_recent_cache_reuse": True,
+            }
+        )
+        if not _recent_project_file_cache_reuse_packet_relevant(
+            reuse_packet,
+            topic_hint=topic_hint,
+            project_path=project_path,
+        ):
+            continue
+        _append_unique_cached_packet(packets, seen_packets, reuse_packet)
+    return _select_relevant_context_packets(
+        packets,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    )
+
+
+def _recent_project_file_cache_reuse_packet_relevant(
+    packet: Mapping[str, Any],
+    *,
+    topic_hint: str | None,
+    project_path: str | None,
+) -> bool:
+    tokens = _context_relevance_tokens(topic_hint, project_path)
+    if not tokens:
+        return True
+    matches = _context_packet_query_matches(packet, tokens)
+    if not matches:
+        return False
+    specific_tokens = _context_specific_relevance_tokens(tokens)
+    if specific_tokens:
+        return bool(matches & specific_tokens)
+    return len(matches) >= 2
 
 
 _PROJECT_FILE_FALLBACK_PATTERNS: tuple[tuple[str, int], ...] = (
@@ -2310,6 +2438,7 @@ _PROJECT_FILE_FALLBACK_PATTERNS: tuple[tuple[str, int], ...] = (
 )
 _PROJECT_FILE_TOPIC_SCAN_CHARS = 16_000
 _PROJECT_FILE_TOPIC_CANDIDATE_READ_LIMIT = 12
+_PROJECT_FILE_RECENT_CACHE_REUSE_LIMIT = 12
 _PROJECT_FILE_FALLBACK_PACKET_VERSION = 2
 _PROJECT_FILE_PREFIX_CACHE_MAX_ENTRIES = 256
 _PROJECT_FILE_PREFIX_CACHE: dict[str, tuple[int, int, int, str]] = {}
@@ -2799,6 +2928,11 @@ def _context_packets_need_loaded_store_enrichment(
             project_path=project_path,
         ):
             return False
+        if _context_packet_is_recent_project_file_cache_reuse_hit(
+            packet,
+            project_path=project_path,
+        ):
+            return False
     return saw_packet
 
 
@@ -2829,6 +2963,22 @@ def _context_packet_is_exact_project_file_cache_hit(
             packet.get("_project_file_fallback_project_path")
         )
         == _normalize_context_cache_value(project_path)
+    )
+
+
+def _context_packet_is_recent_project_file_cache_reuse_hit(
+    packet: Mapping[str, Any],
+    *,
+    project_path: str | None,
+) -> bool:
+    if packet.get("_cache_scope") != "project_file_recent_reuse":
+        return False
+    if packet.get("_project_file_fallback_recent_cache_reuse") is not True:
+        return False
+    return _context_packet_is_project_file_cache_rescue_candidate(
+        packet,
+        project_path=project_path,
+        cache_project_path=project_path,
     )
 
 
@@ -3349,6 +3499,24 @@ def _append_unique_cached_packet(
         return
     seen.add(fingerprint)
     packets.append(packet)
+
+
+def _append_or_upgrade_cached_packet(
+    packets: list[dict[str, Any]],
+    seen: set[tuple[str, str, str]],
+    packet: Any,
+) -> None:
+    if not isinstance(packet, dict):
+        return
+    fingerprint = _packet_fingerprint(packet)
+    if fingerprint not in seen:
+        seen.add(fingerprint)
+        packets.append(packet)
+        return
+    for existing in packets:
+        if _packet_fingerprint(existing) == fingerprint:
+            existing.update(packet)
+            return
 
 
 def _packet_fingerprint(packet: Mapping[str, Any]) -> tuple[str, str, str]:

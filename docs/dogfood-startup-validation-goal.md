@@ -1953,6 +1953,22 @@ Lite mode only as a fallback smoke path.
   `13 pass, 0 warn, 0 fail, 0 skip`; and post-matrix value on PID `75670`
   showed read-path p95 `73.0892ms`, cache hit rate `1.0`, and zero read budget
   misses, degradation, or timeouts.
+- The recent project-file reuse follow-up fixed the next live MCP latency edge.
+  A resumed Codex `get_context` sample paid `project_file_fallback=568.0876ms`,
+  while the isolated local fallback builder measured about `19ms`; the issue was
+  cache reuse/rebuild policy, not parser cost. Context now reuses recent
+  same-project current-version project-file packets before launching
+  loaded-store preflight or exact project scans, but only after topic relevance
+  filtering and with a specific-token guard for date/hyphen/long-token queries.
+  After reinstall/restart to PID `81443`, AXI context for `stable project-file
+  rescue packets relevant topic soft-wait filter 20260528 final3 nearby reuse`
+  hit `packet_cache.scopes.project_file_recent_reuse=2` in `0.0451ms`; MCP
+  `get_context` for the same family hit `project_file_recent_reuse=2` in
+  `0.1312ms`. Startup validation passed against PID `81443`; the final
+  lifecycle matrix produced `/private/tmp/engram-dogfood-startup-20260528-085123`
+  with `13 pass, 0 warn, 0 fail, 0 skip`, and post-matrix PID `82520` stayed
+  healthy. The first fresh post-matrix topic rebuilt bounded project context in
+  `99.5414ms`, then the nearby topic hit recent reuse in `0.0447ms`.
 
 ## Work Plan
 

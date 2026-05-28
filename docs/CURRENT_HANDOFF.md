@@ -206,6 +206,31 @@ lifecycle matrix produced
 `73.0892ms`, cache hit rate `1.0`, and zero read budget misses, degraded reads,
 or timeouts. The remaining performance target is lowering the cold exact
 project-file scan cost, not rescue relevance or degraded/empty recall behavior.
+Latest recent project-file reuse pass: the next resumed Codex turn showed that
+the exact local parser was not the real bottleneck (`_project_file_fallback_packets`
+measured about `19ms` in-process), but the live context surface could still miss
+nearby cached project-file packets and pay another scan/soft-wait path. Context
+cache lookup now asks the packet cache for recent same-project `project_home`
+packets when direct relevant cache lookup has not already found loaded-store or
+exact project-file context. Those packets must be current-version
+`trust.source=project_file`, same project, and topic relevant; if the query has
+specific tokens such as dates or hyphenated terms, recent reuse now requires a
+specific-token match instead of accepting weak broad-word overlap. Duplicate
+stable packets are upgraded to `_cache_scope=project_file_recent_reuse`, so they
+can satisfy context without waiting for loaded-store preflight or a fresh file
+scan. After reinstall/restart to PID `81443`, AXI context for `stable
+project-file rescue packets relevant topic soft-wait filter 20260528 final3
+nearby reuse` hit `project_file_recent_reuse=2` in `0.0451ms`, and MCP
+`get_context` for the same family hit `project_file_recent_reuse=2` in
+`0.1312ms`, both with no degradation or budget miss. Startup validation passed
+against PID `81443`; the final confirmed lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-085123` with
+`13 pass, 0 warn, 0 fail, 0 skip`, leaving PID `82520` healthy. Immediately
+after that matrix, a fresh topic rebuilt bounded project-file context in
+`99.5414ms`, and the nearby topic then hit recent reuse in `0.0447ms`. Focused
+retrieval/cache tests passed with `117 passed`; ruff and `git diff --check`
+passed. The remaining latency target is cold startup/runtime warmup and
+first-ever project packet creation, not nearby-topic context reuse.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

@@ -3406,6 +3406,22 @@ Latency dogfood evidence:
   `73.0892ms`, cache hit rate `1.0`, and zero read budget misses, degradation,
   or timeouts. The next latency target is the cold exact project-file scan
   itself, which measured about `926ms` before cache.
+- 2026-05-28 recent project-file reuse follow-up: live MCP `get_context` still
+  paid `project_file_fallback=568.0876ms` even though the isolated local
+  project-file fallback builder measured about `19ms`, so the issue was
+  cache reuse/rebuild policy. Context now reuses recent same-project
+  current-version project-file packets before loaded-store preflight or exact
+  project scans, but only after topic relevance filtering; specific-token
+  queries require a specific-token match so weak broad matches do not satisfy
+  context. After reinstall/restart to PID `81443`, AXI context for `stable
+  project-file rescue packets relevant topic soft-wait filter 20260528 final3
+  nearby reuse` hit `project_file_recent_reuse=2` in `0.0451ms`, and MCP
+  `get_context` hit the same scope in `0.1312ms`. Startup validation passed
+  against PID `81443`; the confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-085123` (`13 pass, 0 warn,
+  0 fail, 0 skip`) and left PID `82520` healthy. Immediately after that matrix,
+  a fresh topic rebuilt bounded project context in `99.5414ms`, then the nearby
+  topic hit recent reuse in `0.0447ms`.
 
 ## Test Matrix
 
