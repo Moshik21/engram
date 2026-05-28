@@ -20,6 +20,7 @@ def identify_seeds(
     now: float,
     cfg: ActivationConfig,
     temporal_mode: bool = False,
+    name_match_scores: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:  # (node_id, initial_energy)
     """Identify seed nodes and assign initial energy for spreading.
 
@@ -29,6 +30,14 @@ def identify_seeds(
     When ``temporal_mode=True`` (for recency queries), the seed threshold
     is ignored and energy is based purely on activation, allowing
     activation-only candidates (sem_sim=0.0) to become seeds.
+
+    ``name_match_scores`` ({node_id: name_match_score}) seeds entities that
+    were deterministically resolved from the query by name, even when their
+    embedding similarity is below seed_threshold. Without this, name
+    resolution is discarded and the graph never gets seeds when embeddings
+    are weak or unavailable. Energy mirrors the semantic path
+    (name_match * max(activation, 0.15)); it does NOT affect the candidate's
+    semantic score used by the scorer.
     """
     threshold = 0.0 if temporal_mode else cfg.seed_threshold
     seeds = []
@@ -44,6 +53,21 @@ def identify_seeds(
             else:
                 energy = sem_sim * max(act, 0.15)
             seeds.append((node_id, energy))
+
+    if name_match_scores:
+        seeded = {nid for nid, _ in seeds}
+        for node_id, name_score in name_match_scores.items():
+            if node_id in seeded or name_score <= 0.0:
+                continue
+            state = activation_states.get(node_id)
+            if state and state.access_history:
+                act = compute_activation(state.access_history, now, cfg)
+            else:
+                act = 0.0
+            energy = name_score * max(act, 0.15)
+            if energy > 0.0:
+                seeds.append((node_id, energy))
+                seeded.add(node_id)
     return seeds
 
 

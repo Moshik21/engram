@@ -49,6 +49,40 @@ class TestIdentifySeeds:
         # Energy = sem * max(0.0, sem * 0.1) = 0.8 * 0.08 = 0.064
         assert seeds[0][1] > 0
 
+    def test_name_match_seeds_below_threshold(self):
+        """Name-resolved entities seed even when sem_sim < seed_threshold."""
+        cfg = ActivationConfig(seed_threshold=0.3)
+        now = time.time()
+        # ent_2 is below the semantic threshold and would normally be dropped;
+        # a name match promotes it to a seed. ent_9 is not a semantic candidate
+        # at all but is name-resolved.
+        candidates = [("ent_1", 0.8), ("ent_2", 0.1)]
+        seeds = identify_seeds(
+            candidates,
+            {},
+            now,
+            cfg,
+            name_match_scores={"ent_2": 0.9, "ent_9": 1.0},
+        )
+        seed_ids = [s[0] for s in seeds]
+        assert "ent_1" in seed_ids  # semantic seed
+        assert "ent_2" in seed_ids  # promoted by name match despite sem<threshold
+        assert "ent_9" in seed_ids  # name-only seed (no semantic candidate)
+        assert seed_ids.count("ent_2") == 1  # not double-seeded
+
+    def test_name_match_does_not_duplicate_existing_seed(self):
+        """An entity already seeded semantically is not re-seeded by name match."""
+        cfg = ActivationConfig(seed_threshold=0.3)
+        now = time.time()
+        seeds = identify_seeds(
+            [("ent_1", 0.8)],
+            {},
+            now,
+            cfg,
+            name_match_scores={"ent_1": 1.0},
+        )
+        assert [s[0] for s in seeds].count("ent_1") == 1
+
 
 @pytest.mark.asyncio
 class TestSpreadActivation:

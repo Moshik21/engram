@@ -469,6 +469,11 @@ async def retrieve(
                 pass  # Fall back to original query
 
     # Step 1: Generate candidates (multi-pool or single-pool)
+    # Name-resolved entities seed graph traversal even when their embedding
+    # similarity is below seed_threshold (populated by generate_candidates,
+    # consumed by identify_seeds). Defined here so it is in scope regardless of
+    # which candidate-generation branch runs.
+    name_match_seeds: dict[str, float] = {}
     if cfg.multi_pool_enabled:
         from engram.retrieval.candidate_pool import generate_candidates
 
@@ -487,6 +492,7 @@ async def retrieve(
             total_entities=total_entities,
             query_type=pre_query_type,
             stage_timings_ms=stage_timings_ms,
+            name_match_out=name_match_seeds,
         )
         primary_search_timed_out = bool(
             stage_timings_ms
@@ -1160,6 +1166,7 @@ async def retrieve(
             now,
             cfg,
             temporal_mode=temporal_mode,
+            name_match_scores=name_match_seeds,
         )
         seed_node_ids = {nid for nid, _ in seeds}
 

@@ -514,11 +514,18 @@ async def generate_candidates(
     total_entities: int = 0,
     query_type: QueryType | None = None,
     stage_timings_ms: dict[str, float] | None = None,
+    name_match_out: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Orchestrate multi-pool candidate generation.
 
     Returns (entity_id, real_semantic_similarity) tuples in RRF-merged order.
     Pool sizes scale with sqrt(total_entities / 1000) and query-type multipliers.
+
+    If ``name_match_out`` is provided, it is populated with
+    ``{entity_id: name_match_score}`` from the entity-query pool so the caller
+    can seed graph traversal from deterministically name-resolved entities
+    (the returned tuples carry only semantic similarity, which must not be
+    polluted by name-match scores).
     """
     if now is None:
         now = time.time()
@@ -587,6 +594,10 @@ async def generate_candidates(
         "recall_entity_query_candidate_count",
         len(entity_query_results),
     )
+    if name_match_out is not None:
+        for eid, name_score in entity_query_results:
+            if name_score > name_match_out.get(eid, 0.0):
+                name_match_out[eid] = name_score
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
     seed_ids = [eid for eid, score in search_results if score >= cfg.seed_threshold][
