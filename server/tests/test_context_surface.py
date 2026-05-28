@@ -541,6 +541,101 @@ async def test_mcp_context_surface_enriches_session_recent_only_cache() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mcp_context_surface_uses_specific_session_recent_without_enrichment() -> None:
+    recent_packets = [
+        {
+            "packet_type": "recent_observation",
+            "title": "Recent Observation: ep_aqua",
+            "summary": (
+                "Dogfood mcp observe latency second sample aquamarinemarker "
+                "20260528 write side trace."
+            ),
+            "episode_ids": ["ep_aqua"],
+            "provenance": ["episode:ep_aqua", "source:codex"],
+            "trust": {"source": "mcp_observe", "freshness": "fresh"},
+        },
+        {
+            "packet_type": "recent_observation",
+            "title": "Recent Observation: ep_citrine",
+            "summary": (
+                "Dogfood mcp observe latency after session recent in memory "
+                "citrinemarker 20260528 write side trace."
+            ),
+            "episode_ids": ["ep_citrine"],
+            "provenance": ["episode:ep_citrine", "source:codex"],
+            "trust": {"source": "mcp_observe", "freshness": "fresh"},
+        },
+    ]
+    project_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": (
+            "Older dogfood handoff mentions 20260528 matrix evidence, but not "
+            "the live marker observations."
+        ),
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+    }
+    loaded_store_result = {
+        "result_type": "cue_episode",
+        "cue": {
+            "episode_id": "ep_loaded",
+            "cue_text": "mentions: older loaded-store write-side observe evidence",
+            "supporting_spans": [],
+            "projection_state": "projected",
+        },
+        "episode": {
+            "id": "ep_loaded",
+            "source": "codex",
+            "created_at": "2026-05-27T09:40:42",
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+    }
+    manager = MagicMock()
+
+    def cached_packets(_group_id: str, *, scope: str, **_kwargs):
+        if scope == "session_recent":
+            return SimpleNamespace(packets=recent_packets)
+        if scope == "project_home":
+            return SimpleNamespace(packets=[project_packet])
+        return None
+
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_fast_preflight_timeout_ms=200,
+        recall_packet_cache_enabled=True,
+    )
+    manager.get_cached_memory_packets.side_effect = cached_packets
+    manager.fast_recall_fallback = AsyncMock(return_value=[loaded_store_result])
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=(
+            "write side observe latency citrinemarker aquamarinemarker "
+            "20260528 dogfood evidence"
+        ),
+        project_path="/Users/konnermoshier/Engram",
+    )
+
+    assert payload["packet_cache"] == {
+        "hit": True,
+        "packet_count": 2,
+        "scopes": {"session_recent": 2},
+    }
+    assert "aquamarinemarker" in payload["context"]
+    assert "citrinemarker" in payload["context"]
+    assert {packet["episode_ids"][0] for packet in payload["cached_packets"]} == {
+        "ep_aqua",
+        "ep_citrine",
+    }
+    manager.fast_recall_fallback.assert_not_awaited()
+    manager.get_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_mcp_context_surface_prefers_project_loaded_store_preflight(
     tmp_path,
 ) -> None:

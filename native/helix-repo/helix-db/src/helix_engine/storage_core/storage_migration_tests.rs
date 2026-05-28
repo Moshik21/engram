@@ -453,6 +453,19 @@ fn test_migrate_empty_database() {
 }
 
 #[test]
+fn test_migrate_marks_vector_integrity_verification() {
+    let (storage, _temp_dir) = setup_test_storage();
+
+    let txn = storage.graph_env.read_txn().unwrap();
+    let marker = storage
+        .metadata_db
+        .get(&txn, b"vector_integrity_verification_version")
+        .unwrap();
+
+    assert_eq!(marker, Some(b"1".as_slice()));
+}
+
+#[test]
 fn test_migrate_pre_metadata_to_native() {
     let (mut storage, _temp_dir) = setup_test_storage();
 

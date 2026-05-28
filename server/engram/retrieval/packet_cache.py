@@ -225,6 +225,7 @@ class MemoryPacketCache:
         episode_ids: Sequence[str] | None = None,
         relationship_ids: Sequence[str] | None = None,
         scopes: Sequence[str] | None = None,
+        preserve_scopes: Sequence[str] | None = None,
         preserve_project_file_packets: bool = False,
         now: float | None = None,
     ) -> int:
@@ -233,6 +234,7 @@ class MemoryPacketCache:
         episode_set = set(episode_ids or [])
         relationship_set = set(relationship_ids or [])
         scope_set = set(scopes or [])
+        preserve_scope_set = set(preserve_scopes or [])
         no_filters = not entity_set and not episode_set and not relationship_set and not scope_set
         invalidated = 0
         for entry in self._entries.values():
@@ -247,6 +249,8 @@ class MemoryPacketCache:
                     continue
                 if relationship_set and not (entry.source_relationship_ids & relationship_set):
                     continue
+            if entry.scope in preserve_scope_set:
+                continue
             if preserve_project_file_packets and _entry_has_only_project_file_packets(entry):
                 continue
             if entry.invalidated_at is None:

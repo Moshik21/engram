@@ -8,6 +8,19 @@ Owner surface: recall, AXI, evaluation, and dashboard runtime contracts
 
 Current checkpoint:
 
+- 2026-05-28 live dogfood performance pass: MCP observe no longer waits on
+  recall middleware, agent capture waits are bounded to `100ms`, and
+  `session_recent` cache entries are kept in memory and preserved across normal
+  graph invalidation. Exact marker/date/id context queries can now return fresh
+  session observations without loaded-store or project-file fallback, while
+  broad recent-only topics still enrich. Final installed-runtime evidence:
+  two MCP observes returned `capture_store_timeout` around `101ms`; MCP
+  `get_context` returned the matching `session_recent` packets in `0.3724ms`;
+  AXI context returned them in `0.4443ms`; AXI recall was `cache_satisfied` in
+  `6.9803ms`; and `engram axi value --json` reported read-path cache hit rate
+  `1.0`, write-path p95 `114.9663ms`, and zero budget misses, degradation, or
+  timeouts. Native Helix also now stores a completed vector-integrity marker so
+  later PyO3 dogfood starts skip the migration-only vector scan.
 - Phase 1 is implemented for runtime cost metrics: aggregate memory operation
   metrics persist in `SQLiteEvaluationStore`, the brain-loop report exposes
   `memory_value`, dashboard Evaluation renders cost/benefit, and AXI has

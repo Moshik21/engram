@@ -3038,6 +3038,19 @@ def _select_relevant_context_packets(
     ]
     if not relevant:
         return []
+    if _session_recent_packets_strongly_answer_topic(
+        relevant,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    ):
+        session_recent_relevant = [
+            packet
+            for packet in relevant
+            if _context_packet_is_session_recent(packet)
+            and _context_packet_has_relevance_match(packet, tokens)
+        ]
+        if session_recent_relevant:
+            return session_recent_relevant
     return relevant
 
 
@@ -3059,6 +3072,12 @@ def _context_packets_need_loaded_store_enrichment(
     topic_hint: str | None,
     project_path: str | None,
 ) -> bool:
+    if _session_recent_packets_strongly_answer_topic(
+        packets,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    ):
+        return False
     saw_packet = False
     for packet in packets:
         if not isinstance(packet, Mapping):
@@ -3078,6 +3097,52 @@ def _context_packets_need_loaded_store_enrichment(
         ):
             return False
     return saw_packet
+
+
+def _session_recent_packets_strongly_answer_topic(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    topic_hint: str | None,
+    project_path: str | None,
+) -> bool:
+    tokens = _context_relevance_tokens(topic_hint, project_path)
+    if not tokens:
+        return False
+    anchor_tokens = _context_session_recent_anchor_tokens(tokens)
+    if not anchor_tokens:
+        return False
+
+    matches: set[str] = set()
+    for packet in packets:
+        if not isinstance(packet, Mapping) or not _context_packet_is_session_recent(
+            packet
+        ):
+            continue
+        matches.update(_context_packet_query_matches(packet, tokens))
+
+    anchor_matches = matches & anchor_tokens
+    if not anchor_matches:
+        return False
+    if any(not token.isdigit() for token in anchor_matches):
+        return len(matches) >= (1 if len(tokens) <= 2 else 2)
+    return len(anchor_matches) >= 2 or len(matches) >= 3
+
+
+def _context_packet_is_session_recent(packet: Mapping[str, Any]) -> bool:
+    if packet.get("_cache_scope") == SESSION_RECENT_PACKET_SCOPE:
+        return True
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    return packet_type == "recent_observation"
+
+
+def _context_session_recent_anchor_tokens(tokens: set[str]) -> set[str]:
+    return {
+        token
+        for token in tokens
+        if any(char.isdigit() for char in token)
+        or "_" in token
+        or (len(token) >= 12 and token.isalnum())
+    }
 
 
 def _context_packet_is_exact_project_file_cache_hit(

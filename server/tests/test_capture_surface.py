@@ -74,6 +74,7 @@ def test_cache_recent_observation_keeps_rolling_session_packets() -> None:
         "native_brain",
         scopes=("session_recent",),
         limit_packets=4,
+        sync_persistent=False,
     )
     packets = manager.cache_memory_packets.call_args.kwargs["packets"]
     assert [packet["episode_ids"] for packet in packets] == [["ep_new"], ["ep_old"]]
@@ -413,7 +414,7 @@ async def test_build_mcp_observe_write_surface_runs_capture_side_effects() -> No
         "Observed an operator preference.",
         source="observe",
     )
-    recall_middleware.assert_awaited_once()
+    recall_middleware.assert_not_awaited()
     assert response["operation"] == "observe"
     assert response["lifecycle"]["stage"] == "cue"
     group_id, sample = _latest_memory_operation(manager)
@@ -440,8 +441,7 @@ async def test_build_mcp_observe_write_surface_bounds_slow_side_effects(
         await asyncio.sleep(0.05)
         live_turn_finished.set()
 
-    async def slow_recall_middleware(*_args, **_kwargs):
-        await asyncio.sleep(0.05)
+    recall_middleware = AsyncMock()
 
     response = await build_mcp_observe_write_surface(
         manager,
@@ -450,18 +450,19 @@ async def test_build_mcp_observe_write_surface_bounds_slow_side_effects(
         session=session,
         source="mcp",
         ingest_live_turn=slow_live_turn,
-        recall_middleware=slow_recall_middleware,
+        recall_middleware=recall_middleware,
     )
 
     assert response["operation"] == "observe"
     assert response["diagnostics"]["stage_timings_ms"]["live_turn_timeout"] >= 0
-    assert response["diagnostics"]["stage_timings_ms"]["recall_middleware_timeout"] >= 0
+    assert "recall_middleware_timeout" not in response["diagnostics"]["stage_timings_ms"]
+    recall_middleware.assert_not_awaited()
     assert session.episode_count == 1
     await asyncio.wait_for(live_turn_finished.wait(), timeout=0.2)
 
 
 @pytest.mark.asyncio
-async def test_build_mcp_observe_write_surface_runs_side_effects_concurrently(
+async def test_build_mcp_observe_write_surface_does_not_wait_for_recall_middleware(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(capture_surface, "_MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS", 0.05)
@@ -472,6 +473,8 @@ async def test_build_mcp_observe_write_surface_runs_side_effects_concurrently(
     async def slow_side_effect(*_args, **_kwargs):
         await asyncio.sleep(0.2)
 
+    recall_middleware = AsyncMock(side_effect=slow_side_effect)
+
     started = asyncio.get_running_loop().time()
     response = await build_mcp_observe_write_surface(
         manager,
@@ -480,14 +483,15 @@ async def test_build_mcp_observe_write_surface_runs_side_effects_concurrently(
         session=session,
         source="mcp",
         ingest_live_turn=slow_side_effect,
-        recall_middleware=slow_side_effect,
+        recall_middleware=recall_middleware,
     )
     elapsed = asyncio.get_running_loop().time() - started
 
     timings = response["diagnostics"]["stage_timings_ms"]
     assert elapsed < 0.12
     assert timings["live_turn_timeout"] < 100
-    assert timings["recall_middleware_timeout"] < 100
+    assert "recall_middleware_timeout" not in timings
+    recall_middleware.assert_not_awaited()
     assert session.episode_count == 1
 
 
@@ -497,8 +501,7 @@ async def test_build_mcp_observe_write_surface_bounds_default_recall_side_effect
     manager.store_episode = AsyncMock(return_value="ep_observe")
     session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
 
-    async def slow_recall_middleware(*_args, **_kwargs):
-        await asyncio.sleep(1)
+    recall_middleware = AsyncMock()
 
     started = asyncio.get_running_loop().time()
     response = await build_mcp_observe_write_surface(
@@ -508,14 +511,15 @@ async def test_build_mcp_observe_write_surface_bounds_default_recall_side_effect
         session=session,
         source="mcp",
         ingest_live_turn=AsyncMock(),
-        recall_middleware=slow_recall_middleware,
+        recall_middleware=recall_middleware,
     )
     elapsed = asyncio.get_running_loop().time() - started
 
     timings = response["diagnostics"]["stage_timings_ms"]
     assert capture_surface._MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS == 0.075
     assert elapsed < 0.2
-    assert timings["recall_middleware_timeout"] < 200
+    assert "recall_middleware_timeout" not in timings
+    recall_middleware.assert_not_awaited()
     assert session.episode_count == 1
 
 

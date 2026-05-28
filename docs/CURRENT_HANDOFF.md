@@ -38,6 +38,32 @@ approved existing sources, stale/noisy recall visibility, human-controlled
 identity core, and client transcripts that prove agents did not route around
 Engram because the graph looked fresh or a local memory file was available.
 
+Latest native PyO3 dogfood performance hardening checkpoint: MCP `observe` no
+longer awaits recall middleware on the write path, agent capture waits are
+bounded to `100ms`, and `session_recent` packets remain in the in-memory packet
+cache with `sync_persistent=false`. Context now lets strong marker/date/id
+`session_recent` matches satisfy exact topic queries without loaded-store or
+project-file enrichment, while broad recent-only topics still enrich. Normal
+graph invalidation preserves the `session_recent` scope so projection or
+materialization does not erase the fresh raw observation before the next agent
+turn. The native Helix migration path also writes a
+`vector_integrity_verification_version` marker after a successful verification
+and skips that expensive migration-only scan on subsequent dogfood starts; the
+first patched restart still verified the existing 4.0G store, and the next
+restart skipped the vector scan. After reinstall/restart to PID `68316`, two
+MCP observe samples with `rubymarker`/`emeraldmarker` returned bounded
+`capture_store_timeout` diagnostics at `101ms`; MCP `get_context` then returned
+the exact two `session_recent` packets in `0.3724ms`, AXI context returned them
+in `0.4443ms`, and AXI recall was `cache_satisfied` in `6.9803ms`, with no
+degradation, timeout, or budget miss. `engram axi value --json` reported
+read-path cache hit rate `1.0`, read-path p95 `208.0112ms` at the value layer
+with zero read budget misses/degradation/timeouts, and write-path p95
+`114.9663ms`. Full startup validation passed; the lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-101318` with `13 pass, 0 warn,
+0 fail, 0 skip`. Focused Python gates passed with `182 passed, 3 skipped`;
+focused native Helix migration tests passed with `14 passed`; ruff and
+`git diff --check` passed.
+
 Latest native PyO3 dogfood recall closeout: the loaded-store no-evidence tail is
 now bounded by cached project packets after fast preflight. Explicit recall can
 use same-project home packets or identity packets as weak fallback context after

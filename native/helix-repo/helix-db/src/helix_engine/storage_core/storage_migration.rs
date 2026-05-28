@@ -14,15 +14,20 @@ use std::{collections::HashMap, ops::Bound};
 
 use super::metadata::{NATIVE_VECTOR_ENDIANNESS, StorageMetadata, VectorEndianness};
 
+const VECTOR_INTEGRITY_VERIFICATION_KEY: &[u8] = b"vector_integrity_verification_version";
+const VECTOR_INTEGRITY_VERIFICATION_VERSION: &[u8] = b"1";
+
 pub fn migrate(storage: &mut HelixGraphStorage) -> Result<(), GraphError> {
     let mut metadata = {
         let txn = storage.graph_env.read_txn()?;
         StorageMetadata::read(&txn, &storage.metadata_db)?
     };
 
+    let mut vectors_migrated = false;
     loop {
         metadata = match metadata {
             StorageMetadata::PreMetadata => {
+                vectors_migrated = true;
                 migrate_pre_metadata_to_native_vector_endianness(storage)?
             }
             StorageMetadata::VectorNativeEndianness {
@@ -33,14 +38,41 @@ pub fn migrate(storage: &mut HelixGraphStorage) -> Result<(), GraphError> {
             }
             StorageMetadata::VectorNativeEndianness {
                 vector_endianness: currently_stored_vector_endianness,
-            } => convert_vectors_to_native_endianness(currently_stored_vector_endianness, storage)?,
+            } => {
+                vectors_migrated = true;
+                convert_vectors_to_native_endianness(currently_stored_vector_endianness, storage)?
+            }
         };
     }
 
-    verify_vectors_and_repair(storage)?;
-    remove_orphaned_vector_edges(storage)?;
+    if vectors_migrated || !vector_integrity_verification_is_current(storage)? {
+        verify_vectors_and_repair(storage)?;
+        remove_orphaned_vector_edges(storage)?;
+        mark_vector_integrity_verified(storage)?;
+    }
     migrate_bm25(storage)?;
 
+    Ok(())
+}
+
+fn vector_integrity_verification_is_current(
+    storage: &HelixGraphStorage,
+) -> Result<bool, GraphError> {
+    let txn = storage.graph_env.read_txn()?;
+    Ok(storage
+        .metadata_db
+        .get(&txn, VECTOR_INTEGRITY_VERIFICATION_KEY)?
+        == Some(VECTOR_INTEGRITY_VERIFICATION_VERSION))
+}
+
+fn mark_vector_integrity_verified(storage: &HelixGraphStorage) -> Result<(), GraphError> {
+    let mut txn = storage.graph_env.write_txn()?;
+    storage.metadata_db.put(
+        &mut txn,
+        VECTOR_INTEGRITY_VERIFICATION_KEY,
+        VECTOR_INTEGRITY_VERIFICATION_VERSION,
+    )?;
+    txn.commit()?;
     Ok(())
 }
 

@@ -30,7 +30,7 @@ from engram.utils.dates import utc_now
 logger = logging.getLogger(__name__)
 _MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS = 0.075
 _MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS = 0.01
-_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS = 250
+_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS = 100
 _SESSION_RECENT_PACKET_SCOPE = "session_recent"
 _SESSION_RECENT_PACKET_LIMIT = 5
 
@@ -339,6 +339,7 @@ def _rolling_session_recent_packets(
                 group_id,
                 scopes=(_SESSION_RECENT_PACKET_SCOPE,),
                 limit_packets=_SESSION_RECENT_PACKET_LIMIT - 1,
+                sync_persistent=False,
             )
         except Exception:
             existing = []
@@ -916,21 +917,12 @@ async def build_mcp_observe_write_surface(
         memory_write_contract("observe", episode_id),
         message="Stored for background processing.",
     ), manager)
-    await _run_mcp_write_side_effects(
-        [
-            (
-                "live_turn",
-                ingest_live_turn(manager, content, source="observe"),
-                True,
-                _MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS,
-            ),
-            (
-                "recall_middleware",
-                recall_middleware(content, response, tool_name="observe"),
-                False,
-            ),
-        ],
+    await _run_mcp_write_side_effect(
+        "live_turn",
+        ingest_live_turn(manager, content, source="observe"),
         side_effect_timings,
+        background_on_timeout=True,
+        timeout_seconds=_MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS,
     )
     attach_mcp_side_effect_diagnostics(response, side_effect_timings)
     await _record_write_operation(manager, group_id, finish_operation)

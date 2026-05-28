@@ -209,6 +209,54 @@ def test_packet_cache_can_preserve_project_file_packets_during_broad_invalidatio
     ) is None
 
 
+def test_packet_cache_can_preserve_scopes_during_episode_invalidation() -> None:
+    cache = MemoryPacketCache(default_ttl_seconds=60)
+    cache.put(
+        group_id="default",
+        scope="session_recent",
+        packets=[
+            {
+                "title": "Recent Observation: ep_recent",
+                "episode_ids": ["ep_recent"],
+            }
+        ],
+        now=10.0,
+    )
+    cache.put(
+        group_id="default",
+        scope="explicit_recall",
+        topic_hint="observe trace",
+        packets=[
+            {
+                "title": "Latent Memory: ep_recent",
+                "episode_ids": ["ep_recent"],
+            }
+        ],
+        now=10.0,
+    )
+
+    invalidated = cache.invalidate(
+        group_id="default",
+        episode_ids=["ep_recent"],
+        preserve_scopes=["session_recent"],
+        now=20.0,
+    )
+
+    assert invalidated == 1
+    assert cache.get(
+        group_id="default",
+        scope="session_recent",
+        now=21.0,
+        sync_persistent=False,
+    ) is not None
+    assert cache.get(
+        group_id="default",
+        scope="explicit_recall",
+        topic_hint="observe trace",
+        now=21.0,
+    ) is None
+
+
 def test_packet_cache_clear_and_json_size_are_deterministic() -> None:
     cache = MemoryPacketCache(default_ttl_seconds=60)
     packets = [{"b": 2, "a": 1}]

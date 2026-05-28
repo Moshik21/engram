@@ -232,7 +232,8 @@ def test_install_script_forwards_explicit_helix_mode() -> None:
     )
     assert "resolve_helix_native_requirement" in install_script
     assert (
-        'uv tool install --reinstall-package engram --with "$helix_native_req" "$package_spec"'
+        "uv tool install --reinstall-package engram --reinstall-package "
+        'helix-native --with "$helix_native_req" "$package_spec"'
         in install_script
     )
     assert "HELIX_NATIVE_SUBDIR" in install_script
@@ -601,7 +602,8 @@ def test_engramctl_update_preserves_helix_native_package_extras() -> None:
     assert 'package_spec="engram[local,native]"' in engramctl
     assert 'install_engram_tool_with_native "$package_spec"' in engramctl
     assert (
-        'uv tool install --force --reinstall-package engram --with "$helix_native_req"'
+        "uv tool install --force --reinstall-package engram --reinstall-package "
+        'helix-native --with "$helix_native_req"'
         in engramctl
     )
     assert "resolve_helix_native_requirement" in engramctl

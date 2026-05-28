@@ -56,6 +56,26 @@ Lite mode only as a fallback smoke path.
 
 ## Current Checkpoint
 
+2026-05-28 native PyO3 dogfood performance hardening pass:
+
+- Full startup validation passed after the final reinstall/restart.
+- The confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-101318` with `13 pass,
+  0 warn, 0 fail, 0 skip`.
+- Native Helix now marks completed vector integrity verification in storage
+  metadata and skips the expensive migration-only scan on later dogfood starts.
+  The first patched restart still verified the 4.0G store; the following start
+  skipped the scan and stayed under the matrix timeout.
+- The installer and `engramctl` update paths now reinstall `helix-native`
+  explicitly when using the bundled/local native source, so PyO3 source changes
+  are not hidden by the uv tool cache.
+- MCP `observe` is bounded on the agent path: the final live samples returned
+  `capture_store_timeout` at about `101ms` with no budget miss or degradation.
+- `session_recent` packets now survive normal graph invalidation and can satisfy
+  exact marker/date/id context queries. Final live probes returned the two fresh
+  `rubymarker`/`emeraldmarker` observations through MCP context in `0.3724ms`,
+  AXI context in `0.4443ms`, and AXI recall in `6.9803ms`.
+
 2026-05-22 native PyO3 dogfood validation passes on the warmed local runtime:
 
 - `python3 scripts/dogfood_startup_validation.py --json` passes native config,
