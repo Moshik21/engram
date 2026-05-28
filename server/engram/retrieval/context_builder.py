@@ -1327,14 +1327,6 @@ async def _await_loaded_store_context_preflight_task(
             return task.result()
         if project_file_task is None:
             return await task
-        if project_file_task.done():
-            return None
-        done, _pending = await asyncio.wait(
-            {task, project_file_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if task in done:
-            return task.result()
         return None
     except asyncio.CancelledError:
         raise

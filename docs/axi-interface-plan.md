@@ -177,6 +177,19 @@ served by loaded-store context in `30.344ms`; AXI recall on the same topic was
 cache-satisfied in `0.6234ms`, AXI context hit project cache in `0.049ms`, and
 post-validation live value read-path p95 was `80.397ms` with zero budget
 misses/degraded reads/timeouts.
+The follow-up soft-wait fix keeps that rescue from being masked by a slow fresh
+project-file scan. MCP loaded-store context preflight now returns after the
+configured soft wait instead of blocking until either loaded-store or the file
+scan finishes; when the scan is still pending, stable same-project packets can
+serve `project_file_cache_rescue` while the exact-topic scan completes in the
+background. After reinstall/restart on PID `40680`, the first fresh MCP context
+with no stable sidecar entry rebuilt in `937.6488ms`; after that seed existed,
+fresh AXI context used `project_file_cache_rescue` in `10.3801ms` and exact
+repeat context hit cache in `0.0413ms`. Fresh MCP contexts on the same warmed
+filesystem returned bounded project-file packets in `104.0038ms` and
+`138.8205ms` without degradation. After the final no-project guardrail
+reinstall/restart, PID `41982` stayed healthy and fresh AXI context used
+`project_file_cache_rescue` in `2.238ms`.
 
 ## Command Shape
 

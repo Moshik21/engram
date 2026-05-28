@@ -817,6 +817,20 @@ Latest verification checkpoint:
   cache in `0.0617ms`, and MCP `recall` was `cache_satisfied` in `89.6023ms`.
   The post-restart value window reported read-path p95 `106.2332ms`, cache hit
   rate `1.0`, and zero read budget misses, degraded reads, or timeouts.
+- The next soft-wait pass fixed the hidden reason a later fresh MCP context
+  probe could still pay a whole slow project-file scan. Loaded-store context
+  preflight now waits only its soft budget and no longer blocks until the
+  project-file scan wins; when that scan is still pending, stable same-project
+  project-file packets can rescue the response and the scan caches the exact
+  topic afterward. Focused regression coverage forces the slow-preflight plus
+  slow-scan case and verifies `project_file_cache_rescue`. Live reinstall/restart
+  on LaunchAgent PID `40680` showed the first fresh MCP topic with no stable
+  sidecar entry still rebuilt in `937.6488ms`, then AXI fresh context used
+  `project_file_cache_rescue` in `10.3801ms`, exact repeat context hit cache in
+  `0.0413ms`, and fresh MCP context stayed bounded without degradation at
+  `104.0038ms` and `138.8205ms`. After the final no-project guardrail
+  reinstall/restart, PID `41982` is healthy and a fresh AXI context probe used
+  `project_file_cache_rescue` in `2.238ms`.
 
 ## Purpose
 
@@ -3294,6 +3308,18 @@ Latency dogfood evidence:
   rate `1.0`, and zero read budget misses/degraded reads/timeouts. Recall
   evaluation sample `ers_ab1decfc5cfe` records this as useful real-session
   evidence.
+- 2026-05-28 soft-wait rescue fix: a later installed-runtime check showed the
+  MCP helper still waited for project-file scan completion after loaded-store
+  soft wait, which could hide stable cache rescue on slow scans. The helper now
+  returns after the loaded-store soft wait and lets the project-file payload
+  path rescue from stable same-project cache when the scan is still pending.
+  After reinstall/restart to PID `40680`, first fresh MCP context with no
+  stable sidecar seed rebuilt in `937.6488ms`; once seeded, AXI fresh context
+  used `project_file_cache_rescue` in `10.3801ms`, exact repeat context hit
+  cache in `0.0413ms`, and fresh MCP contexts were bounded at `104.0038ms` and
+  `138.8205ms` with no budget misses or degradation. Final reinstall/restart on
+  PID `41982` stayed healthy and returned fresh AXI context through
+  `project_file_cache_rescue` in `2.238ms`.
 
 ## Test Matrix
 

@@ -1861,6 +1861,21 @@ Lite mode only as a fallback smoke path.
   reads, or timeouts. This confirms stable project packets survive restart
   once warmed; the remaining cold edge is the first-ever stable project packet
   build when no same-project home entry exists yet.
+- A follow-up soft-wait fix tightened the MCP context path exposed by the same
+  real-session work. The loaded-store context helper no longer blocks on the
+  project-file scan after its soft preflight wait; if the scan is still pending,
+  the project-file payload builder can immediately rescue from same-project
+  cached packets while the scan refreshes the exact topic in the background.
+  Regression coverage now forces slow loaded-store preflight plus slow
+  project-file scan and verifies `project_file_cache_rescue`. After reinstalling
+  the local package and restarting to LaunchAgent PID `40680`, the first fresh
+  MCP topic without a usable stable sidecar entry rebuilt in `937.6488ms`.
+  Once stable cache existed, fresh AXI context used
+  `project_file_cache_rescue` in `10.3801ms`, exact repeat context hit cache in
+  `0.0413ms`, and fresh MCP topics stayed bounded without degradation at
+  `104.0038ms` and `138.8205ms`. After the final no-project guardrail
+  reinstall/restart, the runtime is healthy on PID `41982` and a fresh AXI
+  context probe used `project_file_cache_rescue` in `2.238ms`.
 
 ## Work Plan
 

@@ -95,9 +95,22 @@ three project packets in `106.2332ms` with
 MCP `recall` was `cache_satisfied` in `89.6023ms`. Post-restart
 `engram axi value --json` reported read-path p95 `106.2332ms`, cache hit rate
 `1.0`, and zero read budget misses, degraded reads, or timeouts. This proves the
-stable project packet survives restart once warmed; the remaining cold edge is
-only first-ever stable project packet creation after the packet cache has no
-same-project home entry.
+stable project packet survives restart once warmed. The follow-up installed
+runtime check found one more soft-wait edge: the MCP context helper could still
+wait for a slow project-file scan to finish before trying same-project cache
+rescue. That helper now waits only the loaded-store soft budget, then lets the
+project-file payload builder rescue from stable cache while the fresh scan keeps
+warming the exact topic. After reinstall/restart to LaunchAgent PID `40680`, the
+first fresh MCP topic with no usable stable sidecar entry rebuilt in
+`937.6488ms`; once that stable entry existed, fresh AXI context used
+`project_file_cache_rescue` in `10.3801ms` and exact repeat context hit cache in
+`0.0413ms`. Fresh MCP topics were bounded without degradation (`104.0038ms` and
+`138.8205ms`) because the local scan completed quickly before rescue was needed.
+After the final no-project guardrail reinstall/restart, the runtime is healthy on
+LaunchAgent PID `41982`, and a fresh AXI context probe used
+`project_file_cache_rescue` in `2.238ms`.
+The remaining cold edge is first-ever stable project packet creation after the
+packet cache has no same-project home entry.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

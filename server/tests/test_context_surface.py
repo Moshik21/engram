@@ -888,6 +888,10 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         await asyncio.sleep(0.06)
         return [fresh_packet], 60.0
 
+    async def slow_preflight(**_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
     stable_lookup_sync_flags: list[bool | None] = []
 
     def get_cached_packets(
@@ -920,7 +924,7 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         context_fast_preflight_soft_wait_ms=10,
     )
     manager.get_cached_memory_packets.side_effect = get_cached_packets
-    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.fast_recall_fallback = AsyncMock(side_effect=slow_preflight)
     manager.cache_memory_packets = MagicMock()
     manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
     manager.record_memory_operation = MagicMock()
