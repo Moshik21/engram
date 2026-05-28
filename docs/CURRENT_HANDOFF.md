@@ -255,6 +255,30 @@ value reports read-path p95 `85.9715ms`, read cache hit rate `1.0`, and zero
 read budget misses, degradation, or timeouts. The next performance target is
 reducing first-miss project-file fallback cost without reopening noisy cache
 satisfaction.
+Latest immediate-rescue pass: the next cold-restart probe showed a smaller
+latency leak after cache-specificity hardening. A first AXI context call with a
+usable same-project rescue packet still paid the project-file soft wait:
+`coldstart first request latency lapismarker 20260528 project file fallback`
+returned in `129.2005ms` with `projectFileFallbackSoftWait=75.0566`. Context
+now checks topic-relevant same-project `project_file_cache_rescue` packets
+before waiting on either loaded-store preflight or the project-file fallback
+soft wait, while the fresh project-file scan continues in the background and
+updates the exact-topic cache. The same specificity guards still apply, so
+generic overlap does not satisfy a new marker query. After reinstall/restart to
+PID `97485`, AXI context for `early rescue mcp axial garnetmarker 20260528
+project file fallback` returned via `project_file_cache_rescue=1` in
+`46.3217ms` with `projectFileFallbackSoftWait=0.0`; MCP `get_context` for
+`early rescue mcp sapphiremarker 20260528 project file fallback` returned via
+the same rescue path in `5.8787ms` with no loaded-store preflight wait; and MCP
+`recall` for that topic was `cache_satisfied` in `43.1145ms`. Focused
+retrieval/cache tests passed with `119 passed`; ruff and `git diff --check`
+passed; the installer doctor passed; startup validation passed against PID
+`97485`; and the confirmed lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-092158` with
+`13 pass, 0 warn, 0 fail, 0 skip`, leaving PID `99293` healthy. Post-matrix
+value reports read-path p95 `4.3265ms`, read cache hit rate `1.0`, and zero
+read budget misses, degradation, or timeouts. Overall p95 is now dominated by
+write-side `api_auto_observe`, not read-path context/recall.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

@@ -3442,6 +3442,27 @@ Latency dogfood evidence:
   0 fail, 0 skip`) and left PID `85767` healthy. Post-matrix value reported
   read-path p95 `85.9715ms`, read cache hit rate `1.0`, and zero read budget
   misses, degradation, or timeouts.
+- 2026-05-28 immediate-rescue follow-up: after tightening cache specificity, a
+  cold first AXI context probe still paid the configured project-file soft wait
+  before returning an already-available same-project rescue packet
+  (`durationMs=129.2005`, `projectFileFallbackSoftWait=75.0566`). Context now
+  checks topic-relevant same-project `project_file_cache_rescue` packets before
+  waiting on loaded-store preflight or project-file fallback soft wait, and the
+  fresh exact-topic file scan continues in the background so later calls still
+  get exact cache entries. After reinstall/restart to PID `97485`, AXI context
+  for `early rescue mcp axial garnetmarker 20260528 project file fallback`
+  returned through `project_file_cache_rescue=1` in `46.3217ms` with
+  `projectFileFallbackSoftWait=0.0`; MCP `get_context` for `early rescue mcp
+  sapphiremarker 20260528 project file fallback` returned through the same
+  rescue path in `5.8787ms` with no loaded-store preflight wait; and MCP recall
+  for the same topic was `cache_satisfied` in `43.1145ms`. Focused
+  retrieval/cache tests passed with `119 passed`; ruff and `git diff --check`
+  passed; the installer doctor passed; startup validation passed against PID
+  `97485`; the confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-092158` (`13 pass, 0 warn,
+  0 fail, 0 skip`) and left PID `99293` healthy. Post-matrix value reported
+  read-path p95 `4.3265ms`, read cache hit rate `1.0`, and zero read budget
+  misses, degradation, or timeouts.
 
 ## Test Matrix
 

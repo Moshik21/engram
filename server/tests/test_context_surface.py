@@ -714,7 +714,7 @@ async def test_mcp_context_surface_uses_project_files_when_stable_cache_is_irrel
         for call in manager.get_cached_memory_packets.call_args_list
     ]
     assert False in sync_flags
-    assert all(flag is False for flag in sync_flags)
+    assert True in sync_flags
 
 
 @pytest.mark.asyncio
@@ -1124,8 +1124,9 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
     assert stable_lookup_sync_flags == [False, True]
     stage_timings = payload["diagnostics"]["stage_timings_ms"]
     assert stage_timings["project_file_fallback"] == 0.0
-    assert stage_timings["project_file_fallback_soft_wait"] >= 0
+    assert stage_timings["project_file_fallback_soft_wait"] == 0.0
     assert stage_timings["project_file_fallback_pending"] == 1.0
+    manager.fast_recall_fallback.assert_not_awaited()
     manager.get_context.assert_not_awaited()
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"

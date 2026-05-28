@@ -1987,6 +1987,27 @@ Lite mode only as a fallback smoke path.
   passed against PID `84563`; the confirmed lifecycle matrix produced
   `/private/tmp/engram-dogfood-startup-20260528-090414` with `13 pass, 0 warn,
   0 fail, 0 skip`; and post-matrix PID `85767` stayed healthy.
+- The immediate-rescue follow-up removed the remaining first-request soft-wait
+  cost when relevant same-project project-file packets are already available. A
+  cold first AXI context probe previously returned in `129.2005ms` because it
+  still paid `projectFileFallbackSoftWait=75.0566` before returning a rescue
+  packet. Context now checks topic-relevant same-project `project_file_cache_rescue`
+  packets before waiting on loaded-store preflight or project-file fallback
+  soft wait, and leaves the fresh exact-topic project-file scan to finish and
+  update cache in the background. After reinstall/restart to PID `97485`, AXI
+  context for `early rescue mcp axial garnetmarker 20260528 project file
+  fallback` returned through `project_file_cache_rescue=1` in `46.3217ms` with
+  `projectFileFallbackSoftWait=0.0`; MCP `get_context` for `early rescue mcp
+  sapphiremarker 20260528 project file fallback` returned through the same
+  rescue path in `5.8787ms` with no loaded-store preflight wait; and MCP
+  `recall` for that topic was `cache_satisfied` in `43.1145ms`. Focused
+  retrieval/cache tests passed with `119 passed`; ruff and `git diff --check`
+  passed; the installer doctor passed; startup validation passed against PID
+  `97485`; the confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-092158` with `13 pass, 0 warn,
+  0 fail, 0 skip`; and post-matrix PID `99293` stayed healthy. Post-matrix
+  value reported read-path p95 `4.3265ms`, read cache hit rate `1.0`, and zero
+  read budget misses, degradation, or timeouts.
 
 ## Work Plan
 

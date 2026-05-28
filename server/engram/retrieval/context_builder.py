@@ -200,6 +200,39 @@ async def build_mcp_context_surface(
             max_packets=5,
             reason=_project_file_fallback_reason("cache_relevance_miss"),
         )
+        early_project_file_payload = _project_file_context_rescue_payload_from_task(
+            project_file_task,
+            manager,
+            group_id=group_id,
+            topic_hint=cache_topic_hint,
+            project_path=project_path,
+            format=format,
+            budget=budget,
+            status="ok",
+            duration_ms=_elapsed_ms(started),
+            skip_reason="cache_relevance_miss",
+            timeout=False,
+            started=started,
+        )
+        if early_project_file_payload is not None:
+            await record_manager_memory_operation(
+                manager,
+                group_id,
+                MemoryOperationSample(
+                    operation="context",
+                    source=operation_source,
+                    mode=operation_source,
+                    status="ok",
+                    duration_ms=_elapsed_ms(started),
+                    budget_ms=budget.budget_ms,
+                    budget_tokens=budget.budget_tokens,
+                    cache_hit=True,
+                    packet_count=len(
+                        early_project_file_payload.get("cached_packets") or []
+                    ),
+                ),
+            )
+            return early_project_file_payload
         loaded_store_payload = None
         loaded_store_preflight_duration_ms = None
         loaded_store_task: asyncio.Task[dict[str, Any] | None] | None = None
@@ -1757,6 +1790,25 @@ async def _project_file_context_payload_from_task_or_manager(
             timeout=timeout,
             pre_fallback_stage_timings=pre_fallback_stage_timings,
         )
+    stage_timings = dict(pre_fallback_stage_timings or {})
+    if not task.done():
+        rescue_payload = _project_file_context_rescue_payload_from_task(
+            task,
+            manager,
+            group_id=group_id,
+            topic_hint=topic_hint,
+            project_path=project_path,
+            format=format,
+            budget=budget,
+            status=status,
+            duration_ms=duration_ms,
+            skip_reason=skip_reason,
+            timeout=timeout,
+            started=started,
+            pre_fallback_stage_timings=stage_timings,
+        )
+        if rescue_payload is not None:
+            return rescue_payload
     soft_wait_started = time.perf_counter()
     if not task.done():
         await _wait_for_project_file_context_task_before_rescue(
@@ -1766,7 +1818,6 @@ async def _project_file_context_payload_from_task_or_manager(
             ),
         )
     soft_wait_duration_ms = _elapsed_ms(soft_wait_started)
-    stage_timings = dict(pre_fallback_stage_timings or {})
     if soft_wait_duration_ms > 0:
         stage_timings["project_file_fallback_soft_wait"] = soft_wait_duration_ms
     if not task.done():
@@ -1849,6 +1900,66 @@ async def _project_file_context_payload_from_task_or_manager(
         timeout=timeout,
         total_duration_ms=_elapsed_ms(started),
         pre_fallback_stage_timings=stage_timings,
+    )
+
+
+def _project_file_context_rescue_payload_from_task(
+    task: asyncio.Task[tuple[list[dict[str, Any]], float]] | None,
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    project_path: str | None,
+    format: str,
+    budget: RecallBudget,
+    status: str,
+    duration_ms: float,
+    skip_reason: str | None,
+    timeout: bool,
+    started: float,
+    pre_fallback_stage_timings: Mapping[str, float | None] | None = None,
+) -> dict[str, Any] | None:
+    if task is None or task.done():
+        return None
+    cached_packets = _project_file_cache_rescue_packets_from_manager(
+        manager,
+        group_id=group_id,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        max_packets=5,
+    )
+    if not cached_packets:
+        return None
+    task.add_done_callback(
+        partial(
+            _cache_project_file_context_fallback_task_result,
+            manager=manager,
+            group_id=group_id,
+            topic_hint=topic_hint,
+            project_path=project_path,
+        )
+    )
+    stage_timings = dict(pre_fallback_stage_timings or {})
+    return _project_file_context_payload_from_packets(
+        cached_packets,
+        group_id=group_id,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        format=format,
+        budget=budget,
+        status=status,
+        duration_ms=duration_ms,
+        fallback_duration_ms=0.0,
+        skip_reason=skip_reason,
+        timeout=timeout,
+        total_duration_ms=_elapsed_ms(started),
+        pre_fallback_stage_timings={
+            **stage_timings,
+            "project_file_fallback_soft_wait": 0.0,
+            "project_file_fallback_cache_rescue": 0.0,
+            "project_file_fallback_pending": 1.0,
+        },
+        cache_hit=True,
     )
 
 
