@@ -75,6 +75,8 @@ class LongMemEvalResult:
     variant: str
     extraction_mode: str
     embedding_provider: str
+    reranker_provider: str
+    use_graph: bool
     consolidation_used: bool
     total_instances: int
     total_correct: int
@@ -92,8 +94,11 @@ class LongMemEvalResult:
             "variant": self.variant,
             "extraction_mode": self.extraction_mode,
             "embedding_provider": self.embedding_provider,
+            "reranker_provider": self.reranker_provider,
+            "use_graph": self.use_graph,
             "consolidation_used": self.consolidation_used,
             "assessment_method": "embedding_containment",
+            "reader": "none (deterministic embedding containment, no LLM)",
             "total_instances": self.total_instances,
             "total_correct": self.total_correct,
             "overall_accuracy": round(self.overall_accuracy, 4),
@@ -310,6 +315,8 @@ async def run_longmemeval(
         variant=variant,
         extraction_mode=extraction_mode,
         embedding_provider=embedding_provider,
+        reranker_provider=reranker_provider,
+        use_graph=use_graph,
         consolidation_used=consolidation,
         total_instances=len(instance_results),
         total_correct=total_correct,
