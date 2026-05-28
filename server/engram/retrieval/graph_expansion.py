@@ -182,35 +182,63 @@ async def expand_query_from_graph(
 
 # --- Template-based query reformulation ---
 
+#
+# Patterns are anchored (^ ... $) so the capture groups consume the *whole*
+# query and the statement is rebuilt from the captured groups with
+# ``match.expand``. Un-anchored ``re.sub`` previously spliced the replacement
+# into the middle of the original query, producing garbled fragments
+# ("What is my favorite language?" -> "my f isavorite language?").
+#
+# Order matters: more specific patterns must come before more general ones
+# (e.g. "what is my favorite X" before "what is my X").
+#
 _REFORMULATION_PATTERNS = [
-    # "What X do I like?" -> "I like X"
-    (r"what\s+(.+?)\s+do\s+I\s+(\w+)\??", r"I \2 \1"),
-    # "What is my X?" -> "my X is"
-    (r"what\s+is\s+my\s+(.+?)\??", r"my \1 is"),
-    # "What is my favorite X?" -> "my favorite X is"
-    (r"what\s+is\s+my\s+favorite\s+(.+?)\??", r"my favorite \1 is"),
-    # "Do I X?" -> "I X"
-    (r"do\s+I\s+(.+?)\??", r"I \1"),
-    # "Where do I X?" -> "I X at"
-    (r"where\s+do\s+I\s+(.+?)\??", r"I \1 at"),
-    # "When did I X?" -> "I X on"
-    (r"when\s+did\s+I\s+(.+?)\??", r"I \1 on"),
-    # "Who is my X?" -> "my X is"
-    (r"who\s+is\s+my\s+(.+?)\??", r"my \1 is"),
     # "How many X do I have?" -> "I have X"
-    (r"how\s+many\s+(.+?)\s+do\s+I\s+have\??", r"I have \1"),
+    (r"^\s*how\s+many\s+(.+?)\s+do\s+I\s+have\s*[?.!]*\s*$", r"I have \1"),
+    # "What is my favorite X?" -> "my favorite X is"
+    (r"^\s*what\s+is\s+my\s+favorite\s+(.+?)\s*[?.!]*\s*$", r"my favorite \1 is"),
+    # "What is my X?" -> "my X is"
+    (r"^\s*what\s+is\s+my\s+(.+?)\s*[?.!]*\s*$", r"my \1 is"),
+    # "What X do I like?" -> "I like X"
+    (r"^\s*what\s+(.+?)\s+do\s+I\s+(\w+)\s*[?.!]*\s*$", r"I \2 \1"),
+    # "Where do I X?" -> "I X at"
+    (r"^\s*where\s+do\s+I\s+(.+?)\s*[?.!]*\s*$", r"I \1 at"),
+    # "When did I X?" -> "I X on"
+    (r"^\s*when\s+did\s+I\s+(.+?)\s*[?.!]*\s*$", r"I \1 on"),
+    # "Who is my X?" -> "my X is"
+    (r"^\s*who\s+is\s+my\s+(.+?)\s*[?.!]*\s*$", r"my \1 is"),
+    # "Do I X?" -> "I X"
+    (r"^\s*do\s+I\s+(.+?)\s*[?.!]*\s*$", r"I \1"),
 ]
 _COMPILED_PATTERNS = [(re.compile(p, re.I), r) for p, r in _REFORMULATION_PATTERNS]
+
+# A reformulated statement should read as normal whitespace-separated words.
+# Reject any output that contains a token longer than this many characters,
+# which signals two words were spliced together without a space.
+_MAX_REFORMULATED_TOKEN = 30
+
+
+def _is_clean_reformulation(text: str) -> bool:
+    """Reject reformulations with whitespace-spliced word fragments."""
+    if not text:
+        return False
+    return all(len(token) <= _MAX_REFORMULATED_TOKEN for token in text.split())
 
 
 def reformulate_query(query: str) -> str | None:
     """Convert a question into a statement form for better embedding match.
 
-    Returns the reformulated query, or None if no pattern matches.
+    Rebuilds the statement from captured groups (anchored full-query match)
+    rather than splicing a replacement into the original string. Returns the
+    reformulated query, or None if no pattern matches or the result looks
+    garbled (callers fall back to the original query).
     Zero cost, <1ms.
     """
     for pattern, replacement in _COMPILED_PATTERNS:
-        match = pattern.search(query)
+        match = pattern.match(query)
         if match:
-            return pattern.sub(replacement, query).strip()
+            reformulated = match.expand(replacement).strip()
+            if reformulated and _is_clean_reformulation(reformulated):
+                return reformulated
+            return None
     return None

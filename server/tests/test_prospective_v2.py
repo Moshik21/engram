@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -584,7 +585,7 @@ class TestGraphManagerDismissIntention:
 
         graph.update_entity.assert_called_once()
         call_args = graph.update_entity.call_args
-        attrs = call_args[0][1]["attributes"]
+        attrs = json.loads(call_args[0][1]["attributes"])
         assert attrs["enabled"] is False
 
     @pytest.mark.asyncio
@@ -869,7 +870,7 @@ class TestIntentionEvents:
 
         # Check fire_count was incremented
         update_call = graph.update_entity.call_args
-        new_attrs = update_call[0][1]["attributes"]
+        new_attrs = json.loads(update_call[0][1]["attributes"])
         assert new_attrs["fire_count"] == 1
         assert new_attrs["last_fired"] is not None
 

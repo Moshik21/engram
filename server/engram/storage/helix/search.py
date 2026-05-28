@@ -1607,11 +1607,18 @@ class HelixSearchIndex:
         if dim <= 0:
             return {}
 
-        # Fetch a large batch from the vector index
+        # Fetch a large batch from the vector index.  The zero-vector ANN
+        # sweep returns rows in an undefined order (cosine against a zero
+        # query is degenerate), so a small k can silently omit requested ids
+        # on graphs larger than k.  Use a generous k so the requested set is
+        # robustly covered even when only a few ids are asked for.
+        # NOTE: a proper exact get-vectors-by-id HelixQL query is the correct
+        # fix and is a deferred follow-up.
         zero_vec = [0.0] * dim
+        sweep_k = max(len(entity_ids) * 50, 2000)
         rows = await self._query(
             "search_entity_vectors",
-            {"vec": zero_vec, "k": max(len(entity_ids) * 5, 200)},
+            {"vec": zero_vec, "k": sweep_k},
         )
 
         for row in rows:
@@ -1634,6 +1641,21 @@ class HelixSearchIndex:
                 for eid, vec in results.items()
                 if gid_lookup.get(eid) == group_id
             }
+
+        # Surface silent partial recovery: the zero-vector sweep can omit
+        # requested ids when the index is larger than the sweep window.
+        if len(results) < len(target_ids):
+            logger.warning(
+                "get_entity_embeddings recovered %d/%d entity vectors "
+                "(group_id=%s, sweep_k=%d, rows=%d). Zero-vector ANN sweep "
+                "may have omitted requested ids; exact get-by-id retrieval "
+                "is a deferred follow-up.",
+                len(results),
+                len(target_ids),
+                group_id,
+                sweep_k,
+                len(rows),
+            )
 
         return results
 

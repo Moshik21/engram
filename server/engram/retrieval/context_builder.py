@@ -562,11 +562,14 @@ class MemoryContextBuilder:
         tier1_lines: list[str] = []
         tier2_lines: list[str] = []
         tier3_lines: list[str] = []
+        cached_lines: list[str] = []
         current_tier: list[str] | None = None
 
         for line in structured_context.split("\n"):
             stripped = line.strip()
-            if "Identity" in stripped and stripped.startswith("#"):
+            if "Cached Memory Packets" in stripped and stripped.startswith("#"):
+                current_tier = cached_lines
+            elif "Identity" in stripped and stripped.startswith("#"):
                 current_tier = tier1_lines
             elif "Project" in stripped and stripped.startswith("#"):
                 current_tier = tier2_lines
@@ -577,6 +580,8 @@ class MemoryContextBuilder:
             elif current_tier is not None and stripped.startswith("- "):
                 current_tier.append(stripped[2:].strip())
 
+        if cached_lines:
+            sentences.append("Cached memory: " + "; ".join(cached_lines[:3]) + ".")
         if tier1_lines:
             sentences.append("Known context: " + "; ".join(tier1_lines[:3]) + ".")
         if tier2_lines:
@@ -1018,14 +1023,42 @@ class MemoryContextBuilder:
             "scopes": _packet_scope_counts(cached_packets),
         }
 
-        if format == "briefing" and self._cfg.briefing_enabled and all_entities:
-            briefing = self.template_briefing(context_text, group_id, topic_hint)
+        if format == "briefing" and self._cfg.briefing_enabled:
+            # Render a briefing whenever there is renderable content — either
+            # activated-entity layers or cached packet text.  Previously a
+            # briefing request with no activated entities silently returned a
+            # "structured" result, hiding the degradation from callers.
+            if all_entities or cached_packet_text:
+                briefing = self.template_briefing(context_text, group_id, topic_hint)
+                result = {
+                    "context": briefing,
+                    "entity_count": len(all_entities),
+                    "fact_count": len(unique_facts),
+                    "token_estimate": self.estimate_tokens(briefing),
+                    "format": "briefing",
+                    "cached_packets": cached_packets,
+                    "packet_cache": packet_cache,
+                    "diagnostics": {"stage_timings_ms": dict(stage_timings_ms)},
+                }
+                if not all_entities:
+                    # Briefing built only from cached packets — flag the
+                    # degraded source so callers can tell.
+                    result["briefing_degraded"] = True
+                    result["briefing_degraded_reason"] = "no_activated_entities_cached_only"
+                if pinned_contexts:
+                    result["pinned_contexts"] = pinned_contexts
+                return result
+
+            # Nothing to brief on: fall through to structured output but stamp
+            # the degradation explicitly instead of silently swapping format.
             result = {
-                "context": briefing,
+                "context": context_text,
                 "entity_count": len(all_entities),
                 "fact_count": len(unique_facts),
-                "token_estimate": self.estimate_tokens(briefing),
-                "format": "briefing",
+                "token_estimate": token_estimate,
+                "format": "structured",
+                "briefing_degraded": True,
+                "briefing_degraded_reason": "no_briefable_content",
                 "cached_packets": cached_packets,
                 "packet_cache": packet_cache,
                 "diagnostics": {"stage_timings_ms": dict(stage_timings_ms)},

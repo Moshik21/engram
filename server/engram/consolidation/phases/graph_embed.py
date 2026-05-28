@@ -179,6 +179,25 @@ class GraphEmbedPhase(ConsolidationPhase):
                     total_trained += record.entities_trained
 
         elapsed = (time.perf_counter() - t0) * 1000
+
+        # If no embeddings were trained at all (e.g. below the min-entity
+        # training threshold so trainers return {}), the graph_embeddings table
+        # stays empty and the structural signal is inert. Report 'skipped' (not
+        # 'success') so operators can see weight_graph_structural has no source.
+        if total_trained == 0:
+            logger.info(
+                "GraphEmbedPhase: 0 embeddings trained (below training threshold "
+                "or no eligible entities) — graph_embeddings remains empty and "
+                "weight_graph_structural is currently inert"
+            )
+            return PhaseResult(
+                phase=self.name,
+                status="skipped",
+                items_processed=0,
+                items_affected=0,
+                duration_ms=round(elapsed, 1),
+            ), records
+
         return PhaseResult(
             phase=self.name,
             status="success",

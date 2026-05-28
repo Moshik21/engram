@@ -180,9 +180,10 @@ class ProjectionPostProcessor:
                             )
                         return trigger_matches[: self._cfg.prospective_max_per_episode]
         except Exception as prospective_err:
-            logger.debug(
+            logger.warning(
                 "Prospective trigger check failed (non-fatal): %s",
                 prospective_err,
+                exc_info=True,
             )
         return []
 

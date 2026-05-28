@@ -60,7 +60,7 @@ class SQLiteVectorStore:
 
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS embeddings (
-                id TEXT PRIMARY KEY,
+                id TEXT NOT NULL,
                 content_type TEXT NOT NULL DEFAULT 'entity',
                 group_id TEXT NOT NULL,
                 text_content TEXT,
@@ -69,7 +69,8 @@ class SQLiteVectorStore:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 embed_provider TEXT NOT NULL DEFAULT '',
-                embed_model TEXT NOT NULL DEFAULT ''
+                embed_model TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (id, content_type)
             )
         """)
         await self.db.execute(
@@ -86,6 +87,11 @@ class SQLiteVectorStore:
                 )
             except Exception:
                 pass  # column already exists
+
+        # Migration: upgrade legacy single-column PK (id) to composite (id, content_type).
+        # Older DBs collided episode and cue vectors on the same id; rebuild the table so
+        # both rows can coexist, preserving existing data.
+        await self._migrate_composite_pk()
 
         # Graph embeddings table (structural embeddings from Node2Vec/TransE/GNN)
         await self.db.execute("""
@@ -108,6 +114,61 @@ class SQLiteVectorStore:
             "CREATE INDEX IF NOT EXISTS idx_graph_emb_method ON graph_embeddings(method)"
         )
         await self.db.commit()
+
+    async def _migrate_composite_pk(self) -> None:
+        """Rebuild legacy embeddings tables whose PK is (id) only.
+
+        Old DBs declared `id TEXT PRIMARY KEY`, so an episode vector and its cue
+        vector (both keyed on episode.id) collided — the second write overwrote
+        the first. This rebuilds the table with PRIMARY KEY (id, content_type),
+        deduplicating any pre-existing collided rows (keeps the most recent).
+        Idempotent: a no-op once the composite PK is present.
+        """
+        cursor = await self.db.execute("PRAGMA table_info(embeddings)")
+        cols = await cursor.fetchall()
+        if not cols:
+            return  # table does not exist yet (e.g. fresh create raced)
+        # `pk` is column index 5; >0 means the column participates in the PK.
+        pk_cols = {row[1] for row in cols if row[5]}
+        if pk_cols == {"id", "content_type"}:
+            return  # already migrated
+
+        await self.db.execute("ALTER TABLE embeddings RENAME TO embeddings_legacy")
+        await self.db.execute("""
+            CREATE TABLE embeddings (
+                id TEXT NOT NULL,
+                content_type TEXT NOT NULL DEFAULT 'entity',
+                group_id TEXT NOT NULL,
+                text_content TEXT,
+                embedding BLOB NOT NULL,
+                dimensions INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                embed_provider TEXT NOT NULL DEFAULT '',
+                embed_model TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (id, content_type)
+            )
+        """)
+        # Copy rows; on the (id, content_type) collision that legacy DBs cannot
+        # have had (PK was id alone) this is a straight copy. INSERT OR REPLACE
+        # guards against any unexpected duplicate just in case.
+        await self.db.execute("""
+            INSERT OR REPLACE INTO embeddings
+                (id, content_type, group_id, text_content, embedding,
+                 dimensions, created_at, updated_at, embed_provider, embed_model)
+            SELECT id, content_type, group_id, text_content, embedding,
+                   dimensions, created_at, updated_at, embed_provider, embed_model
+            FROM embeddings_legacy
+        """)
+        await self.db.execute("DROP TABLE embeddings_legacy")
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_group ON embeddings(group_id)"
+        )
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_type ON embeddings(content_type)"
+        )
+        await self.db.commit()
+        logger.info("Migrated embeddings table to composite PK (id, content_type)")
 
     @property
     def db(self) -> aiosqlite.Connection:
@@ -134,7 +195,7 @@ class SQLiteVectorStore:
                  embedding, dimensions, created_at, updated_at,
                  embed_provider, embed_model)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            ON CONFLICT(id, content_type) DO UPDATE SET
                 text_content = excluded.text_content,
                 embedding = excluded.embedding,
                 dimensions = excluded.dimensions,
@@ -192,7 +253,7 @@ class SQLiteVectorStore:
                  embedding, dimensions, created_at, updated_at,
                  embed_provider, embed_model)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            ON CONFLICT(id, content_type) DO UPDATE SET
                 text_content = excluded.text_content,
                 embedding = excluded.embedding,
                 dimensions = excluded.dimensions,
@@ -211,20 +272,41 @@ class SQLiteVectorStore:
         content_type: str = "entity",
         limit: int = 20,
         storage_dim: int = 0,
+        entity_types: list[str] | None = None,
     ) -> list[tuple[str, float]]:
         """Search for nearest vectors by cosine similarity.
 
         Returns (item_id, similarity_score) pairs sorted by score descending.
         When storage_dim > 0, truncates old full-dim vectors to match.
+
+        When *entity_types* is provided, the candidate set is restricted to
+        embeddings whose backing entity has a matching entity_type (joined from
+        the entities table). This keeps the vector branch consistent with the
+        FTS branch so an entity_types-scoped query (e.g. search_artifacts) never
+        surfaces off-type entities. The filter is silently ignored for
+        non-entity content types.
         """
-        sql = (
-            "SELECT id, embedding, dimensions FROM embeddings "
-            "WHERE content_type = ?"
-        )
         params: list[str] = [content_type]
-        if group_id is not None:
-            sql += " AND group_id = ?"
-            params.append(group_id)
+        if entity_types and content_type == "entity":
+            placeholders = ",".join("?" * len(entity_types))
+            sql = (
+                "SELECT em.id AS id, em.embedding AS embedding, "
+                "em.dimensions AS dimensions FROM embeddings em "
+                "JOIN entities en ON en.id = em.id "
+                f"WHERE em.content_type = ? AND en.entity_type IN ({placeholders})"
+            )
+            params.extend(entity_types)
+            if group_id is not None:
+                sql += " AND em.group_id = ?"
+                params.append(group_id)
+        else:
+            sql = (
+                "SELECT id, embedding, dimensions FROM embeddings "
+                "WHERE content_type = ?"
+            )
+            if group_id is not None:
+                sql += " AND group_id = ?"
+                params.append(group_id)
 
         cursor = await self.db.execute(
             sql,

@@ -651,6 +651,7 @@ async def remember(
     model_tier: str = "default",
     image_data: str | None = None,
     image_mime: str = "image/png",
+    events: list[dict] | None = None,
 ) -> str:
     """Store a memory. Extracts entities and relationships from the text.
 
@@ -659,13 +660,16 @@ async def remember(
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
         conversation_date: Optional ISO 8601 date string for when the conversation happened
         proposed_entities: Optional client-proposed entities
-            [{"name": ..., "entity_type": ...}]
+            [{"name": ..., "entity_type": ..., "source_span": ...}]
         proposed_relationships: Optional client-proposed relationships
-            [{"subject": ..., "predicate": ..., "object": ...}]
+            [{"subject": ..., "predicate": ..., "object": ..., "source_span": ...}]
         model_tier: The calling model tier (opus/sonnet/haiku/default)
             for confidence scoring
         image_data: Optional base64 encoded image to attach to the memory
         image_mime: MIME type of the attached image (default "image/png")
+        events: Optional dated event annotations
+            [{"name": ..., "date": ..., "source_span": ...}]. Each becomes a
+            first-class Event node with an OCCURRED_ON edge dated to ``date``.
 
     Returns:
         JSON with status, episode_id, and message.
@@ -683,6 +687,7 @@ async def remember(
         model_tier=model_tier,
         image_data=image_data,
         image_mime=image_mime,
+        events=events,
         activation_cfg=_activation_cfg,
         ingest_live_turn=_ingest_live_turn,
         recall_middleware=_recall_middleware,
@@ -754,13 +759,21 @@ async def adjudicate_evidence(
 
 
 @mcp.tool()
-async def observe(content: str, source: str = "mcp", conversation_date: str | None = None) -> str:
+async def observe(
+    content: str,
+    source: str = "mcp",
+    conversation_date: str | None = None,
+    events: list[dict] | None = None,
+) -> str:
     """Store raw text without extraction. Fast path for bulk capture.
 
     Args:
         content: The text to store (conversation excerpt, fact, note, etc.)
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
         conversation_date: Optional ISO 8601 date string for when the conversation happened
+        events: Optional dated event annotations
+            [{"name": ..., "date": ..., "source_span": ...}]. Persisted cheaply as
+            deferred evidence (no extraction) for later consolidation promotion.
 
     Returns:
         JSON with status, episode_id, and message.
@@ -773,6 +786,7 @@ async def observe(content: str, source: str = "mcp", conversation_date: str | No
         session=_get_session(),
         source=source,
         conversation_date=conversation_date,
+        events=events,
         ingest_live_turn=_ingest_live_turn,
         recall_middleware=_recall_middleware,
     )

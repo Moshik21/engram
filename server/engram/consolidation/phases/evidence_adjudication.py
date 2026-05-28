@@ -140,13 +140,28 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                 )
                 meets_threshold = ev["confidence"] >= threshold
 
-                # Bare proper_name entities require cross-episode corroboration
+                # Bare proper_name entities require cross-episode corroboration.
+                # Unverified single-source client proposals are held to the same bar:
+                # an annotation whose source_span never verified must corroborate
+                # across episodes before it commits, so it cannot weaponize a high
+                # caller-tier confidence into a first-sight commit.
                 ev_signals = ev.get("corroborating_signals") or []
+                needs_corroboration_reason = None
+                if (
+                    "proper_name" in ev_signals
+                    and "identity_pattern" not in ev_signals
+                ):
+                    needs_corroboration_reason = "proper_name_needs_corroboration"
+                elif (
+                    ev.get("source_type") == "client_proposal"
+                    and "span_verified" not in ev_signals
+                ):
+                    needs_corroboration_reason = "unverified_proposal_needs_corroboration"
+
                 if (
                     not forced
                     and ev.get("fact_class") == "entity"
-                    and "proper_name" in ev_signals
-                    and "identity_pattern" not in ev_signals
+                    and needs_corroboration_reason is not None
                 ):
                     ev_key = self._evidence_key(ev)
                     group_count = len(groups.get(ev_key, []))
@@ -162,7 +177,7 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                                     evidence_id=ev["evidence_id"],
                                     action="deferred",
                                     new_confidence=ev["confidence"],
-                                    reason="proper_name_needs_corroboration",
+                                    reason=needs_corroboration_reason,
                                 ),
                             )
                         continue

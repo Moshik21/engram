@@ -12,6 +12,7 @@ from json import JSONDecodeError
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.extraction.client_proposals import events_to_proposals, proposals_to_evidence
 from engram.ingestion.adjudication_surface import load_client_enabled_episode_adjudication_requests
 from engram.ingestion.presenter import (
     memory_write_contract,
@@ -783,6 +784,94 @@ async def build_api_remember_write_surface(
     ), manager)
 
 
+def merge_event_proposals(
+    events: list[dict] | None,
+    proposed_entities: list[dict] | None,
+    proposed_relationships: list[dict] | None,
+) -> tuple[list[dict] | None, list[dict] | None]:
+    """Fold dated event annotations into the client-proposal payloads.
+
+    Returns the merged (proposed_entities, proposed_relationships) so events ride
+    the existing evidence pipeline and materialize as Event nodes + OCCURRED_ON
+    edges. Leaves the inputs untouched when there are no events.
+    """
+    if not events:
+        return proposed_entities, proposed_relationships
+    event_entities, event_rels = events_to_proposals(events)
+    if not event_entities and not event_rels:
+        return proposed_entities, proposed_relationships
+    merged_entities = list(proposed_entities or []) + event_entities
+    merged_rels = list(proposed_relationships or []) + event_rels
+    return merged_entities, merged_rels
+
+
+def _evidence_candidate_to_storage_row(candidate: Any, status: str) -> dict[str, Any]:
+    """Serialize an EvidenceCandidate into an episode_evidence storage row."""
+    created_at = candidate.created_at
+    return {
+        "evidence_id": candidate.evidence_id,
+        "episode_id": candidate.episode_id,
+        "fact_class": candidate.fact_class,
+        "confidence": candidate.confidence,
+        "source_type": candidate.source_type,
+        "extractor_name": candidate.extractor_name,
+        "payload": candidate.payload,
+        "source_span": candidate.source_span,
+        "corroborating_signals": candidate.corroborating_signals,
+        "ambiguity_tags": candidate.ambiguity_tags,
+        "ambiguity_score": candidate.ambiguity_score,
+        "adjudication_request_id": candidate.adjudication_request_id,
+        "created_at": (
+            created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
+        ),
+        "status": status,
+        "commit_reason": "observe_event_annotation",
+    }
+
+
+async def persist_observe_event_annotations(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+    content: str,
+    events: list[dict] | None,
+    conversation_date: datetime | None = None,
+) -> None:
+    """Persist observe-time event annotations as deferred evidence (no projection).
+
+    This is the CQRS bridge for cheap capture: events are span-verified, turned
+    into Event/OCCURRED_ON evidence, and stored with status='deferred'. The
+    consolidation evidence-adjudication phase later promotes them once corroborated.
+    """
+    if not events:
+        return
+    graph = getattr(manager, "_graph", None)
+    store_evidence = getattr(graph, "store_evidence", None)
+    if not callable(store_evidence):
+        logger.debug("observe events skipped: graph store lacks store_evidence")
+        return
+    event_entities, event_rels = events_to_proposals(events)
+    if not event_entities and not event_rels:
+        return
+    candidates = proposals_to_evidence(
+        event_entities,
+        event_rels,
+        episode_id,
+        group_id,
+        episode_content=content,
+        reference_date=conversation_date,
+        verify_spans=True,
+    )
+    if not candidates:
+        return
+    rows = [_evidence_candidate_to_storage_row(c, status="deferred") for c in candidates]
+    try:
+        await store_evidence(rows, group_id=group_id, default_status="deferred")
+    except Exception:
+        logger.debug("Failed to persist observe event annotations", exc_info=True)
+
+
 def record_mcp_memory_write_activity(session: Any) -> None:
     """Update MCP session activity after a successful Capture write."""
     session.episode_count += 1
@@ -802,6 +891,7 @@ async def build_mcp_remember_write_surface(
     model_tier: str = "default",
     image_data: str | None = None,
     image_mime: str = "image/png",
+    events: list[dict] | None = None,
     activation_cfg: ActivationConfig | None = None,
     ingest_live_turn: Callable[..., Any],
     recall_middleware: Callable[..., Any],
@@ -821,6 +911,14 @@ async def build_mcp_remember_write_surface(
                 description=content[:200] if content else "",
             )
         )
+
+    # Dated event annotations materialize as first-class Event nodes + OCCURRED_ON
+    # edges by flowing through the existing client-proposal evidence pipeline.
+    proposed_entities, proposed_relationships = merge_event_proposals(
+        events,
+        proposed_entities,
+        proposed_relationships,
+    )
 
     episode_id = await ingest_projecting_memory(
         manager,
@@ -883,6 +981,7 @@ async def build_mcp_observe_write_surface(
     session: Any,
     source: str = "mcp",
     conversation_date: str | None = None,
+    events: list[dict] | None = None,
     ingest_live_turn: Callable[..., Any],
     recall_middleware: Callable[..., Any],
 ) -> dict[str, Any]:
@@ -902,6 +1001,17 @@ async def build_mcp_observe_write_surface(
         pass_session_id=True,
         pass_conversation_date=True,
         capture_store_timeout_ms=_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
+    )
+    # observe stays cheap: persist event annotations as deferred evidence (CQRS
+    # bridge) without projecting. Consolidation later promotes them into dated
+    # Event nodes once the threshold/corroboration bar is met.
+    await persist_observe_event_annotations(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+        content=content,
+        events=events,
+        conversation_date=parse_conversation_date(conversation_date),
     )
     record_mcp_memory_write_activity(session)
     _cache_recent_observation_packet(

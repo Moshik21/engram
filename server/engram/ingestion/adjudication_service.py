@@ -393,6 +393,7 @@ class EvidenceAdjudicationService:
             meta_entity_names=apply_outcome.meta_entity_names,
             group_id=group_id,
             source_episode=episode.id,
+            conversation_date=episode.conversation_date,
         )
         committed_ids = self.committed_id_map(
             evidence_pairs,

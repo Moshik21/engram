@@ -241,6 +241,7 @@ class HybridSearchIndex:
                 content_type="entity",
                 limit=limit * 2,
                 storage_dim=self._storage_dim,
+                entity_types=entity_types,
             )
         except Exception as e:
             logger.warning("Vector search failed, falling back to FTS5: %s", e)

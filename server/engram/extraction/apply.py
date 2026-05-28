@@ -133,13 +133,26 @@ async def apply_relationship_fact(
     entity_map: dict[str, str],
     group_id: str,
     source_episode: str,
+    *,
+    conversation_date: datetime | None = None,
 ) -> RelationshipApplyResult:
     """Apply extracted relationship semantics through one shared path."""
+    # Client proposals carry {subject, predicate, object}; the legacy/extractor
+    # path carries {source, target, predicate}. Accept both so a proposed edge
+    # between two committed entities is never silently dropped as missing_entities.
     source_name = (
-        rel_data.get("source") or rel_data.get("source_entity") or rel_data.get("source_name") or ""
+        rel_data.get("source")
+        or rel_data.get("source_entity")
+        or rel_data.get("source_name")
+        or rel_data.get("subject")
+        or ""
     )
     target_name = (
-        rel_data.get("target") or rel_data.get("target_entity") or rel_data.get("target_name") or ""
+        rel_data.get("target")
+        or rel_data.get("target_entity")
+        or rel_data.get("target_name")
+        or rel_data.get("object")
+        or ""
     )
     source_id = rel_data.get("source_id") or entity_map.get(source_name)
     target_id = rel_data.get("target_id") or entity_map.get(target_name)
@@ -163,7 +176,11 @@ async def apply_relationship_fact(
     predicate = canonicalizer.canonicalize(predicate)
 
     dt_now = utc_now()
-    valid_from, valid_to, confidence = resolve_relationship_temporals(rel_data, dt_now)
+    # Anchor relative temporal hints to when the conversation happened, not to
+    # ingest time. A "since last month" hint on a back-dated remember() must
+    # resolve against the episode's conversation_date or it silently lands today.
+    reference_date = conversation_date or dt_now
+    valid_from, valid_to, confidence = resolve_relationship_temporals(rel_data, reference_date)
     explicit_confidence = rel_data.get("confidence")
     if explicit_confidence is not None:
         try:
@@ -547,6 +564,7 @@ class ApplyEngine:
         meta_entity_names: set[str],
         group_id: str,
         source_episode: str,
+        conversation_date: datetime | None = None,
     ) -> list[RelationshipApplyResult]:
         """Apply typed claim candidates through shared relationship semantics."""
         results: list[RelationshipApplyResult] = []
@@ -578,6 +596,7 @@ class ApplyEngine:
                 entity_map=entity_map,
                 group_id=group_id,
                 source_episode=source_episode,
+                conversation_date=conversation_date,
             )
             results.append(rel_result)
         return results
