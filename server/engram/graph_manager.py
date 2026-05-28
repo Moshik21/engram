@@ -2110,10 +2110,10 @@ class GraphManager:
             method_name: str,
             result_type: str,
             fetch_limit: int,
-        ) -> tuple[int, str, list[Mapping[str, Any]]]:
+        ) -> tuple[int, str, list[Mapping[str, Any]], bool]:
             search = _declared_or_configured_callable(self._search, method_name)
             if not callable(search):
-                return priority, result_type, []
+                return priority, result_type, [], False
             try:
                 records = await search(query=query, group_id=group_id, limit=fetch_limit)
             except Exception:
@@ -2122,11 +2122,12 @@ class GraphManager:
                     method_name,
                     exc_info=True,
                 )
-                return priority, result_type, []
+                return priority, result_type, [], False
             return (
                 priority,
                 result_type,
                 [record for record in records or [] if isinstance(record, Mapping)],
+                True,
             )
 
         async def add_hits(result_type: str, hits: Sequence[tuple[Any, Any]]) -> None:
@@ -2168,13 +2169,14 @@ class GraphManager:
 
         async def run_record_stage(
             specs: Sequence[tuple[int, str, str, int]],
-        ) -> None:
+        ) -> bool:
             pending = {
                 asyncio.create_task(
                     fetch_record_hits(priority, method_name, result_type, fetch_limit),
                 )
                 for priority, method_name, result_type, fetch_limit in specs
             }
+            available_methods = 0
             try:
                 while pending and len(results) < max_results:
                     done, pending = await asyncio.wait(
@@ -2185,12 +2187,15 @@ class GraphManager:
                         ready, pending = await asyncio.wait(pending, timeout=0)
                         done.update(ready)
                     batches = sorted((task.result() for task in done), key=lambda item: item[0])
-                    for _, result_type, records in batches:
+                    for _, result_type, records, available in batches:
+                        if available:
+                            available_methods += 1
                         add_record_results(result_type, records)
                         if len(results) >= max_results:
                             break
             finally:
                 await cancel_pending(pending)
+            return available_methods >= len(specs)
 
         async def run_legacy_stage(
             specs: Sequence[tuple[int, str, str, int]],
@@ -2217,13 +2222,13 @@ class GraphManager:
                 await cancel_pending(pending)
 
         fetch_limit = max_results * 2
-        await run_record_stage(
+        record_stage_complete = await run_record_stage(
             (
                 (0, "search_episode_cue_records_fast", "cue_episode", fetch_limit),
                 (1, "search_episode_records_fast", "episode", fetch_limit),
             ),
         )
-        if len(results) >= max_results:
+        if len(results) >= max_results or record_stage_complete:
             return results
         await run_legacy_stage(
             (

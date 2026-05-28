@@ -1815,6 +1815,25 @@ Lite mode only as a fallback smoke path.
   catalog passed, and the only warning remains stale/root real SessionStart
   proof. Focused runtime/context tests passed with `558 passed, 13 skipped`;
   ruff and `git diff --check` passed.
+- The 2026-05-28 loaded-store recall hardening pass handles the corresponding
+  explicit-recall miss path. Same-project home packets and identity packets can
+  carry an otherwise no-evidence recall after fast preflight misses or times
+  out, and project-scoped explicit recall now syncs the persistent packet cache
+  before assuming no project packet is available. This keeps post-restart
+  dogfood recall from falling into the full deep-search tail when local project
+  context already exists. Live evidence after final reinstall/restart:
+  `zzpersist noartifact yonderplasm quibbleflux 20260528 final true miss tail`
+  returned three project packets in `100.1129ms` with
+  `preflight_timeout_context_packet_fallback`, no degradation, and no budget
+  miss. After the lifecycle matrix restarted the runtime again, the fresh
+  `zzaftermatrix ...` miss still returned project context in `101.9488ms`.
+  Final `engram axi value --json` reported read-path p95 `65.7748ms`, cache hit
+  rate `1.0`, and zero read budget misses/degraded reads/timeouts. Full startup
+  validation passed with 27 MCP tools, `remember` present, and
+  `recall.project_path`; the refreshed matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-071304` with
+  `13 pass, 0 warn, 0 fail, 0 skip`. Focused retrieval tests passed with
+  `94 passed, 2 skipped`, ruff passed, and `git diff --check` is clean.
 
 ## Work Plan
 

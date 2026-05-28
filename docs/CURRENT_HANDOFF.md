@@ -38,6 +38,36 @@ approved existing sources, stale/noisy recall visibility, human-controlled
 identity core, and client transcripts that prove agents did not route around
 Engram because the graph looked fresh or a local memory file was available.
 
+Latest native PyO3 dogfood recall closeout: the loaded-store no-evidence tail is
+now bounded by cached project packets after fast preflight. Explicit recall can
+use same-project home packets or identity packets as weak fallback context after
+a fast preflight miss/timeout, caps that preflight to the shorter fallback
+budget when such packets already exist, and syncs the persistent packet cache
+when `project_path` is supplied so post-restart recalls do not start from an
+empty in-memory cache. GraphManager also avoids paying duplicate legacy BM25
+fallback work when direct record-backed cue/episode search methods are present,
+and recall pool stats now preserve timeout behavior while supporting stores
+that still reject `exact=False`. After reinstall/restart, a true miss
+`zzpersist noartifact yonderplasm quibbleflux 20260528 final true miss tail`
+returned three project packets in `100.1129ms` with
+`skipReason=preflight_timeout_context_packet_fallback`, no deep recall timings,
+no degradation, and no budget miss. After the confirmed lifecycle matrix
+restarted the runtime again, `zzaftermatrix noartifact yonderplasm quibbleflux
+20260528 final true miss tail` still returned useful project context in
+`101.9488ms` with the same non-degraded lifecycle. Final runtime status is
+healthy on LaunchAgent PID `28314`; `engram axi value --json` reports read-path
+p95 `65.7748ms`, cache hit rate `1.0`, and zero read budget misses,
+degraded reads, or timeouts. Full startup validation passed after the final
+reinstall, including a live MCP catalog with 27 tools, `remember` present,
+`recall.project_path`, and a `cache_satisfied` recall probe at `query_time_ms=1.2`.
+The refreshed lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-071304` with
+`13 pass, 0 warn, 0 fail, 0 skip`. Focused backend gates passed with
+`94 passed, 2 skipped`, ruff passed on the touched retrieval files/tests, and
+`git diff --check` is clean. The goal remains active for longer real Codex
+dogfood continuity evidence, but the no-evidence loaded-store recall tail is no
+longer the current blocker.
+
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous
 server-backed `engram evaluate --server-url http://127.0.0.1:8100` run after a

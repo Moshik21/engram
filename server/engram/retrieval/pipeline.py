@@ -232,6 +232,14 @@ def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | No
     return timeout_ms / 1000.0
 
 
+async def _get_graph_stats_for_recall(graph_store, group_id: str) -> dict:
+    """Fetch graph stats while supporting stores that do not accept exact=False."""
+    try:
+        return await graph_store.get_stats(group_id, exact=False)
+    except TypeError:
+        return await graph_store.get_stats(group_id)
+
+
 def _primary_search_timeout_seconds(
     cfg: ActivationConfig,
     stage_timings_ms: dict[str, float] | None = None,
@@ -348,15 +356,14 @@ async def retrieve(
     total_entities = 0
     stats_started = time.perf_counter()
     try:
-        try:
-            stats_call = graph_store.get_stats(group_id, exact=False)
-        except TypeError:
-            stats_call = graph_store.get_stats(group_id)
         timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_stats_timeout_ms")
         stats = (
-            await asyncio.wait_for(stats_call, timeout=timeout_seconds)
+            await asyncio.wait_for(
+                _get_graph_stats_for_recall(graph_store, group_id),
+                timeout=timeout_seconds,
+            )
             if timeout_seconds is not None
-            else await stats_call
+            else await _get_graph_stats_for_recall(graph_store, group_id)
         )
         _add_stage_timing(stage_timings_ms, "recall_stats", stats_started)
         if isinstance(stats, dict):

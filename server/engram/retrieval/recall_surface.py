@@ -160,6 +160,7 @@ async def build_api_recall_surface(
         cfg=cfg,
         operation_source=operation_source,
         project_path=project_path,
+        context_packet_count=len(context_packets),
     )
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
     results = await _maybe_run_success_fast_fallback(
@@ -389,6 +390,7 @@ async def build_mcp_recall_surface(
         cfg=cfg,
         operation_source="mcp_recall",
         project_path=project_path,
+        context_packet_count=len(context_packets),
     )
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
     results = await _maybe_run_success_fast_fallback(
@@ -568,6 +570,7 @@ async def _run_explicit_recall_with_budget(
     cfg: Any,
     operation_source: str,
     project_path: str | None = None,
+    context_packet_count: int = 0,
 ) -> tuple[list[dict], dict[str, Any]]:
     """Run the live recall stage under the shared explicit recall budget."""
     budget = recall_budget_for_profile(
@@ -610,13 +613,19 @@ async def _run_explicit_recall_with_budget(
 
     if _fast_recall_preflight_enabled(cfg):
         fallback_started = time.perf_counter()
+        preflight_timeout_seconds = _fast_recall_preflight_timeout_seconds(cfg)
+        if context_packet_count > 0:
+            preflight_timeout_seconds = min(
+                preflight_timeout_seconds,
+                _fast_recall_fallback_timeout_seconds(cfg),
+            )
         fallback_results, fallback_status = await _run_fast_recall_fallback(
             manager,
             group_id=group_id,
             query=query,
             limit=limit,
             project_path=project_path,
-            timeout_seconds=_fast_recall_preflight_timeout_seconds(cfg),
+            timeout_seconds=preflight_timeout_seconds,
         )
         stage_timings["recall_fast_preflight"] = _elapsed_ms(fallback_started)
         if fallback_results:
@@ -647,6 +656,44 @@ async def _run_explicit_recall_with_budget(
                 stage_timings_ms=stage_timings,
                 fallback_status="fast_preflight_hit",
                 fallback_result_count=len(fallback_results),
+            )
+        if (
+            context_packet_count > 0
+            and not fallback_results
+            and fallback_status in {"miss", "filtered", "timeout"}
+        ):
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            skip_reason = f"preflight_{fallback_status}_context_packet_fallback"
+            await record_manager_memory_operation(
+                manager,
+                group_id,
+                MemoryOperationSample(
+                    operation="recall",
+                    source=operation_source,
+                    mode=operation_source,
+                    status="ok",
+                    duration_ms=duration_ms,
+                    skip_reason=skip_reason,
+                    timeout=False,
+                    degraded=False,
+                    budget_miss=budget.exceeded(duration_ms),
+                    budget_ms=budget.budget_ms,
+                    budget_tokens=budget.budget_tokens,
+                    cache_hit=True,
+                    result_count=0,
+                    packet_count=context_packet_count,
+                ),
+            )
+            return [], _recall_budget_metadata(
+                budget,
+                status="ok",
+                duration_ms=duration_ms,
+                skip_reason=skip_reason,
+                timeout=False,
+                budget_miss=budget.exceeded(duration_ms),
+                stage_timings_ms=stage_timings,
+                fallback_status="context_packet_fallback",
+                fallback_result_count=0,
             )
 
     try:
@@ -1459,7 +1506,7 @@ async def cached_context_recall_packet_payloads(
             group_id,
             scopes=("identity_core", SESSION_RECENT_PACKET_SCOPE, "project_home"),
             limit_packets=max_packets * 2,
-            sync_persistent=False,
+            sync_persistent=bool(project_path),
         )
     except Exception:
         return []
@@ -1477,11 +1524,20 @@ async def cached_context_recall_packet_payloads(
     filtered = _filter_packets_for_query(packets, query=query, limit=max_packets)
     if not filtered:
         if not allow_recent_miss:
-            return []
-        filtered = _dedupe_recent_packets(packets, limit=max_packets)
-        if not filtered:
-            return []
-        mode = "context_packet_recent_fallback"
+            filtered = _fallback_context_packets_for_project_or_identity(
+                packets,
+                project_path=project_path,
+                limit=max_packets,
+            )
+            if filtered:
+                mode = "context_packet_project_fallback"
+            else:
+                return []
+        else:
+            filtered = _dedupe_recent_packets(packets, limit=max_packets)
+            if not filtered:
+                return []
+            mode = "context_packet_recent_fallback"
     await record_manager_memory_operation(
         manager,
         group_id,
@@ -1704,6 +1760,55 @@ def _dedupe_recent_packets(
         if len(selected) >= max(1, limit):
             break
     return selected
+
+
+def _fallback_context_packets_for_project_or_identity(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    project_path: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Return weak-but-useful packets when a project recall query has no hits."""
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for packet in packets:
+        if not isinstance(packet, Mapping):
+            continue
+        if not (
+            _packet_is_identity_core(packet)
+            or _packet_is_same_project_home(packet, project_path=project_path)
+        ):
+            continue
+        fingerprint = _packet_fingerprint(packet)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        selected.append(dict(packet))
+        if len(selected) >= max(1, limit):
+            break
+    return selected
+
+
+def _packet_is_identity_core(packet: Mapping[str, Any]) -> bool:
+    scope = str(packet.get("_cache_scope") or "")
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    return scope == "identity_core" or packet_type in {"identity_core", "identityCore"}
+
+
+def _packet_is_same_project_home(
+    packet: Mapping[str, Any],
+    *,
+    project_path: str | None,
+) -> bool:
+    scope = str(packet.get("_cache_scope") or "")
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    if scope != "project_home" and packet_type not in {"project_home", "projectHome"}:
+        return False
+    if not project_path:
+        return False
+    if not _packet_has_project_file_fallback_source(packet):
+        return True
+    return _project_file_packet_matches_project(packet, project_path=project_path)
 
 
 def _filter_cached_context_packets_for_project(

@@ -1347,6 +1347,40 @@ class TestGraphManagerRecallEpisodes:
         search.search_episodes.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_fast_recall_fallback_skips_legacy_when_record_search_is_empty(self):
+        """Direct record BM25 misses should not repeat the same legacy BM25 work."""
+        from engram.graph_manager import GraphManager
+
+        graph = _mock_graph_store()
+        graph.get_episode_by_id = AsyncMock()
+        graph.get_episode_entities = AsyncMock()
+        graph.get_episode_cue = AsyncMock()
+        activation = _mock_activation_store()
+        search = _mock_search_index_with_episodes(
+            episode_results=[("ep_legacy", 0.7)],
+            cue_results=[("ep_legacy_cue", 0.8)],
+        )
+        search.search_episode_cue_records_fast = AsyncMock(return_value=[])
+        search.search_episode_records_fast = AsyncMock(return_value=[])
+        extractor = AsyncMock()
+        gm = GraphManager(graph, activation, search, extractor, cfg=ActivationConfig())
+
+        results = await gm.fast_recall_fallback(
+            query="zzqx yonderplasm no evidence",
+            group_id="default",
+            limit=2,
+        )
+
+        assert results == []
+        graph.get_episode_by_id.assert_not_awaited()
+        graph.get_episode_entities.assert_not_awaited()
+        graph.get_episode_cue.assert_not_awaited()
+        search.search_episode_cue_records_fast.assert_awaited_once()
+        search.search_episode_records_fast.assert_awaited_once()
+        search.search_episode_cues.assert_not_awaited()
+        search.search_episodes.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_fast_recall_fallback_uses_ready_record_search_when_peer_stalls(self):
         """A slow cue-record lookup should not starve a ready episode-record hit."""
         from engram.graph_manager import GraphManager

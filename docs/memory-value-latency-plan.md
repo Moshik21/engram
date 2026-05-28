@@ -775,6 +775,26 @@ Latest verification checkpoint:
   lifecycle matrix produced
   `/private/tmp/engram-dogfood-startup-20260526-172521` with
   `13 pass, 0 warn, 0 fail, 0 skip`.
+- The 2026-05-28 recall-latency pass closed the post-restart no-evidence
+  explicit recall tail. Explicit recall can now treat same-project home packets
+  and identity packets as weak cached context after fast preflight misses or
+  times out; when those packets exist, preflight is capped to the shorter fast
+  fallback timeout and the deep recall path is skipped. Project-scoped recall
+  also syncs the persistent packet cache before checking recent context packets,
+  so a fresh process can reuse persisted project-home packets instead of paying
+  the deep loaded-store tail. Live evidence after reinstall/restart:
+  `zzpersist noartifact yonderplasm quibbleflux 20260528 final true miss tail`
+  returned three project packets in `100.1129ms` with
+  `preflight_timeout_context_packet_fallback`, no degradation, and no budget
+  miss. After the lifecycle matrix restarted the runtime again, `zzaftermatrix
+  ...` still returned useful project context in `101.9488ms`. The final live
+  value report measured read-path p95 `65.7748ms`, cache hit rate `1.0`, and
+  zero read budget misses/degraded reads/timeouts. `python3
+  scripts/dogfood_startup_validation.py --json` passed, and
+  `python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle` produced
+  `/private/tmp/engram-dogfood-startup-20260528-071304` with
+  `13 pass, 0 warn, 0 fail, 0 skip`. Focused retrieval tests passed with
+  `94 passed, 2 skipped`, ruff passed, and `git diff --check` is clean.
 
 ## Purpose
 

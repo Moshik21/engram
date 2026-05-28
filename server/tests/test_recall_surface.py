@@ -1795,6 +1795,161 @@ async def test_mcp_recall_surface_returns_context_packets_on_empty_success() -> 
 
 
 @pytest.mark.asyncio
+async def test_mcp_recall_surface_uses_context_packets_after_preflight_miss() -> None:
+    context_packet = {
+        "packet_type": "cue_packet",
+        "title": "Latent Memory: active goal",
+        "summary": "Current goal tail packet for Engram dogfood continuity.",
+        "episode_ids": ["ep_goal_tail"],
+        "provenance": ["cue:ep_goal_tail"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="zzqx yonderplasm true miss tail",
+        limit=3,
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=1000,
+            recall_fast_preflight_enabled=True,
+            recall_fast_preflight_timeout_ms=200,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["results"] == []
+    assert result["budget"]["skip_reason"] == "preflight_miss_context_packet_fallback"
+    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
+    assert result["diagnostics"]["stage_timings_ms"]["recall_fast_preflight"] >= 0
+    manager.fast_recall_fallback.assert_awaited_once()
+    manager.get_recent_cached_memory_packets.assert_called_with(
+        "native_brain",
+        scopes=("identity_core", "session_recent", "project_home"),
+        limit_packets=6,
+        sync_persistent=False,
+    )
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_uses_project_home_packet_after_preflight_miss(
+    tmp_path,
+) -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Engram native PyO3 startup notes.",
+        "provenance": ["file:README.md"],
+        "trust": {"source": "project_file"},
+        "_cache_scope": "project_home",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+        "_project_file_fallback_project_path": str(tmp_path),
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="zzqx yonderplasm true miss tail",
+        limit=3,
+        project_path=str(tmp_path),
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=1000,
+            recall_fast_preflight_enabled=True,
+            recall_fast_preflight_timeout_ms=200,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["results"] == []
+    assert result["budget"]["skip_reason"] == "preflight_miss_context_packet_fallback"
+    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
+    manager.fast_recall_fallback.assert_awaited_once()
+    manager.get_recent_cached_memory_packets.assert_called_with(
+        "native_brain",
+        scopes=("identity_core", "session_recent", "project_home"),
+        limit_packets=6,
+        sync_persistent=True,
+    )
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_uses_context_packets_after_preflight_timeout() -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Engram dogfood project home packet.",
+        "provenance": ["file:README.md"],
+        "trust": {"source": "project_file"},
+        "_cache_scope": "project_home",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+        "_project_file_fallback_project_path": "/tmp/Engram",
+    }
+
+    async def slow_preflight(**_kwargs):
+        await asyncio.sleep(0.05)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(side_effect=slow_preflight),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="zzqx yonderplasm true timeout tail",
+        limit=3,
+        project_path="/tmp/Engram",
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=1000,
+            recall_fast_fallback_timeout_ms=1,
+            recall_fast_preflight_timeout_ms=200,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["results"] == []
+    assert result["budget"]["skip_reason"] == "preflight_timeout_context_packet_fallback"
+    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
+    assert result["budget"]["duration_ms"] < 100
+    manager.fast_recall_fallback.assert_awaited_once()
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_mcp_recall_surface_returns_project_packets_on_empty_success(
     tmp_path,
 ) -> None:
