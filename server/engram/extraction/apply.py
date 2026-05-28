@@ -304,7 +304,23 @@ async def apply_relationship_fact(
         source_episode=source_episode,
         group_id=group_id,
     )
-    await graph_store.create_relationship(rel)
+    persisted_id = await graph_store.create_relationship(rel)
+    if not persisted_id:
+        # The store could not persist the edge (e.g. an endpoint entity was not
+        # resolvable in the backend). Report not-created so persisted counts stay
+        # honest instead of counting a phantom edge.
+        return RelationshipApplyResult(
+            source_id=source_id,
+            target_id=target_id,
+            predicate=predicate,
+            polarity=polarity,
+            confidence=confidence,
+            weight=rel_weight,
+            action="persist_failed",
+            created=False,
+            constraints_hit=constraints_hit + ["persist_failed"],
+            metadata={"relationship_id": rel.id},
+        )
 
     if cfg.identity_core_enabled and predicate in cfg.identity_predicates:
         for eid_to_mark in (source_id, target_id):
