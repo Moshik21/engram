@@ -80,6 +80,24 @@ that topic hit cache in `0.2735ms`, and MCP `recall` was `cache_satisfied` in
 budget misses, degraded reads, or timeouts. This is the first post-commit
 evidence that the `1b98a19` cache/fallback behavior holds across a resumed real
 Codex turn without another runtime change.
+Third Codex-session/restart sample: the next resumed turn intentionally probed
+the apparent next bottleneck, a fresh topic-specific `get_context` for write-path
+capture/observe context. The first MCP context call found useful project packets
+but paid a cold project-file scan (`duration_ms=581.6269`,
+`project_file_fallback=550.3093ms`). The same call created the stable
+same-project cache entry. After an actual `engramctl stop && engramctl start`
+restart to PID `35144`, the first new context topic
+`post restart stable rescue verdant zephyr 20260528 first context` returned via
+project-file cache rescue in `2.3597ms`, and the matching AXI recall returned
+three project packets in `106.2332ms` with
+`preflight_timeout_context_packet_fallback` and no degradation. MCP
+`get_context` on that same post-restart topic hit packet cache in `0.0617ms`;
+MCP `recall` was `cache_satisfied` in `89.6023ms`. Post-restart
+`engram axi value --json` reported read-path p95 `106.2332ms`, cache hit rate
+`1.0`, and zero read budget misses, degraded reads, or timeouts. This proves the
+stable project packet survives restart once warmed; the remaining cold edge is
+only first-ever stable project packet creation after the packet cache has no
+same-project home entry.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

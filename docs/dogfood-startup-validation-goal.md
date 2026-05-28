@@ -1845,6 +1845,22 @@ Lite mode only as a fallback smoke path.
   `45.9587ms`. `engram axi value --json` still reported zero read budget
   misses, degraded reads, or timeouts. This moves the goal forward as real
   Codex dogfood evidence rather than another isolated startup proof.
+- The following resumed turn intentionally probed the apparent next bottleneck:
+  a fresh topic-specific MCP context request for write-path capture/observe
+  work. That first call returned useful project packets but paid a cold
+  project-file scan (`duration_ms=581.6269`,
+  `project_file_fallback=550.3093ms`), and created the stable same-project
+  cache entry. After `engramctl stop && engramctl start` restarted the runtime
+  to PID `35144`, the first new AXI context topic returned through
+  project-file cache rescue in `2.3597ms`, the matching AXI recall returned
+  three project packets in `106.2332ms` with
+  `preflight_timeout_context_packet_fallback`, MCP `get_context` hit packet
+  cache in `0.0617ms`, and MCP `recall` was `cache_satisfied` in `89.6023ms`.
+  Post-restart `engram axi value --json` reported read-path p95
+  `106.2332ms`, cache hit rate `1.0`, and zero read budget misses, degraded
+  reads, or timeouts. This confirms stable project packets survive restart
+  once warmed; the remaining cold edge is the first-ever stable project packet
+  build when no same-project home entry exists yet.
 
 ## Work Plan
 

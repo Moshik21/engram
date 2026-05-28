@@ -805,6 +805,18 @@ Latest verification checkpoint:
   `4.3832ms`; MCP `get_context` hit cache in `0.2735ms`, and MCP `recall` was
   `cache_satisfied` in `45.9587ms`. The live value report still showed zero
   read budget misses, degraded reads, or timeouts.
+- A third resumed Codex/restart sample separated one-time project-file cache
+  creation from persistent cache rescue. A fresh topic-specific MCP context
+  probe for write-path capture/observe work returned useful packets but spent
+  `581.6269ms` overall with `project_file_fallback=550.3093ms`; that call
+  created the stable `project_home` cache entry. After a real
+  `engramctl stop && engramctl start` restart to PID `35144`, the first fresh
+  AXI context topic hit project-file cache rescue in `2.3597ms`, AXI recall
+  returned three packets in `106.2332ms` with
+  `preflight_timeout_context_packet_fallback`, MCP `get_context` hit packet
+  cache in `0.0617ms`, and MCP `recall` was `cache_satisfied` in `89.6023ms`.
+  The post-restart value window reported read-path p95 `106.2332ms`, cache hit
+  rate `1.0`, and zero read budget misses, degraded reads, or timeouts.
 
 ## Purpose
 
@@ -3271,6 +3283,17 @@ Latency dogfood evidence:
   read cache hit rate `0.5714`, and zero read budget misses/degraded
   reads/timeouts. This is useful evidence for the real-session window, but the
   durable goal remains open until longer Codex dogfood continuity is observed.
+- 2026-05-28 post-restart cache-rescue sample: after the next resumed Codex
+  turn created a stable same-project packet with one cold MCP context scan
+  (`duration_ms=581.6269`, `project_file_fallback=550.3093ms`), a real restart
+  to LaunchAgent PID `35144` preserved that packet cache. First post-restart
+  AXI context returned via project-file cache rescue in `2.3597ms`; AXI recall
+  returned three packets in `106.2332ms`; MCP `get_context` hit packet cache in
+  `0.0617ms`; MCP `recall` was `cache_satisfied` in `89.6023ms`; and
+  `engram axi value --json` reported read-path p95 `106.2332ms`, cache hit
+  rate `1.0`, and zero read budget misses/degraded reads/timeouts. Recall
+  evaluation sample `ers_ab1decfc5cfe` records this as useful real-session
+  evidence.
 
 ## Test Matrix
 
