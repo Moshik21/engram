@@ -3339,6 +3339,22 @@ Latency dogfood evidence:
   returned a project packet in `102.2185ms`, MCP `get_context` was
   `143.7264ms`, MCP `recall` was `cache_satisfied` in `2.2772ms`, and recall
   evaluation sample `ers_28654b6d8385` records the run.
+- 2026-05-28 observe/projection cache-invalidation fix: a resumed Codex run at
+  HEAD `5d3554d` showed that broad graph packet-cache invalidation after normal
+  capture/projection could mark stable `project_home` file packets stale. The
+  next MCP `get_context` still returned useful project packets, but paid
+  `715.1811ms` total with `project_file_fallback=709.6484ms` because the stable
+  rescue row had been invalidated. `MemoryPacketCache.invalidate(...)` now has a
+  preserve mode for entries whose packets are all `trust.source=project_file`,
+  and `GraphManager.invalidate_memory_packet_cache(...)` uses that mode for
+  graph/episode mutations. After reinstall/restart to PID `45085`, AXI context
+  seeded project-file cache rescue in `2.2862ms`; live MCP observe stored
+  `ep_4c0605de51da`; background projection ingested it without invalidating the
+  `project_home` file rows; MCP `get_context` returned useful packets in
+  `83.4848ms`; AXI context hit `project_file_cache_rescue` in `3.608ms`; AXI
+  recall was `cache_satisfied` in `2.3008ms`; and live value reported read-path
+  p95 `83.8738ms`, read cache hit rate `0.7778`, and zero read budget misses,
+  degradation, or timeouts.
 
 ## Test Matrix
 

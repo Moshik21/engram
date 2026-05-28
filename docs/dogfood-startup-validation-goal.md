@@ -1888,6 +1888,20 @@ Lite mode only as a fallback smoke path.
   packets in `143.7264ms`, and MCP `recall` was `cache_satisfied` in `2.2772ms`.
   The value report retained one matrix-era MCP context p95 sample at
   `581.6838ms`, but zero read budget misses, degraded reads, or timeouts.
+- The next real Codex continuation at HEAD `5d3554d` found that normal
+  observe/projection pressure could invalidate stable project-file cache rescue
+  rows. The first fresh MCP `get_context` after capture/projection returned
+  useful packets but paid `715.1811ms` total with
+  `project_file_fallback=709.6484ms`. Broad graph/episode cache invalidation now
+  preserves entries whose packets are all `trust.source=project_file`, while
+  explicit clears and non-file packet invalidation still clear mutable packet
+  views. After reinstall/restart to PID `45085`, AXI context seeded cache rescue
+  in `2.2862ms`; live MCP observe stored `ep_4c0605de51da`; projection ingested
+  it without invalidating `project_home` project-file rows; post-observe MCP
+  `get_context` returned useful packets in `83.4848ms`; AXI context used
+  `project_file_cache_rescue` in `3.608ms`; AXI recall was `cache_satisfied` in
+  `2.3008ms`; and live value read-path p95 was `83.8738ms` with zero budget
+  misses, degradation, or timeouts.
 
 ## Work Plan
 

@@ -190,6 +190,16 @@ filesystem returned bounded project-file packets in `104.0038ms` and
 `138.8205ms` without degradation. After the final no-project guardrail
 reinstall/restart, PID `41982` stayed healthy and fresh AXI context used
 `project_file_cache_rescue` in `2.238ms`.
+The next real Codex continuation found that normal capture/projection could
+erase this stable project-file rescue path by broadly invalidating packet-cache
+entries after graph mutations. Broad graph/episode invalidation now preserves
+entries composed only of `trust.source=project_file` packets; explicit cache
+clears still clear them, and cue/entity/relationship packet views can still be
+invalidated when their source ids are affected. After reinstall/restart on PID
+`45085`, AXI context used project-file cache rescue in `2.2862ms`, a live MCP
+observe/projection cycle left the `project_home` file rows fresh, MCP
+`get_context` returned useful packets in `83.4848ms`, AXI context hit rescue in
+`3.608ms`, and AXI recall was `cache_satisfied` in `2.3008ms`.
 
 ## Command Shape
 

@@ -1035,6 +1035,7 @@ class GraphManager:
         episode_ids: Sequence[str] | None = None,
         relationship_ids: Sequence[str] | None = None,
         scopes: Sequence[str] | None = None,
+        preserve_project_file_packets: bool = True,
     ) -> int:
         """Invalidate cached packets after graph or episode mutations."""
         return self._packet_cache.invalidate(
@@ -1043,6 +1044,7 @@ class GraphManager:
             episode_ids=episode_ids,
             relationship_ids=relationship_ids,
             scopes=scopes,
+            preserve_project_file_packets=preserve_project_file_packets,
         )
 
     def clear_memory_packet_cache(self, group_id: str | None = None) -> int:

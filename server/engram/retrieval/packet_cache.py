@@ -225,6 +225,7 @@ class MemoryPacketCache:
         episode_ids: Sequence[str] | None = None,
         relationship_ids: Sequence[str] | None = None,
         scopes: Sequence[str] | None = None,
+        preserve_project_file_packets: bool = False,
         now: float | None = None,
     ) -> int:
         timestamp = time.time() if now is None else now
@@ -246,6 +247,8 @@ class MemoryPacketCache:
                     continue
                 if relationship_set and not (entry.source_relationship_ids & relationship_set):
                     continue
+            if preserve_project_file_packets and _entry_has_only_project_file_packets(entry):
+                continue
             if entry.invalidated_at is None:
                 entry.invalidated_at = timestamp
                 invalidated += 1
@@ -649,6 +652,16 @@ def _scope_counts(entries: Sequence[MemoryPacketCacheEntry]) -> dict[str, int]:
     for entry in entries:
         counts[entry.scope] = counts.get(entry.scope, 0) + 1
     return counts
+
+
+def _entry_has_only_project_file_packets(entry: MemoryPacketCacheEntry) -> bool:
+    if not entry.packets:
+        return False
+    for packet in entry.packets:
+        trust = packet.get("trust")
+        if not isinstance(trust, Mapping) or trust.get("source") != "project_file":
+            return False
+    return True
 
 
 def _packet_fingerprint(packet: Mapping[str, Any]) -> str:

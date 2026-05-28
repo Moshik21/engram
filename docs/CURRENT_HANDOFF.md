@@ -111,21 +111,29 @@ LaunchAgent PID `41982`, and a fresh AXI context probe used
 `project_file_cache_rescue` in `2.238ms`.
 The remaining cold edge is first-ever stable project packet creation after the
 packet cache has no same-project home entry.
-Current continuation checkpoint: HEAD `78aa7ed` is clean and pushed, and the
-installed dogfood runtime is still running native PyO3 Helix from that worktree.
-The full startup validator passed, including 27 MCP tools, `remember`, and
-`recall.project_path`. The confirmed lifecycle matrix produced
-`/private/tmp/engram-dogfood-startup-20260528-074024` with
-`13 pass, 0 warn, 0 fail, 0 skip`, then restarted the LaunchAgent to PID
-`43378`. Post-matrix probes stayed bounded without empty timeout payloads: AXI
-context returned five project-file packets in `38.2785ms`, AXI recall found a
-real cue packet in `11.8581ms`, a forced no-evidence recall returned a project
-packet in `102.2185ms`, MCP `get_context` returned five project-file packets in
-`143.7264ms`, and MCP `recall` was `cache_satisfied` in `2.2772ms`. The live
-value report still shows one matrix-era MCP context sample at `581.6838ms`, but
-with zero read budget misses, degraded reads, or timeouts. No new code patch was
-justified by this sample; the next useful work is longer real Codex dogfood
-continuity, not chasing a non-degraded single cold context scan.
+Current continuation checkpoint: HEAD `5d3554d` was clean and pushed before
+this pass, and the installed dogfood runtime was still running native PyO3 Helix
+from that worktree. A resumed real Codex turn then exposed a cache invalidation
+edge: after normal MCP capture/projection, stable same-project `project_home`
+file packets had been invalidated, so the next fresh MCP `get_context` returned
+useful packets but spent `715.1811ms` total with
+`project_file_fallback=709.6484ms`. Broad graph/episode packet-cache
+invalidation now preserves cache entries whose packets are all
+`trust.source=project_file`; explicit clears and mutable cue/entity/relationship
+packet invalidation still clear stale packet views. After reinstall/restart to
+LaunchAgent PID `45085`, AXI context seeded project-file cache rescue in
+`2.2862ms`. A live MCP `observe` stored `ep_4c0605de51da`; after background
+projection ingested it, the `project_home` project-file rows remained
+uninvalidated. Post-observe MCP `get_context` returned useful packets in
+`83.4848ms` with no degradation; AXI context then hit
+`project_file_cache_rescue` in `3.608ms`; AXI recall was `cache_satisfied` in
+`2.3008ms`; and `engram axi value --json` reported read-path p95
+`83.8738ms`, read cache hit rate `0.7778`, and zero read budget misses,
+degraded reads, or timeouts. Focused context/recall/packet-cache tests passed
+with `112 passed`, ruff passed on touched files, and `git diff --check` is
+clean. The goal remains active for longer real Codex dogfood continuity
+evidence, but normal observe/projection no longer erases stable project-file
+rescue packets.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

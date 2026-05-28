@@ -159,6 +159,56 @@ def test_packet_cache_expires_and_invalidates_by_source_ids() -> None:
     ) is None
 
 
+def test_packet_cache_can_preserve_project_file_packets_during_broad_invalidation() -> None:
+    cache = MemoryPacketCache(default_ttl_seconds=60)
+    cache.put(
+        group_id="default",
+        scope="project_home",
+        topic_hint="Engram",
+        project_path="/repo/Engram",
+        packets=[
+            {
+                "title": "Project File: docs/CURRENT_HANDOFF.md",
+                "trust": {"source": "project_file"},
+            }
+        ],
+        now=10.0,
+    )
+    cache.put(
+        group_id="default",
+        scope="explicit_recall",
+        topic_hint="Engram",
+        packets=[
+            {
+                "title": "Latent Memory: ep_1",
+                "trust": {"source": "cue"},
+            }
+        ],
+        now=10.0,
+    )
+
+    invalidated = cache.invalidate(
+        group_id="default",
+        preserve_project_file_packets=True,
+        now=20.0,
+    )
+
+    assert invalidated == 1
+    assert cache.get(
+        group_id="default",
+        scope="project_home",
+        topic_hint="Engram",
+        project_path="/repo/Engram",
+        now=21.0,
+    ) is not None
+    assert cache.get(
+        group_id="default",
+        scope="explicit_recall",
+        topic_hint="Engram",
+        now=21.0,
+    ) is None
+
+
 def test_packet_cache_clear_and_json_size_are_deterministic() -> None:
     cache = MemoryPacketCache(default_ttl_seconds=60)
     packets = [{"b": 2, "a": 1}]
