@@ -198,6 +198,13 @@ def _merge_special_results(
             existing = best_by_episode.get(cue_result.node_id)
             if existing is None or cue_result.score > existing.score:
                 best_by_episode[cue_result.node_id] = cue_result
+            # NOTE: B13 (cue-hit -> promotion feedback when the episode result
+            # outscores its cue) is intentionally NOT fixed here. The previous
+            # attempt mutated result_type to "cue_episode" to trigger feedback,
+            # but that swaps the surfaced episode content for the cue snippet and
+            # drops required evidence. The correct fix decouples cue-feedback
+            # recording from result surfacing (record the hit for raw cue
+            # candidates without changing what is surfaced) — deferred.
         special_results = list(best_by_episode.values())
 
     special_results.sort(key=lambda r: r.score, reverse=True)
@@ -1295,6 +1302,23 @@ async def retrieve(
     if cfg.inhibitory_spreading_enabled:
         from engram.retrieval.inhibition import apply_inhibition
 
+        # Fetch seed relationships so predicate suppression (LIKES/DISLIKES etc.)
+        # has the contradictory-edge data it needs to actually fire.
+        seed_relationships: list[tuple[str, str, str, float]] = []
+        if cfg.inhibition_predicate_suppression and seed_node_ids:
+            for seed_id in seed_node_ids:
+                try:
+                    rels = await graph_store.get_relationships(
+                        seed_id,
+                        group_id=group_id,
+                    )
+                except Exception:
+                    continue
+                for rel in rels:
+                    seed_relationships.append(
+                        (rel.source_id, rel.target_id, rel.predicate, rel.weight)
+                    )
+
         bonuses = await apply_inhibition(
             bonuses=bonuses,
             hop_distances=hop_distances,
@@ -1303,6 +1327,7 @@ async def retrieve(
             search_index=search_index,
             group_id=group_id,
             cfg=cfg,
+            relationships=seed_relationships or None,
         )
 
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
@@ -1524,6 +1549,14 @@ async def retrieve(
     # Step 4.95: State-dependent retrieval biases (Brain Architecture)
     state_biases: dict[str, float] | None = None
     if cfg.state_dependent_retrieval_enabled and conv_context is not None:
+        # Populate cognitive state once per recall turn so the bias is non-zero.
+        # Without this the state source is never set and the feature is inert.
+        update_state = getattr(conv_context, "update_cognitive_state", None)
+        if callable(update_state):
+            try:
+                update_state(query)
+            except Exception:
+                pass
         cog_state = getattr(conv_context, "cognitive_state", None)
         if cog_state is not None and entity_attributes:
             from engram.retrieval.state import compute_state_bias
@@ -1770,25 +1803,17 @@ async def retrieve(
                 nonlocal mmr_entity_embeddings
                 entity_embeddings: dict[str, list[float]] = {}
                 mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
-                if hasattr(search_index, "_vectors") and hasattr(
-                    search_index,
-                    "_embeddings_enabled",
-                ):
-                    if search_index._embeddings_enabled:
-                        from engram.storage.sqlite.vectors import unpack_vector
-
-                        for eid in mmr_ids:
-                            cursor = await search_index._vectors.db.execute(
-                                "SELECT embedding, dimensions FROM embeddings "
-                                "WHERE id = ? AND group_id = ?",
-                                (eid, group_id),
-                            )
-                            row = await cursor.fetchone()
-                            if row:
-                                entity_embeddings[eid] = unpack_vector(
-                                    row["embedding"],
-                                    row["dimensions"],
-                                )
+                if mmr_ids and hasattr(search_index, "get_entity_embeddings"):
+                    entity_embeddings = await search_index.get_entity_embeddings(
+                        mmr_ids,
+                        group_id=group_id,
+                    )
+                if mmr_ids and not entity_embeddings:
+                    _set_stage_metric(
+                        stage_timings_ms,
+                        "recall_mmr_empty_embeddings",
+                        len(mmr_ids),
+                    )
                 mmr_entity_embeddings = entity_embeddings
 
                 return apply_mmr(
@@ -1827,23 +1852,18 @@ async def retrieve(
                     entity_embeddings: dict[str, list[float]] = dict(mmr_entity_embeddings)
                     if not cfg.mmr_enabled:
                         gc_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
-                        has_vecs = hasattr(search_index, "_vectors")
-                        if has_vecs and hasattr(search_index, "_embeddings_enabled"):
-                            if search_index._embeddings_enabled:
-                                from engram.storage.sqlite.vectors import unpack_vector
-
-                                for eid in gc_ids:
-                                    cursor = await search_index._vectors.db.execute(
-                                        "SELECT embedding, dimensions FROM embeddings "
-                                        "WHERE id = ? AND group_id = ?",
-                                        (eid, group_id),
-                                    )
-                                    row = await cursor.fetchone()
-                                    if row:
-                                        entity_embeddings[eid] = unpack_vector(
-                                            row["embedding"],
-                                            row["dimensions"],
-                                        )
+                        if gc_ids and hasattr(search_index, "get_entity_embeddings"):
+                            fetched = await search_index.get_entity_embeddings(
+                                gc_ids,
+                                group_id=group_id,
+                            )
+                            entity_embeddings.update(fetched)
+                        if gc_ids and not entity_embeddings:
+                            _set_stage_metric(
+                                stage_timings_ms,
+                                "recall_gc_mmr_empty_embeddings",
+                                len(gc_ids),
+                            )
 
                     return await apply_gc_mmr(
                         scored,

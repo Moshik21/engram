@@ -49,6 +49,21 @@ class ConsolidationEngine:
         self._search = search_index
         self._cfg = cfg
         self._store = consolidation_store
+
+        # Wire the consolidation store onto the graph store so phases that need
+        # tag/lifecycle state (e.g. microglia) can reach it. The phase
+        # `execute()` signature does not carry the consolidation store, so
+        # MicrogliaPhase reads it via `getattr(graph_store, "_consolidation_store")`.
+        # Without this, the microglia Tag->Confirm->Demote lifecycle is inert.
+        if graph_store is not None and consolidation_store is not None:
+            try:
+                graph_store._consolidation_store = consolidation_store
+            except (AttributeError, TypeError):
+                logger.warning(
+                    "Could not attach consolidation store to graph store %s; "
+                    "microglia tag lifecycle will be inert",
+                    type(graph_store).__name__,
+                )
         self._audit_reader = ConsolidationAuditReader(consolidation_store)
         self._capabilities = ConsolidationCapabilityValidator(
             graph_store=self._graph,

@@ -195,6 +195,7 @@ async def test_legacy_projection_executor_applies_entities_and_relationships():
         meta_entity_names=set(),
         group_id="default",
         source_episode="ep_test",
+        conversation_date=None,
     )
 
 

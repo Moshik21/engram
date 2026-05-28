@@ -2500,6 +2500,13 @@ class ActivationConfig(BaseModel):
             _set("notification_immunity_enabled", True)
             _set("preference_directed_enabled", True)
             _set("preference_calibrate_enabled", True)
+            # Agent-supplied structured memory (client proposals + events) flows
+            # through the evidence pipeline; safe now that proposals are span-
+            # verified and confidence-capped below commit thresholds.
+            _set("evidence_client_proposals_enabled", True)
+            # Prospective memory (intentions) must be able to FIRE on the
+            # standard profile, not just be created — otherwise intend() is inert.
+            _set("prospective_memory_enabled", True)
 
         # Graph structural embeddings are populated only by the graph_embed
         # consolidation phase. If consolidation is disabled, the graph_embeddings

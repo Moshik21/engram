@@ -193,6 +193,22 @@ class MicrogliaPhase(ConsolidationPhase):
 
         elapsed = (time.perf_counter() - t0) * 1000
         total_affected = demoted + tagged_edges + confirmed + repaired + cleared
+
+        # Without a consolidation store the complement Tag->Confirm->Demote
+        # edge lifecycle cannot run; only direct summary repairs are possible.
+        # If nothing was actually repaired in that mode, report 'skipped' so
+        # operators are not misled into thinking the immune surveillance ran.
+        if consolidation_store is None and total_affected == 0:
+            return PhaseResult(
+                phase=self.name,
+                status="skipped",
+                items_processed=(
+                    cfg.microglia_scan_edges_per_cycle + cfg.microglia_scan_entities_per_cycle
+                ),
+                items_affected=0,
+                duration_ms=round(elapsed, 1),
+            ), records
+
         return PhaseResult(
             phase=self.name,
             status="success",
@@ -523,10 +539,16 @@ class MicrogliaPhase(ConsolidationPhase):
             if best_score < cfg.microglia_tag_threshold:
                 continue
 
+            # Without a consolidation store the tag can never be persisted,
+            # confirmed, or demoted — the Tag->Confirm->Demote lifecycle is
+            # inert. Do NOT meter no-op tagging as affected work.
+            if consolidation_store is None:
+                continue
+
             tag_type = "c1q_domain" if domain_score >= embedding_score else "c1q_embedding"
             edge_key = f"{edge.source_id}:{edge.target_id}:{edge.predicate}"
 
-            if not dry_run and consolidation_store is not None:
+            if not dry_run:
                 await consolidation_store.create_complement_tag(
                     target_type="edge",
                     target_id=edge_key,
@@ -735,9 +757,15 @@ class MicrogliaPhase(ConsolidationPhase):
                         detail=f"Removed {int(score * 100)}% meta segments from '{entity.name}'",
                     )
                 )
-            elif cleaned is None and score >= cfg.microglia_tag_threshold:
-                # Entirely contaminated summary — tag for review
-                if consolidation_store is not None and not dry_run:
+            elif (
+                cleaned is None
+                and score >= cfg.microglia_tag_threshold
+                and consolidation_store is not None
+            ):
+                # Entirely contaminated summary — tag for review. Only emit the
+                # tag record when a consolidation store can actually persist it;
+                # otherwise the tag is inert and metering it would be misleading.
+                if not dry_run:
                     await consolidation_store.create_complement_tag(
                         target_type="entity",
                         target_id=entity.id,

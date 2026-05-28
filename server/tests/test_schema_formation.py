@@ -295,7 +295,10 @@ async def test_phase_creates_schema_when_enough_instances():
 
     assert graph_store.create_relationship.call_count >= 5
     assert len(context.schema_entity_ids) >= 1
-    assert len(context.affected_entity_ids) >= 1
+    # B11: Schema entities carry no embedding, so they are intentionally NOT
+    # added to affected_entity_ids (which drives reindex) — reindexing an
+    # unembedded node is dead work. schema_entity_ids still tracks creation.
+    assert len(context.affected_entity_ids) == 0
     graph_store.save_schema_members.assert_called()
 
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from engram.extraction.evidence import EvidenceCandidate
+from engram.extraction.temporal import resolve_temporal_hint
 
 # Confidence by calling model tier
 MODEL_TIER_CONFIDENCE: dict[str, float] = {
@@ -11,6 +14,86 @@ MODEL_TIER_CONFIDENCE: dict[str, float] = {
     "haiku": 0.75,
     "default": 0.70,
 }
+
+# Trust hardening: an unverified, single-source client proposal must not commit
+# on first sight. Caller-supplied model_tier (opus -> 0.92) otherwise exceeds the
+# entity (0.70) and relationship (0.75) commit thresholds, so an unverified claim
+# would weaponize confidence into an immediate commit. We cap unverified proposals
+# into the defer band so they require span verification OR cross-episode
+# corroboration before promotion. The cap stays inside the defer band (threshold -
+# 0.15) so the commit policy defers (never rejects) the claim.
+UNVERIFIED_PROPOSAL_CONFIDENCE_CAP = 0.62
+# A span-verified proposal carries concrete textual evidence, so it earns a
+# commit-worthy floor (above the relationship commit threshold of 0.75) even when
+# the caller's model tier is low. Higher tiers keep their (higher) confidence.
+SPAN_VERIFIED_PROPOSAL_CONFIDENCE = 0.80
+
+
+def _normalize_for_span(text: str) -> str:
+    """Whitespace-normalize and casefold text for deterministic span matching."""
+    return " ".join(text.split()).casefold()
+
+
+def span_is_verified(source_span: str | None, episode_content: str | None) -> bool:
+    """Return True when source_span is a whitespace-normalized casefold substring.
+
+    Deterministic span validator: a claim's cited span must actually appear in the
+    episode content. On a miss the caller defers the claim and tags it
+    'span_unverified' (never rejects — the claim may still corroborate later).
+    """
+    if not source_span or not episode_content:
+        return False
+    needle = _normalize_for_span(source_span)
+    if not needle:
+        return False
+    return needle in _normalize_for_span(episode_content)
+
+
+def _reanchor_temporal(
+    payload: dict,
+    reference_date: datetime | None,
+) -> bool:
+    """Re-anchor a relative temporal phrase against an absolute proposed date.
+
+    When an annotation supplies both an absolute ``valid_from`` and a relative
+    ``temporal_hint``, re-resolve the phrase against ``reference_date`` (the
+    conversation date) and flag a conflict when the two disagree. Returns True when
+    a date conflict was detected (caller defers + tags 'date_conflict').
+    """
+    valid_from = payload.get("valid_from")
+    temporal_hint = payload.get("temporal_hint")
+    if not valid_from or not temporal_hint or reference_date is None:
+        return False
+    try:
+        absolute = datetime.fromisoformat(str(valid_from))
+    except (ValueError, TypeError):
+        return False
+    resolved = resolve_temporal_hint(str(temporal_hint), reference_date=reference_date)
+    if resolved is None:
+        return False
+    # Disagreement when the relative phrase resolves to a different calendar day.
+    return resolved.date() != absolute.date()
+
+
+def _effective_proposal_confidence(
+    base_confidence: float,
+    *,
+    span_verified: bool,
+    extra_signal_count: int,
+) -> float:
+    """Cap unverified single-source proposals below commit thresholds.
+
+    A proposal earns commit-worthy confidence only when its cited span is verified
+    or it already carries additional corroborating signals beyond the bare
+    source_type/model_tier markers. Otherwise it is capped into the defer band.
+    """
+    if span_verified:
+        # Floor verified claims at a commit-worthy confidence; keep higher tiers.
+        return max(base_confidence, SPAN_VERIFIED_PROPOSAL_CONFIDENCE)
+    if extra_signal_count > 0:
+        # Multi-signal proposals keep their tier confidence (real corroboration).
+        return base_confidence
+    return min(base_confidence, UNVERIFIED_PROPOSAL_CONFIDENCE_CAP)
 
 
 def proposals_to_evidence(
@@ -25,18 +108,30 @@ def proposals_to_evidence(
     adjudication_request_id: str | None = None,
     rationale: str | None = None,
     source_span: str | None = None,
+    episode_content: str | None = None,
+    reference_date: datetime | None = None,
+    verify_spans: bool = False,
 ) -> list[EvidenceCandidate]:
     """Convert client-supplied proposals to EvidenceCandidate list.
 
     Each proposal becomes an EvidenceCandidate with source_type="client_proposal".
-    Confidence is based on the calling model's tier.
+    Confidence is based on the calling model's tier, then de-weaponized: an
+    unverified single-source proposal is capped into the defer band so span
+    verification or cross-episode corroboration is required before it can commit.
 
     Args:
-        entities: List of {"name": ..., "entity_type": ...} dicts
-        relationships: List of {"subject": ..., "predicate": ..., "object": ...} dicts
+        entities: List of {"name": ..., "entity_type": ..., "source_span": ...} dicts
+        relationships: List of
+            {"subject": ..., "predicate": ..., "object": ..., "source_span": ...} dicts
         episode_id: The episode these proposals belong to
         group_id: The group context
         model_tier: The calling model tier (opus/sonnet/haiku/default)
+        source_span: Legacy bundle-level span fallback when a claim omits its own.
+        episode_content: Episode text used to validate each claim's source_span.
+        reference_date: Conversation date used to re-anchor relative temporal hints.
+        verify_spans: When True, run the deterministic span validator and apply
+            trust-hardening confidence caps. The adjudication-resolution path passes
+            curated spans and opts out.
     """
     base_confidence = min(
         0.97,
@@ -44,6 +139,48 @@ def proposals_to_evidence(
     )
     candidates: list[EvidenceCandidate] = []
     extractor_prefix = "client" if source_type == "client_proposal" else source_type
+
+    def _build_candidate(
+        *,
+        fact_class: str,
+        payload: dict,
+        claim: dict,
+    ) -> EvidenceCandidate:
+        claim_span = claim.get("source_span") or source_span
+        signals = [source_type, f"model_{model_tier}"]
+        confidence = base_confidence
+        if verify_spans:
+            verified = span_is_verified(claim_span, episode_content)
+            if verified:
+                signals.append("span_verified")
+            else:
+                signals.append("span_unverified")
+            date_conflict = fact_class == "relationship" and _reanchor_temporal(
+                payload,
+                reference_date,
+            )
+            if date_conflict:
+                signals.append("date_conflict")
+            # extra_signal_count: corroboration beyond the bare source/model markers.
+            confidence = _effective_proposal_confidence(
+                base_confidence,
+                span_verified=verified and not date_conflict,
+                extra_signal_count=0,
+            )
+        if rationale:
+            payload = {**payload, "_adjudication_rationale": rationale}
+        return EvidenceCandidate(
+            episode_id=episode_id,
+            group_id=group_id,
+            fact_class=fact_class,
+            confidence=confidence,
+            source_type=source_type,
+            extractor_name=f"{extractor_prefix}_{model_tier}",
+            payload=payload,
+            source_span=claim_span,
+            adjudication_request_id=adjudication_request_id,
+            corroborating_signals=signals,
+        )
 
     for ent in entities or []:
         name = ent.get("name", "").strip()
@@ -55,21 +192,8 @@ def proposals_to_evidence(
             **({"summary": ent["summary"]} if ent.get("summary") else {}),
             **({"attributes": ent["attributes"]} if ent.get("attributes") else {}),
         }
-        if rationale:
-            payload["_adjudication_rationale"] = rationale
         candidates.append(
-            EvidenceCandidate(
-                episode_id=episode_id,
-                group_id=group_id,
-                fact_class="entity",
-                confidence=base_confidence,
-                source_type=source_type,
-                extractor_name=f"{extractor_prefix}_{model_tier}",
-                payload=payload,
-                source_span=source_span,
-                adjudication_request_id=adjudication_request_id,
-                corroborating_signals=[source_type, f"model_{model_tier}"],
-            ),
+            _build_candidate(fact_class="entity", payload=payload, claim=ent),
         )
 
     for rel in relationships or []:
@@ -87,21 +211,60 @@ def proposals_to_evidence(
             **({"valid_from": rel["valid_from"]} if rel.get("valid_from") else {}),
             **({"valid_to": rel["valid_to"]} if rel.get("valid_to") else {}),
         }
-        if rationale:
-            payload["_adjudication_rationale"] = rationale
         candidates.append(
-            EvidenceCandidate(
-                episode_id=episode_id,
-                group_id=group_id,
-                fact_class="relationship",
-                confidence=base_confidence,
-                source_type=source_type,
-                extractor_name=f"{extractor_prefix}_{model_tier}",
-                payload=payload,
-                source_span=source_span,
-                adjudication_request_id=adjudication_request_id,
-                corroborating_signals=[source_type, f"model_{model_tier}"],
-            ),
+            _build_candidate(fact_class="relationship", payload=payload, claim=rel),
         )
 
     return candidates
+
+
+def events_to_proposals(
+    events: list[dict] | None,
+) -> tuple[list[dict], list[dict]]:
+    """Materialize agent event annotations into Event entities + OCCURRED_ON edges.
+
+    Each event ``{name, date, source_span}`` becomes:
+      - an ``entity_type="Event"`` proposal for the event name, and
+      - an ``OCCURRED_ON`` relationship from the event to a dated marker entity
+        (``entity_type="Date"``) with ``valid_from=date`` so the event lands as a
+        first-class dated node flowing through the normal evidence pipeline.
+
+    Returns (entity_proposals, relationship_proposals) ready for
+    ``proposals_to_evidence`` so events ride the existing commit/defer machinery.
+    """
+    entity_proposals: list[dict] = []
+    relationship_proposals: list[dict] = []
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        name = str(event.get("name", "")).strip()
+        if not name:
+            continue
+        date = event.get("date")
+        span = event.get("source_span")
+        entity_proposals.append(
+            {
+                "name": name,
+                "entity_type": "Event",
+                **({"source_span": span} if span else {}),
+            },
+        )
+        if date:
+            date_str = str(date).strip()
+            entity_proposals.append(
+                {
+                    "name": date_str,
+                    "entity_type": "Date",
+                    **({"source_span": span} if span else {}),
+                },
+            )
+            relationship_proposals.append(
+                {
+                    "subject": name,
+                    "predicate": "OCCURRED_ON",
+                    "object": date_str,
+                    "valid_from": date_str,
+                    **({"source_span": span} if span else {}),
+                },
+            )
+    return entity_proposals, relationship_proposals

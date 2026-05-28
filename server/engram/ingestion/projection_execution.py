@@ -138,6 +138,7 @@ class LegacyProjectionExecutor:
             meta_entity_names=apply_outcome.meta_entity_names,
             group_id=group_id,
             source_episode=episode.id,
+            conversation_date=episode.conversation_date,
         )
         return ProjectionExecutionOutcome(
             bundle=bundle,
@@ -194,6 +195,18 @@ class EvidenceProjectionExecutor:
             episode_id=episode.id,
             group_id=group_id,
             cue=cue,
+            proposed_entities=proposed_entities,
+            proposed_relationships=proposed_relationships,
+            model_tier=model_tier,
+        )
+        # Trust hardening: re-derive client-proposal evidence with deterministic
+        # span verification + confidence de-weaponization. graph_manager builds the
+        # bundle without episode content/date, so an unverified single-source
+        # annotation would otherwise commit on first sight at the caller's tier.
+        evidence_bundle = self._verify_proposal_bundle(
+            evidence_bundle,
+            episode=episode,
+            group_id=group_id,
             proposed_entities=proposed_entities,
             proposed_relationships=proposed_relationships,
             model_tier=model_tier,
@@ -296,6 +309,49 @@ class EvidenceProjectionExecutor:
             entity_map=entity_map,
             now=now,
             used_evidence_materializer=True,
+        )
+
+    def _verify_proposal_bundle(
+        self,
+        evidence_bundle: EvidenceBundle,
+        *,
+        episode: Episode,
+        group_id: str,
+        proposed_entities: list[dict] | None,
+        proposed_relationships: list[dict] | None,
+        model_tier: str,
+    ) -> EvidenceBundle:
+        """Re-derive client-proposal candidates with span verification + trust caps.
+
+        Only fires for proposal-sourced bundles (the bundle whose candidates were
+        built from ``proposed_entities``/``proposed_relationships``). Non-proposal
+        extractor bundles pass through unchanged.
+        """
+        if not (proposed_entities or proposed_relationships):
+            return evidence_bundle
+        if not self._cfg.evidence_client_proposals_enabled:
+            return evidence_bundle
+        if "client_proposals" not in (evidence_bundle.extractor_stats or {}):
+            return evidence_bundle
+
+        from engram.extraction.client_proposals import proposals_to_evidence
+
+        verified = proposals_to_evidence(
+            proposed_entities,
+            proposed_relationships,
+            episode.id,
+            group_id,
+            model_tier,
+            episode_content=episode.content,
+            reference_date=episode.conversation_date or episode.created_at,
+            verify_spans=True,
+        )
+        return EvidenceBundle(
+            episode_id=evidence_bundle.episode_id,
+            group_id=evidence_bundle.group_id,
+            candidates=verified,
+            extractor_stats=evidence_bundle.extractor_stats,
+            total_ms=evidence_bundle.total_ms,
         )
 
     async def _store_adjudication_work(

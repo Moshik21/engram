@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import math
 import time
@@ -140,7 +141,7 @@ async def build_mcp_create_intention_surface(
     effective_threshold = manager.effective_intention_threshold(threshold)
     if inspect.isawaitable(effective_threshold):
         effective_threshold = await effective_threshold
-    return {
+    payload = {
         "status": "created",
         "intention_id": intention_id,
         "trigger_type": trigger_type,
@@ -149,6 +150,30 @@ async def build_mcp_create_intention_surface(
         "threshold": effective_threshold,
         "message": f"Intention set: will fire when '{trigger_text}' activates.",
     }
+    # Surface the silent-inert case: an intention can be created successfully
+    # but never fire when prospective_memory_enabled is False (firing is gated
+    # in the projection post-apply hook). Keep status="created" for backwards
+    # compatibility but flag the degradation so callers/agents can tell.
+    if not _manager_firing_enabled(manager):
+        payload["firing_enabled"] = False
+        payload["status_note"] = "created_but_inert: firing disabled"
+        payload["message"] = (
+            f"Intention created, but firing is disabled "
+            f"(prospective_memory_enabled=False); it will NOT trigger when "
+            f"'{trigger_text}' activates until prospective_memory_enabled is set."
+        )
+    return payload
+
+
+def _manager_firing_enabled(manager: Any) -> bool:
+    """Best-effort check that matched intentions can fire for this manager."""
+    service = getattr(manager, "_prospective_memory_service", None)
+    if service is not None and hasattr(service, "firing_enabled"):
+        try:
+            return bool(service.firing_enabled())
+        except Exception:
+            return True
+    return True
 
 
 async def build_mcp_create_intention_response_surface(
@@ -645,6 +670,10 @@ class ProspectiveMemoryService:
         """Return the creation threshold after applying runtime defaults."""
         return threshold or self._cfg.prospective_activation_threshold
 
+    def firing_enabled(self) -> bool:
+        """Whether matched intentions can actually fire during projection."""
+        return bool(self._cfg.prospective_memory_enabled)
+
     async def dismiss_intention(
         self,
         intention_id: str,
@@ -665,7 +694,7 @@ class ProspectiveMemoryService:
                 attrs["enabled"] = False
                 await self._graph.update_entity(
                     intention_id,
-                    {"attributes": attrs},
+                    {"attributes": json.dumps(attrs)},
                     group_id=group_id,
                 )
 
@@ -737,7 +766,7 @@ class ProspectiveMemoryService:
         attrs["last_fired"] = utc_now_iso()
         await self._graph.update_entity(
             intention_id,
-            {"attributes": attrs},
+            {"attributes": json.dumps(attrs)},
             group_id=group_id,
         )
         self._publish(
@@ -766,7 +795,7 @@ class ProspectiveMemoryService:
         attrs.update(updates)
         await self._graph.update_entity(
             intention_id,
-            {"attributes": attrs},
+            {"attributes": json.dumps(attrs)},
             group_id=group_id,
         )
 

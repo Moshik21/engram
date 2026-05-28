@@ -208,7 +208,16 @@ def _support_reason(summary: dict[str, Any]) -> str:
 
 
 class SchemaFormationPhase(ConsolidationPhase):
-    """Detect recurring structural motifs and promote to Schema entities."""
+    """Detect recurring structural motifs and promote to Schema entities.
+
+    ANALYTICS-ONLY: the Schema entities, INSTANCE_OF edges, and schema_members
+    rows produced here are NOT read by any retrieval path. They are a graph
+    analytics/observability output, not a recall-affecting feature. SchemaRecord
+    ``created``/``reinforced`` actions are audit/analytics metrics and must not
+    be interpreted as improving recall. Until a retrieval consumer exists,
+    ``schema_formation_enabled`` should not be on in the standard profile (see
+    config_or_cross_file_changes_needed).
+    """
 
     @property
     def name(self) -> str:
@@ -402,8 +411,14 @@ class SchemaFormationPhase(ConsolidationPhase):
                     await graph_store.create_relationship(rel)
 
                 if context is not None:
+                    # Track the schema entity for cache invalidation and storage
+                    # counting (the Entity row really exists in the graph). Do
+                    # NOT add it to affected_entity_ids: that flag drives reindex
+                    # re-embedding and graph-embed retraining for recall, but no
+                    # retrieval path reads Schema entities. Marking it affected
+                    # would falsely present this analytics-only output as
+                    # recall-affecting work.
                     context.schema_entity_ids.add(schema_id)
-                    context.affected_entity_ids.add(schema_id)
 
             records.append(
                 SchemaRecord(
