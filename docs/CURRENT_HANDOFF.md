@@ -134,6 +134,27 @@ with `112 passed`, ruff passed on touched files, and `git diff --check` is
 clean. The goal remains active for longer real Codex dogfood continuity
 evidence, but normal observe/projection no longer erases stable project-file
 rescue packets.
+Post-`1029cf7` reinstall/restart dogfood evidence: the local package was
+reinstalled from the clean checkout and the LaunchAgent was restarted to PID
+`48229`. AXI home stayed startup-safe and healthy; fresh AXI context for
+`post reinstall 1029cf7 live context probe 20260528` used project-file cache
+rescue in `2.8982ms`, and the matching AXI recall was `cache_satisfied` on
+repeat in `1.9462ms`. A forced no-evidence AXI recall
+`zz1029cf7 noartifact quibbleplasm yonderflux 20260528 forced miss` returned
+three project packets in `102.0141ms` with
+`preflight_timeout_context_packet_fallback`, no degradation, and no empty
+timeout payload. MCP `get_context` returned useful packets in `161.2856ms`, and
+MCP `recall` was `cache_satisfied` in `5.6553ms`. The live MCP catalog probe
+still exposes 27 tools including `remember` and `recall.project_path`; startup
+validation passed; and the confirmed lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-075531` with
+`13 pass, 0 warn, 0 fail, 0 skip`, leaving the post-matrix runtime healthy on
+PID `52284`. Post-matrix `engram axi value --json` reports read-path p95
+`73.4648ms`, read cache hit rate `1.0`, and zero read budget misses, degraded
+reads, or timeouts. Recall-quality sample `ers_145ab372177d` records this as
+useful real Codex dogfood evidence. No new code patch was justified by this
+sample; the next useful work is more real-session continuity evidence and
+watching write-path samples, not another speculative recall/context change.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

@@ -1902,6 +1902,20 @@ Lite mode only as a fallback smoke path.
   `project_file_cache_rescue` in `3.608ms`; AXI recall was `cache_satisfied` in
   `2.3008ms`; and live value read-path p95 was `83.8738ms` with zero budget
   misses, degradation, or timeouts.
+- A post-commit reinstall/restart pass verified HEAD `1029cf7` as the running
+  dogfood path. The local package was reinstalled from
+  `/Users/konnermoshier/Engram/server[local,native]`, the LaunchAgent restarted
+  to PID `48229`, AXI context used project-file cache rescue in `2.8982ms`,
+  repeat AXI recall was `cache_satisfied` in `1.9462ms`, and a forced
+  no-evidence AXI recall returned three project packets in `102.0141ms` instead
+  of an empty timeout payload. MCP `get_context` returned
+  useful packets in `161.2856ms`; MCP `recall` was `cache_satisfied` in
+  `5.6553ms`; validation passed with a 27-tool live MCP catalog including
+  `remember` and `recall.project_path`; and the confirmed lifecycle matrix
+  produced `/private/tmp/engram-dogfood-startup-20260528-075531` with
+  `13 pass, 0 warn, 0 fail, 0 skip`. Post-matrix runtime stayed healthy on PID
+  `52284`, and live value reported read-path p95 `73.4648ms`, read cache hit
+  rate `1.0`, and zero read budget misses, degradation, or timeouts.
 
 ## Work Plan
 

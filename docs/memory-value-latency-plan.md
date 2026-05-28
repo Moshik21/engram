@@ -3355,6 +3355,20 @@ Latency dogfood evidence:
   recall was `cache_satisfied` in `2.3008ms`; and live value reported read-path
   p95 `83.8738ms`, read cache hit rate `0.7778`, and zero read budget misses,
   degradation, or timeouts.
+- 2026-05-28 post-`1029cf7` reinstall/restart sample: the dogfood runtime was
+  reinstalled from the clean checkout and restarted to LaunchAgent PID `48229`.
+  AXI home stayed healthy; AXI context used project-file cache rescue in
+  `2.8982ms`; repeat AXI recall was `cache_satisfied` in `1.9462ms`; and a
+  forced no-evidence AXI recall returned three project packets in `102.0141ms`
+  with `preflight_timeout_context_packet_fallback` and no degraded/empty
+  timeout. MCP `get_context` returned useful project packets in `161.2856ms`;
+  MCP `recall` was `cache_satisfied` in `5.6553ms`; validation passed with 27
+  MCP tools, `remember`, and `recall.project_path`; and the confirmed lifecycle
+  matrix produced `/private/tmp/engram-dogfood-startup-20260528-075531`
+  (`13 pass, 0 warn, 0 fail, 0 skip`). Post-matrix PID `52284` stayed healthy.
+  Live value reported read-path p95 `73.4648ms`, read cache hit rate `1.0`, and
+  zero read budget misses, degradation, or timeouts. Recall-quality sample
+  `ers_145ab372177d` records the session evidence.
 
 ## Test Matrix
 
