@@ -155,6 +155,28 @@ reads, or timeouts. Recall-quality sample `ers_145ab372177d` records this as
 useful real Codex dogfood evidence. No new code patch was justified by this
 sample; the next useful work is more real-session continuity evidence and
 watching write-path samples, not another speculative recall/context change.
+Latest real-session recall-priority fix: the next resumed Codex turn found a
+packet-cache relevance regression rather than a loaded-store latency issue.
+Fresh session packet `ep_971656d12ca9` surfaced once, then repeat recall for
+the same resumed-goal query was starved by newer `project_home` rows because
+`cached_context_recall_packet_payloads()` fetched `session_recent`,
+`identity_core`, and `project_home` together under one global recency limit. The
+fallback now gathers `session_recent`, `identity_core`, and `project_home`
+scope groups separately, dedupes them, and lets the existing relevance filter
+choose the useful packets. After reinstall/restart to LaunchAgent PID `62723`,
+live MCP observe stored fresh marker `ep_0352d83b5ece`; two newer AXI context
+calls warmed project-home packets; and repeated AXI recalls for
+`recent priority liveproof ultramarine 20260528 fresh observation` returned the
+recent observation first in `3.2818ms` and `2.2598ms` with
+`skipReason=cache_satisfied`, no degradation, and no budget miss. The focused
+backend gate passed with `113 passed`; ruff passed on the touched retrieval
+files/tests; startup validation passed all 14 checks against PID `62723` with
+the live MCP catalog still exposing 27 tools including `remember` and
+`recall.project_path`. Post-validation `engram axi value --json` reports
+read-path p95 `81.5933ms`, read cache hit rate `0.95`, and zero read budget
+misses, degraded reads, or timeouts. The goal remains active for longer real
+Codex continuity evidence, but fresh observations are no longer starved by
+project-home cache recency.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

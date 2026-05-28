@@ -3369,6 +3369,19 @@ Latency dogfood evidence:
   Live value reported read-path p95 `73.4648ms`, read cache hit rate `1.0`, and
   zero read budget misses, degradation, or timeouts. Recall-quality sample
   `ers_145ab372177d` records the session evidence.
+- 2026-05-28 recall-priority follow-up: the next resumed Codex session exposed
+  packet-cache scope starvation. A fresh `session_recent` observation
+  `ep_971656d12ca9` surfaced once, then repeat recall could be satisfied by
+  newer `project_home` packets because the context fallback fetched
+  `session_recent`, `identity_core`, and `project_home` through one global
+  recency-limited query. The fallback now reads those scopes separately before
+  dedupe and relevance filtering. After reinstall/restart to PID `62723`, live
+  marker `ep_0352d83b5ece` remained the first packet for repeated AXI recalls
+  after two newer project-home warmups: `3.2818ms` and `2.2598ms`, both
+  `cache_satisfied`, with no degradation or budget miss. Focused tests passed
+  with `113 passed`, ruff passed, startup validation passed all 14 checks, and
+  post-validation live value reported read-path p95 `81.5933ms`, read cache hit
+  rate `0.95`, and zero read budget misses, degradation, or timeouts.
 
 ## Test Matrix
 

@@ -1916,6 +1916,21 @@ Lite mode only as a fallback smoke path.
   `13 pass, 0 warn, 0 fail, 0 skip`. Post-matrix runtime stayed healthy on PID
   `52284`, and live value reported read-path p95 `73.4648ms`, read cache hit
   rate `1.0`, and zero read budget misses, degradation, or timeouts.
+- A later real Codex continuation found a recall-priority edge in the cached
+  context fallback. Fresh session packet `ep_971656d12ca9` could surface once,
+  then repeat recall for the same resumed-goal query was masked by newer
+  `project_home` packets because the fallback fetched all scopes through one
+  globally recency-limited packet-cache query. The fallback now reads
+  `session_recent`, `identity_core`, and `project_home` separately before
+  dedupe and relevance filtering. After reinstall/restart to LaunchAgent PID
+  `62723`, fresh marker `ep_0352d83b5ece` stayed first for repeated AXI recalls
+  even after two newer project-home context warmups: `3.2818ms` and `2.2598ms`,
+  both `cache_satisfied`, with no degradation or budget miss. Focused
+  regression tests passed with `113 passed`, ruff passed, and full startup
+  validation passed all 14 checks against PID `62723`, including the 27-tool
+  live MCP catalog with `remember` and `recall.project_path`. Post-validation
+  live value reported read-path p95 `81.5933ms`, read cache hit rate `0.95`,
+  and zero read budget misses, degradation, or timeouts.
 
 ## Work Plan
 

@@ -702,9 +702,21 @@ async def test_api_recall_surface_uses_context_packets_when_deep_recall_times_ou
     assert result["items"] == []
     assert result["packets"] == [context_packet]
     assert result["lifecycle"]["timeout"] is True
-    manager.get_recent_cached_memory_packets.assert_called_once_with(
+    manager.get_recent_cached_memory_packets.assert_any_call(
         "native_brain",
-        scopes=("identity_core", "session_recent", "project_home"),
+        scopes=("session_recent",),
+        limit_packets=3,
+        sync_persistent=False,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("identity_core",),
+        limit_packets=3,
+        sync_persistent=False,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("project_home",),
         limit_packets=6,
         sync_persistent=False,
     )
@@ -1091,9 +1103,77 @@ async def test_api_recall_surface_uses_session_recent_packet_cache() -> None:
     assert result["packets"] == [recent_packet]
     assert result["budget"]["skipReason"] == "cache_satisfied"
     assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
-    assert recent_calls == [("identity_core", "session_recent", "project_home")]
+    assert recent_calls == [
+        ("session_recent",),
+        ("identity_core",),
+        ("project_home",),
+    ]
     manager.recall.assert_not_awaited()
     manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_does_not_let_project_packets_starve_recent_cache() -> None:
+    recent_packet = {
+        "packet_type": "recent_observation",
+        "title": "Recent Observation: ep_codex",
+        "summary": "User resumed Engram native PyO3 dogfood performance goal again.",
+        "episode_ids": ["ep_codex"],
+        "provenance": ["episode:ep_codex", "source:mcp"],
+        "trust": {"source": "mcp_observe", "freshness": "fresh"},
+    }
+    project_packets = [
+        {
+            "packet_type": "project_home",
+            "title": f"Project File: docs/{index}.md",
+            "summary": "Engram dogfood performance docs and project packet context.",
+            "trust": {"source": "project_file", "freshness": "local"},
+        }
+        for index in range(8)
+    ]
+
+    def get_recent(
+        _group_id: str,
+        *,
+        scopes: tuple[str, ...],
+        **_kwargs,
+    ):
+        if scopes == ("session_recent",):
+            return [recent_packet]
+        if scopes == ("project_home",):
+            return project_packets
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(side_effect=get_recent),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="User resumed Engram native PyO3 dogfood performance goal again",
+        limit=3,
+        project_path="/Users/konnermoshier/Engram",
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"][0] == recent_packet
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
+    manager.recall.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1834,9 +1914,21 @@ async def test_mcp_recall_surface_uses_context_packets_after_preflight_miss() ->
     assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
     assert result["diagnostics"]["stage_timings_ms"]["recall_fast_preflight"] >= 0
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.get_recent_cached_memory_packets.assert_called_with(
+    manager.get_recent_cached_memory_packets.assert_any_call(
         "native_brain",
-        scopes=("identity_core", "session_recent", "project_home"),
+        scopes=("session_recent",),
+        limit_packets=3,
+        sync_persistent=False,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("identity_core",),
+        limit_packets=3,
+        sync_persistent=False,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("project_home",),
         limit_packets=6,
         sync_persistent=False,
     )
@@ -1888,9 +1980,21 @@ async def test_mcp_recall_surface_uses_project_home_packet_after_preflight_miss(
     assert result["budget"]["skip_reason"] == "preflight_miss_context_packet_fallback"
     assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.get_recent_cached_memory_packets.assert_called_with(
+    manager.get_recent_cached_memory_packets.assert_any_call(
         "native_brain",
-        scopes=("identity_core", "session_recent", "project_home"),
+        scopes=("session_recent",),
+        limit_packets=3,
+        sync_persistent=False,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("identity_core",),
+        limit_packets=3,
+        sync_persistent=True,
+    )
+    manager.get_recent_cached_memory_packets.assert_any_call(
+        "native_brain",
+        scopes=("project_home",),
         limit_packets=6,
         sync_persistent=True,
     )

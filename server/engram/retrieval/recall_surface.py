@@ -1501,21 +1501,13 @@ async def cached_context_recall_packet_payloads(
     if not callable(getter):
         return []
     started = time.perf_counter()
-    try:
-        packets = getter(
-            group_id,
-            scopes=("identity_core", SESSION_RECENT_PACKET_SCOPE, "project_home"),
-            limit_packets=max_packets * 2,
-            sync_persistent=bool(project_path),
-        )
-    except Exception:
-        return []
-    if inspect.isawaitable(packets):
-        close = getattr(packets, "close", None)
-        if callable(close):
-            close()
-        return []
-    if not isinstance(packets, list):
+    packets = _scope_prioritized_context_packets(
+        getter,
+        group_id=group_id,
+        max_packets=max_packets,
+        sync_persistent=bool(project_path),
+    )
+    if not packets:
         return []
     packets = _filter_cached_context_packets_for_project(
         packets,
@@ -1552,6 +1544,63 @@ async def cached_context_recall_packet_payloads(
         ),
     )
     return filtered
+
+
+def _scope_prioritized_context_packets(
+    getter: Callable[..., Any],
+    *,
+    group_id: str,
+    max_packets: int,
+    sync_persistent: bool,
+) -> list[dict[str, Any]]:
+    """Collect context-cache candidates without letting project packets starve recents."""
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for scopes, limit, should_sync in (
+        ((SESSION_RECENT_PACKET_SCOPE,), max_packets, False),
+        (("identity_core",), max_packets, sync_persistent),
+        (("project_home",), max_packets * 2, sync_persistent),
+    ):
+        for packet in _recent_packets_for_scopes(
+            getter,
+            group_id=group_id,
+            scopes=scopes,
+            limit_packets=limit,
+            sync_persistent=should_sync,
+        ):
+            fingerprint = _packet_fingerprint(packet)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            candidates.append(packet)
+    return candidates
+
+
+def _recent_packets_for_scopes(
+    getter: Callable[..., Any],
+    *,
+    group_id: str,
+    scopes: tuple[str, ...],
+    limit_packets: int,
+    sync_persistent: bool,
+) -> list[dict[str, Any]]:
+    try:
+        packets = getter(
+            group_id,
+            scopes=scopes,
+            limit_packets=limit_packets,
+            sync_persistent=sync_persistent,
+        )
+    except Exception:
+        return []
+    if inspect.isawaitable(packets):
+        close = getattr(packets, "close", None)
+        if callable(close):
+            close()
+        return []
+    if not isinstance(packets, list):
+        return []
+    return [dict(packet) for packet in packets if isinstance(packet, Mapping)]
 
 
 async def project_file_recall_packet_payloads(
