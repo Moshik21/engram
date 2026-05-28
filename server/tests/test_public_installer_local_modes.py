@@ -287,6 +287,13 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert "curl --connect-timeout 1 --max-time 5 -fsS" in engramctl
     assert "launch_agent_available" in engramctl
     assert "launch_agent_start" in engramctl
+    assert "launch_agent_repair_login_shell" in engramctl
+    assert "/usr/libexec/PlistBuddy" in engramctl
+    assert "Print :ProgramArguments:1" in engramctl
+    assert "Set :ProgramArguments:1 -c" in engramctl
+    assert "Delete :ProgramArguments:2" in engramctl
+    assert "bootstrapped=1" in engramctl
+    assert 'launchctl kickstart "$service"' in engramctl
     assert "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}" in engramctl
     assert "local_startup_attempts" in engramctl
     assert (

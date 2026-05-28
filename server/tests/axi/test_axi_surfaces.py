@@ -8,6 +8,7 @@ from engram.axi.surfaces import (
     build_doctor_payload,
     build_home_payload,
     build_packet_cache_clear_payload,
+    build_packet_cache_summary_payload,
     build_recall_payload,
     build_storage_payload,
     build_value_payload,
@@ -216,6 +217,24 @@ class FakeClient:
                 "entryCount": 0,
                 "freshCount": 0,
                 "hitCount": 7,
+                "persistent": True,
+                "path": "/tmp/engram-packet-cache.sqlite3",
+            },
+        }
+
+    def packet_cache(self) -> dict:
+        self.calls.append("packet_cache")
+        self._maybe_fail("packet_cache")
+        return {
+            "operation": "packet_cache.summary",
+            "status": "ok",
+            "packetCache": {
+                "entryCount": 4,
+                "freshCount": 3,
+                "invalidatedCount": 1,
+                "expiredCount": 0,
+                "hitCount": 9,
+                "scopes": {"project_home": 2, "session_recent": 1},
                 "persistent": True,
                 "path": "/tmp/engram-packet-cache.sqlite3",
             },
@@ -720,6 +739,28 @@ def test_packet_cache_clear_payload_reports_post_clear_summary() -> None:
         result.payload["next"][0]["cmd"]
         == 'engram axi context --project "$PWD" --timeout 10'
     )
+
+
+def test_packet_cache_summary_payload_reports_cache_diagnostics() -> None:
+    result = build_packet_cache_summary_payload(FakeClient())
+
+    assert result.exit_code == 0
+    assert result.payload["operation"] == "packet-cache.summary"
+    assert result.payload["status"] == "ok"
+    assert result.payload["packet_cache"] == {
+        "entry_count": 4,
+        "fresh_count": 3,
+        "invalidated_count": 1,
+        "expired_count": 0,
+        "hit_count": 9,
+        "scopes": {"project_home": 2, "session_recent": 1},
+        "persistent": True,
+        "path": "/tmp/engram-packet-cache.sqlite3",
+    }
+    assert result.payload["next"][0]["cmd"] == (
+        'engram axi context --project "$PWD" --timeout 10'
+    )
+    assert result.payload["next"][1]["cmd"] == "engram axi packet-cache clear"
 
 
 def test_doctor_payload_fails_when_required_probe_fails() -> None:

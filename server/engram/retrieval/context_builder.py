@@ -1858,6 +1858,40 @@ async def _project_file_context_payload_from_task_or_manager(
                 },
                 cache_hit=True,
             )
+        pending_packets = _project_file_pending_context_packets(
+            project_path=project_path,
+            topic_hint=topic_hint,
+            reason=_project_file_fallback_reason(skip_reason),
+        )
+        if pending_packets:
+            task.add_done_callback(
+                partial(
+                    _cache_project_file_context_fallback_task_result,
+                    manager=manager,
+                    group_id=group_id,
+                    topic_hint=topic_hint,
+                    project_path=project_path,
+                )
+            )
+            return _project_file_context_payload_from_packets(
+                pending_packets,
+                group_id=group_id,
+                topic_hint=topic_hint,
+                project_path=project_path,
+                format=format,
+                budget=budget,
+                status=status,
+                duration_ms=duration_ms,
+                fallback_duration_ms=0.0,
+                skip_reason=skip_reason,
+                timeout=timeout,
+                total_duration_ms=_elapsed_ms(started),
+                pre_fallback_stage_timings={
+                    **stage_timings,
+                    "project_file_fallback_pending": 1.0,
+                },
+                cache_hit=False,
+            )
     try:
         packets, fallback_duration_ms = await asyncio.shield(task)
     except asyncio.CancelledError:
@@ -1976,6 +2010,81 @@ async def _wait_for_project_file_context_task_before_rescue(
         raise
     except Exception:
         logger.debug("Project file context soft wait failed", exc_info=True)
+
+
+def _project_file_pending_context_packets(
+    *,
+    project_path: str | None,
+    topic_hint: str | None,
+    reason: str,
+) -> list[dict[str, Any]]:
+    """Return a small useful packet while a cold project-file scan finishes."""
+    if not project_path:
+        return []
+    try:
+        project_dir = Path(project_path).expanduser()
+        if (
+            not project_dir.is_dir()
+            or str(project_dir) in {str(Path.home()), "/"}
+        ):
+            return []
+    except OSError:
+        return []
+
+    markers = [
+        marker
+        for marker in ("README.md", "pyproject.toml", "package.json", "docs")
+        if (project_dir / marker).exists()
+    ]
+    topic_text = f" for `{topic_hint}`" if topic_hint else ""
+    marker_text = (
+        f" Detected project markers: {', '.join(markers[:4])}."
+        if markers
+        else ""
+    )
+    summary = (
+        f"Project {project_dir.name} at {project_dir} has local file context "
+        f"warming in the background{topic_text}.{marker_text}"
+    )
+    return [
+        _redact_packet_payload(
+            {
+                "packet_type": "project_home",
+                "title": f"Project Context Warming: {project_dir.name}",
+                "summary": _redact_packet_text(summary),
+                "why_now": reason,
+                "confidence": 0.45,
+                "entity_ids": [],
+                "relationship_ids": [],
+                "episode_ids": [],
+                "evidence_lines": [
+                    _redact_packet_text(f"project_path={project_dir}"),
+                    _redact_packet_text(
+                        "Full project-file packets are being cached in the background."
+                    ),
+                ],
+                "provenance": [f"project:{project_dir.name}"],
+                "supporting_intents": ["project_file_context_fallback_pending"],
+                "trust": {
+                    "freshness": "pending",
+                    "source": "project_file",
+                    "confidence": 0.45,
+                    "why_now": reason,
+                    "provenance_count": 1,
+                    "evidence_count": 2,
+                    "belief_status": "unknown",
+                    "confirmed_count": 0,
+                    "corrected_count": 0,
+                    "dismissed_count": 0,
+                    "last_confirmed_at": None,
+                    "last_corrected_at": None,
+                    "last_dismissed_at": None,
+                },
+                "_cache_scope": "project_file_pending",
+                "_project_file_fallback_pending": True,
+            }
+        )
+    ]
 
 
 def _project_file_cache_rescue_packets_from_manager(

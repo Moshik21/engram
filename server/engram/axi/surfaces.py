@@ -507,6 +507,52 @@ def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
     return AxiResult(payload=payload)
 
 
+def build_packet_cache_summary_payload(client: AxiRestClient) -> AxiResult:
+    """Build the read-only packet-cache summary command payload."""
+    try:
+        result = client.packet_cache()
+    except AxiRestError as exc:
+        return _error_result("packet-cache", exc)
+
+    packet_cache = result.get("packetCache") or result.get("packet_cache") or {}
+    payload = {
+        "operation": "packet-cache.summary",
+        "status": result.get("status") or "ok",
+        "packet_cache": {
+            "entry_count": packet_cache.get("entryCount")
+            or packet_cache.get("entry_count")
+            or 0,
+            "fresh_count": packet_cache.get("freshCount")
+            or packet_cache.get("fresh_count")
+            or 0,
+            "invalidated_count": packet_cache.get("invalidatedCount")
+            or packet_cache.get("invalidated_count")
+            or 0,
+            "expired_count": packet_cache.get("expiredCount")
+            or packet_cache.get("expired_count")
+            or 0,
+            "hit_count": packet_cache.get("hitCount") or packet_cache.get("hit_count") or 0,
+            "scopes": packet_cache.get("scopes") or {},
+            "persistent": bool(packet_cache.get("persistent")),
+            "path": packet_cache.get("path"),
+        },
+        "next": [
+            {
+                "cmd": (
+                    'engram axi context --project "$PWD" '
+                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                ),
+                "reason": "Warm or reuse project context packets",
+            },
+            {
+                "cmd": "engram axi packet-cache clear",
+                "reason": "Clear stale packets without deleting memories",
+            },
+        ],
+    }
+    return AxiResult(payload=payload)
+
+
 def build_storage_payload(client: AxiRestClient) -> AxiResult:
     try:
         storage = client.storage(live=True, timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS)

@@ -5,6 +5,23 @@ from __future__ import annotations
 from typing import Any
 
 
+def build_api_packet_cache_summary_surface(
+    manager: Any,
+    *,
+    group_id: str,
+) -> dict[str, Any]:
+    """Return packet-cache diagnostics without mutating cache state."""
+    summary = {}
+    get_summary = getattr(manager, "get_memory_packet_cache_summary", None)
+    if callable(get_summary):
+        summary = get_summary(group_id) or {}
+    return {
+        "operation": "packet_cache.summary",
+        "status": "ok",
+        "packetCache": _camel_packet_cache_summary(summary),
+    }
+
+
 def build_api_packet_cache_clear_surface(
     manager: Any,
     *,

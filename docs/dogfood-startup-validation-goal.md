@@ -107,6 +107,49 @@ Lite mode only as a fallback smoke path.
   engramctl start` took `1:22` wall time, while server logs reached healthy
   after roughly 30 seconds. Full startup validation still passed all checks
   against the current runtime, but startup wall time remains a goal item.
+- A resumed 2026-05-28 packet-cache diagnostics pass kept the goal active but
+  tightened the evidence: hot AXI context hit packet cache in `0.0994ms`, AXI
+  recall was `cache_satisfied` in `2.0336ms`, MCP `get_context` returned from
+  cache in `0.0556ms`, and MCP `recall` was `cache_satisfied` in `25.1052ms`.
+  After `engram axi packet-cache clear`, isolated AXI context rebuilt useful
+  project-file packets in `70.5027ms`; MCP cold context returned useful packets
+  in `194.023ms` with `loaded_store_context_preflight=76.0465ms`; and isolated
+  AXI cold recall returned useful project-file packets in `532.0314ms`. The
+  next post-restart empty-cache AXI context exposed a first-turn scan tail:
+  `project_file_fallback=7022.0675ms` and a wall-budget miss. Context now
+  returns a bounded `project_file_pending` packet after the soft wait and lets
+  the full project-file scan warm the exact packet cache in the background.
+  After reinstall/restart to LaunchAgent PID `33029`, `engramctl start`
+  completed in `21.439s`; cold AXI context after
+  `engram axi packet-cache clear` returned in `80.5724ms` with no degradation
+  or budget miss; the follow-up same-topic context hit warmed project packets
+  in `0.0566ms`; `engram axi packet-cache --json` reported two fresh
+  persistent `project_home` entries; and `engram axi value --json` reported
+  read-path p95 `80.793ms`, zero read degradation/timeouts, and zero budget
+  misses. A follow-up explicit recall pass then made cold no-evidence recall
+  return early when fast preflight times out and bounded project-file fallback
+  packets are ready. After reinstall/restart to LaunchAgent PID `37398` and
+  `engram axi packet-cache clear`, the same no-evidence AXI recall probe
+  returned three `project_home` packets in `277.7469ms` with
+  `skipReason=preflight_timeout_project_file_fallback`, no deep
+  `recallSearch`, no degradation, and no budget miss. The remaining
+  LaunchAgent start variance was then traced to the supervised restart path
+  rather than the server/data path: direct `engram serve` against the same
+  4.0G native Helix directory reached startup on a temporary port in about
+  `1s`, while the old LaunchAgent matrix start took `72.043s`. `engramctl
+  start` now avoids `kickstart -k` immediately after fresh bootstrap and
+  repairs legacy LaunchAgent plists from `/bin/zsh -lc` to `/bin/zsh -c`.
+  After installing the repaired `engramctl`, a direct supervised restart held
+  at `5.427s`; the refreshed lifecycle matrix
+  `/private/tmp/engram-dogfood-startup-20260528-113523` passed with
+  `13 pass, 0 warn, 0 fail, 0 skip`, and its `start runtime` step was
+  `6.124s`. Post-matrix AXI/MCP probes stayed non-degraded: AXI context
+  `71.7778ms`, AXI recall `cache_satisfied` at `2.9092ms`, MCP `get_context`
+  `32.6169ms`, MCP recall `cache_satisfied` at `35.0792ms`, and read-path p95
+  `71.8991ms` with zero read degradation/timeouts/budget misses. The remaining
+  target is more real Codex-session evidence. REST and AXI now include a
+  read-only packet-cache summary surface:
+  `GET /api/knowledge/packet-cache` and `engram axi packet-cache`.
 
 2026-05-22 native PyO3 dogfood validation passes on the warmed local runtime:
 

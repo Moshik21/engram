@@ -1388,9 +1388,34 @@ Implementation progress:
   transitioned episodes, and demoted relationships. Evidence/adjudication
   materialization paths invalidate stale packet views after accepted or terminal
   adjudication outcomes.
-- The blunt operator fallback is now wired through REST and AXI as
-  `engram axi packet-cache clear`, which clears tenant-local cached packet
-  entries without deleting graph memory, labels, or native Helix storage.
+- The read-only operator check is now wired through REST and AXI as
+  `engram axi packet-cache`, which reports entry counts, scope counts, hit
+  count, persistence, and the sidecar path without mutating cache state. The
+  blunt fallback remains `engram axi packet-cache clear`, which clears
+  tenant-local cached packet entries without deleting graph memory, labels, or
+  native Helix storage.
+- Cold context no longer waits unboundedly for a first project-file scan when
+  the packet cache is empty after restart. After the soft wait, context returns
+  a small `project_file_pending` packet and lets the full scan refresh the exact
+  topic cache in the background; the next same-topic call can then hit
+  `project_home` packets.
+- Cold explicit recall no longer spends the full bounded live-search tail when
+  fast preflight times out and project-file fallback packets are already ready.
+  After reinstall/restart to native PyO3 LaunchAgent PID `37398` and
+  `engram axi packet-cache clear`, a no-evidence AXI recall returned three
+  `project_home` packets in `277.7469ms` with
+  `skipReason=preflight_timeout_project_file_fallback`, no deep `recallSearch`,
+  no degradation, and no budget miss.
+- The dogfood LaunchAgent restart tail was isolated from the server/data path.
+  A direct foreground `engram serve` against the same 4.0G native Helix data
+  directory reached startup on a temporary port in about `1s`, while the old
+  supervised matrix start took `72.043s`. `engramctl start` now avoids
+  killing a freshly bootstrapped LaunchAgent with `kickstart -k` and repairs
+  legacy plists from login shell mode (`/bin/zsh -lc`) to non-login shell mode
+  (`/bin/zsh -c`). After installing the repaired `engramctl`, a direct
+  supervised restart held at `5.427s`, and the refreshed lifecycle matrix at
+  `/private/tmp/engram-dogfood-startup-20260528-113523` passed with
+  `13 pass, 0 warn, 0 fail, 0 skip`; its `start runtime` step was `6.124s`.
 
 Invalidation:
 
@@ -1403,6 +1428,7 @@ Invalidation:
 - Provide and document the blunt fallback:
 
 ```bash
+engram axi packet-cache
 engram axi packet-cache clear
 ```
 

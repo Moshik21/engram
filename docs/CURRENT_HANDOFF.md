@@ -140,6 +140,66 @@ The refreshed lifecycle matrix produced
 `git diff --check` is clean. The goal remains active for longer real Codex
 dogfood continuity evidence, but the no-evidence loaded-store recall tail is no
 longer the current blocker.
+
+Latest packet-cache diagnostics follow-up: a resumed 2026-05-28 goal turn
+rechecked the live native PyO3 dogfood store after `6dc928f`. Runtime was
+healthy on port `8100`, storage was still the 4.0G native data dir, and the
+on-disk LaunchAgent `ThrottleInterval` was restored from the experiment back to
+`10`. Hot AXI/MCP context and recall paths were cache-satisfied: AXI context
+returned from packet cache in `0.0994ms`, AXI recall in `2.0336ms`, MCP
+`get_context` in `0.0556ms`, and MCP `recall` in `25.1052ms`, with no
+degradation or budget miss. After explicit packet-cache clears, isolated AXI
+context initially rebuilt useful project-file packets in `70.5027ms`; MCP cold
+context returned useful project-file packets in `194.023ms` with
+`loaded_store_context_preflight=76.0465ms`; and isolated AXI cold recall
+returned project-file packets in `532.0314ms`, mostly from bounded empty
+preflight/live-search timings rather than packet formatting. A post-restart
+empty-cache AXI context then exposed the real first-turn project-file scan
+edge: `project_file_fallback=7022.0675ms` and a wall-budget miss. Context now
+returns a small `project_file_pending` packet after the soft wait while the full
+project-file scan caches the exact topic in the background. After reinstall and
+restart to LaunchAgent PID `33029`, `engramctl start` completed in `21.439s`;
+after `engram axi packet-cache clear`, the cold AXI context probe returned in
+`80.5724ms` with `projectFileFallbackPending=1.0`, no degradation, and no
+budget miss; a follow-up same-topic context hit warmed project packets in
+`0.0566ms`. `engram axi packet-cache --json` reported two fresh persistent
+`project_home` entries at
+`/Users/konnermoshier/.helix/engram-native-dogfood-axi/packet-cache.sqlite3`,
+and `engram axi value --json` reported read-path p95 `80.793ms`, cache hit rate
+`0.5`, and zero read degradation/timeouts/budget misses. The code also adds a
+read-only `GET /api/knowledge/packet-cache` plus `engram axi packet-cache`
+summary command so agents can inspect cache entry count, scopes, hits,
+persistence, and sidecar path without clearing the cache. Focused AXI/API/context
+tests passed with `164 passed`; ruff and `git diff --check` passed on touched
+files. A follow-up explicit recall patch now skips deep loaded-store search
+when fast preflight times out and bounded project-file fallback packets are
+ready. After reinstall/restart to LaunchAgent PID `37398` and
+`engram axi packet-cache clear`, the cold no-evidence AXI recall probe returned
+three `project_home` packets in `277.7469ms` with
+`skipReason=preflight_timeout_project_file_fallback`, no `recallSearch` timing,
+no degradation, and no budget miss. `engram axi value --json` then reported
+read-path p95 `276.7128ms`, zero read budget misses, and the remaining degraded
+sample was an MCP `auto_recall_gate` timeout from the live status check, not
+explicit recall. `engram axi packet-cache --json` reported two fresh persistent
+`project_home` entries after the probe. A follow-up LaunchAgent startup pass
+then traced the remaining `72.043s` matrix start tail to the supervised restart
+path, not the server or native data path: a direct foreground `engram serve`
+against the same 4.0G dogfood native Helix directory started on a temporary port
+in about `1s`. `engramctl start` now avoids killing a freshly bootstrapped
+RunAtLoad job and repairs legacy LaunchAgent plists from `/bin/zsh -lc` to
+`/bin/zsh -c`, including cleanup for the accidentally duplicated `-lc` form.
+After installing the repaired `engramctl`, the local plist is clean
+(`ProgramArguments: /bin/zsh, -c, source ~/.engram/.env ...`), a direct
+supervised restart held at `5.427s`, and the refreshed lifecycle matrix at
+`/private/tmp/engram-dogfood-startup-20260528-113523` passed with
+`13 pass, 0 warn, 0 fail, 0 skip`; its `start runtime` step was `6.124s`.
+Post-matrix AXI context returned useful project context in `71.7778ms`, AXI
+recall was `cache_satisfied` in `2.9092ms`, MCP `get_context` returned useful
+project packets in `32.6169ms`, and MCP `recall` was `cache_satisfied` in
+`35.0792ms`, all without degradation or budget misses. `engram axi value
+--json` reported read-path p95 `71.8991ms`, read cache hit rate `1.0`, and zero
+read degradation/timeouts/budget misses. The next performance target is more
+real Codex-session continuity evidence rather than a known recall/startup tail.
 Second real Codex-session sample after commit `1b98a19`: the resumed Codex turn
 called MCP `get_context` before work and got useful project packets in
 `249.4908ms` with no degradation or budget miss; MCP `recall` then hit cache in

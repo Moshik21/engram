@@ -146,6 +146,12 @@ python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle
 records warmed, stopped, restarted, and stale-PID states. Without that flag it
 only records the warmed runtime checks.
 
+When an existing macOS LaunchAgent is present, `engramctl start` also repairs
+legacy local plists that invoke `/bin/zsh -lc`, switching them to the non-login
+shell form `/bin/zsh -c` before bootstrapping. That keeps supervised startup
+from paying user login-shell initialization cost while preserving the sourced
+Engram environment file.
+
 If a half-started native restart leaves an untracked Engram API listener behind,
 `engramctl stop` will clean up only listener processes whose command line looks
 like Engram's local `serve` command. If another process owns the port, it refuses
@@ -172,6 +178,7 @@ engram axi context --project "$PWD" --budget 800 --timeout 10
 engram axi recall "current task" --limit 5 --timeout 10
 engram axi value --budget 800 --timeout 20
 engram axi storage
+engram axi packet-cache
 engram axi packet-cache clear
 engram axi doctor --hooks codex claude-code --require-hook-run --require-followup
 engram axi hooks print codex
@@ -193,9 +200,11 @@ follow-up gate requires a later metadata-only `context` or `recall` record from
 or adoption proof. Managed startup hooks call `engram axi hook-run`, which reads
 the client hook payload from stdin and uses its `cwd` as the project path when
 available, avoiding shell `$PWD` drift in clients that launch hooks before the
-workspace cwd is ready. `engram axi packet-cache clear` is the fallback for
-clearing stale cached packets; it does not delete memories, graph data, labels,
-or native Helix storage. Codex may show a hook-review prompt the first time the
+workspace cwd is ready. `engram axi packet-cache` prints cache entry counts,
+scopes, hit count, persistence, and sidecar path without mutating state.
+`engram axi packet-cache clear` is the fallback for clearing stale cached
+packets; it does not delete memories, graph data, labels, or native Helix
+storage. Codex may show a hook-review prompt the first time the
 managed hook changes; after trust, the TUI surfaces the session-start packet on
 the first submitted prompt.
 
@@ -1481,6 +1490,7 @@ Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, 
 | GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
 | GET | `/api/knowledge/runtime` | Cache-first, budgeted mode/profile/feature state, artifact freshness, and adoption guidance (`?live=true&timeoutSeconds=5` refreshes deep state) |
 | GET | `/api/knowledge/runtime/fast` | Startup-safe runtime packet that skips graph and artifact inspection |
+| GET | `/api/knowledge/packet-cache` | Read-only tenant packet-cache diagnostics: entries, scopes, hits, persistence, and path |
 | POST | `/api/knowledge/forget` | Forget entity or fact |
 | POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
 | POST | `/api/knowledge/intentions` | Create a graph-embedded intention or refresh-context pinned query |

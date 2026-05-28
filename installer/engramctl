@@ -794,23 +794,43 @@ launch_agent_pid() {
   launch_agent_print | awk -F'= ' '/^[[:space:]]*pid = / {print $2; exit}'
 }
 
+launch_agent_repair_login_shell() {
+  launch_agent_available || return 1
+  [ -x /usr/libexec/PlistBuddy ] || return 1
+  local shell_mode next_arg
+  shell_mode="$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments:1" "$LITE_LAUNCH_AGENT_PLIST" 2>/dev/null || true)"
+  next_arg="$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments:2" "$LITE_LAUNCH_AGENT_PLIST" 2>/dev/null || true)"
+  if [ "$shell_mode" = "-lc" ]; then
+    /usr/libexec/PlistBuddy -c "Set :ProgramArguments:1 -c" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || return 1
+    return 0
+  fi
+  if [ "$shell_mode" = "-c" ] && [ "$next_arg" = "-lc" ]; then
+    /usr/libexec/PlistBuddy -c "Delete :ProgramArguments:2" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || return 1
+  fi
+}
+
 launch_agent_start() {
   launch_agent_available || return 1
   if launch_agent_is_running; then
     return 0
   fi
+  launch_agent_repair_login_shell || true
 
   local domain service
   domain="$(launch_agent_domain)"
   service="$(launch_agent_service)"
+  local bootstrapped=0
   if ! launchctl print "$service" >/dev/null 2>&1; then
     if ! launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1; then
       sleep 1
       launchctl bootout "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
       launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || return 1
     fi
+    bootstrapped=1
   fi
-  if ! launchctl kickstart -k "$service" >/dev/null 2>&1; then
+  if [ "$bootstrapped" = "1" ]; then
+    launchctl kickstart "$service" >/dev/null 2>&1 || true
+  elif ! launchctl kickstart -k "$service" >/dev/null 2>&1; then
     sleep 1
     launchctl kickstart -k "$service" >/dev/null 2>&1 || true
   fi

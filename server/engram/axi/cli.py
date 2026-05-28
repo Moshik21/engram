@@ -27,6 +27,7 @@ from engram.axi.surfaces import (
     build_doctor_payload,
     build_home_payload,
     build_packet_cache_clear_payload,
+    build_packet_cache_summary_payload,
     build_recall_payload,
     build_storage_payload,
     build_value_payload,
@@ -99,9 +100,16 @@ def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
         parents=[common],
         help="Inspect or clear cached memory packets.",
     )
+    packet_cache_parser.set_defaults(packet_cache_command="summary")
     packet_cache_subparsers = packet_cache_parser.add_subparsers(
         dest="packet_cache_command",
-        required=True,
+        required=False,
+    )
+    packet_cache_subparsers.default = "summary"
+    packet_cache_subparsers.add_parser(
+        "summary",
+        parents=[common],
+        help="Print packet-cache diagnostics without clearing entries.",
     )
     packet_cache_subparsers.add_parser(
         "clear",
@@ -328,7 +336,10 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
             followup_trace_origin=FOLLOWUP_TRACE_ORIGIN,
         )
     if command == "packet-cache":
-        if getattr(args, "packet_cache_command", None) == "clear":
+        packet_cache_command = getattr(args, "packet_cache_command", None) or "summary"
+        if packet_cache_command == "summary":
+            return build_packet_cache_summary_payload(client)
+        if packet_cache_command == "clear":
             return build_packet_cache_clear_payload(client)
         return AxiResult(
             payload={

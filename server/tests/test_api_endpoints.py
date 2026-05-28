@@ -190,6 +190,35 @@ async def test_packet_cache_clear_endpoint_clears_tenant_entries(api_client):
     assert manager.get_memory_packet_cache_summary("default")["entry_count"] == 0
 
 
+@pytest.mark.asyncio
+async def test_packet_cache_summary_endpoint_does_not_clear_entries(api_client):
+    manager = _app_state["graph_manager"]
+    manager.cache_memory_packets(
+        "default",
+        scope="project_home",
+        packets=[
+            {
+                "packet_type": "project_home",
+                "title": "Project Home",
+                "summary": "Cached project context",
+            }
+        ],
+        project_path="/tmp/project",
+    )
+    assert manager.get_memory_packet_cache_summary("default")["entry_count"] == 1
+
+    response = await api_client.get("/api/knowledge/packet-cache")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["operation"] == "packet_cache.summary"
+    assert payload["status"] == "ok"
+    assert payload["packetCache"]["entryCount"] == 1
+    assert payload["packetCache"]["freshCount"] == 1
+    assert payload["packetCache"]["scopes"] == {"project_home": 1}
+    assert manager.get_memory_packet_cache_summary("default")["entry_count"] == 1
+
+
 class TestConsolidationAPI:
     @pytest.mark.asyncio
     async def test_status_and_history_include_cycle_and_phase_errors(self, api_client):

@@ -161,7 +161,16 @@ async def build_api_recall_surface(
         operation_source=operation_source,
         project_path=project_path,
         context_packet_count=len(context_packets),
+        project_file_fallback_task=project_file_fallback_task,
+        project_file_fallback_path=project_file_fallback_path,
+        project_file_max_packets=packet_policy.max_packets,
     )
+    early_project_packets = _pop_early_project_file_packets(recall_metadata)
+    if early_project_packets and not packets:
+        packets = early_project_packets
+        _mark_project_file_recall_fallback(recall_metadata, packet_count=len(packets))
+        recall_metadata["duration_ms"] = _elapsed_ms(started)
+        recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
     results = await _maybe_run_success_fast_fallback(
         manager,
@@ -391,7 +400,16 @@ async def build_mcp_recall_surface(
         operation_source="mcp_recall",
         project_path=project_path,
         context_packet_count=len(context_packets),
+        project_file_fallback_task=project_file_fallback_task,
+        project_file_fallback_path=project_file_fallback_path,
+        project_file_max_packets=max_packets,
     )
+    early_project_packets = _pop_early_project_file_packets(recall_metadata)
+    if early_project_packets and not packets:
+        packets = early_project_packets
+        _mark_project_file_recall_fallback(recall_metadata, packet_count=len(packets))
+        recall_metadata["duration_ms"] = _elapsed_ms(started)
+        recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
     results = await _maybe_run_success_fast_fallback(
         manager,
@@ -571,6 +589,9 @@ async def _run_explicit_recall_with_budget(
     operation_source: str,
     project_path: str | None = None,
     context_packet_count: int = 0,
+    project_file_fallback_task: asyncio.Task[tuple[list[dict[str, Any]], float]] | None = None,
+    project_file_fallback_path: str | None = None,
+    project_file_max_packets: int = 0,
 ) -> tuple[list[dict], dict[str, Any]]:
     """Run the live recall stage under the shared explicit recall budget."""
     budget = recall_budget_for_profile(
@@ -695,6 +716,64 @@ async def _run_explicit_recall_with_budget(
                 fallback_status="context_packet_fallback",
                 fallback_result_count=0,
             )
+        if (
+            fallback_status == "timeout"
+            and project_file_fallback_task is not None
+            and project_file_fallback_path
+            and project_file_max_packets > 0
+        ):
+            project_file_started = time.perf_counter()
+            packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+                project_file_fallback_task,
+                manager,
+                group_id=group_id,
+                query=query,
+                project_path=project_file_fallback_path,
+                max_packets=project_file_max_packets,
+                operation_source=operation_source,
+                timeout_seconds=PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS,
+            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+                project_file_started
+            )
+            if build_duration_ms is not None:
+                stage_timings["project_file_recall_fallback"] = build_duration_ms
+            if packets:
+                duration_ms = round((time.perf_counter() - started) * 1000, 4)
+                await record_manager_memory_operation(
+                    manager,
+                    group_id,
+                    MemoryOperationSample(
+                        operation="recall",
+                        source=operation_source,
+                        mode=operation_source,
+                        status="ok",
+                        duration_ms=duration_ms,
+                        skip_reason="preflight_timeout_project_file_fallback",
+                        timeout=False,
+                        degraded=False,
+                        budget_miss=budget.exceeded(duration_ms),
+                        budget_ms=budget.budget_ms,
+                        budget_tokens=budget.budget_tokens,
+                        cache_hit=False,
+                        result_count=0,
+                        packet_count=len(packets),
+                    ),
+                )
+                metadata = _recall_budget_metadata(
+                    budget,
+                    status="ok",
+                    duration_ms=duration_ms,
+                    skip_reason="preflight_timeout_project_file_fallback",
+                    timeout=False,
+                    budget_miss=budget.exceeded(duration_ms),
+                    stage_timings_ms=stage_timings,
+                    fallback_status="project_file_recall_fallback",
+                    fallback_result_count=0,
+                )
+                metadata["_project_file_packets"] = packets
+                metadata["project_file_packet_count"] = len(packets)
+                return [], metadata
 
     try:
         recall_started = time.perf_counter()
@@ -938,6 +1017,14 @@ def _mark_project_file_recall_fallback(
     metadata["fallback_status"] = "project_file_recall_fallback"
     metadata["fallback_result_count"] = 0
     metadata["project_file_packet_count"] = max(0, int(packet_count))
+
+
+def _pop_early_project_file_packets(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    """Remove and return packets resolved before deep recall was needed."""
+    raw_packets = metadata.pop("_project_file_packets", None)
+    if not isinstance(raw_packets, list):
+        return []
+    return [dict(packet) for packet in raw_packets if isinstance(packet, Mapping)]
 
 
 def _mark_context_packet_recall_fallback(

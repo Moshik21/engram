@@ -53,6 +53,21 @@ class HealthyClient:
             },
         }
 
+    def packet_cache(self) -> dict:
+        return {
+            "status": "ok",
+            "packetCache": {
+                "entryCount": 2,
+                "freshCount": 2,
+                "invalidatedCount": 0,
+                "expiredCount": 0,
+                "hitCount": 4,
+                "scopes": {"project_home": 2},
+                "persistent": True,
+                "path": "/tmp/engram-packet-cache.sqlite3",
+            },
+        }
+
 
 def _parse_axi_args(*argv: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -173,6 +188,14 @@ def test_axi_parser_accepts_packet_cache_clear() -> None:
 
     assert args.axi_command == "packet-cache"
     assert args.packet_cache_command == "clear"
+    assert args.json is True
+
+
+def test_axi_parser_defaults_packet_cache_to_summary() -> None:
+    args = _parse_axi_args("packet-cache", "--json")
+
+    assert args.axi_command == "packet-cache"
+    assert args.packet_cache_command == "summary"
     assert args.json is True
 
 
@@ -319,6 +342,31 @@ def test_run_axi_packet_cache_clear_prints_json_and_traces(
     trace = json.loads(trace_file.read_text().splitlines()[0])
     assert trace["operation"] == "packet-cache.clear"
     assert trace["status"] == "cleared"
+
+
+def test_run_axi_packet_cache_summary_prints_json_and_traces(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    trace_file = tmp_path / "axi-runs.jsonl"
+    args = _parse_axi_args(
+        "packet-cache",
+        "--json",
+        "--trace-file",
+        str(trace_file),
+    )
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["operation"] == "packet-cache.summary"
+    assert payload["packet_cache"]["entry_count"] == 2
+    trace = json.loads(trace_file.read_text().splitlines()[0])
+    assert trace["operation"] == "packet-cache.summary"
+    assert trace["status"] == "ok"
 
 
 def test_run_axi_command_writes_metadata_only_trace(monkeypatch, tmp_path, capsys) -> None:

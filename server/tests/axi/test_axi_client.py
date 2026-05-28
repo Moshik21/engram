@@ -87,6 +87,26 @@ def test_rest_client_clears_packet_cache(monkeypatch) -> None:
     assert seen["data"] is None
 
 
+def test_rest_client_reads_packet_cache_summary(monkeypatch) -> None:
+    seen = {}
+
+    def fake_urlopen(request, timeout: float):
+        seen["url"] = request.full_url
+        seen["method"] = request.get_method()
+        seen["data"] = request.data
+        return FakeResponse(b'{"status":"ok","packetCache":{"entryCount":2}}')
+
+    monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
+
+    client = AxiRestClient(server_url="http://localhost:8100", timeout_seconds=1)
+    payload = client.packet_cache()
+
+    assert payload == {"status": "ok", "packetCache": {"entryCount": 2}}
+    assert seen["url"] == "http://localhost:8100/api/knowledge/packet-cache"
+    assert seen["method"] == "GET"
+    assert seen["data"] is None
+
+
 def test_rest_client_requests_fast_runtime_packet(monkeypatch) -> None:
     seen = {}
 

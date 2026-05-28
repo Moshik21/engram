@@ -49,7 +49,10 @@ from engram.retrieval.context_builder import (
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.forgetting import build_api_forget_response_surface
 from engram.retrieval.lookup import build_api_fact_search_surface
-from engram.retrieval.packet_cache_surface import build_api_packet_cache_clear_surface
+from engram.retrieval.packet_cache_surface import (
+    build_api_packet_cache_clear_surface,
+    build_api_packet_cache_summary_surface,
+)
 from engram.retrieval.preference_feedback import (
     build_api_explicit_feedback_surface,
 )
@@ -604,6 +607,16 @@ async def clear_packet_cache(request: Request) -> JSONResponse:
     group_id = tenant.group_id
     manager = get_manager()
     payload = build_api_packet_cache_clear_surface(manager, group_id=group_id)
+    return JSONResponse(content=payload)
+
+
+@router.get("/packet-cache")
+async def get_packet_cache(request: Request) -> JSONResponse:
+    """Return tenant-local packet cache diagnostics without mutating cache state."""
+    tenant = get_tenant(request)
+    group_id = tenant.group_id
+    manager = get_manager()
+    payload = build_api_packet_cache_summary_surface(manager, group_id=group_id)
     return JSONResponse(content=payload)
 
 

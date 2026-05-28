@@ -1691,6 +1691,59 @@ async def test_api_recall_surface_waits_for_cold_project_packets_on_empty_succes
 
 
 @pytest.mark.asyncio
+async def test_api_recall_surface_uses_project_packets_after_preflight_timeout(
+    tmp_path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Explicit recall timeout should return useful project packets.\n",
+        encoding="utf-8",
+    )
+
+    async def slow_preflight(**_kwargs):
+        await asyncio.sleep(0.05)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(side_effect=slow_preflight),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=1000,
+            recall_fast_fallback_timeout_ms=1,
+            recall_fast_preflight_timeout_ms=1,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="explicit recall timeout useful project packets",
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"] == []
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert result["budget"]["skipReason"] == "preflight_timeout_project_file_fallback"
+    assert result["budget"]["budgetMiss"] is False
+    assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
+    manager.fast_recall_fallback.assert_awaited_once()
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_api_recall_surface_ignores_weak_session_recent_for_project_file_fallback(
     tmp_path,
 ) -> None:
@@ -2183,6 +2236,58 @@ async def test_mcp_recall_surface_returns_project_packets_on_empty_success(
         call.kwargs.get("persist") is True
         for call in manager.cache_memory_packets.call_args_list
     )
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_uses_project_packets_after_preflight_timeout(
+    tmp_path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- MCP recall timeout should return useful project packets.\n",
+        encoding="utf-8",
+    )
+
+    async def slow_preflight(**_kwargs):
+        await asyncio.sleep(0.05)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(side_effect=slow_preflight),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="mcp recall timeout useful project packets",
+        limit=3,
+        project_path=str(tmp_path),
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=1000,
+            recall_fast_fallback_timeout_ms=1,
+            recall_fast_preflight_timeout_ms=1,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["results"] == []
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert result["budget"]["skip_reason"] == "preflight_timeout_project_file_fallback"
+    assert result["budget"]["budget_miss"] is False
+    assert result["lifecycle"]["fallback_status"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stage_timings_ms"]["project_file_recall_fallback"] >= 0
+    manager.fast_recall_fallback.assert_awaited_once()
+    manager.recall.assert_not_awaited()
 
 
 @pytest.mark.asyncio

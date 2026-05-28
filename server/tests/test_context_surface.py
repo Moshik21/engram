@@ -1243,6 +1243,86 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
 
 
 @pytest.mark.asyncio
+async def test_context_surface_returns_pending_project_packet_when_cold_scan_runs(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    (project_dir / "README.md").write_text("# Engram\n", encoding="utf-8")
+    exact_topic = "cold start first turn project scan still warming"
+    fresh_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Fresh project scan packet after background completion.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:README.md"],
+        "_cache_scope": "project_file_fallback",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+
+    async def fake_run_project_file_executor(function, /, *args, **kwargs):
+        assert function.__name__ == "_build_project_file_context_fallback_packets"
+        await asyncio.sleep(0.06)
+        return [fresh_packet], 60.0
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_run_project_file_executor",
+        fake_run_project_file_executor,
+    )
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_packet_cache_enabled=True,
+        context_fast_preflight_timeout_ms=100,
+        context_fast_preflight_soft_wait_ms=10,
+    )
+    manager.get_cached_memory_packets.return_value = None
+    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.cache_memory_packets = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=exact_topic,
+        project_path=str(project_dir),
+        operation_source="axi_context",
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["packet_cache"] == {
+        "hit": False,
+        "packet_count": 1,
+        "scopes": {"project_file_pending": 1},
+    }
+    assert payload["cached_packets"][0]["title"] == "Project Context Warming: Engram"
+    assert payload["cached_packets"][0]["trust"]["freshness"] == "pending"
+    assert payload["budget"]["budget_miss"] is False
+    stage_timings = payload["diagnostics"]["stage_timings_ms"]
+    assert stage_timings["project_file_fallback_pending"] == 1.0
+    manager.get_context.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.cache_hit is False
+
+    await asyncio.sleep(0.08)
+    exact_cache_calls = [
+        call
+        for call in manager.cache_memory_packets.call_args_list
+        if call.kwargs.get("scope") == "project_home"
+        and call.kwargs.get("topic_hint") == exact_topic
+        and call.kwargs.get("project_path") == str(project_dir)
+    ]
+    assert exact_cache_calls
+    assert (
+        exact_cache_calls[0].kwargs["packets"][0]["summary"]
+        == "Fresh project scan packet after background completion."
+    )
+
+
+@pytest.mark.asyncio
 async def test_axi_context_waits_briefly_for_fresh_project_scan_before_cache_rescue(
     monkeypatch,
     tmp_path,
@@ -1397,7 +1477,7 @@ async def test_context_cache_rescue_ignores_stable_packets_that_miss_topic(
     manager.get_activation_config.return_value = ActivationConfig(
         recall_packet_cache_enabled=True,
         context_fast_preflight_timeout_ms=100,
-        context_fast_preflight_soft_wait_ms=5,
+        context_fast_preflight_soft_wait_ms=50,
     )
     manager.get_cached_memory_packets.side_effect = get_cached_packets
     manager.fast_recall_fallback = AsyncMock(return_value=[])

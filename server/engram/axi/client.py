@@ -125,6 +125,9 @@ class AxiRestClient:
     def clear_packet_cache(self) -> dict[str, Any]:
         return self.request_json("POST", "/api/knowledge/packet-cache/clear")
 
+    def packet_cache(self) -> dict[str, Any]:
+        return self.request_json("GET", "/api/knowledge/packet-cache")
+
     def observe(
         self,
         *,
