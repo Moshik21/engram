@@ -1585,22 +1585,13 @@ The baseline failed one single-session-preference question — Claude had the an
 
 **Scaling**: Context stuffing is O(N) — every query pays the cost of the entire history. Engram is O(1) — retrieval cost is constant regardless of memory size. At 1,000 conversations, stuffing requires ~2M tokens per query (exceeds any context window). Engram still returns in ~2,200 tokens.
 
-| System | Accuracy |
-|---|---|
-| **Engram + Sonnet 4.6** | **100.0%** |
-| Baseline (Sonnet 4.6 + full context) | 96.7% |
-| Observational Memory (gpt-5-mini) | 94.9% |
-| EmergenceMem Internal | 86.0% |
-| Observational Memory (gpt-4o) | 84.2% |
-| Oracle GPT-4o | 82.4% |
-| Supermemory | 81.6% |
-| Zep/Graphiti | 71.2% |
-| Full-context GPT-4o | 60.2% |
-| Naive RAG | 52.0% |
+### Where Engram actually stands
 
-> **Note**: Results are from a 30-question stratified sample (5 per type). Full 500-question benchmark run pending. Published baselines use the LongMemEval_S variant with GPT-4o reader; Engram uses the oracle variant with Sonnet 4.6.
+The 30-question result above is a **token-efficiency** demonstration, not an accuracy-leaderboard claim. On a small stratified sample (5 questions per type), Engram matched context-stuffing accuracy while using ~74% fewer tokens — the genuine, defensible result is **O(1) retrieval cost**, not a head-to-head win over other systems. Published baselines use a different LongMemEval variant (LongMemEval_S) and reader (GPT-4o), so a side-by-side ranking against them would not be apples-to-apples and is intentionally omitted.
 
-**Raw results**: [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json) (Engram) and [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json) (baseline).
+For full transparency, larger 500-question runs scored substantially lower — **23.0% (best)** and **20.2% (latest)**. A forensic review found those runs were degraded by harness defects now being corrected: a broken embedding/vector path (semantic search silently fell back to keyword-only), an inactive reranker, an evidence-truncation bug, the knowledge graph disabled in the benchmark adapter, and a weak (Haiku-class) reader. Those numbers reflect a broken measurement pipeline rather than the system's retrieval quality. A corrected re-baseline — working local embeddings, an active reranker, read-path temporal supersession, and rank-1 precision reporting — is in progress, and results will be published here regardless of outcome.
+
+**Raw results**: 30-question token-efficiency run — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json) (Engram), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json) (baseline). Full 500-question runs (degraded harness, pending re-baseline) — [`server/results/longmemeval_v5_fixed_pipeline.md`](server/results/longmemeval_v5_fixed_pipeline.md), [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md).
 
 **Run it yourself**:
 

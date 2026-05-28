@@ -48,40 +48,51 @@ def format_report(result: LongMemEvalResult) -> str:
         "",
         "## Per-Type Breakdown",
         "",
-        "| Type | Count | Correct | Acc | Contain | Latency | R@5 | NDCG@5 |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Type | Count | Correct | Acc | Contain | Latency | R@1 | R@5 | NDCG@5 |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
 
     for tm in result.type_metrics:
         containment_pct = tm.avg_containment * 100 if hasattr(tm, "avg_containment") else 0.0
+        recall1_pct = tm.avg_recall_at_1 * 100 if hasattr(tm, "avg_recall_at_1") else 0.0
         lines.append(
             f"| {tm.question_type} | {tm.count} | {tm.correct} | "
             f"{tm.accuracy * 100:.1f}% | {containment_pct:.1f}% | {tm.avg_latency_ms:.0f}ms | "
-            f"{tm.avg_recall_at_5 * 100:.1f}% | {tm.avg_ndcg_at_5 * 100:.1f}% |"
+            f"{recall1_pct:.1f}% | {tm.avg_recall_at_5 * 100:.1f}% | "
+            f"{tm.avg_ndcg_at_5 * 100:.1f}% |"
         )
 
+    # Engram's own result, shown with provenance. Deliberately NOT ranked into
+    # the published numbers below: those use a different LongMemEval variant
+    # (LongMemEval_S), reader (GPT-4o), and sample, so a head-to-head leaderboard
+    # would be misleading.
     lines.extend(
         [
             "",
-            "## Comparison with Published Baselines",
+            "## Engram Result",
+            "",
+            "| Config | Accuracy |",
+            "|---|---|",
+            (
+                f"| Engram ({result.extraction_mode}/{result.embedding_provider}, "
+                f"{result.total_instances}q) | {result.category_accuracy * 100:.1f}% |"
+            ),
+            "",
+            "## Reference Numbers (not directly comparable)",
+            "",
+            "> Published baselines below use the LongMemEval_S variant with a GPT-4o "
+            "reader and their own samples. They are listed for context only; "
+            "differences in variant, reader, and sample size make a direct ranking "
+            "against Engram's number unsound.",
             "",
             "| System | Accuracy |",
             "|---|---|",
         ]
     )
-
-    # Insert Engram result into the leaderboard
-    engram_entry = (
-        f"Engram ({result.extraction_mode}/{result.embedding_provider})",
-        result.category_accuracy * 100,
-    )
-    entries = [(name, info["accuracy"]) for name, info in PUBLISHED_BASELINES.items()]
-    entries.append(engram_entry)
-    entries.sort(key=lambda x: x[1], reverse=True)
-
-    for name, acc in entries:
-        marker = " **<--**" if name == engram_entry[0] else ""
-        lines.append(f"| {name} | {acc:.1f}%{marker} |")
+    for name, info in sorted(
+        PUBLISHED_BASELINES.items(), key=lambda x: x[1]["accuracy"], reverse=True
+    ):
+        lines.append(f"| {name} | {info['accuracy']:.1f}% |")
 
     lines.extend(
         [
