@@ -1876,6 +1876,18 @@ Lite mode only as a fallback smoke path.
   `104.0038ms` and `138.8205ms`. After the final no-project guardrail
   reinstall/restart, the runtime is healthy on PID `41982` and a fresh AXI
   context probe used `project_file_cache_rescue` in `2.238ms`.
+- The next continuation verified the committed runtime without another code
+  change. HEAD `78aa7ed` was clean and pushed; `engramctl status` reported
+  native PyO3 Helix healthy; startup validation passed all checks; and
+  `python3 scripts/dogfood_startup_matrix.py --repo /Users/konnermoshier/Engram --confirm-lifecycle`
+  produced `/private/tmp/engram-dogfood-startup-20260528-074024` with
+  `13 pass, 0 warn, 0 fail, 0 skip`. Post-matrix status was healthy on PID
+  `43378`. AXI context returned five project-file packets in `38.2785ms`, AXI
+  recall found a cue packet in `11.8581ms`, a forced no-evidence recall returned
+  a project packet in `102.2185ms`, MCP `get_context` returned five project-file
+  packets in `143.7264ms`, and MCP `recall` was `cache_satisfied` in `2.2772ms`.
+  The value report retained one matrix-era MCP context p95 sample at
+  `581.6838ms`, but zero read budget misses, degraded reads, or timeouts.
 
 ## Work Plan
 

@@ -831,6 +831,17 @@ Latest verification checkpoint:
   `104.0038ms` and `138.8205ms`. After the final no-project guardrail
   reinstall/restart, PID `41982` is healthy and a fresh AXI context probe used
   `project_file_cache_rescue` in `2.238ms`.
+- A continuation pass verified the current committed dogfood runtime rather
+  than finding another degradation to patch. HEAD `78aa7ed` was clean and
+  pushed; startup validation passed; and the confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-074024` with
+  `13 pass, 0 warn, 0 fail, 0 skip`. After the matrix restart to PID `43378`,
+  AXI context returned project-file packets in `38.2785ms`, AXI recall found a
+  real cue packet in `11.8581ms`, a forced miss returned a project packet in
+  `102.2185ms`, MCP `get_context` returned project-file packets in
+  `143.7264ms`, and MCP `recall` was `cache_satisfied` in `2.2772ms`. The value
+  report's read path still showed a single matrix-era MCP context p95 of
+  `581.6838ms`, but no read budget misses, degraded reads, or timeouts.
 
 ## Purpose
 
@@ -3320,6 +3331,14 @@ Latency dogfood evidence:
   `138.8205ms` with no budget misses or degradation. Final reinstall/restart on
   PID `41982` stayed healthy and returned fresh AXI context through
   `project_file_cache_rescue` in `2.238ms`.
+- 2026-05-28 continuation checkpoint: HEAD `78aa7ed` remained clean/pushed and
+  the dogfood runtime passed startup validation plus
+  `/private/tmp/engram-dogfood-startup-20260528-074024` (`13 pass, 0 warn,
+  0 fail, 0 skip`). Post-matrix PID `43378` stayed healthy. AXI context was
+  `38.2785ms`, AXI recall found a cue packet in `11.8581ms`, forced miss recall
+  returned a project packet in `102.2185ms`, MCP `get_context` was
+  `143.7264ms`, MCP `recall` was `cache_satisfied` in `2.2772ms`, and recall
+  evaluation sample `ers_28654b6d8385` records the run.
 
 ## Test Matrix
 

@@ -111,6 +111,21 @@ LaunchAgent PID `41982`, and a fresh AXI context probe used
 `project_file_cache_rescue` in `2.238ms`.
 The remaining cold edge is first-ever stable project packet creation after the
 packet cache has no same-project home entry.
+Current continuation checkpoint: HEAD `78aa7ed` is clean and pushed, and the
+installed dogfood runtime is still running native PyO3 Helix from that worktree.
+The full startup validator passed, including 27 MCP tools, `remember`, and
+`recall.project_path`. The confirmed lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-074024` with
+`13 pass, 0 warn, 0 fail, 0 skip`, then restarted the LaunchAgent to PID
+`43378`. Post-matrix probes stayed bounded without empty timeout payloads: AXI
+context returned five project-file packets in `38.2785ms`, AXI recall found a
+real cue packet in `11.8581ms`, a forced no-evidence recall returned a project
+packet in `102.2185ms`, MCP `get_context` returned five project-file packets in
+`143.7264ms`, and MCP `recall` was `cache_satisfied` in `2.2772ms`. The live
+value report still shows one matrix-era MCP context sample at `581.6838ms`, but
+with zero read budget misses, degraded reads, or timeouts. No new code patch was
+justified by this sample; the next useful work is longer real Codex dogfood
+continuity, not chasing a non-degraded single cold context scan.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous
