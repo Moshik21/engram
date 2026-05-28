@@ -66,6 +66,7 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "content": ep.get("content", ""),
             "source": ep.get("source"),
             "created_at": ep.get("created_at"),
+            "conversation_date": ep.get("conversation_date"),
             "linked_entities": _linked_entity_names(result),
         }
 
@@ -93,6 +94,7 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "last_projected_at": cue.get("last_projected_at"),
             "source": episode.get("source"),
             "created_at": episode.get("created_at"),
+            "conversation_date": episode.get("conversation_date"),
         }
 
     entity_raw = result.get("entity", {})
