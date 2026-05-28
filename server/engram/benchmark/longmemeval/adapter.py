@@ -139,12 +139,24 @@ class EngramLongMemEvalAdapter:
         consolidation: bool = False,
         top_k: int = 10,
         shared_group: bool = False,
+        embedding_provider: str = "local",
+        reranker_provider: str = "local",
+        use_graph: bool = False,
     ) -> None:
         self._cfg = cfg
         self._extraction_mode = extraction_mode
         self._consolidation = consolidation
         self._top_k = top_k
         self._shared_group = shared_group
+        # Force a concrete embedding/reranker provider instead of letting
+        # "auto" silently resolve to a cloud key (e.g. Gemini) that may be
+        # broken and fall back to keyword-only search. Local is deterministic
+        # and requires no API key.
+        self._embedding_provider = embedding_provider
+        self._reranker_provider = reranker_provider
+        # When False, the graph is excluded from ranking (episode-vector +
+        # rerank baseline). Flip to True for the graph-on ablation cell.
+        self._use_graph = use_graph
         self.stats = AdapterStats()
 
         # Shared infrastructure (initialized once)
@@ -152,6 +164,7 @@ class EngramLongMemEvalAdapter:
         self._graph_store: GraphStore | None = None
         self._activation_store: ActivationStore | None = None
         self._search_index: SearchIndex | None = None
+        self._reranker: object | None = None
         self._initialized = False
 
         # Per-question state
@@ -176,6 +189,9 @@ class EngramLongMemEvalAdapter:
         self._config = EngramConfig()
         if self._cfg is not None:
             self._config.activation = self._cfg
+        # Pin the embedding provider so vector search is deterministic and does
+        # not silently degrade to keyword-only when a cloud provider errors.
+        self._config.embedding.provider = self._embedding_provider
 
         mode = await resolve_mode(self._config.mode)
         logger.info("LongMemEval adapter connecting: mode=%s", mode.value)
@@ -184,6 +200,36 @@ class EngramLongMemEvalAdapter:
 
         await graph.initialize()
         await search.initialize()
+
+        # Fail fast if vector search is not actually available: a no-op provider
+        # (dim 0) means retrieval would silently run keyword-only, which is the
+        # exact defect that invalidated earlier benchmark runs.
+        provider = getattr(search, "_provider", None)
+        dim = provider.dimension() if provider is not None else 0
+        if self._embedding_provider not in ("none", "noop") and dim <= 0:
+            raise RuntimeError(
+                f"Embedding provider '{self._embedding_provider}' resolved to a "
+                f"no-op (dim={dim}); vector search would silently fall back to "
+                "keyword-only. Aborting instead of producing a misleading run."
+            )
+        logger.info(
+            "LongMemEval embeddings: provider=%s dim=%d",
+            self._embedding_provider,
+            dim,
+        )
+
+        # Build the cross-encoder reranker once (model load is expensive).
+        from engram.retrieval.reranker import create_reranker
+
+        self._reranker = create_reranker(
+            provider=self._reranker_provider,
+            local_model=self._config.activation.reranker_local_model,
+        )
+        logger.info(
+            "LongMemEval reranker: provider=%s -> %s",
+            self._reranker_provider,
+            type(self._reranker).__name__,
+        )
 
         self._graph_store = graph
         self._activation_store = activation
@@ -216,11 +262,11 @@ class EngramLongMemEvalAdapter:
         self._current_group_id = self._group_id_for(question_id)
 
         cfg = self._cfg or ActivationConfig()
-        # Benchmark: give ALL result slots to episodes.
-        cfg.passage_first_entity_budget = 0
-        # Disable graph structural embedding search — no graph embeddings
-        # are trained during the benchmark.
-        cfg.weight_graph_structural = 0.0
+        if not self._use_graph:
+            # Episode-vector + rerank baseline: give all result slots to
+            # episodes and disable graph structural embedding search.
+            cfg.passage_first_entity_budget = 0
+            cfg.weight_graph_structural = 0.0
         self._manager = GraphManager(
             self._graph_store,
             self._activation_store,
@@ -228,6 +274,7 @@ class EngramLongMemEvalAdapter:
             extractor,
             cfg=cfg,
             runtime_mode="benchmark",
+            reranker=self._reranker,
         )
 
     def _build_extractor(self) -> Any:
@@ -444,8 +491,13 @@ class EngramLongMemEvalAdapter:
                     num_episodes += 1
                 self._track_session_id(source, retrieved_session_ids)
 
-        # Sort episodes chronologically for temporal/knowledge-update queries
-        if is_temporal or instance.question_type == "knowledge-update":
+        # Order episodes by date. knowledge-update asks for the CURRENT value,
+        # so the latest assertion must reach the top-3 evidence the hypothesis
+        # uses -> sort newest-first. temporal-reasoning ("which came first")
+        # keeps chronological order so event sequence stays visible.
+        if instance.question_type == "knowledge-update":
+            episode_evidence.sort(key=lambda x: x[0], reverse=True)
+        elif is_temporal:
             episode_evidence.sort(key=lambda x: x[0])
 
         # Build flat evidence list

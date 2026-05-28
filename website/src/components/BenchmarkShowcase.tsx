@@ -175,10 +175,10 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
             Benchmark Results
           </div>
           <h2 style={{ ...serif, fontSize: "clamp(1.5rem, 3vw, 2rem)", marginBottom: 10 }}>
-            Engram against measured external memory shapes.
+            Engram against deterministic reimplementations of common memory patterns.
           </h2>
           <p style={{ ...body, color: "var(--text-secondary)", lineHeight: 1.7, maxWidth: 700, marginBottom: 0 }}>
-            The headline comparison is Engram versus LangGraph-style store memory, Mem0-style extracted memory, and Graphiti-style temporal graph retrieval under the same scenario budgets.
+            These baselines are Engram-built deterministic reimplementations of common memory patterns (store-memory, extracted-memory, temporal-graph) run under identical scenario budgets. They are reference shapes for internal regression and ablation — not the actual third-party products (Zep, Mem0, LangGraph), which were not run here.
           </p>
         </div>
         <div style={{ minWidth: 220 }}>
@@ -220,7 +220,7 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
         </div>
         <div style={{ border: "1px solid rgba(103,232,249,0.14)", borderRadius: 18, padding: 18, background: "rgba(255,255,255,0.02)" }}>
           <div style={{ ...mono, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
-            Best Headline Rival
+            Best Reference Pattern
           </div>
           <div style={{ ...serif, ...tabularNums, fontSize: 36, color: "var(--text-primary)" }}>
             {fmt(data.headline.best_headline_competitor_pass_rate)}
@@ -237,7 +237,7 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
       </div>
 
       <div style={{ display: "grid", gap: 24, marginBottom: 24 }}>
-        <MetricsTable title="Headline measured competitors" rows={data.headline_baselines} />
+        <MetricsTable title="Reference memory patterns (Engram-built)" rows={data.headline_baselines} />
         <MetricsTable title="Measured controls" rows={data.control_baselines} />
       </div>
 
@@ -253,7 +253,7 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
             What This Shows
           </div>
           <p style={{ ...body, margin: 0, lineHeight: 1.7, color: "var(--text-secondary)" }}>
-            Engram is compared against realistic external memory archetypes first, then against simpler controls. The public claim is about memory behavior under equal budgets, not a bigger prompt or a cherry-picked chat transcript.
+            These are Engram-built deterministic reimplementations of common memory patterns and simpler controls — not third-party products (Zep, Mem0, and LangGraph were not run). This is an internal regression and ablation harness measuring memory behavior under equal budgets, not a competitive benchmark; treat any external comparison as directional until validated against the real systems.
           </p>
         </div>
         <div style={{ borderRadius: 18, border: "1px solid rgba(255,255,255,0.06)", padding: 18, background: "rgba(255,255,255,0.015)" }}>
@@ -281,7 +281,7 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
 
       {engram == null ? null : (
         <p style={{ ...body, marginTop: 18, marginBottom: 0, color: "var(--text-muted)", fontSize: 14, lineHeight: 1.7 }}>
-          Headline measured competitors: {headlineCompetitors.map((item) => item.display_name).join(", ") || "n/a"}.
+          Reference memory patterns (Engram-built, not third-party products): {headlineCompetitors.map((item) => item.display_name).join(", ") || "n/a"}.
           Control baselines stay visible separately so the benchmark does not hide simpler comparisons.
         </p>
       )}

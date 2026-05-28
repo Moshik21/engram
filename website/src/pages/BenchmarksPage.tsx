@@ -147,7 +147,7 @@ function BaselineGrid({
                     {item.status === "spec_only" ? "Spec Only" : "Measured"}
                   </Badge>
                   {item.external_technology_label ? (
-                    <Badge accent="#94a3b8">{item.external_technology_label}</Badge>
+                    <Badge accent="#94a3b8">{`${item.external_technology_label} · proxy`}</Badge>
                   ) : null}
                 </div>
                 <h3 style={{ ...body, fontSize: 20, fontWeight: 500, marginBottom: 10 }}>{item.display_name}</h3>
@@ -228,10 +228,11 @@ export function BenchmarksPage() {
                 marginBottom: 32,
               }}
             >
-              Engram is benchmarked against stronger fair baselines with equal retrieval budgets,
-              deterministic scenario grading, and exported artifacts that drive the site directly.
-              The headline measured set now includes external memory-system proxies rather than only
-              generic notebook and RAG controls.
+              Engram is benchmarked against deterministic reimplementations of common memory
+              patterns under equal retrieval budgets, with deterministic scenario grading and
+              exported artifacts that drive the site directly. These baselines are Engram-built
+              reference shapes (store-memory, extracted-memory, temporal-graph) for internal
+              regression — not the actual third-party products.
             </p>
           </ScrollReveal>
           <ScrollReveal delay={200}>
@@ -418,8 +419,8 @@ uv run python scripts/benchmark_showcase.py \\
       </section>
 
       <BaselineGrid
-        title="Headline Measured Competitors"
-        description="The systems that anchor the public comparison: Engram plus three measured external memory shapes."
+        title="Reference Memory Patterns (Engram-built)"
+        description="Engram plus three deterministic reimplementations of common memory patterns — not the actual third-party products."
         items={summary.headline_baselines}
       />
 

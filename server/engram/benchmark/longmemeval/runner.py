@@ -64,6 +64,7 @@ class TypeMetrics:
     avg_latency_ms: float
     avg_recall_at_5: float
     avg_ndcg_at_5: float
+    avg_recall_at_1: float = 0.0
     avg_containment: float = 0.0
 
 
@@ -105,6 +106,7 @@ class LongMemEvalResult:
                     "correct": tm.correct,
                     "accuracy": round(tm.accuracy, 4),
                     "avg_latency_ms": round(tm.avg_latency_ms, 1),
+                    "avg_recall_at_1": round(tm.avg_recall_at_1, 4),
                     "avg_recall_at_5": round(tm.avg_recall_at_5, 4),
                     "avg_ndcg_at_5": round(tm.avg_ndcg_at_5, 4),
                     "avg_containment": round(tm.avg_containment, 4),
@@ -154,6 +156,8 @@ async def run_longmemeval(
     variant: str = "auto",
     extraction_mode: str = "narrow",
     embedding_provider: str = "local",
+    reranker_provider: str = "local",
+    use_graph: bool = False,
     consolidation: bool = False,
     containment_threshold: float = 0.72,
     top_k: int = 10,
@@ -217,6 +221,9 @@ async def run_longmemeval(
         extraction_mode=extraction_mode,
         consolidation=consolidation,
         top_k=top_k,
+        embedding_provider=embedding_provider,
+        reranker_provider=reranker_provider,
+        use_graph=use_graph,
     )
 
     # Load checkpoint if resuming
@@ -399,6 +406,7 @@ def _aggregate_type_metrics(
 
         correct = sum(1 for r in type_results if r.correct)
         latencies = [r.query_latency_ms for r in type_results]
+        recall_1 = [r.retrieval_metrics.get("recall@1", 0.0) for r in type_results]
         recall_5 = [r.retrieval_metrics.get("recall@5", 0.0) for r in type_results]
         ndcg_5 = [r.retrieval_metrics.get("ndcg@5", 0.0) for r in type_results]
         containments = [r.containment_score for r in type_results]
@@ -412,6 +420,7 @@ def _aggregate_type_metrics(
                 avg_latency_ms=(sum(latencies) / len(latencies) if latencies else 0.0),
                 avg_recall_at_5=(sum(recall_5) / len(recall_5) if recall_5 else 0.0),
                 avg_ndcg_at_5=(sum(ndcg_5) / len(ndcg_5) if ndcg_5 else 0.0),
+                avg_recall_at_1=(sum(recall_1) / len(recall_1) if recall_1 else 0.0),
                 avg_containment=(sum(containments) / len(containments) if containments else 0.0),
             )
         )

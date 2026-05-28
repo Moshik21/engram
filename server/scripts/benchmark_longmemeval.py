@@ -54,6 +54,8 @@ async def cmd_run(args: argparse.Namespace) -> None:
         dataset_path=args.dataset,
         extraction_mode=args.extraction,
         embedding_provider=args.embeddings,
+        reranker_provider="noop" if args.reranker == "none" else args.reranker,
+        use_graph=args.use_graph,
         consolidation=args.consolidation,
         containment_threshold=args.containment_threshold,
         top_k=args.top_k,
@@ -196,8 +198,19 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--embeddings",
         choices=["none", "local", "voyage", "gemini", "auto"],
-        default="auto",
-        help="Embedding provider (default: auto — uses Gemini if key available)",
+        default="local",
+        help="Embedding provider (default: local — deterministic FastEmbed, no API key)",
+    )
+    run.add_argument(
+        "--reranker",
+        choices=["none", "local", "cohere"],
+        default="local",
+        help="Reranker provider (default: local — FastEmbed cross-encoder, no API key)",
+    )
+    run.add_argument(
+        "--use-graph",
+        action="store_true",
+        help="Include the knowledge graph in ranking (default: episode-vector + rerank only)",
     )
     run.add_argument(
         "--consolidation",
