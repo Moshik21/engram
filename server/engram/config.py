@@ -2501,6 +2501,20 @@ class ActivationConfig(BaseModel):
             _set("preference_directed_enabled", True)
             _set("preference_calibrate_enabled", True)
 
+        # Graph structural embeddings are populated only by the graph_embed
+        # consolidation phase. If consolidation is disabled, the graph_embeddings
+        # table can never be populated, so the DEFAULT non-zero
+        # weight_graph_structural is dead weight: it scores 0 for every candidate
+        # (silently) and dilutes the live signals. Zero the default so the weight
+        # budget goes to signals that fire. An explicitly-set value is respected
+        # (do not silently override what the caller asked for).
+        if (
+            not self.consolidation_enabled
+            and self.weight_graph_structural > 0.0
+            and "weight_graph_structural" not in self.model_fields_set
+        ):
+            _set("weight_graph_structural", 0.0)
+
         # --- Recall profile presets (cumulative) ---
         rp = recall_profile
         if rp != "off":

@@ -1440,6 +1440,11 @@ async def retrieve(
                 "recall_graph_similarity",
                 graph_similarity_started,
             )
+            if not graph_similarities and stage_timings_ms is not None:
+                # weight_graph_structural > 0 but no graph embeddings exist for
+                # any method/seed — the structural term is dead weight here.
+                # Surface it instead of silently scoring 0 for every candidate.
+                stage_timings_ms["recall_graph_structural_empty_source"] = 1.0
         except asyncio.TimeoutError:
             graph_similarities = None
             _add_stage_timing(

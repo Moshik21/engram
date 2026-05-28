@@ -149,9 +149,17 @@ class TestScorerGraphStructural:
         assert cfg.weight_graph_structural == 0.15
 
     def test_config_default_value(self):
-        """Default weight should be 0.1."""
-        cfg = ActivationConfig()
-        assert cfg.weight_graph_structural == 0.1
+        """Default structural weight is gated to 0 when consolidation is off
+        (graph embeddings can never be trained), restored by consolidation
+        profiles, and any explicit value is respected."""
+        # consolidation off (default) -> gated to 0 (no dead weight)
+        assert ActivationConfig().weight_graph_structural == 0.0
+        # consolidation-enabling profile -> restored to 0.1
+        assert (
+            ActivationConfig(consolidation_profile="standard").weight_graph_structural == 0.1
+        )
+        # explicit value respected even with consolidation off
+        assert ActivationConfig(weight_graph_structural=0.2).weight_graph_structural == 0.2
 
     def test_config_node2vec_fields(self):
         """Config should accept all node2vec fields."""
