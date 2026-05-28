@@ -963,7 +963,7 @@ async def test_mcp_context_surface_ignores_unrelated_recent_project_file_cache(
     unrelated_packet = {
         "packet_type": "project_home",
         "title": "Project File: README.md",
-        "summary": "Unrelated onboarding instructions.",
+        "summary": "Cached project context and recall notes from 20260528 without the marker.",
         "trust": {"source": "project_file", "freshness": "local"},
         "provenance": ["file:README.md"],
         "_project_file_fallback_topic_hint": "older unrelated topic",
@@ -1017,7 +1017,7 @@ async def test_mcp_context_surface_ignores_unrelated_recent_project_file_cache(
         "scopes": {"project_file_fallback": 1},
     }
     assert payload["cached_packets"][0]["summary"] == fresh_packet["summary"]
-    assert "Unrelated onboarding instructions" not in payload["context"]
+    assert "without the marker" not in payload["context"]
     manager.get_recent_cached_memory_packets.assert_called_once_with(
         "native_brain",
         scopes=("project_home",),

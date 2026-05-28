@@ -2415,10 +2415,43 @@ def _recent_project_file_cache_reuse_packet_relevant(
     matches = _context_packet_query_matches(packet, tokens)
     if not matches:
         return False
-    specific_tokens = _context_specific_relevance_tokens(tokens)
-    if specific_tokens:
-        return bool(matches & specific_tokens)
-    return len(matches) >= 2
+    required_tokens = _context_required_recent_reuse_tokens(tokens)
+    if required_tokens and not required_tokens.issubset(matches):
+        return False
+    return _context_packet_has_relevance_match(packet, tokens)
+
+
+def _context_required_recent_reuse_tokens(tokens: set[str]) -> set[str]:
+    """Return distinctive query terms that recent project-file reuse must cover."""
+    ignored = {
+        "cache",
+        "cached",
+        "codex",
+        "context",
+        "current",
+        "dogfood",
+        "final",
+        "first",
+        "live",
+        "matrix",
+        "nearby",
+        "packet",
+        "packets",
+        "probe",
+        "project",
+        "recall",
+        "reuse",
+        "runtime",
+        "startup",
+        "trace",
+    }
+    return {
+        token
+        for token in tokens
+        if not token.isdigit()
+        and token not in ignored
+        and (len(token) >= 6 or "-" in token or "_" in token)
+    }
 
 
 _PROJECT_FILE_FALLBACK_PATTERNS: tuple[tuple[str, int], ...] = (

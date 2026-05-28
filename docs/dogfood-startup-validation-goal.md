@@ -1969,6 +1969,24 @@ Lite mode only as a fallback smoke path.
   with `13 pass, 0 warn, 0 fail, 0 skip`, and post-matrix PID `82520` stayed
   healthy. The first fresh post-matrix topic rebuilt bounded project context in
   `99.5414ms`, then the nearby topic hit recent reuse in `0.0447ms`.
+- The cache-specificity hardening follow-up fixed noisy project-file
+  cache-satisfaction. A live probe showed that a query with the new marker
+  `orchid` could be satisfied by older project-file packets that only matched
+  generic dogfood/context terms plus `20260528`. Recent project-file context
+  reuse now requires all distinctive non-generic query tokens to match, and
+  explicit recall uses the same guard before non-exact project-file packets can
+  report `cache_satisfied`. After reinstall/restart to PID `84563`, AXI context
+  for `live dogfood loaded-store recall context trace orchid2 20260528
+  specificity probe` rebuilt project-file packets instead of using stale recent
+  reuse (`durationMs=1020.0549`, no degradation or budget miss). Matching AXI
+  recall no longer reported `cache_satisfied`; it returned bounded
+  project-file fallback packets with `skipReason=null`, `durationMs=1139.2205`,
+  and no degradation. Exact repeat context hit cache in `0.0413ms`, and MCP
+  `recall` for the exact MCP topic was `cache_satisfied` in `2.4848ms`.
+  Focused retrieval/cache tests passed with `119 passed`; startup validation
+  passed against PID `84563`; the confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-090414` with `13 pass, 0 warn,
+  0 fail, 0 skip`; and post-matrix PID `85767` stayed healthy.
 
 ## Work Plan
 

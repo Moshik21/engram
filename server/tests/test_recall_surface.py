@@ -1053,6 +1053,25 @@ def test_explicit_recall_cache_relevance_ignores_generated_why_now() -> None:
     assert _filter_packets_for_query([packet], query=query, limit=3) == []
 
 
+def test_project_file_cache_requires_distinctive_marker_for_recall() -> None:
+    packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Live dogfood loaded-store recall context evidence from 20260528.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_project_file_fallback_project_path": "/Users/konnermoshier/Engram",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    query = (
+        "live dogfood loaded-store recall context trace orchid 20260528 "
+        "mcp current probe"
+    )
+
+    assert _filter_packets_for_query([packet], query=query, limit=3) == []
+    assert not _packets_satisfy_explicit_query([packet], query=query)
+
+
 @pytest.mark.asyncio
 async def test_api_recall_surface_uses_session_recent_packet_cache() -> None:
     recent_packet = {
@@ -1363,6 +1382,57 @@ async def test_api_recall_surface_skips_for_cached_project_file_fallback_packet(
     assert result["budget"]["skipReason"] == "cache_satisfied"
     assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
     manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_searches_when_project_file_cache_misses_marker(
+    tmp_path,
+) -> None:
+    engram_project = tmp_path / "Engram"
+    engram_project.mkdir()
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Live dogfood loaded-store recall context evidence from 20260528.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_project_file_fallback_project_path": str(engram_project),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query=(
+            "live dogfood loaded-store recall context trace orchid 20260528 "
+            "mcp current probe"
+        ),
+        limit=3,
+        project_path=str(engram_project),
+        operation_source="mcp_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["budget"]["skipReason"] is None
+    assert result["lifecycle"]["fallbackStatus"] == "context_packet_fallback"
+    manager.recall.assert_awaited_once()
     manager.fast_recall_fallback.assert_not_awaited()
 
 

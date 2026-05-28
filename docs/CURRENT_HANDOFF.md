@@ -231,6 +231,30 @@ after that matrix, a fresh topic rebuilt bounded project-file context in
 retrieval/cache tests passed with `117 passed`; ruff and `git diff --check`
 passed. The remaining latency target is cold startup/runtime warmup and
 first-ever project packet creation, not nearby-topic context reuse.
+Latest cache-specificity hardening: a fresh real probe showed that the recent
+reuse win was slightly too broad. Queries with a new marker such as `orchid`
+could be satisfied by older project-file packets that only matched generic terms
+and the shared date. Recent project-file context reuse now requires all
+distinctive non-generic query tokens to be present before it can skip the
+bounded project scan, and explicit recall applies the same guard before treating
+non-exact project-file packets as `cache_satisfied`. Exact-topic project-file
+fallback packets still satisfy repeat calls. After reinstall/restart to PID
+`84563`, AXI context for `live dogfood loaded-store recall context trace
+orchid2 20260528 specificity probe` no longer hit stale recent reuse; it rebuilt
+project-file packets in `1020.0549ms` with no degradation or budget miss. The
+matching AXI recall no longer reported `cache_satisfied`; it ran bounded recall
+and returned project-file fallback packets with `skipReason=null`,
+`durationMs=1139.2205`, and no degradation. Repeating the exact context hit
+cache in `0.0413ms`, and MCP `recall` for the exact MCP topic was
+`cache_satisfied` in `2.4848ms`. Focused retrieval/cache tests now pass with
+`119 passed`; ruff and `git diff --check` pass. Startup validation passed
+against PID `84563`; the final lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-090414` with
+`13 pass, 0 warn, 0 fail, 0 skip`, leaving PID `85767` healthy. Post-matrix
+value reports read-path p95 `85.9715ms`, read cache hit rate `1.0`, and zero
+read budget misses, degradation, or timeouts. The next performance target is
+reducing first-miss project-file fallback cost without reopening noisy cache
+satisfaction.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

@@ -3422,6 +3422,26 @@ Latency dogfood evidence:
   0 fail, 0 skip`) and left PID `82520` healthy. Immediately after that matrix,
   a fresh topic rebuilt bounded project context in `99.5414ms`, then the nearby
   topic hit recent reuse in `0.0447ms`.
+- 2026-05-28 cache-specificity hardening follow-up: the next live marker probe
+  showed recent project-file reuse and explicit recall could treat generic
+  dogfood/context/date overlap as sufficient for a new marker query. Recent
+  project-file context reuse now requires all distinctive non-generic query
+  tokens to match before skipping the bounded project scan, and explicit recall
+  uses the same guard before non-exact project-file packets can report
+  `cache_satisfied`. After reinstall/restart to PID `84563`, AXI context for
+  `live dogfood loaded-store recall context trace orchid2 20260528 specificity
+  probe` rebuilt project-file packets in `1020.0549ms` rather than using stale
+  recent reuse, with no degradation or budget miss. Matching AXI recall no
+  longer reported `cache_satisfied`; it returned bounded project-file fallback
+  packets with `skipReason=null`, `durationMs=1139.2205`, and no degradation.
+  Exact repeat context hit cache in `0.0413ms`, and MCP recall for the exact MCP
+  topic was `cache_satisfied` in `2.4848ms`. Focused retrieval/cache tests
+  passed with `119 passed`; startup validation passed against PID `84563`; the
+  confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-090414` (`13 pass, 0 warn,
+  0 fail, 0 skip`) and left PID `85767` healthy. Post-matrix value reported
+  read-path p95 `85.9715ms`, read cache hit rate `1.0`, and zero read budget
+  misses, degradation, or timeouts.
 
 ## Test Matrix
 

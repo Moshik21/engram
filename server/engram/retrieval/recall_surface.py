@@ -1933,6 +1933,15 @@ def _packets_satisfy_explicit_query(
         if _project_file_packet_matches_query(packet, query=query):
             return True
         matches = _packet_query_matches(packet, tokens)
+        if (
+            _packet_has_project_file_fallback_source(packet)
+            and not _project_file_packet_covers_required_query_tokens(
+                packet,
+                tokens=tokens,
+                matches=matches,
+            )
+        ):
+            continue
         if not matches:
             continue
         covered_tokens.update(matches)
@@ -2104,6 +2113,16 @@ def _filter_packets_for_query(
             packet,
             query=query,
         )
+        if (
+            _packet_has_project_file_fallback_source(packet)
+            and not exact_project_file_match
+            and not _project_file_packet_covers_required_query_tokens(
+                packet,
+                tokens=tokens,
+                matches=matches,
+            )
+        ):
+            continue
         if score <= 0 and tokens and not exact_project_file_match:
             continue
         if _weak_packet_query_match(matches):
@@ -2138,6 +2157,51 @@ def _query_tokens(query: str) -> set[str]:
             "traces",
         }
     }
+
+
+def _required_project_file_query_tokens(tokens: set[str]) -> set[str]:
+    """Return distinctive terms required before project-file cache can satisfy recall."""
+    ignored = {
+        "cache",
+        "cached",
+        "codex",
+        "context",
+        "current",
+        "dogfood",
+        "final",
+        "first",
+        "live",
+        "matrix",
+        "nearby",
+        "packet",
+        "packets",
+        "probe",
+        "project",
+        "recall",
+        "reuse",
+        "runtime",
+        "startup",
+        "trace",
+    }
+    return {
+        token
+        for token in tokens
+        if not token.isdigit()
+        and token not in ignored
+        and (len(token) >= 6 or "-" in token or "_" in token)
+    }
+
+
+def _project_file_packet_covers_required_query_tokens(
+    packet: Mapping[str, Any],
+    *,
+    tokens: set[str],
+    matches: set[str],
+) -> bool:
+    if not _packet_has_project_file_fallback_source(packet):
+        return True
+    required_tokens = _required_project_file_query_tokens(tokens)
+    return not required_tokens or required_tokens.issubset(matches)
 
 
 def _packet_query_score(packet: Mapping[str, Any], tokens: set[str]) -> int:
