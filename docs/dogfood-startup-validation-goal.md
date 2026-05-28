@@ -1931,6 +1931,28 @@ Lite mode only as a fallback smoke path.
   live MCP catalog with `remember` and `recall.project_path`. Post-validation
   live value reported read-path p95 `81.5933ms`, read cache hit rate `0.95`,
   and zero read budget misses, degradation, or timeouts.
+- The next project-file context usefulness pass fixed first-use stale rescue
+  behavior. A specific AXI context query could return old stable
+  `project_file_cache_rescue` packets while a fresh project-file scan was still
+  running. The context path now waits one bounded
+  `context_fast_preflight_soft_wait_ms` window for the scan before returning
+  stable rescue packets. After reinstall/restart to PID `70588`, AXI context
+  for `fresh observations are no longer starved by project-home cache recency
+  live softwait firstuse 20260528` returned current `docs/CURRENT_HANDOFF.md`
+  evidence first in `1083.3078ms` with no degradation or budget miss, then the
+  exact repeat hit cache in `0.0475ms`. MCP `get_context` for the same topic
+  hit cache in `0.069ms`, MCP `recall` was `cache_satisfied` in `23.2ms`, and
+  forced no-evidence AXI recall still returned project context in `100.7934ms`
+  with `preflight_timeout_context_packet_fallback`. A stricter rescue filter
+  now requires stable project-file rescue packets to match the specific topic;
+  live AXI context for `stable project-file rescue packets relevant topic
+  soft-wait filter 20260528` returned only relevant current handoff/AXI-plan
+  packets in `130.8898ms` with no budget miss or degradation. Full startup
+  validation passed all 14 checks against PID `74441`; the confirmed lifecycle
+  matrix produced `/private/tmp/engram-dogfood-startup-20260528-082753` with
+  `13 pass, 0 warn, 0 fail, 0 skip`; and post-matrix value on PID `75670`
+  showed read-path p95 `73.0892ms`, cache hit rate `1.0`, and zero read budget
+  misses, degradation, or timeouts.
 
 ## Work Plan
 

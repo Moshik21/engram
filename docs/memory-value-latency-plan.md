@@ -3382,6 +3382,30 @@ Latency dogfood evidence:
   with `113 passed`, ruff passed, startup validation passed all 14 checks, and
   post-validation live value reported read-path p95 `81.5933ms`, read cache hit
   rate `0.95`, and zero read budget misses, degradation, or timeouts.
+- 2026-05-28 project-file context soft-wait follow-up: live dogfood showed that
+  first-use specific context could trade relevance for speed by returning older
+  stable `project_file_cache_rescue` packets while the exact project-file scan
+  was still running. The context path now waits one bounded
+  `context_fast_preflight_soft_wait_ms` window before stable rescue. After
+  reinstall/restart to PID `70588`, AXI context for `fresh observations are no
+  longer starved by project-home cache recency live softwait firstuse 20260528`
+  returned the current `docs/CURRENT_HANDOFF.md` packet first in `1083.3078ms`
+  with `projectFileFallback=926.1808ms` and no degradation or budget miss; the
+  exact repeat hit cache in `0.0475ms`. MCP `get_context` hit cache in
+  `0.069ms`, MCP `recall` was `cache_satisfied` in `23.2ms`, and a forced
+  no-evidence AXI recall returned project context in `100.7934ms` with
+  `preflight_timeout_context_packet_fallback`. A stricter rescue filter now
+  requires stable `project_file_cache_rescue` packets to match the specific
+  topic before they can short-circuit the exact scan; live AXI context for
+  `stable project-file rescue packets relevant topic soft-wait filter 20260528`
+  returned only relevant current handoff/AXI-plan packets in `130.8898ms` with
+  no budget miss or degradation. Startup validation passed all 14 checks, the
+  confirmed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-082753` (`13 pass, 0 warn,
+  0 fail, 0 skip`), and post-matrix value on PID `75670` reported read-path p95
+  `73.0892ms`, cache hit rate `1.0`, and zero read budget misses, degradation,
+  or timeouts. The next latency target is the cold exact project-file scan
+  itself, which measured about `926ms` before cache.
 
 ## Test Matrix
 

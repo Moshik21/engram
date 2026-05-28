@@ -177,6 +177,35 @@ read-path p95 `81.5933ms`, read cache hit rate `0.95`, and zero read budget
 misses, degraded reads, or timeouts. The goal remains active for longer real
 Codex continuity evidence, but fresh observations are no longer starved by
 project-home cache recency.
+Latest project-file context usefulness pass: live dogfood after `1a52a5f`
+showed a new first-use quality edge. The runtime was fast and non-degraded, but
+while a fresh local project-file scan was still running, context could return
+older stable `project_file_cache_rescue` packets for a very specific topic. The
+context fallback now waits one bounded `context_fast_preflight_soft_wait_ms`
+window for the in-flight project-file scan before falling back to stable rescue,
+so quick local scans can return the current exact project evidence on the first
+call. After reinstall/restart to LaunchAgent PID `70588`, AXI context for
+`fresh observations are no longer starved by project-home cache recency live
+softwait firstuse 20260528` returned the current `docs/CURRENT_HANDOFF.md`
+packet first with no degradation or budget miss (`durationMs=1083.3078`,
+`projectFileFallback=926.1808ms`, `projectFileFallbackSoftWait=75.8946ms`);
+the exact repeat hit packet cache in `0.0475ms`. MCP `get_context` for the same
+topic hit cache in `0.069ms`, MCP `recall` was `cache_satisfied` in `23.2ms`,
+and a forced no-evidence AXI recall still returned project context in
+`100.7934ms` with `preflight_timeout_context_packet_fallback`, not an empty
+timeout payload. A stricter follow-up now filters stable
+`project_file_cache_rescue` packets through topic relevance before returning
+them; live AXI context for `stable project-file rescue packets relevant topic
+soft-wait filter 20260528` returned only relevant current handoff/AXI-plan
+packets in `130.8898ms` with no budget miss or degradation. The full startup
+validator passed all 14 checks against PID `74441`, and the final confirmed
+lifecycle matrix produced
+`/private/tmp/engram-dogfood-startup-20260528-082753` with
+`13 pass, 0 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on PID
+`75670`. Post-matrix `engram axi value --json` reports read-path p95
+`73.0892ms`, cache hit rate `1.0`, and zero read budget misses, degraded reads,
+or timeouts. The remaining performance target is lowering the cold exact
+project-file scan cost, not rescue relevance or degraded/empty recall behavior.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous

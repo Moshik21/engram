@@ -714,7 +714,7 @@ async def test_mcp_context_surface_uses_project_files_when_stable_cache_is_irrel
         for call in manager.get_cached_memory_packets.call_args_list
     ]
     assert False in sync_flags
-    assert True in sync_flags
+    assert all(flag is False for flag in sync_flags)
 
 
 @pytest.mark.asyncio
@@ -867,7 +867,7 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
     cached_packet = {
         "packet_type": "project_home",
         "title": "Project File: README.md",
-        "summary": "Cached stable project packet.",
+        "summary": "Cached stable project packet for qxjv norel zaffron plinket.",
         "trust": {"source": "project_file", "freshness": "local"},
         "provenance": ["file:README.md"],
         "_project_file_fallback_topic_hint": "older dogfood topic",
@@ -880,6 +880,7 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         "summary": "Fresh project scan packet.",
         "trust": {"source": "project_file", "freshness": "local"},
         "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_cache_scope": "project_file_fallback",
         "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
     }
 
@@ -942,10 +943,14 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         "packet_count": 1,
         "scopes": {"project_file_cache_rescue": 1},
     }
-    assert payload["cached_packets"][0]["summary"] == "Cached stable project packet."
+    assert (
+        payload["cached_packets"][0]["summary"]
+        == "Cached stable project packet for qxjv norel zaffron plinket."
+    )
     assert stable_lookup_sync_flags == [False, True]
     stage_timings = payload["diagnostics"]["stage_timings_ms"]
     assert stage_timings["project_file_fallback"] == 0.0
+    assert stage_timings["project_file_fallback_soft_wait"] >= 0
     assert stage_timings["project_file_fallback_pending"] == 1.0
     manager.get_context.assert_not_awaited()
     group_id, sample = manager.record_memory_operation.call_args.args
@@ -965,6 +970,191 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         exact_cache_calls[0].kwargs["packets"][0]["summary"]
         == "Fresh project scan packet."
     )
+
+
+@pytest.mark.asyncio
+async def test_axi_context_waits_briefly_for_fresh_project_scan_before_cache_rescue(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    exact_topic = "fresh observations starved by project-home cache recency"
+    cached_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Stale stable project packet.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:README.md"],
+        "_project_file_fallback_topic_hint": "older dogfood topic",
+        "_project_file_fallback_project_path": str(project_dir),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    fresh_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Fresh scan found the recall-priority evidence.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_cache_scope": "project_file_fallback",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+
+    async def fake_run_project_file_executor(function, /, *args, **kwargs):
+        assert function.__name__ == "_build_project_file_context_fallback_packets"
+        await asyncio.sleep(0.02)
+        return [fresh_packet], 20.0
+
+    def get_cached_packets(
+        _group_id,
+        *,
+        scope,
+        topic_hint=None,
+        project_path=None,
+        **_kwargs,
+    ):
+        if (
+            scope == "project_home"
+            and topic_hint == "Engram"
+            and project_path == str(project_dir)
+        ):
+            return SimpleNamespace(packets=[cached_packet])
+        return None
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_run_project_file_executor",
+        fake_run_project_file_executor,
+    )
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_packet_cache_enabled=True,
+        context_fast_preflight_timeout_ms=100,
+        context_fast_preflight_soft_wait_ms=80,
+    )
+    manager.get_cached_memory_packets.side_effect = get_cached_packets
+    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.cache_memory_packets = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=exact_topic,
+        project_path=str(project_dir),
+        operation_source="axi_context",
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["packet_cache"] == {
+        "hit": False,
+        "packet_count": 1,
+        "scopes": {"project_file_fallback": 1},
+    }
+    assert (
+        payload["cached_packets"][0]["summary"]
+        == "Fresh scan found the recall-priority evidence."
+    )
+    assert "Stale stable project packet" not in payload["context"]
+    assert (
+        payload["diagnostics"]["stage_timings_ms"][
+            "project_file_fallback_soft_wait"
+        ]
+        >= 0
+    )
+    manager.get_context.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.cache_hit is False
+
+
+@pytest.mark.asyncio
+async def test_context_cache_rescue_ignores_stable_packets_that_miss_topic(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    exact_topic = "soft wait current handoff exact evidence 20260528"
+    cached_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: README.md",
+        "summary": "Unrelated stale stable project packet.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:README.md"],
+        "_project_file_fallback_topic_hint": "older dogfood topic",
+        "_project_file_fallback_project_path": str(project_dir),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    fresh_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Fresh exact soft wait current handoff evidence.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "provenance": ["file:docs/CURRENT_HANDOFF.md"],
+        "_cache_scope": "project_file_fallback",
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+
+    async def fake_run_project_file_executor(function, /, *args, **kwargs):
+        assert function.__name__ == "_build_project_file_context_fallback_packets"
+        await asyncio.sleep(0.03)
+        return [fresh_packet], 30.0
+
+    def get_cached_packets(
+        _group_id,
+        *,
+        scope,
+        topic_hint=None,
+        project_path=None,
+        **_kwargs,
+    ):
+        if (
+            scope == "project_home"
+            and topic_hint == "Engram"
+            and project_path == str(project_dir)
+        ):
+            return SimpleNamespace(packets=[cached_packet])
+        return None
+
+    monkeypatch.setattr(
+        context_builder_module,
+        "_run_project_file_executor",
+        fake_run_project_file_executor,
+    )
+    manager = MagicMock()
+    manager.get_activation_config.return_value = ActivationConfig(
+        recall_packet_cache_enabled=True,
+        context_fast_preflight_timeout_ms=100,
+        context_fast_preflight_soft_wait_ms=5,
+    )
+    manager.get_cached_memory_packets.side_effect = get_cached_packets
+    manager.fast_recall_fallback = AsyncMock(return_value=[])
+    manager.cache_memory_packets = MagicMock()
+    manager.get_context = AsyncMock(return_value=CONTEXT_RESULT)
+    manager.record_memory_operation = MagicMock()
+
+    payload = await build_mcp_context_surface(
+        manager,
+        group_id="native_brain",
+        topic_hint=exact_topic,
+        project_path=str(project_dir),
+        operation_source="axi_context",
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["packet_cache"] == {
+        "hit": False,
+        "packet_count": 1,
+        "scopes": {"project_file_fallback": 1},
+    }
+    assert payload["cached_packets"][0]["summary"] == fresh_packet["summary"]
+    assert "Unrelated stale stable project packet" not in payload["context"]
+    manager.get_context.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.cache_hit is False
 
 
 @pytest.mark.asyncio

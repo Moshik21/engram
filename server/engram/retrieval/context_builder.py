@@ -1757,6 +1757,18 @@ async def _project_file_context_payload_from_task_or_manager(
             timeout=timeout,
             pre_fallback_stage_timings=pre_fallback_stage_timings,
         )
+    soft_wait_started = time.perf_counter()
+    if not task.done():
+        await _wait_for_project_file_context_task_before_rescue(
+            task,
+            soft_wait_seconds=_context_fast_preflight_soft_wait_seconds(
+                _manager_activation_config(manager)
+            ),
+        )
+    soft_wait_duration_ms = _elapsed_ms(soft_wait_started)
+    stage_timings = dict(pre_fallback_stage_timings or {})
+    if soft_wait_duration_ms > 0:
+        stage_timings["project_file_fallback_soft_wait"] = soft_wait_duration_ms
     if not task.done():
         cached_packets = _project_file_cache_rescue_packets_from_manager(
             manager,
@@ -1789,7 +1801,7 @@ async def _project_file_context_payload_from_task_or_manager(
                 timeout=timeout,
                 total_duration_ms=_elapsed_ms(started),
                 pre_fallback_stage_timings={
-                    **dict(pre_fallback_stage_timings or {}),
+                    **stage_timings,
                     "project_file_fallback_cache_rescue": 0.0,
                     "project_file_fallback_pending": 1.0,
                 },
@@ -1812,7 +1824,7 @@ async def _project_file_context_payload_from_task_or_manager(
             duration_ms=duration_ms,
             skip_reason=skip_reason,
             timeout=timeout,
-            pre_fallback_stage_timings=pre_fallback_stage_timings,
+            pre_fallback_stage_timings=stage_timings,
         )
     if not packets:
         return None
@@ -1836,8 +1848,23 @@ async def _project_file_context_payload_from_task_or_manager(
         skip_reason=skip_reason,
         timeout=timeout,
         total_duration_ms=_elapsed_ms(started),
-        pre_fallback_stage_timings=pre_fallback_stage_timings,
+        pre_fallback_stage_timings=stage_timings,
     )
+
+
+async def _wait_for_project_file_context_task_before_rescue(
+    task: asyncio.Task[tuple[list[dict[str, Any]], float]],
+    *,
+    soft_wait_seconds: float,
+) -> None:
+    if soft_wait_seconds <= 0:
+        return
+    try:
+        await asyncio.wait({task}, timeout=soft_wait_seconds)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.debug("Project file context soft wait failed", exc_info=True)
 
 
 def _project_file_cache_rescue_packets_from_manager(
@@ -1910,7 +1937,11 @@ def _project_file_cache_rescue_packets_from_manager(
             _append_unique_cached_packet(packets, seen_packets, rescue_packet)
             if len(packets) >= max_packets:
                 break
-    return packets
+    return _select_relevant_context_packets(
+        packets,
+        topic_hint=topic_hint,
+        project_path=project_path,
+    )
 
 
 def _cache_project_file_context_fallback_task_result(
