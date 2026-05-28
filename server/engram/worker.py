@@ -143,6 +143,10 @@ class EpisodeWorker:
                     )
                     continue
 
+                if self._cfg.cue_layer_enabled:
+                    # Cue routing owns projection decisions; avoid racing the raw capture event.
+                    continue
+
                 # Auto-captured episodes: buffer for adjacent turn batching
                 if worker_event.is_auto_turn:
                     pending = PendingEpisode(

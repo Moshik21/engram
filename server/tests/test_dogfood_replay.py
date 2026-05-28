@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -265,6 +266,9 @@ async def test_build_dogfood_replay_report_summarizes_axi_trace_evidence(tmp_pat
                         "client": "codex",
                         "timeoutSeconds": 5,
                         "cacheHit": True,
+                        "packetCount": 3,
+                        "resultCount": 0,
+                        "fallbackStatus": "cache_satisfied",
                     }
                 ),
                 json.dumps(
@@ -275,6 +279,9 @@ async def test_build_dogfood_replay_report_summarizes_axi_trace_evidence(tmp_pat
                         "origin": "agent-followup",
                         "client": "codex",
                         "timeoutSeconds": 5,
+                        "packetCount": 1,
+                        "resultCount": 2,
+                        "fallbackStatus": "recall_timeout",
                     }
                 ),
             ]
@@ -301,6 +308,12 @@ async def test_build_dogfood_replay_report_summarizes_axi_trace_evidence(tmp_pat
     assert trace["timeout_count"] == 1
     assert trace["degraded_count"] == 1
     assert trace["cache_hit_count"] == 1
+    assert trace["packet_count"] == 4
+    assert trace["result_count"] == 2
+    assert trace["fallback_status_counts"] == {
+        "cache_satisfied": 1,
+        "recall_timeout": 1,
+    }
     assert trace["session_start_count"] == 1
     assert trace["followup_count"] == 2
 
@@ -308,6 +321,8 @@ async def test_build_dogfood_replay_report_summarizes_axi_trace_evidence(tmp_pat
     assert "## Trace Evidence" in markdown
     assert "AXI trace records: 3" in markdown
     assert "context=1" in markdown
+    assert "Packets/results: 4/2" in markdown
+    assert "cache_satisfied=1" in markdown
     assert "Degraded/timeouts: 1/1" in markdown
 
 
@@ -341,6 +356,7 @@ async def test_build_dogfood_replay_report_merges_separate_axi_trace_file(
                         "origin": "agent-followup",
                         "client": "codex",
                         "cacheHit": True,
+                        "packetCount": 2,
                     }
                 ),
             ]
@@ -363,6 +379,79 @@ async def test_build_dogfood_replay_report_merges_separate_axi_trace_file(
     assert report["trace_evidence"]["trace_count"] == 2
     assert report["trace_evidence"]["operation_counts"] == {"context": 1, "home": 1}
     assert report["trace_evidence"]["cache_hit_count"] == 1
+    assert report["trace_evidence"]["packet_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_build_dogfood_replay_report_filters_trace_evidence_by_since_and_project(
+    tmp_path,
+) -> None:
+    transcript = tmp_path / "turns.jsonl"
+    trace_path = tmp_path / "axi-trace.jsonl"
+    transcript.write_text(
+        json.dumps({"role": "user", "content": "What changed with Engram AXI?"}),
+        encoding="utf-8",
+    )
+    trace_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-26T18:00:00Z",
+                        "operation": "home",
+                        "status": "healthy",
+                        "durationMs": 500,
+                        "origin": "session-start-hook",
+                        "project": "/tmp/engram",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-26T19:05:00Z",
+                        "operation": "context",
+                        "status": "ok",
+                        "durationMs": 90,
+                        "origin": "agent-followup",
+                        "project": "/tmp/other",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-26T19:10:00Z",
+                        "operation": "recall",
+                        "status": "ok",
+                        "durationMs": 70,
+                        "origin": "agent-followup",
+                        "project": "/tmp/engram/subdir",
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = await build_dogfood_replay_report(
+        transcript_path=transcript,
+        trace_paths=[trace_path],
+        project_path="/tmp/engram",
+        group_id="native_brain",
+        modes=["cached"],
+        trace_since="2026-05-26T19:00:00Z",
+        trace_project_path="/tmp/engram",
+    )
+
+    trace = report["trace_evidence"]
+    assert trace["status"] == "measured"
+    assert trace["raw_trace_count"] == 3
+    assert trace["trace_count"] == 1
+    assert trace["operation_counts"] == {"recall": 1}
+    assert trace["duration_ms"]["avg"] == 70.0
+    assert trace["filter"]["kept_trace_count"] == 1
+    assert trace["filter"]["dropped_before_since"] == 1
+    assert trace["filter"]["dropped_project_mismatch"] == 1
+
+    markdown = render_dogfood_replay_markdown(report)
+    assert "Trace filter: raw 3, kept 1" in markdown
 
 
 @pytest.mark.asyncio
@@ -618,6 +707,118 @@ def test_build_dogfood_candidate_report_can_filter_project_mismatches(tmp_path) 
     assert report["candidate_count"] == 1
     assert report["project_mismatch_count"] == 1
     assert report["candidates"][0]["path"] == str(match)
+
+
+def test_build_dogfood_candidate_report_uses_tool_workdir_for_project_match(
+    tmp_path,
+) -> None:
+    transcript = tmp_path / "codex-home-session.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "sess_home", "cwd": "/Users/konnermoshier"},
+                    }
+                ),
+                json.dumps({"role": "user", "content": "Continue Engram dogfood"}),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "function_call",
+                            "name": "exec_command",
+                            "arguments": json.dumps(
+                                {
+                                    "cmd": "pytest -q server/tests/test_dogfood_replay.py",
+                                    "workdir": "/Users/konnermoshier/Engram",
+                                }
+                            ),
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_dogfood_candidate_report(
+        root_path=tmp_path,
+        project_path="/Users/konnermoshier/Engram",
+        project_only=True,
+        limit=5,
+        max_files=10,
+    )
+
+    assert report["candidate_count"] == 1
+    assert report["project_mismatch_count"] == 0
+    candidate = report["candidates"][0]
+    assert candidate["path"] == str(transcript)
+    assert candidate["session_cwd"] == "/Users/konnermoshier"
+    assert candidate["project_match"] is True
+    assert candidate["project_match_source"] == "tool_workdir"
+    assert {
+        "source": "tool_workdir",
+        "path": "/Users/konnermoshier/Engram",
+    } in candidate["project_evidence_paths"]
+
+
+def test_build_dogfood_candidate_report_can_sort_by_recent(tmp_path) -> None:
+    older_many_turns = tmp_path / "older-many-turns.jsonl"
+    recent_few_turns = tmp_path / "recent-few-turns.jsonl"
+    older_many_turns.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "older", "cwd": "/tmp/engram"},
+                    }
+                ),
+                *(
+                    json.dumps({"role": "user", "content": f"Older Engram turn {index}"})
+                    for index in range(4)
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    recent_few_turns.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "recent", "cwd": "/tmp/other"},
+                    }
+                ),
+                json.dumps({"role": "user", "content": "Recent resumed dogfood turn"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    os.utime(older_many_turns, (1000, 1000))
+    os.utime(recent_few_turns, (2000, 2000))
+
+    by_turns = build_dogfood_candidate_report(
+        root_path=tmp_path,
+        project_path="/tmp/engram",
+        limit=2,
+        max_files=10,
+    )
+    by_recent = build_dogfood_candidate_report(
+        root_path=tmp_path,
+        project_path="/tmp/engram",
+        limit=2,
+        max_files=10,
+        sort="recent",
+    )
+
+    assert by_turns["sort"] == "turns"
+    assert by_turns["candidates"][0]["path"] == str(older_many_turns)
+    assert by_recent["sort"] == "recent"
+    assert by_recent["candidates"][0]["path"] == str(recent_few_turns)
 
 
 def test_build_dogfood_label_template_uses_hashes_not_content() -> None:
@@ -1270,6 +1471,8 @@ def test_dogfood_memory_operation_metrics_from_replay_trace_evidence() -> None:
             "timeout_count": 1,
             "degraded_count": 1,
             "cache_hit_count": 1,
+            "packet_count": 4,
+            "result_count": 2,
         }
     }
 
@@ -1285,6 +1488,8 @@ def test_dogfood_memory_operation_metrics_from_replay_trace_evidence() -> None:
     assert metrics["budget_miss_count"] == 1
     assert metrics["cache_hit_count"] == 1
     assert metrics["cache_miss_count"] == 2
+    assert metrics["packet_count"] == 4
+    assert metrics["result_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -1303,6 +1508,7 @@ async def test_import_dogfood_replay_cost_metrics_persists_snapshot(tmp_path) ->
                     "origin_counts": {"session-start-hook": 1, "agent-followup": 1},
                     "duration_ms": {"avg": 50.0, "p95": 80.0},
                     "cache_hit_count": 1,
+                    "packet_count": 2,
                 },
             }
         ),
@@ -1327,6 +1533,7 @@ async def test_import_dogfood_replay_cost_metrics_persists_snapshot(tmp_path) ->
     assert metrics["operation_count"] == 2
     assert metrics["duration_ms"]["p95"] == 80.0
     assert metrics["cache_hit_count"] == 1
+    assert metrics["packet_count"] == 2
 
 
 def test_dogfood_review_report_shows_missing_and_invalid_labels(tmp_path) -> None:

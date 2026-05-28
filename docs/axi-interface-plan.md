@@ -129,6 +129,55 @@ Write behavior must be explicit:
 
 The default command should be safe to run in every new agent session.
 
+Current dogfood detail: AXI home uses `/api/knowledge/runtime/fast`, which now
+schedules a non-blocking in-memory project-file prefix warmup for the provided
+project path. The startup packet remains read-only, graph-free, and
+non-capturing, but the first follow-up `engram axi context --project ...` is less
+likely to pay cold local file reads. Live proof after reinstall/restart on
+LaunchAgent PID `69492`: AXI home triggered the warmup, fresh AXI context
+returned useful project-file packets in `durationMs=183.2692`, repeat context
+hit cache in `0.0474ms`, and AXI recall was `cache_satisfied` in `0.7942ms`.
+The follow-up executor-isolation pass moved project-file context/recall fallback
+and prefix warmup off the default executor, so loaded native storage work cannot
+starve the local-file rescue path. After reinstall/restart on PID `71087`, fresh
+AXI context returned loaded-store cue packets in `77.4707ms`, and AXI recall was
+`cache_satisfied` in `0.5423ms`.
+AXI project context now stays in that same startup-safe lane with or without an
+explicit topic: `engram axi context --project ...` skips loaded-store preflight
+and uses cached/project-file context, while explicit long-tail memory searches
+remain available through `engram axi recall`. After reinstall/restart on PID
+`74526`, a warmed fresh topic-specific AXI context returned in `57.0956ms`
+with `projectFileFallback=32.1867ms`, and the exact repeat hit cache in
+`0.0461ms`. Startup validation stayed at `13 pass, 1 warn`; the only warning is
+stale/root real SessionStart proof.
+The next live pass removed a duplicate scan inside the project-file packet
+builder, so summary matching and evidence claims reuse one topic-match pass per
+candidate file. After reinstall/restart on PID `75796`, a warmed fresh AXI
+context built project-file packets in `22.6326ms`, and the exact repeat hit
+cache in `0.0393ms`.
+The MCP-side follow-up also made the richer context path easier to tune:
+project-file fallback responses now expose the loaded-store preflight wait when
+that preflight misses. After reinstall/restart on PID `76806`, a fresh MCP miss
+returned useful project-file packets in `103.96ms`, split as
+`loaded_store_context_preflight=99.7659ms` and
+`project_file_fallback=23.6974ms`.
+The next MCP policy pass added `context_fast_preflight_soft_wait_ms` with a
+`75ms` default, so quick loaded-store hits still win but loaded-store misses can
+fall back as soon as project-file context is ready. After reinstall/restart on
+PID `77735`, useful loaded-store MCP context returned in `85.4594ms`, while a
+fresh miss returned project-file packets in `25.7279ms` and recall on that same
+topic hit cache in `0.8398ms`.
+The follow-up persistent-cache rescue keeps the initial AXI/MCP context cache
+lookup in-memory, but if a project-file scan is still pending it may sync
+persistent packet cache for current-version same-project project-file packets.
+That gives agents a fast project packet instead of waiting on a cold local file
+scan, while the scan continues and refreshes the exact topic cache. After
+reinstall/restart on PID `80961`, the first fresh MCP miss after restart was
+served by loaded-store context in `30.344ms`; AXI recall on the same topic was
+cache-satisfied in `0.6234ms`, AXI context hit project cache in `0.049ms`, and
+post-validation live value read-path p95 was `80.397ms` with zero budget
+misses/degraded reads/timeouts.
+
 ## Command Shape
 
 Use a dedicated top-level subcommand:
@@ -202,7 +251,7 @@ context:
 next[3]{cmd,reason}:
   engram axi context --project "$PWD" --budget 800 --timeout 5,Load compact workspace context
   engram axi recall "query" --limit 5 --timeout 5,Search long-tail memory
-  engram axi observe --stdin --source codex,Capture explicit user-approved notes
+  engram axi observe --stdin --source <client|axi>,Capture explicit user-approved notes
 ```
 
 Example degraded output:
@@ -299,7 +348,7 @@ Should merge a managed command into `~/.codex/hooks.json` that runs something
 like:
 
 ```bash
-engram axi --project "$PWD" --budget 800 --timeout 3
+engram axi hook-run --budget 800 --timeout 3
 ```
 
 Codex uses matcher groups in `~/.codex/hooks.json`: `hooks.SessionStart[]`
@@ -562,14 +611,134 @@ Evidence, 2026-05-20:
 - Capture remains disabled by default. `--capture` is metadata-only in the
   startup hook path and requires explicit user action before any write command
   is emitted.
+- Later Codex dogfood found one real SessionStart trace with `project=/`,
+  meaning the shell `$PWD` path can be wrong in some sessions. Managed hooks now
+  call `engram axi hook-run`, read the client hook JSON from stdin, and use its
+  `cwd` as the startup project path when available. The startup validator still
+  warns on existing filesystem-root startup traces until a new trusted client
+  SessionStart row replaces them. Follow-up `context`/`recall` commands with
+  explicit `--project "$PWD"` still returned useful packets without degradation.
+- The strict doctor gate now rejects pre-install hook evidence too:
+  `engram axi doctor --hooks codex claude-code --require-hook-run
+  --require-followup --json` currently fails with `stale_session_start_run` for
+  both clients, and Codex also reports `last_run_project_root=true`.
+- A refreshed full lifecycle matrix at
+  `/private/tmp/engram-dogfood-startup-20260527-140202` passed runtime, doctor,
+  MCP catalog, and lifecycle checks with `11 pass, 2 warn, 0 fail, 0 skip`; the
+  remaining warnings are the expected stale/root hook-run evidence.
+- Bounded project-file fallback now prefers current handoff evidence over older
+  append-only matrix mentions and filters cached project-file packets by
+  `project_path` before explicit recall can use them. Live AXI/MCP dogfood for
+  `startup matrix 20260527 tiecheck gold` returned the current
+  `20260527-140202` `CURRENT_HANDOFF.md` packet, then repeated from cache in
+  sub-millisecond context and low-double-digit-millisecond recall paths.
+- A later refreshed lifecycle matrix at
+  `/private/tmp/engram-dogfood-startup-20260527-142608` passed with
+  `11 pass, 2 warn, 0 fail, 0 skip`; the remaining warnings are still only stale
+  client SessionStart evidence.
+- Project-file fallback cache rows now carry `version=2`; AXI/MCP context exact
+  hits require the current version, and explicit recall ignores stale
+  unversioned project-file fallback rows before cache satisfaction. The same
+  pass tightened adjacent-line summary scoring so only true wrapped evidence is
+  joined. Live dogfood after reinstall rebuilt current Engram evidence for
+  `startup matrix 20260527 tiecheck diamond` in `1249.1747ms`, rebuilt a clean
+  context packet for
+  `native PyO3 dogfood performance continuation cleanline 20260527` in
+  `931.882ms`, then hit cache on repeats: AXI context `0.2474ms`, AXI recall
+  `74.5458ms`, MCP context `0.1637ms`, and MCP recall `2.4684ms`.
+- The latest full lifecycle evidence is
+  `/private/tmp/engram-dogfood-startup-20260527-144207` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `23794`, and the remaining warnings are still only stale/root
+  SessionStart evidence awaiting fresh real client sessions.
+- Packet summaries now handle wrapped/lowercase evidence and long snippets more
+  cleanly. Fresh AXI context for
+  `startup matrix 20260527 tiecheck diamond project_file_recall_fallback
+  continuationproof2` rebuilt the current handoff packet in `785.6527ms` with a
+  whole-line summary and word-boundary truncation; repeats hit cache through AXI
+  context `0.1051ms`, AXI recall `52.3059ms`, MCP context `0.0807ms`, and MCP
+  recall `1.1909ms`.
+- The latest full lifecycle evidence is now
+  `/private/tmp/engram-dogfood-startup-20260527-145536` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `37314`, and the remaining warnings are still stale/root
+  SessionStart evidence.
+- Evidence-line selection now uses the same continuation quality bar: direct
+  term hits are required, bounded previous continuation chains are joined, and
+  unrelated prior sentences are trimmed before a wrapped previous line is used.
+  Live dogfood for
+  `evidence project_file_recall_fallback wrappedwindow liveproof 20260527
+  chainfixed2` rebuilt current handoff evidence in `747.8033ms`, then hit cache
+  through AXI context `0.179ms`, AXI recall `3.8688ms`, MCP context
+  `1.5832ms`, and MCP recall `1.0518ms`.
+- The latest full lifecycle evidence is now
+  `/private/tmp/engram-dogfood-startup-20260527-151148` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `48671`, and the remaining warnings are still stale/root
+  SessionStart evidence.
+- Hot AXI/MCP reads now avoid per-call SQLite sidecar syncs on resident packet
+  cache paths, and exact project-file fallback packets can satisfy repeated
+  context/recall even when generic fallback summaries do not echo unusual query
+  terms. Live AXI for
+  `xafnorb quexilate zumbrel frobnicate mintcase exactcache5` rebuilt fallback
+  packets in `618.2917ms`, repeated context from cache in `0.047ms`, and returned
+  `cache_satisfied` recall in `0.7253ms` then `0.585ms`.
+- The latest full lifecycle evidence is now
+  `/private/tmp/engram-dogfood-startup-20260527-153357` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `57186`, and the remaining warnings are still stale/root
+  SessionStart evidence. On that post-matrix runtime, the same synthetic topic
+  rebuilt project-file context in `41.1342ms`, repeated from cache in
+  `0.6055ms`, and AXI recall was `cache_satisfied` in `0.5183ms`.
+- Packet-cache relevance is now stricter on weak synthetic misses: context
+  rejects lone date/id matches, and explicit recall ignores generated `why_now`
+  text before deciding cache satisfaction. Live AXI for
+  `qvanta noexisting loadedstore miss tail 20260527 probeB` reported
+  `cache_relevance_miss` and built project-file fallback packets in `44.7505ms`;
+  a fresh recall-first `probeC` ran bounded recall in `228.2368ms`, found no
+  memory results, and fell back to three project-file packets instead of stale
+  loaded-store packets.
+- The latest full lifecycle evidence is now
+  `/private/tmp/engram-dogfood-startup-20260527-154316` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `59654`, and the remaining warnings are still stale/root
+  SessionStart evidence.
+- Write-tool auto-recall is now cache-only, and MCP write live-turn
+  fingerprinting uses a short response-path wait while continuing in the
+  background. Live MCP observe `obsF` returned in `85.9ms` wall time with
+  `recall_middleware=0.4302ms`; AXI context for the same topic returned
+  loaded-store cue packets in `30.4921ms`, and AXI recall hit the fresh
+  `mcp_observe` packet in `0.3212ms`.
+- The latest full lifecycle evidence is now
+  `/private/tmp/engram-dogfood-startup-20260527-155526` with
+  `11 pass, 2 warn, 0 fail, 0 skip`; post-matrix runtime is healthy on
+  LaunchAgent PID `64398`, and the remaining warnings are still stale/root
+  SessionStart evidence.
+- Startup-validator follow-up guidance now distinguishes manual follow-up traces
+  from real SessionStart proof. Manual `agent-followup` context/recall rows can
+  prove AXI is callable, but stale/root SessionStart warnings require a fresh
+  interactive client session from the target project. A real Codex TUI session
+  from `/Users/konnermoshier/Engram` produced
+  `operation=hook-run`, `origin=session-start-hook`,
+  `project=/Users/konnermoshier/Engram`, `durationMs=11`, and `status=healthy`;
+  a Claude Code print-mode probe then produced the same current shape with
+  `durationMs=12`. The validator accepts this current `hook-run` shape and now
+  passes startup/follow-up evidence for both clients. AXI home now uses the
+  active trace client for capture suggestions instead of hard-coding Codex.
+- Agent write surfaces now use a shorter raw-capture wait: MCP observe and REST
+  auto-observe pass per-write `capture_store_timeout_ms=250`, while explicit
+  writes keep the global `1000ms` default. After reinstall/restart on PID
+  `67368`, live MCP observe returned with `capture_store=169ms` and
+  `cue_store_timeout=251ms`, REST auto-observe deferred at
+  `captureStoreTimeout=252ms`, and value telemetry showed write-path p95
+  `440.135ms` with no degradation or budget misses.
 
 Still needed:
 
 - Preserve the trace fixture shape in docs/tests so future hook schema changes
   cannot silently regress Codex or Claude Code startup evidence.
-- Re-run the strict doctor gate after installer or hook changes, because the
-  proof is intentionally metadata-only and tied to the local hook config plus
-  `~/.engram/axi-hook-runs.jsonl`.
+- Keep the Codex and Claude Code `hook-run` fixture shape covered as client
+  hook schemas evolve.
 
 ### Phase 6: Release Polish
 

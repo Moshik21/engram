@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -177,3 +178,52 @@ class TestPlannerPipelineIntegration:
         assert e1.planner_support > 0.4
         assert "topic" in e1.planner_intents
         assert e1.recall_trace
+
+    async def test_retrieve_keeps_base_candidates_when_planner_times_out(self):
+        cfg = ActivationConfig(
+            recall_planner_enabled=True,
+            conv_multi_query_enabled=True,
+            conv_context_enabled=True,
+            multi_pool_enabled=False,
+            mmr_enabled=False,
+            recall_planner_timeout_ms=25,
+        )
+        ctx = ConversationContext()
+        ctx.add_turn("recent work")
+        ctx.add_session_entity("e2", "TypeScript", "Technology", now=1.0)
+
+        search_index = AsyncMock()
+
+        async def mock_search(query, group_id, limit):
+            if query == "frontend":
+                return [("e1", 0.4)]
+            await asyncio.sleep(0.2)
+            return [("e2", 0.7)]
+
+        search_index.search = AsyncMock(side_effect=mock_search)
+        search_index.search_episodes = AsyncMock(return_value=[])
+        search_index.compute_similarity = AsyncMock(return_value={})
+
+        activation_store = AsyncMock()
+        activation_store.batch_get = AsyncMock(return_value={})
+
+        graph_store = AsyncMock()
+        graph_store.get_stats = AsyncMock(return_value={"entity_count": 10})
+        graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
+
+        stage_timings = {}
+        results = await retrieve(
+            query="frontend",
+            group_id="default",
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            cfg=cfg,
+            limit=10,
+            enable_routing=False,
+            conv_context=ctx,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert [result.node_id for result in results] == ["e1"]
+        assert stage_timings["recall_planner_timeout"] >= 25

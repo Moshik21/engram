@@ -122,6 +122,22 @@ def test_rest_client_can_request_live_storage(monkeypatch) -> None:
     assert seen["url"] == "http://localhost:8100/api/storage?live=True&timeoutSeconds=3"
 
 
+def test_rest_client_can_request_live_cost_evaluation_report(monkeypatch) -> None:
+    seen = {}
+
+    def fake_urlopen(request, timeout: float):
+        seen["url"] = request.full_url
+        return FakeResponse(b'{"memory_value":{"status":"measured"}}')
+
+    monkeypatch.setattr("engram.axi.client.urllib.request.urlopen", fake_urlopen)
+
+    client = AxiRestClient(server_url="http://localhost:8100", timeout_seconds=1)
+    payload = client.evaluation_report(live_cost=True)
+
+    assert payload == {"memory_value": {"status": "measured"}}
+    assert seen["url"] == "http://localhost:8100/api/evaluation/brain-loop/report?liveCost=True"
+
+
 def test_rest_client_rejects_malformed_json(monkeypatch) -> None:
     def fake_urlopen(_request, timeout: float):
         return FakeResponse(b"not json")

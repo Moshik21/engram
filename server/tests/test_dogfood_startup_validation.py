@@ -133,6 +133,179 @@ def test_find_managed_hook_and_trace_summary() -> None:
     assert summary["claude-code"]["session_start"] is None
 
 
+def test_trace_summary_prefers_fresh_hook_run_session_start() -> None:
+    runner = _load_runner()
+
+    traces = [
+        {
+            "client": "codex",
+            "origin": "session-start-hook",
+            "operation": "home",
+            "status": "healthy",
+            "project": "/",
+            "timestamp": "2026-05-27T20:12:28Z",
+        },
+        {
+            "client": "codex",
+            "origin": "session-start-hook",
+            "operation": "hook-run",
+            "status": "healthy",
+            "project": str(ROOT),
+            "timestamp": "2026-05-28T00:24:34Z",
+        },
+    ]
+
+    summary = runner.summarize_axi_traces(traces, repo_root=ROOT)
+
+    assert summary["codex"]["session_start"]["operation"] == "hook-run"
+    assert summary["codex"]["session_start"]["project"] == str(ROOT)
+
+
+def test_axi_hook_check_warns_on_root_session_start_project(tmp_path: Path) -> None:
+    runner = _load_runner()
+    home = tmp_path / "home"
+    trace_path = home / ".engram/axi-hook-runs.jsonl"
+
+    _write_managed_axi_hook(home / ".codex/hooks.json", client="codex")
+    _write_managed_axi_hook(home / ".claude/settings.json", client="claude-code")
+    trace_path.parent.mkdir(parents=True)
+    records = [
+        {
+            "client": "codex",
+            "origin": "session-start-hook",
+            "operation": "home",
+            "status": "healthy",
+            "project": "/",
+            "timestamp": "2026-05-27T20:12:28Z",
+        },
+        {
+            "client": "codex",
+            "origin": "agent-followup",
+            "operation": "context",
+            "status": "ok",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:13:00Z",
+        },
+        {
+            "client": "claude-code",
+            "origin": "session-start-hook",
+            "operation": "home",
+            "status": "healthy",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:12:28Z",
+        },
+        {
+            "client": "claude-code",
+            "origin": "agent-followup",
+            "operation": "context",
+            "status": "ok",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:13:00Z",
+        },
+    ]
+    trace_path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+
+    check = runner.check_axi_hooks_and_traces(home, ROOT)
+
+    assert check.status == "warn"
+    assert "codex session-start project is filesystem root (/)" in check.detail
+    assert "trace_summary" in check.evidence
+    assert any(
+        "Start a new interactive codex session" in action
+        and "Manual agent-followup traces do not refresh SessionStart evidence" in action
+        for action in check.next_actions
+    )
+
+
+def test_axi_hook_check_warns_when_trace_predates_hook_config(tmp_path: Path) -> None:
+    runner = _load_runner()
+    home = tmp_path / "home"
+    trace_path = home / ".engram/axi-hook-runs.jsonl"
+    codex_hook = home / ".codex/hooks.json"
+    claude_hook = home / ".claude/settings.json"
+
+    _write_managed_axi_hook(codex_hook, client="codex")
+    _write_managed_axi_hook(claude_hook, client="claude-code")
+    trace_path.parent.mkdir(parents=True)
+    records = [
+        {
+            "client": "codex",
+            "origin": "session-start-hook",
+            "operation": "home",
+            "status": "healthy",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:12:28Z",
+        },
+        {
+            "client": "codex",
+            "origin": "agent-followup",
+            "operation": "context",
+            "status": "ok",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:13:00Z",
+        },
+        {
+            "client": "claude-code",
+            "origin": "session-start-hook",
+            "operation": "home",
+            "status": "healthy",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:12:28Z",
+        },
+        {
+            "client": "claude-code",
+            "origin": "agent-followup",
+            "operation": "context",
+            "status": "ok",
+            "project": str(ROOT),
+            "timestamp": "2026-05-27T20:13:00Z",
+        },
+    ]
+    trace_path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+    new_config_time = 1_779_916_000
+    os.utime(codex_hook, (new_config_time, new_config_time))
+    os.utime(claude_hook, (new_config_time, new_config_time))
+
+    check = runner.check_axi_hooks_and_traces(home, ROOT)
+
+    assert check.status == "warn"
+    assert "codex session-start trace predates current hook config" in check.detail
+    assert "claude-code session-start trace predates current hook config" in check.detail
+    assert any(
+        "Start a new interactive codex session" in action
+        and "Manual agent-followup traces do not refresh SessionStart evidence" in action
+        for action in check.next_actions
+    )
+
+
+def _write_managed_axi_hook(path: Path, *, client: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "hooks": [
+                                {
+                                    "id": "engram-axi-context",
+                                    "command": (
+                                        "engram axi hook-run "
+                                        f"--trace-client {client} "
+                                        "--trace-origin session-start-hook"
+                                    ),
+                                    "read_only": True,
+                                    "capture": False,
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+
 def test_openclaw_command_uses_streamable_http_transport(monkeypatch) -> None:
     runner = _load_runner()
     monkeypatch.setenv("PATH", "")
@@ -202,6 +375,99 @@ exit 2
     assert "streamable-http transport" in check.detail
 
 
+def test_extract_last_json_handles_warning_before_pretty_json() -> None:
+    runner = _load_runner()
+
+    payload = runner.extract_last_json(
+        """npm warn deprecated node-domexception@1.0.0
+{
+  "url": "http://127.0.0.1:8100/mcp",
+  "transport": "streamable-http"
+}
+"""
+    )
+
+    assert payload == {
+        "url": "http://127.0.0.1:8100/mcp",
+        "transport": "streamable-http",
+    }
+
+
+def test_mcp_catalog_check_requires_project_path_schema(monkeypatch, tmp_path: Path) -> None:
+    runner = _load_runner()
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+
+    def fake_run_command(command, *, timeout, cwd=None, env=None):
+        assert command[-1] == str(tmp_path)
+        return runner.CommandResult(
+            command=list(command),
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "count": 7,
+                    "has_remember": True,
+                    "missing": [],
+                    "names": sorted(runner.EXPECTED_MCP_TOOLS),
+                    "recall_has_project_path": True,
+                    "context_probe": {
+                        "status": "ok",
+                        "budget_miss": False,
+                        "degraded": False,
+                        "timeout": False,
+                        "packet_count": 1,
+                    },
+                    "recall_probe": {
+                        "status": "ok",
+                        "query_time_ms": 4.5,
+                        "budget_miss": False,
+                        "degraded": False,
+                        "timeout": False,
+                        "packet_count": 1,
+                        "result_count": 0,
+                    },
+                }
+            ),
+        )
+
+    monkeypatch.setattr(runner, "run_command", fake_run_command)
+
+    check = runner.check_mcp_catalog(tmp_path, "http://127.0.0.1:8100/mcp", timeout=5)
+
+    assert check.status == "pass"
+    assert check.evidence["catalog"]["recall_has_project_path"] is True
+    assert check.evidence["catalog"]["context_probe"]["status"] == "ok"
+    assert check.evidence["catalog"]["recall_probe"]["status"] == "ok"
+
+
+def test_mcp_catalog_check_fails_without_project_path_schema(monkeypatch, tmp_path: Path) -> None:
+    runner = _load_runner()
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+
+    def fake_run_command(command, *, timeout, cwd=None, env=None):
+        return runner.CommandResult(
+            command=list(command),
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "count": 7,
+                    "has_remember": True,
+                    "missing": [],
+                    "names": sorted(runner.EXPECTED_MCP_TOOLS),
+                    "recall_has_project_path": False,
+                    "context_probe": None,
+                    "recall_probe": None,
+                }
+            ),
+        )
+
+    monkeypatch.setattr(runner, "run_command", fake_run_command)
+
+    check = runner.check_mcp_catalog(tmp_path, "http://127.0.0.1:8100/mcp", timeout=5)
+
+    assert check.status == "fail"
+    assert "missing project_path" in check.detail
+
+
 def test_matrix_detects_stopped_validation_payload() -> None:
     matrix = _load_matrix()
 
@@ -218,6 +484,110 @@ def test_matrix_detects_stopped_validation_payload() -> None:
         "pass": 0,
         "warn": 1,
         "fail": 2,
+        "skip": 0,
+    }
+
+
+def test_matrix_read_json_object_handles_doctor_preamble(tmp_path: Path) -> None:
+    matrix = _load_matrix()
+    path = tmp_path / "doctor.json"
+    path.write_text(
+        """
+Verifying vector integrity after migration...
+All vectors verified successfully!
+{
+  "status": "warn",
+  "checks": [
+    {"name": "lifecycle_snapshot", "status": "warn"},
+    {"name": "server", "status": "pass"}
+  ]
+}
+"""
+    )
+
+    payload = matrix.read_json_object(path)
+
+    assert payload["status"] == "warn"
+    assert matrix.validation_summary(payload) == {
+        "pass": 1,
+        "warn": 1,
+        "fail": 0,
+        "skip": 0,
+    }
+
+
+def test_matrix_doctor_step_preserves_doctor_warnings(tmp_path: Path) -> None:
+    matrix = _load_matrix()
+    evidence_dir = tmp_path / "evidence"
+    evidence_dir.mkdir()
+    script = tmp_path / "doctor.sh"
+    script.write_text(
+        """#!/usr/bin/env bash
+cat <<'JSON'
+setup log before json
+{
+  "status": "warn",
+  "checks": [
+    {"name": "lifecycle_snapshot", "status": "warn"},
+    {"name": "server", "status": "pass"}
+  ]
+}
+JSON
+"""
+    )
+    script.chmod(0o755)
+
+    step = matrix.run_doctor_step(
+        "doctor",
+        [str(script)],
+        tmp_path,
+        evidence_dir,
+        "doctor.json",
+    )
+
+    assert step.status == "warn"
+    assert step.detail == "Doctor completed with warnings."
+    assert step.evidence["summary"] == {
+        "status": "warn",
+        "pass": 1,
+        "warn": 1,
+        "fail": 0,
+        "skip": 0,
+    }
+
+
+def test_matrix_validation_step_preserves_validation_warnings(tmp_path: Path) -> None:
+    matrix = _load_matrix()
+    repo = tmp_path / "repo"
+    evidence_dir = tmp_path / "evidence"
+    script = repo / "scripts/dogfood_startup_validation.py"
+    script.parent.mkdir(parents=True)
+    evidence_dir.mkdir()
+    script.write_text(
+        """#!/usr/bin/env python3
+import json
+print(json.dumps({
+    "checks": [
+        {"name": "AXI hooks and traces", "status": "warn"},
+        {"name": "HTTP health", "status": "pass"},
+    ]
+}))
+"""
+    )
+
+    step = matrix.run_validation_step(
+        "validation",
+        repo,
+        evidence_dir,
+        "validation.json",
+    )
+
+    assert step.status == "warn"
+    assert step.detail == "Validation JSON contains warning checks."
+    assert step.evidence["summary"] == {
+        "pass": 1,
+        "warn": 1,
+        "fail": 0,
         "skip": 0,
     }
 

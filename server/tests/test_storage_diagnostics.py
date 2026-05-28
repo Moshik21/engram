@@ -100,19 +100,23 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
     assert snapshot["backend"] == "helix_native"
     assert snapshot["groupId"] == "default"
     assert snapshot["counts"] == {
-        "episodes": 4,
-        "entities": 6,
-        "relationships": 9,
-        "cues": 3,
+        "episodes": 3,
+        "entities": 5,
+        "relationships": 7,
+        "cues": 2,
     }
-    assert snapshot["growthSinceStartup"]["episodes"] == 1
-    assert snapshot["growthSinceStartup"]["entities"] == 1
-    assert snapshot["growthSinceStartup"]["relationships"] == 2
-    assert snapshot["growthSinceStartup"]["cues"] == 1
+    assert snapshot["growthSinceStartup"]["episodes"] == 0
+    assert snapshot["growthSinceStartup"]["entities"] == 0
+    assert snapshot["growthSinceStartup"]["relationships"] == 0
+    assert snapshot["growthSinceStartup"]["cues"] == 0
     assert snapshot["growthSinceStartup"]["bytes"] >= 512
     assert snapshot["disk"]["totalBytes"] >= snapshot["disk"]["startupBytes"]
     assert snapshot["diagnostics"]["live"] is True
-    assert snapshot["diagnostics"]["countsStatus"] == "live"
+    assert snapshot["diagnostics"]["countsStatus"] == "cached_native_live_skipped"
+    assert (
+        snapshot["diagnostics"]["countsRefreshSkippedReason"]
+        == "helix_native_counts_use_cached_write_through"
+    )
     assert snapshot["diagnostics"]["pathsStatus"] == "live"
     assert {item["label"] for item in snapshot["paths"]} >= {
         "Helix native data",
@@ -122,7 +126,7 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
         "Capture queue",
         "Server log",
     }
-    assert graph_store.group_ids == ["default", "default"]
+    assert graph_store.group_ids == ["default"]
 
 
 @pytest.mark.asyncio
@@ -134,7 +138,7 @@ async def test_storage_diagnostics_default_counts_use_write_through_deltas(
     engram_home.mkdir(parents=True)
     monkeypatch.setenv("ENGRAM_HOME", str(engram_home))
     config = EngramConfig(mode="helix")
-    config.helix.transport = "native"
+    config.helix.transport = "http"
     config.helix.data_dir = str(tmp_path / "helix-native")
     config.sqlite.path = str(tmp_path / "engram.db")
     graph_store = FakeGraphStore(
@@ -191,7 +195,7 @@ async def test_storage_diagnostics_startup_timeout_uses_empty_baseline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = EngramConfig(mode="helix")
-    config.helix.transport = "native"
+    config.helix.transport = "http"
     config.helix.data_dir = str(tmp_path / "helix-native")
     config.sqlite.path = str(tmp_path / "engram.db")
 
@@ -235,6 +239,83 @@ async def test_storage_diagnostics_startup_timeout_uses_empty_baseline(
         "cues": 0,
     }
     assert live_snapshot["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
+    assert live_snapshot["diagnostics"]["countsRefreshStatus"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_storage_diagnostics_cancels_count_refresh_after_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = EngramConfig(mode="helix")
+    config.helix.transport = "http"
+    config.helix.data_dir = str(tmp_path / "helix-native")
+    config.sqlite.path = str(tmp_path / "engram.db")
+    monkeypatch.setenv("ENGRAM_HOME", str(tmp_path / "home" / ".engram"))
+
+    diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=SlowGraphStore(),
+        group_id="default",
+        startup_timeout_seconds=0.01,
+    )
+
+    timed_out = await diagnostics.snapshot(live=True, timeout_seconds=0.01)
+    assert timed_out["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
+    assert timed_out["diagnostics"]["countsRefreshStatus"] == "idle"
+
+    await asyncio.sleep(0.25)
+    cached = await diagnostics.snapshot(live=False)
+
+    assert cached["counts"] == {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+    assert cached["diagnostics"]["countsStatus"] == "cached"
+    assert cached["diagnostics"]["countsRefreshStatus"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_storage_diagnostics_background_refresh_has_own_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = EngramConfig(mode="helix")
+    config.helix.transport = "http"
+    config.helix.data_dir = str(tmp_path / "helix-native")
+    config.sqlite.path = str(tmp_path / "engram.db")
+    monkeypatch.setenv("ENGRAM_HOME", str(tmp_path / "home" / ".engram"))
+    monkeypatch.setattr(
+        diagnostics_module,
+        "BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=SlowGraphStore(),
+        group_id="default",
+        startup_timeout_seconds=0.01,
+    )
+
+    timed_out = await diagnostics.snapshot(live=True, timeout_seconds=0.01)
+    assert timed_out["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
+
+    await asyncio.sleep(0.05)
+    cached = await diagnostics.snapshot(live=False)
+
+    assert cached["counts"] == {
+        "episodes": 0,
+        "entities": 0,
+        "relationships": 0,
+        "cues": 0,
+    }
+    assert cached["diagnostics"]["countsStatus"] == "cached"
+    assert cached["diagnostics"]["countsRefreshStatus"] == "idle"
 
 
 def test_storage_paths_use_native_default_when_unconfigured(

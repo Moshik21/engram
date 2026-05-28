@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import asyncio
+import time
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from engram.models.episode import EpisodeProjectionState
 from engram.retrieval.feedback import (
@@ -16,6 +18,8 @@ from engram.retrieval.result_builder import RecallResultBuilder
 from engram.retrieval.scorer import ScoredResult
 from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 from engram.storage.protocols import GraphStore
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -57,6 +61,9 @@ class RecallPrimaryResultMaterializer:
         interaction_source: str,
         now: float,
         working_memory: WorkingMemoryBuffer | None,
+        graph_timeout_seconds: float | None = None,
+        side_effect_timeout_seconds: float | None = None,
+        stage_timings_ms: dict[str, float] | None = None,
     ) -> RecallPrimaryMaterialization:
         results: list[dict[str, Any]] = []
         seen_episode_ids: set[str] = set()
@@ -72,6 +79,9 @@ class RecallPrimaryResultMaterializer:
                     interaction_type=interaction_type,
                     now=now,
                     working_memory=working_memory,
+                    graph_timeout_seconds=graph_timeout_seconds,
+                    side_effect_timeout_seconds=side_effect_timeout_seconds,
+                    stage_timings_ms=stage_timings_ms,
                 )
                 continue
 
@@ -85,6 +95,9 @@ class RecallPrimaryResultMaterializer:
                 interaction_source=interaction_source,
                 now=now,
                 working_memory=working_memory,
+                graph_timeout_seconds=graph_timeout_seconds,
+                side_effect_timeout_seconds=side_effect_timeout_seconds,
+                stage_timings_ms=stage_timings_ms,
             )
 
         return RecallPrimaryMaterialization(
@@ -103,18 +116,35 @@ class RecallPrimaryResultMaterializer:
         interaction_type: str | None,
         now: float,
         working_memory: WorkingMemoryBuffer | None,
+        graph_timeout_seconds: float | None,
+        side_effect_timeout_seconds: float | None,
+        stage_timings_ms: dict[str, float] | None,
     ) -> None:
         if scored_result.node_id in seen_episode_ids:
             return
 
-        episode = await self._graph.get_episode_by_id(scored_result.node_id, group_id)
+        episode = await _bounded_materialize_call(
+            self._graph.get_episode_by_id(scored_result.node_id, group_id),
+            timeout_seconds=graph_timeout_seconds,
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_materialize_episode",
+            timeout_key="recall_materialize_episode_timeout",
+            fallback=None,
+        )
         if episode is None or self._is_merged_episode(episode):
             return
 
         seen_episode_ids.add(episode.id)
-        linked_entities = await self._graph.get_episode_entities(
-            scored_result.node_id,
-            group_id=group_id,
+        linked_entities = await _bounded_materialize_call(
+            self._graph.get_episode_entities(
+                scored_result.node_id,
+                group_id=group_id,
+            ),
+            timeout_seconds=graph_timeout_seconds,
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_materialize_episode_entities",
+            timeout_key="recall_materialize_episode_entities_timeout",
+            fallback=[],
         )
         self._working_memory_updater.add_result(
             working_memory,
@@ -126,16 +156,37 @@ class RecallPrimaryResultMaterializer:
         )
 
         if scored_result.result_type == "cue_episode":
-            cue = await self._graph.get_episode_cue(scored_result.node_id, group_id)
+            cue = await _bounded_materialize_call(
+                self._graph.get_episode_cue(scored_result.node_id, group_id),
+                timeout_seconds=graph_timeout_seconds,
+                stage_timings_ms=stage_timings_ms,
+                stage_key="recall_materialize_cue",
+                timeout_key="recall_materialize_cue_timeout",
+                fallback=None,
+            )
             if cue is None:
                 return
-            await self._cue_feedback_recorder.record_cue_feedback(
-                episode,
-                scored_result.score,
-                query,
-                interaction_type=interaction_type,
+            await _bounded_materialize_call(
+                self._cue_feedback_recorder.record_cue_feedback(
+                    episode,
+                    scored_result.score,
+                    query,
+                    interaction_type=interaction_type,
+                ),
+                timeout_seconds=side_effect_timeout_seconds,
+                stage_timings_ms=stage_timings_ms,
+                stage_key="recall_materialize_cue_feedback",
+                timeout_key="recall_materialize_cue_feedback_timeout",
+                fallback=None,
             )
-            cue = await self._graph.get_episode_cue(episode.id, group_id) or cue
+            cue = await _bounded_materialize_call(
+                self._graph.get_episode_cue(episode.id, group_id),
+                timeout_seconds=graph_timeout_seconds,
+                stage_timings_ms=stage_timings_ms,
+                stage_key="recall_materialize_cue_refresh",
+                timeout_key="recall_materialize_cue_refresh_timeout",
+                fallback=cue,
+            )
             results.append(
                 self._result_builder.cue_episode_result(
                     episode,
@@ -167,22 +218,46 @@ class RecallPrimaryResultMaterializer:
         interaction_source: str,
         now: float,
         working_memory: WorkingMemoryBuffer | None,
+        graph_timeout_seconds: float | None,
+        side_effect_timeout_seconds: float | None,
+        stage_timings_ms: dict[str, float] | None,
     ) -> None:
-        entity = await self._graph.get_entity(scored_result.node_id, group_id)
+        entity = await _bounded_materialize_call(
+            self._graph.get_entity(scored_result.node_id, group_id),
+            timeout_seconds=graph_timeout_seconds,
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_materialize_entity",
+            timeout_key="recall_materialize_entity_timeout",
+            fallback=None,
+        )
         if entity is None:
             return
 
-        relationships = await self._graph.get_relationships(
-            scored_result.node_id,
-            group_id=group_id,
+        relationships = await _bounded_materialize_call(
+            self._graph.get_relationships(
+                scored_result.node_id,
+                group_id=group_id,
+            ),
+            timeout_seconds=graph_timeout_seconds,
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_materialize_relationships",
+            timeout_key="recall_materialize_relationships_timeout",
+            fallback=[],
         )
         if record_access:
-            await self._entity_access_recorder.record_entity_access(
-                entity,
-                group_id=group_id,
-                query=query,
-                source=interaction_source,
-                timestamp=now,
+            await _bounded_materialize_call(
+                self._entity_access_recorder.record_entity_access(
+                    entity,
+                    group_id=group_id,
+                    query=query,
+                    source=interaction_source,
+                    timestamp=now,
+                ),
+                timeout_seconds=side_effect_timeout_seconds,
+                stage_timings_ms=stage_timings_ms,
+                stage_key="recall_materialize_entity_access",
+                timeout_key="recall_materialize_entity_access_timeout",
+                fallback=None,
             )
 
         self._working_memory_updater.add_result(
@@ -216,3 +291,40 @@ class RecallPrimaryResultMaterializer:
             RecallResultBuilder.episode_projection_state_value(episode)
             == EpisodeProjectionState.MERGED.value
         )
+
+
+async def _bounded_materialize_call(
+    awaitable: Awaitable[T],
+    *,
+    timeout_seconds: float | None,
+    stage_timings_ms: dict[str, float] | None,
+    stage_key: str,
+    timeout_key: str,
+    fallback: T,
+) -> T:
+    started = time.perf_counter()
+    try:
+        result = (
+            await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else await awaitable
+        )
+        _add_stage_timing(stage_timings_ms, stage_key, started)
+        return result
+    except asyncio.TimeoutError:
+        _add_stage_timing(stage_timings_ms, timeout_key, started)
+        return fallback
+    except asyncio.CancelledError:
+        _add_stage_timing(stage_timings_ms, f"{stage_key}_cancelled", started)
+        raise
+
+
+def _add_stage_timing(
+    stage_timings_ms: dict[str, float] | None,
+    key: str,
+    started: float,
+) -> None:
+    if stage_timings_ms is None:
+        return
+    elapsed = round((time.perf_counter() - started) * 1000, 4)
+    stage_timings_ms[key] = round(stage_timings_ms.get(key, 0.0) + elapsed, 4)

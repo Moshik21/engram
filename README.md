@@ -146,14 +146,21 @@ python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle
 records warmed, stopped, restarted, and stale-PID states. Without that flag it
 only records the warmed runtime checks.
 
+If a half-started native restart leaves an untracked Engram API listener behind,
+`engramctl stop` will clean up only listener processes whose command line looks
+like Engram's local `serve` command. If another process owns the port, it refuses
+to kill it and prints an `lsof` command for manual inspection.
+
 Use Helix native as the main no-Docker path when you want the full graph/vector
 backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
 available for the legacy Docker full stack and starts a fresh graph store with
 SQLite data preserved on disk for reference.
-Use `engramctl storage` to inspect resolved storage paths, disk usage, current
-counts, and growth since startup. Operator storage commands request a bounded
-live refresh; agent startup probes use cached last-known counts so a loaded graph
-store cannot stall session startup. Native Helix defaults to
+Use `engramctl storage` to inspect resolved storage paths, disk usage, cached
+write-through counts, and growth since startup. Operator storage commands print
+the count source so native Helix users can tell cached startup/write-through
+counts from full historical graph totals. Agent startup probes use cached
+last-known counts so a loaded graph store cannot stall session startup. Native
+Helix defaults to
 `~/.helix/engram-native`; lite defaults to `~/.engram/engram.db`.
 
 For shell-capable agents, `engram axi` provides a compact AXI packet without
@@ -183,11 +190,14 @@ prompt text, recalled context, or memory bodies. The strict doctor gate requires
 startup records to come from `trace-origin=session-start-hook`; the optional
 follow-up gate requires a later metadata-only `context` or `recall` record from
 `trace-origin=agent-followup`. Manual checks do not masquerade as client startup
-or adoption proof. `engram axi packet-cache clear` is the fallback for clearing
-stale cached packets; it does not delete memories, graph data, labels, or native
-Helix storage. Codex may show a hook-review prompt the first time the managed
-hook changes; after trust, the TUI surfaces the session-start packet on the
-first submitted prompt.
+or adoption proof. Managed startup hooks call `engram axi hook-run`, which reads
+the client hook payload from stdin and uses its `cwd` as the project path when
+available, avoiding shell `$PWD` drift in clients that launch hooks before the
+workspace cwd is ready. `engram axi packet-cache clear` is the fallback for
+clearing stale cached packets; it does not delete memories, graph data, labels,
+or native Helix storage. Codex may show a hook-review prompt the first time the
+managed hook changes; after trust, the TUI surfaces the session-start packet on
+the first submitted prompt.
 
 Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
 
@@ -1617,6 +1627,7 @@ For local native Helix or lite installs, the operator report combines Capture
 cd server
 uv run engram evaluate
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
+uv run engram evaluate --server-url http://127.0.0.1:8100 --require-memory-value --format json
 uv run engram evaluate --memory-value --require-memory-value --format markdown
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
 ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
@@ -1651,6 +1662,12 @@ and `--session-samples`.
 Use `--memory-value` when you only want the value/cost section. Add
 `--require-memory-value` to fail unless both runtime operation cost metrics and
 benefit labels are measured.
+
+Use `--server-url http://127.0.0.1:8100` when evaluating a large native Helix
+dogfood runtime that is already running. That path reads the REST
+`/api/evaluation/brain-loop/report` surface, so it can use the service's bounded
+cache-backed graph stats instead of opening a second native runtime and paying a
+cold aggregate scan.
 
 Add `--require-evaluation-signals` when the report should be a hard gate: the
 command exits non-zero unless cue usefulness, projection yield, recall quality,

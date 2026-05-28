@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -328,6 +329,35 @@ async def test_api_consolidation_status_surface_includes_scheduler_pressure_and_
     engine.get_latest_cycle.assert_awaited_once_with("native_brain")
     pressure.get_snapshot.assert_called_once_with("native_brain")
     pressure.get_pressure.assert_called_once_with("native_brain", cfg)
+
+
+@pytest.mark.asyncio
+async def test_api_consolidation_status_surface_degrades_when_latest_cycle_times_out(
+    monkeypatch,
+) -> None:
+    async def slow_latest_cycle(_group_id: str):
+        await asyncio.sleep(0.05)
+        return _cycle("cyc_late")
+
+    monkeypatch.setattr(
+        "engram.consolidation_trigger._API_CONSOLIDATION_STATUS_LATEST_CYCLE_TIMEOUT_SECONDS",
+        0.01,
+    )
+    engine = SimpleNamespace(
+        is_running=True,
+        get_latest_cycle=AsyncMock(side_effect=slow_latest_cycle),
+    )
+
+    result = await build_api_consolidation_status_surface(
+        engine,
+        group_id="native_brain",
+    )
+
+    assert result["is_running"] is True
+    assert result["degraded"] is True
+    assert result["skip_reason"] == "latest_cycle_timeout"
+    assert result["latest_cycle_status"] == "timeout"
+    assert "latest_cycle" not in result
 
 
 @pytest.mark.asyncio

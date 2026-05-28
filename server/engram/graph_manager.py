@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
@@ -147,6 +149,18 @@ def _session_cache_hit_signal(
     """Return cache-hit telemetry only when the caller can infer it safely."""
     if session_cache is None or not results:
         return None
+    return None
+
+
+def _declared_or_configured_callable(target: Any, name: str) -> Any | None:
+    """Return optional methods without triggering mock auto-attributes."""
+    for cls in type(target).__mro__:
+        if name in cls.__dict__:
+            value = getattr(target, name, None)
+            return value if callable(value) else None
+    if name in getattr(target, "__dict__", {}):
+        value = getattr(target, name, None)
+        return value if callable(value) else None
     return None
 
 
@@ -373,6 +387,7 @@ class GraphManager:
             working_memory_updater=self._recall_working_memory_updater,
         )
         self._recall_post_processor = RecallPostProcessor(
+            cfg=self._cfg,
             episode_traversal=self._recall_episode_traversal,
             working_memory_updater=self._recall_working_memory_updater,
             priming_updater=self._recall_priming_updater,
@@ -973,6 +988,7 @@ class GraphManager:
         scope: str,
         topic_hint: str | None = None,
         project_path: str | None = None,
+        sync_persistent: bool = True,
     ) -> MemoryPacketCacheHit | None:
         """Return fresh cached packet payloads for a public recall surface."""
         if not self._cfg.recall_packet_cache_enabled:
@@ -982,6 +998,7 @@ class GraphManager:
             scope=scope,
             topic_hint=topic_hint,
             project_path=project_path,
+            sync_persistent=sync_persistent,
         )
 
     def cache_memory_packets(
@@ -993,6 +1010,7 @@ class GraphManager:
         topic_hint: str | None = None,
         project_path: str | None = None,
         build_duration_ms: float = 0.0,
+        persist: bool = True,
     ) -> dict:
         """Store serialized packet payloads in the runtime packet cache."""
         if not self._cfg.recall_packet_cache_enabled or not packets:
@@ -1005,6 +1023,7 @@ class GraphManager:
             project_path=project_path,
             ttl_seconds=self._cfg.recall_packet_cache_ttl_seconds,
             build_duration_ms=build_duration_ms,
+            persist=persist,
         )
         return entry.to_dict()
 
@@ -1033,6 +1052,24 @@ class GraphManager:
     def get_memory_packet_cache_summary(self, group_id: str | None = None) -> dict:
         """Return packet cache health for runtime diagnostics."""
         return self._packet_cache.summary(group_id=group_id)
+
+    def get_recent_cached_memory_packets(
+        self,
+        group_id: str | None = None,
+        *,
+        scopes: Sequence[str] | None = None,
+        limit_packets: int = 5,
+        sync_persistent: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Return recent fresh packet payloads for bounded degraded fallbacks."""
+        if not self._cfg.recall_packet_cache_enabled:
+            return []
+        return self._packet_cache.recent_packets(
+            group_id=group_id,
+            scopes=scopes,
+            limit_packets=limit_packets,
+            sync_persistent=sync_persistent,
+        )
 
     def _memory_operation_budget(
         self,
@@ -1401,6 +1438,7 @@ class GraphManager:
         session_id: str | None = None,
         conversation_date: datetime | None = None,
         attachments: list[Attachment] | None = None,
+        capture_store_timeout_ms: int | None = None,
     ) -> str:
         """Store a raw episode without extraction. Fast path for bulk capture.
 
@@ -1414,6 +1452,7 @@ class GraphManager:
             session_id=session_id,
             conversation_date=conversation_date,
             attachments=attachments,
+            capture_store_timeout_ms=capture_store_timeout_ms,
         )
         self.invalidate_memory_packet_cache(
             group_id,
@@ -1972,6 +2011,11 @@ class GraphManager:
                 goal_cache=self._goal_priming_cache,
                 memory_need=memory_need,
             )
+        except asyncio.CancelledError:
+            self._last_recall_stage_timings_ms = (
+                self._recall_service.last_stage_timings()
+            )
+            raise
         except Exception:
             duration_ms = round((time.perf_counter() - started) * 1000, 4)
             self.record_memory_operation(
@@ -2012,9 +2056,21 @@ class GraphManager:
         """Return latest Capture-stage timings collected below the facade."""
         return self._capture_service.last_stage_timings()
 
-    async def drain_cue_index_outbox(self, *, limit: int | None = None) -> int:
+    async def warm_capture_store(self) -> dict[str, float]:
+        """Warm the Capture write path without retaining warmup memory."""
+        return await self._capture_service.warm_capture_store()
+
+    async def drain_cue_index_outbox(
+        self,
+        *,
+        limit: int | None = None,
+        include_failed: bool = True,
+    ) -> int:
         """Replay durable cue-indexing work from the capture outbox."""
-        return await self._capture_service.drain_cue_index_outbox(limit=limit)
+        return await self._capture_service.drain_cue_index_outbox(
+            limit=limit,
+            include_failed=include_failed,
+        )
 
     def get_cue_index_outbox_pending_count(self) -> int:
         """Return durable cue-index work still waiting for replay."""
@@ -2032,15 +2088,48 @@ class GraphManager:
         results: list[dict] = []
         seen_episode_ids: set[str] = set()
 
-        async def add_hits(method_name: str, result_type: str, fetch_limit: int) -> None:
-            search = getattr(self._search, method_name, None)
-            if not callable(search) or len(results) >= max_results:
-                return
+        def add_record_results(result_type: str, records: Sequence[Mapping[str, Any]]) -> None:
+            for record in records or []:
+                if len(results) >= max_results or not isinstance(record, Mapping):
+                    continue
+                episode_id = self._fallback_record_episode_id(record)
+                if not episode_id or episode_id in seen_episode_ids:
+                    continue
+                materialized = self._fallback_record_recall_result(
+                    record,
+                    group_id=group_id,
+                    result_type=result_type,
+                )
+                if materialized is None:
+                    continue
+                seen_episode_ids.add(episode_id)
+                results.append(materialized)
+
+        async def fetch_record_hits(
+            priority: int,
+            method_name: str,
+            result_type: str,
+            fetch_limit: int,
+        ) -> tuple[int, str, list[Mapping[str, Any]]]:
+            search = _declared_or_configured_callable(self._search, method_name)
+            if not callable(search):
+                return priority, result_type, []
             try:
-                hits = await search(query=query, group_id=group_id, limit=fetch_limit)
+                records = await search(query=query, group_id=group_id, limit=fetch_limit)
             except Exception:
-                logger.debug("fast recall fallback %s failed", method_name, exc_info=True)
-                return
+                logger.debug(
+                    "fast recall fallback %s failed",
+                    method_name,
+                    exc_info=True,
+                )
+                return priority, result_type, []
+            return (
+                priority,
+                result_type,
+                [record for record in records or [] if isinstance(record, Mapping)],
+            )
+
+        async def add_hits(result_type: str, hits: Sequence[tuple[Any, Any]]) -> None:
             for episode_id, score in hits or []:
                 if len(results) >= max_results or episode_id in seen_episode_ids:
                     continue
@@ -2055,9 +2144,239 @@ class GraphManager:
                 seen_episode_ids.add(str(episode_id))
                 results.append(materialized)
 
-        await add_hits("search_episode_cues", "cue_episode", max_results * 2)
-        await add_hits("search_episodes", "episode", max_results * 2)
+        async def fetch_hits(
+            priority: int,
+            method_name: str,
+            result_type: str,
+            fetch_limit: int,
+        ) -> tuple[int, str, list[tuple[Any, Any]]]:
+            search = self._fast_recall_search_method(method_name)
+            if not callable(search):
+                return priority, result_type, []
+            try:
+                hits = await search(query=query, group_id=group_id, limit=fetch_limit)
+            except Exception:
+                logger.debug("fast recall fallback %s failed", method_name, exc_info=True)
+                return priority, result_type, []
+            return priority, result_type, list(hits or [])
+
+        async def cancel_pending(tasks: set[asyncio.Task]) -> None:
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        async def run_record_stage(
+            specs: Sequence[tuple[int, str, str, int]],
+        ) -> None:
+            pending = {
+                asyncio.create_task(
+                    fetch_record_hits(priority, method_name, result_type, fetch_limit),
+                )
+                for priority, method_name, result_type, fetch_limit in specs
+            }
+            try:
+                while pending and len(results) < max_results:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if pending:
+                        ready, pending = await asyncio.wait(pending, timeout=0)
+                        done.update(ready)
+                    batches = sorted((task.result() for task in done), key=lambda item: item[0])
+                    for _, result_type, records in batches:
+                        add_record_results(result_type, records)
+                        if len(results) >= max_results:
+                            break
+            finally:
+                await cancel_pending(pending)
+
+        async def run_legacy_stage(
+            specs: Sequence[tuple[int, str, str, int]],
+        ) -> None:
+            pending = {
+                asyncio.create_task(fetch_hits(priority, method_name, result_type, fetch_limit))
+                for priority, method_name, result_type, fetch_limit in specs
+            }
+            try:
+                while pending and len(results) < max_results:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if pending:
+                        ready, pending = await asyncio.wait(pending, timeout=0)
+                        done.update(ready)
+                    batches = sorted((task.result() for task in done), key=lambda item: item[0])
+                    for _, result_type, hits in batches:
+                        await add_hits(result_type, hits)
+                        if len(results) >= max_results:
+                            break
+            finally:
+                await cancel_pending(pending)
+
+        fetch_limit = max_results * 2
+        await run_record_stage(
+            (
+                (0, "search_episode_cue_records_fast", "cue_episode", fetch_limit),
+                (1, "search_episode_records_fast", "episode", fetch_limit),
+            ),
+        )
+        if len(results) >= max_results:
+            return results
+        await run_legacy_stage(
+            (
+                (0, "search_episode_cues", "cue_episode", fetch_limit),
+                (1, "search_episodes", "episode", fetch_limit),
+            ),
+        )
         return results
+
+    def _fast_recall_search_method(self, method_name: str) -> Any:
+        fast_name = f"{method_name}_fast"
+        fast_search = _declared_or_configured_callable(self._search, fast_name)
+        if fast_search is not None:
+            return fast_search
+        return getattr(self._search, method_name, None)
+
+    @staticmethod
+    def _fallback_record_episode_id(record: Mapping[str, Any]) -> str:
+        return str(record.get("episode_id") or record.get("id") or "")
+
+    @classmethod
+    def _fallback_record_recall_result(
+        cls,
+        record: Mapping[str, Any],
+        *,
+        group_id: str,
+        result_type: str,
+    ) -> dict | None:
+        episode_id = cls._fallback_record_episode_id(record)
+        if not episode_id:
+            return None
+        score = cls._fallback_record_score(record)
+        score_breakdown = {
+            "semantic": score,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0,
+        }
+        if result_type == "cue_episode":
+            cue_text = cls._fallback_record_string(record, "cue_text")
+            if not cue_text:
+                return None
+            return {
+                "cue": {
+                    "episode_id": episode_id,
+                    "cue_text": cue_text,
+                    "supporting_spans": cls._fallback_record_json_list(
+                        record,
+                        "first_spans_json",
+                    ),
+                    "projection_state": cls._fallback_record_string(
+                        record,
+                        "projection_state",
+                    ),
+                    "route_reason": cls._fallback_record_string(record, "route_reason"),
+                    "hit_count": cls._fallback_record_int(record, "hit_count"),
+                    "surfaced_count": cls._fallback_record_int(record, "surfaced_count"),
+                    "selected_count": cls._fallback_record_int(record, "selected_count"),
+                    "used_count": cls._fallback_record_int(record, "used_count"),
+                    "near_miss_count": cls._fallback_record_int(record, "near_miss_count"),
+                    "policy_score": cls._fallback_record_float(record, "policy_score"),
+                    "last_feedback_at": cls._fallback_record_string(
+                        record,
+                        "last_feedback_at",
+                    ),
+                    "last_projected_at": cls._fallback_record_string(
+                        record,
+                        "last_projected_at",
+                    ),
+                },
+                "episode": {
+                    "id": episode_id,
+                    "source": cls._fallback_record_string(record, "source"),
+                    "created_at": cls._fallback_record_string(record, "created_at"),
+                },
+                "score": score,
+                "score_breakdown": score_breakdown,
+                "result_type": "cue_episode",
+                "linked_entities": [],
+            }
+
+        if cls._fallback_record_string(record, "projection_state") == (
+            EpisodeProjectionState.MERGED.value
+        ):
+            return None
+        content = cls._fallback_record_string(record, "content")
+        if not content:
+            return None
+        return {
+            "episode": {
+                "id": episode_id,
+                "content": content,
+                "source": cls._fallback_record_string(record, "source"),
+                "created_at": cls._fallback_record_string(record, "created_at"),
+                "conversation_date": cls._fallback_record_string(
+                    record,
+                    "conversation_date",
+                ),
+            },
+            "score": score,
+            "score_breakdown": score_breakdown,
+            "result_type": "episode",
+            "linked_entities": [],
+        }
+
+    @staticmethod
+    def _fallback_record_string(record: Mapping[str, Any], key: str) -> str | None:
+        value = record.get(key)
+        if value is None:
+            return None
+        text = str(value)
+        return text if text else None
+
+    @staticmethod
+    def _fallback_record_score(record: Mapping[str, Any]) -> float:
+        value = record.get("_score", record.get("score", 0.0))
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _fallback_record_float(record: Mapping[str, Any], key: str) -> float | None:
+        value = record.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fallback_record_int(record: Mapping[str, Any], key: str) -> int | None:
+        value = record.get(key)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fallback_record_json_list(record: Mapping[str, Any], key: str) -> list[Any]:
+        value = record.get(key)
+        if isinstance(value, list):
+            return value
+        if not isinstance(value, str) or not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
 
     async def _fallback_episode_recall_result(
         self,
@@ -2739,6 +3058,18 @@ class GraphManager:
             include_edges=include_edges,
             entity_types=entity_types,
         )
+
+    async def get_graph_stats(self, group_id: str = "default") -> dict:
+        """Return graph stats without dashboard graph-state enrichment."""
+        return await self._graph_state_service.get_graph_stats(group_id=group_id)
+
+    def get_cached_graph_stats(self, group_id: str = "default") -> dict | None:
+        """Return cached graph stats when a recent snapshot exists."""
+        return self._graph_state_service.get_cached_graph_stats(group_id=group_id)
+
+    def warm_graph_stats(self, group_id: str = "default"):
+        """Start or reuse a background graph stats refresh task."""
+        return self._graph_state_service.warm_graph_stats(group_id=group_id)
 
     async def get_dashboard_stats(
         self,

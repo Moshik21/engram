@@ -44,6 +44,12 @@ def test_system_prompt_observe_guidance():
     assert "returns recalled" in ENGRAM_SYSTEM_PROMPT
 
 
+def test_system_prompt_tells_recall_to_carry_project_path():
+    assert "recall(query, project_path=...)" in ENGRAM_SYSTEM_PROMPT
+    assert "pass the same `project_path` you used for `get_context`" in ENGRAM_SYSTEM_PROMPT
+    assert "prefer project-scoped memory before falling back" in ENGRAM_SYSTEM_PROMPT
+
+
 def test_system_prompt_failure_mode_example():
     # Single vivid failure example replaces the 12 trigger examples
     assert "Liam plays soccer" in ENGRAM_SYSTEM_PROMPT

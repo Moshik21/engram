@@ -131,9 +131,17 @@ class FakeClient:
             "format": format,
         }
 
-    def recall(self, query: str, *, limit: int) -> dict:
+    def recall(
+        self,
+        query: str,
+        *,
+        limit: int,
+        project_path: str | None = None,
+    ) -> dict:
         self.calls.append("recall")
         self._maybe_fail("recall")
+        if project_path:
+            self.calls.append(f"recall_project:{project_path}")
         return {
             "status": "ok",
             "results": [
@@ -146,8 +154,10 @@ class FakeClient:
             ][:limit],
         }
 
-    def evaluation_report(self) -> dict:
+    def evaluation_report(self, *, live_cost: bool = False) -> dict:
         self.calls.append("evaluation_report")
+        if live_cost:
+            self.calls.append("evaluation_report_live_cost")
         self._maybe_fail("evaluation_report")
         return {
             "memory_value": {
@@ -158,6 +168,19 @@ class FakeClient:
                     "cache_hit_rate": 0.5,
                     "budget_miss_rate": 0.1,
                     "skipped_count": 3,
+                    "by_mode": {
+                        "mcp_context": {
+                            "operation_count": 3,
+                            "p95_added_latency_ms": 20,
+                            "cache_hit_count": 2,
+                            "cache_miss_count": 1,
+                        },
+                        "api_auto_observe": {
+                            "operation_count": 2,
+                            "p95_added_latency_ms": 8000,
+                            "skipped_count": 1,
+                        },
+                    },
                 },
                 "benefit": {
                     "memory_need_precision": 0.75,
@@ -252,8 +275,35 @@ def test_home_payload_adds_metadata_trace_flags_to_read_followups() -> None:
     assert "--trace-client codex" in context_cmd
     assert "--trace-origin agent-followup" in context_cmd
     assert "--timeout 10" in context_cmd
+    assert '--project "$PWD"' in recall_cmd
     assert "--trace-origin agent-followup" in recall_cmd
     assert "--trace-origin" not in observe_cmd
+    assert "--source codex" in observe_cmd
+
+
+def test_home_payload_uses_trace_client_for_capture_source() -> None:
+    result = build_home_payload(
+        FakeClient(),
+        project_path="/Users/konnermoshier/Engram",
+        topic_hint=None,
+        budget=800,
+        trace_client="claude-code",
+    )
+
+    assert result.payload["next"][2]["cmd"] == (
+        "engram axi observe --stdin --source claude-code"
+    )
+
+
+def test_home_payload_uses_generic_capture_source_without_trace_client() -> None:
+    result = build_home_payload(
+        FakeClient(),
+        project_path="/Users/konnermoshier/Engram",
+        topic_hint=None,
+        budget=800,
+    )
+
+    assert result.payload["next"][2]["cmd"] == "engram axi observe --stdin --source axi"
 
 
 def test_home_payload_degrades_when_rest_is_offline() -> None:
@@ -382,6 +432,53 @@ def test_context_payload_includes_cached_packet_trust() -> None:
     }
 
 
+def test_context_payload_preserves_runtime_diagnostics() -> None:
+    client = FakeClient()
+
+    def degraded_context(**_kwargs) -> dict:
+        return {
+            "status": "degraded",
+            "context": "## Cached Memory Packets\n- Project Home",
+            "entityCount": 1,
+            "factCount": 1,
+            "tokenEstimate": 16,
+            "format": "structured",
+            "budget": {
+                "profile": "explicit",
+                "surface": "axi",
+                "mode": "axi_context",
+                "durationMs": 1201.0,
+                "budgetMiss": True,
+                "skipReason": "context_timeout",
+            },
+            "lifecycle": {
+                "stage": "recall",
+                "degraded": True,
+                "skipReason": "context_timeout",
+            },
+            "diagnostics": {
+                "stageTimingsMs": {
+                    "packetCache": 0.5,
+                    "projectFileFallback": 42.0,
+                }
+            },
+        }
+
+    client.context = degraded_context  # type: ignore[method-assign]
+
+    result = build_context_payload(
+        client,
+        topic_hint="Engram",
+        project_path="/Users/konnermoshier/Engram",
+        budget=200,
+    )
+
+    assert result.payload["status"] == "degraded"
+    assert result.payload["budget"]["skipReason"] == "context_timeout"
+    assert result.payload["lifecycle"]["skipReason"] == "context_timeout"
+    assert result.payload["diagnostics"]["stageTimingsMs"]["projectFileFallback"] == 42.0
+
+
 def test_recall_payload_compacts_results() -> None:
     result = build_recall_payload(
         FakeClient(),
@@ -396,10 +493,30 @@ def test_recall_payload_compacts_results() -> None:
     assert result.payload["results"][0]["name"] == "Engram"
 
 
+def test_recall_payload_passes_project_path() -> None:
+    client = FakeClient()
+
+    result = build_recall_payload(
+        client,
+        query="Engram",
+        limit=5,
+        budget=200,
+        project_path="/Users/konnermoshier/Engram",
+    )
+
+    assert result.exit_code == 0
+    assert "recall_project:/Users/konnermoshier/Engram" in client.calls
+
+
 def test_recall_payload_compacts_rest_items_shape() -> None:
     client = FakeClient()
 
-    def recall_items(_query: str, *, limit: int) -> dict:
+    def recall_items(
+        _query: str,
+        *,
+        limit: int,
+        project_path: str | None = None,
+    ) -> dict:
         return {
             "operation": "recall",
             "status": "degraded",
@@ -454,6 +571,66 @@ def test_recall_payload_compacts_rest_items_shape() -> None:
     assert result.payload["results"][1]["text"] == "AXI planning notes"
 
 
+def test_recall_payload_includes_degraded_cached_packets() -> None:
+    client = FakeClient()
+
+    def recall_items(
+        _query: str,
+        *,
+        limit: int,
+        project_path: str | None = None,
+    ) -> dict:
+        return {
+            "operation": "recall",
+            "status": "degraded",
+            "lifecycle": {
+                "resultCount": 0,
+                "packetCount": 1,
+                "degraded": True,
+                "timeout": True,
+                "skipReason": "recall_timeout",
+            },
+            "diagnostics": {
+                "stageTimingsMs": {
+                    "packetCache": 0.4,
+                    "recallSearch": 650.2,
+                    "recallFallback": 91.3,
+                }
+            },
+            "items": [],
+            "packets": [
+                {
+                    "packet_type": "project_home",
+                    "title": "Project Home: Engram",
+                    "summary": "Cached project context survives timeout.",
+                    "trust": {
+                        "freshness": "recent",
+                        "source": "cache",
+                        "confidence": 0.8,
+                        "why_now": "Cached project context for the current workspace.",
+                    },
+                }
+            ][:limit],
+        }
+
+    client.recall = recall_items  # type: ignore[method-assign]
+
+    result = build_recall_payload(
+        client,
+        query="Engram performance dogfood runtime",
+        limit=5,
+        budget=200,
+    )
+
+    assert result.payload["status"] == "degraded"
+    assert result.payload["result_count"] == 0
+    assert result.payload["packet_count"] == 1
+    assert result.payload["packets"][0]["title"] == "Project Home: Engram"
+    assert result.payload["packets"][0]["summary"] == "Cached project context survives timeout."
+    assert result.payload["packets"][0]["trust"]["source"] == "cache"
+    assert result.payload["diagnostics"]["stageTimingsMs"]["recallSearch"] == 650.2
+
+
 def test_storage_payload_includes_paths() -> None:
     client = FakeClient()
     result = build_storage_payload(client)
@@ -465,21 +642,30 @@ def test_storage_payload_includes_paths() -> None:
 
 
 def test_value_payload_compacts_memory_value_report() -> None:
-    result = build_value_payload(FakeClient())
+    client = FakeClient()
+    result = build_value_payload(client)
 
     assert result.exit_code == 0
     assert result.payload["operation"] == "value"
     assert result.payload["status"] == "measured"
+    assert result.payload["cost"]["source"] == "live_runtime"
     assert result.payload["cost"]["p95_added_latency_ms"] == 42
     assert result.payload["cost"]["skipped_count"] == 3
+    assert result.payload["cost"]["read_path"]["operation_count"] == 3
+    assert result.payload["cost"]["read_path"]["p95_added_latency_ms"] == 20
+    assert result.payload["cost"]["read_path"]["cache_hit_rate"] == 0.6667
+    assert result.payload["cost"]["write_path"]["operation_count"] == 2
+    assert result.payload["cost"]["write_path"]["p95_added_latency_ms"] == 8000
+    assert result.payload["cost"]["top_modes_by_p95"][0]["mode"] == "api_auto_observe"
     assert result.payload["benefit"]["continuity_lift"] == 0.25
     assert result.payload["next"][0]["cmd"].startswith("engram axi context")
+    assert "evaluation_report_live_cost" in client.calls
 
 
 def test_value_payload_timeout_suggests_value_report_timeout() -> None:
     client = FakeClient()
 
-    def timeout_report() -> dict:
+    def timeout_report(*, live_cost: bool = False) -> dict:
         raise AxiRestError(
             "Engram REST request timed out after 10s",
             url="http://127.0.0.1:8100/api/evaluation/brain-loop/report",

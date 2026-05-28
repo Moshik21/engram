@@ -12,6 +12,7 @@ import shlex
 import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,16 @@ def configure_dogfood_parser(parser: argparse.ArgumentParser) -> None:
     )
     replay.add_argument("--project", dest="project_path", default=None)
     replay.add_argument(
+        "--trace-since",
+        default=None,
+        help="Only include AXI trace records at or after this ISO-8601 timestamp.",
+    )
+    replay.add_argument(
+        "--trace-project-only",
+        action="store_true",
+        help="Only include AXI trace records whose project matches --project.",
+    )
+    replay.add_argument(
         "--modes",
         default=",".join(DEFAULT_DOGFOOD_MODES),
         help="Comma-separated modes: off,startup,cached,gated_lite,gated_medium,deep",
@@ -108,6 +119,16 @@ def configure_dogfood_parser(parser: argparse.ArgumentParser) -> None:
         help="Optional AXI hook trace JSONL to merge into replay cost evidence.",
     )
     prepare.add_argument("--project", dest="project_path", default=None)
+    prepare.add_argument(
+        "--trace-since",
+        default=None,
+        help="Only include AXI trace records at or after this ISO-8601 timestamp.",
+    )
+    prepare.add_argument(
+        "--trace-project-only",
+        action="store_true",
+        help="Only include AXI trace records whose project matches --project.",
+    )
     prepare.add_argument("--out-dir", type=Path, required=True)
     prepare.add_argument(
         "--modes",
@@ -242,6 +263,15 @@ def configure_dogfood_parser(parser: argparse.ArgumentParser) -> None:
         "--include-trace-only",
         action="store_true",
         help="Include trace-only files in the top-level candidate list.",
+    )
+    scan.add_argument(
+        "--sort",
+        choices=["turns", "recent"],
+        default="turns",
+        help=(
+            "Candidate ranking. 'turns' favors high-turn review sets; 'recent' "
+            "surfaces active or recently resumed sessions."
+        ),
     )
     scan.add_argument("--format", choices=["json", "markdown"], default="markdown")
 
@@ -401,6 +431,8 @@ async def run_dogfood_command(args: argparse.Namespace) -> int:
             include_template_content=bool(args.label_template_include_content),
             min_recall_samples=max(0, int(args.min_recall_samples)),
             min_session_samples=max(0, int(args.min_session_samples)),
+            trace_since=args.trace_since,
+            trace_project_path=args.project_path if args.trace_project_only else None,
         )
         if args.format == "json":
             print(json.dumps(report, indent=2, sort_keys=True))
@@ -475,6 +507,7 @@ async def run_dogfood_command(args: argparse.Namespace) -> int:
             min_turns=max(1, int(args.min_turns)),
             include_trace_only=bool(args.include_trace_only),
             project_only=bool(args.project_only),
+            sort=str(args.sort),
         )
         if args.format == "json":
             print(json.dumps(report, indent=2, sort_keys=True))
@@ -575,6 +608,8 @@ async def run_dogfood_command(args: argparse.Namespace) -> int:
         group_id=args.group_id,
         modes=parse_modes(args.modes),
         include_content=bool(args.include_content),
+        trace_since=args.trace_since,
+        trace_project_path=args.project_path if args.trace_project_only else None,
     )
     label_template = None
     if args.label_template or args.label_template_out:
@@ -614,6 +649,8 @@ async def build_dogfood_replay_report(
     group_id: str,
     modes: list[str],
     include_content: bool = False,
+    trace_since: str | None = None,
+    trace_project_path: str | None = None,
 ) -> dict[str, Any]:
     raw_text = transcript_path.read_text(encoding="utf-8")
     turns = parse_transcript_text(raw_text, source=str(transcript_path))
@@ -621,7 +658,11 @@ async def build_dogfood_replay_report(
     trace_turns = _dogfood_trace_turns_from_paths(resolved_trace_paths)
     turns_with_traces = [*turns, *trace_turns]
     user_turns = [turn for turn in turns if turn.role == "user"]
-    trace_evidence = build_dogfood_trace_evidence(turns_with_traces)
+    trace_evidence = build_dogfood_trace_evidence(
+        turns_with_traces,
+        trace_since=trace_since,
+        trace_project_path=trace_project_path,
+    )
     cfg = ActivationConfig()
     replay_turns = []
     mode_summaries = {mode: _empty_mode_summary(mode) for mode in modes}
@@ -726,6 +767,8 @@ async def prepare_dogfood_review_bundle(
     include_template_content: bool = False,
     min_recall_samples: int = 1,
     min_session_samples: int = 1,
+    trace_since: str | None = None,
+    trace_project_path: str | None = None,
 ) -> dict[str, Any]:
     """Create the replay, label template, and review status files for dogfood."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -741,6 +784,8 @@ async def prepare_dogfood_review_bundle(
         group_id=group_id,
         modes=modes,
         include_content=False,
+        trace_since=trace_since,
+        trace_project_path=trace_project_path,
     )
     content_lookup = (
         _dogfood_turn_content_lookup(transcript_path) if include_template_content else None
@@ -883,6 +928,7 @@ def build_dogfood_candidate_report(
     min_turns: int = 1,
     include_trace_only: bool = False,
     project_only: bool = False,
+    sort: str = "turns",
 ) -> dict[str, Any]:
     """Find redaction-safe local transcript candidates for dogfood review."""
     files = _dogfood_candidate_files(root_path, max_files=max_files)
@@ -905,14 +951,7 @@ def build_dogfood_candidate_report(
         else:
             skipped.append(item)
 
-    candidates.sort(
-        key=lambda item: (
-            1 if item.get("project_match") is True else 0,
-            int(item.get("labelable_turn_count") or 0),
-            float(item.get("modified_at_epoch") or 0.0),
-        ),
-        reverse=True,
-    )
+    candidates.sort(key=_dogfood_candidate_sort_key(sort), reverse=True)
     selected = [
         item
         for item in candidates
@@ -934,12 +973,27 @@ def build_dogfood_candidate_report(
         "min_turns": min_turns,
         "include_trace_only": include_trace_only,
         "project_only": project_only,
+        "sort": sort,
         "candidates": selected,
         "notes": [
             "Candidate scan is redacted; it reports counts and hashes, not transcript text.",
             "Run prepare on a candidate, then fill labels from the original local transcript.",
         ],
     }
+
+
+def _dogfood_candidate_sort_key(sort: str):
+    if sort == "recent":
+        return lambda item: (
+            float(item.get("modified_at_epoch") or 0.0),
+            1 if item.get("project_match") is True else 0,
+            int(item.get("labelable_turn_count") or 0),
+        )
+    return lambda item: (
+        1 if item.get("project_match") is True else 0,
+        int(item.get("labelable_turn_count") or 0),
+        float(item.get("modified_at_epoch") or 0.0),
+    )
 
 
 def _dogfood_candidate_files(root_path: Path, *, max_files: int) -> list[Path]:
@@ -966,8 +1020,11 @@ def _dogfood_candidate_from_path(
     metadata = _dogfood_transcript_metadata(raw_text)
     session_cwd = _optional_str(metadata.get("session_cwd"))
     session_id = _optional_str(metadata.get("session_id"))
-    project_match = _dogfood_project_match(
-        session_cwd=session_cwd,
+    project_paths = [
+        item for item in metadata.get("project_evidence_paths", []) if isinstance(item, dict)
+    ]
+    project_match, project_match_source = _dogfood_project_match_from_paths(
+        paths=project_paths,
         project_path=project_path,
     )
     user_turns = [turn for turn in turns if turn.role == "user"]
@@ -1000,7 +1057,9 @@ def _dogfood_candidate_from_path(
         "path": str(path),
         "session_id": session_id,
         "session_cwd": session_cwd,
+        "project_evidence_paths": project_paths,
         "project_match": project_match,
+        "project_match_source": project_match_source,
         "modified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(modified_at)),
         "modified_at_epoch": modified_at,
         "transcript_hash": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
@@ -1018,6 +1077,7 @@ def _dogfood_candidate_from_path(
 def _dogfood_transcript_metadata(raw_text: str) -> dict[str, Any]:
     session_id = None
     session_cwd = None
+    project_evidence_paths: list[dict[str, str]] = []
     for line in raw_text.splitlines():
         stripped = line.strip()
         if not stripped or not stripped.startswith("{"):
@@ -1032,11 +1092,91 @@ def _dogfood_transcript_metadata(raw_text: str) -> dict[str, Any]:
         if data.get("type") == "session_meta":
             session_id = session_id or _optional_str(payload.get("id"))
             session_cwd = session_cwd or _optional_str(payload.get("cwd"))
+            _append_dogfood_project_evidence_path(
+                project_evidence_paths,
+                source="session_cwd",
+                path=payload.get("cwd"),
+            )
         elif data.get("type") == "turn_context":
             session_cwd = session_cwd or _optional_str(payload.get("cwd"))
-        if session_id and session_cwd:
-            break
-    return {"session_id": session_id, "session_cwd": session_cwd}
+            _append_dogfood_project_evidence_path(
+                project_evidence_paths,
+                source="turn_context_cwd",
+                path=payload.get("cwd"),
+            )
+        elif data.get("type") == "response_item":
+            _append_dogfood_tool_workdirs(project_evidence_paths, payload)
+    return {
+        "session_id": session_id,
+        "session_cwd": session_cwd,
+        "project_evidence_paths": project_evidence_paths,
+    }
+
+
+def _append_dogfood_tool_workdirs(
+    project_evidence_paths: list[dict[str, str]],
+    payload: dict[str, Any],
+) -> None:
+    if payload.get("type") != "function_call":
+        return
+    raw_arguments = payload.get("arguments")
+    if not isinstance(raw_arguments, str):
+        return
+    try:
+        arguments = json.loads(raw_arguments)
+    except json.JSONDecodeError:
+        return
+    _append_dogfood_project_evidence_path(
+        project_evidence_paths,
+        source="tool_workdir",
+        path=arguments.get("workdir") if isinstance(arguments, dict) else None,
+    )
+    if not isinstance(arguments, dict):
+        return
+    for tool_use in arguments.get("tool_uses") or []:
+        if not isinstance(tool_use, dict):
+            continue
+        parameters = tool_use.get("parameters")
+        if isinstance(parameters, dict):
+            _append_dogfood_project_evidence_path(
+                project_evidence_paths,
+                source="tool_workdir",
+                path=parameters.get("workdir"),
+            )
+
+
+def _append_dogfood_project_evidence_path(
+    project_evidence_paths: list[dict[str, str]],
+    *,
+    source: str,
+    path: Any,
+) -> None:
+    text = _optional_str(path)
+    if not text:
+        return
+    candidate = {"source": source, "path": text}
+    if candidate not in project_evidence_paths:
+        project_evidence_paths.append(candidate)
+
+
+def _dogfood_project_match_from_paths(
+    *,
+    paths: list[dict[str, str]],
+    project_path: str | None,
+) -> tuple[bool | None, str | None]:
+    saw_known_path = False
+    for item in paths:
+        path = _optional_str(item.get("path"))
+        if not path:
+            continue
+        match = _dogfood_project_match(session_cwd=path, project_path=project_path)
+        if match is True:
+            return True, _optional_str(item.get("source"))
+        if match is False:
+            saw_known_path = True
+    if saw_known_path:
+        return False, None
+    return None, None
 
 
 def _dogfood_project_match(
@@ -1054,7 +1194,12 @@ def _dogfood_project_match(
     return session == project or project in session.parents
 
 
-def build_dogfood_trace_evidence(turns: list[DogfoodTurn]) -> dict[str, Any]:
+def build_dogfood_trace_evidence(
+    turns: list[DogfoodTurn],
+    *,
+    trace_since: str | None = None,
+    trace_project_path: str | None = None,
+) -> dict[str, Any]:
     """Summarize redaction-safe AXI trace metadata in a replay transcript."""
     trace_turns = [
         turn for turn in turns if turn.role == "tool" and isinstance(turn.metadata, dict)
@@ -1064,10 +1209,18 @@ def build_dogfood_trace_evidence(turns: list[DogfoodTurn]) -> dict[str, Any]:
         for turn in trace_turns
         if _optional_str(turn.metadata.get("operation")) is not None
     ]
+    filter_report, records = _filter_dogfood_trace_records(
+        records,
+        trace_since=trace_since,
+        trace_project_path=trace_project_path,
+    )
     if not records:
+        status = "filtered_empty" if filter_report["active"] else "missing"
         return {
-            "status": "missing",
+            "status": status,
             "trace_count": 0,
+            "raw_trace_count": filter_report["raw_trace_count"],
+            "filter": filter_report,
             "operation_counts": {},
             "status_counts": {},
             "origin_counts": {},
@@ -1081,6 +1234,9 @@ def build_dogfood_trace_evidence(turns: list[DogfoodTurn]) -> dict[str, Any]:
             "timeout_count": 0,
             "degraded_count": 0,
             "cache_hit_count": 0,
+            "packet_count": 0,
+            "result_count": 0,
+            "fallback_status_counts": {},
             "session_start_count": 0,
             "followup_count": 0,
         }
@@ -1093,6 +1249,8 @@ def build_dogfood_trace_evidence(turns: list[DogfoodTurn]) -> dict[str, Any]:
     return {
         "status": "measured",
         "trace_count": len(records),
+        "raw_trace_count": filter_report["raw_trace_count"],
+        "filter": filter_report,
         "operation_counts": _count_values(
             _optional_str(record.get("operation")) for record in records
         ),
@@ -1107,6 +1265,16 @@ def build_dogfood_trace_evidence(turns: list[DogfoodTurn]) -> dict[str, Any]:
             1 for status in statuses if status in {"degraded", "timeout", "error", "failed"}
         ),
         "cache_hit_count": sum(1 for record in records if _trace_cache_hit(record)),
+        "packet_count": sum(
+            _trace_int(record, "packetCount", "packet_count") for record in records
+        ),
+        "result_count": sum(
+            _trace_int(record, "resultCount", "result_count") for record in records
+        ),
+        "fallback_status_counts": _count_values(
+            _optional_str(record.get("fallbackStatus") or record.get("fallback_status"))
+            for record in records
+        ),
         "session_start_count": sum(1 for origin in origins if origin == "session-start-hook"),
         "followup_count": sum(1 for origin in origins if origin == "agent-followup"),
     }
@@ -1466,6 +1634,8 @@ def dogfood_memory_operation_metrics_from_replay_report(
     if operation_count <= 0:
         return {}
     cache_hit_count = _int(trace.get("cache_hit_count"))
+    packet_count = _int(trace.get("packet_count"))
+    result_count = _int(trace.get("result_count"))
     cache_observed = min(operation_count, cache_hit_count)
     cache_miss_count = max(0, operation_count - cache_observed)
     timeout_count = _int(trace.get("timeout_count"))
@@ -1513,8 +1683,8 @@ def dogfood_memory_operation_metrics_from_replay_report(
             str(key): _int(value) for key, value in operation_counts.items()
         },
         "source_counts": {str(key): _int(value) for key, value in source_counts.items()},
-        "result_count": 0,
-        "packet_count": 0,
+        "result_count": result_count,
+        "packet_count": packet_count,
     }
 
 
@@ -3930,6 +4100,7 @@ def render_dogfood_replay_markdown(report: dict[str, Any]) -> str:
         )
     if trace_evidence.get("status") == "measured":
         duration = trace_evidence.get("duration_ms") or {}
+        trace_filter = trace_evidence.get("filter") or {}
         lines.extend(
             [
                 "",
@@ -3946,10 +4117,22 @@ def render_dogfood_replay_markdown(report: dict[str, Any]) -> str:
                     f"max {duration.get('max', 0)}ms"
                 ),
                 f"- Cache hits: {trace_evidence.get('cache_hit_count', 0)}",
+                f"- Packets/results: {trace_evidence.get('packet_count', 0)}/"
+                f"{trace_evidence.get('result_count', 0)}",
+                "- Fallback statuses: "
+                f"{_format_counts(trace_evidence.get('fallback_status_counts'))}",
                 f"- Degraded/timeouts: {trace_evidence.get('degraded_count', 0)}/"
                 f"{trace_evidence.get('timeout_count', 0)}",
             ]
         )
+        if trace_filter.get("active"):
+            lines.append(
+                "- Trace filter: "
+                f"raw {trace_filter.get('raw_trace_count', 0)}, "
+                f"kept {trace_filter.get('kept_trace_count', 0)}, "
+                f"since {trace_filter.get('since') or 'none'}, "
+                f"project {trace_filter.get('project') or 'none'}"
+            )
     lines.extend(
         [
             "",
@@ -4009,6 +4192,7 @@ def render_dogfood_candidate_markdown(report: dict[str, Any]) -> str:
         f"- Trace-only: {report.get('trace_only_count', 0)}",
         f"- Skipped: {report.get('skipped_count', 0)}",
         f"- Project mismatches: {report.get('project_mismatch_count', 0)}",
+        f"- Sort: {report.get('sort') or 'turns'}",
         "",
     ]
     candidates = report.get("candidates") or []
@@ -4021,7 +4205,10 @@ def render_dogfood_candidate_markdown(report: dict[str, Any]) -> str:
                     "",
                     f"- Path: {item.get('path')}",
                     f"- Session cwd: {item.get('session_cwd') or 'unknown'}",
-                    f"- Project match: {item.get('project_match')}",
+                    (
+                        f"- Project match: {item.get('project_match')}"
+                        f" ({item.get('project_match_source') or 'unknown'})"
+                    ),
                     f"- Labelable turns: {item.get('labelable_turn_count', 0)}",
                     f"- Assistant turns: {item.get('assistant_turn_count', 0)}",
                     (
@@ -4266,6 +4453,76 @@ def _trace_cache_hit(record: dict[str, Any]) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "hit"}
     return False
+
+
+def _trace_int(record: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key in record:
+            return _int(record.get(key))
+    return 0
+
+
+def _filter_dogfood_trace_records(
+    records: list[dict[str, Any]],
+    *,
+    trace_since: str | None,
+    trace_project_path: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    since = _parse_trace_timestamp(trace_since) if trace_since else None
+    normalized_project = _optional_str(trace_project_path)
+    report: dict[str, Any] = {
+        "active": bool(since or normalized_project),
+        "since": trace_since,
+        "project": normalized_project,
+        "raw_trace_count": len(records),
+        "dropped_before_since": 0,
+        "dropped_missing_timestamp": 0,
+        "dropped_project_mismatch": 0,
+        "dropped_missing_project": 0,
+    }
+    if not report["active"]:
+        report["kept_trace_count"] = len(records)
+        return report, records
+
+    kept: list[dict[str, Any]] = []
+    for record in records:
+        if since is not None:
+            timestamp = _parse_trace_timestamp(_optional_str(record.get("timestamp")))
+            if timestamp is None:
+                report["dropped_missing_timestamp"] += 1
+                continue
+            if timestamp < since:
+                report["dropped_before_since"] += 1
+                continue
+        if normalized_project:
+            project = _optional_str(record.get("project"))
+            if not project:
+                report["dropped_missing_project"] += 1
+                continue
+            match = _dogfood_project_match(
+                session_cwd=project,
+                project_path=normalized_project,
+            )
+            if match is not True:
+                report["dropped_project_mismatch"] += 1
+                continue
+        kept.append(record)
+    report["kept_trace_count"] = len(kept)
+    return report, kept
+
+
+def _parse_trace_timestamp(value: str | None) -> datetime | None:
+    raw = _optional_str(value)
+    if not raw:
+        return None
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _count_values(values: Any) -> dict[str, int]:

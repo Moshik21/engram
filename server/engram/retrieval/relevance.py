@@ -70,12 +70,7 @@ class RelevanceScorer:
         """
         if not results:
             return
-
-        # Get or compute query vector
-        if query_vec is None or not query_vec:
-            query_vec = await self._provider.embed_query(query)
-        if not query_vec:
-            # No embeddings available — leave relevance at 0.0
+        if self._provider.dimension() <= 0:
             return
 
         # Collect texts that need embedding (episodes with chunk/content text)
@@ -93,6 +88,10 @@ class RelevanceScorer:
         # Batch embed episode/chunk texts
         text_vecs: dict[str, list[float]] = {}
         if texts_to_embed:
+            if query_vec is None or not query_vec:
+                query_vec = await self._provider.embed_query(query)
+            if not query_vec:
+                query_vec = []
             try:
                 vecs = await self._provider.embed(texts_to_embed)
                 for node_id, vec in zip(text_node_ids, vecs):
@@ -104,7 +103,7 @@ class RelevanceScorer:
         # Score each result
         for sr in results:
             if sr.result_type in {"episode", "cue_episode"}:
-                if sr.node_id in text_vecs:
+                if query_vec and sr.node_id in text_vecs:
                     sr.relevance_confidence = cosine_similarity(query_vec, text_vecs[sr.node_id])
                 elif sr.semantic_similarity > 0:
                     # Fall back to episode-level semantic similarity from search

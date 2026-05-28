@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -10,6 +13,10 @@ from typing import Any, TypedDict
 
 from engram.config import ActivationConfig
 from engram.storage.protocols import ActivationStore, GraphStore
+
+GRAPH_STATS_CACHE_TTL_SECONDS = 300.0
+GRAPH_STATS_TASK_MAX_SECONDS = 30.0
+LOGGER = logging.getLogger(__name__)
 
 
 class TopActivatedEntry(TypedDict):
@@ -238,6 +245,9 @@ class GraphStateService:
         self._get_memory_operation_metrics = get_memory_operation_metrics
         self._get_epistemic_metrics = get_epistemic_metrics
         self._resolve_entity_name = resolve_entity_name
+        self._graph_stats_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._graph_stats_tasks: dict[str, asyncio.Task] = {}
+        self._graph_stats_task_started_at: dict[str, float] = {}
 
     def get_graph_store(self) -> GraphStore:
         """Return the graph store used by lifecycle summary read models."""
@@ -683,6 +693,71 @@ class GraphStateService:
             )
 
         return result
+
+    async def get_graph_stats(
+        self,
+        group_id: str = "default",
+    ) -> dict:
+        """Return graph stats without dashboard activation/type extras."""
+        cached = self.get_cached_graph_stats(
+            group_id,
+            max_age_seconds=GRAPH_STATS_CACHE_TTL_SECONDS,
+        )
+        if cached is not None:
+            return cached
+        return await self.refresh_graph_stats(group_id)
+
+    def get_cached_graph_stats(
+        self,
+        group_id: str = "default",
+        *,
+        max_age_seconds: float | None = None,
+    ) -> dict | None:
+        """Return a cached graph stats snapshot when one is fresh enough."""
+        cached = self._graph_stats_cache.get(group_id)
+        if cached is None:
+            return None
+        captured_at, stats = cached
+        if max_age_seconds is not None and (time.time() - captured_at) > max_age_seconds:
+            return None
+        return copy.deepcopy(stats)
+
+    def warm_graph_stats(self, group_id: str = "default") -> asyncio.Task:
+        """Start or reuse a background graph stats refresh task."""
+        existing = self._graph_stats_tasks.get(group_id)
+        if existing is not None and not existing.done():
+            started_at = self._graph_stats_task_started_at.get(group_id, 0.0)
+            if (time.time() - started_at) <= GRAPH_STATS_TASK_MAX_SECONDS:
+                return existing
+            LOGGER.warning("Cancelling stale graph stats warmup for group %s", group_id)
+            existing.cancel()
+            self._graph_stats_tasks.pop(group_id, None)
+            self._graph_stats_task_started_at.pop(group_id, None)
+        task = asyncio.create_task(self.refresh_graph_stats(group_id))
+        self._graph_stats_tasks[group_id] = task
+        self._graph_stats_task_started_at[group_id] = time.time()
+        task.add_done_callback(lambda done: self._finish_graph_stats_warmup(group_id, done))
+        return task
+
+    async def refresh_graph_stats(self, group_id: str = "default") -> dict:
+        """Read graph stats from storage and cache the snapshot."""
+        stats = await self._graph.get_stats(group_id)
+        stats["recall_metrics"] = self._get_recall_metrics(group_id)
+        stats["memory_operation_metrics"] = self._get_memory_operation_metrics(group_id)
+        stats["epistemic_metrics"] = self._get_epistemic_metrics(group_id)
+        self._graph_stats_cache[group_id] = (time.time(), copy.deepcopy(stats))
+        return stats
+
+    def _finish_graph_stats_warmup(self, group_id: str, task: asyncio.Task) -> None:
+        if self._graph_stats_tasks.get(group_id) is task:
+            self._graph_stats_tasks.pop(group_id, None)
+            self._graph_stats_task_started_at.pop(group_id, None)
+        if task.cancelled():
+            return
+        try:
+            task.result()
+        except Exception:
+            LOGGER.debug("Graph stats warmup failed", exc_info=True)
 
     async def get_entity_profile(self, entity_id: str, group_id: str = "default") -> dict:
         """Return a single entity profile for MCP/resource clients."""

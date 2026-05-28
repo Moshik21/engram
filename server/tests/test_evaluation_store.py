@@ -290,6 +290,59 @@ async def test_evaluation_store_round_trips_memory_operation_metrics(tmp_path) -
 
 
 @pytest.mark.asyncio
+async def test_evaluation_store_replaces_duplicate_metric_snapshots(tmp_path) -> None:
+    store = SQLiteEvaluationStore(str(tmp_path / "engram.db"))
+    await store.initialize()
+    try:
+        await store.save_recall_metrics_snapshot(
+            StoredRecallRuntimeMetricsSnapshot(
+                id="erm_repeat",
+                group_id="default",
+                metrics={"total_analyses": 1},
+                source="test",
+                timestamp=1.0,
+            )
+        )
+        await store.save_recall_metrics_snapshot(
+            StoredRecallRuntimeMetricsSnapshot(
+                id="erm_repeat",
+                group_id="default",
+                metrics={"total_analyses": 2},
+                source="test",
+                timestamp=2.0,
+            )
+        )
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_repeat",
+                group_id="default",
+                metrics={"operation_count": 1},
+                source="test",
+                timestamp=1.0,
+            )
+        )
+        await store.save_memory_operation_metrics_snapshot(
+            StoredMemoryOperationMetricsSnapshot(
+                id="emo_repeat",
+                group_id="default",
+                metrics={"operation_count": 2},
+                source="test",
+                timestamp=2.0,
+            )
+        )
+
+        recall_metrics = await store.get_latest_recall_metrics_snapshot("default")
+        memory_metrics = await store.get_latest_memory_operation_metrics_snapshot(
+            "default"
+        )
+
+        assert recall_metrics["total_analyses"] == 2
+        assert memory_metrics["operation_count"] == 2
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_evaluation_store_prunes_memory_operation_metrics_by_group(tmp_path) -> None:
     store = SQLiteEvaluationStore(str(tmp_path / "engram.db"))
     await store.initialize()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import subprocess
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from engram import __version__
+from engram.axi.client import AxiRestClient, AxiRestError
 from engram.config import EngramConfig
 from engram.evaluation.adoption_evidence import (
     adoption_client_set_failure_message,
@@ -56,6 +58,8 @@ from engram.storage.bootstrap import (
 )
 from engram.storage.resolver import EngineMode, resolve_mode
 
+EVALUATE_LIVE_STATS_TIMEOUT_SECONDS = 2.0
+
 
 def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
     """Attach brain-loop evaluation report options to a parser."""
@@ -93,6 +97,25 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
             "SQLite DB path for lite reporting and saved evaluation samples. "
             "In Helix smoke mode this stores local evaluation labels. Defaults to config."
         ),
+    )
+    parser.add_argument(
+        "--server-url",
+        help=(
+            "Read the brain-loop report from a running Engram REST API instead "
+            "of opening a local graph runtime. Use this for large native stores "
+            "where the service already has warm cache-backed stats."
+        ),
+    )
+    parser.add_argument(
+        "--server-timeout",
+        type=float,
+        default=10.0,
+        help="HTTP timeout in seconds for --server-url report reads.",
+    )
+    parser.add_argument(
+        "--live-cost",
+        action="store_true",
+        help="Ask --server-url reports to include live memory operation cost counters.",
     )
     parser.add_argument(
         "--helix-data-dir",
@@ -356,6 +379,15 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
 
 async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
     """Build a brain-loop report from parsed CLI arguments."""
+    if args.server_url:
+        if args.smoke:
+            raise SystemExit("--server-url cannot be used with --smoke")
+        if args.from_json:
+            raise SystemExit("--server-url cannot be used with --from-json")
+        if args.group_id:
+            raise SystemExit("--server-url uses the running server tenant; omit --group-id")
+        return _load_server_report(args)
+
     if args.smoke:
         from engram.evaluation.smoke import run_projected_consolidated_smoke_for_args
 
@@ -429,6 +461,30 @@ async def build_report_from_args(args: argparse.Namespace) -> dict[str, Any]:
         recall_samples=recall_samples,
         session_samples=session_samples,
     )
+
+
+def _load_server_report(args: argparse.Namespace) -> dict[str, Any]:
+    client = AxiRestClient(
+        server_url=args.server_url,
+        timeout_seconds=max(0.1, float(args.server_timeout)),
+    )
+    try:
+        report = client.evaluation_report(
+            live_cost=bool(getattr(args, "live_cost", False)),
+            cycle_limit=max(1, int(args.cycles)),
+            sample_limit=max(1, int(args.saved_sample_limit)),
+        )
+    except AxiRestError as exc:
+        raise SystemExit(f"Failed to load server evaluation report: {exc}") from exc
+    if is_brain_loop_report_payload(report):
+        return dict(report)
+    if looks_like_partial_brain_loop_report(report):
+        raise SystemExit(
+            "--server-url returned a partial brain-loop report missing "
+            "required report sections: "
+            f"{missing_brain_loop_report_sections(report)}"
+        )
+    raise SystemExit("--server-url did not return a brain-loop report")
 
 
 async def run_evaluate_command(args: argparse.Namespace) -> None:
@@ -739,6 +795,7 @@ def build_evidence_bundle(
         ),
         "recall_samples": _optional_path_str(getattr(args, "recall_samples", None)),
         "session_samples": _optional_path_str(getattr(args, "session_samples", None)),
+        "server_url": getattr(args, "server_url", None),
         "sqlite_path": _optional_path_str(getattr(args, "sqlite_path", None)),
         "helix_data_dir": _optional_path_str(getattr(args, "helix_data_dir", None)),
     }
@@ -813,7 +870,7 @@ def _source_sha256_map(sources: dict[str, Any]) -> dict[str, Any]:
     return {
         name: _file_sha256(path)
         for name, path in sources.items()
-        if name not in {"sqlite_path", "helix_data_dir"}
+        if name not in {"sqlite_path", "helix_data_dir", "server_url"}
     }
 
 
@@ -990,7 +1047,11 @@ async def _load_live_report(
     await graph_store.initialize()
     try:
         consolidation_store = await _create_consolidation_store(mode, config, graph_store)
-        stats = await graph_store.get_stats(group_id)
+        stats = await _load_live_stats_bounded(
+            graph_store,
+            group_id,
+            timeout_seconds=EVALUATE_LIVE_STATS_TIMEOUT_SECONDS,
+        )
         recent_cycles = await consolidation_store.get_recent_cycles(
             group_id,
             limit=max(1, args.cycles),
@@ -1033,6 +1094,30 @@ async def _load_live_report(
         await close_if_supported(search_index)
         await close_if_supported(activation_store)
         await close_if_supported(graph_store)
+
+
+async def _load_live_stats_bounded(
+    graph_store: Any,
+    group_id: str,
+    *,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    try:
+        return await asyncio.wait_for(
+            graph_store.get_stats(group_id),
+            timeout=max(0.01, timeout_seconds),
+        )
+    except TimeoutError:
+        return {
+            "evaluation_degradations": [
+                {
+                    "stage": "graph_stats",
+                    "status": "degraded",
+                    "skip_reason": "graph_stats_timeout",
+                    "timeout_ms": round(max(0.01, timeout_seconds) * 1000),
+                }
+            ]
+        }
 
 
 async def _create_consolidation_store(

@@ -39,6 +39,7 @@ def build_fast_runtime_packet(
     *,
     runtime_mode: str,
     project_path: str | None = None,
+    packet_cache_summary: Mapping[str, Any] | None = None,
 ) -> dict:
     """Return startup-safe runtime metadata without graph or artifact reads."""
     return {
@@ -92,7 +93,7 @@ def build_fast_runtime_packet(
         },
         "stats": {
             "source": "fast_runtime_packet",
-            "packetCache": {},
+            "packetCache": dict(packet_cache_summary or {}),
         },
         "generatedAt": utc_now_iso(),
     }
@@ -179,6 +180,7 @@ class RuntimeStateService:
                 self._cfg,
                 runtime_mode=self._runtime_mode,
                 project_path=project_path,
+                packet_cache_summary=self._get_packet_cache_summary(group_id),
             )
             return _with_cache_metadata(
                 result,

@@ -16,7 +16,8 @@ from engram.config import EngramConfig
 
 LOGGER = logging.getLogger(__name__)
 STARTUP_TIMEOUT_ENV = "ENGRAM_STORAGE_STARTUP_TIMEOUT_SECONDS"
-DEFAULT_STARTUP_TIMEOUT_SECONDS = 5.0
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 0.75
+BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS = 30.0
 
 
 def default_helix_native_data_dir() -> Path:
@@ -50,6 +51,10 @@ class StorageDiagnostics:
     startup_paths: list[dict[str, Any]]
     count_cache: dict[str, _CachedCounts] = field(default_factory=dict)
     path_cache: _CachedPaths | None = None
+    _count_refresh_tasks: dict[str, asyncio.Task[dict[str, int]]] = field(
+        default_factory=dict,
+        repr=False,
+    )
     _count_lock: Lock = field(default_factory=Lock, repr=False)
 
     @classmethod
@@ -209,6 +214,8 @@ class StorageDiagnostics:
                 "countsAgeSeconds": _age_seconds(count_snapshot.captured_at, now=now),
                 "pathsStatus": path_snapshot.status,
                 "pathsAgeSeconds": _age_seconds(path_snapshot.captured_at, now=now),
+                "countsRefreshStatus": self._count_refresh_status(resolved_group),
+                "countsRefreshSkippedReason": self._count_refresh_skip_reason(live),
                 "stageTimingsMs": {
                     "storage_counts": count_ms,
                     "storage_paths": path_ms,
@@ -234,12 +241,40 @@ class StorageDiagnostics:
                 )
             return _cached_counts(_empty_counts(), captured_at=self.started_at, status="missing")
 
-        try:
-            counts = await _bounded(
-                _read_counts(self.graph_store, group_id),
-                timeout_seconds=timeout_seconds,
+        skip_reason = self._count_refresh_skip_reason(live)
+        if skip_reason is not None:
+            if cached is not None:
+                return _cached_counts(
+                    cached.counts,
+                    captured_at=cached.captured_at,
+                    status="cached_native_live_skipped",
+                )
+            return _cached_counts(
+                _empty_counts(),
+                captured_at=time.time(),
+                status="native_live_skipped",
             )
+
+        if self._active_count_refresh_task(group_id) is not None:
+            if cached is not None:
+                return _cached_counts(
+                    cached.counts,
+                    captured_at=cached.captured_at,
+                    status="cached_timeout",
+                )
+            return _cached_counts(_empty_counts(), captured_at=time.time(), status="timeout")
+
+        if timeout_seconds <= 0:
+            counts = await _read_counts(self.graph_store, group_id)
+            snapshot = _cached_counts(counts, captured_at=time.time(), status="live")
+            self.count_cache[group_id] = snapshot
+            return snapshot
+
+        task = asyncio.create_task(self._read_counts_for_refresh(group_id))
+        try:
+            counts = await asyncio.wait_for(task, timeout=timeout_seconds)
         except TimeoutError:
+            task.cancel()
             LOGGER.warning(
                 "storage count snapshot timed out after %.1f seconds; using cached counts",
                 timeout_seconds,
@@ -255,6 +290,66 @@ class StorageDiagnostics:
         snapshot = _cached_counts(counts, captured_at=time.time(), status="live")
         self.count_cache[group_id] = snapshot
         return snapshot
+
+    def _active_count_refresh_task(
+        self,
+        group_id: str,
+    ) -> asyncio.Task[dict[str, int]] | None:
+        task = self._count_refresh_tasks.get(group_id)
+        if task is None:
+            return None
+        if task.done():
+            self._count_refresh_tasks.pop(group_id, None)
+            return None
+        return task
+
+    def _track_count_refresh(
+        self,
+        group_id: str,
+        task: asyncio.Task[dict[str, int]],
+    ) -> None:
+        self._count_refresh_tasks[group_id] = task
+        task.add_done_callback(lambda done: self._finish_count_refresh(group_id, done))
+
+    async def _read_counts_for_refresh(self, group_id: str) -> dict[str, int]:
+        return await asyncio.wait_for(
+            _read_counts(self.graph_store, group_id),
+            timeout=BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS,
+        )
+
+    def _finish_count_refresh(
+        self,
+        group_id: str,
+        task: asyncio.Task[dict[str, int]],
+    ) -> None:
+        if self._count_refresh_tasks.get(group_id) is task:
+            self._count_refresh_tasks.pop(group_id, None)
+        try:
+            counts = task.result()
+        except asyncio.CancelledError:
+            return
+        except TimeoutError:
+            LOGGER.warning(
+                "background storage count refresh timed out after %.1f seconds",
+                BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS,
+            )
+            return
+        except Exception:
+            LOGGER.warning("background storage count refresh failed", exc_info=True)
+            return
+        snapshot = _cached_counts(counts, captured_at=time.time(), status="background_live")
+        with self._count_lock:
+            self.count_cache[group_id] = snapshot
+
+    def _count_refresh_status(self, group_id: str) -> str:
+        return "running" if self._active_count_refresh_task(group_id) is not None else "idle"
+
+    def _count_refresh_skip_reason(self, live: bool) -> str | None:
+        if not live:
+            return None
+        if self.mode == "helix" and self.config.helix.transport in {"native", "auto"}:
+            return "helix_native_counts_use_cached_write_through"
+        return None
 
     async def _paths_snapshot(
         self,

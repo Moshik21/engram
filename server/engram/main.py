@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 # Module-level app state for dependency injection
 _app_state: dict = {}
+_startup_background_tasks: set[asyncio.Task] = set()
 
 
 async def _startup(app: FastAPI, config: EngramConfig) -> None:
@@ -244,6 +245,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         cue_index_outbox_task = asyncio.create_task(
             manager.drain_cue_index_outbox(
                 limit=config.activation.cue_index_outbox_replay_limit,
+                include_failed=False,
             ),
         )
 
@@ -313,6 +315,25 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     )
     manager.attach_storage_diagnostics(storage_diagnostics)
 
+    if (
+        mode.value == "helix"
+        and getattr(config.helix, "transport", "") == "native"
+        and config.activation.capture_startup_warmup_enabled
+    ):
+        try:
+            warmup_timings = await _warm_capture_store_bounded(manager, config)
+            logger.info("Native capture warmup completed: %s", warmup_timings)
+        except TimeoutError:
+            logger.warning(
+                "Native capture warmup exceeded %.1fs; continuing startup",
+                _capture_startup_warmup_timeout_seconds(config),
+            )
+        except Exception:
+            logger.debug("Native capture warmup failed", exc_info=True)
+
+    if mode.value == "helix" and getattr(config.helix, "transport", "") == "native":
+        _start_graph_stats_warmup(manager, config)
+
     _app_state.update(
         {
             "config": config,
@@ -356,6 +377,8 @@ async def _shutdown() -> None:
     """Cleanup on shutdown."""
     cue_index_outbox_task = _app_state.get("cue_index_outbox_task")
     await stop_task_if_running(cue_index_outbox_task)
+    for task in list(_startup_background_tasks):
+        await stop_task_if_running(task)
 
     # Stop Redis event subscriber
     await stop_if_supported(_app_state.get("redis_subscriber"))
@@ -397,6 +420,61 @@ async def _shutdown() -> None:
         await close_if_supported(_app_state.get("graph_store"))
 
 
+async def _warm_capture_store_bounded(
+    manager: GraphManager,
+    config: EngramConfig,
+) -> dict[str, float]:
+    task = asyncio.create_task(manager.warm_capture_store())
+    _track_startup_background_task(task)
+    timeout_seconds = _capture_startup_warmup_timeout_seconds(config)
+    if timeout_seconds <= 0:
+        return await task
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+    except TimeoutError:
+        # Keep the create/delete probe running so a late create can still clean itself up.
+        raise
+
+
+def _capture_startup_warmup_timeout_seconds(config: EngramConfig) -> float:
+    timeout_ms = getattr(config.activation, "capture_startup_warmup_timeout_ms", 2000)
+    return max(0.0, float(timeout_ms) / 1000.0)
+
+
+def _start_graph_stats_warmup(manager: GraphManager, config: EngramConfig) -> None:
+    """Start graph stats cache refresh without blocking startup readiness."""
+    warm_graph_stats = getattr(manager, "warm_graph_stats", None)
+    if not callable(warm_graph_stats):
+        return
+    try:
+        task = warm_graph_stats(config.default_group_id)
+    except TypeError:
+        task = warm_graph_stats(group_id=config.default_group_id)
+    except Exception:
+        logger.debug("Native graph stats warmup failed to start", exc_info=True)
+        return
+    if asyncio.iscoroutine(task):
+        task = asyncio.create_task(task)
+    if isinstance(task, asyncio.Task):
+        _track_startup_background_task(task)
+        logger.info("Native graph stats warmup started")
+
+
+def _track_startup_background_task(task: asyncio.Task) -> None:
+    _startup_background_tasks.add(task)
+
+    def _discard(done: asyncio.Task) -> None:
+        _startup_background_tasks.discard(done)
+        if done.cancelled():
+            return
+        try:
+            done.exception()
+        except Exception:
+            logger.debug("Startup background task failed", exc_info=True)
+
+    task.add_done_callback(_discard)
+
+
 def create_app(config: EngramConfig | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     if config is None:
@@ -405,6 +483,16 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await _startup(app, config)
+        mcp_server_module = getattr(app.state, "mcp_server_module", None)
+        if mcp_server_module is not None:
+            mcp_server_module.attach_external_runtime(
+                manager=_app_state["graph_manager"],
+                config=_app_state["config"],
+                mode=_app_state["mode"],
+                graph_store=_app_state["graph_store"],
+                group_id=_app_state["config"].default_group_id,
+            )
+            mcp_server_module.set_background_runtime_managed_externally(True)
         try:
             async with AsyncExitStack() as stack:
                 mcp_session_manager = getattr(app.state, "mcp_session_manager", None)
@@ -412,6 +500,9 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
                     await stack.enter_async_context(mcp_session_manager.run())
                 yield
         finally:
+            if mcp_server_module is not None:
+                mcp_server_module.clear_external_runtime()
+                mcp_server_module.set_background_runtime_managed_externally(False)
             await _shutdown()
 
     app = FastAPI(
@@ -474,7 +565,9 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     # /mcp. Mount it at the REST app root so the advertised URL stays /mcp.
     if os.environ.get("ENGRAM_MCP_ENABLED", "1") != "0":
         try:
-            from engram.mcp.server import mcp as mcp_server
+            from engram.mcp import server as mcp_server_module
+
+            mcp_server = mcp_server_module.mcp
 
             mcp_server.settings.stateless_http = True
             # FastMCP session managers are single-run lifecycle objects. The
@@ -482,6 +575,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
             # restarts, so each app instance needs its own manager.
             mcp_server._session_manager = None
             mcp_app = mcp_server.streamable_http_app()
+            app.state.mcp_server_module = mcp_server_module
             app.state.mcp_session_manager = mcp_server.session_manager
             app.mount("/", mcp_app)
             logger.info("MCP streamable-http mounted at /mcp")

@@ -548,7 +548,37 @@ class TestInstallHooks:
         assert '"tool": tool' in prompt_script.read_text()
         assert "rest_hook_response" in response_script.read_text()
         assert "rest_hook_replay" in session_start_script.read_text()
-        assert "/api/consolidation/trigger" in session_end_script.read_text()
+        assert "rest_hook_session_end" in session_end_script.read_text()
+        assert "/api/consolidation/trigger" not in session_end_script.read_text()
+
+    def test_install_hooks_refreshes_managed_scripts_without_replacing_custom_scripts(
+        self,
+        tmp_path,
+    ):
+        """install_hooks updates stale first-party scripts while preserving custom files."""
+        from engram.setup import install_hooks
+
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        settings_path = tmp_path / "settings.json"
+
+        managed_script = hooks_dir / "session-end.sh"
+        managed_script.write_text(
+            "#!/usr/bin/env bash\n"
+            "# Engram AutoCapture - SessionEnd hook\n"
+            "curl -sf -X POST \"${ENGRAM_URL}/api/consolidation/trigger\"\n",
+        )
+        custom_script = hooks_dir / "capture-prompt.sh"
+        custom_script.write_text("#!/bin/bash\nexit 0\n")
+
+        install_hooks(
+            hooks_dir=hooks_dir,
+            settings_path=settings_path,
+        )
+
+        assert "/api/consolidation/trigger" not in managed_script.read_text()
+        assert "rest_hook_session_end" in managed_script.read_text()
+        assert custom_script.read_text() == "#!/bin/bash\nexit 0\n"
 
     def test_install_hooks_creates_scripts(self, tmp_path):
         """install_hooks creates the settings file with hook config."""

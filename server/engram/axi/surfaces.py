@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import shutil
 import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -132,7 +133,7 @@ def build_context_payload(
     )
     payload = {
         "operation": "context",
-        "status": "ok",
+        "status": context.get("status") or "ok",
         "format": context.get("format") or "structured",
         "entity_count": first_present(context, "entityCount", "entity_count") or 0,
         "fact_count": first_present(context, "factCount", "fact_count") or 0,
@@ -153,6 +154,15 @@ def build_context_payload(
         }
     if isinstance(cached_packets, list) and cached_packets:
         payload["packets"] = _compact_context_packets(cached_packets, budget=budget)
+    budget_payload = context.get("budget")
+    if isinstance(budget_payload, dict):
+        payload["budget"] = budget_payload
+    lifecycle = context.get("lifecycle")
+    if isinstance(lifecycle, dict) and lifecycle:
+        payload["lifecycle"] = lifecycle
+    diagnostics = context.get("diagnostics")
+    if isinstance(diagnostics, dict) and diagnostics:
+        payload["diagnostics"] = diagnostics
     if truncated:
         payload["next"] = [
             {
@@ -169,10 +179,11 @@ def build_recall_payload(
     query: str,
     limit: int,
     budget: int,
+    project_path: str | None = None,
     full: bool = False,
 ) -> AxiResult:
     try:
-        recall = client.recall(query, limit=limit)
+        recall = client.recall(query, limit=limit, project_path=project_path)
     except AxiRestError as exc:
         return _error_result("recall", exc)
 
@@ -182,28 +193,35 @@ def build_recall_payload(
     else:
         display_results = []
     compact_results = _compact_recall_results(display_results, budget=budget, full=full)
+    packets = recall.get("packets") if isinstance(recall.get("packets"), list) else []
     lifecycle = recall.get("lifecycle") or {}
     payload = {
         "operation": "recall",
         "status": recall.get("status") or "ok",
         "query": query,
         "result_count": len(compact_results),
+        "packet_count": len(packets),
         "total_result_count": lifecycle.get("resultCount")
         or (len(results) if isinstance(results, list) else 0),
         "results": compact_results,
     }
+    if packets:
+        payload["packets"] = _compact_context_packets(packets, budget=budget)
     if isinstance(lifecycle, dict) and lifecycle:
         payload["lifecycle"] = lifecycle
     budget_payload = recall.get("budget")
     if isinstance(budget_payload, dict):
         payload["budget"] = budget_payload
+    diagnostics = recall.get("diagnostics")
+    if isinstance(diagnostics, dict) and diagnostics:
+        payload["diagnostics"] = diagnostics
     return AxiResult(payload=payload)
 
 
 def build_value_payload(client: AxiRestClient) -> AxiResult:
     """Build a compact memory value report for agent startup/follow-up."""
     try:
-        report = client.evaluation_report()
+        report = client.evaluation_report(live_cost=True)
     except AxiRestError as exc:
         return _error_result("value", exc)
 
@@ -213,17 +231,7 @@ def build_value_payload(client: AxiRestClient) -> AxiResult:
     payload = {
         "operation": "value",
         "status": memory_value.get("status") or "needs_samples",
-        "cost": {
-            "operation_count": cost.get("operation_count") or cost.get("operationCount") or 0,
-            "p95_added_latency_ms": (
-                cost.get("p95_added_latency_ms") or cost.get("p95AddedLatencyMs") or 0
-            ),
-            "cache_hit_rate": cost.get("cache_hit_rate") or cost.get("cacheHitRate") or 0,
-            "budget_miss_rate": (
-                cost.get("budget_miss_rate") or cost.get("budgetMissRate") or 0
-            ),
-            "skipped_count": cost.get("skipped_count") or cost.get("skippedCount") or 0,
-        },
+        "cost": _compact_value_cost(cost),
         "benefit": {
             "memory_need_precision": (
                 benefit.get("memory_need_precision")
@@ -257,6 +265,169 @@ def build_value_payload(client: AxiRestClient) -> AxiResult:
         ],
     }
     return AxiResult(payload=payload)
+
+
+def _compact_value_cost(cost: Any) -> dict[str, Any]:
+    if not isinstance(cost, dict):
+        cost = {}
+    payload = {
+        "source": "live_runtime",
+        "operation_count": _value_int(cost, "operation_count", "operationCount"),
+        "p95_added_latency_ms": _value_float(
+            cost,
+            "p95_added_latency_ms",
+            "p95AddedLatencyMs",
+        ),
+        "cache_hit_rate": _value_float(cost, "cache_hit_rate", "cacheHitRate"),
+        "budget_miss_rate": _value_float(
+            cost,
+            "budget_miss_rate",
+            "budgetMissRate",
+        ),
+        "skipped_count": _value_int(cost, "skipped_count", "skippedCount"),
+    }
+    modes = _compact_value_modes(cost)
+    if modes:
+        payload["read_path"] = _value_path_cost(modes, _is_value_read_mode)
+        payload["write_path"] = _value_path_cost(modes, _is_value_write_mode)
+        payload["top_modes_by_p95"] = sorted(
+            modes.values(),
+            key=lambda mode: mode.get("p95_added_latency_ms", 0),
+            reverse=True,
+        )[:5]
+        payload["mode_breakdown"] = modes
+    return payload
+
+
+def _compact_value_modes(cost: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw_modes = cost.get("by_mode") or cost.get("byMode") or cost.get("modes") or {}
+    if not isinstance(raw_modes, dict):
+        return {}
+    modes: dict[str, dict[str, Any]] = {}
+    for mode, mode_cost in raw_modes.items():
+        if not isinstance(mode_cost, dict):
+            continue
+        label = str(mode)
+        modes[label] = {
+            "mode": label,
+            "operation_count": _value_int(
+                mode_cost,
+                "operation_count",
+                "operationCount",
+            ),
+            "p95_added_latency_ms": _value_float(
+                mode_cost,
+                "p95_added_latency_ms",
+                "p95AddedLatencyMs",
+            ),
+            "avg_added_latency_ms": _value_float(
+                mode_cost,
+                "avg_added_latency_ms",
+                "avgAddedLatencyMs",
+            ),
+            "timeout_count": _value_int(mode_cost, "timeout_count", "timeoutCount"),
+            "degraded_count": _value_int(mode_cost, "degraded_count", "degradedCount"),
+            "budget_miss_count": _value_int(
+                mode_cost,
+                "budget_miss_count",
+                "budgetMissCount",
+            ),
+            "cache_hit_count": _value_int(
+                mode_cost,
+                "cache_hit_count",
+                "cacheHitCount",
+            ),
+            "cache_miss_count": _value_int(
+                mode_cost,
+                "cache_miss_count",
+                "cacheMissCount",
+            ),
+            "skipped_count": _value_int(mode_cost, "skipped_count", "skippedCount"),
+        }
+    return modes
+
+
+def _value_path_cost(
+    modes: dict[str, dict[str, Any]],
+    predicate: Callable[[str], bool],
+) -> dict[str, Any]:
+    selected = [mode for name, mode in modes.items() if predicate(name)]
+    operation_count = sum(int(mode.get("operation_count") or 0) for mode in selected)
+    timeout_count = sum(int(mode.get("timeout_count") or 0) for mode in selected)
+    degraded_count = sum(int(mode.get("degraded_count") or 0) for mode in selected)
+    budget_miss_count = sum(int(mode.get("budget_miss_count") or 0) for mode in selected)
+    cache_hit_count = sum(int(mode.get("cache_hit_count") or 0) for mode in selected)
+    cache_miss_count = sum(int(mode.get("cache_miss_count") or 0) for mode in selected)
+    skipped_count = sum(int(mode.get("skipped_count") or 0) for mode in selected)
+    cache_total = cache_hit_count + cache_miss_count
+    return {
+        "status": "measured" if operation_count else "needs_samples",
+        "operation_count": operation_count,
+        "p95_added_latency_ms": max(
+            (float(mode.get("p95_added_latency_ms") or 0) for mode in selected),
+            default=0,
+        ),
+        "timeout_rate": _value_rate(timeout_count, operation_count),
+        "degraded_rate": _value_rate(degraded_count, operation_count),
+        "budget_miss_rate": _value_rate(budget_miss_count, operation_count),
+        "cache_hit_rate": _value_rate(cache_hit_count, cache_total),
+        "skipped_count": skipped_count,
+    }
+
+
+def _is_value_read_mode(mode: str) -> bool:
+    normalized = mode.lower()
+    if _is_value_write_mode(normalized):
+        return False
+    return (
+        "recall" in normalized
+        or "context" in normalized
+        or "packet" in normalized
+        or normalized in {"lite", "medium", "deep", "full"}
+    )
+
+
+def _is_value_write_mode(mode: str) -> bool:
+    normalized = mode.lower()
+    return any(marker in normalized for marker in ("observe", "remember", "capture"))
+
+
+def _value_int(mapping: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                continue
+    return 0
+
+
+def _value_float(mapping: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                continue
+    return 0
+
+
+def _value_rate(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0
+    return round(numerator / denominator, 4)
 
 
 def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
@@ -746,20 +917,27 @@ def _home_next_actions(
         followup_trace_origin=followup_trace_origin,
     )
     followup_suffix = f" {followup_flags}" if followup_flags else ""
+    capture_source = _capture_source(trace_client)
     return [
         {
             "cmd": f"engram axi context{project_flag} --budget 800{followup_suffix}",
             "reason": "Load compact workspace context",
         },
         {
-            "cmd": f'engram axi recall "query" --limit 5{followup_suffix}',
+            "cmd": f'engram axi recall "query"{project_flag} --limit 5{followup_suffix}',
             "reason": "Search long-tail memory",
         },
         {
-            "cmd": "engram axi observe --stdin --source codex",
+            "cmd": f"engram axi observe --stdin --source {shlex.quote(capture_source)}",
             "reason": "Capture explicit user-approved notes",
         },
     ]
+
+
+def _capture_source(trace_client: str | None) -> str:
+    if trace_client and trace_client.strip():
+        return trace_client.strip()
+    return "axi"
 
 
 def _followup_command_flags(

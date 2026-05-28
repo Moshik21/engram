@@ -112,6 +112,7 @@ async def brain_loop_evaluation_report(
     request: Request,
     cycle_limit: int = Query(10, ge=1, le=100, alias="cycleLimit"),
     sample_limit: int = Query(500, ge=1, le=5000, alias="sampleLimit"),
+    live_cost: bool = Query(False, alias="liveCost"),
 ) -> JSONResponse:
     """Return the local brain-loop evaluation report for the active group."""
     tenant = get_tenant(request)
@@ -127,5 +128,6 @@ async def brain_loop_evaluation_report(
         group_id=group_id,
         cycle_limit=cycle_limit,
         sample_limit=sample_limit,
+        live_memory_operation_cost=live_cost,
     )
     return JSONResponse(content=report)

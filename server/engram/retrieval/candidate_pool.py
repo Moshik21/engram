@@ -7,7 +7,8 @@ import logging
 import math
 import re
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, TypeVar
 
 from engram.config import ActivationConfig
 from engram.retrieval.router import QueryType
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -84,15 +86,32 @@ async def _search_pool(
     group_id: str,
     search_index: SearchIndex,
     limit: int,
+    *,
+    timeout_seconds: float | None = None,
+    stage_timings_ms: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Pool 1: semantic/FTS search candidates."""
+    started = time.perf_counter()
     try:
-        results = await search_index.search(
+        search_call = search_index.search(
             query=query,
             group_id=group_id,
             limit=limit,
         )
+        results = (
+            await asyncio.wait_for(search_call, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else await search_call
+        )
+        _add_stage_timing(stage_timings_ms, "recall_primary_search", started)
+        _add_stage_timing(stage_timings_ms, "recall_embed", started)
         return results or []
+    except asyncio.TimeoutError:
+        _add_stage_timing(stage_timings_ms, "recall_primary_search_timeout", started)
+        return []
+    except asyncio.CancelledError:
+        _add_stage_timing(stage_timings_ms, "recall_primary_search_cancelled", started)
+        raise
     except Exception as e:
         logger.warning("Search pool failed (non-fatal): %s", e)
         return []
@@ -388,6 +407,101 @@ def _merge_pools_rrf(
     return [eid for eid, _ in ranked[:limit]]
 
 
+def _add_stage_timing(
+    stage_timings_ms: dict[str, float] | None,
+    key: str,
+    started: float,
+) -> None:
+    if stage_timings_ms is None:
+        return
+    elapsed = round((time.perf_counter() - started) * 1000, 4)
+    stage_timings_ms[key] = round(stage_timings_ms.get(key, 0.0) + elapsed, 4)
+
+
+def _set_stage_metric(
+    stage_timings_ms: dict[str, float] | None,
+    key: str,
+    value: int | float,
+) -> None:
+    if stage_timings_ms is None:
+        return
+    stage_timings_ms[key] = round(float(value), 4)
+
+
+def _primary_search_timeout_seconds(
+    cfg: ActivationConfig,
+    stage_timings_ms: dict[str, float] | None = None,
+) -> float | None:
+    timeout_ms = int(getattr(cfg, "retrieval_primary_search_timeout_ms", 0) or 0)
+    if timeout_ms <= 0:
+        return None
+    probe_timed_out = bool(
+        stage_timings_ms
+        and (
+            "recall_stats_timeout" in stage_timings_ms
+            or "graph_expand_timeout" in stage_timings_ms
+        )
+    )
+    adaptive_cap_ms = int(
+        getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
+    )
+    if probe_timed_out and adaptive_cap_ms > 0:
+        timeout_ms = min(timeout_ms, adaptive_cap_ms)
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_primary_search_effective_timeout_ms",
+        timeout_ms,
+    )
+    return timeout_ms / 1000.0
+
+
+def _graph_probe_timed_out(stage_timings_ms: dict[str, float] | None) -> bool:
+    return bool(
+        stage_timings_ms
+        and (
+            "recall_stats_timeout" in stage_timings_ms
+            or "graph_expand_timeout" in stage_timings_ms
+        )
+    )
+
+
+def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | None:
+    timeout_ms = int(getattr(cfg, field_name, 0) or 0)
+    if timeout_ms <= 0:
+        return None
+    return timeout_ms / 1000.0
+
+
+async def _bounded_pool(
+    awaitable: Awaitable[T],
+    *,
+    timeout_seconds: float | None,
+    stage_timings_ms: dict[str, float] | None,
+    stage_key: str,
+    timeout_key: str,
+    cancelled_key: str,
+    fallback: T,
+) -> T:
+    started = time.perf_counter()
+    try:
+        result = (
+            await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else await awaitable
+        )
+        _add_stage_timing(stage_timings_ms, stage_key, started)
+        return result
+    except asyncio.TimeoutError:
+        _add_stage_timing(stage_timings_ms, timeout_key, started)
+        return fallback
+    except asyncio.CancelledError:
+        _add_stage_timing(stage_timings_ms, cancelled_key, started)
+        raise
+    except Exception as e:
+        logger.warning("%s failed (non-fatal): %s", stage_key, e)
+        return fallback
+
+
 async def generate_candidates(
     query: str,
     group_id: str,
@@ -399,6 +513,7 @@ async def generate_candidates(
     working_memory: WorkingMemoryBuffer | None = None,
     total_entities: int = 0,
     query_type: QueryType | None = None,
+    stage_timings_ms: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Orchestrate multi-pool candidate generation.
 
@@ -413,8 +528,31 @@ async def generate_candidates(
 
     # Step 1: Run search + activation + entity query pools concurrently
     gather_tasks: list = [
-        _search_pool(query, group_id, search_index, limits["pool_search_limit"]),
-        _activation_pool(group_id, activation_store, limits["pool_activation_limit"], now),
+        _search_pool(
+            query,
+            group_id,
+            search_index,
+            limits["pool_search_limit"],
+            timeout_seconds=_primary_search_timeout_seconds(cfg, stage_timings_ms),
+            stage_timings_ms=stage_timings_ms,
+        ),
+        _bounded_pool(
+            _activation_pool(
+                group_id,
+                activation_store,
+                limits["pool_activation_limit"],
+                now,
+            ),
+            timeout_seconds=_stage_timeout_seconds(
+                cfg,
+                "retrieval_activation_pool_timeout_ms",
+            ),
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_activation_pool",
+            timeout_key="recall_activation_pool_timeout",
+            cancelled_key="recall_activation_pool_cancelled",
+            fallback=[],
+        ),
     ]
     run_entity_query = cfg.entity_query_retrieval_enabled and hasattr(
         graph_store, "find_entity_candidates"
@@ -433,18 +571,52 @@ async def generate_candidates(
     search_results: list[tuple[str, float]] = gathered[0]
     activation_results: list[tuple[str, float]] = gathered[1]
     entity_query_results: list[tuple[str, float]] = gathered[2] if run_entity_query else []
+    _set_stage_metric(stage_timings_ms, "recall_search_candidate_count", len(search_results))
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_search_candidate_max_score",
+        max((score for _eid, score in search_results), default=0.0),
+    )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_activation_candidate_count",
+        len(activation_results),
+    )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_entity_query_candidate_count",
+        len(entity_query_results),
+    )
 
     # Step 2: Graph neighborhood from top search seeds (sequential)
     seed_ids = [eid for eid, score in search_results if score >= cfg.seed_threshold][
         : limits["pool_graph_seed_count"]
     ]
-    graph_results = await _graph_neighborhood_pool(
-        seed_ids,
-        group_id,
-        graph_store,
-        limits["pool_graph_max_neighbors"],
-        limits["pool_graph_limit"],
+    skip_secondary_graph = bool(
+        search_results
+        and cfg.retrieval_skip_secondary_graph_after_probe_timeout
+        and _graph_probe_timed_out(stage_timings_ms)
     )
+    if skip_secondary_graph:
+        graph_results = []
+        _set_stage_metric(stage_timings_ms, "recall_graph_pool_skipped_probe_timeout", 0.0)
+    else:
+        graph_results = await _bounded_pool(
+            _graph_neighborhood_pool(
+                seed_ids,
+                group_id,
+                graph_store,
+                limits["pool_graph_max_neighbors"],
+                limits["pool_graph_limit"],
+            ),
+            timeout_seconds=_stage_timeout_seconds(cfg, "retrieval_graph_pool_timeout_ms"),
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_graph_pool",
+            timeout_key="recall_graph_pool_timeout",
+            cancelled_key="recall_graph_pool_cancelled",
+            fallback=[],
+        )
+    _set_stage_metric(stage_timings_ms, "recall_graph_candidate_count", len(graph_results))
 
     # Step 3: Working memory pool (if provided)
     wm_results: list[tuple[str, float]] = []
@@ -457,6 +629,34 @@ async def generate_candidates(
             cfg.pool_wm_max_neighbors,
             limits["pool_wm_limit"],
         )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_working_memory_candidate_count",
+        len(wm_results),
+    )
+    primary_search_timed_out = bool(
+        stage_timings_ms and "recall_primary_search_timeout" in stage_timings_ms
+    )
+    activation_only_after_primary_timeout = (
+        primary_search_timed_out
+        and bool(activation_results)
+        and not search_results
+        and not entity_query_results
+        and not graph_results
+        and not wm_results
+        and (query_type or QueryType.DEFAULT)
+        not in {QueryType.TEMPORAL, QueryType.FREQUENCY}
+        and cfg.retrieval_activation_only_primary_timeout_short_circuit
+    )
+    if activation_only_after_primary_timeout:
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_activation_only_primary_timeout_short_circuit",
+            len(activation_results),
+        )
+        _set_stage_metric(stage_timings_ms, "recall_candidate_count", 0)
+        _set_stage_metric(stage_timings_ms, "recall_candidate_max_score", 0.0)
+        return []
 
     # Step 4: Merge non-empty pools via RRF
     pools = [
@@ -481,15 +681,46 @@ async def generate_candidates(
     # Backfill real semantic scores for non-search entities
     non_search_ids = [eid for eid in merged_ids if eid not in search_scores]
     backfilled: dict[str, float] = {}
-    if non_search_ids:
-        try:
-            backfilled = await search_index.compute_similarity(
+    skip_similarity_backfill = bool(
+        primary_search_timed_out
+        and not search_results
+        and cfg.retrieval_skip_similarity_backfill_after_primary_timeout
+    )
+    if non_search_ids and skip_similarity_backfill:
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_similarity_backfill_skipped_primary_timeout",
+            len(non_search_ids),
+        )
+    elif non_search_ids:
+        backfilled = await _bounded_pool(
+            search_index.compute_similarity(
                 query=query,
                 entity_ids=non_search_ids,
                 group_id=group_id,
-            )
-        except Exception as e:
-            logger.warning("Semantic backfill failed (non-fatal): %s", e)
+            ),
+            timeout_seconds=_stage_timeout_seconds(
+                cfg,
+                "retrieval_similarity_backfill_timeout_ms",
+            ),
+            stage_timings_ms=stage_timings_ms,
+            stage_key="recall_similarity_backfill",
+            timeout_key="recall_similarity_backfill_timeout",
+            cancelled_key="recall_similarity_backfill_cancelled",
+            fallback={},
+        )
+    _set_stage_metric(stage_timings_ms, "recall_candidate_count", len(merged_ids))
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_candidate_max_score",
+        max(
+            (
+                search_scores.get(eid, backfilled.get(eid, 0.0))
+                for eid in merged_ids
+            ),
+            default=0.0,
+        ),
+    )
 
     # Step 6: Return (entity_id, real_semantic_similarity) in RRF order
     return [(eid, search_scores.get(eid, backfilled.get(eid, 0.0))) for eid in merged_ids]

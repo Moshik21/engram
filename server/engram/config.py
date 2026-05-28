@@ -137,6 +137,164 @@ class ActivationConfig(BaseModel):
     rediscovery_halflife_days: float = Field(default=30.0, gt=0.0, le=365.0)
     retrieval_top_k: int = Field(default=50, ge=5, le=500)
     retrieval_top_n: int = Field(default=10, ge=1, le=100)
+    retrieval_primary_search_timeout_ms: int = Field(
+        default=300,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for the initial deep entity search during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_primary_search_timeout_after_probe_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description=(
+            "Cap for primary search after graph preflight probes already timed out. "
+            "0 disables this adaptive cap."
+        ),
+    )
+    retrieval_skip_secondary_graph_after_probe_timeout: bool = Field(
+        default=True,
+        description=(
+            "Skip graph-heavy recall enhancers when graph preflight probes already "
+            "timed out."
+        ),
+    )
+    retrieval_stats_timeout_ms: int = Field(
+        default=25,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for recall corpus stats used only to scale pool sizes. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_activation_pool_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for activation-pool recall candidates. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_graph_pool_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for graph-neighborhood recall candidates. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_similarity_backfill_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for semantic backfill of non-search recall candidates. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_skip_similarity_backfill_after_primary_timeout: bool = Field(
+        default=True,
+        description=(
+            "Skip semantic backfill for non-search candidates after primary "
+            "search already timed out."
+        ),
+    )
+    retrieval_episode_search_timeout_ms: int = Field(
+        default=250,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for episode-level search during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_cue_search_timeout_ms: int = Field(
+        default=150,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for cue-backed episode search during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_fast_episode_search_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for fast episode fallback search after primary search "
+            "times out during recall. 0 disables the substage timeout."
+        ),
+    )
+    retrieval_fast_cue_search_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for fast cue fallback search after primary search "
+            "times out during recall. 0 disables the substage timeout."
+        ),
+    )
+    retrieval_chunk_search_timeout_ms: int = Field(
+        default=150,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for chunk-level episode search during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_activation_state_timeout_ms: int = Field(
+        default=150,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for loading candidate activation states during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_entity_match_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for name-based entity match fallback during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_spread_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for graph spreading during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_entity_attributes_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for loading entity attributes used by recall boosts. "
+            "0 disables the substage timeout."
+        ),
+    )
+    retrieval_graph_similarity_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for graph-structural similarity during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
 
     # --- Spreading strategy ---
     spreading_strategy: str = Field(default="bfs", pattern="^(bfs|ppr|actr)$")
@@ -186,6 +344,13 @@ class ActivationConfig(BaseModel):
     # --- Entity query retrieval ---
     entity_query_retrieval_enabled: bool = Field(default=True)
     pool_entity_query_limit: int = Field(default=20, ge=1, le=100)
+    retrieval_activation_only_primary_timeout_short_circuit: bool = Field(
+        default=True,
+        description=(
+            "Drop activation-only candidates after primary search timeout unless "
+            "the query type intentionally relies on activation."
+        ),
+    )
 
     # --- HyDE (Hypothetical Document Embedding) ---
     hyde_enabled: bool = Field(
@@ -199,6 +364,21 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Expand queries using knowledge graph context (LLM-free HyDE alternative)",
     )
+    graph_query_expansion_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for graph-anchored query expansion during recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    graph_query_expansion_skip_after_stats_timeout: bool = Field(
+        default=True,
+        description=(
+            "Skip graph query expansion when recall corpus stats already timed out."
+        ),
+    )
     template_reformulation_enabled: bool = Field(
         default=True,
         description="Convert questions to statement form for better embedding match",
@@ -209,10 +389,28 @@ class ActivationConfig(BaseModel):
     reranker_provider: str = Field(default="noop", pattern="^(cohere|local|noop)$")
     reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")
     reranker_top_n: int = Field(default=10, ge=1, le=50)
+    retrieval_reranker_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for recall reranker preparation and execution. "
+            "0 disables the substage timeout."
+        ),
+    )
 
     # --- MMR diversity ---
     mmr_enabled: bool = Field(default=True)
     mmr_lambda: float = Field(default=0.7, ge=0.0, le=1.0)
+    retrieval_mmr_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for recall MMR diversity. "
+            "0 disables the substage timeout."
+        ),
+    )
 
     # --- Implicit feedback ---
     feedback_enabled: bool = Field(default=True)
@@ -321,6 +519,15 @@ class ActivationConfig(BaseModel):
         le=1.0,
         description="Score weight for entity-linked episodes (multiplied by parent entity score)",
     )
+    entity_episode_traversal_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for entity->episode recall expansion. "
+            "0 disables the substage timeout."
+        ),
+    )
 
     # --- Temporal contiguity ---
     temporal_contiguity_enabled: bool = Field(
@@ -338,6 +545,15 @@ class ActivationConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Score weight for contiguous episodes (multiplied by parent episode score)",
+    )
+    temporal_contiguity_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for temporal episode recall expansion. "
+            "0 disables the substage timeout."
+        ),
     )
 
     # --- Temporal retrieval scoring ---
@@ -909,6 +1125,24 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Index cue text for vector search when cue layer is enabled",
     )
+    capture_store_timeout_ms: int = Field(
+        default=1000,
+        ge=0,
+        le=30000,
+        description=(
+            "Max time live capture waits for raw episode persistence before "
+            "letting the write finish in the background; 0 waits synchronously."
+        ),
+    )
+    capture_cue_store_timeout_ms: int = Field(
+        default=250,
+        ge=0,
+        le=30000,
+        description=(
+            "Max time live capture waits for cue persistence after the raw episode is stored; "
+            "0 waits for cue storage synchronously."
+        ),
+    )
     capture_cue_vector_index_timeout_ms: int = Field(
         default=500,
         ge=0,
@@ -916,6 +1150,31 @@ class ActivationConfig(BaseModel):
         description=(
             "Max background cue vector indexing wait after live capture has acknowledged; "
             "0 disables the background timeout."
+        ),
+    )
+    capture_startup_warmup_enabled: bool = Field(
+        default=True,
+        description=(
+            "Warm the native capture write path at startup with an internal "
+            "create/delete probe before the first real observe"
+        ),
+    )
+    capture_startup_warmup_timeout_ms: int = Field(
+        default=2000,
+        ge=0,
+        le=30000,
+        description=(
+            "Max time startup waits for native capture warmup; 0 waits "
+            "synchronously. Timed-out warmups continue best-effort in the background."
+        ),
+    )
+    capture_cue_vector_index_quiet_period_ms: int = Field(
+        default=0,
+        ge=0,
+        le=30000,
+        description=(
+            "Minimum quiet period after a live capture before starting best-effort "
+            "cue vector indexing; 0 indexes as soon as the background lane is free."
         ),
     )
     cue_index_outbox_enabled: bool = Field(
@@ -1042,6 +1301,15 @@ class ActivationConfig(BaseModel):
         le=1.0,
         description="Multiplier applied when spreading crosses topic domains",
     )
+    retrieval_cross_domain_seed_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for loading seed entity types used by cross-domain "
+            "recall spreading. 0 disables the substage timeout."
+        ),
+    )
     domain_groups: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "personal": ["Person", "Event", "Emotion", "Goal", "Preference", "Habit", "Intention"],
@@ -1144,6 +1412,15 @@ class ActivationConfig(BaseModel):
         ge=5.0,
         le=600.0,
         description="TTL for goal priming cache",
+    )
+    retrieval_goal_priming_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for loading active goal seeds during recall. "
+            "0 disables the substage timeout."
+        ),
     )
     goal_triage_weight: float = Field(
         default=0.10,
@@ -1364,6 +1641,81 @@ class ActivationConfig(BaseModel):
         le=30000,
         description="Wall-clock budget for explicit user/agent recall",
     )
+    recall_budget_explicit_search_ms: int = Field(
+        default=650,
+        ge=100,
+        le=30000,
+        description="Search-stage budget for explicit user/agent recall before degraded fallback",
+    )
+    recall_fast_fallback_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=2000,
+        description="Maximum timeout-rescue budget after explicit recall exceeds search time",
+    )
+    recall_fast_preflight_timeout_ms: int = Field(
+        default=250,
+        ge=0,
+        le=2000,
+        description=(
+            "Maximum budget for the bounded episode/cue preflight before deep "
+            "explicit recall"
+        ),
+    )
+    context_fast_preflight_timeout_ms: int = Field(
+        default=100,
+        ge=0,
+        le=2000,
+        description=(
+            "Maximum budget for the bounded episode/cue preflight before "
+            "falling back to project-file context"
+        ),
+    )
+    context_fast_preflight_soft_wait_ms: int = Field(
+        default=75,
+        ge=0,
+        le=2000,
+        description=(
+            "Preferred wait for bounded episode/cue context preflight when "
+            "project-file context is already ready. The preflight may continue "
+            "in the background until context_fast_preflight_timeout_ms."
+        ),
+    )
+    recall_fast_preflight_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run the bounded episode/cue recall path before deep explicit recall "
+            "when packet cache does not satisfy the query"
+        ),
+    )
+    recall_primary_materialize_graph_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Per-call timeout for graph reads while materializing primary recall "
+            "results. 0 disables the substage timeout."
+        ),
+    )
+    recall_primary_materialize_graph_timeout_after_probe_timeout_ms: int = Field(
+        default=15,
+        ge=0,
+        le=5000,
+        description=(
+            "Per-call graph-read cap for primary result materialization after "
+            "recall graph preflight probes already timed out. 0 disables this "
+            "adaptive cap."
+        ),
+    )
+    recall_primary_materialize_side_effect_timeout_ms: int = Field(
+        default=25,
+        ge=0,
+        le=5000,
+        description=(
+            "Per-call timeout for access/cue feedback side effects during primary "
+            "recall materialization. 0 disables the substage timeout."
+        ),
+    )
     recall_budget_chat_ms: int = Field(
         default=1200,
         ge=100,
@@ -1512,6 +1864,51 @@ class ActivationConfig(BaseModel):
         le=100,
         description="Per-intent semantic search budget",
     )
+    recall_planner_timeout_ms: int = Field(
+        default=250,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for planner-driven multi-intent recall. "
+            "0 disables the substage timeout."
+        ),
+    )
+    recall_priming_update_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for post-recall priming side effects. "
+            "0 disables the substage timeout."
+        ),
+    )
+    recall_near_miss_materialize_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for post-recall near-miss materialization. "
+            "0 disables the substage timeout."
+        ),
+    )
+    recall_confidence_timeout_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for post-recall relevance-confidence scoring. "
+            "0 disables the substage timeout."
+        ),
+    )
+    recall_fingerprint_record_timeout_ms: int = Field(
+        default=25,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for recording recall queries in conversation context. "
+            "0 disables the substage timeout."
+        ),
+    )
     recall_packets_enabled: bool = Field(
         default=True,
         description="Return packetized memory alongside raw recall results",
@@ -1565,6 +1962,14 @@ class ActivationConfig(BaseModel):
     relevance_confidence_enabled: bool = Field(
         default=True,
         description="Compute embedding-based relevance confidence per result",
+    )
+    relevance_confidence_episode_text_embeddings_enabled: bool = Field(
+        default=False,
+        description=(
+            "Embed returned episode/chunk text during recall post-processing for "
+            "extra relevance precision. Disabled by default because primary search "
+            "semantic similarity already provides bounded relevance for recall hits."
+        ),
     )
     relevance_confidence_threshold: float = Field(
         default=0.0,
@@ -2000,6 +2405,15 @@ class ActivationConfig(BaseModel):
         le=1.0,
         description="Graph connectivity bonus weight in GC-MMR",
     )
+    retrieval_gc_mmr_timeout_ms: int = Field(
+        default=75,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for recall graph-connected MMR. "
+            "0 disables the substage timeout."
+        ),
+    )
 
     def model_post_init(self, __context: object) -> None:
         """Apply consolidation, recall, and integration profile presets."""
@@ -2130,6 +2544,7 @@ class ActivationConfig(BaseModel):
         if integration_profile == "rework":
             _set("cue_layer_enabled", True)
             _set("cue_vector_index_enabled", True)
+            _set("capture_cue_vector_index_quiet_period_ms", 1000)
             _set("cue_recall_enabled", True)
             _set("cue_policy_learning_enabled", True)
             _set("targeted_projection_enabled", True)

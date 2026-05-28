@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
+from engram.evaluation import cli as evaluation_cli
 from engram.evaluation.brain_loop_report import EVALUATION_SIGNAL_ORDER
 from engram.evaluation.cli import configure_evaluate_parser, run_evaluate_command
 from engram.evaluation.human_label_evidence import (
@@ -341,6 +343,93 @@ async def test_evaluate_cli_outputs_and_gates_memory_value(
 
 
 @pytest.mark.asyncio
+async def test_evaluate_cli_loads_server_report_for_memory_value(
+    capsys,
+    monkeypatch,
+) -> None:
+    report = _measured_report()
+    report["memory_value"] = _measured_memory_value()
+    calls: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, *, server_url: str, timeout_seconds: float) -> None:
+            calls.append(
+                {
+                    "server_url": server_url,
+                    "timeout_seconds": timeout_seconds,
+                }
+            )
+
+        def evaluation_report(
+            self,
+            *,
+            live_cost: bool,
+            cycle_limit: int,
+            sample_limit: int,
+        ) -> dict:
+            calls.append(
+                {
+                    "live_cost": live_cost,
+                    "cycle_limit": cycle_limit,
+                    "sample_limit": sample_limit,
+                }
+            )
+            return dict(report)
+
+    monkeypatch.setattr(evaluation_cli, "AxiRestClient", FakeClient)
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--server-url",
+            "http://127.0.0.1:8100",
+            "--server-timeout",
+            "3.5",
+            "--live-cost",
+            "--cycles",
+            "7",
+            "--saved-sample-limit",
+            "42",
+            "--memory-value",
+            "--require-memory-value",
+            "--format",
+            "json",
+        ]
+    )
+
+    await run_evaluate_command(args)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["memory_value"]["status"] == "measured"
+    assert calls == [
+        {
+            "server_url": "http://127.0.0.1:8100",
+            "timeout_seconds": 3.5,
+        },
+        {"live_cost": True, "cycle_limit": 7, "sample_limit": 42},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cli_rejects_server_report_with_group_override() -> None:
+    parser = argparse.ArgumentParser()
+    configure_evaluate_parser(parser)
+    args = parser.parse_args(
+        [
+            "--server-url",
+            "http://127.0.0.1:8100",
+            "--group-id",
+            "other_brain",
+        ]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        await run_evaluate_command(args)
+
+    assert str(exc_info.value) == "--server-url uses the running server tenant; omit --group-id"
+
+
+@pytest.mark.asyncio
 async def test_evaluate_cli_rejects_missing_memory_value_when_required(
     tmp_path: Path,
 ) -> None:
@@ -364,6 +453,29 @@ async def test_evaluate_cli_rejects_missing_memory_value_when_required(
     assert str(exc_info.value) == (
         "Memory value evidence failed gates: ['memory_value:missing']"
     )
+
+
+@pytest.mark.asyncio
+async def test_evaluate_live_stats_timeout_returns_degraded_fallback() -> None:
+    class SlowGraphStore:
+        async def get_stats(self, group_id: str) -> dict:
+            await asyncio.sleep(1)
+            return {"episodes": 10, "group_id": group_id}
+
+    stats = await evaluation_cli._load_live_stats_bounded(
+        SlowGraphStore(),
+        "default",
+        timeout_seconds=0.01,
+    )
+
+    assert stats["evaluation_degradations"] == [
+        {
+            "stage": "graph_stats",
+            "status": "degraded",
+            "skip_reason": "graph_stats_timeout",
+            "timeout_ms": 10,
+        }
+    ]
 
 
 @pytest.mark.asyncio

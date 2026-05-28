@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -141,6 +142,9 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert primary_kwargs["interaction_source"] == "auto_recall"
     assert primary_kwargs["now"] == 123.0
     assert primary_kwargs["working_memory"] is working_memory
+    assert primary_kwargs["graph_timeout_seconds"] == pytest.approx(0.05)
+    assert primary_kwargs["side_effect_timeout_seconds"] == pytest.approx(0.025)
+    assert primary_kwargs["stage_timings_ms"] is result.stage_timings_ms
 
     post_results, post_kwargs = events[2][1]
     assert post_results == [{"result_type": "entity", "entity": {"id": "ent_primary"}}]
@@ -161,3 +165,119 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert result.stage_timings_ms["recall_retrieve"] >= 0
     assert result.stage_timings_ms["recall_materialize"] >= 0
     assert result.stage_timings_ms["recall_post_process"] >= 0
+    assert result.stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] == 50
+
+
+@pytest.mark.asyncio
+async def test_recall_service_caps_materialization_after_probe_timeout() -> None:
+    events: list[tuple[str, object]] = []
+    scored_results = [_score("ent_primary")]
+    cfg = ActivationConfig(
+        recall_primary_materialize_graph_timeout_ms=50,
+        recall_primary_materialize_graph_timeout_after_probe_timeout_ms=15,
+    )
+
+    async def retrieve_fn(**kwargs: Any) -> list[ScoredResult]:
+        kwargs["stage_timings_ms"]["recall_stats_timeout"] = 75.0
+        return scored_results
+
+    class PrimaryMaterializer:
+        async def materialize(
+            self,
+            results: list[ScoredResult],
+            **kwargs: Any,
+        ) -> RecallPrimaryMaterialization:
+            events.append(("primary", kwargs))
+            return RecallPrimaryMaterialization(
+                results=[{"result_type": "entity", "entity": {"id": "ent_primary"}}],
+                seen_episode_ids=set(),
+            )
+
+    class PostProcessor:
+        async def process(
+            self,
+            results: list[dict[str, Any]],
+            **kwargs: Any,
+        ) -> RecallPostProcessResult:
+            return RecallPostProcessResult(results=results, near_misses=[])
+
+    service = RecallService(
+        graph_store=object(),
+        activation_store=object(),
+        search_index=object(),
+        cfg=cfg,
+        primary_materializer=PrimaryMaterializer(),
+        post_processor=PostProcessor(),
+        retrieve_fn=retrieve_fn,
+    )
+
+    result = await service.recall(
+        query="native Helix",
+        group_id="native_brain",
+        limit=1,
+        record_access=True,
+        interaction_type="used",
+        interaction_source="mcp_recall",
+        conv_context=None,
+        working_memory=None,
+        priming_buffer={},
+        goal_cache=None,
+        memory_need=None,
+    )
+
+    primary_kwargs = events[0][1]
+    assert isinstance(primary_kwargs, dict)
+    assert primary_kwargs["graph_timeout_seconds"] == pytest.approx(0.015)
+    assert result.stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] == 15
+
+
+@pytest.mark.asyncio
+async def test_recall_service_records_partial_timing_when_cancelled() -> None:
+    async def retrieve_fn(**kwargs: Any) -> list[ScoredResult]:
+        kwargs["stage_timings_ms"]["recall_embed"] = 12.0
+        raise asyncio.CancelledError
+
+    class PrimaryMaterializer:
+        async def materialize(
+            self,
+            results: list[ScoredResult],
+            **kwargs: Any,
+        ) -> RecallPrimaryMaterialization:
+            raise AssertionError("materialize should not run after cancellation")
+
+    class PostProcessor:
+        async def process(
+            self,
+            results: list[dict[str, Any]],
+            **kwargs: Any,
+        ) -> RecallPostProcessResult:
+            raise AssertionError("post-process should not run after cancellation")
+
+    service = RecallService(
+        graph_store=object(),
+        activation_store=object(),
+        search_index=object(),
+        cfg=ActivationConfig(),
+        primary_materializer=PrimaryMaterializer(),
+        post_processor=PostProcessor(),
+        retrieve_fn=retrieve_fn,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.recall(
+            query="native Helix",
+            group_id="native_brain",
+            limit=2,
+            record_access=True,
+            interaction_type="used",
+            interaction_source="mcp_recall",
+            conv_context=None,
+            working_memory=None,
+            priming_buffer={},
+            goal_cache=None,
+            memory_need=None,
+        )
+
+    timings = service.last_stage_timings()
+    assert timings["recall_embed"] == 12.0
+    assert timings["recall_retrieve_cancelled"] >= 0

@@ -168,7 +168,7 @@ def run_warmed_checks(repo: Path, evidence_dir: Path, *, prefix: str) -> list[Ma
             f"{prefix}-storage.log",
             timeout=60,
         ),
-        run_command_step(
+        run_doctor_step(
             "doctor",
             ["engramctl", "doctor", "--format", "json"],
             repo,
@@ -216,6 +216,9 @@ def run_validation_step(
     if expected == "healthy" and payload and has_validation_failures(payload):
         step.status = "fail"
         step.detail = "Validation JSON contains failing checks."
+    elif expected == "healthy" and payload and has_validation_warnings(payload):
+        step.status = "warn"
+        step.detail = "Validation JSON contains warning checks."
     elif expected == "stopped" and payload:
         if stopped_state_detected(payload):
             step.status = "pass"
@@ -223,6 +226,31 @@ def run_validation_step(
         else:
             step.status = "fail"
             step.detail = "Stopped-state validation did not detect offline runtime."
+    return step
+
+
+def run_doctor_step(
+    name: str,
+    cmd: list[str],
+    cwd: Path,
+    evidence_dir: Path,
+    output_name: str,
+    *,
+    timeout: float = 60.0,
+) -> MatrixStep:
+    step = run_command_step(name, cmd, cwd, evidence_dir, output_name, timeout=timeout)
+    payload = read_json_object(Path(step.output_path or ""))
+    if payload:
+        step.evidence["summary"] = {
+            "status": payload.get("status"),
+            **validation_summary(payload),
+        }
+        if payload.get("status") == "warn" and step.status == "pass":
+            step.status = "warn"
+            step.detail = "Doctor completed with warnings."
+        elif payload.get("status") == "fail":
+            step.status = "fail"
+            step.detail = "Doctor reported failing checks."
     return step
 
 
@@ -277,7 +305,7 @@ def run_stale_pid_simulation(repo: Path, evidence_dir: Path) -> MatrixStep:
             pass
 
 
-def wait_for_healthy_runtime(timeout: float = 90.0) -> tuple[bool, dict[str, Any]]:
+def wait_for_healthy_runtime(timeout: float = 180.0) -> tuple[bool, dict[str, Any]]:
     url = health_url_from_env()
     deadline = time.monotonic() + timeout
     attempts = 0
@@ -389,10 +417,22 @@ def read_json_object(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = extract_json_object(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def extract_json_object(text: str) -> Any:
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        payload, end = decoder.raw_decode(text[index:])
+        if text[index + end :].strip():
+            continue
+        return payload
+    raise json.JSONDecodeError("No complete JSON object found", text, 0)
 
 
 def validation_summary(payload: dict[str, Any]) -> dict[str, int]:
@@ -405,6 +445,10 @@ def validation_summary(payload: dict[str, Any]) -> dict[str, int]:
 
 def has_validation_failures(payload: dict[str, Any]) -> bool:
     return any(check.get("status") == "fail" for check in payload.get("checks") or [])
+
+
+def has_validation_warnings(payload: dict[str, Any]) -> bool:
+    return any(check.get("status") == "warn" for check in payload.get("checks") or [])
 
 
 def stopped_state_detected(payload: dict[str, Any]) -> bool:

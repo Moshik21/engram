@@ -384,6 +384,16 @@ QUERY get_episode_entities(id: ID) =>
         ::Out<HasEntity>
     RETURN entities
 
+QUERY get_projected_episode_entities_by_group(gid: String, projection_state: String) =>
+    entities <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{projection_state}::EQ(projection_state)))
+        ::Out<HasEntity>
+    RETURN entities
+
+QUERY get_projected_episode_entities_all(projection_state: String) =>
+    entities <- N<Episode>::WHERE(_::{projection_state}::EQ(projection_state))
+        ::Out<HasEntity>
+    RETURN entities
+
 QUERY get_episodes_for_entity(id: ID) =>
     episodes <- N<Entity>(id)
         ::In<HasEntity>
@@ -410,6 +420,30 @@ QUERY create_episode_cue(episode_id: String, group_id: String, cue_version: I32,
 QUERY find_cue_by_episode(ep_id: String, gid: String) =>
     cues <- N<EpisodeCue>::WHERE(AND(_::{episode_id}::EQ(ep_id), _::{group_id}::EQ(gid)))
     RETURN cues
+
+QUERY find_cues_by_group(gid: String) =>
+    cues <- N<EpisodeCue>::WHERE(_::{group_id}::EQ(gid))
+    RETURN cues
+
+QUERY find_cues_all() =>
+    cues <- N<EpisodeCue>
+    RETURN cues
+
+QUERY count_entities_by_group(gid: String) =>
+    count <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{is_deleted}::EQ(false)))::COUNT
+    RETURN count
+
+QUERY count_episodes_by_group(gid: String) =>
+    count <- N<Episode>::WHERE(_::{group_id}::EQ(gid))::COUNT
+    RETURN count
+
+QUERY count_relationships_by_group(gid: String) =>
+    count <- E<RelatesTo>::WHERE(_::{group_id}::EQ(gid))::COUNT
+    RETURN count
+
+QUERY count_cues_by_group(gid: String) =>
+    count <- N<EpisodeCue>::WHERE(_::{group_id}::EQ(gid))::COUNT
+    RETURN count
 
 QUERY update_cue(id: ID, cue_version: I32, discourse_class: String, cue_text: String, supporting_spans_json: String, temporal_markers_json: String, quote_spans_json: String, contradiction_keys_json: String, first_spans_json: String, projection_state: String, cue_score: F64, salience_score: F64, projection_priority: F64, route_reason: String, hit_count: I32, surfaced_count: I32, selected_count: I32, used_count: I32, near_miss_count: I32, policy_score: F64, projection_attempts: I32, last_hit_at: String, last_feedback_at: String, last_projected_at: String, updated_at: String) =>
     cue <- N<EpisodeCue>(id)

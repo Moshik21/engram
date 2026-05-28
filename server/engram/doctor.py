@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -85,6 +86,18 @@ def configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
         help="Skip the local Capture -> Cue -> Project -> Recall -> Consolidate snapshot.",
     )
     parser.add_argument(
+        "--lifecycle-timeout",
+        type=float,
+        default=10.0,
+        help="Maximum seconds to spend on the local lifecycle snapshot.",
+    )
+    parser.add_argument(
+        "--smoke-timeout",
+        type=float,
+        default=45.0,
+        help="Maximum seconds to spend on the brain-loop smoke.",
+    )
+    parser.add_argument(
         "--skip-server",
         action="store_true",
         help="Skip the local REST health check.",
@@ -121,11 +134,17 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
     elif config is None:
         _add_check(checks, "lifecycle_snapshot", "skipped", "config did not load")
     else:
-        lifecycle_summary = await _check_lifecycle_snapshot(
-            config,
-            args,
-            checks,
-            resolved_mode=resolved_mode,
+        lifecycle_summary = await _bounded_doctor_stage(
+            "lifecycle_snapshot",
+            timeout_seconds=args.lifecycle_timeout,
+            checks=checks,
+            detail_prefix="lifecycle snapshot",
+            awaitable=_check_lifecycle_snapshot(
+                config,
+                args,
+                checks,
+                resolved_mode=resolved_mode,
+            ),
         )
 
     if args.skip_server:
@@ -141,11 +160,17 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
     elif config is None:
         _add_check(checks, "brain_loop_smoke", "skipped", "config did not load")
     else:
-        smoke_report = await _check_brain_loop_smoke(
-            config,
-            args,
-            checks,
-            resolved_mode=resolved_mode,
+        smoke_report = await _bounded_doctor_stage(
+            "brain_loop_smoke",
+            timeout_seconds=args.smoke_timeout,
+            checks=checks,
+            detail_prefix="brain-loop smoke",
+            awaitable=_check_brain_loop_smoke(
+                config,
+                args,
+                checks,
+                resolved_mode=resolved_mode,
+            ),
         )
 
     checks = _sort_checks(checks)
@@ -381,6 +406,30 @@ def _check_mcp(args: argparse.Namespace, checks: list[dict[str, Any]]) -> None:
         )
 
 
+async def _bounded_doctor_stage(
+    name: str,
+    *,
+    timeout_seconds: float | None,
+    checks: list[dict[str, Any]],
+    detail_prefix: str,
+    awaitable: Any,
+) -> dict[str, Any] | None:
+    timeout = _positive_timeout(timeout_seconds)
+    if timeout is None:
+        return await awaitable
+    try:
+        return await asyncio.wait_for(awaitable, timeout=timeout)
+    except TimeoutError:
+        _add_check(
+            checks,
+            name,
+            "warn",
+            f"{detail_prefix} timed out after {timeout:g}s",
+            {"timeout_seconds": timeout},
+        )
+        return None
+
+
 async def _check_lifecycle_snapshot(
     config: EngramConfig,
     args: argparse.Namespace,
@@ -516,6 +565,16 @@ async def _check_brain_loop_smoke(
         metadata,
     )
     return report
+
+
+def _positive_timeout(value: Any) -> float | None:
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError):
+        return None
+    if timeout <= 0:
+        return None
+    return max(0.01, timeout)
 
 
 def _smoke_mode_for_resolved_mode(resolved_mode: str | None) -> EngineMode:

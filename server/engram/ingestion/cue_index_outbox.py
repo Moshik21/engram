@@ -57,19 +57,26 @@ class CueIndexOutbox:
             )
             conn.commit()
 
-    def pending(self, *, limit: int = 100) -> list[CueIndexOutboxItem]:
-        """Return pending or failed cues for retry."""
+    def pending(
+        self,
+        *,
+        limit: int = 100,
+        include_failed: bool = True,
+    ) -> list[CueIndexOutboxItem]:
+        """Return cues awaiting indexing, optionally including failed retries."""
         self._ensure_schema()
+        statuses = ("pending", "failed") if include_failed else ("pending",)
+        placeholders = ",".join("?" for _status in statuses)
         with closing(self._connect()) as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT cue_json, attempts, last_error
                 FROM cue_index_outbox
-                WHERE status IN ('pending', 'failed')
+                WHERE status IN ({placeholders})
                 ORDER BY updated_at ASC
                 LIMIT ?
                 """,
-                (max(1, int(limit or 1)),),
+                (*statuses, max(1, int(limit or 1))),
             ).fetchall()
         items: list[CueIndexOutboxItem] = []
         for cue_json, attempts, last_error in rows:

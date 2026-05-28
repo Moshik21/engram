@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -238,6 +240,33 @@ async def test_graph_state_service_builds_entity_profile_resource_view() -> None
         }
     ]
     assert profile["created_at"] == "2026-05-15T00:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_graph_state_service_replaces_stale_stats_warmup_task() -> None:
+    service = _service()
+    stale_task = asyncio.create_task(asyncio.sleep(3600))
+    service._graph_stats_tasks["brain"] = stale_task
+    service._graph_stats_task_started_at["brain"] = time.time() - 60
+
+    try:
+        next_task = service.warm_graph_stats("brain")
+        await asyncio.sleep(0)
+
+        assert next_task is not stale_task
+        assert stale_task.cancelled()
+        expected_stats = {
+            "entities": 2,
+            "relationships": 1,
+            "episodes": 1,
+            "recall_metrics": {},
+            "memory_operation_metrics": {},
+            "epistemic_metrics": {},
+        }
+        assert await next_task == expected_stats
+        assert service.get_cached_graph_stats("brain") == expected_stats
+    finally:
+        stale_task.cancel()
 
 
 @pytest.mark.asyncio

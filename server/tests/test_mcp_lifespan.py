@@ -2,7 +2,25 @@ from __future__ import annotations
 
 import pytest
 
+from engram.config import EngramConfig
 from engram.mcp import server as mcp_server
+
+
+def test_mcp_background_runtime_start_helpers_respect_external_owner():
+    config = EngramConfig(_env_file=None)
+    config.activation.worker_enabled = True
+    config.activation.cue_index_outbox_enabled = True
+
+    try:
+        mcp_server.set_background_runtime_managed_externally(False)
+        assert mcp_server._should_start_mcp_background_runtime(config) is True
+        assert mcp_server._should_start_mcp_cue_index_outbox(config) is True
+
+        mcp_server.set_background_runtime_managed_externally(True)
+        assert mcp_server._should_start_mcp_background_runtime(config) is False
+        assert mcp_server._should_start_mcp_cue_index_outbox(config) is False
+    finally:
+        mcp_server.set_background_runtime_managed_externally(False)
 
 
 @pytest.mark.asyncio

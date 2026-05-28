@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -541,6 +542,7 @@ from mcp.client.streamable_http import streamablehttp_client
 
 url = sys.argv[1]
 expected = set(json.loads(sys.argv[2]))
+project_path = sys.argv[3]
 
 async def main():
     async with streamablehttp_client(
@@ -553,17 +555,103 @@ async def main():
             await session.initialize()
             result = await session.list_tools()
             names = sorted(tool.name for tool in result.tools)
+            tool_payloads = {tool.name: tool.model_dump() for tool in result.tools}
+            recall_schema = (
+                tool_payloads.get("recall", {})
+                .get("inputSchema", {})
+                .get("properties", {})
+            )
+            recall_has_project_path = "project_path" in recall_schema
+            context_probe = None
+            recall_probe = None
+            if recall_has_project_path:
+                context_result = await session.call_tool(
+                    "get_context",
+                    {
+                        "topic_hint": (
+                            "Engram dogfood startup validation project_path "
+                            "schema probe"
+                        ),
+                        "project_path": project_path,
+                        "max_tokens": 1000,
+                        "format": "structured",
+                    },
+                )
+                context_text = (
+                    context_result.content[0].text if context_result.content else "{}"
+                )
+                context_payload = json.loads(context_text)
+                context_budget = context_payload.get("budget") or {}
+                context_lifecycle = context_payload.get("lifecycle") or {}
+                context_packets = (
+                    context_payload.get("cached_packets")
+                    or (context_payload.get("recalled_context") or {}).get("packets")
+                    or []
+                )
+                context_probe = {
+                    "status": context_payload.get("status"),
+                    "budget_miss": context_budget.get("budget_miss"),
+                    "degraded": (
+                        context_lifecycle.get("degraded")
+                        or context_budget.get("degraded")
+                    ),
+                    "timeout": (
+                        context_lifecycle.get("timeout")
+                        or context_budget.get("timeout")
+                    ),
+                    "skip_reason": (
+                        context_lifecycle.get("skip_reason")
+                        or context_budget.get("skip_reason")
+                    ),
+                    "packet_count": len(context_packets),
+                }
+                probe_result = await session.call_tool(
+                    "recall",
+                    {
+                        "query": (
+                            "Engram dogfood startup validation project_path "
+                            "schema probe"
+                        ),
+                        "project_path": project_path,
+                        "limit": 3,
+                    },
+                )
+                text = probe_result.content[0].text if probe_result.content else "{}"
+                probe_payload = json.loads(text)
+                budget = probe_payload.get("budget") or {}
+                lifecycle = probe_payload.get("lifecycle") or {}
+                recall_probe = {
+                    "status": probe_payload.get("status"),
+                    "query_time_ms": probe_payload.get("query_time_ms"),
+                    "budget_miss": budget.get("budget_miss"),
+                    "degraded": lifecycle.get("degraded") or budget.get("degraded"),
+                    "timeout": lifecycle.get("timeout") or budget.get("timeout"),
+                    "skip_reason": lifecycle.get("skip_reason") or budget.get("skip_reason"),
+                    "fallback_status": lifecycle.get("fallback_status"),
+                    "packet_count": len(probe_payload.get("packets") or []),
+                    "result_count": len(probe_payload.get("results") or []),
+                }
             print(json.dumps({
                 "count": len(names),
                 "has_remember": "remember" in names,
                 "missing": sorted(expected.difference(names)),
                 "names": names,
+                "recall_has_project_path": recall_has_project_path,
+                "context_probe": context_probe,
+                "recall_probe": recall_probe,
             }))
 
 asyncio.run(main())
 """.strip()
     result = run_command(
-        [*runner, "-c", snippet, mcp_url, json.dumps(sorted(EXPECTED_MCP_TOOLS))],
+        [
+            *runner,
+            "-c",
+            snippet,
+            mcp_url,
+            json.dumps(sorted(EXPECTED_MCP_TOOLS)),
+            str(repo_root),
+        ],
         timeout=timeout,
         cwd=cwd if runner[0] == "uv" else repo_root,
     )
@@ -575,18 +663,58 @@ asyncio.run(main())
             "count": payload.get("count"),
             "has_remember": payload.get("has_remember"),
             "missing": payload.get("missing"),
+            "recall_has_project_path": payload.get("recall_has_project_path"),
+            "context_probe": payload.get("context_probe"),
+            "recall_probe": payload.get("recall_probe"),
         }
-    if result.returncode == 0 and payload and not payload.get("missing"):
+    context_probe = payload.get("context_probe") if isinstance(payload, dict) else None
+    context_probe_ok = (
+        isinstance(context_probe, dict)
+        and context_probe.get("status") == "ok"
+        and not context_probe.get("budget_miss")
+        and not context_probe.get("degraded")
+        and not context_probe.get("timeout")
+        and int(context_probe.get("packet_count") or 0) > 0
+    )
+    recall_probe = payload.get("recall_probe") if isinstance(payload, dict) else None
+    recall_probe_ok = (
+        isinstance(recall_probe, dict)
+        and recall_probe.get("status") == "ok"
+        and not recall_probe.get("budget_miss")
+        and not recall_probe.get("degraded")
+        and not recall_probe.get("timeout")
+    )
+    if (
+        result.returncode == 0
+        and payload
+        and not payload.get("missing")
+        and payload.get("recall_has_project_path") is True
+        and context_probe_ok
+        and recall_probe_ok
+    ):
         return Check(
             "MCP live tool catalog",
             "pass",
-            "Live MCP catalog exposes expected tools, including remember.",
+            (
+                "Live MCP catalog exposes expected tools, including remember, "
+                "and recall accepts project_path."
+            ),
             evidence,
         )
     if result.timed_out:
         detail = "MCP catalog probe timed out."
     elif payload:
-        detail = f"MCP catalog is missing: {', '.join(payload.get('missing') or []) or 'unknown'}."
+        missing = ", ".join(payload.get("missing") or [])
+        if missing:
+            detail = f"MCP catalog is missing: {missing}."
+        elif payload.get("recall_has_project_path") is not True:
+            detail = "MCP recall schema is missing project_path."
+        elif not context_probe_ok:
+            detail = "MCP get_context(project_path=...) probe was degraded or failed."
+        elif not recall_probe_ok:
+            detail = "MCP recall(project_path=...) probe was degraded or failed."
+        else:
+            detail = "MCP catalog probe returned unexpected payload."
     else:
         detail = "MCP catalog probe failed before returning JSON."
     return Check(
@@ -688,19 +816,26 @@ def check_axi_hooks_and_traces(home: Path, repo_root: Path) -> Check:
             issues.append(f"{client} hook is not read-only")
             next_actions.append(f"Run: engram axi hooks install {client}")
     for client, summary in trace_summary.items():
-        if not summary.get("session_start"):
+        session_start = summary.get("session_start")
+        if not session_start:
             issues.append(f"{client} has no session-start trace")
             next_actions.append(
                 f"Restart {client} or start a new session after installing the hook."
             )
+        else:
+            hook = codex_hook if client == "codex" else claude_hook
+            freshness_issue = startup_trace_freshness_issue(client, hook, session_start)
+            if freshness_issue:
+                issues.append(freshness_issue)
+                next_actions.append(_session_trace_refresh_action(client, trace_path))
+            startup_issue = startup_project_issue(client, session_start)
+            if startup_issue:
+                issues.append(startup_issue)
+                next_actions.append(_session_trace_refresh_action(client, trace_path))
         if not summary.get("followup"):
             issues.append(f"{client} has no follow-up context/recall trace")
-            followup_cmd = (
-                'Run from that client: engram axi context --project "$PWD" '
-                f"--trace-client {client} --trace-origin agent-followup"
-            )
             next_actions.append(
-                followup_cmd
+                "Run from that client: " + _followup_trace_command(client, trace_path)
             )
     if issues:
         return Check(
@@ -717,6 +852,66 @@ def check_axi_hooks_and_traces(home: Path, repo_root: Path) -> Check:
     return Check("AXI hooks and traces", "pass", detail, evidence)
 
 
+def _followup_trace_command(client: str, trace_path: Path) -> str:
+    """Return the exact AXI follow-up command that refreshes trace evidence."""
+    return (
+        'engram axi context --project "$PWD" '
+        f"--trace-file {shlex.quote(str(trace_path))} "
+        f"--trace-client {shlex.quote(client)} "
+        "--trace-origin agent-followup"
+    )
+
+
+def _session_trace_refresh_action(client: str, trace_path: Path) -> str:
+    """Return the operator action for refreshing startup-adjacent trace evidence."""
+    del trace_path
+    return (
+        f"Start a new interactive {client} session from the target project after "
+        "installing the current hook-run command. Manual agent-followup traces do "
+        "not refresh SessionStart evidence."
+    )
+
+
+def startup_trace_freshness_issue(
+    client: str,
+    hook: dict[str, Any],
+    session_start: dict[str, Any],
+) -> str | None:
+    hook_modified = hook.get("modified_epoch")
+    trace_time = parse_trace_timestamp_epoch(session_start.get("timestamp"))
+    if not isinstance(hook_modified, (int, float)) or trace_time is None:
+        return None
+    if float(hook_modified) > trace_time + 1:
+        return f"{client} session-start trace predates current hook config"
+    return None
+
+
+def startup_project_issue(client: str, session_start: dict[str, Any]) -> str | None:
+    project = str(session_start.get("project") or "").strip()
+    if not project:
+        return f"{client} session-start trace has no project path"
+    path = Path(project).expanduser()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    if resolved.parent == resolved:
+        return f"{client} session-start project is filesystem root ({project})"
+    return None
+
+
+def parse_trace_timestamp_epoch(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
 def load_hook_file(path: Path, *, client: str) -> dict[str, Any]:
     if not path.exists():
         return {"path": str(path), "installed": False, "reason": "missing file"}
@@ -728,6 +923,10 @@ def load_hook_file(path: Path, *, client: str) -> dict[str, Any]:
     if not hook:
         return {"path": str(path), "installed": False, "reason": "managed hook not found"}
     command = hook.get("command", "")
+    try:
+        modified_epoch = path.stat().st_mtime
+    except OSError:
+        modified_epoch = None
     return {
         "path": str(path),
         "client": client,
@@ -737,6 +936,7 @@ def load_hook_file(path: Path, *, client: str) -> dict[str, Any]:
         "trace_file": hook.get("trace_file"),
         "has_session_origin": "--trace-origin session-start-hook" in command,
         "has_trace_client": f"--trace-client {client}" in command,
+        "modified_epoch": modified_epoch,
     }
 
 
@@ -761,7 +961,7 @@ def summarize_axi_traces(
         session = latest_record(
             client_records,
             origin="session-start-hook",
-            operations={"home"},
+            operations={"home", "hook-run"},
             acceptable_statuses={"healthy", "ok", "degraded"},
         )
         followup = latest_record(
@@ -797,7 +997,7 @@ def latest_record(
 def compact_trace_record(record: dict[str, Any] | None) -> dict[str, Any] | None:
     if not record:
         return None
-    return {
+    compact = {
         "timestamp": record.get("timestamp"),
         "operation": record.get("operation"),
         "origin": record.get("origin"),
@@ -806,6 +1006,18 @@ def compact_trace_record(record: dict[str, Any] | None) -> dict[str, Any] | None
         "durationMs": record.get("durationMs"),
         "exitCode": record.get("exitCode"),
     }
+    for key in (
+        "cacheHit",
+        "packetCount",
+        "resultCount",
+        "fallbackStatus",
+        "skipReason",
+        "budgetMiss",
+        "degraded",
+    ):
+        if key in record:
+            compact[key] = record.get(key)
+    return compact
 
 
 def check_openclaw(home: Path, expected_mcp_url: str, *, require_openclaw: bool) -> Check:
@@ -955,6 +1167,14 @@ def extract_last_json(text: str) -> dict[str, Any] | None:
             payload = json.loads(stripped)
         except json.JSONDecodeError:
             return None
+        if isinstance(payload, dict):
+            return payload
+    decoder = json.JSONDecoder()
+    for match in reversed(list(re.finditer(r"{", text))):
+        try:
+            payload, _end = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
         if isinstance(payload, dict):
             return payload
     return None

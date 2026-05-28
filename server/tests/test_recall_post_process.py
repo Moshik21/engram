@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 
+from engram.config import ActivationConfig
 from engram.retrieval.post_process import RecallPostProcessor
 from engram.retrieval.scorer import ScoredResult
 from engram.retrieval.working_memory import WorkingMemoryBuffer
@@ -122,6 +124,7 @@ async def test_process_runs_recall_tail_in_order_and_filters_current_state_resul
             events.append(("fingerprint", (conv_context, query, interaction_source)))
 
     processor = RecallPostProcessor(
+        cfg=ActivationConfig(),
         episode_traversal=EpisodeTraversal(),
         working_memory_updater=WorkingMemoryUpdater(),
         priming_updater=PrimingUpdater(),
@@ -184,3 +187,217 @@ async def test_process_runs_recall_tail_in_order_and_filters_current_state_resul
     assert priming_buffer == {"ent_current": (0.2, 130.0)}
     assert events[1][1] == ("native_brain", {"ep_primary", "ep_linked"})
     assert events[-1][1] == (conv_context, "What is Engram using now?", "auto_recall")
+
+
+@pytest.mark.asyncio
+async def test_process_bounds_entity_episode_traversal() -> None:
+    events: list[str] = []
+
+    class EpisodeTraversal:
+        async def append_entity_linked_episodes(self, *_args, **_kwargs) -> None:
+            await asyncio.sleep(0.2)
+            events.append("entity_linked")
+
+        async def append_temporal_episodes(self, *_args, **_kwargs) -> None:
+            events.append("temporal")
+
+    class WorkingMemoryUpdater:
+        def add_query(self, *_args, **_kwargs) -> None:
+            events.append("working_memory")
+
+    class PrimingUpdater:
+        async def update(self, *_args, **_kwargs) -> None:
+            events.append("priming")
+
+    class NearMissMaterializer:
+        async def materialize(self, *_args, **_kwargs) -> list[dict[str, Any]]:
+            events.append("near_miss")
+            return []
+
+    class ConfidenceApplier:
+        async def apply(self, *_args, **_kwargs) -> None:
+            events.append("confidence")
+
+    class FingerprintRecorder:
+        async def record_recall_query(self, *_args, **_kwargs) -> None:
+            events.append("fingerprint")
+
+    processor = RecallPostProcessor(
+        cfg=ActivationConfig(entity_episode_traversal_timeout_ms=25),
+        episode_traversal=EpisodeTraversal(),
+        working_memory_updater=WorkingMemoryUpdater(),
+        priming_updater=PrimingUpdater(),
+        near_miss_materializer=NearMissMaterializer(),
+        confidence_applier=ConfidenceApplier(),
+        fingerprint_recorder=FingerprintRecorder(),
+    )
+    stage_timings: dict[str, float] = {}
+
+    processed = await processor.process(
+        [{"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}],
+        group_id="native_brain",
+        query="native Helix",
+        seen_episode_ids=set(),
+        near_miss_results=[],
+        now=100.0,
+        working_memory=None,
+        priming_buffer={},
+        conv_context=None,
+        interaction_type="surfaced",
+        interaction_source="mcp_recall",
+        stage_timings_ms=stage_timings,
+    )
+
+    assert "entity_linked" not in events
+    assert events == [
+        "temporal",
+        "working_memory",
+        "priming",
+        "near_miss",
+        "confidence",
+        "fingerprint",
+    ]
+    assert processed.results == [
+        {"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}
+    ]
+    assert stage_timings["recall_entity_episode_traversal_timeout"] >= 25
+    assert "recall_entity_episode_traversal" not in stage_timings
+
+
+@pytest.mark.asyncio
+async def test_process_bounds_relevance_confidence() -> None:
+    events: list[str] = []
+
+    class EpisodeTraversal:
+        async def append_entity_linked_episodes(self, *_args, **_kwargs) -> None:
+            events.append("entity_linked")
+
+        async def append_temporal_episodes(self, *_args, **_kwargs) -> None:
+            events.append("temporal")
+
+    class WorkingMemoryUpdater:
+        def add_query(self, *_args, **_kwargs) -> None:
+            events.append("working_memory")
+
+    class PrimingUpdater:
+        async def update(self, *_args, **_kwargs) -> None:
+            events.append("priming")
+
+    class NearMissMaterializer:
+        async def materialize(self, *_args, **_kwargs) -> list[dict[str, Any]]:
+            events.append("near_miss")
+            return []
+
+    class ConfidenceApplier:
+        async def apply(self, *_args, **_kwargs) -> None:
+            await asyncio.sleep(0.2)
+            events.append("confidence")
+
+    class FingerprintRecorder:
+        async def record_recall_query(self, *_args, **_kwargs) -> None:
+            events.append("fingerprint")
+
+    processor = RecallPostProcessor(
+        cfg=ActivationConfig(recall_confidence_timeout_ms=25),
+        episode_traversal=EpisodeTraversal(),
+        working_memory_updater=WorkingMemoryUpdater(),
+        priming_updater=PrimingUpdater(),
+        near_miss_materializer=NearMissMaterializer(),
+        confidence_applier=ConfidenceApplier(),
+        fingerprint_recorder=FingerprintRecorder(),
+    )
+    stage_timings: dict[str, float] = {}
+
+    processed = await processor.process(
+        [{"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}],
+        group_id="native_brain",
+        query="native Helix",
+        seen_episode_ids=set(),
+        near_miss_results=[],
+        now=100.0,
+        working_memory=None,
+        priming_buffer={},
+        conv_context=None,
+        interaction_type="surfaced",
+        interaction_source="mcp_recall",
+        stage_timings_ms=stage_timings,
+    )
+
+    assert "confidence" not in events
+    assert events == [
+        "entity_linked",
+        "temporal",
+        "working_memory",
+        "priming",
+        "near_miss",
+        "fingerprint",
+    ]
+    assert processed.results == [
+        {"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}
+    ]
+    assert stage_timings["recall_confidence_timeout"] >= 25
+    assert "recall_confidence" not in stage_timings
+
+
+@pytest.mark.asyncio
+async def test_process_skips_near_misses_after_probe_timeout() -> None:
+    events: list[str] = []
+
+    class EpisodeTraversal:
+        async def append_entity_linked_episodes(self, *_args, **_kwargs) -> None:
+            events.append("entity_linked")
+
+        async def append_temporal_episodes(self, *_args, **_kwargs) -> None:
+            events.append("temporal")
+
+    class WorkingMemoryUpdater:
+        def add_query(self, *_args, **_kwargs) -> None:
+            events.append("working_memory")
+
+    class PrimingUpdater:
+        async def update(self, *_args, **_kwargs) -> None:
+            events.append("priming")
+
+    class NearMissMaterializer:
+        async def materialize(self, *_args, **_kwargs) -> list[dict[str, Any]]:
+            events.append("near_miss")
+            return [{"result_type": "entity", "entity": {"id": "ent_near"}}]
+
+    class ConfidenceApplier:
+        async def apply(self, *_args, **_kwargs) -> None:
+            events.append("confidence")
+
+    class FingerprintRecorder:
+        async def record_recall_query(self, *_args, **_kwargs) -> None:
+            events.append("fingerprint")
+
+    processor = RecallPostProcessor(
+        cfg=ActivationConfig(),
+        episode_traversal=EpisodeTraversal(),
+        working_memory_updater=WorkingMemoryUpdater(),
+        priming_updater=PrimingUpdater(),
+        near_miss_materializer=NearMissMaterializer(),
+        confidence_applier=ConfidenceApplier(),
+        fingerprint_recorder=FingerprintRecorder(),
+    )
+    stage_timings: dict[str, float] = {"recall_stats_timeout": 75.0}
+
+    processed = await processor.process(
+        [{"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}],
+        group_id="native_brain",
+        query="native Helix",
+        seen_episode_ids=set(),
+        near_miss_results=[_score("ent_near", result_type="entity")],
+        now=100.0,
+        working_memory=None,
+        priming_buffer={},
+        conv_context=None,
+        interaction_type="surfaced",
+        interaction_source="mcp_recall",
+        stage_timings_ms=stage_timings,
+    )
+
+    assert "near_miss" not in events
+    assert processed.near_misses == []
+    assert stage_timings["recall_near_miss_materialize_skipped_probe_timeout"] == 0.0
+    assert "recall_near_miss_materialize_timeout" not in stage_timings

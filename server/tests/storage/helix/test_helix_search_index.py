@@ -26,7 +26,12 @@ import pytest_asyncio
 from engram.config import EmbeddingConfig, HelixDBConfig
 from engram.models.entity import Entity
 from engram.models.episode import Episode
-from engram.storage.helix.search import HelixSearchIndex, _cosine_similarity, _rrf_fusion
+from engram.storage.helix.search import (
+    HelixSearchIndex,
+    _cosine_similarity,
+    _prepare_fast_bm25_query,
+    _rrf_fusion,
+)
 
 
 def helix_available() -> bool:
@@ -38,6 +43,28 @@ def helix_available() -> bool:
 
 
 _helix_skip = pytest.mark.skipif(not helix_available(), reason="HelixDB not available")
+
+
+def test_prepare_fast_bm25_query_drops_high_fanout_terms() -> None:
+    assert _prepare_fast_bm25_query("AXI trace") == "axi"
+    assert _prepare_fast_bm25_query("trace") == ""
+
+
+def test_prepare_fast_bm25_query_bounds_and_splits_compound_terms() -> None:
+    assert (
+        _prepare_fast_bm25_query(
+            "Engram native PyO3 dogfood performance loaded-store context "
+            "preflight next bottleneck packet-cache hot behavior startup matrix AXI trace"
+        )
+        == "loaded store preflight bottleneck packet cache startup matrix"
+    )
+
+
+def test_prepare_fast_bm25_query_keeps_broad_terms_when_no_specific_terms() -> None:
+    assert (
+        _prepare_fast_bm25_query("Engram native PyO3 dogfood performance")
+        == "engram native pyo3 dogfood performance"
+    )
 
 
 def _uid() -> str:
@@ -653,6 +680,174 @@ async def test_grouped_cue_vector_fallback_overfetches_before_filtering():
 
     assert results == [("target", 1.0)]
     assert ("search_cue_vectors", {"vec": index._last_query_vec, "k": 6}) in calls
+
+
+@pytest.mark.asyncio
+async def test_fast_episode_search_uses_bm25_only_with_group_filtering():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {"episode_id": "other", "group_id": "other", "score": 9.0},
+        {"episode_id": "target", "group_id": "brain", "score": 2.0},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_episodes_bm25":
+            return rows
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episodes_fast(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert results == [("target", 1.0)]
+    assert calls == [("search_episodes_bm25", {"query": "target native", "k": 6})]
+
+
+@pytest.mark.asyncio
+async def test_fast_episode_search_uses_rank_scores_when_bm25_scores_are_absent():
+    index = _unit_search_index()
+    rows = [
+        {"episode_id": "first", "group_id": "brain"},
+        {"episode_id": "second", "group_id": "brain"},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        if endpoint == "search_episodes_bm25":
+            return rows
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episodes_fast(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert results == [("first", 1.0), ("second", 0.5)]
+
+
+@pytest.mark.asyncio
+async def test_fast_episode_record_search_returns_filtered_rows_with_scores():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {
+            "episode_id": "other",
+            "group_id": "other",
+            "score": 9.0,
+            "content": "other row",
+        },
+        {
+            "episode_id": "target",
+            "group_id": "brain",
+            "score": 2.0,
+            "content": "native target row",
+        },
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_episodes_bm25":
+            return rows
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    records = await index.search_episode_records_fast(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert records == [
+        {
+            "episode_id": "target",
+            "group_id": "brain",
+            "score": 2.0,
+            "content": "native target row",
+            "_score": 1.0,
+        }
+    ]
+    assert calls == [("search_episodes_bm25", {"query": "target native", "k": 6})]
+
+
+@pytest.mark.asyncio
+async def test_fast_cue_search_uses_bm25_only_with_group_filtering():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {"episode_id": "other", "group_id": "other", "score": 9.0},
+        {"episode_id": "target", "group_id": "brain", "score": 2.0},
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_cues_bm25":
+            return rows
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    results = await index.search_episode_cues_fast(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert results == [("target", 1.0)]
+    assert calls == [("search_cues_bm25", {"query": "target native", "k": 6})]
+
+
+@pytest.mark.asyncio
+async def test_fast_cue_record_search_returns_filtered_rows_with_scores():
+    index = _unit_search_index()
+    calls: list[tuple[str, dict]] = []
+    rows = [
+        {
+            "episode_id": "other",
+            "group_id": "other",
+            "score": 9.0,
+            "cue_text": "other cue",
+        },
+        {
+            "episode_id": "target",
+            "group_id": "brain",
+            "score": 2.0,
+            "cue_text": "native target cue",
+        },
+    ]
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "search_cues_bm25":
+            return rows
+        raise AssertionError(f"unexpected endpoint {endpoint}")
+
+    index._query = fake_query
+
+    records = await index.search_episode_cue_records_fast(
+        "native target",
+        group_id="brain",
+        limit=2,
+    )
+
+    assert records == [
+        {
+            "episode_id": "target",
+            "group_id": "brain",
+            "score": 2.0,
+            "cue_text": "native target cue",
+            "_score": 1.0,
+        }
+    ]
+    assert calls == [("search_cues_bm25", {"query": "target native", "k": 6})]
 
 
 @pytest.mark.asyncio

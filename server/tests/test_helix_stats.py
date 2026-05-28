@@ -195,6 +195,170 @@ async def test_helix_stats_without_group_uses_all_group_queries(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_helix_stats_prefers_bulk_cue_and_projected_entity_queries(
+    monkeypatch,
+) -> None:
+    store = HelixGraphStore(HelixDBConfig())
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "find_entities_by_group":
+            return [
+                {"id": "h_ent_1", "entity_id": "ent_a", "group_id": "native_brain"},
+                {"id": "h_ent_2", "entity_id": "ent_b", "group_id": "native_brain"},
+            ]
+        if endpoint == "find_episodes_by_group":
+            return [
+                {
+                    "id": "h_ep_projected",
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "projection_state": "projected",
+                    "retry_count": 0,
+                    "processing_duration_ms": 20,
+                    "created_at": "2026-05-13T12:00:00",
+                    "last_projected_at": "2026-05-13T12:00:01",
+                },
+                {
+                    "id": "h_ep_queued",
+                    "episode_id": "ep_queued",
+                    "group_id": "native_brain",
+                    "projection_state": "queued",
+                },
+            ]
+        if endpoint == "get_outgoing_edges":
+            return []
+        if endpoint == "find_cues_by_group":
+            return [
+                {
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "cue_text": "native projected cue",
+                    "projection_state": "projected",
+                    "hit_count": 5,
+                    "surfaced_count": 6,
+                    "selected_count": 4,
+                    "used_count": 3,
+                    "near_miss_count": 1,
+                    "policy_score": 0.9,
+                    "projection_attempts": 2,
+                }
+            ]
+        if endpoint == "get_projected_episode_entities_by_group":
+            assert payload == {"gid": "native_brain", "projection_state": "projected"}
+            return [{"entity_id": "ent_a"}, {"entity_id": "ent_b"}]
+        if endpoint in {"find_evidence_by_status", "find_adjudications_by_status"}:
+            return []
+        raise AssertionError(f"unexpected Helix query {endpoint}")
+
+    async def unexpected_episode_entities(*_args, **_kwargs) -> list[str]:
+        raise AssertionError("bulk stats path should not query per-episode entities")
+
+    monkeypatch.setattr(store, "_query", fake_query)
+    monkeypatch.setattr(store, "get_episode_entities", unexpected_episode_entities)
+
+    stats = await store.get_stats("native_brain")
+
+    endpoints = [endpoint for endpoint, _payload in calls]
+    assert "find_cues_by_group" in endpoints
+    assert "find_cue_by_episode" not in endpoints
+    assert "get_projected_episode_entities_by_group" in endpoints
+    assert stats["cue_metrics"]["cue_count"] == 1
+    assert stats["cue_metrics"]["cue_hit_count"] == 5
+    assert stats["projection_metrics"]["state_counts"]["projected"] == 1
+    assert stats["projection_metrics"]["yield"]["linked_entity_count"] == 2
+    assert (
+        stats["projection_metrics"]["yield"]["avg_linked_entities_per_projected_episode"]
+        == 2.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_native_helix_fast_stats_use_count_routes_before_full_scans(monkeypatch) -> None:
+    store = HelixGraphStore(HelixDBConfig(transport="native"))
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "count_entities_by_group":
+            return [{"count": 9}]
+        if endpoint == "count_episodes_by_group":
+            return [{"count": 12}]
+        if endpoint == "count_relationships_by_group":
+            return [{"count": 7}]
+        if endpoint == "count_cues_by_group":
+            return [{"count": 10}]
+        if endpoint in {"find_evidence_by_status", "find_adjudications_by_status"}:
+            return []
+        raise AssertionError(f"unexpected full Helix stats query {endpoint}")
+
+    monkeypatch.setattr(store, "_query", fake_query)
+
+    stats = await store.get_stats("native_brain", exact=False)
+
+    assert stats["entities"] == 9
+    assert stats["episodes"] == 12
+    assert stats["relationships"] == 7
+    assert stats["cue_metrics"]["cue_count"] == 10
+    assert stats["cue_metrics"]["episodes_without_cues"] == 2
+    endpoints = [endpoint for endpoint, _payload in calls]
+    assert "find_entities_by_group" not in endpoints
+    assert "find_episodes_by_group" not in endpoints
+    assert "find_cues_by_group" not in endpoints
+
+
+@pytest.mark.asyncio
+async def test_native_helix_stats_default_to_exact_projection_metrics(monkeypatch) -> None:
+    store = HelixGraphStore(HelixDBConfig(transport="native"))
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append((endpoint, payload))
+        if endpoint == "find_entities_by_group":
+            return [{"id": "h_ent_1", "entity_id": "ent_a", "group_id": "native_brain"}]
+        if endpoint == "find_episodes_by_group":
+            return [
+                {
+                    "id": "h_ep_projected",
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "projection_state": "projected",
+                    "retry_count": 0,
+                    "processing_duration_ms": 20,
+                    "created_at": "2026-05-13T12:00:00",
+                    "last_projected_at": "2026-05-13T12:00:01",
+                }
+            ]
+        if endpoint == "get_outgoing_edges":
+            return []
+        if endpoint == "find_cues_by_group":
+            return [
+                {
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "cue_text": "native projected cue",
+                    "projection_state": "projected",
+                }
+            ]
+        if endpoint == "get_projected_episode_entities_by_group":
+            return [{"entity_id": "ent_a"}]
+        if endpoint in {"find_evidence_by_status", "find_adjudications_by_status"}:
+            return []
+        raise AssertionError(f"unexpected Helix query {endpoint}")
+
+    monkeypatch.setattr(store, "_query", fake_query)
+
+    stats = await store.get_stats("native_brain")
+
+    endpoints = [endpoint for endpoint, _payload in calls]
+    assert "count_episodes_by_group" not in endpoints
+    assert "find_episodes_by_group" in endpoints
+    assert stats["projection_metrics"]["state_counts"]["projected"] == 1
+    assert stats["projection_metrics"]["yield"]["linked_entity_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_helix_episode_cue_round_trips_feedback_fields(monkeypatch) -> None:
     store = HelixGraphStore(HelixDBConfig())
     stored_payload: dict = {}

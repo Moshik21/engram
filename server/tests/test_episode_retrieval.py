@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -171,6 +172,93 @@ class _SearchIndexMissingCues:
         self._embeddings_enabled = False
 
 
+class _SlowPrimarySearchIndex:
+    def __init__(self):
+        self.search = AsyncMock(side_effect=self._slow_search)
+        self.search_episodes = AsyncMock(return_value=[("ep_slow", 0.2)])
+        self.search_episode_cues = AsyncMock(return_value=[("ep_slow_cue", 0.2)])
+        self.search_episodes_fast = AsyncMock(return_value=[("ep_fast", 0.9)])
+        self.search_episode_cues_fast = AsyncMock(return_value=[])
+        self.compute_similarity = AsyncMock(return_value={})
+        self._embeddings_enabled = False
+
+    async def _slow_search(self, **_kwargs):
+        await asyncio.sleep(0.2)
+        return [("e_slow", 0.9)]
+
+
+class _SlowEmptyPrimarySearchIndex:
+    def __init__(self):
+        self.search = AsyncMock(side_effect=self._slow_search)
+        self.search_episodes = AsyncMock(return_value=[])
+        self.search_episode_cues = AsyncMock(return_value=[])
+        self.search_episodes_fast = AsyncMock(return_value=[])
+        self.search_episode_cues_fast = AsyncMock(return_value=[])
+        self.compute_similarity = AsyncMock(return_value={})
+        self._embeddings_enabled = False
+
+    async def _slow_search(self, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+
+class _SlowChunkSearchIndex:
+    def __init__(self):
+        self.search = AsyncMock(return_value=[("e1", 0.9)])
+        self.search_episodes = AsyncMock(return_value=[("ep_1", 0.7)])
+        self.search_episode_cues = AsyncMock(return_value=[])
+        self.search_episode_chunks = AsyncMock(side_effect=self._slow_chunk_search)
+        self.compute_similarity = AsyncMock(return_value={})
+        self._embeddings_enabled = False
+
+    async def _slow_chunk_search(self, **_kwargs):
+        await asyncio.sleep(0.2)
+        return [
+            {
+                "episode_id": "ep_chunk",
+                "chunk_text": "late chunk match",
+                "score": 0.95,
+            }
+        ]
+
+
+class _SlowEpisodeSearchIndex:
+    def __init__(self):
+        self.search = AsyncMock(return_value=[("e1", 0.9)])
+        self.search_episodes = AsyncMock(side_effect=self._slow_episode_search)
+        self.search_episode_cues = AsyncMock(return_value=[])
+        self.compute_similarity = AsyncMock(return_value={})
+        self._embeddings_enabled = False
+
+    async def _slow_episode_search(self, **_kwargs):
+        await asyncio.sleep(0.2)
+        return [("ep_slow", 0.95)]
+
+
+class _SlowCueSearchIndex:
+    def __init__(self):
+        self.search = AsyncMock(return_value=[("e1", 0.9)])
+        self.search_episodes = AsyncMock(return_value=[])
+        self.search_episode_cues = AsyncMock(side_effect=self._slow_cue_search)
+        self.compute_similarity = AsyncMock(return_value={})
+        self._embeddings_enabled = False
+
+    async def _slow_cue_search(self, **_kwargs):
+        await asyncio.sleep(0.2)
+        return [("ep_slow_cue", 0.95)]
+
+
+class _SlowReranker:
+    async def rerank(self, *_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+
+class _WorkingMemoryStub:
+    def get_candidates(self, _now):
+        return [("wm_zero", 1.0, "entity")]
+
+
 def _mock_graph_store():
     store = AsyncMock()
     store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
@@ -240,6 +328,700 @@ class TestPipelineEpisodeRetrieval:
         episode_results = [r for r in results if r.result_type == "episode"]
         assert len(episode_results) > 0
         assert stage_timings["recall_embed"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_primary_search_timeout_uses_fast_episode_fallback(self):
+        """A slow primary entity search does not consume the full recall path."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            cue_recall_enabled=True,
+            chunk_search_enabled=True,
+            retrieval_primary_search_timeout_ms=25,
+            recall_planner_enabled=True,
+        )
+        search = _SlowPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert [result.node_id for result in results] == ["ep_fast"]
+        assert results[0].result_type == "episode"
+        assert stage_timings["recall_primary_search_timeout"] >= 25
+        assert stage_timings["recall_planner_skipped_primary_timeout"] == 0.0
+        assert "recall_primary_search" not in stage_timings
+        assert "recall_planner_timeout" not in stage_timings
+        search.search_episodes_fast.assert_awaited_once()
+        search.search_episode_cues_fast.assert_awaited_once()
+        search.search_episodes.assert_not_awaited()
+        search.search_episode_cues.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_primary_timeout_zero_semantic_pool_returns_special_results(self):
+        """Zero-score side pools do not hide episode/cue hits behind graph scoring."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            cue_recall_enabled=True,
+            chunk_search_enabled=False,
+            retrieval_primary_search_timeout_ms=25,
+            working_memory_enabled=True,
+            recall_planner_enabled=True,
+        )
+        activation = _mock_activation_store()
+        search = _SlowPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            working_memory=_WorkingMemoryStub(),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_candidate_count"] == 1.0
+        assert stage_timings["recall_candidate_max_score"] == 0.0
+        assert stage_timings["recall_planner_skipped_primary_timeout"] == 0.0
+        assert stage_timings["recall_zero_semantic_special_deferred"] == 1.0
+        assert "recall_planner_timeout" not in stage_timings
+        assert "recall_activation_state" not in stage_timings
+        assert "recall_spread" not in stage_timings
+        activation.batch_get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stats_timeout_falls_back_to_default_pool_sizes(self):
+        """Slow corpus stats do not consume the recall budget."""
+        async def slow_stats(_group_id):
+            await asyncio.sleep(0.2)
+            return {"entity_count": 100_000}
+
+        cfg = ActivationConfig(
+            retrieval_stats_timeout_ms=25,
+            retrieval_primary_search_timeout_ms=0,
+        )
+        graph = _mock_graph_store()
+        graph.get_stats = AsyncMock(side_effect=slow_stats)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="test query",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert stage_timings["recall_stats_timeout"] >= 25
+        assert "recall_stats" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_graph_query_expansion_timeout_uses_original_query(self, monkeypatch):
+        """Slow graph expansion is bounded before primary search."""
+        async def slow_expand(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return "expanded query"
+
+        monkeypatch.setattr(
+            "engram.retrieval.graph_expansion.expand_query_from_graph",
+            slow_expand,
+        )
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            graph_query_expansion_timeout_ms=25,
+        )
+        search = _mock_search_index_with_episodes(entity_results=[("e1", 0.9)])
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert stage_timings["graph_expand_timeout"] >= 25
+        assert "graph_expand" not in stage_timings
+        assert search.search.call_args.kwargs["query"] == "native latency"
+
+    @pytest.mark.asyncio
+    async def test_stats_timeout_skips_graph_expansion_and_caps_primary_search(
+        self,
+        monkeypatch,
+    ):
+        """A slow graph preflight avoids stacking expansion plus full primary timeout."""
+        expand_calls = 0
+
+        async def slow_stats(_group_id):
+            await asyncio.sleep(0.2)
+            return {"entity_count": 100_000}
+
+        async def slow_expand(*_args, **_kwargs):
+            nonlocal expand_calls
+            expand_calls += 1
+            await asyncio.sleep(0.2)
+            return "expanded query"
+
+        monkeypatch.setattr(
+            "engram.retrieval.graph_expansion.expand_query_from_graph",
+            slow_expand,
+        )
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_stats_timeout_ms=25,
+            retrieval_primary_search_timeout_ms=200,
+            retrieval_primary_search_timeout_after_probe_timeout_ms=40,
+        )
+        graph = _mock_graph_store()
+        graph.get_stats = AsyncMock(side_effect=slow_stats)
+        search = _SlowEmptyPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="Native Engram latency",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert expand_calls == 0
+        assert stage_timings["recall_stats_timeout"] >= 25
+        assert stage_timings["graph_expand_skipped_stats_timeout"] == 0.0
+        assert stage_timings["recall_primary_search_effective_timeout_ms"] == 40
+        assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
+        assert "graph_expand_timeout" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_timeout_caps_primary_search(self, monkeypatch):
+        """A graph expansion timeout bounds the next primary search attempt."""
+        expand_calls = 0
+
+        async def slow_expand(*_args, **_kwargs):
+            nonlocal expand_calls
+            expand_calls += 1
+            await asyncio.sleep(0.2)
+            return "expanded query"
+
+        monkeypatch.setattr(
+            "engram.retrieval.graph_expansion.expand_query_from_graph",
+            slow_expand,
+        )
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            graph_query_expansion_timeout_ms=25,
+            retrieval_primary_search_timeout_ms=200,
+            retrieval_primary_search_timeout_after_probe_timeout_ms=40,
+        )
+        search = _SlowEmptyPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="Native Engram latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert expand_calls == 1
+        assert stage_timings["graph_expand_timeout"] >= 25
+        assert stage_timings["recall_primary_search_effective_timeout_ms"] == 40
+        assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
+
+    @pytest.mark.asyncio
+    async def test_probe_timeout_skips_secondary_graph_scoring(self, monkeypatch):
+        """Responsive primary hits are returned without graph-heavy enhancers."""
+        async def slow_expand(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return "expanded query"
+
+        async def slow_get_entity(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return Entity(
+                id="e1",
+                name="Test",
+                entity_type="Thing",
+                summary="A test entity",
+                group_id="default",
+            )
+
+        async def slow_find_entities(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return []
+
+        monkeypatch.setattr(
+            "engram.retrieval.graph_expansion.expand_query_from_graph",
+            slow_expand,
+        )
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            graph_query_expansion_timeout_ms=25,
+            retrieval_graph_pool_timeout_ms=25,
+            retrieval_entity_attributes_timeout_ms=25,
+            emotional_salience_enabled=True,
+            goal_priming_enabled=True,
+            cross_domain_penalty_enabled=True,
+            gc_mmr_enabled=True,
+        )
+        graph = _mock_graph_store()
+        graph.get_entity = AsyncMock(side_effect=slow_get_entity)
+        graph.find_entities = AsyncMock(side_effect=slow_find_entities)
+        search = _mock_search_index_with_episodes(entity_results=[("e1", 0.9)])
+        stage_timings = {}
+
+        results = await retrieve(
+            query="Native Engram latency",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["graph_expand_timeout"] >= 25
+        assert stage_timings["recall_graph_pool_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_goal_priming_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_cross_domain_seed_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_spread_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_entity_attributes_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_gc_mmr_skipped_probe_timeout"] == 0.0
+        assert "recall_graph_pool_timeout" not in stage_timings
+        assert "recall_goal_priming_timeout" not in stage_timings
+        assert "recall_cross_domain_seed_timeout" not in stage_timings
+        assert "recall_spread_timeout" not in stage_timings
+        assert "recall_entity_attributes_timeout" not in stage_timings
+        assert "recall_gc_mmr" not in stage_timings
+        graph.get_entity.assert_not_awaited()
+        graph.find_entities.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_noop_reranker_does_not_materialize_documents(self):
+        """The pass-through reranker must not spend graph reads building docs."""
+        from engram.retrieval.reranker import NoopReranker
+
+        async def slow_get_entity(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return Entity(
+                id="e1",
+                name="Test",
+                entity_type="Thing",
+                summary="A test entity",
+                group_id="default",
+            )
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            emotional_salience_enabled=False,
+            mmr_enabled=False,
+        )
+        graph = _mock_graph_store()
+        graph.get_entity = AsyncMock(side_effect=slow_get_entity)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            reranker=NoopReranker(),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_reranker_skipped_noop"] == 0.0
+        assert "recall_reranker" not in stage_timings
+        graph.get_entity.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_primary_timeout_empty_candidates_skips_planner_and_entity_match(self):
+        """A no-evidence primary timeout avoids secondary graph-heavy miss probes."""
+        async def slow_find_entities(**_kwargs):
+            await asyncio.sleep(0.2)
+            return []
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_primary_search_timeout_ms=25,
+            recall_planner_enabled=True,
+        )
+        graph = _mock_graph_store()
+        graph.find_entities = AsyncMock(side_effect=slow_find_entities)
+        search = _SlowEmptyPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="zzzzquasarflux xylofract",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_primary_search_timeout"] >= 25
+        assert stage_timings["recall_planner_skipped_primary_timeout"] == 0.0
+        assert stage_timings["recall_entity_match_skipped_primary_timeout"] == 0.0
+        assert "recall_planner_timeout" not in stage_timings
+        assert "recall_entity_match_timeout" not in stage_timings
+        graph.find_entities.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_zero_semantic_working_memory_candidates_short_circuit_graph_scoring(self):
+        """Zero-score non-semantic pools do not force graph-heavy miss scoring."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_primary_search_timeout_ms=25,
+            working_memory_enabled=True,
+        )
+        activation = _mock_activation_store()
+        search = _SlowEmptyPrimarySearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="zzzzquasarflux xylofract",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=activation,
+            search_index=search,
+            cfg=cfg,
+            working_memory=_WorkingMemoryStub(),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_primary_search_timeout"] >= 25
+        assert stage_timings["recall_working_memory_candidate_count"] == 1.0
+        assert stage_timings["recall_candidate_count"] == 1.0
+        assert stage_timings["recall_candidate_max_score"] == 0.0
+        assert stage_timings["recall_zero_semantic_short_circuit"] == 0.0
+        assert "recall_activation_state" not in stage_timings
+        assert "recall_spread" not in stage_timings
+        activation.batch_get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_episode_search_timeout_preserves_entity_results(self):
+        """Slow episode search is bounded and does not erase entity results."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_episode_search_timeout_ms=25,
+        )
+        search = _SlowEpisodeSearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert "ep_slow" not in {result.node_id for result in results}
+        assert stage_timings["recall_episode_search_timeout"] >= 25
+        assert "recall_episode_search" not in stage_timings
+        assert search.search_episodes.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cue_search_timeout_preserves_entity_results(self):
+        """Slow cue search is bounded and does not erase entity results."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=True,
+            chunk_search_enabled=False,
+            retrieval_cue_search_timeout_ms=25,
+        )
+        search = _SlowCueSearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert "ep_slow_cue" not in {result.node_id for result in results}
+        assert stage_timings["recall_cue_search_timeout"] >= 25
+        assert "recall_cue_search" not in stage_timings
+        assert search.search_episode_cues.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_activation_state_timeout_preserves_search_results(self):
+        """Slow activation-state loading is bounded and recall still scores results."""
+        async def slow_batch_get(_entity_ids):
+            await asyncio.sleep(0.2)
+            return {}
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_activation_state_timeout_ms=25,
+        )
+        activation = _mock_activation_store()
+        activation.batch_get = AsyncMock(side_effect=slow_batch_get)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=activation,
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_activation_state_timeout"] >= 25
+        assert "recall_activation_state" not in stage_timings
+        assert activation.batch_get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_entity_match_timeout_preserves_empty_result(self):
+        """Slow name-match fallback is bounded when semantic search returns nothing."""
+        async def slow_find_entities(**_kwargs):
+            await asyncio.sleep(0.2)
+            return []
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_entity_match_timeout_ms=25,
+        )
+        graph = _mock_graph_store()
+        graph.find_entities = AsyncMock(side_effect=slow_find_entities)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="zzzzquasarflux xylofract",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[]),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_entity_match_timeout"] >= 25
+        assert "recall_entity_match" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_spread_timeout_preserves_search_results(self, monkeypatch):
+        """Slow graph spreading is bounded and recall still returns semantic results."""
+        async def slow_spread(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return {"e2": 0.5}, {"e2": 1}
+
+        monkeypatch.setattr("engram.retrieval.pipeline.spread_activation", slow_spread)
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_spread_timeout_ms=25,
+        )
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_spread_timeout"] >= 25
+        assert "recall_spread" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_entity_attributes_timeout_preserves_search_results(self):
+        """Slow entity-attribute loading is bounded and recall still returns results."""
+        async def slow_get_entity(_entity_id, _group_id):
+            await asyncio.sleep(0.2)
+            return Entity(
+                id="e1",
+                name="Test",
+                entity_type="Thing",
+                summary="A test entity",
+                group_id="default",
+            )
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_entity_attributes_timeout_ms=25,
+        )
+        graph = _mock_graph_store()
+        graph.get_entity = AsyncMock(side_effect=slow_get_entity)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=graph,
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_entity_attributes_timeout"] >= 25
+        assert "recall_entity_attributes" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_graph_similarity_timeout_preserves_search_results(self):
+        """Slow graph-structural similarity is bounded and recall still returns results."""
+        async def slow_graph_embeddings(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return {}
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_graph_similarity_timeout_ms=25,
+            weight_graph_structural=0.1,
+        )
+        search = _mock_search_index_with_episodes(entity_results=[("e1", 0.9)])
+        search.get_graph_embeddings = AsyncMock(side_effect=slow_graph_embeddings)
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_graph_similarity_timeout"] >= 25
+        assert "recall_graph_similarity" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_reranker_timeout_preserves_search_results(self):
+        """Slow reranker preparation/execution is bounded after scoring."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            retrieval_reranker_timeout_ms=25,
+            mmr_enabled=False,
+        )
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            reranker=_SlowReranker(),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert results[0].node_id == "e1"
+        assert stage_timings["recall_reranker_timeout"] >= 25
+        assert "recall_reranker" not in stage_timings
+
+    @pytest.mark.asyncio
+    async def test_chunk_search_timeout_preserves_base_results(self):
+        """Slow chunk search is bounded and does not erase other recall results."""
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            cue_recall_enabled=False,
+            chunk_search_enabled=True,
+            retrieval_chunk_search_timeout_ms=25,
+        )
+        search = _SlowChunkSearchIndex()
+        stage_timings = {}
+
+        results = await retrieve(
+            query="native latency",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=search,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert "ep_chunk" not in {result.node_id for result in results}
+        assert stage_timings["recall_chunk_search_timeout"] >= 25
+        assert "recall_chunk_search" not in stage_timings
+        assert search.search_episode_chunks.await_count == 1
 
     @pytest.mark.asyncio
     async def test_episode_retrieval_disabled_no_episodes(self):
@@ -450,6 +1232,182 @@ class TestGraphManagerRecallEpisodes:
         search.search.assert_not_awaited()
         search.search_episode_cues.assert_awaited_once()
         search.search_episodes.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_fast_recall_fallback_prefers_fast_search_methods(self):
+        """GraphManager uses backend fast search when available for fallback."""
+        from engram.graph_manager import GraphManager
+
+        graph = _mock_graph_store()
+        graph.get_episode_by_id = AsyncMock(
+            side_effect=lambda episode_id, _group_id: Episode(
+                id=episode_id,
+                content=f"content for {episode_id}",
+                source="test",
+                status=EpisodeStatus.COMPLETED,
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                group_id="default",
+                created_at=utc_now(),
+            )
+        )
+        graph.get_episode_cue = AsyncMock(
+            side_effect=lambda episode_id, _group_id: EpisodeCue(
+                episode_id=episode_id,
+                group_id="default",
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                cue_text=f"cue for {episode_id}",
+                first_spans=[f"content for {episode_id}"],
+                route_reason="fallback_test",
+            )
+        )
+        activation = _mock_activation_store()
+        search = _mock_search_index_with_episodes(
+            episode_results=[("ep_slow", 0.2)],
+            cue_results=[("ep_slow_cue", 0.3)],
+        )
+        search.search_episode_cues_fast = AsyncMock(return_value=[("ep_1", 0.9)])
+        search.search_episodes_fast = AsyncMock(return_value=[("ep_2", 0.7)])
+        extractor = AsyncMock()
+        gm = GraphManager(graph, activation, search, extractor, cfg=ActivationConfig())
+
+        results = await gm.fast_recall_fallback(
+            query="Engram latency",
+            group_id="default",
+            limit=2,
+        )
+
+        assert [result["result_type"] for result in results] == ["cue_episode", "episode"]
+        assert results[0]["cue"]["episode_id"] == "ep_1"
+        assert results[1]["episode"]["id"] == "ep_2"
+        search.search_episode_cues_fast.assert_awaited_once()
+        search.search_episodes_fast.assert_awaited_once()
+        search.search_episode_cues.assert_not_awaited()
+        search.search_episodes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fast_recall_fallback_prefers_direct_record_materialization(self):
+        """GraphManager avoids graph lookups when backend returns fallback records."""
+        from engram.graph_manager import GraphManager
+
+        graph = _mock_graph_store()
+        graph.get_episode_by_id = AsyncMock()
+        graph.get_episode_entities = AsyncMock()
+        graph.get_episode_cue = AsyncMock()
+        activation = _mock_activation_store()
+        search = _mock_search_index_with_episodes(
+            episode_results=[("ep_slow", 0.2)],
+            cue_results=[("ep_slow_cue", 0.3)],
+        )
+        search.search_episode_cue_records_fast = AsyncMock(
+            return_value=[
+                {
+                    "episode_id": "ep_1",
+                    "group_id": "default",
+                    "cue_text": "Engram latency cue",
+                    "first_spans_json": '["Engram latency cue"]',
+                    "projection_state": "cue_only",
+                    "route_reason": "fallback_test",
+                    "_score": 0.9,
+                }
+            ]
+        )
+        search.search_episode_records_fast = AsyncMock(
+            return_value=[
+                {
+                    "episode_id": "ep_2",
+                    "group_id": "default",
+                    "content": "Engram latency episode",
+                    "source": "test",
+                    "created_at": "2026-05-26T00:00:00",
+                    "projection_state": "cue_only",
+                    "_score": 0.7,
+                }
+            ]
+        )
+        extractor = AsyncMock()
+        gm = GraphManager(graph, activation, search, extractor, cfg=ActivationConfig())
+
+        results = await gm.fast_recall_fallback(
+            query="Engram latency",
+            group_id="default",
+            limit=2,
+        )
+
+        assert [result["result_type"] for result in results] == ["cue_episode", "episode"]
+        assert results[0]["cue"]["episode_id"] == "ep_1"
+        assert results[0]["cue"]["supporting_spans"] == ["Engram latency cue"]
+        assert results[1]["episode"]["id"] == "ep_2"
+        assert results[1]["episode"]["content"] == "Engram latency episode"
+        graph.get_episode_by_id.assert_not_awaited()
+        graph.get_episode_entities.assert_not_awaited()
+        graph.get_episode_cue.assert_not_awaited()
+        search.search_episode_cue_records_fast.assert_awaited_once()
+        search.search_episode_records_fast.assert_awaited_once()
+        search.search_episode_cues.assert_not_awaited()
+        search.search_episodes.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fast_recall_fallback_uses_ready_record_search_when_peer_stalls(self):
+        """A slow cue-record lookup should not starve a ready episode-record hit."""
+        from engram.graph_manager import GraphManager
+
+        async def slow_cue_records(**_kwargs):
+            await asyncio.sleep(0.2)
+            return [
+                {
+                    "episode_id": "ep_slow_cue",
+                    "group_id": "default",
+                    "cue_text": "slow cue",
+                    "first_spans_json": '["slow cue"]',
+                    "projection_state": "cue_only",
+                    "_score": 0.9,
+                }
+            ]
+
+        graph = _mock_graph_store()
+        graph.get_episode_by_id = AsyncMock()
+        graph.get_episode_entities = AsyncMock()
+        graph.get_episode_cue = AsyncMock()
+        activation = _mock_activation_store()
+        search = _mock_search_index_with_episodes(
+            episode_results=[("ep_slow", 0.2)],
+            cue_results=[("ep_slow_cue", 0.3)],
+        )
+        search.search_episode_cue_records_fast = AsyncMock(side_effect=slow_cue_records)
+        search.search_episode_records_fast = AsyncMock(
+            return_value=[
+                {
+                    "episode_id": "ep_ready",
+                    "group_id": "default",
+                    "content": "ready episode",
+                    "source": "test",
+                    "created_at": "2026-05-26T00:00:00",
+                    "projection_state": "cue_only",
+                    "_score": 0.7,
+                }
+            ]
+        )
+        extractor = AsyncMock()
+        gm = GraphManager(graph, activation, search, extractor, cfg=ActivationConfig())
+
+        results = await asyncio.wait_for(
+            gm.fast_recall_fallback(
+                query="Engram latency",
+                group_id="default",
+                limit=1,
+            ),
+            timeout=0.05,
+        )
+
+        assert [result["result_type"] for result in results] == ["episode"]
+        assert results[0]["episode"]["id"] == "ep_ready"
+        graph.get_episode_by_id.assert_not_awaited()
+        graph.get_episode_entities.assert_not_awaited()
+        graph.get_episode_cue.assert_not_awaited()
+        search.search_episode_cue_records_fast.assert_awaited_once()
+        search.search_episode_records_fast.assert_awaited_once()
+        search.search_episode_cues.assert_not_awaited()
+        search.search_episodes.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_recall_formats_episode_results(self):

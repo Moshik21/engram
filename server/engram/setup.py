@@ -986,7 +986,7 @@ fi
 """,
     "session-end.sh": r"""#!/usr/bin/env bash
 # Engram AutoCapture - SessionEnd hook
-# Posts a session end marker and triggers consolidation.
+# Posts a session end marker. Consolidation is scheduled by the runtime.
 set -euo pipefail
 
 ENGRAM_URL="${ENGRAM_URL:-http://localhost:8100}"
@@ -1055,12 +1055,6 @@ if curl -sf -X POST "${ENGRAM_URL}/api/knowledge/auto-observe" \
     > /dev/null 2>&1; then
     write_trace "capture" "auto_observe" "rest_hook_session_end" "$SESSION_ID"
 fi
-
-curl -sf -X POST "${ENGRAM_URL}/api/consolidation/trigger" \
-    -H "Content-Type: application/json" \
-    --connect-timeout 2 \
-    --max-time 8 \
-    > /dev/null 2>&1 || true
 """,
 }
 
@@ -1144,15 +1138,21 @@ def install_hooks(
     # Ensure hooks dir exists
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy hook scripts from the installed location
+    # Copy or refresh first-party hook scripts. Preserve custom user scripts,
+    # but keep generated Engram AutoCapture hooks in sync with current templates.
     source_dir = _get_hook_source_dir()
     for script_name in _HOOK_SCRIPTS:
         src = source_dir / script_name
         dst = hooks_dir / script_name
-        if dst.exists():
+        template = _HOOK_SCRIPT_TEMPLATES.get(script_name)
+        if dst.exists() and template and _is_managed_hook_script(dst):
+            dst.write_text(template + "\n")
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
-        elif template := _HOOK_SCRIPT_TEMPLATES.get(script_name):
+        elif dst.exists():
+            dst.chmod(0o755)
+            result["scripts"].append(str(dst))
+        elif template:
             dst.write_text(template + "\n")
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
@@ -1223,6 +1223,14 @@ def install_hooks(
     result["settings_updated"] = True
 
     return result
+
+
+def _is_managed_hook_script(path: Path) -> bool:
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    return "Engram AutoCapture" in text
 
 
 def install_hooks_interactive(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -147,6 +148,37 @@ def _scale_limit(base: int, total_entities: int, lo: int, hi: int) -> int:
     return max(lo, min(int(base * scale), hi))
 
 
+def _stage_metric(stage_timings_ms: dict[str, float] | None, key: str) -> float:
+    if not stage_timings_ms:
+        return 0.0
+    value = stage_timings_ms.get(key, 0.0)
+    return float(value) if isinstance(value, int | float) else 0.0
+
+
+def _candidate_pool_has_no_semantic_anchor(
+    stage_timings_ms: dict[str, float] | None,
+) -> bool:
+    """Return true when non-semantic pools produced only zero-score candidates."""
+    return (
+        _stage_metric(stage_timings_ms, "recall_candidate_count") > 0
+        and _stage_metric(stage_timings_ms, "recall_candidate_max_score") <= 0.0
+        and _stage_metric(stage_timings_ms, "recall_search_candidate_count") <= 0
+        and _stage_metric(stage_timings_ms, "recall_entity_query_candidate_count") <= 0
+        and _stage_metric(stage_timings_ms, "recall_graph_candidate_count") <= 0
+    )
+
+
+def _candidate_pool_has_zero_semantic_score(
+    stage_timings_ms: dict[str, float] | None,
+) -> bool:
+    """Return true when candidates exist but none carried a semantic score."""
+    return (
+        _stage_metric(stage_timings_ms, "recall_candidate_count") > 0
+        and _stage_metric(stage_timings_ms, "recall_candidate_max_score") <= 0.0
+        and _stage_metric(stage_timings_ms, "recall_search_candidate_count") <= 0
+    )
+
+
 def _merge_special_results(
     episode_candidates: list[ScoredResult],
     cue_candidates: list[ScoredResult],
@@ -181,6 +213,70 @@ def _add_stage_timing(
         return
     elapsed = round((time.perf_counter() - started) * 1000, 4)
     stage_timings_ms[key] = round(stage_timings_ms.get(key, 0.0) + elapsed, 4)
+
+
+def _set_stage_metric(
+    stage_timings_ms: dict[str, float] | None,
+    key: str,
+    value: int | float,
+) -> None:
+    if stage_timings_ms is None:
+        return
+    stage_timings_ms[key] = round(float(value), 4)
+
+
+def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | None:
+    timeout_ms = int(getattr(cfg, field_name, 0) or 0)
+    if timeout_ms <= 0:
+        return None
+    return timeout_ms / 1000.0
+
+
+def _primary_search_timeout_seconds(
+    cfg: ActivationConfig,
+    stage_timings_ms: dict[str, float] | None = None,
+) -> float | None:
+    timeout_ms = int(getattr(cfg, "retrieval_primary_search_timeout_ms", 0) or 0)
+    if timeout_ms <= 0:
+        return None
+    probe_timed_out = bool(
+        stage_timings_ms
+        and (
+            "recall_stats_timeout" in stage_timings_ms
+            or "graph_expand_timeout" in stage_timings_ms
+        )
+    )
+    adaptive_cap_ms = int(
+        getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
+    )
+    if probe_timed_out and adaptive_cap_ms > 0:
+        timeout_ms = min(timeout_ms, adaptive_cap_ms)
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_primary_search_effective_timeout_ms",
+        timeout_ms,
+    )
+    return timeout_ms / 1000.0
+
+
+def _graph_probe_timed_out(stage_timings_ms: dict[str, float] | None) -> bool:
+    return bool(
+        stage_timings_ms
+        and (
+            "recall_stats_timeout" in stage_timings_ms
+            or "graph_expand_timeout" in stage_timings_ms
+        )
+    )
+
+
+def _skip_secondary_graph_after_probe_timeout(
+    cfg: ActivationConfig,
+    stage_timings_ms: dict[str, float] | None,
+) -> bool:
+    return bool(
+        cfg.retrieval_skip_secondary_graph_after_probe_timeout
+        and _graph_probe_timed_out(stage_timings_ms)
+    )
 
 
 def _optional_recall_capability(
@@ -245,13 +341,32 @@ async def retrieve(
     # Save original weight for episode scoring (before routing modifies cfg)
     original_weight_semantic = cfg.weight_semantic
     planner_trace = None
+    primary_search_timed_out = False
+    stats_timed_out = False
 
     # Fetch entity count for dynamic pool sizing
     total_entities = 0
+    stats_started = time.perf_counter()
     try:
-        stats = await graph_store.get_stats(group_id)
+        try:
+            stats_call = graph_store.get_stats(group_id, exact=False)
+        except TypeError:
+            stats_call = graph_store.get_stats(group_id)
+        timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_stats_timeout_ms")
+        stats = (
+            await asyncio.wait_for(stats_call, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else await stats_call
+        )
+        _add_stage_timing(stage_timings_ms, "recall_stats", stats_started)
         if isinstance(stats, dict):
-            total_entities = int(stats.get("entity_count", 0))
+            total_entities = int(stats.get("entity_count", stats.get("entities", 0)) or 0)
+    except asyncio.TimeoutError:
+        stats_timed_out = True
+        _add_stage_timing(stage_timings_ms, "recall_stats_timeout", stats_started)
+    except asyncio.CancelledError:
+        _add_stage_timing(stage_timings_ms, "recall_stats_cancelled", stats_started)
+        raise
     except Exception:
         pass
 
@@ -261,17 +376,42 @@ async def retrieve(
     # HyDE is disabled (production default).
     graph_expanded_query = query  # default: unchanged
     if cfg.graph_query_expansion_enabled:
-        stage_started = time.perf_counter()
-        try:
-            from engram.retrieval.graph_expansion import expand_query_from_graph
-
-            graph_expanded_query = await expand_query_from_graph(
-                query, graph_store, group_id
+        if stats_timed_out and cfg.graph_query_expansion_skip_after_stats_timeout:
+            _set_stage_metric(
+                stage_timings_ms,
+                "graph_expand_skipped_stats_timeout",
+                0.0,
             )
-        except Exception:
-            pass  # Fall back to original query
-        finally:
-            _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
+        else:
+            stage_started = time.perf_counter()
+            try:
+                from engram.retrieval.graph_expansion import expand_query_from_graph
+
+                expansion_call = expand_query_from_graph(
+                    query, graph_store, group_id
+                )
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg,
+                    "graph_query_expansion_timeout_ms",
+                )
+                graph_expanded_query = (
+                    await asyncio.wait_for(expansion_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await expansion_call
+                )
+                _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
+            except asyncio.TimeoutError:
+                graph_expanded_query = query
+                _add_stage_timing(stage_timings_ms, "graph_expand_timeout", stage_started)
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "graph_expand_cancelled",
+                    stage_started,
+                )
+                raise
+            except Exception:
+                pass  # Fall back to original query
 
     # Step 0.1b: Template reformulation — convert question to statement form
     # for better embedding match.  Zero cost, <1ms.  If it produces a result,
@@ -339,6 +479,11 @@ async def retrieve(
             working_memory=working_memory,
             total_entities=total_entities,
             query_type=pre_query_type,
+            stage_timings_ms=stage_timings_ms,
+        )
+        primary_search_timed_out = bool(
+            stage_timings_ms
+            and "recall_primary_search_timeout" in stage_timings_ms
         )
         query_type = await classify_query(query, search_results=candidates)
         if enable_routing or query_type == QueryType.TEMPORAL:
@@ -348,10 +493,35 @@ async def retrieve(
         # Original single-pool path — scale retrieval_top_k
         top_k = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
         search_started = time.perf_counter()
-        search_results = await search_index.search(
-            query=hyde_query, group_id=group_id, limit=top_k,
-        )
-        _add_stage_timing(stage_timings_ms, "recall_embed", search_started)
+        try:
+            search_call = search_index.search(
+                query=hyde_query,
+                group_id=group_id,
+                limit=top_k,
+            )
+            timeout_seconds = _primary_search_timeout_seconds(cfg, stage_timings_ms)
+            search_results = (
+                await asyncio.wait_for(search_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await search_call
+            )
+            _add_stage_timing(stage_timings_ms, "recall_primary_search", search_started)
+            _add_stage_timing(stage_timings_ms, "recall_embed", search_started)
+        except asyncio.TimeoutError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_primary_search_timeout",
+                search_started,
+            )
+            search_results = []
+            primary_search_timed_out = True
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_primary_search_cancelled",
+                search_started,
+            )
+            raise
         candidates = search_results or []
 
         # Step 1.5: Classify query and override weights
@@ -434,20 +604,49 @@ async def retrieve(
             pass  # Non-fatal
 
     # Step 0.5: Planner-driven multi-intent recall (Phase 2)
-    if cfg.recall_planner_enabled:
-        planner_trace = await execute_recall_plan(
-            build_recall_plan(
-                query,
-                cfg,
-                conv_context=conv_context,
-                memory_need=memory_need,
-            ),
-            group_id=group_id,
-            search_index=search_index,
-            base_candidates=candidates,
+    skip_planner_after_primary_timeout = bool(
+        primary_search_timed_out
+        and (
+            not candidates
+            or _candidate_pool_has_zero_semantic_score(stage_timings_ms)
         )
-        if planner_trace.merged_candidates:
-            candidates = planner_trace.merged_candidates
+    )
+    if cfg.recall_planner_enabled and not skip_planner_after_primary_timeout:
+        planner_started = time.perf_counter()
+        try:
+            planner_call = execute_recall_plan(
+                build_recall_plan(
+                    query,
+                    cfg,
+                    conv_context=conv_context,
+                    memory_need=memory_need,
+                ),
+                group_id=group_id,
+                search_index=search_index,
+                base_candidates=candidates,
+            )
+            timeout_seconds = _stage_timeout_seconds(cfg, "recall_planner_timeout_ms")
+            planner_trace = (
+                await asyncio.wait_for(planner_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await planner_call
+            )
+            _add_stage_timing(stage_timings_ms, "recall_planner", planner_started)
+            if planner_trace.merged_candidates:
+                candidates = planner_trace.merged_candidates
+        except asyncio.TimeoutError:
+            _add_stage_timing(stage_timings_ms, "recall_planner_timeout", planner_started)
+            planner_trace = None
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_planner_cancelled",
+                planner_started,
+            )
+            raise
+    elif cfg.recall_planner_enabled and skip_planner_after_primary_timeout:
+        if stage_timings_ms is not None:
+            stage_timings_ms["recall_planner_skipped_primary_timeout"] = 0.0
 
     # Step 0.6: Legacy multi-query decomposition (Wave 2)
     elif cfg.conv_multi_query_enabled and conv_context is not None:
@@ -494,19 +693,43 @@ async def retrieve(
     _ep_score_weight = 1.0 if _passage_first else cfg.episode_retrieval_weight
     episode_candidates: list[ScoredResult] = []
     if cfg.episode_retrieval_enabled:
+        episode_method_name = (
+            "search_episodes_fast" if primary_search_timed_out else "search_episodes"
+        )
         search_episodes = _optional_recall_capability(
             search_index,
-            "search_episodes",
+            episode_method_name,
             "episode retrieval",
-            sibling_methods=("search_episode_cues",),
+            sibling_methods=()
+            if primary_search_timed_out
+            else ("search_episode_cues",),
         )
         if search_episodes is not None:
+            episode_search_started = time.perf_counter()
             try:
-                episode_search_started = time.perf_counter()
-                ep_results = await search_episodes(
+                ep_call = search_episodes(
                     query=query,
                     group_id=group_id,
                     limit=cfg.episode_retrieval_max * 3 * _ep_budget_mult,
+                )
+                timeout_field = (
+                    "retrieval_fast_episode_search_timeout_ms"
+                    if primary_search_timed_out
+                    else "retrieval_episode_search_timeout_ms"
+                )
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg,
+                    timeout_field,
+                )
+                ep_results = (
+                    await asyncio.wait_for(ep_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await ep_call
+                )
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_episode_search",
+                    episode_search_started,
                 )
                 _add_stage_timing(stage_timings_ms, "recall_embed", episode_search_started)
                 for ep_id, sem_sim in ep_results:
@@ -523,26 +746,61 @@ async def retrieve(
                             result_type="episode",
                         )
                     )
+            except asyncio.TimeoutError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_episode_search_timeout",
+                    episode_search_started,
+                )
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_episode_search_cancelled",
+                    episode_search_started,
+                )
+                raise
             except Exception as e:
                 logger.warning("Episode search failed (non-fatal): %s", e)
 
     # Step 1.2: Cue-backed episode search
     cue_candidates: list[ScoredResult] = []
     if cfg.cue_recall_enabled:
+        cue_method_name = (
+            "search_episode_cues_fast"
+            if primary_search_timed_out
+            else "search_episode_cues"
+        )
         search_episode_cues = _optional_recall_capability(
             search_index,
-            "search_episode_cues",
+            cue_method_name,
             "cue recall",
-            sibling_methods=("search_episodes",),
+            sibling_methods=()
+            if primary_search_timed_out
+            else ("search_episodes",),
         )
         if search_episode_cues is not None:
+            cue_search_started = time.perf_counter()
             try:
-                cue_search_started = time.perf_counter()
-                cue_results = await search_episode_cues(
+                cue_call = search_episode_cues(
                     query=query,
                     group_id=group_id,
                     limit=cfg.cue_recall_max * 3,
                 )
+                timeout_field = (
+                    "retrieval_fast_cue_search_timeout_ms"
+                    if primary_search_timed_out
+                    else "retrieval_cue_search_timeout_ms"
+                )
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg,
+                    timeout_field,
+                )
+                cue_results = (
+                    await asyncio.wait_for(cue_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await cue_call
+                )
+                _add_stage_timing(stage_timings_ms, "recall_cue_search", cue_search_started)
                 _add_stage_timing(stage_timings_ms, "recall_embed", cue_search_started)
                 for ep_id, sem_sim in cue_results:
                     cue_score = original_weight_semantic * sem_sim * cfg.cue_recall_weight
@@ -558,18 +816,48 @@ async def retrieve(
                             result_type="cue_episode",
                         )
                     )
+            except asyncio.TimeoutError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_cue_search_timeout",
+                    cue_search_started,
+                )
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_cue_search_cancelled",
+                    cue_search_started,
+                )
+                raise
             except Exception as e:
                 logger.warning("Cue search failed (non-fatal): %s", e)
 
     # Step 1.3: Chunk search — sub-episode precision
     chunk_hits: dict[str, dict] = {}
-    if cfg.chunk_search_enabled and hasattr(search_index, "search_episode_chunks"):
+    if (
+        cfg.chunk_search_enabled
+        and not primary_search_timed_out
+        and hasattr(search_index, "search_episode_chunks")
+    ):
+        chunk_started = time.perf_counter()
         try:
-            chunk_results = await search_index.search_episode_chunks(
+            chunk_call = search_index.search_episode_chunks(
                 query=query,
                 group_id=group_id,
                 limit=cfg.episode_retrieval_max * 3 * _ep_budget_mult,
             )
+            timeout_seconds = _stage_timeout_seconds(
+                cfg,
+                "retrieval_chunk_search_timeout_ms",
+            )
+            if timeout_seconds is not None:
+                chunk_results = await asyncio.wait_for(
+                    chunk_call,
+                    timeout=timeout_seconds,
+                )
+            else:
+                chunk_results = await chunk_call
+            _add_stage_timing(stage_timings_ms, "recall_chunk_search", chunk_started)
             # Track chunk hits for downstream context enrichment
             seen_episode_ids_in_chunks: set[str] = set()
             for chunk in chunk_results:
@@ -646,17 +934,80 @@ async def retrieve(
                 chunk_count = episode_chunk_counts.get(ec.node_id, 0)
                 if chunk_count > 1:
                     ec.score *= 1 + 0.2 * (chunk_count - 1)
+        except asyncio.TimeoutError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_chunk_search_timeout",
+                chunk_started,
+            )
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_chunk_search_cancelled",
+                chunk_started,
+            )
+            raise
         except Exception as e:
             logger.warning("Chunk search failed (non-fatal): %s", e)
 
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_episode_candidate_count",
+        len(episode_candidates),
+    )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_episode_candidate_max_score",
+        max((result.score for result in episode_candidates), default=0.0),
+    )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_cue_candidate_count",
+        len(cue_candidates),
+    )
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_cue_candidate_max_score",
+        max((result.score for result in cue_candidates), default=0.0),
+    )
+
     # Step 1.8: Entity-first fallback when search finds few candidates
-    if not candidates:
-        candidates = await _inject_entity_matches(
-            query,
-            group_id,
-            graph_store,
-            candidates,
-        )
+    if not candidates and not primary_search_timed_out:
+        entity_match_started = time.perf_counter()
+        try:
+            entity_match_call = _inject_entity_matches(
+                query,
+                group_id,
+                graph_store,
+                candidates,
+            )
+            timeout_seconds = _stage_timeout_seconds(
+                cfg,
+                "retrieval_entity_match_timeout_ms",
+            )
+            candidates = (
+                await asyncio.wait_for(entity_match_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await entity_match_call
+            )
+            _add_stage_timing(stage_timings_ms, "recall_entity_match", entity_match_started)
+        except asyncio.TimeoutError:
+            candidates = []
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_entity_match_timeout",
+                entity_match_started,
+            )
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_entity_match_cancelled",
+                entity_match_started,
+            )
+            raise
+    elif not candidates and primary_search_timed_out:
+        if stage_timings_ms is not None:
+            stage_timings_ms["recall_entity_match_skipped_primary_timeout"] = 0.0
 
     if not candidates:
         special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
@@ -664,26 +1015,127 @@ async def retrieve(
             return special_results[: min(limit, cfg.retrieval_top_n)]
         return []
 
+    if (
+        primary_search_timed_out
+        and _candidate_pool_has_zero_semantic_score(stage_timings_ms)
+    ):
+        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        if special_results:
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_zero_semantic_special_deferred",
+                len(special_results),
+            )
+            return []
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_zero_semantic_short_circuit",
+            0.0,
+        )
+        return []
+
+    if _candidate_pool_has_no_semantic_anchor(stage_timings_ms):
+        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        if special_results:
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_zero_semantic_special_return",
+                len(special_results),
+            )
+            return special_results[: min(limit, cfg.retrieval_top_n)]
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_zero_semantic_short_circuit",
+            0.0,
+        )
+        return []
+
     # Step 2: Batch get activation states
     entity_ids = [eid for eid, _ in candidates]
-    activation_states = await activation_store.batch_get(entity_ids)
+    activation_state_started = time.perf_counter()
+    try:
+        activation_state_call = activation_store.batch_get(entity_ids)
+        timeout_seconds = _stage_timeout_seconds(
+            cfg,
+            "retrieval_activation_state_timeout_ms",
+        )
+        activation_states = (
+            await asyncio.wait_for(activation_state_call, timeout=timeout_seconds)
+            if timeout_seconds is not None
+            else await activation_state_call
+        )
+        activation_states = activation_states or {}
+        _add_stage_timing(
+            stage_timings_ms,
+            "recall_activation_state",
+            activation_state_started,
+        )
+    except asyncio.TimeoutError:
+        activation_states = {}
+        _add_stage_timing(
+            stage_timings_ms,
+            "recall_activation_state_timeout",
+            activation_state_started,
+        )
+    except asyncio.CancelledError:
+        _add_stage_timing(
+            stage_timings_ms,
+            "recall_activation_state_cancelled",
+            activation_state_started,
+        )
+        raise
+    except Exception:
+        activation_states = {}
 
     # Step 2.5: Goal priming (Brain Architecture)
     goal_seeds: list[tuple[str, float]] = []
     if cfg.goal_priming_enabled:
-        from engram.retrieval.goals import (
-            compute_goal_priming_seeds,
-            identify_active_goals,
-        )
+        if _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_goal_priming_skipped_probe_timeout",
+                0.0,
+            )
+        else:
+            goal_started = time.perf_counter()
+            try:
+                from engram.retrieval.goals import (
+                    compute_goal_priming_seeds,
+                    identify_active_goals,
+                )
 
-        active_goals = await identify_active_goals(
-            graph_store,
-            activation_store,
-            group_id,
-            cfg,
-            cache=goal_cache,
-        )
-        goal_seeds = compute_goal_priming_seeds(active_goals, cfg)
+                goal_call = identify_active_goals(
+                    graph_store,
+                    activation_store,
+                    group_id,
+                    cfg,
+                    cache=goal_cache,
+                )
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg,
+                    "retrieval_goal_priming_timeout_ms",
+                )
+                active_goals = (
+                    await asyncio.wait_for(goal_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await goal_call
+                )
+                goal_seeds = compute_goal_priming_seeds(active_goals, cfg)
+                _add_stage_timing(stage_timings_ms, "recall_goal_priming", goal_started)
+            except asyncio.TimeoutError:
+                goal_seeds = []
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_goal_priming_timeout",
+                    goal_started,
+                )
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_goal_priming_cancelled",
+                    goal_started,
+                )
+                raise
 
     # Step 3: Identify seeds (strategy-dependent)
     if cfg.spreading_strategy == "actr":
@@ -745,25 +1197,85 @@ async def retrieve(
     # Step 3.8: Build seed entity types for cross-domain penalty
     seed_entity_types: dict[str, str] | None = None
     if cfg.cross_domain_penalty_enabled:
-        seed_entity_types = {}
-        for seed_id, _ in seeds:
+        if _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_cross_domain_seed_skipped_probe_timeout",
+                0.0,
+            )
+        else:
+            cross_domain_started = time.perf_counter()
             try:
-                ent = await graph_store.get_entity(seed_id, group_id)
-                if ent:
-                    seed_entity_types[seed_id] = ent.entity_type
-            except Exception:
-                pass
+                async def _load_seed_entity_types() -> dict[str, str]:
+                    loaded_types: dict[str, str] = {}
+                    for seed_id, _ in seeds:
+                        try:
+                            ent = await graph_store.get_entity(seed_id, group_id)
+                            if ent:
+                                loaded_types[seed_id] = ent.entity_type
+                        except Exception:
+                            pass
+                    return loaded_types
+
+                seed_type_call = _load_seed_entity_types()
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg,
+                    "retrieval_cross_domain_seed_timeout_ms",
+                )
+                seed_entity_types = (
+                    await asyncio.wait_for(seed_type_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await seed_type_call
+                )
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_cross_domain_seed",
+                    cross_domain_started,
+                )
+            except asyncio.TimeoutError:
+                seed_entity_types = None
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_cross_domain_seed_timeout",
+                    cross_domain_started,
+                )
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_cross_domain_seed_cancelled",
+                    cross_domain_started,
+                )
+                raise
 
     # Step 4: Spread activation
-    bonuses, hop_distances = await spread_activation(
-        seeds,
-        graph_store,
-        cfg,
-        group_id=group_id,
-        community_store=community_store,
-        context_gate=context_gate,
-        seed_entity_types=seed_entity_types,
-    )
+    if seeds and _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+        bonuses, hop_distances = {}, {}
+        _set_stage_metric(stage_timings_ms, "recall_spread_skipped_probe_timeout", 0.0)
+    else:
+        spread_started = time.perf_counter()
+        try:
+            spread_call = spread_activation(
+                seeds,
+                graph_store,
+                cfg,
+                group_id=group_id,
+                community_store=community_store,
+                context_gate=context_gate,
+                seed_entity_types=seed_entity_types,
+            )
+            timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_spread_timeout_ms")
+            bonuses, hop_distances = (
+                await asyncio.wait_for(spread_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await spread_call
+            )
+            _add_stage_timing(stage_timings_ms, "recall_spread", spread_started)
+        except asyncio.TimeoutError:
+            bonuses, hop_distances = {}, {}
+            _add_stage_timing(stage_timings_ms, "recall_spread_timeout", spread_started)
+        except asyncio.CancelledError:
+            _add_stage_timing(stage_timings_ms, "recall_spread_cancelled", spread_started)
+            raise
 
     # Step 4.1: Inhibitory spreading (Brain Architecture)
     if cfg.inhibitory_spreading_enabled:
@@ -829,9 +1341,9 @@ async def retrieve(
     # both vectors live in the same structural embedding space.
     graph_similarities: dict[str, float] | None = None
     if cfg.weight_graph_structural > 0:
-        try:
+        async def _compute_graph_similarities() -> dict[str, float] | None:
             all_candidate_ids = [eid for eid, _ in candidates]
-            # Determine preferred method: try enabled methods that have data
+            # Determine preferred method: try enabled methods that have data.
             methods_to_try = []
             if cfg.graph_embedding_node2vec_enabled:
                 methods_to_try.append("node2vec")
@@ -840,84 +1352,155 @@ async def retrieve(
             if cfg.graph_embedding_gnn_enabled:
                 methods_to_try.append("gnn")
 
-            if methods_to_try and hasattr(search_index, "get_graph_embeddings"):
-                # Get seed entity IDs (from spreading activation seeds)
-                query_seed_ids = list(seed_node_ids) if seed_node_ids else []
+            if not methods_to_try or not hasattr(search_index, "get_graph_embeddings"):
+                return None
 
-                for method in methods_to_try:
+            # Get seed entity IDs (from spreading activation seeds).
+            query_seed_ids = list(seed_node_ids) if seed_node_ids else []
+
+            for method in methods_to_try:
+                if not query_seed_ids:
+                    # Fall back to top candidates as proxy seeds.
+                    query_seed_ids = [
+                        eid
+                        for eid, _ in sorted(
+                            candidates,
+                            key=lambda x: x[1],
+                            reverse=True,
+                        )[:3]
+                    ]
                     if not query_seed_ids:
-                        # Fall back to top candidates as proxy seeds
-                        query_seed_ids = [
-                            eid
-                            for eid, _ in sorted(
-                                candidates,
-                                key=lambda x: x[1],
-                                reverse=True,
-                            )[:3]
-                        ]
-                        if not query_seed_ids:
-                            break
+                        break
 
-                    # Fetch graph embeddings for seeds + candidates
-                    all_ids = list(set(query_seed_ids + all_candidate_ids))
-                    graph_embs = await search_index.get_graph_embeddings(
-                        all_ids,
-                        method=method,
-                        group_id=group_id,
+                # Fetch graph embeddings for seeds + candidates.
+                all_ids = list(set(query_seed_ids + all_candidate_ids))
+                graph_embs = await search_index.get_graph_embeddings(
+                    all_ids,
+                    method=method,
+                    group_id=group_id,
+                )
+                if not graph_embs:
+                    continue
+
+                # Find seed entities that have graph embeddings.
+                seed_embs = {
+                    sid: graph_embs[sid] for sid in query_seed_ids if sid in graph_embs
+                }
+                if not seed_embs:
+                    continue
+
+                import numpy as np
+
+                from engram.storage.sqlite.vectors import (
+                    cosine_similarity as _cos_sim,
+                )
+
+                seed_vecs = list(seed_embs.values())
+                query_graph_vec = np.mean(seed_vecs, axis=0).tolist()
+
+                computed_similarities = {}
+                for eid, g_emb in graph_embs.items():
+                    if eid in seed_embs:
+                        continue  # Don't score seeds against themselves.
+                    computed_similarities[eid] = max(
+                        0.0,
+                        _cos_sim(query_graph_vec, g_emb),
                     )
-                    if not graph_embs:
-                        continue
+                return computed_similarities or None
+            return None
 
-                    # Find seed entities that have graph embeddings
-                    seed_embs = {
-                        sid: graph_embs[sid] for sid in query_seed_ids if sid in graph_embs
-                    }
-                    if not seed_embs:
-                        continue
-
-                    import numpy as np
-
-                    from engram.storage.sqlite.vectors import (
-                        cosine_similarity as _cos_sim,
-                    )
-
-                    seed_vecs = list(seed_embs.values())
-                    query_graph_vec = np.mean(seed_vecs, axis=0).tolist()
-
-                    graph_similarities = {}
-                    for eid, g_emb in graph_embs.items():
-                        if eid in seed_embs:
-                            continue  # Don't score seeds against themselves
-                        graph_similarities[eid] = max(
-                            0.0,
-                            _cos_sim(query_graph_vec, g_emb),
-                        )
-                    break  # Found a method with data
-
-                if not graph_similarities:
-                    graph_similarities = None
+        graph_similarity_started = time.perf_counter()
+        try:
+            graph_similarity_call = _compute_graph_similarities()
+            timeout_seconds = _stage_timeout_seconds(
+                cfg,
+                "retrieval_graph_similarity_timeout_ms",
+            )
+            graph_similarities = (
+                await asyncio.wait_for(graph_similarity_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await graph_similarity_call
+            )
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_graph_similarity",
+                graph_similarity_started,
+            )
+        except asyncio.TimeoutError:
+            graph_similarities = None
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_graph_similarity_timeout",
+                graph_similarity_started,
+            )
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_graph_similarity_cancelled",
+                graph_similarity_started,
+            )
+            raise
         except Exception as e:
             logger.warning("Graph similarity computation failed (non-fatal): %s", e)
 
     # Step 4.9: Fetch entity attributes for emotional + state boosts
     entity_attributes: dict[str, dict] | None = None
     needs_attrs = cfg.emotional_salience_enabled or cfg.state_dependent_retrieval_enabled
-    if needs_attrs:
-        entity_attributes = {}
+    if needs_attrs and _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_entity_attributes_skipped_probe_timeout",
+            0.0,
+        )
+    elif needs_attrs:
         all_candidate_ids = [eid for eid, _ in candidates]
-        for eid in all_candidate_ids:
-            try:
-                ent = await graph_store.get_entity(eid, group_id)
-                if ent:
-                    attrs = dict(ent.attributes) if isinstance(ent.attributes, dict) else {}
-                    # Include entity_type for domain mapping
-                    if ent.entity_type:
-                        attrs["entity_type"] = ent.entity_type
-                    entity_attributes[eid] = attrs
-            except Exception:
-                pass
-        if not entity_attributes:
+
+        async def _load_entity_attributes() -> dict[str, dict] | None:
+            loaded_attributes: dict[str, dict] = {}
+            for eid in all_candidate_ids:
+                try:
+                    ent = await graph_store.get_entity(eid, group_id)
+                    if ent:
+                        attrs = (
+                            dict(ent.attributes)
+                            if isinstance(ent.attributes, dict)
+                            else {}
+                        )
+                        # Include entity_type for domain mapping.
+                        if ent.entity_type:
+                            attrs["entity_type"] = ent.entity_type
+                        loaded_attributes[eid] = attrs
+                except Exception:
+                    pass
+            return loaded_attributes or None
+
+        attrs_started = time.perf_counter()
+        try:
+            attrs_call = _load_entity_attributes()
+            timeout_seconds = _stage_timeout_seconds(
+                cfg,
+                "retrieval_entity_attributes_timeout_ms",
+            )
+            entity_attributes = (
+                await asyncio.wait_for(attrs_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await attrs_call
+            )
+            _add_stage_timing(stage_timings_ms, "recall_entity_attributes", attrs_started)
+        except asyncio.TimeoutError:
             entity_attributes = None
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_entity_attributes_timeout",
+                attrs_started,
+            )
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "recall_entity_attributes_cancelled",
+                attrs_started,
+            )
+            raise
 
     # Step 4.95: State-dependent retrieval biases (Brain Architecture)
     state_biases: dict[str, float] | None = None
@@ -1001,6 +1584,12 @@ async def retrieve(
             state_biases=state_biases,
             preference_boosts=preference_boosts,
         )
+    _set_stage_metric(stage_timings_ms, "recall_scored_count", len(scored))
+    _set_stage_metric(
+        stage_timings_ms,
+        "recall_scored_max_score",
+        max((result.score for result in scored), default=0.0),
+    )
 
     if planner_trace is not None:
         for sr in scored:
@@ -1099,81 +1688,77 @@ async def retrieve(
 
     # Step 5.5: Cross-encoder re-ranking (if enabled)
     if cfg.reranker_enabled and reranker is not None:
-        try:
-            # Fetch entity summaries for reranking
-            docs: list[tuple[str, str]] = []
-            for sr in scored[: cfg.reranker_top_n * 2]:
-                entity = await graph_store.get_entity(sr.node_id, group_id)
-                text = ""
-                if entity:
-                    text = entity.name
-                    if entity.summary:
-                        text = f"{entity.name}: {entity.summary}"
-                docs.append((sr.node_id, text))
+        if type(reranker).__name__ == "NoopReranker":
+            _set_stage_metric(stage_timings_ms, "recall_reranker_skipped_noop", 0.0)
+        else:
+            reranker_started = time.perf_counter()
+            try:
+                async def _rerank_results() -> None:
+                    docs: list[tuple[str, str]] = []
+                    for sr in scored[: cfg.reranker_top_n * 2]:
+                        entity = await graph_store.get_entity(sr.node_id, group_id)
+                        text = ""
+                        if entity:
+                            text = entity.name
+                            if entity.summary:
+                                text = f"{entity.name}: {entity.summary}"
+                        docs.append((sr.node_id, text))
 
-            if docs:
-                reranked = await reranker.rerank(
-                    query,
-                    docs,
-                    top_n=cfg.reranker_top_n,
+                    if not docs:
+                        return
+                    reranked = await reranker.rerank(
+                        query,
+                        docs,
+                        top_n=cfg.reranker_top_n,
+                    )
+                    rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
+                    scored.sort(key=lambda sr: rerank_order.get(sr.node_id, len(scored)))
+
+                rerank_call = _rerank_results()
+                timeout_seconds = _stage_timeout_seconds(
+                    cfg, "retrieval_reranker_timeout_ms"
                 )
-                # Build reranked order
-                rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
-                scored.sort(
-                    key=lambda sr: rerank_order.get(sr.node_id, len(scored)),
+                if timeout_seconds is not None:
+                    await asyncio.wait_for(rerank_call, timeout=timeout_seconds)
+                else:
+                    await rerank_call
+                _add_stage_timing(stage_timings_ms, "recall_reranker", reranker_started)
+            except asyncio.TimeoutError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_reranker_timeout",
+                    reranker_started,
                 )
-        except Exception as e:
-            logger.warning("Reranking failed (non-fatal): %s", e)
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_reranker_cancelled",
+                    reranker_started,
+                )
+                raise
+            except Exception as e:
+                logger.warning("Reranking failed (non-fatal): %s", e)
+
+    mmr_entity_embeddings: dict[str, list[float]] = {}
 
     # Step 5.6: MMR diversity (if enabled)
     if cfg.mmr_enabled:
+        mmr_started = time.perf_counter()
         try:
             from engram.retrieval.mmr import apply_mmr
 
-            # Fetch entity embeddings for MMR
-            entity_embeddings: dict[str, list[float]] = {}
-            mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
-            if hasattr(search_index, "_vectors") and hasattr(search_index, "_embeddings_enabled"):
-                if search_index._embeddings_enabled:
-                    from engram.storage.sqlite.vectors import unpack_vector
-
-                    for eid in mmr_ids:
-                        cursor = await search_index._vectors.db.execute(
-                            "SELECT embedding, dimensions FROM embeddings "
-                            "WHERE id = ? AND group_id = ?",
-                            (eid, group_id),
-                        )
-                        row = await cursor.fetchone()
-                        if row:
-                            entity_embeddings[eid] = unpack_vector(
-                                row["embedding"],
-                                row["dimensions"],
-                            )
-
-            scored = apply_mmr(
-                scored,
-                entity_embeddings,
-                lambda_param=cfg.mmr_lambda,
-                top_n=min(limit, cfg.retrieval_top_n),
-            )
-        except Exception as e:
-            logger.warning("MMR diversity failed (non-fatal): %s", e)
-
-    # Step 5.7: GC-MMR (if enabled, replaces standard MMR)
-    if cfg.gc_mmr_enabled:
-        try:
-            from engram.retrieval.gc_mmr import apply_gc_mmr
-
-            # Reuse entity_embeddings from MMR block, or fetch if MMR was disabled
-            if not cfg.mmr_enabled:
-                entity_embeddings = {}
-                gc_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
-                has_vecs = hasattr(search_index, "_vectors")
-                if has_vecs and hasattr(search_index, "_embeddings_enabled"):
+            async def _apply_mmr() -> list[ScoredResult]:
+                nonlocal mmr_entity_embeddings
+                entity_embeddings: dict[str, list[float]] = {}
+                mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+                if hasattr(search_index, "_vectors") and hasattr(
+                    search_index,
+                    "_embeddings_enabled",
+                ):
                     if search_index._embeddings_enabled:
                         from engram.storage.sqlite.vectors import unpack_vector
 
-                        for eid in gc_ids:
+                        for eid in mmr_ids:
                             cursor = await search_index._vectors.db.execute(
                                 "SELECT embedding, dimensions FROM embeddings "
                                 "WHERE id = ? AND group_id = ?",
@@ -1185,19 +1770,96 @@ async def retrieve(
                                     row["embedding"],
                                     row["dimensions"],
                                 )
+                mmr_entity_embeddings = entity_embeddings
 
-            scored = await apply_gc_mmr(
-                scored,
-                graph_store=graph_store,
-                group_id=group_id,
-                entity_embeddings=entity_embeddings,
-                lambda_rel=cfg.gc_mmr_lambda_relevance,
-                lambda_div=cfg.gc_mmr_lambda_diversity,
-                lambda_conn=cfg.gc_mmr_lambda_connectivity,
-                top_n=min(limit, cfg.retrieval_top_n),
+                return apply_mmr(
+                    scored,
+                    entity_embeddings,
+                    lambda_param=cfg.mmr_lambda,
+                    top_n=min(limit, cfg.retrieval_top_n),
+                )
+
+            mmr_call = _apply_mmr()
+            timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_mmr_timeout_ms")
+            scored = (
+                await asyncio.wait_for(mmr_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await mmr_call
             )
+            _add_stage_timing(stage_timings_ms, "recall_mmr", mmr_started)
+        except asyncio.TimeoutError:
+            _add_stage_timing(stage_timings_ms, "recall_mmr_timeout", mmr_started)
+        except asyncio.CancelledError:
+            _add_stage_timing(stage_timings_ms, "recall_mmr_cancelled", mmr_started)
+            raise
         except Exception as e:
-            logger.warning("GC-MMR failed (non-fatal): %s", e)
+            logger.warning("MMR diversity failed (non-fatal): %s", e)
+
+    # Step 5.7: GC-MMR (if enabled, replaces standard MMR)
+    if cfg.gc_mmr_enabled:
+        if _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+            _set_stage_metric(stage_timings_ms, "recall_gc_mmr_skipped_probe_timeout", 0.0)
+        else:
+            gc_mmr_started = time.perf_counter()
+            try:
+                from engram.retrieval.gc_mmr import apply_gc_mmr
+
+                async def _apply_gc_mmr() -> list[ScoredResult]:
+                    entity_embeddings: dict[str, list[float]] = dict(mmr_entity_embeddings)
+                    if not cfg.mmr_enabled:
+                        gc_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+                        has_vecs = hasattr(search_index, "_vectors")
+                        if has_vecs and hasattr(search_index, "_embeddings_enabled"):
+                            if search_index._embeddings_enabled:
+                                from engram.storage.sqlite.vectors import unpack_vector
+
+                                for eid in gc_ids:
+                                    cursor = await search_index._vectors.db.execute(
+                                        "SELECT embedding, dimensions FROM embeddings "
+                                        "WHERE id = ? AND group_id = ?",
+                                        (eid, group_id),
+                                    )
+                                    row = await cursor.fetchone()
+                                    if row:
+                                        entity_embeddings[eid] = unpack_vector(
+                                            row["embedding"],
+                                            row["dimensions"],
+                                        )
+
+                    return await apply_gc_mmr(
+                        scored,
+                        graph_store=graph_store,
+                        group_id=group_id,
+                        entity_embeddings=entity_embeddings,
+                        lambda_rel=cfg.gc_mmr_lambda_relevance,
+                        lambda_div=cfg.gc_mmr_lambda_diversity,
+                        lambda_conn=cfg.gc_mmr_lambda_connectivity,
+                        top_n=min(limit, cfg.retrieval_top_n),
+                    )
+
+                gc_mmr_call = _apply_gc_mmr()
+                timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_gc_mmr_timeout_ms")
+                scored = (
+                    await asyncio.wait_for(gc_mmr_call, timeout=timeout_seconds)
+                    if timeout_seconds is not None
+                    else await gc_mmr_call
+                )
+                _add_stage_timing(stage_timings_ms, "recall_gc_mmr", gc_mmr_started)
+            except asyncio.TimeoutError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_gc_mmr_timeout",
+                    gc_mmr_started,
+                )
+            except asyncio.CancelledError:
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_gc_mmr_cancelled",
+                    gc_mmr_started,
+                )
+                raise
+            except Exception as e:
+                logger.warning("GC-MMR failed (non-fatal): %s", e)
 
     # Step 6: Return top-N, mixing entities, episodes, and cue-backed episodes
     top_n = min(limit, cfg.retrieval_top_n)

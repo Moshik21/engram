@@ -210,6 +210,24 @@ async def test_worker_deduplicates_scheduled_cue_projection():
 
 
 @pytest.mark.asyncio
+async def test_worker_ignores_raw_queued_event_when_cue_layer_routes_projection():
+    manager = _make_manager()
+    cfg = _make_cfg(triage_enabled=False, cue_layer_enabled=True)
+    bus = EventBus()
+
+    worker = EpisodeWorker(manager, cfg)
+    worker.start("default", bus)
+
+    bus.publish("default", "episode.queued", _queued_event()["payload"])
+
+    await asyncio.sleep(0.1)
+
+    manager.project_episode.assert_not_called()
+
+    await worker.stop()
+
+
+@pytest.mark.asyncio
 async def test_worker_ignores_non_queued_events():
     """Worker skips events that aren't episode.queued."""
     manager = _make_manager()

@@ -182,6 +182,24 @@ def test_engramctl_setup_helix_configures_local_native_mode(tmp_path: Path) -> N
     assert "ENGRAM_HELIX__TRANSPORT=native" in content
 
 
+def test_engramctl_setup_helix_preserves_existing_native_data_dir(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    engram_home = Path(env["ENGRAM_HOME"])
+    custom_data_dir = tmp_path / "dogfood-native"
+    engram_home.mkdir(parents=True, exist_ok=True)
+    (engram_home / ".env").write_text(
+        "ENGRAM_INSTALL_VARIANT=lite\n"
+        "ENGRAM_MODE=helix\n"
+        "ENGRAM_HELIX__TRANSPORT=native\n"
+        f"ENGRAM_HELIX__DATA_DIR={custom_data_dir}\n"
+    )
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+
+    content = (engram_home / ".env").read_text()
+    assert f"ENGRAM_HELIX__DATA_DIR={custom_data_dir}" in content
+
+
 def test_engramctl_setup_lite_keeps_sqlite_local_mode(tmp_path: Path) -> None:
     content, output = _run_engramctl_setup(tmp_path, "lite")
 
@@ -270,9 +288,26 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert "launch_agent_start" in engramctl
     assert "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}" in engramctl
     assert "local_startup_attempts" in engramctl
-    assert 'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)"' in engramctl
+    assert (
+        'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" '
+        '"${doctor_args[@]}"'
+        in engramctl
+    )
+    assert "doctor_args+=(--no-lifecycle)" in engramctl
     assert "return 1" in engramctl
     assert "Quickstart could not confirm Engram is ready." in engramctl
+
+
+def test_engramctl_stop_cleans_engram_owned_orphan_listener_only() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "stop_orphan_local_api_listeners" in engramctl
+    assert 'lsof -tiTCP:"$port" -sTCP:LISTEN' in engramctl
+    assert "looks_like_engram_server_command" in engramctl
+    assert "*engram*serve*" in engramctl
+    assert "Removing untracked Engram API listener" in engramctl
+    assert "does not look like Engram" in engramctl
+    assert 'stop_orphan_local_api_listeners "$port"' in engramctl
 
 
 def test_engramctl_exposes_release_startup_commands() -> None:
@@ -376,6 +411,7 @@ def test_engramctl_storage_reports_native_and_sqlite_paths() -> None:
     assert 'local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"' in engramctl
     assert '"http://127.0.0.1:${port}/api/storage?live=true&timeoutSeconds=5"' in engramctl
     assert "format_storage_json" in engramctl
+    assert "Counts source:" in engramctl
     assert "offline_storage_status" in engramctl
     assert "Engram Storage" in engramctl
 

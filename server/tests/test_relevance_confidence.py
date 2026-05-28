@@ -365,6 +365,7 @@ async def test_apply_relevance_confidence_mutates_raw_recall_results():
         query="test query",
         results=results,
         search_index=_SearchIndex(provider, query_vec=query_vec),
+        cfg=ActivationConfig(relevance_confidence_episode_text_embeddings_enabled=True),
     )
 
     assert results[0]["score_breakdown"]["relevance_confidence"] == pytest.approx(0.75)
@@ -386,9 +387,49 @@ async def test_apply_relevance_confidence_noops_without_embedding_provider():
         query="test query",
         results=results,
         search_index=object(),
+        cfg=ActivationConfig(),
     )
 
     assert results[0]["score_breakdown"] == {"semantic": 0.75}
+
+
+@pytest.mark.asyncio
+async def test_apply_relevance_confidence_reuses_semantic_by_default() -> None:
+    class TrackingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__(dim=4)
+            self.embed_calls = 0
+            self.query_calls = 0
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.embed_calls += 1
+            return await super().embed(texts)
+
+        async def embed_query(self, text: str) -> list[float]:
+            self.query_calls += 1
+            return await super().embed_query(text)
+
+    provider = TrackingProvider()
+    results = [
+        {
+            "result_type": "cue_episode",
+            "episode": {"id": "ep_1"},
+            "cue": {"compressed_content": "relevant chunk"},
+            "score": 0.6,
+            "score_breakdown": {"semantic": 0.42, "edge_proximity": 0.1},
+        },
+    ]
+
+    await apply_relevance_confidence(
+        query="test query",
+        results=results,
+        search_index=_SearchIndex(provider),
+        cfg=ActivationConfig(),
+    )
+
+    assert results[0]["score_breakdown"]["relevance_confidence"] == pytest.approx(0.42)
+    assert provider.embed_calls == 0
+    assert provider.query_calls == 0
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from functools import partial
 from typing import Any
 
@@ -35,6 +36,32 @@ logger = logging.getLogger(__name__)
 
 _RRF_K = 60  # RRF smoothing constant (standard default)
 _OVERFETCH_FACTOR = 3  # overfetch to compensate for post-hoc group filtering
+_FAST_BM25_MAX_TERMS = 8
+_FAST_BM25_HIGH_FANOUT_TERMS = frozenset(
+    {
+        "trace",
+        "traces",
+    }
+)
+_FAST_BM25_LOW_SIGNAL_TERMS = frozenset(
+    {
+        "behavior",
+        "context",
+        "current",
+        "dogfood",
+        "engram",
+        "goal",
+        "hot",
+        "native",
+        "next",
+        "performance",
+        "pyo3",
+        "recall",
+        "runtime",
+        "status",
+        "update",
+    }
+)
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -76,6 +103,30 @@ def _rrf_fusion(
             merged = [(eid, score / max_score) for eid, score in merged]
 
     return merged
+
+
+def _prepare_fast_bm25_query(query: str) -> str:
+    """Compact high-fanout operator queries for bounded fallback BM25 paths."""
+    specific_tokens: list[str] = []
+    broad_tokens: list[str] = []
+    seen: set[str] = set()
+    for raw_token in re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower()):
+        for token in re.split(r"[_-]+", raw_token):
+            if (
+                len(token) < 3
+                or token in seen
+                or token in _FAST_BM25_HIGH_FANOUT_TERMS
+            ):
+                continue
+            seen.add(token)
+            if token in _FAST_BM25_LOW_SIGNAL_TERMS:
+                broad_tokens.append(token)
+            else:
+                specific_tokens.append(token)
+    tokens = specific_tokens or broad_tokens
+    if len(specific_tokens) < 3:
+        tokens = [*specific_tokens, *broad_tokens]
+    return " ".join(tokens[:_FAST_BM25_MAX_TERMS])
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +712,21 @@ class HelixSearchIndex:
                     if val:
                         allowed_ids.add(str(val))
         return [(item_id, score) for item_id, score in results if item_id in allowed_ids]
+
+    @staticmethod
+    def _filter_rows_by_group(
+        raw_rows: list[dict],
+        group_id: str | None,
+        group_field: str = "group_id",
+    ) -> list[dict]:
+        """Post-filter raw result rows by group_id."""
+        if not group_id:
+            return list(raw_rows)
+        return [
+            row
+            for row in raw_rows
+            if str(row.get(group_field, "")) == group_id
+        ]
 
     def _filter_by_entity_type(
         self,
@@ -1254,6 +1320,53 @@ class HelixSearchIndex:
         )
         return fused[:limit]
 
+    async def search_episodes_fast(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """BM25-only episode search for bounded recall fallback paths."""
+        query = _prepare_fast_bm25_query(query)
+        if not query:
+            return []
+        fts_results, fts_rows = await self._bm25_search_episodes(
+            query,
+            limit * _OVERFETCH_FACTOR,
+        )
+        fts_results = self._filter_by_group(fts_results, fts_rows, group_id)
+        return self._normalize_scores(fts_results[:limit])
+
+    async def search_episode_records_fast(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """BM25-only episode records for timeout fallback materialization."""
+        query = _prepare_fast_bm25_query(query)
+        if not query:
+            return []
+        fts_results, fts_rows = await self._bm25_search_episodes(
+            query,
+            limit * _OVERFETCH_FACTOR,
+        )
+        fts_results = self._filter_by_group(fts_results, fts_rows, group_id)
+        normalized = dict(self._normalize_scores(fts_results[:limit]))
+        rows_by_episode = {
+            str(row.get("episode_id") or row.get("id") or ""): row
+            for row in self._filter_rows_by_group(fts_rows, group_id)
+        }
+        records: list[dict] = []
+        for episode_id, score in normalized.items():
+            row = rows_by_episode.get(episode_id)
+            if not row:
+                continue
+            record = dict(row)
+            record["_score"] = score
+            records.append(record)
+        return records
+
     async def search_episode_cues(
         self,
         query: str,
@@ -1297,6 +1410,53 @@ class HelixSearchIndex:
             self._vec_weight,
         )
         return fused[:limit]
+
+    async def search_episode_cues_fast(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[tuple[str, float]]:
+        """BM25-only cue search for bounded recall fallback paths."""
+        query = _prepare_fast_bm25_query(query)
+        if not query:
+            return []
+        fts_results, fts_rows = await self._bm25_search_cues(
+            query,
+            limit * _OVERFETCH_FACTOR,
+        )
+        fts_results = self._filter_by_group(fts_results, fts_rows, group_id)
+        return self._normalize_scores(fts_results[:limit])
+
+    async def search_episode_cue_records_fast(
+        self,
+        query: str,
+        group_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """BM25-only cue records for timeout fallback materialization."""
+        query = _prepare_fast_bm25_query(query)
+        if not query:
+            return []
+        fts_results, fts_rows = await self._bm25_search_cues(
+            query,
+            limit * _OVERFETCH_FACTOR,
+        )
+        fts_results = self._filter_by_group(fts_results, fts_rows, group_id)
+        normalized = dict(self._normalize_scores(fts_results[:limit]))
+        rows_by_episode = {
+            str(row.get("episode_id") or row.get("id") or ""): row
+            for row in self._filter_rows_by_group(fts_rows, group_id)
+        }
+        records: list[dict] = []
+        for episode_id, score in normalized.items():
+            row = rows_by_episode.get(episode_id)
+            if not row:
+                continue
+            record = dict(row)
+            record["_score"] = score
+            records.append(record)
+        return records
 
     # ------------------------------------------------------------------
     # Chunk search
@@ -1749,5 +1909,11 @@ class HelixSearchIndex:
             return results
         max_score = max(s for _, s in results)
         if max_score <= 0:
-            return results
+            # Helix BM25 returns ordered rows even when the generated route does
+            # not expose a numeric score. Preserve that ordering as rank-based
+            # confidence so fallback recall does not surface all hits as 0.0.
+            return [
+                (item_id, 1.0 / float(rank + 1))
+                for rank, (item_id, _score) in enumerate(results)
+            ]
         return [(eid, score / max_score) for eid, score in results]

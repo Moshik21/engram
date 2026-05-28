@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -346,6 +347,61 @@ async def test_bootstrap_refreshes_when_stale(
     # Project timestamp was updated
     updated_entity_ids = [call.args[0] for call in manager._graph.update_entity.call_args_list]
     assert "ent_existing123" in updated_entity_ids
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_refresh_skips_unchanged_artifact_decision_materialization(
+    manager: GraphManager,
+    tmp_path: Path,
+):
+    """Stale refresh should not rematerialize decisions for unchanged artifacts."""
+    content = "# Engram\n\n- Native PyO3 startup path supports OpenClaw."
+    (tmp_path / "README.md").write_text(content)
+    stale_ts = (utc_now() - timedelta(hours=25)).isoformat()
+    project = Entity(
+        id="ent_existing123",
+        name=tmp_path.name,
+        entity_type="Project",
+        group_id="default",
+        attributes={
+            "project_path": str(tmp_path),
+            "last_bootstrapped": stale_ts,
+        },
+    )
+    artifact_id = (
+        "art_"
+        + hashlib.sha256(f"default:{tmp_path}:README.md".encode()).hexdigest()[:12]
+    )
+    artifact = Entity(
+        id=artifact_id,
+        name="README.md",
+        entity_type="Artifact",
+        group_id="default",
+        summary="Existing README artifact",
+        attributes={
+            "project_path": str(tmp_path),
+            "rel_path": "README.md",
+            "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        },
+    )
+    manager._graph.find_entities = AsyncMock(return_value=[project])
+    manager._graph.get_entity = AsyncMock(
+        side_effect=lambda entity_id, _group_id="default": (
+            artifact if entity_id == artifact_id else None
+        )
+    )
+    manager.store_episode = AsyncMock(return_value="ep_should_not_store")
+    manager._graph.find_existing_relationship = AsyncMock(return_value=None)
+    materialize = AsyncMock()
+    manager._project_bootstrap_service._materialize_artifact_decisions = materialize
+
+    result = await manager.bootstrap_project(str(tmp_path))
+
+    assert result["status"] == "refreshed"
+    assert result["files_observed"] == ["README.md"]
+    manager.store_episode.assert_not_awaited()
+    materialize.assert_not_awaited()
+    manager._graph.find_existing_relationship.assert_not_awaited()
 
 
 @pytest.mark.asyncio

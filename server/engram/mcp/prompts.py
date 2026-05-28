@@ -46,7 +46,8 @@ memories automatically.
 clearly relevant. The user expects you to know what you have been told before. \
 Check the `freshness` label — treat `stale` items as possibly outdated.
 3. If the message references people, projects, or past conversations by name, \
-also call `recall(query)` for deeper retrieval.
+also call `recall(query, project_path=...)` for deeper retrieval when a project \
+path is available.
 
 FAILURE MODE: User says "he had a great game today." You respond "That's \
 great!" But memory knows their son Liam plays soccer on Tuesdays. The user \
@@ -114,7 +115,10 @@ goals with concrete details.
 
 Call `recall` when prior context could change your answer — even if the user \
 does not explicitly ask for memory. If someone references a person, project, \
-event, or past discussion, look it up before responding.
+event, or past discussion, look it up before responding. In a project \
+workspace, pass the same `project_path` you used for `get_context`, \
+`route_question`, or `search_artifacts` so recall can prefer project-scoped \
+memory before falling back to local project files.
 
 ## Epistemic Routing
 

@@ -229,3 +229,73 @@ async def test_shutdown_consolidation_helper_times_out_and_cancels() -> None:
     logger.warning.assert_called_once_with(
         "Shutdown consolidation timed out; cancelled final cycle"
     )
+
+
+@pytest.mark.asyncio
+async def test_capture_startup_warmup_timeout_continues_background_task() -> None:
+    import asyncio
+
+    from engram import main as main_module
+    from engram.config import EngramConfig
+
+    done = asyncio.Event()
+
+    async def slow_warmup():
+        await asyncio.sleep(0.05)
+        done.set()
+        return {"capture_store_warmup": 50.0}
+
+    config = EngramConfig()
+    config.activation.capture_startup_warmup_timeout_ms = 1
+    manager = SimpleNamespace(warm_capture_store=slow_warmup)
+    main_module._startup_background_tasks.clear()
+
+    try:
+        with pytest.raises(TimeoutError):
+            await main_module._warm_capture_store_bounded(manager, config)
+
+        assert main_module._startup_background_tasks
+        await asyncio.wait_for(done.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not main_module._startup_background_tasks
+    finally:
+        for task in list(main_module._startup_background_tasks):
+            task.cancel()
+        main_module._startup_background_tasks.clear()
+
+
+@pytest.mark.asyncio
+async def test_graph_stats_startup_warmup_tracks_background_task() -> None:
+    import asyncio
+
+    from engram import main as main_module
+    from engram.config import EngramConfig
+
+    done = asyncio.Event()
+
+    async def warm_stats(_group_id):
+        await asyncio.sleep(0)
+        done.set()
+        return {"episodes": 1}
+
+    config = EngramConfig()
+    config.default_group_id = "brain_a"
+    manager = SimpleNamespace(
+        warm_graph_stats=Mock(
+            side_effect=lambda group_id: asyncio.create_task(warm_stats(group_id)),
+        ),
+    )
+    main_module._startup_background_tasks.clear()
+
+    try:
+        main_module._start_graph_stats_warmup(manager, config)
+
+        manager.warm_graph_stats.assert_called_once_with("brain_a")
+        assert main_module._startup_background_tasks
+        await asyncio.wait_for(done.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not main_module._startup_background_tasks
+    finally:
+        for task in list(main_module._startup_background_tasks):
+            task.cancel()
+        main_module._startup_background_tasks.clear()

@@ -332,6 +332,13 @@ load_existing_env() {
   fi
 }
 
+read_env_file_value() {
+  local env_file="$1"
+  local key="$2"
+  [ -f "$env_file" ] || return 0
+  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$env_file"
+}
+
 prompt_value() {
   local prompt="$1"
   local default="${2:-}"
@@ -350,6 +357,9 @@ prompt_value() {
 write_lite_env_file() {
   local engine_mode="${1:-lite}"
   mkdir -p "$ENGRAM_HOME"
+
+  local existing_helix_data_dir
+  existing_helix_data_dir="$(read_env_file_value "$LITE_ENV_FILE" "ENGRAM_HELIX__DATA_DIR")"
 
   local anthropic="${ANTHROPIC_API_KEY:-${ENGRAM_ANTHROPIC_API_KEY:-}}"
   if [ -z "$anthropic" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
@@ -388,7 +398,7 @@ EOF
   if [ "$engine_mode" = "helix" ]; then
     cat >>"$LITE_ENV_FILE" <<EOF
 ENGRAM_HELIX__TRANSPORT=native
-ENGRAM_HELIX__DATA_DIR=${ENGRAM_HELIX__DATA_DIR:-}
+ENGRAM_HELIX__DATA_DIR=${ENGRAM_HELIX__DATA_DIR:-$existing_helix_data_dir}
 EOF
   fi
 }
@@ -794,10 +804,18 @@ launch_agent_start() {
   domain="$(launch_agent_domain)"
   service="$(launch_agent_service)"
   if ! launchctl print "$service" >/dev/null 2>&1; then
-    launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
+    if ! launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1; then
+      sleep 1
+      launchctl bootout "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || true
+      launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || return 1
+    fi
   fi
-  launchctl kickstart -k "$service" >/dev/null 2>&1 || true
-  local attempts=10
+  if ! launchctl kickstart -k "$service" >/dev/null 2>&1; then
+    sleep 1
+    launchctl kickstart -k "$service" >/dev/null 2>&1 || true
+  fi
+  local attempts
+  attempts="$(local_startup_attempts)"
   while [ "$attempts" -gt 0 ]; do
     if launch_agent_is_running; then
       return 0
@@ -805,6 +823,10 @@ launch_agent_start() {
     attempts=$((attempts - 1))
     sleep 1
   done
+  if ! launchctl print "$service" >/dev/null 2>&1; then
+    launchctl bootstrap "$domain" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 || return 1
+    launchctl kickstart -k "$service" >/dev/null 2>&1 || true
+  fi
   return 1
 }
 
@@ -813,8 +835,23 @@ launch_agent_stop() {
   if ! launchctl print "$(launch_agent_service)" >/dev/null 2>&1; then
     return 0
   fi
+  local pid
+  pid="$(launch_agent_pid || true)"
   launchctl bootout "$(launch_agent_service)" >/dev/null 2>&1 \
-    || launchctl bootout "$(launch_agent_domain)" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1
+    || launchctl bootout "$(launch_agent_domain)" "$LITE_LAUNCH_AGENT_PLIST" >/dev/null 2>&1 \
+    || return 1
+
+  local attempts=30
+  while [ "$attempts" -gt 0 ]; do
+    if ! launchctl print "$(launch_agent_service)" >/dev/null 2>&1; then
+      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+        return 0
+      fi
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+  done
+  return 1
 }
 
 lite_pid_is_running() {
@@ -840,7 +877,7 @@ local_startup_attempts() {
     return
   fi
   if [ "${ENGRAM_MODE:-lite}" = "helix" ]; then
-    printf '90'
+    printf '180'
   else
     printf '30'
   fi
@@ -864,13 +901,68 @@ wait_for_local_offline() {
   local port="$1"
   local attempts="${2:-15}"
   while [ "$attempts" -gt 0 ]; do
-    if ! curl --connect-timeout 1 --max-time 2 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+    if ! local_api_health_responds "$port"; then
       return 0
     fi
     attempts=$((attempts - 1))
     sleep 1
   done
   return 1
+}
+
+local_api_health_responds() {
+  local port="$1"
+  curl --connect-timeout 1 --max-time 2 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1
+}
+
+local_api_listener_pids() {
+  local port="$1"
+  command -v lsof >/dev/null 2>&1 || return 0
+  lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+looks_like_engram_server_command() {
+  local command_line="$1"
+  case "$command_line" in
+    *engram*serve*) return 0 ;;
+  esac
+  return 1
+}
+
+stop_orphan_local_api_listeners() {
+  local port="$1"
+  local pid command_line killed
+  killed=0
+  for pid in $(local_api_listener_pids "$port"); do
+    [ -n "$pid" ] || continue
+    command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    if looks_like_engram_server_command "$command_line"; then
+      warn "Removing untracked Engram API listener on port $port (PID $pid)."
+      dim "$command_line"
+      kill "$pid" 2>/dev/null || true
+      killed=1
+    elif [ -n "$command_line" ]; then
+      warn "Port $port is held by PID $pid, but it does not look like Engram."
+      dim "$command_line"
+      return 1
+    fi
+  done
+
+  [ "$killed" = "1" ] || return 1
+  if wait_for_local_offline "$port" 10; then
+    return 0
+  fi
+
+  for pid in $(local_api_listener_pids "$port"); do
+    [ -n "$pid" ] || continue
+    command_line="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    if looks_like_engram_server_command "$command_line"; then
+      warn "Force-stopping untracked Engram API listener on port $port (PID $pid)."
+      dim "$command_line"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+  wait_for_local_offline "$port" 5
 }
 
 lite_start() {
@@ -972,10 +1064,23 @@ lite_stop() {
   fi
 
   if [ "$stopped" != "1" ]; then
+    if local_api_health_responds "$port"; then
+      if stop_orphan_local_api_listeners "$port"; then
+        info "Engram stopped."
+        return 0
+      fi
+      warn "Engram API responds on port $port, but no PID file or LaunchAgent owns it."
+      dim "Check listener: lsof -nP -iTCP:${port} -sTCP:LISTEN"
+      return 1
+    fi
     info "Engram is not running."
     return 0
   fi
   if ! wait_for_local_offline "$port"; then
+    if stop_orphan_local_api_listeners "$port"; then
+      info "Engram stopped."
+      return 0
+    fi
     warn "Engram stop was requested, but API still responds on port $port."
     dim "Check listener: lsof -nP -iTCP:${port} -sTCP:LISTEN"
     return 1
@@ -1075,6 +1180,7 @@ counts = payload.get("counts") or {}
 growth = payload.get("growthSinceStartup") or {}
 disk = payload.get("disk") or {}
 paths = payload.get("paths") or []
+diagnostics = payload.get("diagnostics") or {}
 
 
 def signed(value, suffix=""):
@@ -1128,6 +1234,13 @@ print(
     f"({signed(growth.get('relationships', 0))}), "
     f"{counts.get('cues', 0)} cues ({signed(growth.get('cues', 0))})"
 )
+counts_status = diagnostics.get("countsStatus")
+if counts_status:
+    counts_source = counts_status
+    skipped_reason = diagnostics.get("countsRefreshSkippedReason")
+    if skipped_reason:
+        counts_source = f"{counts_source}; {skipped_reason}"
+    print(f"  Counts source: {counts_source}")
 print("")
 print("  Paths:")
 for item in paths:
@@ -1404,7 +1517,11 @@ command_doctor() {
     load_local_env
     local engram_cmd
     engram_cmd="$(find_engram_command)"
-    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" "$@"
+    local doctor_args=()
+    if [ "${ENGRAM_MODE:-lite}" = "helix" ]; then
+      doctor_args+=(--no-lifecycle)
+    fi
+    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" "${doctor_args[@]}" "$@"
     return
   fi
 
@@ -1412,7 +1529,11 @@ command_doctor() {
     load_existing_env "$FULL_ENV_FILE"
     local engram_cmd
     engram_cmd="$(find_engram_command)"
-    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-full}" --server-url "$(api_base_url)" "$@"
+    local doctor_args=()
+    if [ "${ENGRAM_MODE:-full}" = "helix" ]; then
+      doctor_args+=(--no-lifecycle)
+    fi
+    "$engram_cmd" doctor --mode "${ENGRAM_MODE:-full}" --server-url "$(api_base_url)" "${doctor_args[@]}" "$@"
     return
   fi
 

@@ -93,6 +93,7 @@ class TestIntegrationProfiles:
         assert cfg.recall_need_impoverishment_shadow_only is False
         assert cfg.recall_planner_enabled is True
         assert cfg.recall_usage_feedback_enabled is True
+        assert cfg.capture_cue_vector_index_quiet_period_ms == 1000
         assert cfg.cue_layer_enabled is True
         assert cfg.cue_vector_index_enabled is True
         assert cfg.cue_recall_enabled is True

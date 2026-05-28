@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import math
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from engram.consolidation.scorers import cross_encoder as cross_encoder_module
 from engram.consolidation.scorers.cross_encoder import (
     _entity_description,
     cross_encoder_score,
@@ -77,6 +79,34 @@ class TestCrossEncoderScore:
         ):
             result = await cross_encoder_score("a", "b")
             assert result is None
+
+    @pytest.mark.asyncio
+    async def test_init_failure_is_negative_cached(self, monkeypatch):
+        calls = 0
+
+        def failing_model(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("missing model")
+
+        fake_fastembed = ModuleType("fastembed")
+        fake_rerank = ModuleType("fastembed.rerank")
+        fake_module = ModuleType("fastembed.rerank.cross_encoder")
+        fake_module.TextCrossEncoder = failing_model
+        fake_fastembed.rerank = fake_rerank
+        fake_rerank.cross_encoder = fake_module
+        monkeypatch.setitem(sys.modules, "fastembed", fake_fastembed)
+        monkeypatch.setitem(sys.modules, "fastembed.rerank", fake_rerank)
+        monkeypatch.setitem(sys.modules, "fastembed.rerank.cross_encoder", fake_module)
+        monkeypatch.setattr(cross_encoder_module, "_cross_encoder", None)
+        monkeypatch.setattr(cross_encoder_module, "_ce_lock", None)
+
+        assert await cross_encoder_module._get_cross_encoder() is None
+        assert await cross_encoder_module._get_cross_encoder() is None
+        assert calls == 1
+
+        monkeypatch.setattr(cross_encoder_module, "_cross_encoder", None)
+        monkeypatch.setattr(cross_encoder_module, "_ce_lock", None)
 
 
 class TestRefineMergeVerdict:

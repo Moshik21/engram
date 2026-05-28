@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import re
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from engram.models.recall import MemoryPacket
@@ -14,6 +17,13 @@ from engram.retrieval.budgets import (
     budget_profile_for_source,
     recall_budget_for_profile,
     surface_for_source,
+)
+from engram.retrieval.context_builder import (
+    _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    SESSION_RECENT_PACKET_SCOPE,
+    _run_project_file_executor,
+    cache_project_file_fallback_packet_payloads,
+    project_file_fallback_packet_payloads,
 )
 from engram.retrieval.control import resolve_manager_recall_need_thresholds
 from engram.retrieval.memory_operations import (
@@ -31,7 +41,14 @@ from engram.retrieval.presenter import (
 PacketSerializer = Callable[[MemoryPacket], dict[str, Any]]
 ResolveNameFn = Callable[[str], Awaitable[str]]
 AccessCountFn = Callable[[str], Awaitable[int]]
-FAST_RECALL_FALLBACK_TIMEOUT_SECONDS = 0.2
+FAST_RECALL_FALLBACK_TIMEOUT_SECONDS = 0.15
+FAST_RECALL_FALLBACK_MIN_MATCHES = 2
+PROJECT_FILE_RECALL_FALLBACK_MAX_CANDIDATES = 40
+PROJECT_FILE_RECALL_FALLBACK_READ_LIMIT = 16
+PROJECT_FILE_RECALL_FALLBACK_SCAN_CHARS = 16_000
+PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS = 0.1
+PROJECT_FILE_RECALL_EMPTY_SUCCESS_WAIT_SECONDS = 1.25
+EXPLICIT_RECALL_PACKET_CACHE_SCOPE = "explicit_recall"
 
 
 def _elapsed_ms(started: float) -> float:
@@ -43,18 +60,45 @@ def _camel_stage_name(value: str) -> str:
     return parts[0] + "".join(part.capitalize() for part in parts[1:])
 
 
+def _default_project_path_for_recall() -> str | None:
+    configured = os.environ.get("ENGRAM_RECALL_PROJECT_PATH") or os.environ.get(
+        "ENGRAM_PROJECT_PATH"
+    )
+    for candidate in (configured, os.getcwd()):
+        if not candidate:
+            continue
+        try:
+            path = Path(candidate).expanduser().resolve()
+        except OSError:
+            continue
+        if _looks_like_project_directory(path):
+            return str(path)
+    return None
+
+
+def _looks_like_project_directory(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    return any(
+        (path / marker).exists()
+        for marker in (".git", "pyproject.toml", "package.json", "README.md", "docs")
+    )
+
+
 async def build_api_recall_surface(
     manager: Any,
     *,
     group_id: str,
     query: str,
     limit: int,
+    project_path: str | None = None,
     operation_source: str = "api_recall",
 ) -> dict[str, Any]:
     """Build the REST explicit-recall payload."""
     packet_policy = manager.get_explicit_recall_packet_policy()
     cfg = manager.get_memory_need_config()
     pre_stage_timings: dict[str, float] = {}
+    started = time.perf_counter()
     packet_started = time.perf_counter()
     packets = await cached_explicit_recall_packet_payloads(
         manager,
@@ -66,6 +110,48 @@ async def build_api_recall_surface(
         enabled=packet_policy.enabled,
     )
     pre_stage_timings["packet_cache"] = _elapsed_ms(packet_started)
+    context_packets: list[dict[str, Any]] = []
+    if not packets:
+        context_packets = await cached_context_recall_packet_payloads(
+            manager,
+            group_id=group_id,
+            query=query,
+            max_packets=packet_policy.max_packets,
+            cfg=cfg,
+            operation_source=operation_source,
+            mode="context_packet_cache_preflight",
+            project_path=project_path,
+        )
+    cache_packets = packets or context_packets
+    if _packets_satisfy_explicit_query(cache_packets, query=query):
+        recall_metadata = await _cache_satisfied_recall_metadata(
+            manager,
+            group_id=group_id,
+            operation_source=operation_source,
+            cfg=cfg,
+            limit=limit,
+            packet_count=len(cache_packets),
+            duration_ms=_elapsed_ms(started),
+            stage_timings_ms=pre_stage_timings,
+        )
+        response = present_api_recall_response(
+            query=query,
+            results=[],
+            packets=cache_packets,
+        )
+        _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
+        return response
+    project_file_fallback_path = (
+        project_path or _default_project_path_for_recall()
+        if not cache_packets
+        else None
+    )
+    prefer_project_file_before_recent = bool(project_path)
+    project_file_fallback_task = _start_project_file_recall_fallback_task(
+        query=query,
+        project_path=project_file_fallback_path,
+        max_packets=packet_policy.max_packets,
+    )
     results, recall_metadata = await _run_explicit_recall_with_budget(
         manager,
         group_id=group_id,
@@ -73,9 +159,102 @@ async def build_api_recall_surface(
         limit=limit,
         cfg=cfg,
         operation_source=operation_source,
+        project_path=project_path,
     )
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
-    if recall_metadata["status"] == "ok" and not packets:
+    results = await _maybe_run_success_fast_fallback(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        cfg=cfg,
+        recall_metadata=recall_metadata,
+        started=started,
+        results=results,
+        packets=packets,
+        context_packets=context_packets,
+        project_path=project_path,
+    )
+    if recall_metadata["status"] != "ok" and not packets:
+        packets = context_packets
+        fallback_project_path = (
+            project_file_fallback_path
+            if prefer_project_file_before_recent and not packets
+            else None
+        )
+        used_project_file_fallback = False
+        if fallback_project_path:
+            project_file_started = time.perf_counter()
+            packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+                project_file_fallback_task,
+                manager,
+                group_id=group_id,
+                query=query,
+                project_path=fallback_project_path,
+                max_packets=packet_policy.max_packets,
+                operation_source=operation_source,
+            )
+            stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+                project_file_started
+            )
+            if build_duration_ms is not None:
+                stage_timings["project_file_recall_fallback"] = build_duration_ms
+            used_project_file_fallback = bool(packets)
+        if not packets:
+            packets = await cached_context_recall_packet_payloads(
+                manager,
+                group_id=group_id,
+                query=query,
+                max_packets=packet_policy.max_packets,
+                cfg=cfg,
+                operation_source=operation_source,
+                allow_recent_miss=True,
+                project_path=project_path,
+            )
+        if (
+            not packets
+            and not prefer_project_file_before_recent
+            and project_file_fallback_path
+        ):
+            project_file_started = time.perf_counter()
+            packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+                project_file_fallback_task,
+                manager,
+                group_id=group_id,
+                query=query,
+                project_path=project_file_fallback_path,
+                max_packets=packet_policy.max_packets,
+                operation_source=operation_source,
+            )
+            stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+                project_file_started
+            )
+            if build_duration_ms is not None:
+                stage_timings["project_file_recall_fallback"] = build_duration_ms
+            used_project_file_fallback = bool(packets)
+        if packets:
+            if used_project_file_fallback:
+                _mark_project_file_recall_fallback(
+                    recall_metadata,
+                    packet_count=len(packets),
+                )
+            else:
+                _mark_context_packet_recall_fallback(
+                    recall_metadata,
+                    packet_count=len(packets),
+                )
+            recall_metadata["duration_ms"] = _elapsed_ms(started)
+            recall_metadata["budget_miss"] = True
+            recall_metadata["degraded"] = True
+    if recall_metadata["status"] == "ok" and not results and not packets and context_packets:
+        packets = context_packets
+        _mark_context_packet_recall_fallback(
+            recall_metadata,
+            packet_count=len(context_packets),
+        )
+    if recall_metadata["status"] == "ok" and results and not packets:
         packet_started = time.perf_counter()
         packets = await assemble_explicit_recall_packet_payloads(
             manager,
@@ -91,6 +270,38 @@ async def build_api_recall_surface(
         recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
             _elapsed_ms(packet_started)
         )
+    if (
+        recall_metadata["status"] == "ok"
+        and not results
+        and not packets
+        and project_file_fallback_path
+    ):
+        project_file_started = time.perf_counter()
+        packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+            project_file_fallback_task,
+            manager,
+            group_id=group_id,
+            query=query,
+            project_path=project_file_fallback_path,
+            max_packets=packet_policy.max_packets,
+            operation_source=operation_source,
+            timeout_seconds=_project_file_empty_success_wait_seconds(
+                recall_metadata,
+                started,
+            ),
+        )
+        stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+            project_file_started
+        )
+        if build_duration_ms is not None:
+            stage_timings["project_file_recall_fallback"] = build_duration_ms
+        if packets:
+            _mark_project_file_recall_fallback(recall_metadata, packet_count=len(packets))
+            recall_metadata["duration_ms"] = _elapsed_ms(started)
+            recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
+    if not results and not packets and recall_metadata["status"] != "ok":
+        packets = [_diagnostic_recall_packet(query=query, metadata=recall_metadata)]
     response = present_api_recall_response(query=query, results=results, packets=packets)
     _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
     return response
@@ -103,6 +314,7 @@ async def build_mcp_recall_surface(
     query: str,
     limit: int,
     cfg: Any,
+    project_path: str | None = None,
     resolve_entity_name: ResolveNameFn | None = None,
     get_access_count: AccessCountFn | None = None,
 ) -> dict[str, Any]:
@@ -110,6 +322,7 @@ async def build_mcp_recall_surface(
     pre_stage_timings: dict[str, float] = {}
     packet_enabled = bool(getattr(cfg, "recall_packets_enabled", False))
     max_packets = int(getattr(cfg, "recall_packet_explicit_limit", 0) or 0)
+    started = time.perf_counter()
     packet_started = time.perf_counter()
     packets = await cached_explicit_recall_packet_payloads(
         manager,
@@ -121,6 +334,53 @@ async def build_mcp_recall_surface(
         enabled=packet_enabled,
     )
     pre_stage_timings["packet_cache"] = _elapsed_ms(packet_started)
+    context_packets: list[dict[str, Any]] = []
+    if not packets:
+        context_packets = await cached_context_recall_packet_payloads(
+            manager,
+            group_id=group_id,
+            query=query,
+            max_packets=max_packets,
+            cfg=cfg,
+            operation_source="mcp_recall",
+            mode="context_packet_cache_preflight",
+            project_path=project_path,
+        )
+    cache_packets = packets or context_packets
+    if _packets_satisfy_explicit_query(cache_packets, query=query):
+        recall_metadata = await _cache_satisfied_recall_metadata(
+            manager,
+            group_id=group_id,
+            operation_source="mcp_recall",
+            cfg=cfg,
+            limit=limit,
+            packet_count=len(cache_packets),
+            duration_ms=_elapsed_ms(started),
+            stage_timings_ms=pre_stage_timings,
+        )
+        response = present_mcp_recall_response(
+            query=query,
+            results=[],
+            packets=cache_packets,
+        )
+        _attach_recall_budget_metadata(response, recall_metadata, camel_case=False)
+        await attach_mcp_explicit_recall_enrichment(
+            manager,
+            response,
+            group_id=group_id,
+        )
+        return response
+    project_file_fallback_path = (
+        project_path or _default_project_path_for_recall()
+        if not cache_packets
+        else None
+    )
+    prefer_project_file_before_recent = bool(project_path)
+    project_file_fallback_task = _start_project_file_recall_fallback_task(
+        query=query,
+        project_path=project_file_fallback_path,
+        max_packets=max_packets,
+    )
     results, recall_metadata = await _run_explicit_recall_with_budget(
         manager,
         group_id=group_id,
@@ -128,8 +388,101 @@ async def build_mcp_recall_surface(
         limit=limit,
         cfg=cfg,
         operation_source="mcp_recall",
+        project_path=project_path,
     )
     recall_metadata.setdefault("stage_timings_ms", {}).update(pre_stage_timings)
+    results = await _maybe_run_success_fast_fallback(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        cfg=cfg,
+        recall_metadata=recall_metadata,
+        started=started,
+        results=results,
+        packets=packets,
+        context_packets=context_packets,
+        project_path=project_path,
+    )
+    if recall_metadata["status"] != "ok" and not packets:
+        packets = context_packets
+        fallback_project_path = (
+            project_file_fallback_path
+            if prefer_project_file_before_recent and not packets
+            else None
+        )
+        used_project_file_fallback = False
+        if fallback_project_path:
+            project_file_started = time.perf_counter()
+            packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+                project_file_fallback_task,
+                manager,
+                group_id=group_id,
+                query=query,
+                project_path=fallback_project_path,
+                max_packets=max_packets,
+                operation_source="mcp_recall",
+            )
+            stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+                project_file_started
+            )
+            if build_duration_ms is not None:
+                stage_timings["project_file_recall_fallback"] = build_duration_ms
+            used_project_file_fallback = bool(packets)
+        if not packets:
+            packets = await cached_context_recall_packet_payloads(
+                manager,
+                group_id=group_id,
+                query=query,
+                max_packets=max_packets,
+                cfg=cfg,
+                operation_source="mcp_recall",
+                allow_recent_miss=True,
+                project_path=project_path,
+            )
+        if (
+            not packets
+            and not prefer_project_file_before_recent
+            and project_file_fallback_path
+        ):
+            project_file_started = time.perf_counter()
+            packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+                project_file_fallback_task,
+                manager,
+                group_id=group_id,
+                query=query,
+                project_path=project_file_fallback_path,
+                max_packets=max_packets,
+                operation_source="mcp_recall",
+            )
+            stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+                project_file_started
+            )
+            if build_duration_ms is not None:
+                stage_timings["project_file_recall_fallback"] = build_duration_ms
+            used_project_file_fallback = bool(packets)
+        if packets:
+            if used_project_file_fallback:
+                _mark_project_file_recall_fallback(
+                    recall_metadata,
+                    packet_count=len(packets),
+                )
+            else:
+                _mark_context_packet_recall_fallback(
+                    recall_metadata,
+                    packet_count=len(packets),
+                )
+            recall_metadata["duration_ms"] = _elapsed_ms(started)
+            recall_metadata["budget_miss"] = True
+            recall_metadata["degraded"] = True
+    if recall_metadata["status"] == "ok" and not results and not packets and context_packets:
+        packets = context_packets
+        _mark_context_packet_recall_fallback(
+            recall_metadata,
+            packet_count=len(context_packets),
+        )
     if resolve_entity_name is None:
         resolve_entity_name = _mcp_recall_entity_name_resolver(manager, group_id)
     if get_access_count is None:
@@ -144,7 +497,7 @@ async def build_mcp_recall_surface(
     recall_metadata.setdefault("stage_timings_ms", {})["recall_present"] = _elapsed_ms(
         present_started,
     )
-    if recall_metadata["status"] == "ok" and not packets:
+    if recall_metadata["status"] == "ok" and results and not packets:
         packet_started = time.perf_counter()
         packets = await assemble_explicit_recall_packet_payloads(
             manager,
@@ -160,6 +513,38 @@ async def build_mcp_recall_surface(
         recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
             _elapsed_ms(packet_started)
         )
+    if (
+        recall_metadata["status"] == "ok"
+        and not results
+        and not packets
+        and project_file_fallback_path
+    ):
+        project_file_started = time.perf_counter()
+        packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
+            project_file_fallback_task,
+            manager,
+            group_id=group_id,
+            query=query,
+            project_path=project_file_fallback_path,
+            max_packets=max_packets,
+            operation_source="mcp_recall",
+            timeout_seconds=_project_file_empty_success_wait_seconds(
+                recall_metadata,
+                started,
+            ),
+        )
+        stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
+            project_file_started
+        )
+        if build_duration_ms is not None:
+            stage_timings["project_file_recall_fallback"] = build_duration_ms
+        if packets:
+            _mark_project_file_recall_fallback(recall_metadata, packet_count=len(packets))
+            recall_metadata["duration_ms"] = _elapsed_ms(started)
+            recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
+    if not formatted and not packets and recall_metadata["status"] != "ok":
+        packets = [_diagnostic_recall_packet(query=query, metadata=recall_metadata)]
     response = present_mcp_recall_response(
         query=query,
         results=formatted,
@@ -182,6 +567,7 @@ async def _run_explicit_recall_with_budget(
     limit: int,
     cfg: Any,
     operation_source: str,
+    project_path: str | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """Run the live recall stage under the shared explicit recall budget."""
     budget = recall_budget_for_profile(
@@ -194,14 +580,8 @@ async def _run_explicit_recall_with_budget(
     timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
     started = time.perf_counter()
     stage_timings: dict[str, float] = {}
-    fallback_started = time.perf_counter()
-    fallback_results, fallback_status = await _run_fast_recall_fallback(
-        manager,
-        group_id=group_id,
-        query=query,
-        limit=limit,
-    )
-    stage_timings["recall_fallback"] = _elapsed_ms(fallback_started)
+    fallback_results: list[dict] = []
+    fallback_status = "not_run"
     if timeout_seconds <= 0:
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await _record_recall_budget_event(
@@ -225,14 +605,55 @@ async def _run_explicit_recall_with_budget(
             budget_miss=True,
             stage_timings_ms=stage_timings,
             fallback_status=fallback_status,
-            fallback_result_count=len(fallback_results),
+            fallback_result_count=0,
         )
+
+    if _fast_recall_preflight_enabled(cfg):
+        fallback_started = time.perf_counter()
+        fallback_results, fallback_status = await _run_fast_recall_fallback(
+            manager,
+            group_id=group_id,
+            query=query,
+            limit=limit,
+            project_path=project_path,
+            timeout_seconds=_fast_recall_preflight_timeout_seconds(cfg),
+        )
+        stage_timings["recall_fast_preflight"] = _elapsed_ms(fallback_started)
+        if fallback_results:
+            duration_ms = round((time.perf_counter() - started) * 1000, 4)
+            await record_manager_memory_operation(
+                manager,
+                group_id,
+                MemoryOperationSample(
+                    operation="recall",
+                    source=operation_source,
+                    mode=operation_source,
+                    status="ok",
+                    duration_ms=duration_ms,
+                    timeout=False,
+                    degraded=False,
+                    budget_miss=budget.exceeded(duration_ms),
+                    budget_ms=budget.budget_ms,
+                    budget_tokens=budget.budget_tokens,
+                    result_count=len(fallback_results),
+                    packet_count=0,
+                ),
+            )
+            return list(fallback_results), _recall_budget_metadata(
+                budget,
+                status="ok",
+                duration_ms=duration_ms,
+                budget_miss=budget.exceeded(duration_ms),
+                stage_timings_ms=stage_timings,
+                fallback_status="fast_preflight_hit",
+                fallback_result_count=len(fallback_results),
+            )
 
     try:
         recall_started = time.perf_counter()
         results = await asyncio.wait_for(
             manager.recall(
-                query=query,
+                query=_recall_query_with_project_context(query, project_path),
                 group_id=group_id,
                 limit=limit,
                 interaction_type="used",
@@ -244,6 +665,18 @@ async def _run_explicit_recall_with_budget(
         stage_timings.update(_manager_recall_stage_timings(manager))
     except asyncio.TimeoutError:
         stage_timings["recall_search"] = _elapsed_ms(recall_started)
+        stage_timings.update(_manager_recall_stage_timings(manager))
+        if fallback_status == "not_run":
+            fallback_started = time.perf_counter()
+            fallback_results, fallback_status = await _run_fast_recall_fallback(
+                manager,
+                group_id=group_id,
+                query=query,
+                limit=limit,
+                project_path=project_path,
+                timeout_seconds=_fast_recall_fallback_timeout_seconds(cfg),
+            )
+            stage_timings["recall_fallback"] = _elapsed_ms(fallback_started)
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await _record_recall_budget_event(
             manager,
@@ -270,6 +703,7 @@ async def _run_explicit_recall_with_budget(
         )
 
     duration_ms = round((time.perf_counter() - started) * 1000, 4)
+    results = _prefer_project_context_results(results, project_path=project_path)
     return list(results), _recall_budget_metadata(
         budget,
         status="ok",
@@ -279,6 +713,60 @@ async def _run_explicit_recall_with_budget(
         fallback_status=fallback_status,
         fallback_result_count=len(fallback_results),
     )
+
+
+async def _maybe_run_success_fast_fallback(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    cfg: Any,
+    recall_metadata: dict[str, Any],
+    started: float,
+    results: list[dict],
+    packets: Sequence[Mapping[str, Any]],
+    context_packets: Sequence[Mapping[str, Any]],
+    project_path: str | None = None,
+) -> list[dict]:
+    """Use fast episode/cue fallback when successful deep recall is empty or weak."""
+    if (
+        recall_metadata.get("status") != "ok"
+        or packets
+        or context_packets
+        or recall_metadata.get("fallback_status") != "not_run"
+    ):
+        return results
+    live_results_empty = not results
+    live_results_low_overlap = bool(
+        results and not _recall_results_satisfy_query(results, query=query)
+    )
+    if not live_results_empty and not live_results_low_overlap:
+        return results
+
+    fallback_started = time.perf_counter()
+    fallback_results, fallback_status = await _run_fast_recall_fallback(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        project_path=project_path,
+        timeout_seconds=_fast_recall_fallback_timeout_seconds(cfg),
+    )
+    stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
+    stage_key = (
+        "recall_empty_success_fallback"
+        if live_results_empty
+        else "recall_low_overlap_fallback"
+    )
+    stage_timings[stage_key] = _elapsed_ms(fallback_started)
+    recall_metadata["fallback_status"] = (
+        fallback_status if live_results_empty else f"quality_rescue_{fallback_status}"
+    )
+    recall_metadata["fallback_result_count"] = len(fallback_results)
+    recall_metadata["duration_ms"] = _elapsed_ms(started)
+    recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
+    return list(fallback_results) if fallback_results else results
 
 
 async def _record_recall_budget_event(
@@ -314,6 +802,60 @@ async def _record_recall_budget_event(
     )
 
 
+async def _cache_satisfied_recall_metadata(
+    manager: Any,
+    *,
+    group_id: str,
+    operation_source: str,
+    cfg: Any,
+    limit: int,
+    packet_count: int,
+    duration_ms: float,
+    stage_timings_ms: dict[str, float],
+) -> dict[str, Any]:
+    """Record and describe explicit recall satisfied by cached packets."""
+    budget = recall_budget_for_profile(
+        cfg,
+        budget_profile_for_source(operation_source),
+        surface=surface_for_source(operation_source),
+        mode=operation_source,
+        max_results=limit,
+    )
+    stage_timings = dict(stage_timings_ms)
+    stage_timings["cache_satisfied"] = duration_ms
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="recall",
+            source=operation_source,
+            mode=operation_source,
+            status="ok",
+            duration_ms=duration_ms,
+            skip_reason="cache_satisfied",
+            timeout=False,
+            degraded=False,
+            budget_miss=budget.exceeded(duration_ms),
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+            cache_hit=True,
+            result_count=0,
+            packet_count=packet_count,
+        ),
+    )
+    return _recall_budget_metadata(
+        budget,
+        status="ok",
+        duration_ms=duration_ms,
+        skip_reason="cache_satisfied",
+        timeout=False,
+        budget_miss=budget.exceeded(duration_ms),
+        stage_timings_ms=stage_timings,
+        fallback_status="cache_satisfied",
+        fallback_result_count=0,
+    )
+
+
 def _recall_budget_metadata(
     budget: RecallBudget,
     *,
@@ -338,6 +880,57 @@ def _recall_budget_metadata(
         "fallback_status": fallback_status,
         "fallback_result_count": max(0, int(fallback_result_count)),
     }
+
+
+def _mark_project_file_recall_fallback(
+    metadata: dict[str, Any],
+    *,
+    packet_count: int,
+) -> None:
+    """Mark that local project packets rescued an otherwise empty/degraded recall."""
+    metadata["fallback_status"] = "project_file_recall_fallback"
+    metadata["fallback_result_count"] = 0
+    metadata["project_file_packet_count"] = max(0, int(packet_count))
+
+
+def _mark_context_packet_recall_fallback(
+    metadata: dict[str, Any],
+    *,
+    packet_count: int,
+) -> None:
+    """Mark that cached context packets carried an otherwise empty recall."""
+    metadata["fallback_status"] = "context_packet_fallback"
+    metadata["fallback_result_count"] = 0
+    metadata["context_packet_count"] = max(0, int(packet_count))
+
+
+def _metadata_budget_exceeded(metadata: Mapping[str, Any]) -> bool:
+    budget = metadata.get("budget")
+    duration_ms = metadata.get("duration_ms")
+    if not isinstance(budget, Mapping) or not isinstance(duration_ms, int | float):
+        return bool(metadata.get("budget_miss"))
+    max_wall_ms = budget.get("max_wall_ms")
+    if not isinstance(max_wall_ms, int | float) or max_wall_ms <= 0:
+        return False
+    return float(duration_ms) > float(max_wall_ms)
+
+
+def _project_file_empty_success_wait_seconds(
+    metadata: Mapping[str, Any],
+    started: float,
+) -> float:
+    budget = metadata.get("budget")
+    if not isinstance(budget, Mapping):
+        return PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS
+    max_wall_ms = budget.get("max_wall_ms")
+    if not isinstance(max_wall_ms, int | float) or max_wall_ms <= 0:
+        return PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS
+    elapsed_seconds = max(0.0, time.perf_counter() - started)
+    remaining_seconds = (float(max_wall_ms) / 1000.0) - elapsed_seconds
+    return max(
+        0.0,
+        min(PROJECT_FILE_RECALL_EMPTY_SUCCESS_WAIT_SECONDS, remaining_seconds),
+    )
 
 
 def _manager_recall_stage_timings(manager: Any) -> dict[str, float]:
@@ -365,16 +958,20 @@ async def _run_fast_recall_fallback(
     group_id: str,
     query: str,
     limit: int,
+    project_path: str | None = None,
+    timeout_seconds: float = FAST_RECALL_FALLBACK_TIMEOUT_SECONDS,
 ) -> tuple[list[dict], str]:
     fallback = getattr(manager, "fast_recall_fallback", None)
     if not callable(fallback):
         return [], "unavailable"
+    if timeout_seconds <= 0:
+        return [], "disabled"
     try:
         value = fallback(query=query, group_id=group_id, limit=limit)
         if inspect.isawaitable(value):
             value = await asyncio.wait_for(
                 value,
-                timeout=FAST_RECALL_FALLBACK_TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
             )
     except asyncio.TimeoutError:
         return [], "timeout"
@@ -382,7 +979,154 @@ async def _run_fast_recall_fallback(
         return [], "error"
     if not isinstance(value, list):
         return [], "invalid"
-    return list(value), "hit" if value else "miss"
+    filtered = _filter_fast_recall_fallback_results(value, query=query)
+    if value and not filtered:
+        return [], "filtered"
+    filtered = _prefer_project_context_results(filtered, project_path=project_path)
+    return filtered, "hit" if filtered else "miss"
+
+
+def _fast_recall_fallback_timeout_seconds(cfg: Any) -> float:
+    raw_timeout_ms = getattr(
+        cfg,
+        "recall_fast_fallback_timeout_ms",
+        int(FAST_RECALL_FALLBACK_TIMEOUT_SECONDS * 1000),
+    )
+    try:
+        timeout_ms = int(raw_timeout_ms)
+    except (TypeError, ValueError):
+        timeout_ms = int(FAST_RECALL_FALLBACK_TIMEOUT_SECONDS * 1000)
+    return max(0, timeout_ms) / 1000.0
+
+
+def _fast_recall_preflight_timeout_seconds(cfg: Any) -> float:
+    raw_timeout_ms = getattr(
+        cfg,
+        "recall_fast_preflight_timeout_ms",
+        None,
+    )
+    if raw_timeout_ms is None:
+        raw_timeout_ms = getattr(
+            cfg,
+            "recall_fast_fallback_timeout_ms",
+            int(FAST_RECALL_FALLBACK_TIMEOUT_SECONDS * 1000),
+        )
+    try:
+        timeout_ms = int(raw_timeout_ms)
+    except (TypeError, ValueError):
+        timeout_ms = int(FAST_RECALL_FALLBACK_TIMEOUT_SECONDS * 1000)
+    return max(0, timeout_ms) / 1000.0
+
+
+def _fast_recall_preflight_enabled(cfg: Any) -> bool:
+    return bool(getattr(cfg, "recall_fast_preflight_enabled", True)) and (
+        _fast_recall_preflight_timeout_seconds(cfg) > 0
+    )
+
+
+def _filter_fast_recall_fallback_results(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    query: str,
+) -> list[dict]:
+    """Keep fallback hits only when their visible text overlaps the query.
+
+    The fast fallback is a timeout rescue path. It should be conservative because
+    vector-only nearest-neighbor hits can otherwise look like confident results
+    for nonsense or unrelated queries.
+    """
+    tokens = _query_tokens(query)
+    if not tokens:
+        return [dict(result) for result in results]
+    required_matches = 1 if len(tokens) == 1 else FAST_RECALL_FALLBACK_MIN_MATCHES
+    filtered: list[dict] = []
+    for result in results:
+        matches = _recall_result_query_matches(result, tokens)
+        if len(matches) >= required_matches:
+            filtered.append(dict(result))
+    return filtered
+
+
+def _recall_results_satisfy_query(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    query: str,
+) -> bool:
+    tokens = _query_tokens(query)
+    if not tokens:
+        return True
+    required_matches = 1 if len(tokens) == 1 else FAST_RECALL_FALLBACK_MIN_MATCHES
+    return any(
+        len(_recall_result_query_matches(result, tokens)) >= required_matches
+        for result in results
+    )
+
+
+def _recall_result_query_matches(
+    result: Mapping[str, Any],
+    tokens: set[str],
+) -> set[str]:
+    text = _recall_result_search_text(result)
+    return {token for token in tokens if token in text}
+
+
+def _recall_result_search_text(result: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    episode = result.get("episode")
+    if isinstance(episode, Mapping):
+        for key in ("content", "source", "id"):
+            parts.append(str(episode.get(key) or ""))
+    cue = result.get("cue")
+    if isinstance(cue, Mapping):
+        parts.append(str(cue.get("cue_text") or ""))
+        spans = cue.get("supporting_spans")
+        if isinstance(spans, list | tuple):
+            parts.extend(str(span) for span in spans)
+    for linked in result.get("linked_entities") or []:
+        if isinstance(linked, Mapping):
+            parts.extend(str(linked.get(key) or "") for key in ("name", "summary", "id"))
+        else:
+            parts.append(str(linked))
+    return " ".join(parts).lower()
+
+
+def _recall_query_with_project_context(query: str, project_path: str | None) -> str:
+    project_name = _project_name(project_path)
+    if not project_name:
+        return query
+    query_text = query.strip()
+    if project_name.lower() in query_text.lower():
+        return query_text
+    return f"{project_name} {query_text}" if query_text else project_name
+
+
+def _prefer_project_context_results(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    project_path: str | None,
+) -> list[dict]:
+    result_list = [dict(result) for result in results]
+    project_name = _project_name(project_path)
+    if not project_name:
+        return result_list
+    project_terms = {
+        project_name.lower(),
+        str(Path(project_path).expanduser()).lower() if project_path else "",
+    }
+    project_terms.discard("")
+    project_results = [
+        result
+        for result in result_list
+        if any(term in _recall_result_search_text(result) for term in project_terms)
+    ]
+    return project_results or result_list
+
+
+def _project_name(project_path: str | None) -> str | None:
+    if not project_path:
+        return None
+    name = Path(project_path).expanduser().name.strip()
+    return name or None
 
 
 def _attach_recall_budget_metadata(
@@ -449,6 +1193,7 @@ async def build_mcp_explicit_recall_tool_surface(
     cfg: Any,
     session: Any,
     recall_middleware: Callable[..., Awaitable[None]],
+    project_path: str | None = None,
     perf_counter: Callable[[], float] = time.perf_counter,
     time_source: Callable[[], float] = time.time,
 ) -> dict[str, Any]:
@@ -460,6 +1205,7 @@ async def build_mcp_explicit_recall_tool_surface(
         query=query,
         limit=limit,
         cfg=cfg,
+        project_path=project_path,
     )
     response["query_time_ms"] = round((perf_counter() - started) * 1000, 1)
     session.last_recall_time = time_source()
@@ -540,7 +1286,7 @@ async def assemble_explicit_recall_packet_payloads(
     if max_packets <= 0 or budget.max_packets <= 0:
         return []
 
-    cache_scope = f"explicit_recall:{operation_source}"
+    cache_scope = EXPLICIT_RECALL_PACKET_CACHE_SCOPE
     cache_hit = _get_cached_packets(
         manager,
         group_id=group_id,
@@ -662,7 +1408,7 @@ async def cached_explicit_recall_packet_payloads(
     )
     if max_packets <= 0 or budget.max_packets <= 0:
         return []
-    cache_scope = f"explicit_recall:{operation_source}"
+    cache_scope = EXPLICIT_RECALL_PACKET_CACHE_SCOPE
     cache_hit = _get_cached_packets(
         manager,
         group_id=group_id,
@@ -687,6 +1433,648 @@ async def cached_explicit_recall_packet_payloads(
         ),
     )
     return cache_hit.packets
+
+
+async def cached_context_recall_packet_payloads(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    max_packets: int,
+    cfg: Any,
+    operation_source: str,
+    mode: str = "context_packet_fallback",
+    allow_recent_miss: bool = False,
+    project_path: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent context packets when explicit recall degrades."""
+    if max_packets <= 0:
+        return []
+    getter = getattr(manager, "get_recent_cached_memory_packets", None)
+    if not callable(getter):
+        return []
+    started = time.perf_counter()
+    try:
+        packets = getter(
+            group_id,
+            scopes=("identity_core", SESSION_RECENT_PACKET_SCOPE, "project_home"),
+            limit_packets=max_packets * 2,
+            sync_persistent=False,
+        )
+    except Exception:
+        return []
+    if inspect.isawaitable(packets):
+        close = getattr(packets, "close", None)
+        if callable(close):
+            close()
+        return []
+    if not isinstance(packets, list):
+        return []
+    packets = _filter_cached_context_packets_for_project(
+        packets,
+        project_path=project_path,
+    )
+    filtered = _filter_packets_for_query(packets, query=query, limit=max_packets)
+    if not filtered:
+        if not allow_recent_miss:
+            return []
+        filtered = _dedupe_recent_packets(packets, limit=max_packets)
+        if not filtered:
+            return []
+        mode = "context_packet_recent_fallback"
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="packet_cache",
+            source=operation_source,
+            mode=mode,
+            status="ok",
+            duration_ms=_elapsed_ms(started),
+            cache_hit=True,
+            packet_count=len(filtered),
+        ),
+    )
+    return filtered
+
+
+async def project_file_recall_packet_payloads(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str,
+    max_packets: int,
+    operation_source: str,
+) -> list[dict[str, Any]]:
+    if max_packets <= 0:
+        return []
+    started = time.perf_counter()
+    packets = project_file_fallback_packet_payloads(
+        manager,
+        group_id=group_id,
+        topic_hint=query,
+        project_path=project_path,
+        max_packets=max_packets,
+        reason=(
+            "Live explicit recall returned no usable memory under budget; this "
+            "packet was synthesized from local project files without loaded-store reads."
+        ),
+        max_candidates=PROJECT_FILE_RECALL_FALLBACK_MAX_CANDIDATES,
+        topic_scan_chars=PROJECT_FILE_RECALL_FALLBACK_SCAN_CHARS,
+    )
+    if not packets:
+        return []
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="packet_cache",
+            source=operation_source,
+            mode="project_file_recall_fallback",
+            status="ok",
+            duration_ms=_elapsed_ms(started),
+            cache_hit=False,
+            packet_count=len(packets),
+        ),
+    )
+    return packets
+
+
+def _start_project_file_recall_fallback_task(
+    *,
+    query: str,
+    project_path: str | None,
+    max_packets: int,
+) -> asyncio.Task[tuple[list[dict[str, Any]], float]] | None:
+    if not project_path or max_packets <= 0:
+        return None
+    task = asyncio.create_task(
+        _run_project_file_executor(
+            _build_project_file_recall_fallback_packets,
+            query=query,
+            project_path=project_path,
+            max_packets=max_packets,
+        )
+    )
+    task.add_done_callback(_consume_project_file_recall_fallback_task)
+    return task
+
+
+def _build_project_file_recall_fallback_packets(
+    *,
+    query: str,
+    project_path: str,
+    max_packets: int,
+) -> tuple[list[dict[str, Any]], float]:
+    started = time.perf_counter()
+    packets = project_file_fallback_packet_payloads(
+        None,
+        group_id="",
+        topic_hint=query,
+        project_path=project_path,
+        max_packets=max_packets,
+        reason=(
+            "Live explicit recall returned no usable memory under budget; this "
+            "packet was synthesized from local project files without loaded-store reads."
+        ),
+        max_candidates=PROJECT_FILE_RECALL_FALLBACK_MAX_CANDIDATES,
+        topic_scan_chars=PROJECT_FILE_RECALL_FALLBACK_SCAN_CHARS,
+        candidate_read_limit=PROJECT_FILE_RECALL_FALLBACK_READ_LIMIT,
+        cache=False,
+    )
+    return packets, _elapsed_ms(started)
+
+
+async def _resolve_project_file_recall_fallback_task(
+    task: asyncio.Task[tuple[list[dict[str, Any]], float]] | None,
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    project_path: str,
+    max_packets: int,
+    operation_source: str,
+    timeout_seconds: float = PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS,
+) -> tuple[list[dict[str, Any]], float | None]:
+    if task is None:
+        task = _start_project_file_recall_fallback_task(
+            query=query,
+            project_path=project_path,
+            max_packets=max_packets,
+        )
+    if task is None:
+        return [], None
+    if timeout_seconds <= 0:
+        return [], None
+    try:
+        packets, build_duration_ms = await asyncio.wait_for(
+            asyncio.shield(task),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        return [], None
+    except Exception:
+        return [], None
+    if not packets:
+        return [], build_duration_ms
+    cache_project_file_fallback_packet_payloads(
+        manager,
+        group_id=group_id,
+        topic_hint=query,
+        project_path=project_path,
+        packets=packets,
+    )
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="packet_cache",
+            source=operation_source,
+            mode="project_file_recall_fallback",
+            status="ok",
+            duration_ms=build_duration_ms,
+            cache_hit=False,
+            packet_count=len(packets),
+        ),
+    )
+    return packets, build_duration_ms
+
+
+def _consume_project_file_recall_fallback_task(
+    task: asyncio.Task[tuple[list[dict[str, Any]], float]],
+) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        return
+
+
+def _default_project_path_for_recall() -> str | None:
+    """Return a conservative local project fallback for recall without project_path."""
+    if str(os.environ.get("ENGRAM_RECALL_PROJECT_FALLBACK") or "").lower() in {
+        "0",
+        "false",
+        "off",
+    }:
+        return None
+    raw_path = os.environ.get("ENGRAM_RECALL_PROJECT_PATH") or os.environ.get(
+        "ENGRAM_PROJECT_PATH"
+    )
+    if raw_path:
+        return str(Path(raw_path).expanduser())
+    cwd = Path.cwd()
+    if _looks_like_project_dir(cwd):
+        return str(cwd)
+    return None
+
+
+def _looks_like_project_dir(path: Path) -> bool:
+    try:
+        if not path.exists() or not path.is_dir():
+            return False
+    except OSError:
+        return False
+    markers = (
+        ".git",
+        "README.md",
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "docs",
+    )
+    return any((path / marker).exists() for marker in markers)
+
+
+def _dedupe_recent_packets(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for packet in packets:
+        fingerprint = _packet_fingerprint(packet)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        selected.append(dict(packet))
+        if len(selected) >= max(1, limit):
+            break
+    return selected
+
+
+def _filter_cached_context_packets_for_project(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    project_path: str | None,
+) -> list[Mapping[str, Any]]:
+    if not project_path:
+        return list(packets)
+    selected: list[Mapping[str, Any]] = []
+    for packet in packets:
+        if not isinstance(packet, Mapping):
+            continue
+        if not _packet_has_project_file_fallback_source(packet):
+            if _packet_has_stale_project_file_fallback_source(packet):
+                continue
+            selected.append(packet)
+            continue
+        if _project_file_packet_matches_project(packet, project_path=project_path):
+            selected.append(packet)
+    return selected
+
+
+def _project_file_packet_matches_project(
+    packet: Mapping[str, Any],
+    *,
+    project_path: str,
+) -> bool:
+    expected = _normalize_project_path(project_path)
+    if not expected:
+        return False
+    for key in (
+        "_project_file_fallback_project_path",
+        "_cache_project_path",
+        "project_path",
+        "projectPath",
+    ):
+        actual = _normalize_project_path(packet.get(key))
+        if actual and actual == expected:
+            return True
+    return False
+
+
+def _normalize_project_path(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return str(Path(text).expanduser())
+
+
+def _packets_satisfy_explicit_query(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    query: str,
+) -> bool:
+    """Return true when cached packets are specific enough to skip deep search."""
+    if not packets:
+        return False
+    tokens = _query_tokens(query)
+    if not tokens:
+        return False
+    best_score = 0
+    covered_tokens: set[str] = set()
+    for packet in packets:
+        if not (
+            _packet_has_loaded_store_source(packet)
+            or _packet_has_project_file_fallback_source(packet)
+        ):
+            continue
+        if _project_file_packet_matches_query(packet, query=query):
+            return True
+        matches = _packet_query_matches(packet, tokens)
+        if not matches:
+            continue
+        covered_tokens.update(matches)
+        best_score = max(best_score, len(matches))
+    return best_score >= 3 or (best_score >= 2 and len(covered_tokens) >= 4)
+
+
+def _packet_has_loaded_store_source(packet: Mapping[str, Any]) -> bool:
+    """Return whether a packet came from stored memory, not project-file fallback."""
+    for key in (
+        "entity_ids",
+        "entityIds",
+        "episode_ids",
+        "episodeIds",
+        "relationship_ids",
+        "relationshipIds",
+    ):
+        value = packet.get(key)
+        if isinstance(value, Sequence) and not isinstance(value, str | bytes) and value:
+            return True
+    provenance = packet.get("provenance") or packet.get("sources") or []
+    if isinstance(provenance, str):
+        provenance_items: Sequence[Any] = (provenance,)
+    elif isinstance(provenance, Sequence):
+        provenance_items = provenance
+    else:
+        provenance_items = ()
+    return any(
+        str(item).startswith(("episode:", "entity:", "relationship:"))
+        for item in provenance_items
+    )
+
+
+def _packet_has_project_file_fallback_source(packet: Mapping[str, Any]) -> bool:
+    """Return whether a packet came from the bounded project-file fallback."""
+    if (
+        packet.get("_project_file_fallback_version")
+        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
+    ):
+        return False
+    trust = packet.get("trust")
+    if isinstance(trust, Mapping) and str(trust.get("source") or "") == "project_file":
+        return True
+    return str(packet.get("source") or "") == "project_file"
+
+
+def _packet_has_stale_project_file_fallback_source(packet: Mapping[str, Any]) -> bool:
+    trust = packet.get("trust")
+    is_project_file = (
+        isinstance(trust, Mapping) and str(trust.get("source") or "") == "project_file"
+    ) or str(packet.get("source") or "") == "project_file"
+    if not is_project_file:
+        return False
+    return (
+        packet.get("_project_file_fallback_version")
+        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
+    )
+
+
+def _project_file_packet_matches_query(
+    packet: Mapping[str, Any],
+    *,
+    query: str,
+) -> bool:
+    if not _packet_has_project_file_fallback_source(packet):
+        return False
+    return _normalize_cache_topic(packet.get("_project_file_fallback_topic_hint")) == (
+        _normalize_cache_topic(query)
+    )
+
+
+def _normalize_cache_topic(value: Any) -> str | None:
+    text = str(value or "").strip().casefold()
+    return text or None
+
+
+def _diagnostic_recall_packet(
+    *,
+    query: str,
+    metadata: Mapping[str, Any],
+) -> dict[str, Any]:
+    skip_reason = str(metadata.get("skip_reason") or "recall_degraded")
+    duration_ms = metadata.get("duration_ms")
+    fallback_status = metadata.get("fallback_status")
+    fallback_result_count = metadata.get("fallback_result_count")
+    stage_timings = metadata.get("stage_timings_ms")
+    budget_miss = bool(metadata.get("budget_miss"))
+    timeout = bool(metadata.get("timeout"))
+    summary = (
+        "No memory was surfaced for this explicit recall before the bounded recall "
+        "path degraded. Treat this as no recalled evidence under the current budget, "
+        "not as proof that no relevant memory exists."
+    )
+    evidence_lines = [
+        f"query={query}",
+        f"skip_reason={skip_reason}",
+        f"timeout={timeout}",
+        f"budget_miss={budget_miss}",
+    ]
+    if isinstance(duration_ms, int | float):
+        evidence_lines.append(f"duration_ms={round(float(duration_ms), 4)}")
+    if fallback_status:
+        evidence_lines.append(f"fallback_status={fallback_status}")
+    if isinstance(fallback_result_count, int):
+        evidence_lines.append(f"fallback_result_count={fallback_result_count}")
+    if isinstance(stage_timings, Mapping):
+        for key in (
+            "packet_cache",
+            "recall_fallback",
+            "recall_search",
+            "recall_retrieve_cancelled",
+        ):
+            value = stage_timings.get(key)
+            if isinstance(value, int | float):
+                evidence_lines.append(f"{key}_ms={round(float(value), 4)}")
+    return {
+        "packet_type": "recall_diagnostic",
+        "title": "No recalled evidence under budget",
+        "summary": summary,
+        "why_now": (
+            "The live recall path degraded and neither cache nor fast fallback "
+            "returned usable memory."
+        ),
+        "confidence": 1.0,
+        "entity_ids": [],
+        "relationship_ids": [],
+        "episode_ids": [],
+        "evidence_lines": evidence_lines,
+        "provenance": ["runtime:recall_budget"],
+        "supporting_intents": ["recall_timeout_diagnostic"],
+        "trust": {
+            "freshness": "runtime",
+            "source": "recall_budget",
+            "confidence": 1.0,
+            "why_now": (
+                "The packet reports recall runtime state; it is not a memory claim."
+            ),
+            "provenance_count": 1,
+            "evidence_count": len(evidence_lines),
+            "belief_status": "diagnostic",
+            "confirmed_count": 0,
+            "corrected_count": 0,
+            "dismissed_count": 0,
+            "last_confirmed_at": None,
+            "last_corrected_at": None,
+            "last_dismissed_at": None,
+        },
+        "_cache_scope": "recall_diagnostic",
+    }
+
+
+def _filter_packets_for_query(
+    packets: Sequence[Mapping[str, Any]],
+    *,
+    query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    tokens = _query_tokens(query)
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for index, packet in enumerate(packets):
+        fingerprint = _packet_fingerprint(packet)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        matches = _packet_query_matches(packet, tokens)
+        score = len(matches)
+        exact_project_file_match = _project_file_packet_matches_query(
+            packet,
+            query=query,
+        )
+        if score <= 0 and tokens and not exact_project_file_match:
+            continue
+        if _weak_packet_query_match(matches):
+            continue
+        if _weak_session_recent_match(packet, matches):
+            continue
+        if exact_project_file_match:
+            score = max(score, len(tokens))
+        scored.append((score, -index, dict(packet)))
+    scored.sort(reverse=True)
+    return [packet for _score, _index, packet in scored[: max(1, limit)]]
+
+
+def _query_tokens(query: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", query.lower())
+        if token
+        not in {
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "this",
+            "that",
+            "what",
+            "where",
+            "when",
+            "how",
+            "trace",
+            "traces",
+        }
+    }
+
+
+def _packet_query_score(packet: Mapping[str, Any], tokens: set[str]) -> int:
+    return len(_packet_query_matches(packet, tokens))
+
+
+def _packet_query_matches(packet: Mapping[str, Any], tokens: set[str]) -> set[str]:
+    text = _packet_search_text(packet)
+    return {token for token in tokens if _token_matches_search_text(token, text)}
+
+
+def _weak_session_recent_match(
+    packet: Mapping[str, Any],
+    matches: set[str],
+) -> bool:
+    if not matches:
+        return False
+    scope = str(packet.get("_cache_scope") or "")
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    trust = packet.get("trust")
+    trust_source = ""
+    if isinstance(trust, Mapping):
+        trust_source = str(trust.get("source") or trust.get("sourceType") or "")
+    is_session_recent = scope == SESSION_RECENT_PACKET_SCOPE or packet_type in {
+        "recent_observation",
+        "recentObservation",
+    }
+    if not is_session_recent and trust_source not in {"mcp_observe", "api_auto_observe"}:
+        return False
+    if len(matches) >= 2:
+        return False
+    return not any(_high_signal_query_token(token) for token in matches)
+
+
+def _weak_packet_query_match(matches: set[str]) -> bool:
+    """Avoid treating a lone date/id token as useful recalled context."""
+    if len(matches) != 1:
+        return False
+    token = next(iter(matches))
+    return token.isdigit()
+
+
+def _high_signal_query_token(token: str) -> bool:
+    return any(char.isdigit() for char in token) or "-" in token or "_" in token or len(token) >= 10
+
+
+def _token_matches_search_text(token: str, text: str) -> bool:
+    if token in text:
+        return True
+    if "_" not in token and "-" not in token:
+        return False
+    parts = [part for part in re.split(r"[_-]+", token) if part]
+    if len(parts) < 2:
+        return False
+    normalized_text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    return " ".join(parts) in normalized_text
+
+
+def _packet_search_text(packet: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "title",
+        "summary",
+        "packet_type",
+        "packetType",
+        "provenance",
+        "supporting_intents",
+        "supportingIntents",
+        "evidence_lines",
+        "evidenceLines",
+    ):
+        value = packet.get(key)
+        if isinstance(value, list | tuple):
+            parts.extend(str(item) for item in value)
+        else:
+            parts.append(str(value or ""))
+    return " ".join(parts).lower()
+
+
+def _packet_fingerprint(packet: Mapping[str, Any]) -> str:
+    provenance = packet.get("provenance") or packet.get("sources") or []
+    if isinstance(provenance, list | tuple):
+        provenance_text = "|".join(str(item) for item in provenance)
+    else:
+        provenance_text = str(provenance or "")
+    if provenance_text:
+        return f"provenance:{provenance_text}"
+    title = str(packet.get("title") or "")
+    summary = str(packet.get("summary") or "")
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    return f"{packet_type}:{title}:{summary}"
 
 
 async def _assemble_live_explicit_packet_payloads(
@@ -764,7 +2152,12 @@ def _get_cached_packets(
     get_cached = getattr(manager, "get_cached_memory_packets", None)
     if not callable(get_cached):
         return None
-    hit = get_cached(group_id, scope=scope, topic_hint=topic_hint)
+    hit = get_cached(
+        group_id,
+        scope=scope,
+        topic_hint=topic_hint,
+        sync_persistent=False,
+    )
     if inspect.isawaitable(hit):
         close = getattr(hit, "close", None)
         if callable(close):

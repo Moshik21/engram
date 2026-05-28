@@ -12,6 +12,9 @@ NATIVE_SCHEMA = REPO_ROOT / "helixdb-cfg/db/schema.hx"
 NATIVE_GENERATED_QUERIES = (
     REPO_ROOT / "helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs"
 )
+NATIVE_BUNDLED_GENERATED_QUERIES = (
+    REPO_ROOT / "native/helix-repo/helix-python/src/queries.rs"
+)
 
 ENTITY_HX_FIELDS = {
     "name": "String",
@@ -241,6 +244,56 @@ def test_generated_open_adjudication_status_queries_are_native_available() -> No
     }
 
 
+def test_helix_stats_bulk_queries_are_synced_across_helix_sources() -> None:
+    """Native stats refresh must not fall back to per-episode fan-out."""
+    expected_signatures = {
+        "find_cues_by_group": "gid: String",
+        "find_cues_all": "",
+        "count_entities_by_group": "gid: String",
+        "count_episodes_by_group": "gid: String",
+        "count_relationships_by_group": "gid: String",
+        "count_cues_by_group": "gid: String",
+        "get_projected_episode_entities_by_group": (
+            "gid: String, projection_state: String"
+        ),
+        "get_projected_episode_entities_all": "projection_state: String",
+    }
+
+    for schema_path in (SERVER_SCHEMA, NATIVE_SCHEMA):
+        text = schema_path.read_text()
+        for query_name, expected_signature in expected_signatures.items():
+            assert _helix_query_signature(text, query_name).strip() == expected_signature
+
+
+def test_generated_helix_stats_bulk_queries_are_native_available() -> None:
+    """Generated PyO3 route maps must expose bounded graph stats queries."""
+    expected_inputs = {
+        "find_cues_by_groupInput": {"gid": "String"},
+        "count_entities_by_groupInput": {"gid": "String"},
+        "count_episodes_by_groupInput": {"gid": "String"},
+        "count_relationships_by_groupInput": {"gid": "String"},
+        "count_cues_by_groupInput": {"gid": "String"},
+        "get_projected_episode_entities_by_groupInput": {
+            "gid": "String",
+            "projection_state": "String",
+        },
+        "get_projected_episode_entities_allInput": {"projection_state": "String"},
+    }
+
+    for generated in _native_generated_query_texts():
+        assert "pub fn find_cues_by_group" in generated
+        assert "pub fn find_cues_all" in generated
+        assert "pub fn count_entities_by_group" in generated
+        assert "pub fn count_episodes_by_group" in generated
+        assert "pub fn count_relationships_by_group" in generated
+        assert "pub fn count_cues_by_group" in generated
+        assert "pub fn get_projected_episode_entities_by_group" in generated
+        assert "pub fn get_projected_episode_entities_all" in generated
+        assert "pub struct find_cues_allInput" not in generated
+        for struct_name, fields in expected_inputs.items():
+            assert _rust_struct_fields(generated, struct_name) == fields
+
+
 def _native_generated_query_text() -> str:
     if not NATIVE_GENERATED_QUERIES.exists():
         pytest.skip(
@@ -248,6 +301,17 @@ def _native_generated_query_text() -> str:
             "before validating native bindings."
         )
     return NATIVE_GENERATED_QUERIES.read_text()
+
+
+def _native_generated_query_texts() -> list[str]:
+    paths = [NATIVE_GENERATED_QUERIES, NATIVE_BUNDLED_GENERATED_QUERIES]
+    missing_paths = [str(path) for path in paths if not path.exists()]
+    if missing_paths:
+        pytest.skip(
+            "Generated Helix Rust queries are unavailable; run Helix codegen "
+            f"before validating native bindings: {', '.join(missing_paths)}"
+        )
+    return [path.read_text() for path in paths]
 
 
 def _helix_node_fields(text: str, node_name: str) -> dict[str, str]:

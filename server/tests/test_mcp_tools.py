@@ -841,7 +841,20 @@ class TestJSONResponses:
         from engram.mcp import server as mcp_server
 
         manager = SimpleNamespace(
-            recall=AsyncMock(return_value=[]),
+            recall=AsyncMock(
+                return_value=[
+                    {
+                        "result_type": "entity",
+                        "entity": {
+                            "id": "ent_engram",
+                            "name": "Engram",
+                            "entity_type": "Project",
+                            "summary": "Memory layer for AI agents",
+                        },
+                        "score": 0.9,
+                    }
+                ]
+            ),
             get_recall_need_thresholds=Mock(return_value=None),
             get_last_near_miss_views=Mock(return_value=[]),
             get_surprise_connection_views=Mock(return_value=[]),
@@ -869,9 +882,87 @@ class TestJSONResponses:
         assert payload["query"] == "Engram packet routing"
         assert payload["lifecycle"]["stage"] == "recall"
         assert payload["lifecycle"]["recall_mode"] == "explicit"
-        assert payload["total_candidates"] == 0
+        assert payload["total_candidates"] == 1
         analyze.assert_awaited_once()
         assert analyze.await_args.kwargs["group_id"] == GROUP
+
+    @pytest.mark.asyncio
+    async def test_mcp_recall_forwards_project_path(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        surface = AsyncMock(
+            return_value={
+                "operation": "recall",
+                "query": "Engram packet routing",
+                "results": [],
+                "total_candidates": 0,
+            }
+        )
+        monkeypatch.setattr(mcp_server, "_manager", SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_session", SessionState(group_id=GROUP))
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+        monkeypatch.setattr(mcp_server, "_activation_cfg", ActivationConfig())
+        monkeypatch.setattr(
+            mcp_server,
+            "build_mcp_explicit_recall_tool_surface",
+            surface,
+        )
+
+        raw = await mcp_server.recall(
+            "Engram packet routing",
+            limit=3,
+            project_path="/tmp/engram",
+        )
+
+        payload = json.loads(raw)
+        assert payload["operation"] == "recall"
+        surface.assert_awaited_once()
+        assert surface.await_args.kwargs["project_path"] == "/tmp/engram"
+
+    @pytest.mark.asyncio
+    async def test_mcp_recall_inherits_last_context_project_path(self, monkeypatch):
+        from engram.mcp import server as mcp_server
+
+        context_surface = AsyncMock(
+            return_value={
+                "context": "## Cached Memory Packets",
+                "entity_count": 0,
+                "fact_count": 0,
+                "token_estimate": 4,
+            }
+        )
+        recall_surface = AsyncMock(
+            return_value={
+                "operation": "recall",
+                "query": "Engram packet routing",
+                "results": [],
+                "total_candidates": 0,
+            }
+        )
+        session = SessionState(group_id=GROUP)
+        monkeypatch.setattr(mcp_server, "_manager", SimpleNamespace())
+        monkeypatch.setattr(mcp_server, "_session", session)
+        monkeypatch.setattr(mcp_server, "_group_id", GROUP)
+        monkeypatch.setattr(mcp_server, "_activation_cfg", ActivationConfig())
+        monkeypatch.setattr(
+            mcp_server,
+            "build_mcp_context_tool_surface",
+            context_surface,
+        )
+        monkeypatch.setattr(
+            mcp_server,
+            "build_mcp_explicit_recall_tool_surface",
+            recall_surface,
+        )
+
+        await mcp_server.get_context(project_path="/tmp/engram")
+        raw = await mcp_server.recall("Engram packet routing", limit=3)
+
+        payload = json.loads(raw)
+        assert payload["operation"] == "recall"
+        assert session.last_project_path == "/tmp/engram"
+        recall_surface.assert_awaited_once()
+        assert recall_surface.await_args.kwargs["project_path"] == "/tmp/engram"
 
     @pytest.mark.asyncio
     async def test_mcp_claim_authority_returns_onboarding_contract(self, monkeypatch):

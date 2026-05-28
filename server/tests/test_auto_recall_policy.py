@@ -109,6 +109,7 @@ def test_plan_mcp_recall_middleware_plans_read_tool_side_effects() -> None:
     assert plan.should_recall is True
     assert plan.auto_observe_content is True
     assert plan.ingest_live_turn is True
+    assert plan.cache_only is False
     assert plan.surface_notifications_when_recall_disabled is False
 
 
@@ -125,6 +126,7 @@ def test_plan_mcp_recall_middleware_skips_write_tool_ingest() -> None:
     assert plan.should_recall is True
     assert plan.auto_observe_content is False
     assert plan.ingest_live_turn is False
+    assert plan.cache_only is True
 
 
 def test_plan_mcp_recall_middleware_surfaces_get_context_notifications_without_recall() -> None:
@@ -295,6 +297,93 @@ async def test_build_lite_auto_recall_surface_dispatches_medium() -> None:
 
     assert result == {"source": "recall_medium", "entities": [{"name": "React"}]}
     manager.recall_medium.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_uses_cached_packets_before_medium() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.get_recent_cached_memory_packets = Mock(
+        return_value=[
+            {
+                "packet_type": "project_home",
+                "title": "Project: Engram AXI",
+                "summary": "AXI startup and packet cache dogfood evidence",
+                "evidence_lines": ["loaded-store recall context performance dogfood"],
+            }
+        ]
+    )
+    cfg = ActivationConfig(
+        auto_recall_level="medium",
+        recall_packets_enabled=True,
+        recall_packet_auto_limit=1,
+    )
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Check Engram AXI loaded-store recall dogfood performance",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+    )
+
+    assert result is not None
+    assert result["source"] == "auto_recall"
+    assert result["packets"][0]["title"] == "Project: Engram AXI"
+    assert result["gate"]["modeExecuted"] == "cached"
+    manager.get_recent_cached_memory_packets.assert_called_once()
+    assert manager.get_recent_cached_memory_packets.call_args.kwargs["scopes"] == (
+        "identity_core",
+        "project_home",
+        "explicit_recall",
+    )
+    manager.recall_medium.assert_not_called()
+    samples = [call.args[1] for call in manager.record_memory_operation.call_args_list]
+    assert any(sample.mode == "auto_recall_packet" and sample.cache_hit for sample in samples)
+    assert any(
+        sample.mode == "medium"
+        and sample.status == "ok"
+        and sample.skip_reason == "cache_satisfied"
+        for sample in samples
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_cache_only_skips_probe_on_cache_miss() -> None:
+    manager = AsyncMock()
+    manager.record_memory_operation = Mock()
+    manager.get_recent_cached_memory_packets = Mock(return_value=[])
+    cfg = ActivationConfig(
+        auto_recall_level="medium",
+        recall_packets_enabled=True,
+        recall_packet_auto_limit=1,
+    )
+
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Check Engram write-side auto recall cache miss latency",
+        group_id="native_brain",
+        session_cache={},
+        cfg=cfg,
+        cache_only=True,
+    )
+
+    assert result is None
+    manager.recall_medium.assert_not_called()
+    samples = [call.args[1] for call in manager.record_memory_operation.call_args_list]
+    assert any(
+        sample.mode == "auto_recall_packet"
+        and sample.cache_hit is False
+        and sample.packet_count == 0
+        for sample in samples
+    )
+    assert any(
+        sample.mode == "medium"
+        and sample.status == "skipped"
+        and sample.skip_reason == "cache_miss"
+        and sample.cache_hit is False
+        for sample in samples
+    )
 
 
 @pytest.mark.asyncio
@@ -614,9 +703,20 @@ async def test_build_full_auto_recall_surface_records_memory_need_skip(
 
 
 @pytest.mark.asyncio
-async def test_build_session_prime_surface_fetches_context_and_marks_primed() -> None:
-    manager = AsyncMock()
-    manager.get_context.return_value = {"context": "native Helix"}
+async def test_build_session_prime_surface_uses_cached_packets_and_marks_primed() -> None:
+    manager = Mock()
+    manager.get_cached_memory_packets.return_value = SimpleNamespace(
+        packets=[
+            {
+                "packet_type": "project_home",
+                "title": "Project File: docs/install/helix.md",
+                "summary": "Native Helix startup path.",
+            }
+        ]
+    )
+    manager.get_recent_cached_memory_packets.return_value = []
+    manager.record_memory_operation = Mock()
+    manager.get_context = AsyncMock()
     cfg = ActivationConfig(
         auto_recall_session_prime=True,
         auto_recall_session_prime_max_tokens=256,
@@ -630,25 +730,28 @@ async def test_build_session_prime_surface_fetches_context_and_marks_primed() ->
         already_primed=False,
     )
 
-    assert surface.context == {"context": "native Helix"}
+    assert surface.context is not None
+    assert "Native Helix startup path." in surface.context["context"]
+    assert surface.context["packet_cache"]["hit"] is True
     assert surface.should_mark_primed is True
-    manager.get_context.assert_awaited_once_with(
-        group_id="native_brain",
-        max_tokens=256,
-        topic_hint="Planning Engram Helix",
-        format="structured",
-        operation_source="mcp_session_prime",
+    manager.get_context.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert group_id == "native_brain"
+    assert sample.source == "mcp_session_prime"
+    assert sample.status == "ok"
+    assert sample.cache_hit is True
+    assert sample.budget_miss is False
+    assert all(
+        call.kwargs.get("sync_persistent") is False
+        for call in manager.get_cached_memory_packets.call_args_list
     )
 
 
 @pytest.mark.asyncio
-async def test_build_session_prime_surface_degrades_on_context_timeout() -> None:
-    async def slow_get_context(**_kwargs):
-        await asyncio.sleep(0.05)
-        return {"context": "late"}
-
-    manager = AsyncMock()
-    manager.get_context.side_effect = slow_get_context
+async def test_build_session_prime_surface_skips_when_cache_misses() -> None:
+    manager = Mock()
+    manager.get_cached_memory_packets.return_value = None
+    manager.get_recent_cached_memory_packets.return_value = []
     manager.record_memory_operation = Mock()
     cfg = ActivationConfig(
         auto_recall_session_prime=True,
@@ -669,10 +772,17 @@ async def test_build_session_prime_surface_degrades_on_context_timeout() -> None
     assert group_id == "native_brain"
     assert sample.operation == "context"
     assert sample.source == "mcp_session_prime"
-    assert sample.status == "degraded"
-    assert sample.skip_reason == "context_timeout"
-    assert sample.timeout is True
-    assert sample.degraded is True
+    assert sample.status == "skipped"
+    assert sample.skip_reason == "cache_miss"
+    assert sample.timeout is False
+    assert sample.degraded is False
+    assert sample.budget_miss is False
+    manager.get_recent_cached_memory_packets.assert_called_once_with(
+        "native_brain",
+        scopes=("identity_core", "project_home"),
+        limit_packets=cfg.recall_packet_auto_limit,
+        sync_persistent=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -809,6 +919,7 @@ async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
         return_value=[{"trigger": "deployment", "action": "review rollout"}]
     )
     response: dict = {"status": "ok"}
+    auto_recall_lite = AsyncMock(return_value={"source": "recall_lite", "entities": []})
 
     await run_mcp_recall_middleware(
         response,
@@ -818,12 +929,13 @@ async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
         group_id="brain",
         get_manager=Mock(return_value=manager),
         load_notifications=Mock(return_value=[{"title": "Found link"}]),
-        auto_recall_lite=AsyncMock(return_value={"source": "recall_lite", "entities": []}),
+        auto_recall_lite=auto_recall_lite,
         session_prime=AsyncMock(return_value={"context": "briefing"}),
         ingest_live_turn=AsyncMock(),
         auto_observe=True,
     )
 
+    auto_recall_lite.assert_awaited_once_with(content, manager, cfg, cache_only=False)
     manager.store_episode.assert_awaited_once_with(
         content=content,
         group_id="brain",
@@ -836,6 +948,30 @@ async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
         "triggered_intentions": [{"trigger": "deployment", "action": "review rollout"}],
         "memory_notifications": [{"title": "Found link"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_run_mcp_recall_middleware_uses_cache_only_for_write_tools() -> None:
+    cfg = ActivationConfig(auto_recall_on_observe=True)
+    content = "Observed Engram write-side auto recall cache miss latency."
+    manager = Mock()
+    response: dict = {"status": "ok"}
+    auto_recall_lite = AsyncMock(return_value=None)
+
+    await run_mcp_recall_middleware(
+        response,
+        content=content,
+        tool_name="observe",
+        cfg=cfg,
+        group_id="brain",
+        get_manager=Mock(return_value=manager),
+        load_notifications=Mock(return_value=[]),
+        auto_recall_lite=auto_recall_lite,
+        session_prime=AsyncMock(return_value=None),
+        ingest_live_turn=AsyncMock(),
+    )
+
+    auto_recall_lite.assert_awaited_once_with(content, manager, cfg, cache_only=True)
 
 
 @pytest.mark.asyncio

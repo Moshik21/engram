@@ -6,6 +6,7 @@ import json
 import shlex
 import shutil
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ DEFAULT_HOOK_TIMEOUT_SECONDS = 3.0
 DEFAULT_HOOK_BUDGET = 800
 MIN_HOOK_PROCESS_TIMEOUT_MS = 5000
 DEFAULT_HOOK_TRACE_FILENAME = "axi-hook-runs.jsonl"
+DEFAULT_HOOK_TRACE_SUMMARY_LIMIT = 20
+DEFAULT_HOOK_TRACE_RECENT_LIMIT = 5
 HOOK_TRACE_ORIGIN = "session-start-hook"
 FOLLOWUP_TRACE_ORIGIN = "agent-followup"
 
@@ -48,10 +51,9 @@ def build_hook_command(
     parts = [
         command,
         "axi",
+        "hook-run",
         "--server-url",
         server_url,
-        "--project",
-        "$PWD",
         "--budget",
         str(max(1, budget)),
         "--timeout",
@@ -65,10 +67,7 @@ def build_hook_command(
         parts.extend(["--trace-origin", trace_origin])
     rendered: list[str] = []
     for part in parts:
-        if part == "$PWD":
-            rendered.append('"$PWD"')
-        else:
-            rendered.append(shlex.quote(part))
+        rendered.append(shlex.quote(part))
     return " ".join(rendered)
 
 
@@ -218,6 +217,20 @@ def build_hook_status_payload(
         if trace_file
         else None
     )
+    followup_summary = (
+        _hook_trace_summary(
+            trace_file,
+            client=target.client,
+            operations={"context", "recall"},
+            origins={FOLLOWUP_TRACE_ORIGIN},
+            limit=DEFAULT_HOOK_TRACE_SUMMARY_LIMIT,
+        )
+        if trace_file
+        else _empty_hook_trace_summary()
+    )
+    config_modified_epoch = _path_modified_epoch(target.path)
+    last_run_stale = _trace_predates_epoch(last_run, config_modified_epoch)
+    last_run_project_root = _trace_project_is_root(last_run)
     return AxiResult(
         payload={
             "operation": "hooks.status",
@@ -232,9 +245,13 @@ def build_hook_status_payload(
             "command": str(hook.get("command") or ""),
             "timeout_ms": hook.get("timeout_ms") or hook.get("timeout"),
             "trace_file": str(trace_file) if trace_file else None,
+            "config_modified_epoch": config_modified_epoch,
             "last_run": last_run,
+            "last_run_stale_after_config_change": last_run_stale,
+            "last_run_project_root": last_run_project_root,
             "last_observed_run": last_observed_run,
             "last_followup": last_followup,
+            "followup_summary": followup_summary,
             "issues": issues,
             "next": (
                 _hook_next_actions(target.client)
@@ -612,11 +629,36 @@ def _last_hook_trace(
     origins: set[str] | None = None,
     successful: bool = False,
 ) -> dict[str, Any] | None:
+    records = _recent_hook_trace_records(
+        path,
+        client=client,
+        operations=operations,
+        origins=origins,
+        successful=successful,
+        limit=1,
+        line_limit=200,
+    )
+    if not records:
+        return None
+    return _compact_hook_trace(records[0])
+
+
+def _recent_hook_trace_records(
+    path: Path,
+    *,
+    client: str,
+    operations: set[str] | None = None,
+    origins: set[str] | None = None,
+    successful: bool = False,
+    limit: int = DEFAULT_HOOK_TRACE_SUMMARY_LIMIT,
+    line_limit: int = 1000,
+) -> list[dict[str, Any]]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return None
-    for line in reversed(lines[-200:]):
+        return []
+    records: list[dict[str, Any]] = []
+    for line in reversed(lines[-max(1, line_limit):]):
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
@@ -629,16 +671,267 @@ def _last_hook_trace(
             and (origins is None or record.get("origin") in origins)
             and (not successful or record.get("exitCode") == 0)
         ):
-            return {
-                "timestamp": record.get("timestamp"),
-                "operation": record.get("operation"),
-                "status": record.get("status"),
-                "exit_code": record.get("exitCode"),
-                "duration_ms": record.get("durationMs"),
-                "origin": record.get("origin"),
-                "project": record.get("project"),
-            }
-    return None
+            records.append(record)
+            if len(records) >= max(1, limit):
+                break
+    return records
+
+
+def _hook_trace_summary(
+    path: Path,
+    *,
+    client: str,
+    operations: set[str] | None = None,
+    origins: set[str] | None = None,
+    limit: int = DEFAULT_HOOK_TRACE_SUMMARY_LIMIT,
+) -> dict[str, Any]:
+    limit = max(1, limit)
+    records = _recent_hook_trace_records(
+        path,
+        client=client,
+        operations=operations,
+        origins=origins,
+        successful=False,
+        limit=limit,
+        line_limit=max(1000, limit * 20),
+    )
+    if not records:
+        return _empty_hook_trace_summary(limit=limit)
+
+    summary = _summarize_hook_trace_records(records, sample_limit=limit)
+    healthy_streak = _hook_trace_healthy_streak(records)
+    summary["latest_healthy_streak"] = _summarize_hook_trace_records(
+        healthy_streak,
+        sample_limit=len(records),
+        truncated=False,
+    )
+    return summary
+
+
+def _summarize_hook_trace_records(
+    records: list[dict[str, Any]],
+    *,
+    sample_limit: int,
+    truncated: bool | None = None,
+) -> dict[str, Any]:
+    if not records:
+        return _empty_hook_trace_summary(limit=sample_limit)
+
+    durations = [_hook_trace_duration_ms(record) for record in records]
+    durations = [duration for duration in durations if duration is not None]
+    cache_hit_count = sum(1 for record in records if _hook_trace_bool(record.get("cacheHit")))
+    return {
+        "status": "measured",
+        "trace_count": len(records),
+        "sample_limit": max(1, sample_limit),
+        "truncated": len(records) >= sample_limit if truncated is None else truncated,
+        "operation_counts": _count_hook_trace_values(record.get("operation") for record in records),
+        "status_counts": _count_hook_trace_values(record.get("status") for record in records),
+        "duration_ms": _hook_duration_summary(durations),
+        "cache_hit_count": cache_hit_count,
+        "cache_hit_rate": round(cache_hit_count / len(records), 4),
+        "packet_count": sum(
+            _hook_trace_int(record, "packetCount", "packet_count") for record in records
+        ),
+        "result_count": sum(
+            _hook_trace_int(record, "resultCount", "result_count") for record in records
+        ),
+        "fallback_status_counts": _count_hook_trace_values(
+            record.get("fallbackStatus") or record.get("fallback_status") for record in records
+        ),
+        "budget_miss_count": sum(
+            1 for record in records if _hook_trace_bool(record.get("budgetMiss"))
+        ),
+        "degraded_count": sum(1 for record in records if _hook_trace_degraded(record)),
+        "timeout_count": sum(1 for record in records if _hook_trace_timed_out(record)),
+        "recent": [
+            _compact_hook_trace(record)
+            for record in records[:DEFAULT_HOOK_TRACE_RECENT_LIMIT]
+        ],
+    }
+
+
+def _hook_trace_healthy_streak(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    streak: list[dict[str, Any]] = []
+    for record in records:
+        if not _hook_trace_successful(record):
+            break
+        streak.append(record)
+    return streak
+
+
+def _hook_trace_successful(record: dict[str, Any]) -> bool:
+    status = str(record.get("status") or "").strip().lower()
+    if status in {"degraded", "timeout", "error", "failed", "fail"}:
+        return False
+    exit_code = record.get("exitCode")
+    if exit_code is not None:
+        try:
+            if int(exit_code) != 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return not _hook_trace_degraded(record) and not _hook_trace_timed_out(record)
+
+
+def _path_modified_epoch(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _trace_predates_epoch(record: dict[str, Any] | None, epoch: float | None) -> bool:
+    if record is None or epoch is None:
+        return False
+    timestamp = _trace_timestamp_epoch(record.get("timestamp"))
+    if timestamp is None:
+        return False
+    return float(epoch) > timestamp + 1
+
+
+def _trace_timestamp_epoch(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def _trace_project_is_root(record: dict[str, Any] | None) -> bool:
+    if record is None:
+        return False
+    project = record.get("project")
+    if not isinstance(project, str) or not project.strip():
+        return False
+    path = Path(project).expanduser()
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    return resolved.parent == resolved
+
+
+def _empty_hook_trace_summary(*, limit: int = DEFAULT_HOOK_TRACE_SUMMARY_LIMIT) -> dict[str, Any]:
+    return {
+        "status": "missing",
+        "trace_count": 0,
+        "sample_limit": max(1, limit),
+    }
+
+
+def _compact_hook_trace(record: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "timestamp": record.get("timestamp"),
+        "operation": record.get("operation"),
+        "status": record.get("status"),
+        "exit_code": record.get("exitCode"),
+        "duration_ms": record.get("durationMs"),
+        "origin": record.get("origin"),
+        "project": record.get("project"),
+    }
+    for key in (
+        "cacheHit",
+        "packetCount",
+        "resultCount",
+        "fallbackStatus",
+        "skipReason",
+        "budgetMiss",
+        "degraded",
+    ):
+        if key in record:
+            compact[key] = record.get(key)
+    return compact
+
+
+def _hook_trace_duration_ms(record: dict[str, Any]) -> float | None:
+    value = record.get("durationMs", record.get("duration_ms"))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hook_trace_timeout_seconds(record: dict[str, Any]) -> float | None:
+    value = record.get("timeoutSeconds", record.get("timeout_seconds"))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hook_trace_timed_out(record: dict[str, Any]) -> bool:
+    if str(record.get("status") or "").strip().lower() == "timeout":
+        return True
+    duration = _hook_trace_duration_ms(record)
+    timeout = _hook_trace_timeout_seconds(record)
+    return bool(duration is not None and timeout is not None and duration >= timeout * 1000)
+
+
+def _hook_trace_degraded(record: dict[str, Any]) -> bool:
+    status = str(record.get("status") or "").strip().lower()
+    if status in {"degraded", "timeout", "error", "failed"}:
+        return True
+    return _hook_trace_bool(record.get("degraded"))
+
+
+def _hook_trace_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "hit"}
+    return False
+
+
+def _hook_trace_int(record: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key not in record:
+            continue
+        value = record.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                continue
+    return 0
+
+
+def _count_hook_trace_values(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        key = str(value).strip() if value is not None else ""
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _hook_duration_summary(durations: list[float]) -> dict[str, Any]:
+    if not durations:
+        return {
+            "count": 0,
+            "avg": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+        }
+    ordered = sorted(durations)
+    p95_index = min(len(ordered) - 1, int(round((len(ordered) - 1) * 0.95)))
+    return {
+        "count": len(ordered),
+        "avg": round(sum(ordered) / len(ordered), 4),
+        "p95": round(ordered[p95_index], 4),
+        "max": round(ordered[-1], 4),
+    }
 
 
 def _hook_repair_actions(client: str) -> list[dict[str, str]]:

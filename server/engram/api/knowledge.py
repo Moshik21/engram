@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -41,7 +42,10 @@ from engram.retrieval.chat_runtime import (
 from engram.retrieval.context import (
     manager_conversation_top_entity_names,
 )
-from engram.retrieval.context_builder import build_api_context_surface
+from engram.retrieval.context_builder import (
+    build_api_context_surface,
+    schedule_project_file_prefix_warmup,
+)
 from engram.retrieval.epistemic_route import build_question_route_surface
 from engram.retrieval.forgetting import build_api_forget_response_surface
 from engram.retrieval.lookup import build_api_fact_search_surface
@@ -62,6 +66,18 @@ from engram.utils.offline_queue import drain_queue
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+
+
+def _optional_query_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = getattr(value, "default", None)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
 
 # ─── Notifications ──────────────────────────────────────────────
 
@@ -365,6 +381,7 @@ async def recall(
     request: Request,
     q: str = Query(..., description="Search query"),
     limit: int = Query(5, ge=1, le=50, description="Max results"),
+    project_path: str | None = Query(None, description="Current project path"),
 ) -> JSONResponse:
     """Retrieve relevant memories using activation-aware scoring."""
     tenant = get_tenant(request)
@@ -375,6 +392,7 @@ async def recall(
         group_id=group_id,
         query=q,
         limit=limit,
+        project_path=_optional_query_string(project_path),
         operation_source=_operation_source(request, "recall"),
     )
     return JSONResponse(content=payload)
@@ -430,7 +448,7 @@ async def get_context(
         group_id=group_id,
         max_tokens=max_tokens,
         topic_hint=topic_hint,
-        project_path=project_path,
+        project_path=_optional_query_string(project_path),
         format=format,
         operation_source=_operation_source(request, "context"),
     )
@@ -524,7 +542,7 @@ async def search_artifacts(
         manager,
         group_id=group_id,
         query=q,
-        project_path=project_path,
+        project_path=_optional_query_string(project_path),
         limit=limit,
     )
     return JSONResponse(content=payload)
@@ -553,7 +571,7 @@ async def get_runtime_state(
     result = await build_runtime_state_surface(
         manager,
         group_id=group_id,
-        project_path=project_path,
+        project_path=_optional_query_string(project_path),
         live=live,
         timeout_seconds=timeout_seconds,
     )
@@ -562,13 +580,19 @@ async def get_runtime_state(
 
 @router.get("/runtime/fast")
 async def get_fast_runtime_packet(
+    request: Request,
     project_path: str | None = Query(None, description="Optional project path context"),
 ) -> JSONResponse:
     """Return startup-safe runtime metadata without graph or artifact inspection."""
+    tenant = get_tenant(request)
+    manager = get_manager()
+    normalized_project_path = _optional_query_string(project_path)
+    schedule_project_file_prefix_warmup(normalized_project_path)
     result = build_fast_runtime_packet(
         get_config().activation,
         runtime_mode=get_mode(),
-        project_path=project_path,
+        project_path=normalized_project_path,
+        packet_cache_summary=_packet_cache_summary_or_empty(manager, tenant.group_id),
     )
     return JSONResponse(content=result)
 
@@ -581,6 +605,14 @@ async def clear_packet_cache(request: Request) -> JSONResponse:
     manager = get_manager()
     payload = build_api_packet_cache_clear_surface(manager, group_id=group_id)
     return JSONResponse(content=payload)
+
+
+def _packet_cache_summary_or_empty(manager: Any, group_id: str) -> dict:
+    try:
+        summary = manager.get_memory_packet_cache_summary(group_id)
+    except Exception:
+        return {}
+    return summary if isinstance(summary, dict) else {}
 
 
 @router.post("/intentions")

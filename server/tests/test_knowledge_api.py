@@ -624,10 +624,24 @@ class TestEpistemicEndpoints:
         empty_knowledge_client,
         tmp_path,
     ):
-        resp = await empty_knowledge_client.get(
-            "/api/knowledge/runtime/fast",
-            params={"project_path": str(tmp_path)},
+        manager = _app_state["graph_manager"]
+        manager.cache_memory_packets(
+            "default",
+            scope="session_recent",
+            packets=[
+                {
+                    "packet_type": "session_recent",
+                    "title": "Recent Observation",
+                    "summary": "Fresh startup packet cache state.",
+                }
+            ],
         )
+
+        with patch("engram.api.knowledge.schedule_project_file_prefix_warmup") as warmup:
+            resp = await empty_knowledge_client.get(
+                "/api/knowledge/runtime/fast",
+                params={"project_path": str(tmp_path)},
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -635,6 +649,9 @@ class TestEpistemicEndpoints:
         assert data["runtime"]["loadedGraphTouched"] is False
         assert data["artifactBootstrap"]["status"] == "not_inspected"
         assert data["agentAdoption"]["status"] == "startup_probe"
+        assert data["stats"]["packetCache"]["fresh_count"] == 1
+        assert data["stats"]["packetCache"]["scopes"] == {"session_recent": 1}
+        warmup.assert_called_once_with(str(tmp_path))
 
 
 # ─── Recall ──────────────────────────────────────────────────────
@@ -704,10 +721,13 @@ class TestRecall:
         assert isinstance(data["packets"], list)
 
     @pytest.mark.asyncio
-    async def test_recall_packet_analysis_uses_tenant_group(self):
+    async def test_recall_packet_analysis_uses_tenant_group(self, monkeypatch):
+        monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
         manager = MagicMock()
         _attach_public_surface_policy(manager, ActivationConfig(recall_packets_enabled=True))
-        manager.recall = AsyncMock(return_value=[])
+        manager.recall = AsyncMock(
+            return_value=[{"episode": {"id": "ep_alice", "content": "Alice memory"}}]
+        )
         manager.get_recall_need_thresholds = MagicMock(return_value=None)
         request = SimpleNamespace(
             state=SimpleNamespace(

@@ -1,11 +1,13 @@
 """Tests for multi-pool candidate generation."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
+from engram.models.entity import Entity
 from engram.retrieval.candidate_pool import (
     _activation_pool,
     _graph_neighborhood_pool,
@@ -65,6 +67,28 @@ class TestSearchPool:
         idx = _mock_search_index(results=[])
         results = await _search_pool("test", "default", idx, 30)
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_timeout_records_stage_timing(self):
+        async def slow_search(**_kwargs):
+            await asyncio.sleep(0.2)
+            return [("e1", 0.9)]
+
+        idx = _mock_search_index(results=[])
+        idx.search = AsyncMock(side_effect=slow_search)
+        stage_timings = {}
+
+        results = await _search_pool(
+            "test",
+            "default",
+            idx,
+            30,
+            timeout_seconds=0.01,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_primary_search_timeout"] >= 10
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +383,184 @@ class TestGenerateCandidates:
         )
         assert len(results) > 0
         assert results[0][0] == "e1"
+
+    @pytest.mark.asyncio
+    async def test_search_pool_timeout_keeps_activation_candidates(self):
+        async def slow_search(**_kwargs):
+            await asyncio.sleep(0.2)
+            return [("e1", 0.9)]
+
+        state = ActivationState(
+            node_id="a1",
+            access_history=[0.0],
+            access_count=1,
+        )
+        search_idx = _mock_search_index(results=[])
+        search_idx.search = AsyncMock(side_effect=slow_search)
+        search_idx.compute_similarity = AsyncMock(return_value={"a1": 0.4})
+        act_store = _mock_activation_store(top_activated=[("a1", state)])
+        graph = _mock_graph_store()
+        stage_timings = {}
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=ActivationConfig(
+                multi_pool_enabled=True,
+                retrieval_primary_search_timeout_ms=10,
+                retrieval_activation_only_primary_timeout_short_circuit=False,
+                retrieval_skip_similarity_backfill_after_primary_timeout=False,
+            ),
+            now=10.0,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == [("a1", 0.4)]
+        assert stage_timings["recall_primary_search_timeout"] >= 10
+
+    @pytest.mark.asyncio
+    async def test_primary_timeout_skips_similarity_backfill_by_default(self):
+        async def slow_search(**_kwargs):
+            await asyncio.sleep(0.2)
+            return []
+
+        async def slow_similarity(**_kwargs):
+            await asyncio.sleep(0.2)
+            return {"e_native": 0.4}
+
+        search_idx = _mock_search_index(results=[], similarity={})
+        search_idx.search = AsyncMock(side_effect=slow_search)
+        search_idx.compute_similarity = AsyncMock(side_effect=slow_similarity)
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.find_entity_candidates = AsyncMock(
+            return_value=[
+                Entity(
+                    id="e_native",
+                    name="Native Latency",
+                    entity_type="Topic",
+                    group_id="default",
+                )
+            ]
+        )
+        stage_timings = {}
+
+        results = await generate_candidates(
+            query='"Native Latency"',
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=ActivationConfig(
+                multi_pool_enabled=True,
+                retrieval_primary_search_timeout_ms=10,
+            ),
+            now=10.0,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == [("e_native", 0.0)]
+        assert stage_timings["recall_primary_search_timeout"] >= 10
+        assert stage_timings["recall_similarity_backfill_skipped_primary_timeout"] == 1.0
+        search_idx.compute_similarity.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_primary_timeout_activation_only_short_circuits_by_default(self):
+        async def slow_search(**_kwargs):
+            await asyncio.sleep(0.2)
+            return []
+
+        async def slow_similarity(**_kwargs):
+            await asyncio.sleep(0.2)
+            return {"a1": 0.4}
+
+        now = 10.0
+        state = ActivationState(node_id="a1", access_history=[9.0], access_count=1)
+        search_idx = _mock_search_index(results=[], similarity={})
+        search_idx.search = AsyncMock(side_effect=slow_search)
+        search_idx.compute_similarity = AsyncMock(side_effect=slow_similarity)
+        act_store = _mock_activation_store(top_activated=[("a1", state)])
+        graph = _mock_graph_store()
+        stage_timings = {}
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=ActivationConfig(
+                multi_pool_enabled=True,
+                retrieval_primary_search_timeout_ms=10,
+            ),
+            now=now,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == []
+        assert stage_timings["recall_primary_search_timeout"] >= 10
+        assert stage_timings["recall_activation_candidate_count"] == 1.0
+        assert stage_timings["recall_activation_only_primary_timeout_short_circuit"] == 1.0
+        assert stage_timings["recall_candidate_count"] == 0.0
+        search_idx.compute_similarity.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_graph_pool_timeout_keeps_search_candidates(self):
+        async def slow_neighbors(**_kwargs):
+            await asyncio.sleep(0.2)
+            return [("n1", 0.8, "RELATED_TO")]
+
+        search_idx = _mock_search_index(results=[("e1", 0.9)])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.get_active_neighbors_with_weights = AsyncMock(side_effect=slow_neighbors)
+        stage_timings = {}
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=ActivationConfig(
+                multi_pool_enabled=True,
+                retrieval_graph_pool_timeout_ms=10,
+            ),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == [("e1", 0.9)]
+        assert stage_timings["recall_graph_pool_timeout"] >= 10
+
+    @pytest.mark.asyncio
+    async def test_graph_pool_skips_after_probe_timeout_when_search_has_candidates(self):
+        async def slow_neighbors(**_kwargs):
+            await asyncio.sleep(0.2)
+            return [("n1", 0.8, "RELATED_TO")]
+
+        search_idx = _mock_search_index(results=[("e1", 0.9)])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.get_active_neighbors_with_weights = AsyncMock(side_effect=slow_neighbors)
+        stage_timings = {"recall_stats_timeout": 75.0}
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=ActivationConfig(multi_pool_enabled=True),
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results == [("e1", 0.9)]
+        assert stage_timings["recall_graph_pool_skipped_probe_timeout"] == 0.0
+        assert "recall_graph_pool_timeout" not in stage_timings
+        graph.get_active_neighbors_with_weights.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

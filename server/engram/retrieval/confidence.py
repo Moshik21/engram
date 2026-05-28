@@ -65,6 +65,9 @@ async def apply_relevance_confidence(
     entity_summaries: dict[str, str] = {}
     episode_contents: dict[str, str] = {}
     chunk_texts: dict[str, str] = {}
+    should_embed_episode_text = bool(
+        cfg.relevance_confidence_episode_text_embeddings_enabled
+    )
 
     for result in results:
         result_type = result.get("result_type", "entity")
@@ -81,7 +84,7 @@ async def apply_relevance_confidence(
         if not isinstance(episode, dict):
             continue
         episode_id = episode.get("id", "")
-        if episode_id and episode.get("content"):
+        if should_embed_episode_text and episode_id and episode.get("content"):
             episode_contents[episode_id] = episode["content"]
 
         chunk = result.get("chunk_context") or ""
@@ -89,7 +92,7 @@ async def apply_relevance_confidence(
             cue = result.get("cue", {})
             if isinstance(cue, dict):
                 chunk = cue.get("compressed_content", "")
-        if episode_id and chunk:
+        if should_embed_episode_text and episode_id and chunk:
             chunk_texts[episode_id] = chunk
 
     scored = [_scored_result_from_recall_item(result) for result in results]

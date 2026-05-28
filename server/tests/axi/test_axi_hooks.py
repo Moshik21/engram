@@ -21,8 +21,8 @@ def test_hook_command_is_read_only_session_start_packet() -> None:
     )
 
     assert command == (
-        "engram axi --server-url http://127.0.0.1:8100 "
-        '--project "$PWD" --budget 500 --timeout 3'
+        "engram axi hook-run --server-url http://127.0.0.1:8100 "
+        "--budget 500 --timeout 3"
     )
     assert "observe" not in command
     assert "remember" not in command
@@ -37,8 +37,8 @@ def test_hook_command_can_pin_engram_executable_path() -> None:
     )
 
     assert command == (
-        "'/opt/Engram Tools/engram' axi --server-url http://127.0.0.1:8100 "
-        '--project "$PWD" --budget 500 --timeout 3'
+        "'/opt/Engram Tools/engram' axi hook-run "
+        "--server-url http://127.0.0.1:8100 --budget 500 --timeout 3"
     )
 
 
@@ -53,8 +53,8 @@ def test_hook_command_can_write_metadata_only_trace() -> None:
     )
 
     assert command == (
-        "engram axi --server-url http://127.0.0.1:8100 "
-        '--project "$PWD" --budget 500 --timeout 3 '
+        "engram axi hook-run --server-url http://127.0.0.1:8100 "
+        "--budget 500 --timeout 3 "
         "--trace-file /tmp/axi-runs.jsonl --trace-client codex "
         "--trace-origin session-start-hook"
     )
@@ -348,6 +348,205 @@ def test_hook_status_reports_last_metadata_trace(tmp_path) -> None:
         "origin": "agent-followup",
         "project": "/repo",
     }
+    assert result.payload["followup_summary"]["status"] == "measured"
+    assert result.payload["followup_summary"]["trace_count"] == 1
+    assert result.payload["followup_summary"]["duration_ms"]["avg"] == 93.0
+    assert result.payload["followup_summary"]["recent"][0] == result.payload["last_followup"]
+
+
+def test_hook_status_summarizes_recent_followup_trace_metadata(tmp_path) -> None:
+    install_hook("codex", home=tmp_path)
+    trace_file = tmp_path / ".engram/axi-hook-runs.jsonl"
+    trace_file.parent.mkdir(parents=True)
+    trace_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:00Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "other",
+                        "operation": "recall",
+                        "status": "ok",
+                        "exitCode": 0,
+                        "durationMs": 1,
+                        "origin": "agent-followup",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:01Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "context",
+                        "status": "degraded",
+                        "exitCode": 0,
+                        "durationMs": 500,
+                        "origin": "agent-followup",
+                        "project": "/repo",
+                        "cacheHit": False,
+                        "packetCount": 1,
+                        "resultCount": 0,
+                        "fallbackStatus": "context_packet_fallback",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:02Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "recall",
+                        "status": "ok",
+                        "exitCode": 0,
+                        "durationMs": 8,
+                        "origin": "agent-followup",
+                        "project": "/repo",
+                        "cacheHit": True,
+                        "packetCount": 2,
+                        "resultCount": 0,
+                        "fallbackStatus": "cache_satisfied",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:03Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "recall",
+                        "status": "timeout",
+                        "exitCode": 1,
+                        "durationMs": 3000,
+                        "timeoutSeconds": 3,
+                        "origin": "agent-followup",
+                        "project": "/repo",
+                        "budgetMiss": True,
+                        "degraded": True,
+                        "fallbackStatus": "recall_timeout",
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+
+    summary = build_hook_status_payload("codex", home=tmp_path).payload["followup_summary"]
+
+    assert summary["status"] == "measured"
+    assert summary["trace_count"] == 3
+    assert summary["operation_counts"] == {"context": 1, "recall": 2}
+    assert summary["status_counts"] == {"degraded": 1, "ok": 1, "timeout": 1}
+    assert summary["duration_ms"] == {
+        "count": 3,
+        "avg": 1169.3333,
+        "p95": 3000.0,
+        "max": 3000.0,
+    }
+    assert summary["cache_hit_count"] == 1
+    assert summary["cache_hit_rate"] == 0.3333
+    assert summary["packet_count"] == 3
+    assert summary["result_count"] == 0
+    assert summary["fallback_status_counts"] == {
+        "cache_satisfied": 1,
+        "context_packet_fallback": 1,
+        "recall_timeout": 1,
+    }
+    assert summary["budget_miss_count"] == 1
+    assert summary["degraded_count"] == 2
+    assert summary["timeout_count"] == 1
+    assert [record["status"] for record in summary["recent"]] == [
+        "timeout",
+        "ok",
+        "degraded",
+    ]
+    assert summary["latest_healthy_streak"] == {
+        "status": "missing",
+        "trace_count": 0,
+        "sample_limit": 3,
+    }
+
+
+def test_hook_status_reports_latest_healthy_followup_streak(tmp_path) -> None:
+    install_hook("codex", home=tmp_path)
+    trace_file = tmp_path / ".engram/axi-hook-runs.jsonl"
+    trace_file.parent.mkdir(parents=True)
+    trace_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:00Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "recall",
+                        "status": "ok",
+                        "exitCode": 0,
+                        "durationMs": 500,
+                        "origin": "agent-followup",
+                        "fallbackStatus": "project_file_recall_fallback",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:01Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "recall",
+                        "status": "timeout",
+                        "exitCode": 1,
+                        "durationMs": 3000,
+                        "origin": "agent-followup",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:02Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "context",
+                        "status": "ok",
+                        "exitCode": 0,
+                        "durationMs": 20,
+                        "origin": "agent-followup",
+                        "cacheHit": True,
+                        "packetCount": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-05-20T20:00:03Z",
+                        "hookId": MANAGED_HOOK_ID,
+                        "client": "codex",
+                        "operation": "recall",
+                        "status": "ok",
+                        "exitCode": 0,
+                        "durationMs": 8,
+                        "origin": "agent-followup",
+                        "cacheHit": True,
+                        "packetCount": 2,
+                        "fallbackStatus": "cache_satisfied",
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
+
+    streak = build_hook_status_payload("codex", home=tmp_path).payload[
+        "followup_summary"
+    ]["latest_healthy_streak"]
+
+    assert streak["status"] == "measured"
+    assert streak["trace_count"] == 2
+    assert streak["duration_ms"] == {
+        "count": 2,
+        "avg": 14.0,
+        "p95": 20.0,
+        "max": 20.0,
+    }
+    assert streak["cache_hit_count"] == 2
+    assert streak["cache_hit_rate"] == 1.0
+    assert streak["fallback_status_counts"] == {"cache_satisfied": 1}
+    assert [record["duration_ms"] for record in streak["recent"]] == [8, 20]
 
 
 def test_uninstall_hook_removes_only_managed_codex_entry(tmp_path) -> None:

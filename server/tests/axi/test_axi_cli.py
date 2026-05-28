@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 
 from engram.axi.cli import configure_axi_parser, run_axi_command
 
@@ -70,6 +72,45 @@ def test_axi_parser_preserves_global_flags_before_subcommand() -> None:
     assert args.topic_hint == "Engram"
 
 
+def test_axi_parser_preserves_global_project_and_topic_before_context() -> None:
+    args = _parse_axi_args(
+        "--project",
+        "/tmp/global-project",
+        "--topic",
+        "global topic",
+        "context",
+    )
+
+    assert args.axi_command == "context"
+    assert args.project_path == "/tmp/global-project"
+    assert args.topic_hint == "global topic"
+
+
+def test_axi_parser_preserves_global_project_before_duplicate_subcommands() -> None:
+    recall_args = _parse_axi_args("--project", "/tmp/global-project", "recall", "query")
+    doctor_args = _parse_axi_args("--project", "/tmp/global-project", "doctor")
+
+    assert recall_args.project_path == "/tmp/global-project"
+    assert doctor_args.project_path == "/tmp/global-project"
+
+
+def test_axi_parser_subcommand_project_and_topic_override_global_values() -> None:
+    args = _parse_axi_args(
+        "--project",
+        "/tmp/global-project",
+        "--topic",
+        "global topic",
+        "context",
+        "--project",
+        "/tmp/subcommand-project",
+        "--topic",
+        "subcommand topic",
+    )
+
+    assert args.project_path == "/tmp/subcommand-project"
+    assert args.topic_hint == "subcommand topic"
+
+
 def test_axi_parser_accepts_common_flags_after_subcommand() -> None:
     args = _parse_axi_args("recall", "Engram", "--json", "--limit", "3")
 
@@ -99,7 +140,8 @@ def test_run_axi_value_uses_report_timeout_default(monkeypatch, capsys) -> None:
         def __init__(self, **kwargs: object) -> None:
             captured.update(kwargs)
 
-        def evaluation_report(self) -> dict:
+        def evaluation_report(self, *, live_cost: bool = False) -> dict:
+            captured["live_cost"] = live_cost
             return {
                 "memory_value": {
                     "status": "measured",
@@ -122,6 +164,7 @@ def test_run_axi_value_uses_report_timeout_default(monkeypatch, capsys) -> None:
 
     assert exit_code == 0
     assert captured["timeout_seconds"] == 20.0
+    assert captured["live_cost"] is True
     assert json.loads(capsys.readouterr().out)["operation"] == "value"
 
 
@@ -144,6 +187,112 @@ def test_run_axi_command_prints_json_home(monkeypatch, capsys) -> None:
     assert payload["status"] == "healthy"
     assert payload["mode"] == "helix"
     assert payload["brain"]["project"] == "/tmp/project"
+
+
+def test_run_axi_context_infers_project_from_cwd(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class ContextClient(HealthyClient):
+        def context(self, **kwargs: object) -> dict:
+            captured.update(kwargs)
+            return {"context": "Engram context", "entityCount": 1, "factCount": 1}
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'sample'\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: ContextClient())
+    args = _parse_axi_args("context", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    json.loads(capsys.readouterr().out)
+    assert captured["project_path"] == str(tmp_path)
+
+
+def test_run_axi_recall_infers_project_from_cwd(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    class RecallClient(HealthyClient):
+        def recall(
+            self,
+            query_text: str,
+            *,
+            limit: int,
+            project_path: str | None = None,
+        ) -> dict:
+            captured["query"] = query_text
+            captured["limit"] = limit
+            captured["project_path"] = project_path
+            return {"status": "ok", "results": []}
+
+    (tmp_path / "README.md").write_text("# Sample\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: RecallClient())
+    args = _parse_axi_args("recall", "native PyO3 recall", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    json.loads(capsys.readouterr().out)
+    assert captured == {
+        "query": "native PyO3 recall",
+        "limit": 5,
+        "project_path": str(tmp_path),
+    }
+
+
+def test_run_axi_context_leaves_project_empty_outside_project(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class ContextClient(HealthyClient):
+        def context(self, **kwargs: object) -> dict:
+            captured.update(kwargs)
+            return {"context": "Engram context", "entityCount": 1, "factCount": 1}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: ContextClient())
+    args = _parse_axi_args("context", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    json.loads(capsys.readouterr().out)
+    assert captured["project_path"] is None
+
+
+def test_run_axi_hook_run_uses_hook_stdin_cwd(monkeypatch, tmp_path, capsys) -> None:
+    (tmp_path / "README.md").write_text("# Hook project\n")
+    monkeypatch.setattr(
+        "engram.axi.cli.sys.stdin",
+        io.StringIO(json.dumps({"cwd": str(tmp_path)})),
+    )
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    args = _parse_axi_args("hook-run", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["brain"]["project"] == str(tmp_path)
+
+
+def test_run_axi_hook_run_ignores_filesystem_root_cwd(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "engram.axi.cli.sys.stdin",
+        io.StringIO(json.dumps({"cwd": "/"})),
+    )
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    args = _parse_axi_args("hook-run", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["brain"]["project"] is None
 
 
 def test_run_axi_packet_cache_clear_prints_json_and_traces(
@@ -198,6 +347,116 @@ def test_run_axi_command_writes_metadata_only_trace(monkeypatch, tmp_path, capsy
     assert trace["project"] == "/tmp/project"
     assert "context" not in trace
     assert "brain" not in trace
+
+
+def test_run_axi_context_trace_records_redaction_safe_usefulness_metadata(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    class ContextTraceClient(HealthyClient):
+        def context(self, **_kwargs: object) -> dict:
+            return {
+                "context": "Engram context",
+                "entityCount": 2,
+                "factCount": 3,
+                "packet_cache": {"hit": True, "packet_count": 2},
+                "cached_packets": [
+                    {"title": "Project", "summary": "project packet"},
+                    {"title": "Identity", "summary": "identity packet"},
+                ],
+            }
+
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: ContextTraceClient())
+    trace_file = tmp_path / "axi-runs.jsonl"
+    args = _parse_axi_args(
+        "context",
+        "--json",
+        "--trace-file",
+        str(trace_file),
+        "--trace-client",
+        "codex",
+        "--trace-origin",
+        "agent-followup",
+    )
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    capsys.readouterr()
+    trace = json.loads(trace_file.read_text().splitlines()[0])
+    assert trace["operation"] == "context"
+    assert trace["origin"] == "agent-followup"
+    assert trace["cacheHit"] is True
+    assert trace["packetCount"] == 2
+    assert trace["entityCount"] == 2
+    assert trace["factCount"] == 3
+    assert trace["degraded"] is False
+    assert "context" not in trace
+    assert "packets" not in trace
+
+
+def test_run_axi_recall_trace_records_redaction_safe_lifecycle_metadata(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    class RecallTraceClient(HealthyClient):
+        def recall(
+            self,
+            _query: str,
+            *,
+            limit: int,
+            project_path: str | None = None,
+        ) -> dict:
+            del limit, project_path
+            return {
+                "status": "ok",
+                "results": [],
+                "packets": [
+                    {"title": "Project", "summary": "project packet"},
+                    {"title": "Plan", "summary": "plan packet"},
+                    {"title": "Install", "summary": "install packet"},
+                ],
+                "lifecycle": {
+                    "resultCount": 0,
+                    "packetCount": 3,
+                    "fallbackStatus": "cache_satisfied",
+                    "skipReason": "cache_satisfied",
+                    "degraded": False,
+                },
+                "budget": {"budgetMiss": False, "degraded": False},
+            }
+
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: RecallTraceClient())
+    trace_file = tmp_path / "axi-runs.jsonl"
+    args = _parse_axi_args(
+        "recall",
+        "Engram performance",
+        "--json",
+        "--trace-file",
+        str(trace_file),
+        "--trace-client",
+        "codex",
+        "--trace-origin",
+        "agent-followup",
+    )
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    capsys.readouterr()
+    trace = json.loads(trace_file.read_text().splitlines()[0])
+    assert trace["operation"] == "recall"
+    assert trace["cacheHit"] is True
+    assert trace["packetCount"] == 3
+    assert trace["resultCount"] == 0
+    assert trace["fallbackStatus"] == "cache_satisfied"
+    assert trace["skipReason"] == "cache_satisfied"
+    assert trace["budgetMiss"] is False
+    assert trace["degraded"] is False
+    assert "results" not in trace
+    assert "packets" not in trace
 
 
 def test_run_axi_hooks_install_dry_run_prints_json(tmp_path, capsys) -> None:
@@ -279,8 +538,15 @@ def test_run_axi_doctor_can_verify_ready_hooks(monkeypatch, tmp_path, capsys) ->
             "read_only": True,
             "capture": False,
             "last_run": None,
+            "last_run_stale_after_config_change": False,
+            "last_run_project_root": False,
             "last_observed_run": None,
             "last_followup": None,
+            "followup_summary": {
+                "status": "missing",
+                "trace_count": 0,
+                "sample_limit": 20,
+            },
             "issues": [],
         }
     ]
@@ -296,7 +562,7 @@ def test_run_axi_doctor_can_require_hook_run_evidence(monkeypatch, tmp_path, cap
     trace_file.write_text(
         json.dumps(
             {
-                "timestamp": "2026-05-20T22:34:44Z",
+                "timestamp": "2099-05-20T22:34:44Z",
                 "hookId": "engram-axi-context",
                 "client": "codex",
                 "operation": "home",
@@ -331,6 +597,99 @@ def test_run_axi_doctor_can_require_hook_run_evidence(monkeypatch, tmp_path, cap
     assert payload["hooks"][0]["last_followup"] is None
 
 
+def test_run_axi_doctor_rejects_stale_hook_run_evidence(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    install_args = _parse_axi_args("hooks", "install", "codex", "--home", str(tmp_path))
+    assert run_axi_command(install_args) == 0
+    trace_file = tmp_path / ".engram/axi-hook-runs.jsonl"
+    trace_file.parent.mkdir(parents=True)
+    trace_file.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-05-20T22:34:44Z",
+                "hookId": "engram-axi-context",
+                "client": "codex",
+                "operation": "home",
+                "status": "healthy",
+                "exitCode": 0,
+                "durationMs": 120,
+                "origin": "session-start-hook",
+                "project": "/tmp/project",
+            }
+        )
+        + "\n"
+    )
+    hook_path = tmp_path / ".codex/hooks.json"
+    new_config_time = 1_779_916_000
+    hook_path.touch()
+
+    os.utime(hook_path, (new_config_time, new_config_time))
+    capsys.readouterr()
+    doctor_args = _parse_axi_args(
+        "doctor",
+        "--hooks",
+        "codex",
+        "--require-hook-run",
+        "--home",
+        str(tmp_path),
+        "--json",
+    )
+
+    exit_code = run_axi_command(doctor_args)
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert {"name": "hook:codex", "status": "fail", "detail": "stale_session_start_run"} in payload[
+        "checks"
+    ]
+    assert payload["hooks"][0]["last_run_stale_after_config_change"] is True
+
+
+def test_run_axi_doctor_rejects_root_hook_run_project(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
+    install_args = _parse_axi_args("hooks", "install", "codex", "--home", str(tmp_path))
+    assert run_axi_command(install_args) == 0
+    trace_file = tmp_path / ".engram/axi-hook-runs.jsonl"
+    trace_file.parent.mkdir(parents=True)
+    trace_file.write_text(
+        json.dumps(
+            {
+                "timestamp": "2099-05-20T22:34:44Z",
+                "hookId": "engram-axi-context",
+                "client": "codex",
+                "operation": "home",
+                "status": "healthy",
+                "exitCode": 0,
+                "durationMs": 120,
+                "origin": "session-start-hook",
+                "project": "/",
+            }
+        )
+        + "\n"
+    )
+    capsys.readouterr()
+    doctor_args = _parse_axi_args(
+        "doctor",
+        "--hooks",
+        "codex",
+        "--require-hook-run",
+        "--home",
+        str(tmp_path),
+        "--json",
+    )
+
+    exit_code = run_axi_command(doctor_args)
+
+    assert exit_code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert {
+        "name": "hook:codex",
+        "status": "fail",
+        "detail": "session_start_project_root",
+    } in payload["checks"]
+    assert payload["hooks"][0]["last_run_project_root"] is True
+
+
 def test_run_axi_doctor_can_require_followup_evidence(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: HealthyClient())
     install_args = _parse_axi_args("hooks", "install", "codex", "--home", str(tmp_path))
@@ -342,7 +701,7 @@ def test_run_axi_doctor_can_require_followup_evidence(monkeypatch, tmp_path, cap
             [
                 json.dumps(
                     {
-                        "timestamp": "2026-05-20T22:34:44Z",
+                        "timestamp": "2099-05-20T22:34:44Z",
                         "hookId": "engram-axi-context",
                         "client": "codex",
                         "operation": "home",
@@ -355,7 +714,7 @@ def test_run_axi_doctor_can_require_followup_evidence(monkeypatch, tmp_path, cap
                 ),
                 json.dumps(
                     {
-                        "timestamp": "2026-05-20T22:35:01Z",
+                        "timestamp": "2099-05-20T22:35:01Z",
                         "hookId": "engram-axi-context",
                         "client": "codex",
                         "operation": "context",
@@ -364,6 +723,10 @@ def test_run_axi_doctor_can_require_followup_evidence(monkeypatch, tmp_path, cap
                         "durationMs": 92,
                         "origin": "agent-followup",
                         "project": "/tmp/project",
+                        "cacheHit": True,
+                        "packetCount": 2,
+                        "resultCount": 0,
+                        "fallbackStatus": "cache_satisfied",
                     }
                 ),
             ]
@@ -391,6 +754,10 @@ def test_run_axi_doctor_can_require_followup_evidence(monkeypatch, tmp_path, cap
     assert payload["hooks"][0]["last_observed_run"]["origin"] == "session-start-hook"
     assert payload["hooks"][0]["last_followup"]["operation"] == "context"
     assert payload["hooks"][0]["last_followup"]["origin"] == "agent-followup"
+    assert payload["hooks"][0]["last_followup"]["cacheHit"] is True
+    assert payload["hooks"][0]["last_followup"]["packetCount"] == 2
+    assert payload["hooks"][0]["last_followup"]["resultCount"] == 0
+    assert payload["hooks"][0]["last_followup"]["fallbackStatus"] == "cache_satisfied"
 
 
 def test_run_axi_doctor_fails_when_required_followup_is_missing(
@@ -408,7 +775,7 @@ def test_run_axi_doctor_fails_when_required_followup_is_missing(
             [
                 json.dumps(
                     {
-                        "timestamp": "2026-05-20T22:34:44Z",
+                        "timestamp": "2099-05-20T22:34:44Z",
                         "hookId": "engram-axi-context",
                         "client": "codex",
                         "origin": "session-start-hook",
@@ -421,7 +788,7 @@ def test_run_axi_doctor_fails_when_required_followup_is_missing(
                 ),
                 json.dumps(
                     {
-                        "timestamp": "2026-05-20T22:35:01Z",
+                        "timestamp": "2099-05-20T22:35:01Z",
                         "hookId": "engram-axi-context",
                         "client": "codex",
                         "origin": "agent-followup",

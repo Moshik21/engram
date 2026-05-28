@@ -14,22 +14,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Singleton cross-encoder (lazy-loaded)
-_cross_encoder = None
+_CROSS_ENCODER_UNAVAILABLE = object()
+_cross_encoder: Any | object | None = None
 _ce_lock: asyncio.Lock | None = None
 
 
 async def _get_cross_encoder():
     """Lazy-load the cross-encoder model (singleton)."""
     global _cross_encoder, _ce_lock  # noqa: PLW0603
+    if _cross_encoder is _CROSS_ENCODER_UNAVAILABLE:
+        return None
     if _cross_encoder is not None:
         return _cross_encoder
     if _ce_lock is None:
         _ce_lock = asyncio.Lock()
     async with _ce_lock:
+        if _cross_encoder is _CROSS_ENCODER_UNAVAILABLE:
+            return None
         if _cross_encoder is not None:
             return _cross_encoder
         try:
@@ -43,9 +49,11 @@ async def _get_cross_encoder():
             return _cross_encoder
         except ImportError:
             logger.warning("fastembed not installed — cross-encoder unavailable")
+            _cross_encoder = _CROSS_ENCODER_UNAVAILABLE
             return None
         except Exception as exc:
             logger.warning("Cross-encoder init failed: %s", exc)
+            _cross_encoder = _CROSS_ENCODER_UNAVAILABLE
             return None
 
 

@@ -20,6 +20,7 @@ from engram.retrieval.context import (
     manager_conversation_recent_turns,
     manager_conversation_top_entity_names,
 )
+from engram.retrieval.context_builder import MemoryContextBuilder
 from engram.retrieval.control import (
     record_manager_memory_need_analysis,
     resolve_manager_recall_need_thresholds,
@@ -31,6 +32,10 @@ from engram.retrieval.memory_operations import (
 )
 from engram.retrieval.need import analyze_memory_need
 from engram.retrieval.packets import assemble_memory_packets
+from engram.retrieval.recall_surface import (
+    EXPLICIT_RECALL_PACKET_CACHE_SCOPE,
+    _filter_packets_for_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +78,7 @@ class RecallMiddlewarePlan:
     surface_notifications_when_recall_disabled: bool
     auto_observe_content: bool
     ingest_live_turn: bool
+    cache_only: bool = False
 
 
 class RecallCooldown:
@@ -168,6 +174,7 @@ def plan_mcp_recall_middleware(
             ),
             auto_observe_content=False,
             ingest_live_turn=False,
+            cache_only=False,
         )
 
     return RecallMiddlewarePlan(
@@ -175,6 +182,7 @@ def plan_mcp_recall_middleware(
         surface_notifications_when_recall_disabled=False,
         auto_observe_content=auto_observe and len(content) >= 50,
         ingest_live_turn=tool_name not in WRITE_TOOLS,
+        cache_only=tool_name in WRITE_TOOLS,
     )
 
 
@@ -265,6 +273,7 @@ async def _record_auto_recall_gate(
     skip_reason: str | None = None,
     duration_ms: float = 0.0,
     timeout: bool = False,
+    cache_hit: bool | None = None,
 ) -> None:
     budget = recall_budget_for_profile(
         cfg,
@@ -291,6 +300,7 @@ async def _record_auto_recall_gate(
             timeout=timeout,
             budget_miss=budget_miss,
             degraded=bool(timeout or (budget.timeout_degrades and budget_miss)),
+            cache_hit=cache_hit,
         ),
     )
 
@@ -414,13 +424,54 @@ def _get_cached_packets(
     get_cached = getattr(manager, "get_cached_memory_packets", None)
     if not callable(get_cached):
         return None
-    hit = get_cached(group_id, scope=scope, topic_hint=topic_hint)
+    hit = get_cached(
+        group_id,
+        scope=scope,
+        topic_hint=topic_hint,
+        sync_persistent=False,
+    )
     if inspect.isawaitable(hit):
         close = getattr(hit, "close", None)
         if callable(close):
             close()
         return None
     return hit.packets if hit is not None else None
+
+
+def _get_recent_cached_packets_for_query(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    max_packets: int,
+) -> list[dict[str, Any]]:
+    if max_packets <= 0:
+        return []
+    get_recent = getattr(manager, "get_recent_cached_memory_packets", None)
+    if not callable(get_recent):
+        return []
+    try:
+        packets = get_recent(
+            group_id,
+            scopes=("identity_core", "project_home", EXPLICIT_RECALL_PACKET_CACHE_SCOPE),
+            limit_packets=max_packets * 2,
+            sync_persistent=False,
+        )
+    except Exception:
+        logger.debug("auto-recall recent packet lookup failed", exc_info=True)
+        return []
+    if inspect.isawaitable(packets):
+        close = getattr(packets, "close", None)
+        if callable(close):
+            close()
+        return []
+    if not isinstance(packets, list):
+        return []
+    return _filter_packets_for_query(
+        packets,
+        query=query,
+        limit=max_packets,
+    )
 
 
 def _cache_packets(
@@ -513,6 +564,7 @@ async def build_lite_auto_recall_surface(
     group_id: str,
     session_cache: MutableMapping[str, Any],
     cfg: ActivationConfig,
+    cache_only: bool = False,
 ) -> dict[str, Any] | None:
     """Dispatch lite/medium MCP auto-recall and compact the additive surface."""
     if len(content) < 20:
@@ -534,6 +586,7 @@ async def build_lite_auto_recall_surface(
         surface="mcp",
         mode=str(level),
         max_results=5,
+        max_packets=cfg.recall_packet_auto_limit,
         max_output_tokens=cfg.auto_recall_token_budget,
     )
     timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
@@ -548,6 +601,70 @@ async def build_lite_auto_recall_surface(
             status="skipped",
             skip_reason="skipped_budget",
             duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
+        return None
+
+    if cfg.recall_packets_enabled:
+        packet_started = time.perf_counter()
+        cached_packets = _get_recent_cached_packets_for_query(
+            manager,
+            group_id=group_id,
+            query=content,
+            max_packets=cfg.recall_packet_auto_limit,
+        )
+        packet_duration_ms = round((time.perf_counter() - packet_started) * 1000, 4)
+        if cached_packets:
+            await _record_packet_cache_operation(
+                manager,
+                group_id=group_id,
+                cache_hit=True,
+                packet_count=len(cached_packets),
+                duration_ms=packet_duration_ms,
+            )
+            await _record_auto_recall_gate(
+                manager,
+                group_id=group_id,
+                cfg=cfg,
+                profile="auto_lite",
+                mode=str(level),
+                status="ok",
+                skip_reason="cache_satisfied",
+                duration_ms=round((time.perf_counter() - started) * 1000, 4),
+            )
+            return compact_auto_recall_surface(
+                [],
+                query=content,
+                packets=cached_packets,
+                gate={
+                    "decision": "skipped_cache_satisfied",
+                    "modeRequested": str(level),
+                    "modeExecuted": "cached",
+                    "budgetProfile": "auto_lite",
+                    "skipReason": "cache_satisfied",
+                    "cacheHit": True,
+                    "cacheSatisfied": True,
+                },
+                min_score=cfg.auto_recall_min_score,
+            )
+
+    if cache_only:
+        await _record_packet_cache_operation(
+            manager,
+            group_id=group_id,
+            cache_hit=False,
+            packet_count=0,
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+        )
+        await _record_auto_recall_gate(
+            manager,
+            group_id=group_id,
+            cfg=cfg,
+            profile="auto_lite",
+            mode=str(level),
+            status="skipped",
+            skip_reason="cache_miss",
+            duration_ms=round((time.perf_counter() - started) * 1000, 4),
+            cache_hit=False,
         )
         return None
 
@@ -1025,42 +1142,22 @@ async def build_session_prime_surface(
         "startup",
         surface="mcp",
         mode="mcp_session_prime",
+        max_packets=cfg.recall_packet_auto_limit,
         max_output_tokens=plan.max_tokens,
     )
-    timeout_seconds = budget.stage_timeout_seconds(budget.max_wall_ms)
     started = time.perf_counter()
-    if timeout_seconds <= 0:
-        await record_manager_memory_operation(
-            manager,
-            group_id,
-            MemoryOperationSample(
-                operation="context",
-                source="mcp_session_prime",
-                mode="mcp_session_prime",
-                status="skipped",
-                duration_ms=round((time.perf_counter() - started) * 1000, 4),
-                skip_reason="skipped_budget",
-                budget_ms=budget.budget_ms,
-                budget_tokens=budget.budget_tokens,
-                budget_miss=True,
-                degraded=bool(budget.timeout_degrades),
-            ),
-        )
-        return SessionPrimeSurface(context=None, should_mark_primed=True)
+    packets = _session_prime_cached_packets(
+        manager,
+        group_id=group_id,
+        topic_hint=plan.topic_hint,
+        limit_packets=cfg.recall_packet_auto_limit,
+    )
+    duration_ms = round((time.perf_counter() - started) * 1000, 4)
+    budget_miss = budget.exceeded(duration_ms)
+    degraded = bool(budget.timeout_degrades and budget_miss)
 
-    try:
-        result = await asyncio.wait_for(
-            manager.get_context(
-                group_id=group_id,
-                max_tokens=plan.max_tokens,
-                topic_hint=plan.topic_hint,
-                format="structured",
-                operation_source="mcp_session_prime",
-            ),
-            timeout=timeout_seconds,
-        )
-        return SessionPrimeSurface(context=result, should_mark_primed=True)
-    except TimeoutError:
+    if packets:
+        context = MemoryContextBuilder.render_cached_packets(packets)
         await record_manager_memory_operation(
             manager,
             group_id,
@@ -1068,20 +1165,175 @@ async def build_session_prime_surface(
                 operation="context",
                 source="mcp_session_prime",
                 mode="mcp_session_prime",
-                status="degraded",
-                duration_ms=round((time.perf_counter() - started) * 1000, 4),
-                skip_reason="context_timeout",
-                timeout=True,
+                status="ok",
+                duration_ms=duration_ms,
                 budget_ms=budget.budget_ms,
                 budget_tokens=budget.budget_tokens,
-                budget_miss=True,
-                degraded=True,
+                budget_miss=budget_miss,
+                degraded=degraded,
+                cache_hit=True,
+                packet_count=len(packets),
             ),
         )
-        return SessionPrimeSurface(context=None, should_mark_primed=True)
+        return SessionPrimeSurface(
+            context={
+                "context": context,
+                "entity_count": 0,
+                "fact_count": 0,
+                "token_estimate": MemoryContextBuilder.estimate_tokens(context),
+                "format": "structured",
+                "cached_packets": packets,
+                "packet_cache": {
+                    "hit": True,
+                    "packet_count": len(packets),
+                    "scopes": _packet_scope_counts(packets),
+                },
+                "status": "ok",
+                "budget": {
+                    **budget.to_dict(),
+                    "duration_ms": duration_ms,
+                    "budget_miss": budget_miss,
+                    "timeout": False,
+                    "degraded": degraded,
+                    "skip_reason": None,
+                },
+                "lifecycle": {
+                    "stage": "recall",
+                    "degraded": degraded,
+                    "timeout": False,
+                    "skip_reason": None,
+                },
+                "diagnostics": {"stage_timings_ms": {"packet_cache": duration_ms}},
+            },
+            should_mark_primed=True,
+        )
+
+    await record_manager_memory_operation(
+        manager,
+        group_id,
+        MemoryOperationSample(
+            operation="context",
+            source="mcp_session_prime",
+            mode="mcp_session_prime",
+            status="skipped",
+            duration_ms=duration_ms,
+            skip_reason="cache_miss",
+            budget_ms=budget.budget_ms,
+            budget_tokens=budget.budget_tokens,
+            budget_miss=budget_miss,
+            degraded=degraded,
+            cache_hit=False,
+            packet_count=0,
+        ),
+    )
+    return SessionPrimeSurface(context=None, should_mark_primed=True)
+
+
+def _session_prime_cached_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    limit_packets: int,
+) -> list[dict[str, Any]]:
+    """Load startup-safe cached packets without invoking graph or recall paths."""
+    limit = max(1, int(limit_packets or 1))
+    packets: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    get_cached_packets = getattr(manager, "get_cached_memory_packets", None)
+    if callable(get_cached_packets):
+        for scope, scope_topic in (
+            ("identity_core", None),
+            ("project_home", topic_hint),
+            ("project_home", None),
+        ):
+            if len(packets) >= limit:
+                break
+            try:
+                hit = get_cached_packets(
+                    group_id,
+                    scope=scope,
+                    topic_hint=scope_topic,
+                    project_path=None,
+                    sync_persistent=False,
+                )
+            except Exception:
+                logger.debug("session_prime packet-cache lookup failed", exc_info=True)
+                continue
+            if inspect.isawaitable(hit):
+                _close_awaitable(hit)
+                continue
+            hit_packets = getattr(hit, "packets", None)
+            if not isinstance(hit_packets, list):
+                continue
+            for packet in hit_packets:
+                if len(packets) >= limit:
+                    break
+                if isinstance(packet, Mapping):
+                    _append_unique_session_packet(packets, seen, packet, scope=scope)
+
+    if len(packets) >= limit:
+        return packets
+
+    get_recent = getattr(manager, "get_recent_cached_memory_packets", None)
+    if not callable(get_recent):
+        return packets
+    try:
+        recent = get_recent(
+            group_id,
+            scopes=("identity_core", "project_home"),
+            limit_packets=limit,
+            sync_persistent=False,
+        )
     except Exception:
-        logger.debug("session_prime failed", exc_info=True)
-        return SessionPrimeSurface(context=None, should_mark_primed=True)
+        logger.debug("session_prime recent packet lookup failed", exc_info=True)
+        return packets
+    if inspect.isawaitable(recent):
+        _close_awaitable(recent)
+        return packets
+    if not isinstance(recent, list):
+        return packets
+    for packet in recent:
+        if len(packets) >= limit:
+            break
+        if isinstance(packet, Mapping):
+            scope = str(packet.get("_cache_scope") or packet.get("packet_type") or "recent")
+            _append_unique_session_packet(packets, seen, packet, scope=scope)
+    return packets
+
+
+def _append_unique_session_packet(
+    packets: list[dict[str, Any]],
+    seen: set[tuple[str, str, str]],
+    packet: Mapping[str, Any],
+    *,
+    scope: str,
+) -> None:
+    payload = {**dict(packet), "_cache_scope": scope}
+    key = (
+        str(payload.get("packet_type") or ""),
+        str(payload.get("title") or ""),
+        str(payload.get("summary") or ""),
+    )
+    if key in seen:
+        return
+    seen.add(key)
+    packets.append(payload)
+
+
+def _packet_scope_counts(packets: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for packet in packets:
+        scope = str(packet.get("_cache_scope") or packet.get("packet_type") or "unknown")
+        counts[scope] = counts.get(scope, 0) + 1
+    return counts
+
+
+def _close_awaitable(value: Any) -> None:
+    close = getattr(value, "close", None)
+    if callable(close):
+        close()
 
 
 async def store_mcp_auto_observe_turn(
@@ -1123,7 +1375,7 @@ async def run_mcp_recall_middleware(
     group_id: str,
     get_manager: Callable[[], Any],
     load_notifications: Callable[[ActivationConfig, str], Sequence[Mapping[str, Any]] | None],
-    auto_recall_lite: Callable[[str, Any, ActivationConfig], Awaitable[Mapping[str, Any] | None]],
+    auto_recall_lite: Callable[..., Awaitable[Mapping[str, Any] | None]],
     session_prime: Callable[
         [str | None, Any, ActivationConfig],
         Awaitable[Mapping[str, Any] | None],
@@ -1160,7 +1412,7 @@ async def run_mcp_recall_middleware(
         await ingest_live_turn(manager, content)
 
     prime = await session_prime(content, manager, cfg)
-    recalled = await auto_recall_lite(content, manager, cfg)
+    recalled = await auto_recall_lite(content, manager, cfg, cache_only=plan.cache_only)
     intentions = await drain_mcp_triggered_intentions(manager)
     notifications = load_notifications(cfg, group_id)
 

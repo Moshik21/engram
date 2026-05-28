@@ -107,6 +107,8 @@ async def run_projected_consolidated_smoke(
         activation={
             "extraction_provider": "narrow",
             "cue_layer_enabled": True,
+            "capture_store_timeout_ms": 0,
+            "capture_cue_store_timeout_ms": 0,
             "triage_enabled": True,
             "triage_extract_ratio": 1.0,
             "triage_min_score": 0.0,
@@ -637,6 +639,8 @@ def _apply_smoke_activation_overrides(config: EngramConfig) -> None:
     cfg = config.activation
     cfg.extraction_provider = "narrow"
     cfg.cue_layer_enabled = True
+    cfg.capture_store_timeout_ms = 0
+    cfg.capture_cue_store_timeout_ms = 0
     cfg.triage_enabled = True
     cfg.triage_extract_ratio = 1.0
     cfg.triage_min_score = 0.0

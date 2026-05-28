@@ -13,7 +13,11 @@ from engram.retrieval.memory_authority import (
     build_mcp_memory_authority_surface,
     validate_agent_protocol_calls,
 )
-from engram.retrieval.runtime_state import RuntimeStateService, build_runtime_state_surface
+from engram.retrieval.runtime_state import (
+    RuntimeStateService,
+    build_fast_runtime_packet,
+    build_runtime_state_surface,
+)
 
 
 @pytest.mark.asyncio
@@ -161,6 +165,19 @@ async def test_runtime_state_cache_serves_default_without_live_artifact_read() -
     assert second["diagnostics"]["cacheStatus"] == "hit"
     assert second["diagnostics"]["live"] is False
     assert calls == 1
+
+
+def test_fast_runtime_packet_can_include_startup_safe_packet_cache_summary() -> None:
+    result = build_fast_runtime_packet(
+        ActivationConfig(),
+        runtime_mode="helix",
+        project_path="/tmp/engram",
+        packet_cache_summary={"fresh_count": 2, "hit_count": 5},
+    )
+
+    assert result["runtime"]["surface"] == "fast_packet"
+    assert result["runtime"]["loadedGraphTouched"] is False
+    assert result["stats"]["packetCache"] == {"fresh_count": 2, "hit_count": 5}
 
 
 @pytest.mark.asyncio

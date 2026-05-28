@@ -62,6 +62,10 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def _has_count_row(rows: list[dict]) -> bool:
+    return bool(rows and isinstance(rows[0], dict) and "count" in rows[0])
+
+
 def _as_float(value: Any) -> float:
     try:
         return float(value or 0.0)
@@ -1019,6 +1023,19 @@ class HelixGraphStore:
         try:
             episodes = await self._query("find_episodes_by_group", {"gid": group_id})
             for ep in episodes:
+                episode_id = str(ep.get("episode_id") or "")
+                if episode_id:
+                    try:
+                        cues = await self._query(
+                            "find_cue_by_episode",
+                            {"ep_id": episode_id, "gid": group_id},
+                        )
+                        for cue in cues:
+                            cue_hid = self._extract_helix_id(cue)
+                            if cue_hid is not None:
+                                await self._query("hard_delete_cue", {"id": cue_hid})
+                    except Exception:
+                        pass
                 hid = self._extract_helix_id(ep)
                 if hid is not None:
                     try:
@@ -1982,7 +1999,12 @@ class HelixGraphStore:
     # Stats & Analytics
     # ------------------------------------------------------------------
 
-    async def get_stats(self, group_id: str | None = None) -> dict:
+    async def get_stats(self, group_id: str | None = None, *, exact: bool = True) -> dict:
+        if not exact:
+            fast_stats = await self._get_fast_count_stats(group_id)
+            if fast_stats is not None:
+                return fast_stats
+
         entity_query = (
             ("find_entities_by_group", {"gid": group_id})
             if group_id
@@ -2159,6 +2181,63 @@ class HelixGraphStore:
             "adjudication_metrics": adjudication_metrics,
         }
 
+    async def _get_fast_count_stats(self, group_id: str | None) -> dict | None:
+        """Use count-only Helix routes for native graph stats when available."""
+        if not group_id or self._config.transport not in {"native", "auto"}:
+            return None
+
+        count_queries = [
+            ("count_entities_by_group", {"gid": group_id}),
+            ("count_episodes_by_group", {"gid": group_id}),
+            ("count_relationships_by_group", {"gid": group_id}),
+            ("count_cues_by_group", {"gid": group_id}),
+        ]
+        if self._helix_client is not None:
+            rows_by_query = await self._helix_client.query_concurrent(count_queries)
+        else:
+            rows_by_query = [
+                await self._query(endpoint, payload)
+                for endpoint, payload in count_queries
+            ]
+
+        if not all(_has_count_row(rows) for rows in rows_by_query):
+            return None
+
+        entity_count = self._extract_count(rows_by_query[0])
+        episode_count = self._extract_count(rows_by_query[1])
+        relationship_count = self._extract_count(rows_by_query[2])
+        cue_count = self._extract_count(rows_by_query[3])
+        adjudication_metrics = await self._get_adjudication_metrics(group_id)
+        return {
+            "entities": entity_count,
+            "relationships": relationship_count,
+            "episodes": episode_count,
+            "cue_metrics": {
+                "cue_count": cue_count,
+                "episodes_without_cues": max(episode_count - cue_count, 0),
+                "cue_coverage": round(cue_count / episode_count, 4)
+                if episode_count
+                else 0.0,
+            },
+            "projection_metrics": {
+                "state_counts": {},
+                "attempted_episode_count": 0,
+                "total_attempts": 0,
+                "failure_count": 0,
+                "dead_letter_count": 0,
+                "failure_rate": 0.0,
+                "avg_processing_duration_ms": 0.0,
+                "avg_time_to_projection_ms": 0.0,
+                "yield": {
+                    "linked_entity_count": 0,
+                    "relationship_count": relationship_count,
+                    "avg_linked_entities_per_projected_episode": 0.0,
+                    "avg_relationships_per_projected_episode": 0.0,
+                },
+            },
+            "adjudication_metrics": adjudication_metrics,
+        }
+
     async def _get_adjudication_metrics(self, group_id: str | None) -> dict[str, Any]:
         if not group_id:
             return build_adjudication_metrics({}, {})
@@ -2185,6 +2264,10 @@ class HelixGraphStore:
         episodes: list[dict],
         group_id: str | None,
     ) -> list[dict]:
+        bulk_cues = await self._fetch_episode_cues_bulk(group_id)
+        if bulk_cues is not None:
+            return bulk_cues
+
         episode_queries = [
             (
                 "find_cue_by_episode",
@@ -2210,15 +2293,48 @@ class HelixGraphStore:
                 cues.append(cue_rows[0])
         return cues
 
+    async def _fetch_episode_cues_bulk(self, group_id: str | None) -> list[dict] | None:
+        try:
+            if group_id:
+                return await self._query("find_cues_by_group", {"gid": group_id})
+            return await self._query("find_cues_all", {})
+        except Exception:
+            logger.debug("Bulk cue stats query unavailable; falling back", exc_info=True)
+            return None
+
     async def _count_projected_episode_entities(
         self,
         episode_ids: list[str],
         group_id: str | None,
     ) -> int:
+        bulk_count = await self._count_projected_episode_entities_bulk(group_id)
+        if bulk_count is not None:
+            return bulk_count
+
         total = 0
         for episode_id in episode_ids:
             total += len(await self.get_episode_entities(episode_id, group_id=group_id))
         return total
+
+    async def _count_projected_episode_entities_bulk(self, group_id: str | None) -> int | None:
+        try:
+            if group_id:
+                rows = await self._query(
+                    "get_projected_episode_entities_by_group",
+                    {"gid": group_id, "projection_state": "projected"},
+                )
+            else:
+                rows = await self._query(
+                    "get_projected_episode_entities_all",
+                    {"projection_state": "projected"},
+                )
+            return len(rows)
+        except Exception:
+            logger.debug(
+                "Bulk projected episode entity stats query unavailable; falling back",
+                exc_info=True,
+            )
+            return None
 
     async def get_episodes_paginated(
         self,

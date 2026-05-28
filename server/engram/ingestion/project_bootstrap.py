@@ -273,7 +273,7 @@ class ProjectBootstrapService:
                 group_id=group_id,
                 now_iso=now_iso,
             )
-            if project_entity_id is not None:
+            if project_entity_id is not None and changed:
                 await self._ensure_relationship(
                     artifact_entity.id,
                     project_entity_id,
@@ -300,7 +300,7 @@ class ProjectBootstrapService:
                     },
                     group_id=group_id,
                 )
-            if self._cfg.decision_graph_enabled and claims:
+            if self._cfg.decision_graph_enabled and claims and changed:
                 await self._materialize_artifact_decisions(
                     artifact_entity,
                     claims,

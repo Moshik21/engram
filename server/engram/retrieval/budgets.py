@@ -173,7 +173,7 @@ def recall_budget_for_profile(
         surface=surface,
         mode=mode or "deep",
         max_wall_ms=_int(None, getattr(cfg, "recall_budget_explicit_ms", 2000)),
-        max_search_ms=1200,
+        max_search_ms=_int(None, getattr(cfg, "recall_budget_explicit_search_ms", 900)),
         max_graph_ms=600,
         max_packet_ms=200,
         max_results=_int(max_results, 10),

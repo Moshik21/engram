@@ -144,7 +144,11 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     finally:
         async with lock:
             _lifespan_refcount -= 1
-            if _lifespan_refcount == 0 and _shutdown_on_idle():
+            if (
+                _lifespan_refcount == 0
+                and _shutdown_on_idle()
+                and not _external_runtime_attached
+            ):
                 await _shutdown()
 
 
@@ -165,6 +169,7 @@ class SessionState:
     last_activity: datetime = field(default_factory=utc_now)
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
+    last_project_path: str | None = None
     recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
 
 
@@ -182,6 +187,79 @@ _runtime_graph_store: Any | None = None
 _episode_worker: Any | None = None
 _redis_publisher: Any | None = None
 _cue_index_outbox_task: asyncio.Task[int] | None = None
+_background_runtime_managed_externally = False
+_external_runtime_attached = False
+
+
+def set_background_runtime_managed_externally(enabled: bool = True) -> None:
+    """Mark MCP as embedded in a host that already owns background workers."""
+    global _background_runtime_managed_externally
+
+    _background_runtime_managed_externally = enabled
+
+
+def attach_external_runtime(
+    *,
+    manager: GraphManager,
+    config: EngramConfig,
+    mode: str | EngineMode,
+    graph_store: Any,
+    group_id: str,
+) -> None:
+    """Attach mounted MCP to the already-started REST runtime."""
+    global _manager, _group_id, _session, _recall_cooldown
+    global _activation_cfg, _runtime_config, _runtime_mode, _runtime_graph_store
+    global _background_runtime_managed_externally, _external_runtime_attached
+    global _mcp_init_timings
+
+    resolved_mode = mode if isinstance(mode, EngineMode) else EngineMode(str(mode))
+    _manager = manager
+    _group_id = group_id
+    _session = SessionState(group_id=group_id)
+    _activation_cfg = config.activation
+    _runtime_config = config
+    _runtime_mode = resolved_mode
+    _runtime_graph_store = graph_store
+    _recall_cooldown = RecallCooldown(
+        max_per_minute=config.activation.auto_recall_max_per_minute,
+        cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
+    )
+    _background_runtime_managed_externally = True
+    _external_runtime_attached = True
+    _mcp_init_timings = {"mcp_external_runtime": 0.0}
+
+
+def clear_external_runtime() -> None:
+    """Detach mounted MCP from REST-owned runtime without closing it."""
+    global _manager, _session, _recall_cooldown, _activation_cfg
+    global _runtime_config, _runtime_mode, _runtime_graph_store
+    global _external_runtime_attached
+
+    if not _external_runtime_attached:
+        return
+    _manager = None
+    _session = None
+    _recall_cooldown = None
+    _activation_cfg = None
+    _runtime_config = None
+    _runtime_mode = None
+    _runtime_graph_store = None
+    _external_runtime_attached = False
+
+
+def _should_start_mcp_background_runtime(config: EngramConfig) -> bool:
+    return bool(not _background_runtime_managed_externally and config.activation.worker_enabled)
+
+
+def _should_start_mcp_cue_index_outbox(config: EngramConfig) -> bool:
+    return bool(
+        not _background_runtime_managed_externally
+        and config.activation.cue_index_outbox_enabled
+    )
+
+
+def _should_start_mcp_redis_publisher(mode: EngineMode) -> bool:
+    return bool(not _background_runtime_managed_externally and mode == EngineMode.FULL)
 
 
 async def _init() -> None:
@@ -236,11 +314,11 @@ async def _init() -> None:
         cooldown_seconds=config.activation.auto_recall_cooldown_seconds,
     )
     # Background episode worker
-    from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
-    from engram.worker import EpisodeWorker
-
-    if config.activation.worker_enabled:
+    if _should_start_mcp_background_runtime(config):
         stage = time.perf_counter()
+        from engram.ingestion.worker_runtime import EpisodeWorkerRuntimeStores
+        from engram.worker import EpisodeWorker
+
         _episode_worker = EpisodeWorker(
             _manager,
             config.activation,
@@ -252,8 +330,10 @@ async def _init() -> None:
         )
         _episode_worker.start(_group_id, event_bus)
         timings["mcp_worker_start"] = _elapsed_ms(stage)
+    elif _background_runtime_managed_externally:
+        timings["mcp_background_managed_externally"] = 0.0
 
-    if config.activation.cue_index_outbox_enabled:
+    if _should_start_mcp_cue_index_outbox(config):
         stage = time.perf_counter()
         _cue_index_outbox_task = _start_cue_index_outbox_replay(
             _manager,
@@ -262,7 +342,7 @@ async def _init() -> None:
         timings["mcp_cue_index_outbox_start"] = _elapsed_ms(stage)
 
     # In full mode, bridge events to Redis so the REST API/dashboard can see them
-    if mode == EngineMode.FULL:
+    if _should_start_mcp_redis_publisher(mode):
         from engram.events.redis_bridge import create_publisher
 
         publisher = await create_publisher(_group_id, redis_url=config.redis.url)
@@ -330,7 +410,9 @@ def _get_session() -> SessionState:
 
 def _start_cue_index_outbox_replay(runtime: Any, *, limit: int) -> asyncio.Task[int]:
     """Schedule durable cue-index replay without blocking MCP startup."""
-    return asyncio.create_task(runtime.drain_cue_index_outbox(limit=limit))
+    return asyncio.create_task(
+        runtime.drain_cue_index_outbox(limit=limit, include_failed=False)
+    )
 
 
 async def _get_evaluation_store() -> SQLiteEvaluationStore:
@@ -425,6 +507,8 @@ async def _auto_recall_lite(
     content: str,
     manager: GraphManager,
     cfg: ActivationConfig,
+    *,
+    cache_only: bool = False,
 ) -> dict | None:
     """Dispatch auto-recall to lite or medium based on config.
 
@@ -441,6 +525,7 @@ async def _auto_recall_lite(
         group_id=_group_id,
         session_cache=session.recall_cache,
         cfg=cfg,
+        cache_only=cache_only,
     )
 
 
@@ -742,25 +827,31 @@ async def observe_file(
 
 
 @mcp.tool()
-async def recall(query: str, limit: int = 5) -> str:
+async def recall(query: str, limit: int = 5, project_path: str | None = None) -> str:
     """Retrieve memories relevant to a query using activation-aware search.
 
     Args:
         query: What to search for in memory
         limit: Maximum number of results to return (default 5)
+        project_path: Optional current project path for recall bias/fallbacks. If
+            omitted, recall uses the last project_path passed to get_context in
+            this MCP session.
 
     Returns:
         JSON with results array, total_candidates, and query_time_ms.
     """
     manager = _get_manager()
+    session = _get_session()
+    effective_project_path = project_path or session.last_project_path
     response = await build_mcp_explicit_recall_tool_surface(
         manager,
         group_id=_group_id,
         query=query,
         limit=limit,
         cfg=_activation_cfg or ActivationConfig(),
-        session=_get_session(),
+        session=session,
         recall_middleware=_recall_middleware,
+        project_path=effective_project_path,
     )
     return json.dumps(response)
 
@@ -878,6 +969,9 @@ async def get_context(
         JSON with context markdown, entity_count, fact_count, token_estimate.
     """
     manager = _get_manager()
+    session = _get_session()
+    if project_path:
+        session.last_project_path = project_path
     result = await build_mcp_context_tool_surface(
         manager,
         group_id=_group_id,

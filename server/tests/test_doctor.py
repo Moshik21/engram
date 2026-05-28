@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 
 import pytest
@@ -409,6 +410,80 @@ async def test_doctor_lifecycle_snapshot_supports_helix_mode(tmp_path, monkeypat
     assert checks["lifecycle_snapshot"]["metadata"]["resolved_mode"] == "helix"
     assert checks["lifecycle_snapshot"]["metadata"]["group_id"] == "native_brain"
     assert report["lifecycle_summary"]["groupId"] == "native_brain"
+
+
+@pytest.mark.asyncio
+async def test_doctor_warns_when_lifecycle_snapshot_times_out(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+
+    async def slow_lifecycle_summary(*args, **kwargs):
+        await asyncio.sleep(1)
+        return {}
+
+    monkeypatch.setattr(
+        "engram.doctor.build_lifecycle_summary_for_config",
+        slow_lifecycle_summary,
+    )
+    args = _parse_doctor_args(
+        "--mode",
+        "lite",
+        "--skip-server",
+        "--no-smoke",
+        "--lifecycle-timeout",
+        "0.01",
+    )
+
+    report = await build_doctor_report(args)
+
+    checks = {check["name"]: check for check in report["checks"]}
+    assert report["status"] == "warn"
+    assert checks["lifecycle_snapshot"]["status"] == "warn"
+    assert checks["lifecycle_snapshot"]["detail"] == "lifecycle snapshot timed out after 0.01s"
+    assert report["lifecycle_summary"] is None
+
+
+@pytest.mark.asyncio
+async def test_doctor_warns_when_brain_loop_smoke_times_out(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+
+    async def fake_lifecycle_summary(*args, **kwargs):
+        return {
+            "groupId": kwargs.get("group_id"),
+            "loop": ["capture", "cue", "project", "recall", "consolidate"],
+            "totals": {"episodes": 0, "cues": 0, "projected": 0, "cycles": 0},
+            "cue": {"coverage": 0.0},
+            "project": {"status": "ready"},
+            "consolidate": {"status": "ready"},
+        }
+
+    async def slow_smoke(**kwargs):
+        await asyncio.sleep(1)
+        return {}
+
+    monkeypatch.setattr(
+        "engram.doctor.build_lifecycle_summary_for_config",
+        fake_lifecycle_summary,
+    )
+    monkeypatch.setattr("engram.doctor.run_projected_consolidated_smoke_for_args", slow_smoke)
+    args = _parse_doctor_args(
+        "--mode",
+        "lite",
+        "--skip-server",
+        "--smoke-timeout",
+        "0.01",
+    )
+
+    report = await build_doctor_report(args)
+
+    checks = {check["name"]: check for check in report["checks"]}
+    assert report["status"] == "warn"
+    assert checks["brain_loop_smoke"]["status"] == "warn"
+    assert checks["brain_loop_smoke"]["detail"] == "brain-loop smoke timed out after 0.01s"
+    assert report["smoke_report"] is None
 
 
 @pytest.mark.asyncio

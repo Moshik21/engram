@@ -261,7 +261,7 @@ class SQLiteEvaluationStore:
         snapshot: StoredRecallRuntimeMetricsSnapshot,
     ) -> None:
         await self.db.execute(
-            "INSERT INTO evaluation_recall_runtime_metrics "
+            "INSERT OR REPLACE INTO evaluation_recall_runtime_metrics "
             "(id, group_id, metrics_json, source, timestamp) "
             "VALUES (?, ?, ?, ?, ?)",
             (
@@ -305,7 +305,7 @@ class SQLiteEvaluationStore:
         snapshot: StoredMemoryOperationMetricsSnapshot,
     ) -> None:
         await self.db.execute(
-            "INSERT INTO evaluation_memory_operation_metrics "
+            "INSERT OR REPLACE INTO evaluation_memory_operation_metrics "
             "(id, group_id, metrics_json, source, timestamp) "
             "VALUES (?, ?, ?, ?, ?)",
             (

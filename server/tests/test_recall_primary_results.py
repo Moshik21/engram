@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -177,3 +178,68 @@ async def test_skips_merged_episodes() -> None:
     assert result.results == []
     assert result.seen_episode_ids == set()
     graph.get_episode_entities.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_materialize_entity_bounds_slow_relationships() -> None:
+    async def slow_relationships(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return [Relationship(id="rel_slow", source_id="ent_react", target_id="ent_ui")]
+
+    graph = AsyncMock()
+    entity = Entity(id="ent_react", name="React", entity_type="Technology")
+    graph.get_entity = AsyncMock(return_value=entity)
+    graph.get_relationships = AsyncMock(side_effect=slow_relationships)
+    materializer, deps = _materializer(graph)
+    stage_timings: dict[str, float] = {}
+
+    result = await materializer.materialize(
+        [_score(entity.id, result_type="entity")],
+        group_id="default",
+        query="React",
+        record_access=True,
+        interaction_type="used",
+        interaction_source="chat_tool_use",
+        now=123.0,
+        working_memory=None,
+        graph_timeout_seconds=0.01,
+        side_effect_timeout_seconds=0.01,
+        stage_timings_ms=stage_timings,
+    )
+
+    assert result.results[0]["result_type"] == "entity"
+    assert result.results[0]["relationships"] == []
+    assert stage_timings["recall_materialize_relationships_timeout"] >= 10
+    deps["access_recorder"].record_entity_access.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_materialize_entity_skips_slow_entity_lookup() -> None:
+    async def slow_get_entity(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return Entity(id="ent_react", name="React", entity_type="Technology")
+
+    graph = AsyncMock()
+    graph.get_entity = AsyncMock(side_effect=slow_get_entity)
+    graph.get_relationships = AsyncMock(return_value=[])
+    materializer, deps = _materializer(graph)
+    stage_timings: dict[str, float] = {}
+
+    result = await materializer.materialize(
+        [_score("ent_react", result_type="entity")],
+        group_id="default",
+        query="React",
+        record_access=True,
+        interaction_type="used",
+        interaction_source="chat_tool_use",
+        now=123.0,
+        working_memory=None,
+        graph_timeout_seconds=0.01,
+        side_effect_timeout_seconds=0.01,
+        stage_timings_ms=stage_timings,
+    )
+
+    assert result.results == []
+    assert stage_timings["recall_materialize_entity_timeout"] >= 10
+    graph.get_relationships.assert_not_called()
+    deps["access_recorder"].record_entity_access.assert_not_awaited()

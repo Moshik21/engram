@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
+import time
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from json import JSONDecodeError
@@ -26,6 +28,11 @@ from engram.retrieval.memory_operations import (
 from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
+_MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS = 0.075
+_MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS = 0.01
+_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS = 250
+_SESSION_RECENT_PACKET_SCOPE = "session_recent"
+_SESSION_RECENT_PACKET_LIMIT = 5
 
 
 def _string_value(value: Any) -> str | None:
@@ -204,6 +211,7 @@ def attach_api_capture_diagnostics(response: dict[str, Any], manager: Any) -> di
         response.setdefault("diagnostics", {})["stageTimingsMs"] = {
             _camel_stage_name(key): value for key, value in timings.items()
         }
+        _mark_deferred_raw_capture_lifecycle(response, timings, camel_case=True)
     return response
 
 
@@ -211,7 +219,255 @@ def attach_mcp_capture_diagnostics(response: dict[str, Any], manager: Any) -> di
     timings = _capture_stage_timings(manager)
     if timings:
         response.setdefault("diagnostics", {})["stage_timings_ms"] = timings
+        _mark_deferred_raw_capture_lifecycle(response, timings, camel_case=False)
     return response
+
+
+def _mark_deferred_raw_capture_lifecycle(
+    response: dict[str, Any],
+    timings: Mapping[str, float],
+    *,
+    camel_case: bool,
+) -> None:
+    if "capture_store_timeout" not in timings or "capture_store" in timings:
+        return
+    lifecycle = response.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        return
+    if camel_case:
+        lifecycle["captureStatus"] = "deferred"
+        lifecycle["projectionStatus"] = "pending"
+    else:
+        lifecycle["capture_status"] = "deferred"
+        lifecycle["projection_status"] = "pending"
+
+
+def attach_mcp_side_effect_diagnostics(
+    response: dict[str, Any],
+    timings: Mapping[str, float],
+) -> dict[str, Any]:
+    if timings:
+        response.setdefault("diagnostics", {}).setdefault("stage_timings_ms", {}).update(
+            {
+                str(key): float(value)
+                for key, value in timings.items()
+                if isinstance(value, int | float)
+            }
+        )
+    return response
+
+
+def _close_awaitable(value: Any) -> None:
+    close = getattr(value, "close", None)
+    if callable(close):
+        close()
+
+
+def _cache_recent_observation_packet(
+    manager: Any,
+    *,
+    group_id: str,
+    episode_id: str,
+    content: str,
+    source: str,
+    packet_source: str,
+) -> None:
+    cache_packets = getattr(manager, "cache_memory_packets", None)
+    if not callable(cache_packets) or not content.strip():
+        return
+    summary = " ".join(content.split())[:240]
+    why_now = "Recent observe turn captured in this session."
+    packet = {
+        "packet_type": "recent_observation",
+        "title": f"Recent Observation: {episode_id}",
+        "summary": summary,
+        "why_now": why_now,
+        "confidence": 0.9,
+        "entity_ids": [],
+        "relationship_ids": [],
+        "episode_ids": [episode_id],
+        "evidence_lines": [summary],
+        "provenance": [f"episode:{episode_id}", f"source:{source or 'mcp'}"],
+        "supporting_intents": ["session_recent_observation"],
+        "trust": {
+            "freshness": "fresh",
+            "source": packet_source,
+            "confidence": 0.9,
+            "why_now": why_now,
+            "provenance_count": 2,
+            "evidence_count": 1,
+            "belief_status": "unknown",
+            "confirmed_count": 0,
+            "corrected_count": 0,
+            "dismissed_count": 0,
+            "last_confirmed_at": None,
+            "last_corrected_at": None,
+            "last_dismissed_at": None,
+        },
+    }
+    packets = _rolling_session_recent_packets(
+        manager,
+        group_id=group_id,
+        newest_packet=packet,
+    )
+    try:
+        result = cache_packets(
+            group_id,
+            scope=_SESSION_RECENT_PACKET_SCOPE,
+            topic_hint=None,
+            project_path=None,
+            packets=packets,
+            persist=False,
+        )
+        if inspect.isawaitable(result):
+            _close_awaitable(result)
+    except Exception:
+        logger.debug("Failed to cache recent observation packet", exc_info=True)
+
+
+def _rolling_session_recent_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    newest_packet: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    packets = [_strip_cache_scope(dict(newest_packet))]
+    get_recent = getattr(manager, "get_recent_cached_memory_packets", None)
+    if callable(get_recent):
+        try:
+            existing = get_recent(
+                group_id,
+                scopes=(_SESSION_RECENT_PACKET_SCOPE,),
+                limit_packets=_SESSION_RECENT_PACKET_LIMIT - 1,
+            )
+        except Exception:
+            existing = []
+        if inspect.isawaitable(existing):
+            _close_awaitable(existing)
+            existing = []
+        if isinstance(existing, list):
+            packets.extend(
+                _strip_cache_scope(dict(packet))
+                for packet in existing
+                if isinstance(packet, Mapping)
+            )
+    return _dedupe_recent_observation_packets(
+        packets,
+        limit=_SESSION_RECENT_PACKET_LIMIT,
+    )
+
+
+def _strip_cache_scope(packet: dict[str, Any]) -> dict[str, Any]:
+    packet.pop("_cache_scope", None)
+    return packet
+
+
+def _dedupe_recent_observation_packets(
+    packets: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for packet in packets:
+        fingerprint = _recent_packet_fingerprint(packet)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        selected.append(packet)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _recent_packet_fingerprint(packet: Mapping[str, Any]) -> str:
+    episode_ids = packet.get("episode_ids") or packet.get("episodeIds") or []
+    if isinstance(episode_ids, list | tuple) and episode_ids:
+        return "episode:" + "|".join(str(item) for item in episode_ids)
+    provenance = packet.get("provenance") or []
+    if isinstance(provenance, list | tuple) and provenance:
+        return "provenance:" + "|".join(str(item) for item in provenance)
+    packet_type = packet.get("packet_type") or packet.get("packetType")
+    return f"{packet_type}:{packet.get('title')}:{packet.get('summary')}"
+
+
+async def _run_mcp_write_side_effect(
+    name: str,
+    awaitable: Any,
+    timings: dict[str, float],
+    *,
+    background_on_timeout: bool = False,
+    timeout_seconds: float | None = None,
+) -> bool:
+    """Run non-capture MCP write side effects without making writes wait on them."""
+    if not inspect.isawaitable(awaitable):
+        return True
+    timeout = (
+        _MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS
+        if timeout_seconds is None
+        else max(0.0, float(timeout_seconds))
+    )
+    started = time.perf_counter()
+    task: asyncio.Task[Any] | None = None
+    try:
+        if background_on_timeout:
+            task = asyncio.create_task(awaitable)
+            await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=timeout,
+            )
+        else:
+            await asyncio.wait_for(
+                awaitable,
+                timeout=timeout,
+            )
+        timings[name] = round((time.perf_counter() - started) * 1000, 4)
+        return True
+    except TimeoutError:
+        timings[f"{name}_timeout"] = round((time.perf_counter() - started) * 1000, 4)
+        logger.debug(
+            "MCP write side effect %s exceeded %.0fms",
+            name,
+            timeout * 1000,
+        )
+        if task is not None:
+            task.add_done_callback(_log_mcp_write_side_effect_failure(name))
+        return False
+    except Exception:
+        timings[f"{name}_error"] = round((time.perf_counter() - started) * 1000, 4)
+        logger.debug("MCP write side effect %s failed", name, exc_info=True)
+        return False
+
+
+async def _run_mcp_write_side_effects(
+    items: list[tuple[str, Any, bool] | tuple[str, Any, bool, float | None]],
+    timings: dict[str, float],
+) -> None:
+    """Run independent MCP write side effects in one bounded wait window."""
+    await asyncio.gather(
+        *(
+            _run_mcp_write_side_effect(
+                item[0],
+                item[1],
+                timings,
+                background_on_timeout=item[2],
+                timeout_seconds=item[3] if len(item) > 3 else None,
+            )
+            for item in items
+        )
+    )
+
+
+def _log_mcp_write_side_effect_failure(name: str):
+    def _done(task: asyncio.Task[Any]) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.debug("Background MCP write side effect %s failed", name, exc_info=True)
+
+    return _done
 
 
 def build_observation_attachment(
@@ -240,6 +496,7 @@ async def store_observation(
     pass_session_id: bool = False,
     pass_conversation_date: bool = False,
     pass_attachments: bool = False,
+    capture_store_timeout_ms: int | None = None,
 ) -> str:
     """Store a raw Capture-stage observation through the manager facade."""
     kwargs: dict[str, Any] = {
@@ -253,6 +510,8 @@ async def store_observation(
         kwargs["conversation_date"] = conversation_date
     if attachments is not None or pass_attachments:
         kwargs["attachments"] = attachments
+    if capture_store_timeout_ms is not None:
+        kwargs["capture_store_timeout_ms"] = capture_store_timeout_ms
     return await manager.store_episode(**kwargs)
 
 
@@ -346,6 +605,15 @@ async def build_api_auto_observe_surface(
         session_id=session_id,
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
+        capture_store_timeout_ms=_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
+    )
+    _cache_recent_observation_packet(
+        manager,
+        group_id=group_id,
+        episode_id=episode_id,
+        content=content,
+        source=source,
+        packet_source="api_auto_observe",
     )
     await _record_write_operation(manager, group_id, finish_operation)
     return attach_api_capture_diagnostics(present_api_memory_write(
@@ -568,7 +836,14 @@ async def build_mcp_remember_write_surface(
         pass_attachments=True,
     )
     record_mcp_memory_write_activity(session)
-    await ingest_live_turn(manager, content, source="remember")
+    side_effect_timings: dict[str, float] = {}
+    await _run_mcp_write_side_effect(
+        "live_turn",
+        ingest_live_turn(manager, content, source="remember"),
+        side_effect_timings,
+        background_on_timeout=True,
+        timeout_seconds=_MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS,
+    )
 
     message = "Memory received. Entities and relationships extracted."
     adjudications: list[dict] = []
@@ -589,7 +864,12 @@ async def build_mcp_remember_write_surface(
         ),
         message=message,
     ), manager)
-    await recall_middleware(content, response, tool_name="remember")
+    await _run_mcp_write_side_effect(
+        "recall_middleware",
+        recall_middleware(content, response, tool_name="remember"),
+        side_effect_timings,
+    )
+    attach_mcp_side_effect_diagnostics(response, side_effect_timings)
     await _record_write_operation(manager, group_id, finish_operation)
     return response
 
@@ -620,14 +900,39 @@ async def build_mcp_observe_write_surface(
         conversation_date=parse_conversation_date(conversation_date),
         pass_session_id=True,
         pass_conversation_date=True,
+        capture_store_timeout_ms=_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
     )
     record_mcp_memory_write_activity(session)
-    await ingest_live_turn(manager, content, source="observe")
+    _cache_recent_observation_packet(
+        manager,
+        group_id=group_id,
+        episode_id=episode_id,
+        content=content,
+        source=source,
+        packet_source="mcp_observe",
+    )
+    side_effect_timings: dict[str, float] = {}
     response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
         memory_write_contract("observe", episode_id),
         message="Stored for background processing.",
     ), manager)
-    await recall_middleware(content, response, tool_name="observe")
+    await _run_mcp_write_side_effects(
+        [
+            (
+                "live_turn",
+                ingest_live_turn(manager, content, source="observe"),
+                True,
+                _MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS,
+            ),
+            (
+                "recall_middleware",
+                recall_middleware(content, response, tool_name="observe"),
+                False,
+            ),
+        ],
+        side_effect_timings,
+    )
+    attach_mcp_side_effect_diagnostics(response, side_effect_timings)
     await _record_write_operation(manager, group_id, finish_operation)
     return response
 

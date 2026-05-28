@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import time
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -351,12 +352,23 @@ class TestSessionPrime:
     @patch("engram.mcp.server._session", new=SessionState(auto_recall_primed=False))
     async def test_primes_on_first_call(self):
         cfg = self._make_cfg()
-        manager = AsyncMock()
-        manager.get_context.return_value = {"context": "User works on React", "entity_count": 3}
+        manager = Mock()
+        manager.get_cached_memory_packets.return_value = SimpleNamespace(
+            packets=[
+                {
+                    "packet_type": "project_home",
+                    "title": "React",
+                    "summary": "User works on React",
+                }
+            ]
+        )
+        manager.get_recent_cached_memory_packets.return_value = []
+        manager.record_memory_operation = Mock()
+        manager.get_context = AsyncMock()
         result = await _session_prime("Working on React", manager, cfg)
         assert result is not None
-        assert result["context"] == "User works on React"
-        manager.get_context.assert_called_once()
+        assert "User works on React" in result["context"]
+        manager.get_context.assert_not_awaited()
 
     @patch("engram.mcp.server._session", new=SessionState(auto_recall_primed=True))
     async def test_returns_none_on_second_call(self):
@@ -376,13 +388,20 @@ class TestSessionPrime:
     @patch("engram.mcp.server._session", new=SessionState(auto_recall_primed=False))
     async def test_extracts_topic_from_content(self):
         cfg = self._make_cfg()
-        manager = AsyncMock()
-        manager.get_context.return_value = {"context": "briefing"}
+        manager = Mock()
+        manager.get_cached_memory_packets.return_value = None
+        manager.get_recent_cached_memory_packets.return_value = []
+        manager.record_memory_operation = Mock()
+        manager.get_context = AsyncMock()
         await _session_prime("Working with React and Next.js", manager, cfg)
-        call_kwargs = manager.get_context.call_args[1]
-        # Should extract a topic hint from content
-        assert call_kwargs["topic_hint"] is not None
-        assert call_kwargs["format"] == "structured"
+        manager.get_cached_memory_packets.assert_any_call(
+            "default",
+            scope="project_home",
+            topic_hint="Working React Next",
+            project_path=None,
+            sync_persistent=False,
+        )
+        manager.get_context.assert_not_awaited()
 
 
 # ─── TestObserveWithAutoRecall ──────────────────────────────────────
@@ -392,8 +411,8 @@ class TestSessionPrime:
 class TestObserveWithAutoRecall:
     """Integration-style tests for observe() with auto-recall."""
 
-    async def test_observe_returns_recalled_context_when_enabled(self):
-        """observe() includes recalled_context in response when auto-recall fires."""
+    async def test_observe_skips_deep_recall_on_write_cache_miss(self):
+        """observe() keeps write-tool auto-recall cache-only on cache miss."""
         from engram.mcp import server
 
         cfg = ActivationConfig(
@@ -401,18 +420,58 @@ class TestObserveWithAutoRecall:
             auto_recall_on_observe=True,
             auto_recall_session_prime=False,
         )
-        mock_manager = AsyncMock()
-        mock_manager.store_episode.return_value = "ep-123"
-        mock_manager.recall_lite.return_value = [
+        mock_manager = MagicMock()
+        mock_manager.store_episode = AsyncMock(return_value="ep-123")
+        mock_manager.get_recent_cached_memory_packets.return_value = []
+        mock_manager.recall_lite = AsyncMock(
+            return_value=[
+                {
+                    "name": "React",
+                    "type": "Technology",
+                    "summary": "UI lib",
+                    "confidence": 0.8,
+                    "identity_core": False,
+                    "top_facts": [],
+                }
+            ]
+        )
+        mock_manager.record_memory_operation = MagicMock()
+        session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
+
+        with (
+            patch.object(server, "_manager", mock_manager),
+            patch.object(server, "_session", session),
+            patch.object(server, "_activation_cfg", cfg),
+            patch.object(server, "_group_id", "default"),
+        ):
+            raw = await server.observe("Working on a React migration to Next.js project")
+            result = json.loads(raw)
+
+        assert result["status"] == "stored"
+        assert "recalled_context" not in result
+        mock_manager.recall_lite.assert_not_awaited()
+
+    async def test_observe_returns_cached_context_when_enabled(self):
+        """observe() can still surface already-warm cached context."""
+        from engram.mcp import server
+
+        cfg = ActivationConfig(
+            auto_recall_enabled=True,
+            auto_recall_on_observe=True,
+            auto_recall_session_prime=False,
+        )
+        mock_manager = MagicMock()
+        mock_manager.store_episode = AsyncMock(return_value="ep-123")
+        mock_manager.get_recent_cached_memory_packets.return_value = [
             {
-                "name": "React",
-                "type": "Technology",
+                "packet_type": "explicit_recall",
+                "title": "React",
                 "summary": "UI lib",
-                "confidence": 0.8,
-                "identity_core": False,
-                "top_facts": [],
+                "trust": {"source": "cue"},
             }
         ]
+        mock_manager.recall_lite = AsyncMock()
+        mock_manager.record_memory_operation = MagicMock()
         session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
 
         with (
@@ -426,8 +485,9 @@ class TestObserveWithAutoRecall:
 
         assert result["status"] == "stored"
         assert "recalled_context" in result
-        assert result["recalled_context"]["source"] == "recall_lite"
-        assert result["recalled_context"]["entities"][0]["name"] == "React"
+        assert result["recalled_context"]["source"] == "auto_recall"
+        assert result["recalled_context"]["packets"][0]["title"] == "React"
+        mock_manager.recall_lite.assert_not_awaited()
 
     async def test_observe_returns_session_context_on_first_call(self):
         """observe() includes session_context on first call (priming)."""
@@ -440,10 +500,20 @@ class TestObserveWithAutoRecall:
         )
         mock_manager = AsyncMock()
         mock_manager.store_episode.return_value = "ep-123"
-        mock_manager.get_context.return_value = {
-            "context": "User is a developer",
-            "entity_count": 5,
-        }
+        mock_manager.get_cached_memory_packets = Mock(
+            return_value=SimpleNamespace(
+                packets=[
+                    {
+                        "packet_type": "identity_core",
+                        "title": "User Profile",
+                        "summary": "User is a developer",
+                    }
+                ]
+            )
+        )
+        mock_manager.get_recent_cached_memory_packets = Mock(return_value=[])
+        mock_manager.record_memory_operation = Mock()
+        mock_manager.get_context = AsyncMock()
         mock_manager.recall_lite.return_value = []
         session = SessionState(auto_recall_primed=False, last_recall_time=0.0)
 
@@ -458,7 +528,8 @@ class TestObserveWithAutoRecall:
 
         assert result["status"] == "stored"
         assert "session_context" in result
-        assert result["session_context"]["context"] == "User is a developer"
+        assert "User is a developer" in result["session_context"]["context"]
+        mock_manager.get_context.assert_not_awaited()
 
     async def test_observe_clean_when_disabled(self):
         """observe() returns clean JSON when auto-recall is disabled (backward compat)."""
@@ -490,7 +561,7 @@ class TestObserveWithAutoRecall:
 class TestRememberWithAutoRecall:
     """Integration-style tests for remember() with auto-recall."""
 
-    async def test_remember_returns_recalled_context_when_enabled(self):
+    async def test_remember_skips_deep_recall_on_write_cache_miss(self):
         from engram.mcp import server
 
         cfg = ActivationConfig(
@@ -498,18 +569,57 @@ class TestRememberWithAutoRecall:
             auto_recall_on_remember=True,
             auto_recall_session_prime=False,
         )
-        mock_manager = AsyncMock()
-        mock_manager.ingest_episode.return_value = "ep-456"
-        mock_manager.recall_lite.return_value = [
+        mock_manager = MagicMock()
+        mock_manager.ingest_episode = AsyncMock(return_value="ep-456")
+        mock_manager.get_recent_cached_memory_packets.return_value = []
+        mock_manager.recall_lite = AsyncMock(
+            return_value=[
+                {
+                    "name": "Python",
+                    "type": "Technology",
+                    "summary": "Language",
+                    "confidence": 0.7,
+                    "identity_core": False,
+                    "top_facts": [],
+                }
+            ]
+        )
+        mock_manager.record_memory_operation = MagicMock()
+        session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
+
+        with (
+            patch.object(server, "_manager", mock_manager),
+            patch.object(server, "_session", session),
+            patch.object(server, "_activation_cfg", cfg),
+            patch.object(server, "_group_id", "default"),
+        ):
+            raw = await server.remember("User prefers Python for backend development work")
+            result = json.loads(raw)
+
+        assert result["status"] == "stored"
+        assert "recalled_context" not in result
+        mock_manager.recall_lite.assert_not_awaited()
+
+    async def test_remember_returns_cached_context_when_enabled(self):
+        from engram.mcp import server
+
+        cfg = ActivationConfig(
+            auto_recall_enabled=True,
+            auto_recall_on_remember=True,
+            auto_recall_session_prime=False,
+        )
+        mock_manager = MagicMock()
+        mock_manager.ingest_episode = AsyncMock(return_value="ep-456")
+        mock_manager.get_recent_cached_memory_packets.return_value = [
             {
-                "name": "Python",
-                "type": "Technology",
+                "packet_type": "explicit_recall",
+                "title": "Python",
                 "summary": "Language",
-                "confidence": 0.7,
-                "identity_core": False,
-                "top_facts": [],
+                "trust": {"source": "cue"},
             }
         ]
+        mock_manager.recall_lite = AsyncMock()
+        mock_manager.record_memory_operation = MagicMock()
         session = SessionState(last_recall_time=0.0, auto_recall_primed=True)
 
         with (
@@ -523,8 +633,9 @@ class TestRememberWithAutoRecall:
 
         assert result["status"] == "stored"
         assert "recalled_context" in result
-        assert result["recalled_context"]["source"] == "recall_lite"
-        assert result["recalled_context"]["entities"][0]["name"] == "Python"
+        assert result["recalled_context"]["source"] == "auto_recall"
+        assert result["recalled_context"]["packets"][0]["title"] == "Python"
+        mock_manager.recall_lite.assert_not_awaited()
 
     async def test_remember_clean_when_disabled(self):
         from engram.mcp import server

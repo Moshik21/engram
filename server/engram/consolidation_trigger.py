@@ -14,6 +14,7 @@ from engram.storage.bootstrap import (
 )
 
 logger = logging.getLogger(__name__)
+_API_CONSOLIDATION_STATUS_LATEST_CYCLE_TIMEOUT_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -158,7 +159,19 @@ async def build_api_consolidation_status_surface(
                 "last_cycle_time": snapshot.last_cycle_time,
             }
 
-    latest_cycle = await engine.get_latest_cycle(group_id)
+    try:
+        latest_cycle = await asyncio.wait_for(
+            engine.get_latest_cycle(group_id),
+            timeout=_API_CONSOLIDATION_STATUS_LATEST_CYCLE_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        result["latest_cycle_status"] = "timeout"
+        result["degraded"] = True
+        result["skip_reason"] = "latest_cycle_timeout"
+        result["diagnostics"] = {
+            "latest_cycle_timeout_seconds": _API_CONSOLIDATION_STATUS_LATEST_CYCLE_TIMEOUT_SECONDS
+        }
+        latest_cycle = None
     if latest_cycle is not None:
         result["latest_cycle"] = serialize_cycle_summary(latest_cycle)
     return result

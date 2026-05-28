@@ -90,15 +90,37 @@ class AxiRestClient:
             query["project_path"] = project_path
         return self.request_json("GET", "/api/knowledge/context", query=query)
 
-    def recall(self, query_text: str, *, limit: int) -> dict[str, Any]:
+    def recall(
+        self,
+        query_text: str,
+        *,
+        limit: int,
+        project_path: str | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {"q": query_text, "limit": limit}
+        if project_path:
+            query["project_path"] = project_path
         return self.request_json(
             "GET",
             "/api/knowledge/recall",
-            query={"q": query_text, "limit": limit},
+            query=query,
         )
 
-    def evaluation_report(self) -> dict[str, Any]:
-        return self.request_json("GET", "/api/evaluation/brain-loop/report")
+    def evaluation_report(
+        self,
+        *,
+        live_cost: bool = False,
+        cycle_limit: int | None = None,
+        sample_limit: int | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        if live_cost:
+            query["liveCost"] = True
+        if cycle_limit is not None:
+            query["cycleLimit"] = cycle_limit
+        if sample_limit is not None:
+            query["sampleLimit"] = sample_limit
+        return self.request_json("GET", "/api/evaluation/brain-loop/report", query=query)
 
     def clear_packet_cache(self) -> dict[str, Any]:
         return self.request_json("POST", "/api/knowledge/packet-cache/clear")

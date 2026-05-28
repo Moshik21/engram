@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -8,12 +9,64 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.models.recall import MemoryPacket
+from engram.retrieval import recall_surface as recall_surface_module
+from engram.retrieval.context_builder import _PROJECT_FILE_FALLBACK_PACKET_VERSION
 from engram.retrieval.recall_surface import (
+    _filter_packets_for_query,
+    _packets_satisfy_explicit_query,
     build_api_recall_surface,
     build_mcp_explicit_recall_tool_surface,
     build_mcp_recall_surface,
+    cached_explicit_recall_packet_payloads,
     memory_packet_to_api_dict,
 )
+
+
+@pytest.mark.asyncio
+async def test_project_file_recall_fallback_uses_dedicated_executor(monkeypatch) -> None:
+    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    async def fake_run_project_file_executor(function, /, *args, **kwargs):
+        calls.append((function.__name__, args, kwargs))
+        return (
+            [
+                {
+                    "packet_type": "project_home",
+                    "title": "Project File: README.md",
+                    "summary": "Executor-isolated recall fallback.",
+                    "trust": {"source": "project_file"},
+                }
+            ],
+            2.5,
+        )
+
+    monkeypatch.setattr(
+        recall_surface_module,
+        "_run_project_file_executor",
+        fake_run_project_file_executor,
+    )
+
+    task = recall_surface_module._start_project_file_recall_fallback_task(
+        query="executor isolation",
+        project_path="/tmp/Engram",
+        max_packets=1,
+    )
+
+    assert task is not None
+    packets, duration_ms = await task
+    assert packets[0]["summary"] == "Executor-isolated recall fallback."
+    assert duration_ms == 2.5
+    assert calls == [
+        (
+            "_build_project_file_recall_fallback_packets",
+            (),
+            {
+                "query": "executor isolation",
+                "project_path": "/tmp/Engram",
+                "max_packets": 1,
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -96,7 +149,9 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None:
+async def test_api_recall_surface_degrades_when_recall_stage_times_out(monkeypatch) -> None:
+    monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
+
     async def slow_recall(*_args, **_kwargs):
         await asyncio.sleep(0.2)
         return []
@@ -107,7 +162,12 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None
             enabled=True,
             max_packets=3,
         ),
-        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=100),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+        ),
+        get_last_recall_stage_timings=Mock(
+            return_value={"recall_retrieve_cancelled": 100.0},
+        ),
         record_memory_operation=Mock(),
     )
 
@@ -121,11 +181,20 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None
 
     assert result["status"] == "degraded"
     assert result["items"] == []
-    assert result["packets"] == []
+    assert result["lifecycle"]["packetCount"] == 1
+    assert result["packets"][0]["packet_type"] == "recall_diagnostic"
+    assert result["packets"][0]["title"] == "No recalled evidence under budget"
+    assert "skip_reason=recall_timeout" in result["packets"][0]["evidence_lines"]
+    assert "fallback_status=unavailable" in result["packets"][0]["evidence_lines"]
+    assert (
+        "recall_retrieve_cancelled_ms=100.0"
+        in result["packets"][0]["evidence_lines"]
+    )
     assert result["lifecycle"]["degraded"] is True
     assert result["lifecycle"]["timeout"] is True
     assert result["lifecycle"]["skipReason"] == "recall_timeout"
     assert result["diagnostics"]["stageTimingsMs"]["recallSearch"] >= 100
+    assert result["diagnostics"]["stageTimingsMs"]["recallRetrieveCancelled"] == 100.0
     assert result["budget"]["surface"] == "axi"
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"
@@ -137,7 +206,60 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out() -> None
 
 
 @pytest.mark.asyncio
-async def test_api_recall_surface_runs_fast_cascade_before_deep_recall() -> None:
+async def test_api_recall_surface_filters_irrelevant_fast_fallback_on_timeout(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
+
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    fallback_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_irrelevant",
+            "content": "A deployment note about another project.",
+            "source": "cue_fallback",
+            "created_at": None,
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[fallback_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="zzzzquasarflux xylofract wugplinth",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    assert result["lifecycle"]["fallbackStatus"] == "filtered"
+    assert result["lifecycle"]["fallbackResultCount"] == 0
+    assert result["packets"][0]["packet_type"] == "recall_diagnostic"
+    assert "fallback_status=filtered" in result["packets"][0]["evidence_lines"]
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_does_not_run_fast_fallback_before_successful_recall() -> None:
     calls = []
     cached_packet = {
         "packet_type": "state_packet",
@@ -166,7 +288,11 @@ async def test_api_recall_surface_runs_fast_cascade_before_deep_recall() -> None
         return [
             {
                 "result_type": "episode",
-                "episode": {"id": "ep_fast", "content": "Fast", "source": "fast"},
+                "episode": {
+                    "id": "ep_fast",
+                    "content": "Fast fallback about Engram latency.",
+                    "source": "fast",
+                },
                 "score": 0.5,
                 "score_breakdown": {"semantic": 0.5},
                 "linked_entities": [],
@@ -184,7 +310,9 @@ async def test_api_recall_surface_runs_fast_cascade_before_deep_recall() -> None
             enabled=True,
             max_packets=3,
         ),
-        get_memory_need_config=lambda: ActivationConfig(),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_fast_preflight_enabled=False,
+        ),
         get_cached_memory_packets=Mock(side_effect=cached_packets),
         record_memory_operation=Mock(),
     )
@@ -197,15 +325,158 @@ async def test_api_recall_surface_runs_fast_cascade_before_deep_recall() -> None
         operation_source="axi_recall",
     )
 
-    assert calls == ["packet_cache", "fallback", "deep"]
+    assert calls == ["packet_cache", "deep"]
     assert result["status"] == "ok"
     assert result["items"][0]["episode"]["id"] == "ep_deep"
     assert result["packets"] == [cached_packet]
-    assert result["lifecycle"]["fallbackStatus"] == "hit"
-    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert result["lifecycle"]["fallbackStatus"] == "not_run"
+    assert result["lifecycle"]["fallbackResultCount"] == 0
     assert result["diagnostics"]["stageTimingsMs"]["packetCache"] >= 0
-    assert result["diagnostics"]["stageTimingsMs"]["recallFallback"] >= 0
     assert result["diagnostics"]["stageTimingsMs"]["recallSearch"] >= 0
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_explicit_recall_packet_cache_scope_is_shared_across_sources() -> None:
+    cached_packet = {
+        "packet_type": "state_packet",
+        "title": "State: Engram",
+        "summary": "Cached packet is reusable across AXI, REST, and MCP recall.",
+    }
+
+    def get_cached_packets(*_args, **kwargs):
+        if kwargs["scope"] == "explicit_recall":
+            return SimpleNamespace(packets=[cached_packet])
+        return None
+
+    manager = SimpleNamespace(
+        get_cached_memory_packets=Mock(side_effect=get_cached_packets),
+        record_memory_operation=Mock(),
+    )
+    cfg = ActivationConfig(recall_packet_cache_enabled=True)
+
+    api_packets = await cached_explicit_recall_packet_payloads(
+        manager,
+        group_id="native_brain",
+        query="Engram shared recall cache",
+        max_packets=3,
+        cfg=cfg,
+        operation_source="api_recall",
+    )
+    mcp_packets = await cached_explicit_recall_packet_payloads(
+        manager,
+        group_id="native_brain",
+        query="Engram shared recall cache",
+        max_packets=3,
+        cfg=cfg,
+        operation_source="mcp_recall",
+    )
+
+    assert api_packets == [cached_packet]
+    assert mcp_packets == [cached_packet]
+    assert [
+        call.kwargs["scope"] for call in manager.get_cached_memory_packets.call_args_list
+    ] == ["explicit_recall", "explicit_recall"]
+    samples = [call.args[1] for call in manager.record_memory_operation.call_args_list]
+    assert [sample.source for sample in samples] == ["api_recall", "mcp_recall"]
+    assert [sample.mode for sample in samples] == ["explicit_recall", "explicit_recall"]
+    assert all(sample.cache_hit for sample in samples)
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_fast_preflight_on_cache_miss() -> None:
+    fallback_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_fast",
+            "content": "Engram native PyO3 dogfood performance recall context.",
+            "source": "fast",
+            "created_at": None,
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[fallback_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=100),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram native PyO3 dogfood performance recall context",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"][0]["episode"]["id"] == "ep_fast"
+    assert result["lifecycle"]["fallbackStatus"] == "fast_preflight_hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert result["diagnostics"]["stageTimingsMs"]["recallFastPreflight"] >= 0
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="Engram native PyO3 dogfood performance recall context",
+        group_id="native_brain",
+        limit=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fast_preflight_uses_its_own_timeout_budget() -> None:
+    async def fallback(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        return [fallback_result]
+
+    fallback_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_fast",
+            "content": "Engram native PyO3 dogfood performance recall context.",
+            "source": "fast",
+            "created_at": None,
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(side_effect=fallback),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_fast_fallback_timeout_ms=1,
+            recall_fast_preflight_timeout_ms=200,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram native PyO3 dogfood performance recall context",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"][0]["episode"]["id"] == "ep_fast"
+    assert result["lifecycle"]["fallbackStatus"] == "fast_preflight_hit"
+    manager.recall.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -238,7 +509,10 @@ async def test_api_recall_surface_uses_fast_fallback_and_cached_packets_on_timeo
             enabled=True,
             max_packets=3,
         ),
-        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=100),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
         get_cached_memory_packets=Mock(
             return_value=SimpleNamespace(packets=[cached_packet]),
         ),
@@ -269,6 +543,1317 @@ async def test_api_recall_surface_uses_fast_fallback_and_cached_packets_on_timeo
         call.args[1].operation for call in manager.record_memory_operation.call_args_list
     ]
     assert recorded_operations == ["packet_cache", "recall"]
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_fast_fallback_when_success_has_low_overlap() -> None:
+    weak_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_weak",
+            "content": "An older memory value note about a related plan.",
+            "source": "deep",
+            "created_at": None,
+        },
+        "score": 0.9,
+        "score_breakdown": {"semantic": 0.9},
+        "linked_entities": [],
+    }
+    fallback_result = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_exact",
+            "content": (
+                "Post-fix validation note storage diagnostics skip count scans "
+                "capture writes responsive."
+            ),
+            "source": "cue_fallback",
+            "created_at": None,
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[weak_result]),
+        fast_recall_fallback=AsyncMock(return_value=[fallback_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_fast_preflight_enabled=False,
+        ),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query=(
+            "Post-fix validation note storage diagnostics skip count scans "
+            "capture writes responsive"
+        ),
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"][0]["episode"]["id"] == "ep_exact"
+    assert result["lifecycle"]["fallbackStatus"] == "quality_rescue_hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert result["diagnostics"]["stageTimingsMs"]["recallLowOverlapFallback"] >= 0
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query=(
+            "Post-fix validation note storage diagnostics skip count scans "
+            "capture writes responsive"
+        ),
+        group_id="native_brain",
+        limit=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_bounds_slow_fast_fallback_on_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
+
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    async def slow_fallback(*_args, **_kwargs):
+        await asyncio.sleep(1.0)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(side_effect=slow_fallback),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_fallback_timeout_ms=25,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="nomatch recall tail",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    assert result["lifecycle"]["fallbackStatus"] == "timeout"
+    assert result["lifecycle"]["fallbackResultCount"] == 0
+    assert result["diagnostics"]["stageTimingsMs"]["recallFallback"] < 150
+    assert result["packets"][0]["packet_type"] == "recall_diagnostic"
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="nomatch recall tail",
+        group_id="native_brain",
+        limit=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_context_packets_when_deep_recall_times_out() -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project Home: Engram",
+        "summary": "Cached project packet covers Engram latency work.",
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram latency",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    assert result["packets"] == [context_packet]
+    assert result["lifecycle"]["timeout"] is True
+    manager.get_recent_cached_memory_packets.assert_called_once_with(
+        "native_brain",
+        scopes=("identity_core", "session_recent", "project_home"),
+        limit_packets=6,
+        sync_persistent=False,
+    )
+    recorded_modes = [
+        call.args[1].mode for call in manager.record_memory_operation.call_args_list
+    ]
+    assert "context_packet_cache_preflight" in recorded_modes
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_deduplicates_context_packet_fallback() -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/install/helix.md",
+        "summary": "Helix install docs cover native PyO3.",
+        "provenance": ["file:docs/install/helix.md"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet, dict(context_packet)]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Helix",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["packets"] == [context_packet]
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_returns_recent_context_packets_on_degraded_cache_miss() -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/memory-value-latency-plan.md",
+        "summary": "Native PyO3 dogfood runtime packet cache evidence.",
+        "provenance": ["file:docs/memory-value-latency-plan.md"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="unmatched quasarflux",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    assert result["packets"] == [context_packet]
+    assert result["lifecycle"]["timeout"] is True
+    manager.recall.assert_awaited_once()
+    recorded_modes = [
+        call.args[1].mode for call in manager.record_memory_operation.call_args_list
+    ]
+    assert "context_packet_recent_fallback" in recorded_modes
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_project_files_when_degraded_cache_is_cold(
+    tmp_path,
+) -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Native PyO3 dogfood recall should return project context when cache is cold.\n"
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 dogfood recall cold cache",
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    assert result["packets"][0]["packet_type"] == "project_home"
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert "Native PyO3 dogfood recall" in result["packets"][0]["evidence_lines"][0]
+    assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
+    recorded_modes = [
+        call.args[1].mode for call in manager.record_memory_operation.call_args_list
+    ]
+    assert "project_file_recall_fallback" in recorded_modes
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_prebuilds_project_file_fallback_before_timeout(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Prebuilt project-file fallback should be ready when recall times out.\n"
+    )
+    packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/memory-value-latency-plan.md",
+        "summary": "Prebuilt fallback packet.",
+        "provenance": ["file:docs/memory-value-latency-plan.md"],
+    }
+    calls: list[bool | None] = []
+
+    def fake_project_file_payloads(*_args, **kwargs):
+        calls.append(kwargs.get("cache"))
+        time.sleep(0.02)
+        return [packet]
+
+    import engram.retrieval.recall_surface as recall_surface
+
+    monkeypatch.setattr(
+        recall_surface,
+        "project_file_fallback_packet_payloads",
+        fake_project_file_payloads,
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_fallback_timeout_ms=1,
+            recall_packet_cache_enabled=True,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 dogfood recall cold cache",
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    timings = result["diagnostics"]["stageTimingsMs"]
+    assert result["status"] == "degraded"
+    assert result["packets"] == [packet]
+    assert calls == [False]
+    assert timings["projectFileRecallFallback"] < 100
+    assert timings["projectFileRecallFallbackWait"] < 50
+    cache_keys = {
+        (call.kwargs.get("scope"), call.kwargs.get("topic_hint"), call.kwargs.get("project_path"))
+        for call in manager.cache_memory_packets.call_args_list
+    }
+    assert (
+        "project_home",
+        "native PyO3 dogfood recall cold cache",
+        str(tmp_path),
+    ) in cache_keys
+    assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
+    assert all(
+        call.kwargs.get("persist") is True
+        for call in manager.cache_memory_packets.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_project_cwd_when_degraded_cache_is_cold(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    (tmp_path / "README.md").write_text("# Engram\n")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Cold degraded recall can synthesize project packets from cwd.\n"
+    )
+    monkeypatch.chdir(tmp_path)
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="cold degraded recall project cwd",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_skips_deep_search_when_memory_cache_satisfies_query() -> None:
+    context_packet = {
+        "packet_type": "episode_packet",
+        "title": "Episode: native Helix install",
+        "summary": "Stored memory covers native PyO3 Helix install.",
+        "episode_ids": ["ep_native_install"],
+        "provenance": ["episode:ep_native_install"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 Helix install",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["items"] == []
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
+    assert result["diagnostics"]["stageTimingsMs"]["cacheSatisfied"] >= 0
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+    recorded_samples = [call.args[1] for call in manager.record_memory_operation.call_args_list]
+    assert any(sample.operation == "recall" and sample.cache_hit for sample in recorded_samples)
+
+
+def test_explicit_recall_cache_relevance_ignores_generated_why_now() -> None:
+    packet = {
+        "packet_type": "cue_packet",
+        "title": "Latent Memory: ep_old",
+        "summary": "Dogfood rolling session proof 20260527 orchid.",
+        "episode_ids": ["ep_old"],
+        "provenance": ["cue:ep_old"],
+        "why_now": (
+            "Relevant to the recall query: qvanta noexisting loadedstore miss "
+            "tail 20260527 probeA"
+        ),
+    }
+    query = "qvanta noexisting loadedstore miss tail 20260527 probeA"
+
+    assert not _packets_satisfy_explicit_query([packet], query=query)
+    assert _filter_packets_for_query([packet], query=query, limit=3) == []
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_session_recent_packet_cache() -> None:
+    recent_packet = {
+        "packet_type": "recent_observation",
+        "title": "Recent Observation: ep_codex",
+        "summary": "Codex dogfood project_path recall adoption should stay fast.",
+        "episode_ids": ["ep_codex"],
+        "provenance": ["episode:ep_codex", "source:mcp"],
+        "trust": {"source": "mcp_observe", "freshness": "fresh"},
+    }
+    recent_calls: list[tuple[str, ...]] = []
+
+    def get_recent(
+        _group_id: str,
+        *,
+        scopes: tuple[str, ...],
+        limit_packets: int,
+        **_kwargs,
+    ):
+        recent_calls.append(scopes)
+        return [recent_packet]
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(side_effect=get_recent),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Codex project_path recall adoption",
+        limit=3,
+        operation_source="mcp_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [recent_packet]
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
+    assert recent_calls == [("identity_core", "session_recent", "project_home")]
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_filters_project_file_cache_by_project_path(
+    tmp_path,
+) -> None:
+    engram_project = tmp_path / "Engram"
+    machine_project = tmp_path / "MachineShopScheduler"
+    engram_project.mkdir()
+    machine_project.mkdir()
+    wrong_project_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: package.json",
+        "summary": "MachineShopScheduler startup matrix script.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "_project_file_fallback_project_path": str(machine_project),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    right_project_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Engram startup matrix 20260527 evidence.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "_project_file_fallback_project_path": str(engram_project),
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(
+            return_value=[wrong_project_packet, right_project_packet]
+        ),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="startup matrix 20260527",
+        limit=3,
+        project_path=str(engram_project),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [right_project_packet]
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_ignores_stale_project_file_cache_version(
+    tmp_path,
+) -> None:
+    engram_project = tmp_path / "Engram"
+    engram_project.mkdir()
+    stale_project_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/CURRENT_HANDOFF.md",
+        "summary": "Noisy stale Engram native PyO3 dogfood performance packet.",
+        "trust": {"source": "project_file", "freshness": "local"},
+        "_project_file_fallback_project_path": str(engram_project),
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[stale_project_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 dogfood performance",
+        limit=3,
+        project_path=str(engram_project),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == []
+    assert result["budget"]["skipReason"] is None
+    assert result["lifecycle"]["fallbackStatus"] == "miss"
+    manager.recall.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_does_not_skip_for_project_file_context_cache() -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/install/helix.md",
+        "summary": "Helix install docs cover native PyO3.",
+        "provenance": ["file:docs/install/helix.md"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 Helix install",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["budget"]["skipReason"] is None
+    assert result["lifecycle"]["fallbackStatus"] == "context_packet_fallback"
+    manager.recall.assert_awaited_once()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_skips_for_cached_project_file_fallback_packet() -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/install/helix.md",
+        "summary": "Generic project-file fallback packet.",
+        "trust": {
+            "source": "project_file",
+            "why": (
+                "Synthesized by bounded project-file fallback after recall "
+                "returned no usable memory."
+            ),
+        },
+        "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
+        "_project_file_fallback_topic_hint": "native PyO3 Helix install",
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 Helix install",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_skips_when_cached_packets_collectively_satisfy_query() -> None:
+    packets = [
+        {
+            "packet_type": "episode_packet",
+            "title": "Episode: native Helix install",
+            "summary": "Stored memory covers native PyO3.",
+            "episode_ids": ["ep_native"],
+            "provenance": ["episode:ep_native"],
+        },
+        {
+            "packet_type": "episode_packet",
+            "title": "Episode: recall timeout",
+            "summary": "Stored memory covers recall timeout budgets.",
+            "episode_ids": ["ep_timeout"],
+            "provenance": ["episode:ep_timeout"],
+        },
+    ]
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=packets),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 recall timeout",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == packets
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_skips_when_cache_matches_separated_compound_terms() -> None:
+    context_packet = {
+        "packet_type": "episode_packet",
+        "title": "Episode: memory value latency",
+        "summary": "Stored memory covers dogfood evidence.",
+        "evidence_lines": [
+            "native PyO3 dogfood cue store timeout deep recall",
+            "heading=Memory Value and Latency Plan",
+        ],
+        "episode_ids": ["ep_latency"],
+        "provenance": ["episode:ep_latency"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="cue_store dogfood evidence",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["budget"]["skipReason"] == "cache_satisfied"
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_returns_context_packets_on_empty_success() -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/dogfood-startup-validation-goal.md",
+        "summary": "Dogfood evidence mentions cue persistence.",
+        "provenance": ["file:docs/dogfood-startup-validation-goal.md"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="cue persistence",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["items"] == []
+    assert result["budget"]["skipReason"] is None
+    assert result["lifecycle"]["fallbackStatus"] == "context_packet_fallback"
+    manager.recall.assert_awaited_once()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_returns_project_packets_on_empty_success(
+    tmp_path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Empty loaded-store recall should still return useful project context.\n"
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="empty loaded-store recall project context",
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"] == []
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert result["budget"]["skipReason"] is None
+    assert result["lifecycle"]["packetCount"] == 1
+    assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
+    manager.recall.assert_awaited_once()
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="empty loaded-store recall project context",
+        group_id="native_brain",
+        limit=3,
+    )
+    cache_keys = {
+        (call.kwargs.get("scope"), call.kwargs.get("topic_hint"), call.kwargs.get("project_path"))
+        for call in manager.cache_memory_packets.call_args_list
+    }
+    assert (
+        "project_home",
+        "empty loaded-store recall project context",
+        str(tmp_path),
+    ) in cache_keys
+    assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
+    assert all(
+        call.kwargs.get("persist") is True
+        for call in manager.cache_memory_packets.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_waits_for_cold_project_packets_on_empty_success(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/memory-value-latency-plan.md",
+        "summary": "Cold project fallback packet.",
+        "provenance": ["file:docs/memory-value-latency-plan.md"],
+    }
+
+    def fake_project_file_payloads(*_args, **_kwargs):
+        time.sleep(0.2)
+        return [packet]
+
+    import engram.retrieval.recall_surface as recall_surface
+
+    monkeypatch.setattr(
+        recall_surface,
+        "project_file_fallback_packet_payloads",
+        fake_project_file_payloads,
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=1000,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="empty loaded-store recall project context",
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [packet]
+    assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 200
+    assert result["budget"]["budgetMiss"] is False
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_ignores_weak_session_recent_for_project_file_fallback(
+    tmp_path,
+) -> None:
+    async def slow_recall(**_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    weak_recent_packet = {
+        "packet_type": "recent_observation",
+        "title": "Recent Observation: ep_goal",
+        "summary": "Dogfood runtime goal resumed.",
+        "episode_ids": ["ep_goal"],
+        "provenance": ["episode:ep_goal", "source:codex"],
+        "trust": {"source": "mcp_observe", "freshness": "fresh"},
+        "_cache_scope": "session_recent",
+    }
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Dogfood finalize is idempotent after INSERT OR REPLACE metric snapshots.\n"
+        "- graph_stats_timeout keeps the human label artifact evaluation bounded.\n"
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[weak_recent_packet]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query=(
+            "dogfood finalize idempotent INSERT OR REPLACE "
+            "graph_stats_timeout human label artifact"
+        ),
+        limit=3,
+        project_path=str(tmp_path),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert "Dogfood finalize is idempotent" in result["packets"][0]["summary"]
+    assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
+    assert result["packets"][0] != weak_recent_packet
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_uses_fast_fallback_on_empty_success() -> None:
+    fallback_result = {
+        "result_type": "cue_episode",
+        "cue": {
+            "episode_id": "ep_fast",
+            "cue_text": "Engram latency cue",
+            "supporting_spans": [],
+        },
+        "episode": {"id": "ep_fast", "source": "fast", "created_at": None},
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[fallback_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram latency",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"][0]["cue"]["episodeId"] == "ep_fast"
+    assert result["packets"] == []
+    assert result["lifecycle"]["fallbackStatus"] == "hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="Engram latency",
+        group_id="native_brain",
+        limit=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_prefers_project_hits_from_fast_preflight(
+    tmp_path,
+) -> None:
+    project_dir = tmp_path / "Engram"
+    project_dir.mkdir()
+    wrong_project = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_wrong",
+            "source": "MachineShopScheduler",
+            "content": "MachineShopScheduler insert replace idempotent migration evidence.",
+        },
+        "score": 1.0,
+        "score_breakdown": {"semantic": 1.0},
+        "linked_entities": [],
+    }
+    right_project = {
+        "result_type": "episode",
+        "episode": {
+            "id": "ep_right",
+            "source": "project-bootstrap",
+            "content": "Engram dogfood finalize idempotent INSERT OR REPLACE evidence.",
+        },
+        "score": 0.9,
+        "score_breakdown": {"semantic": 0.9},
+        "linked_entities": [],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[wrong_project, right_project]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=True,
+            recall_fast_preflight_timeout_ms=200,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="dogfood finalize idempotent INSERT OR REPLACE",
+        limit=3,
+        project_path=str(project_dir),
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["lifecycle"]["fallbackStatus"] == "fast_preflight_hit"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    assert len(result["items"]) == 1
+    assert result["items"][0]["episode"]["id"] == "ep_right"
+    manager.recall.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_skips_deep_search_when_memory_cache_satisfies_query() -> None:
+    context_packet = {
+        "packet_type": "episode_packet",
+        "title": "Episode: native Helix install",
+        "summary": "Stored memory covers native PyO3 Helix install.",
+        "episode_ids": ["ep_native_install"],
+        "provenance": ["episode:ep_native_install"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="native PyO3 Helix install",
+        limit=3,
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["results"] == []
+    assert result["budget"]["skip_reason"] == "cache_satisfied"
+    assert result["lifecycle"]["fallback_status"] == "cache_satisfied"
+    assert result["diagnostics"]["stage_timings_ms"]["cache_satisfied"] >= 0
+    manager.recall.assert_not_awaited()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_returns_context_packets_on_empty_success() -> None:
+    context_packet = {
+        "packet_type": "project_home",
+        "title": "Project File: docs/dogfood-startup-validation-goal.md",
+        "summary": "Dogfood evidence mentions cue persistence.",
+        "provenance": ["file:docs/dogfood-startup-validation-goal.md"],
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[context_packet]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="cue persistence",
+        limit=3,
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["packets"] == [context_packet]
+    assert result["results"] == []
+    assert result["budget"]["skip_reason"] is None
+    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
+    manager.recall.assert_awaited_once()
+    manager.fast_recall_fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_returns_project_packets_on_empty_success(
+    tmp_path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "memory-value-latency-plan.md").write_text(
+        "# Memory Value and Latency Plan\n\n"
+        "- Empty MCP recall should still return useful project context.\n"
+    )
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        get_last_near_miss_views=Mock(return_value=[]),
+        get_surprise_connection_views=Mock(return_value=[]),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="empty loaded-store recall project context",
+        limit=3,
+        project_path=str(tmp_path),
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=100,
+        ),
+    )
+
+    assert result["status"] == "ok"
+    assert result["results"] == []
+    assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
+    assert result["budget"]["skip_reason"] is None
+    assert result["lifecycle"]["packet_count"] == 1
+    assert result["lifecycle"]["fallback_status"] == "project_file_recall_fallback"
+    assert result["diagnostics"]["stage_timings_ms"]["project_file_recall_fallback"] >= 0
+    manager.recall.assert_awaited_once()
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="empty loaded-store recall project context",
+        group_id="native_brain",
+        limit=3,
+    )
+    cache_keys = {
+        (call.kwargs.get("scope"), call.kwargs.get("topic_hint"), call.kwargs.get("project_path"))
+        for call in manager.cache_memory_packets.call_args_list
+    }
+    assert (
+        "project_home",
+        "empty loaded-store recall project context",
+        str(tmp_path),
+    ) in cache_keys
+    assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
+    assert all(
+        call.kwargs.get("persist") is True
+        for call in manager.cache_memory_packets.call_args_list
+    )
 
 
 @pytest.mark.asyncio
@@ -416,6 +2001,50 @@ async def test_mcp_recall_surface_degrades_when_packet_assembly_times_out(
     assert sample.degraded is True
     assert sample.budget_miss is True
     assert sample.skip_reason == "packet_timeout"
+
+
+@pytest.mark.asyncio
+async def test_mcp_recall_surface_adds_diagnostic_packet_on_empty_timeout(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
+
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        get_last_near_miss_views=AsyncMock(return_value=[]),
+        get_surprise_connection_views=AsyncMock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_mcp_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="Engram recall",
+        limit=3,
+        cfg=ActivationConfig(
+            recall_packets_enabled=True,
+            recall_packet_explicit_limit=3,
+            recall_budget_explicit_ms=100,
+        ),
+    )
+
+    assert result["status"] == "degraded"
+    assert result["results"] == []
+    assert result["lifecycle"]["packet_count"] == 1
+    assert result["packets"][0]["packet_type"] == "recall_diagnostic"
+    assert result["packets"][0]["title"] == "No recalled evidence under budget"
+    assert "skip_reason=recall_timeout" in result["packets"][0]["evidence_lines"]
+    assert "fallback_status=miss" in result["packets"][0]["evidence_lines"]
+    assert result["lifecycle"]["timeout"] is True
+    assert result["lifecycle"]["skip_reason"] == "recall_timeout"
+    assert result["diagnostics"]["stage_timings_ms"]["recall_search"] >= 100
 
 
 def test_memory_packet_to_api_dict_includes_camel_case_trust_summary() -> None:

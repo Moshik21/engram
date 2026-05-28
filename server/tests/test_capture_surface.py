@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.config import ActivationConfig
+from engram.ingestion import capture_surface
 from engram.ingestion.capture_surface import (
     attach_api_capture_diagnostics,
     attach_mcp_capture_diagnostics,
@@ -36,6 +38,46 @@ def test_parse_conversation_date_accepts_iso_and_ignores_bad_values() -> None:
     assert isinstance(parsed, datetime)
     assert parse_conversation_date("not-a-date") is None
     assert parse_conversation_date(None) is None
+
+
+def test_cache_recent_observation_keeps_rolling_session_packets() -> None:
+    manager = MagicMock()
+    manager.get_recent_cached_memory_packets.return_value = [
+        {
+            "packet_type": "recent_observation",
+            "title": "Recent Observation: ep_old",
+            "summary": "Older amber dogfood session_recent recall proof.",
+            "episode_ids": ["ep_old"],
+            "provenance": ["episode:ep_old"],
+            "_cache_scope": "session_recent",
+        },
+        {
+            "packet_type": "recent_observation",
+            "title": "Recent Observation: ep_new",
+            "summary": "Duplicate newest packet should be removed.",
+            "episode_ids": ["ep_new"],
+            "provenance": ["episode:ep_new"],
+            "_cache_scope": "session_recent",
+        },
+    ]
+
+    capture_surface._cache_recent_observation_packet(
+        manager,
+        group_id="native_brain",
+        episode_id="ep_new",
+        content="New dogfood session_recent recall proof.",
+        source="codex",
+        packet_source="mcp_observe",
+    )
+
+    manager.get_recent_cached_memory_packets.assert_called_once_with(
+        "native_brain",
+        scopes=("session_recent",),
+        limit_packets=4,
+    )
+    packets = manager.cache_memory_packets.call_args.kwargs["packets"]
+    assert [packet["episode_ids"] for packet in packets] == [["ep_new"], ["ep_old"]]
+    assert all("_cache_scope" not in packet for packet in packets)
 
 
 def test_build_observation_attachment_preserves_payload() -> None:
@@ -72,6 +114,40 @@ def test_capture_diagnostics_expose_stage_timings_for_api_and_mcp() -> None:
         "cue_index": 3.5,
         "projection_enqueue": 0.75,
     }
+
+
+def test_capture_diagnostics_mark_deferred_raw_capture_lifecycle() -> None:
+    manager = SimpleNamespace(
+        get_last_capture_stage_timings=lambda: {"capture_store_timeout": 1002.0},
+    )
+
+    api_response = attach_api_capture_diagnostics(
+        {
+            "status": "observed",
+            "lifecycle": {
+                "stage": "cue",
+                "captureStatus": "stored",
+                "projectionStatus": "queued",
+            },
+        },
+        manager,
+    )
+    mcp_response = attach_mcp_capture_diagnostics(
+        {
+            "status": "stored",
+            "lifecycle": {
+                "stage": "cue",
+                "capture_status": "stored",
+                "projection_status": "queued",
+            },
+        },
+        manager,
+    )
+
+    assert api_response["lifecycle"]["captureStatus"] == "deferred"
+    assert api_response["lifecycle"]["projectionStatus"] == "pending"
+    assert mcp_response["lifecycle"]["capture_status"] == "deferred"
+    assert mcp_response["lifecycle"]["projection_status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -320,7 +396,17 @@ async def test_build_mcp_observe_write_surface_runs_capture_side_effects() -> No
         source="mcp",
         session_id="sess_1",
         conversation_date=parse_conversation_date("2026-05-15T12:34:56"),
+        capture_store_timeout_ms=capture_surface._AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
     )
+    manager.cache_memory_packets.assert_called_once()
+    cache_kwargs = manager.cache_memory_packets.call_args.kwargs
+    assert cache_kwargs["scope"] == "session_recent"
+    assert cache_kwargs["topic_hint"] is None
+    assert cache_kwargs["project_path"] is None
+    assert cache_kwargs["persist"] is False
+    assert cache_kwargs["packets"][0]["packet_type"] == "recent_observation"
+    assert cache_kwargs["packets"][0]["episode_ids"] == ["ep_observe"]
+    assert "Observed an operator preference." in cache_kwargs["packets"][0]["summary"]
     assert session.episode_count == 1
     ingest_live_turn.assert_awaited_once_with(
         manager,
@@ -337,6 +423,134 @@ async def test_build_mcp_observe_write_surface_runs_capture_side_effects() -> No
     assert sample.mode == "mcp_observe"
     assert sample.status == "ok"
     assert sample.result_count == 1
+
+
+@pytest.mark.asyncio
+async def test_build_mcp_observe_write_surface_bounds_slow_side_effects(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(capture_surface, "_MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS", 0.01)
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+
+    live_turn_finished = asyncio.Event()
+
+    async def slow_live_turn(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        live_turn_finished.set()
+
+    async def slow_recall_middleware(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+
+    response = await build_mcp_observe_write_surface(
+        manager,
+        content="Observed an operator preference that should not block on side effects.",
+        group_id="native_brain",
+        session=session,
+        source="mcp",
+        ingest_live_turn=slow_live_turn,
+        recall_middleware=slow_recall_middleware,
+    )
+
+    assert response["operation"] == "observe"
+    assert response["diagnostics"]["stage_timings_ms"]["live_turn_timeout"] >= 0
+    assert response["diagnostics"]["stage_timings_ms"]["recall_middleware_timeout"] >= 0
+    assert session.episode_count == 1
+    await asyncio.wait_for(live_turn_finished.wait(), timeout=0.2)
+
+
+@pytest.mark.asyncio
+async def test_build_mcp_observe_write_surface_runs_side_effects_concurrently(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(capture_surface, "_MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS", 0.05)
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+
+    async def slow_side_effect(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+
+    started = asyncio.get_running_loop().time()
+    response = await build_mcp_observe_write_surface(
+        manager,
+        content="Observed an operator preference with slow write-side enrichment.",
+        group_id="native_brain",
+        session=session,
+        source="mcp",
+        ingest_live_turn=slow_side_effect,
+        recall_middleware=slow_side_effect,
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    timings = response["diagnostics"]["stage_timings_ms"]
+    assert elapsed < 0.12
+    assert timings["live_turn_timeout"] < 100
+    assert timings["recall_middleware_timeout"] < 100
+    assert session.episode_count == 1
+
+
+@pytest.mark.asyncio
+async def test_build_mcp_observe_write_surface_bounds_default_recall_side_effect() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+
+    async def slow_recall_middleware(*_args, **_kwargs):
+        await asyncio.sleep(1)
+
+    started = asyncio.get_running_loop().time()
+    response = await build_mcp_observe_write_surface(
+        manager,
+        content="Observed an operator preference that should not pay a long recall tax.",
+        group_id="native_brain",
+        session=session,
+        source="mcp",
+        ingest_live_turn=AsyncMock(),
+        recall_middleware=slow_recall_middleware,
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    timings = response["diagnostics"]["stage_timings_ms"]
+    assert capture_surface._MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS == 0.075
+    assert elapsed < 0.2
+    assert timings["recall_middleware_timeout"] < 200
+    assert session.episode_count == 1
+
+
+@pytest.mark.asyncio
+async def test_build_mcp_observe_write_surface_uses_short_live_turn_timeout(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(capture_surface, "_MCP_WRITE_SIDE_EFFECT_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(capture_surface, "_MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS", 0.01)
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_observe")
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+    live_turn_finished = asyncio.Event()
+
+    async def slow_live_turn(*_args, **_kwargs):
+        await asyncio.sleep(0.05)
+        live_turn_finished.set()
+
+    started = asyncio.get_running_loop().time()
+    response = await build_mcp_observe_write_surface(
+        manager,
+        content="Observed an operator preference with slow live-turn fingerprinting.",
+        group_id="native_brain",
+        session=session,
+        source="mcp",
+        ingest_live_turn=slow_live_turn,
+        recall_middleware=AsyncMock(),
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    timings = response["diagnostics"]["stage_timings_ms"]
+    assert elapsed < 0.08
+    assert timings["live_turn_timeout"] < 50
+    assert "recall_middleware_timeout" not in timings
+    await asyncio.wait_for(live_turn_finished.wait(), timeout=0.2)
 
 
 @pytest.mark.asyncio
@@ -360,6 +574,41 @@ async def test_build_api_auto_observe_surface_records_skip_metrics() -> None:
     assert sample.status == "skipped"
     assert sample.skip_reason == "too_short"
     assert sample.result_count == 0
+
+
+@pytest.mark.asyncio
+async def test_build_api_auto_observe_surface_caches_session_recent_packet() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_auto")
+
+    response = await build_api_auto_observe_surface(
+        manager,
+        content="[user|Engram] capture this prompt for immediate context",
+        group_id="native_brain",
+        source="auto:prompt",
+        session_id="sess-123",
+        auto_observe_enabled=True,
+        dedup_check=lambda _content: False,
+    )
+
+    assert response["status"] == "observed"
+    manager.store_episode.assert_awaited_once_with(
+        content="[user|Engram] capture this prompt for immediate context",
+        group_id="native_brain",
+        source="auto:prompt",
+        session_id="sess-123",
+        conversation_date=None,
+        capture_store_timeout_ms=capture_surface._AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
+    )
+    manager.cache_memory_packets.assert_called_once()
+    cache_kwargs = manager.cache_memory_packets.call_args.kwargs
+    assert cache_kwargs["scope"] == "session_recent"
+    assert cache_kwargs["topic_hint"] is None
+    assert cache_kwargs["project_path"] is None
+    assert cache_kwargs["persist"] is False
+    assert cache_kwargs["packets"][0]["episode_ids"] == ["ep_auto"]
+    assert cache_kwargs["packets"][0]["trust"]["source"] == "api_auto_observe"
+    assert "immediate context" in cache_kwargs["packets"][0]["summary"]
 
 
 @pytest.mark.asyncio
