@@ -58,6 +58,24 @@ Lite mode only as a fallback smoke path.
 
 2026-05-28 native PyO3 dogfood performance hardening pass:
 
+- Startup readiness no longer initializes FastEmbed for the default local
+  model during store creation. `FastEmbedProvider` exposes the known
+  `nomic-ai/nomic-embed-text-v1.5` dimension lazily, and the predicate
+  context-gating embedding cache now warms after readiness in a tracked
+  background task. Installed-runtime logs show `FastEmbedProvider configured
+  lazy` during startup and `Predicate embedding cache warmup completed:
+  predicates=32` after health.
+- After reinstalling the local tool with `uv tool install --force --no-cache`
+  to avoid same-version wheel-cache reuse, `engramctl stop && engramctl start`
+  came back healthy in `24.59s` on the loaded 4.0G native store. The
+  server-side path from first Python log to health was about `1.5s`; remaining
+  wall time is pre-app/LaunchAgent/import delay before the first Python log.
+- The refreshed lifecycle matrix produced
+  `/private/tmp/engram-dogfood-startup-20260528-104401` with `12 pass,
+  0 warn, 0 fail, 0 skip`; its `start runtime` step completed in `16.333s`.
+- Post-matrix `engram axi value --json` reported read-path p95 `183.2253ms`,
+  read cache hit rate `1.0`, and zero read budget misses, degradation, or
+  timeouts across seven read-path samples.
 - Full startup validation passed after the final reinstall/restart.
 - The confirmed lifecycle matrix produced
   `/private/tmp/engram-dogfood-startup-20260528-101318` with `13 pass,

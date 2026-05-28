@@ -38,6 +38,24 @@ approved existing sources, stale/noisy recall visibility, human-controlled
 identity core, and client transcripts that prove agents did not route around
 Engram because the graph looked fresh or a local memory file was available.
 
+Latest native PyO3 startup-latency follow-up: local FastEmbed no longer
+constructs the ONNX model during store creation when the configured model has a
+known dimension, and predicate context-gating embeddings now warm in a tracked
+background task after readiness instead of blocking `_startup`. The installed
+tool had to be reinstalled with `uv tool install --force --no-cache ...`
+because uv reused the same-version local wheel cache on the first reinstall.
+After the real reinstall, `engramctl stop && engramctl start` returned healthy
+in `24.59s` on the loaded 4.0G native store, with the server-side app startup
+path from first Python log to health reduced to about `1.5s`: FastEmbed was
+`configured lazy`, Atlas/consolidation/conversation stores initialized in the
+startup window without materializing the model, and predicate embedding warmup
+completed later with `predicates=32`. A confirmed startup matrix then produced
+`/private/tmp/engram-dogfood-startup-20260528-104401` with `12 pass, 0 warn,
+0 fail, 0 skip`; its start-runtime step completed in `16.333s`, and the final
+runtime is healthy on LaunchAgent PID `13527`. Remaining startup work is now
+the pre-app/LaunchAgent/import delay before the first Python log, not Helix
+store construction or FastEmbed initialization inside readiness.
+
 Latest resumed native PyO3 dogfood pass: the remaining `medium` degraded samples
 were not coming from explicit recall anymore; they were MCP read-tool
 auto-recall gate samples. The middleware checked `identity_core`,

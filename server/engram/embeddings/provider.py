@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -111,18 +113,60 @@ class FastEmbedProvider(EmbeddingProvider):
     """Local embeddings via fastembed (ONNX runtime). No API key required."""
 
     CACHE_MAX_SIZE = 256
+    KNOWN_MODEL_DIMENSIONS = {
+        "nomic-ai/nomic-embed-text-v1.5": 768,
+    }
 
-    def __init__(self, model: str = "nomic-ai/nomic-embed-text-v1.5") -> None:
-        from fastembed import TextEmbedding
+    def __init__(
+        self,
+        model: str = "nomic-ai/nomic-embed-text-v1.5",
+        dimensions: int | None = None,
+    ) -> None:
+        import importlib.util
 
-        self._model = TextEmbedding(model_name=model)
-        self._dimensions: int = self._model.embedding_size  # type: ignore[attr-defined]
-        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
-        logger.info(
-            "FastEmbedProvider ready: model=%s, dim=%d",
-            model,
-            self._dimensions,
+        if importlib.util.find_spec("fastembed") is None:
+            raise ImportError("fastembed not installed")
+
+        self._model_name = model
+        self._model: Any | None = None
+        self._model_lock = threading.Lock()
+        self._dimensions = (
+            dimensions
+            if dimensions and dimensions > 0
+            else self.KNOWN_MODEL_DIMENSIONS.get(model, 0)
         )
+        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
+        if self._dimensions <= 0:
+            self._ensure_model()
+        else:
+            logger.info(
+                "FastEmbedProvider configured lazy: model=%s, dim=%d",
+                model,
+                self._dimensions,
+            )
+
+    def _ensure_model(self) -> Any:
+        """Load the ONNX model only when embeddings are actually requested."""
+        if self._model is not None:
+            return self._model
+        with self._model_lock:
+            if self._model is None:
+                from fastembed import TextEmbedding
+
+                self._model = TextEmbedding(model_name=self._model_name)
+                if self._dimensions <= 0:
+                    self._dimensions = self._model.embedding_size  # type: ignore[attr-defined]
+                logger.info(
+                    "FastEmbedProvider ready: model=%s, dim=%d",
+                    self._model_name,
+                    self._dimensions,
+                )
+        return self._model
+
+    @property
+    def is_materialized(self) -> bool:
+        """Whether the underlying ONNX model has been loaded."""
+        return self._model is not None
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts locally via ONNX. Run in thread pool (CPU-bound)."""
@@ -133,7 +177,8 @@ class FastEmbedProvider(EmbeddingProvider):
         return await asyncio.to_thread(self._embed_sync, texts)
 
     def _embed_sync(self, texts: list[str]) -> list[list[float]]:
-        return [vec.tolist() for vec in self._model.embed(texts)]
+        model = self._ensure_model()
+        return [vec.tolist() for vec in model.embed(texts)]
 
     async def embed_query(self, text: str) -> list[float]:
         """Embed query with LRU cache."""

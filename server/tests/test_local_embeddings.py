@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -39,12 +41,14 @@ class TestFastEmbedProvider:
 
     def test_dimension(self, provider):
         assert provider.dimension() == 768
+        assert provider.is_materialized is False
 
     @pytest.mark.asyncio
     async def test_embed_single(self, provider):
         vecs = await provider.embed(["Hello world"])
         assert len(vecs) == 1
         assert len(vecs[0]) == 768
+        assert provider.is_materialized is True
 
     @pytest.mark.asyncio
     async def test_embed_batch(self, provider):
@@ -109,7 +113,6 @@ class TestFactoryProviderResolution:
 
     def test_voyage_no_key_no_fastembed(self):
         """No API key + no fastembed → NoopProvider."""
-        import builtins
         import os
 
         from engram.storage.factory import _create_embedding_provider
@@ -119,17 +122,9 @@ class TestFactoryProviderResolution:
         )
         env_clean = {k: v for k, v in os.environ.items() if k != "VOYAGE_API_KEY"}
 
-        # Block fastembed import inside the factory's local import
-        real_import = builtins.__import__
-
-        def _no_fastembed(name, *args, **kwargs):
-            if name == "fastembed":
-                raise ImportError("no fastembed")
-            return real_import(name, *args, **kwargs)
-
         with (
             patch.dict("os.environ", env_clean, clear=True),
-            patch("builtins.__import__", side_effect=_no_fastembed),
+            patch("importlib.util.find_spec", return_value=None),
         ):
             provider = _create_embedding_provider(config)
         assert isinstance(provider, NoopProvider)
@@ -170,3 +165,43 @@ class TestFactoryProviderResolution:
         """local_model config field works."""
         config = EmbeddingConfig(local_model="my-custom/model")
         assert config.local_model == "my-custom/model"
+
+    def test_fastembed_default_model_initializes_lazily(self):
+        """Known local models expose dimensions without loading the ONNX model."""
+        from engram.embeddings.provider import FastEmbedProvider
+
+        real_import = __import__("builtins").__import__
+
+        def _fail_fastembed_import(name, *args, **kwargs):
+            if name == "fastembed":
+                raise AssertionError("fastembed should not import during init")
+            return real_import(name, *args, **kwargs)
+
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch("builtins.__import__", side_effect=_fail_fastembed_import),
+        ):
+            provider = FastEmbedProvider(model="nomic-ai/nomic-embed-text-v1.5")
+
+        assert provider.dimension() == 768
+        assert provider.is_materialized is False
+
+    def test_fastembed_unknown_model_materializes_for_dimension(self):
+        """Unknown local models still load once to discover the true dimension."""
+        from engram.embeddings.provider import FastEmbedProvider
+
+        class FakeTextEmbedding:
+            embedding_size = 42
+
+            def __init__(self, model_name: str) -> None:
+                self.model_name = model_name
+
+        fake_fastembed = SimpleNamespace(TextEmbedding=FakeTextEmbedding)
+        with (
+            patch("importlib.util.find_spec", return_value=object()),
+            patch.dict(sys.modules, {"fastembed": fake_fastembed}),
+        ):
+            provider = FastEmbedProvider(model="custom/model")
+
+        assert provider.dimension() == 42
+        assert provider.is_materialized is True

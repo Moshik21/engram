@@ -8,6 +8,21 @@ Owner surface: recall, AXI, evaluation, and dashboard runtime contracts
 
 Current checkpoint:
 
+- 2026-05-28 startup-latency follow-up: local FastEmbed model construction was
+  moved off the startup readiness path for known-dimension models, and
+  predicate context-gating embeddings now warm in the tracked background-task
+  lane after readiness. Focused tests passed with `56 passed`, ruff and
+  `git diff --check` passed, and the edited local package was reinstalled with
+  `uv tool install --force --no-cache ...` so the dogfood runtime actually ran
+  the changed code. Live startup evidence on the 4.0G native PyO3 store:
+  `engramctl stop && engramctl start` returned healthy in `24.59s`; logs show
+  FastEmbed as `configured lazy`, app startup reaching health about `1.5s`
+  after the first Python log, and predicate embedding cache warmup completing
+  later with `predicates=32`. The confirmed lifecycle matrix at
+  `/private/tmp/engram-dogfood-startup-20260528-104401` passed with `12 pass,
+  0 warn, 0 fail, 0 skip`; its start-runtime step took `16.333s`. Post-matrix
+  `engram axi value --json` reported read-path p95 `183.2253ms`, cache hit
+  rate `1.0`, and zero read budget misses/degradation/timeouts.
 - 2026-05-28 resumed dogfood latency pass: MCP read-tool auto-recall now
   considers `session_recent` packets before dispatching medium entity-probe
   recall. This closes the rolling `medium` timeout samples that remained after

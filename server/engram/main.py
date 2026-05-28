@@ -104,11 +104,6 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         from engram.activation.context_gate import PredicateEmbeddingCache
 
         predicate_cache = PredicateEmbeddingCache()
-        try:
-            await predicate_cache.initialize(config.activation, embedding_provider)
-        except Exception:
-            logger.warning("Failed to initialize predicate cache", exc_info=True)
-            predicate_cache = None
 
     config.configure_runtime_packet_cache(mode.value)
     config.configure_runtime_cue_index_outbox(mode.value)
@@ -333,6 +328,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
     if mode.value == "helix" and getattr(config.helix, "transport", "") == "native":
         _start_graph_stats_warmup(manager, config)
+    if predicate_cache is not None and embedding_provider is not None:
+        _start_predicate_cache_warmup(predicate_cache, config, embedding_provider)
 
     _app_state.update(
         {
@@ -363,6 +360,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
             "temporal_scanner": temporal_scanner,
             "storage_diagnostics": storage_diagnostics,
             "cue_index_outbox_task": cue_index_outbox_task,
+            "predicate_cache": predicate_cache,
         }
     )
 
@@ -439,6 +437,28 @@ async def _warm_capture_store_bounded(
 def _capture_startup_warmup_timeout_seconds(config: EngramConfig) -> float:
     timeout_ms = getattr(config.activation, "capture_startup_warmup_timeout_ms", 2000)
     return max(0.0, float(timeout_ms) / 1000.0)
+
+
+def _start_predicate_cache_warmup(
+    predicate_cache: object,
+    config: EngramConfig,
+    embedding_provider: object,
+) -> None:
+    """Warm predicate embeddings after startup readiness is no longer blocked."""
+
+    async def _warm() -> None:
+        try:
+            await predicate_cache.initialize(config.activation, embedding_provider)  # type: ignore[attr-defined]
+            count = len(predicate_cache.get_embeddings())  # type: ignore[attr-defined]
+            logger.info("Predicate embedding cache warmup completed: predicates=%d", count)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Failed to warm predicate cache", exc_info=True)
+
+    task = asyncio.create_task(_warm())
+    _track_startup_background_task(task)
+    logger.info("Predicate embedding cache warmup started")
 
 
 def _start_graph_stats_warmup(manager: GraphManager, config: EngramConfig) -> None:

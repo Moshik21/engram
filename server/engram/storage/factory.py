@@ -81,7 +81,14 @@ def _create_embedding_provider(config: EngramConfig):
         try:
             from engram.embeddings.provider import FastEmbedProvider
 
-            provider = FastEmbedProvider(model=config.embedding.local_model)
+            provider = FastEmbedProvider(
+                model=config.embedding.local_model,
+                dimensions=(
+                    config.embedding.dimensions
+                    if config.embedding.dimensions > 0
+                    else None
+                ),
+            )
             config.embedding.dimensions = provider.dimension()
             logger.info(
                 "Embedding provider: FastEmbedProvider (%s, %dd)",
