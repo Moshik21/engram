@@ -1173,9 +1173,17 @@ class HelixGraphStore:
         if len(results) >= limit:
             return results[:limit]
 
-        # Phase 3: Token fallback — search individual tokens >= 3 chars
+        # Phase 3: Token fallback — search individual tokens >= 3 chars.
+        # CONTAINS only matches when the query is a substring of the stored name,
+        # so multi-word query phrases ("St. Mary's Church") that aren't a literal
+        # substring need token recovery. Previously gated to NATURAL_LANGUAGE
+        # only, leaving multi-word proper/technical names with no recovery — a
+        # gap SQLite (FTS5 + prefix-LIKE) does not have. Now: NL names always,
+        # plus any multi-word name regardless of regime. Single-word non-NL names
+        # keep the old behavior (no token spray). Extra candidates are name-scored
+        # downstream, so broadening recall here is safe.
         tokens = [t for t in name.strip().split() if len(t) >= 3]
-        if form.regime != NameRegime.NATURAL_LANGUAGE:
+        if form.regime != NameRegime.NATURAL_LANGUAGE and len(tokens) < 2:
             tokens = []
         for token in tokens:
             if len(results) >= limit:
@@ -1200,12 +1208,16 @@ class HelixGraphStore:
         source_hid = await self._resolve_entity_helix_id(rel.source_id, rel.group_id)
         target_hid = await self._resolve_entity_helix_id(rel.target_id, rel.group_id)
         if source_hid is None or target_hid is None:
+            # Endpoint entity not resolvable in Helix — the edge is NOT persisted.
+            # Return "" (not rel.id) so the apply layer records created=False and
+            # persisted counts don't include a phantom edge.
             logger.warning(
-                "create_relationship: could not resolve entity Helix IDs for %s -> %s",
+                "create_relationship: could not resolve entity Helix IDs for "
+                "%s -> %s; edge NOT persisted",
                 rel.source_id,
                 rel.target_id,
             )
-            return rel.id
+            return ""
 
         results = await self._query(
             "create_relationship",
