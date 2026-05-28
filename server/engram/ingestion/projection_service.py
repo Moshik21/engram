@@ -246,6 +246,30 @@ class EpisodeProjectionService:
                 processing_duration_ms=elapsed_ms,
             )
             projected_at = utc_now()
+            # Report PERSISTED graph counts, not pre-apply candidate counts.
+            # apply.py drops relationships whose endpoints were never committed
+            # as entities (action="missing_entities"); reporting len(bundle.claims)
+            # made an empty graph look successfully projected (a "phantom graph"
+            # that silently contributes nothing to retrieval).
+            persisted_entities = len(apply_outcome.new_entity_names)
+            persisted_relationships = sum(
+                1 for r in apply_outcome.relationship_results if getattr(r, "created", False)
+            )
+            dropped_missing = sum(
+                1
+                for r in apply_outcome.relationship_results
+                if getattr(r, "action", None) == "missing_entities"
+            )
+            if dropped_missing:
+                logger.warning(
+                    "Episode %s: dropped %d relationship(s) with uncommitted "
+                    "endpoints (missing_entities); persisted %d of %d candidate claims. "
+                    "The extractor proposed edges whose endpoint entities were not committed.",
+                    episode_id,
+                    dropped_missing,
+                    persisted_relationships,
+                    len(bundle.claims),
+                )
             await self._sync_projection_state(
                 episode_id,
                 EpisodeProjectionState.PROJECTED,
@@ -270,18 +294,22 @@ class EpisodeProjectionService:
                     episode_status=EpisodeStatus.COMPLETED,
                     projection_state=EpisodeProjectionState.PROJECTED,
                     reason="projected",
-                    entity_count=len(bundle.entities),
-                    relationship_count=len(bundle.claims),
+                    entity_count=persisted_entities,
+                    relationship_count=persisted_relationships,
                     duration_ms=elapsed_ms,
                     used_evidence_materializer=used_evidence_materializer,
                     plan_strategy=plan.strategy,
                 ).to_event_payload(),
             )
             logger.info(
-                "Ingested episode %s: %d entities, %d relationships",
+                "Ingested episode %s: %d entities, %d relationships persisted "
+                "(%d/%d candidate claims, %d dropped missing-endpoints)",
                 episode_id,
-                len(bundle.entities),
+                persisted_entities,
+                persisted_relationships,
+                persisted_relationships,
                 len(bundle.claims),
+                dropped_missing,
             )
             if not used_evidence_materializer:
                 self._invalidate_briefing_cache(group_id)
@@ -292,8 +320,8 @@ class EpisodeProjectionService:
                 episode_status=EpisodeStatus.COMPLETED,
                 projection_state=EpisodeProjectionState.PROJECTED,
                 reason="projected",
-                entity_count=len(bundle.entities),
-                relationship_count=len(bundle.claims),
+                entity_count=persisted_entities,
+                relationship_count=persisted_relationships,
                 duration_ms=elapsed_ms,
                 used_evidence_materializer=used_evidence_materializer,
                 plan_strategy=plan.strategy,
