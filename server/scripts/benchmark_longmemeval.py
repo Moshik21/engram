@@ -101,6 +101,7 @@ def cmd_report(args: argparse.Namespace) -> None:
             avg_latency_ms=tm.get("avg_latency_ms", 0),
             avg_recall_at_5=tm.get("avg_recall_at_5", 0),
             avg_ndcg_at_5=tm.get("avg_ndcg_at_5", 0),
+            avg_recall_at_1=tm.get("avg_recall_at_1", 0),
             avg_containment=tm.get("avg_containment", 0),
         )
         for tm in data.get("type_metrics", [])
@@ -145,6 +146,8 @@ def cmd_report(args: argparse.Namespace) -> None:
         variant=data.get("variant", "unknown"),
         extraction_mode=data.get("extraction_mode", "unknown"),
         embedding_provider=data.get("embedding_provider", "unknown"),
+        reranker_provider=data.get("reranker_provider", "unknown"),
+        use_graph=data.get("use_graph", False),
         consolidation_used=data.get("consolidation_used", False),
         total_instances=data.get("total_instances", 0),
         total_correct=data.get("total_correct", 0),

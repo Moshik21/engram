@@ -622,6 +622,14 @@ class EngramLongMemEvalAdapter:
         # Report embedding stats if available
         if self._search_index is not None and hasattr(self._search_index, "embed_stats"):
             stats = self._search_index.embed_stats
+            # Populate the embedding-call meter from real index stats so reports
+            # don't misleadingly show 0 (this runs before the result is built).
+            # Counts successful ingest-side embeds; query embeds == recall_calls.
+            self.stats.embedding_calls = (
+                stats.get("episodes_indexed", 0)
+                + stats.get("chunks_indexed", 0)
+                + stats.get("entities_indexed", 0)
+            )
             total_eps = stats.get("episodes_indexed", 0) + stats.get("episodes_failed", 0)
             logger.info(
                 "LongMemEval embedding stats: "
