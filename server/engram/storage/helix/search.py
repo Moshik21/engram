@@ -199,6 +199,7 @@ class HelixSearchIndex:
             "entities_failed": 0,
             "retries": 0,
             "fallback_used": 0,
+            "query_embed_failures": 0,
         }
         self._graph_embed_dim_cache: dict[tuple[str | None, str], int] = {}
 
@@ -1243,7 +1244,21 @@ class HelixSearchIndex:
         self._last_query_vec = query_vec
 
         if not query_vec:
-            # Vector embedding failed, fall back to BM25 only
+            # Vector embedding failed — degrade to BM25-only, but make it
+            # OBSERVABLE rather than silent (this is how a quota-exhausted /
+            # misconfigured embedding provider silently turned hybrid recall
+            # into keyword-only). Count it and warn (throttled by the counter).
+            self._embed_stats["query_embed_failures"] += 1
+            if self._embed_stats["query_embed_failures"] in (1, 10, 100) or (
+                self._embed_stats["query_embed_failures"] % 1000 == 0
+            ):
+                logger.warning(
+                    "Query embedding empty — recall degraded to BM25-only "
+                    "(provider=%s, total query_embed_failures=%d). Vector search "
+                    "is effectively OFF; check the embedding provider / API quota.",
+                    type(self._provider).__name__ if self._provider else "none",
+                    self._embed_stats["query_embed_failures"],
+                )
             fts_results = self._filter_by_group(fts_results, fts_rows, group_id)
             fts_results = self._filter_by_entity_type(fts_results, fts_rows, entity_types)
             return self._normalize_scores(fts_results[:limit])
