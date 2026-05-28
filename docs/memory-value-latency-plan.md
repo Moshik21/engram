@@ -3230,6 +3230,17 @@ Latency dogfood evidence:
   misses/degraded reads/timeouts. This pass found no current recall/context
   timeout to patch; the remaining release hygiene is source cleanliness and
   longer real-session evidence.
+- 2026-05-28 real Codex continuation sample: after commit/push at clean
+  checkpoint `e59be43`, Engram recovered the active native dogfood performance
+  goal and project context for a resumed Codex session. The run recorded
+  session-continuity sample `esc_35ecade2bbf7` and recall-quality sample
+  `ers_7aa46915657c`; shell probes confirmed the runtime was still healthy on
+  native PyO3 LaunchAgent PID `87404` and that HEAD matched the pushed commit.
+  The post-sample value packet reports continuity lift `0.075`, useful packet
+  rate `0.6429`, memory-need precision `0.9286`, read-path p95 `87.0364ms`,
+  read cache hit rate `0.5714`, and zero read budget misses/degraded
+  reads/timeouts. This is useful evidence for the real-session window, but the
+  durable goal remains open until longer Codex dogfood continuity is observed.
 
 ## Test Matrix
 

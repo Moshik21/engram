@@ -1677,8 +1677,19 @@ Lite mode only as a fallback smoke path.
   fresh AXI context fallback returned useful packets in `16.7976ms`, and broad
   AXI recall hit cache in `0.4516ms`. Final live value reports read-path p95
   `83.526ms`, read cache hit rate `0.6667`, and zero budget misses/degraded
-  reads/timeouts. The source checkpoint is not clean yet: the repo is at HEAD
-  `9734041` with dogfood changes still uncommitted.
+  reads/timeouts. The source checkpoint is now clean after commit/push at
+  `e59be43`.
+- A real Codex continuation sample on the clean `e59be43` checkpoint recorded
+  session-continuity sample `esc_35ecade2bbf7` and recall-quality sample
+  `ers_7aa46915657c`. Engram recovered the active dogfood performance goal and
+  useful project context while shell probes confirmed the current runtime:
+  native PyO3 LaunchAgent PID `87404`, clean source, and no current degraded
+  recall/context path. `engram axi value --json` after the samples reports
+  continuity lift `0.075`, useful packet rate `0.6429`, memory-need precision
+  `0.9286`, read-path p95 `87.0364ms`, read cache hit rate `0.5714`, and zero
+  read budget misses/degraded reads/timeouts. The broader goal remains active
+  because this is one real Codex continuation sample, not a long-window
+  completion audit.
 - The same continuation lowered the agent-facing raw capture wait for MCP
   observe and REST auto-observe by passing a per-write
   `capture_store_timeout_ms=250`, while keeping the global explicit-write default

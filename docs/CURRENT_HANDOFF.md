@@ -357,9 +357,18 @@ AXI recall returned a relevant historical diagnostic episode in `19.1024ms`,
 fresh AXI context fallback returned useful packets in `16.7976ms`, and a broad
 AXI recall hit cache in `0.4516ms`. Final live value reports read-path p95
 `83.526ms`, read cache hit rate `0.6667`, and zero budget misses/degraded
-reads/timeouts. The current worktree is still dirty relative to HEAD `9734041`,
-so the next closeout step is commit/push or an explicit decision to keep
-dogfooding uncommitted changes.
+reads/timeouts. The dogfood performance hardening pass is committed and pushed
+at `e59be43`, with a clean worktree after push.
+A real Codex continuation then recorded session-continuity sample
+`esc_35ecade2bbf7` and recall-quality sample `ers_7aa46915657c` against that
+clean checkpoint. The sample recovered the active dogfood performance goal and
+current runtime state, with shell probes confirming HEAD `e59be43`, native PyO3
+LaunchAgent PID `87404`, and no degraded recall/context path. The follow-up
+`engram axi value --json` reports continuity lift `0.075`, useful packet rate
+`0.6429`, memory-need precision `0.9286`, read-path p95 `87.0364ms`, read cache
+hit rate `0.5714`, and zero read budget misses/degraded reads/timeouts. This is
+one more real Codex dogfood sample, not enough by itself to close the long-running
+goal.
 The same continuation lowered agent-facing raw capture wait without changing the
 global explicit-write default: MCP observe and REST auto-observe now pass a
 per-write `capture_store_timeout_ms=250`. After reinstall/restart on LaunchAgent
