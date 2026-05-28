@@ -262,6 +262,23 @@ def _should_start_mcp_redis_publisher(mode: EngineMode) -> bool:
     return bool(not _background_runtime_managed_externally and mode == EngineMode.FULL)
 
 
+def _create_configured_reranker(config: EngramConfig) -> object | None:
+    """Build the optional recall reranker for the MCP runtime."""
+    if not config.activation.reranker_enabled:
+        return None
+
+    from engram.retrieval.reranker import create_reranker
+
+    cohere_key = os.environ.get("COHERE_API_KEY", "")
+    # The default provider is "noop": MCP should wire the reranker slot
+    # structurally without opting every startup into cross-encoder latency.
+    return create_reranker(
+        api_key=cohere_key or None,
+        provider=config.activation.reranker_provider,
+        local_model=config.activation.reranker_local_model,
+    )
+
+
 async def _init() -> None:
     """Initialize storage and services."""
     global _manager, _group_id, _session, _recall_cooldown
@@ -293,6 +310,7 @@ async def _init() -> None:
     stage = time.perf_counter()
     extractor = create_extractor(config)
     event_bus = get_event_bus()
+    reranker = _create_configured_reranker(config)
     config.configure_runtime_packet_cache(mode.value)
     config.configure_runtime_cue_index_outbox(mode.value)
     _manager = GraphManager(
@@ -302,6 +320,7 @@ async def _init() -> None:
         extractor,
         cfg=config.activation,
         event_bus=event_bus,
+        reranker=reranker,
         nerve_center_cfg=config.nerve_center,
         runtime_mode=mode.value,
     )
