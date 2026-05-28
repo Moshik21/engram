@@ -795,6 +795,16 @@ Latest verification checkpoint:
   `/private/tmp/engram-dogfood-startup-20260528-071304` with
   `13 pass, 0 warn, 0 fail, 0 skip`. Focused retrieval tests passed with
   `94 passed, 2 skipped`, ruff passed, and `git diff --check` is clean.
+- A follow-up real Codex turn after commit `1b98a19` confirmed the cache/fallback
+  behavior holds outside the immediate implementation turn. MCP `get_context`
+  returned useful project packets in `249.4908ms` with no degradation, MCP
+  `recall` hit cache in `1.4862ms`, AXI same-topic context hit project-file
+  cache rescue in `2.5496ms`, AXI same-topic recall was `cache_satisfied` in
+  `32.0827ms`, and a fresh no-evidence recall returned a project packet in
+  `101.3667ms`. A brand-new context-miss topic then hit cache rescue in
+  `4.3832ms`; MCP `get_context` hit cache in `0.2735ms`, and MCP `recall` was
+  `cache_satisfied` in `45.9587ms`. The live value report still showed zero
+  read budget misses, degraded reads, or timeouts.
 
 ## Purpose
 

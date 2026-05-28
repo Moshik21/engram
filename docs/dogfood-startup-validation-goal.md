@@ -1834,6 +1834,17 @@ Lite mode only as a fallback smoke path.
   `/private/tmp/engram-dogfood-startup-20260528-071304` with
   `13 pass, 0 warn, 0 fail, 0 skip`. Focused retrieval tests passed with
   `94 passed, 2 skipped`, ruff passed, and `git diff --check` is clean.
+- The next resumed Codex turn provided a second real-session performance sample
+  without code changes. MCP `get_context` returned useful project packets in
+  `249.4908ms` with no degradation, and MCP `recall` hit cache in `1.4862ms`.
+  AXI context for the same topic hit project-file cache rescue in `2.5496ms`,
+  AXI recall was `cache_satisfied` in `32.0827ms`, and a fresh no-evidence
+  recall returned a project packet in `101.3667ms`. A brand-new context-miss
+  topic then hit cache rescue in `4.3832ms`; MCP `get_context` on that topic
+  hit cache in `0.2735ms`, and MCP `recall` was `cache_satisfied` in
+  `45.9587ms`. `engram axi value --json` still reported zero read budget
+  misses, degraded reads, or timeouts. This moves the goal forward as real
+  Codex dogfood evidence rather than another isolated startup proof.
 
 ## Work Plan
 

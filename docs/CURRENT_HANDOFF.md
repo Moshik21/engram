@@ -67,6 +67,19 @@ The refreshed lifecycle matrix produced
 `git diff --check` is clean. The goal remains active for longer real Codex
 dogfood continuity evidence, but the no-evidence loaded-store recall tail is no
 longer the current blocker.
+Second real Codex-session sample after commit `1b98a19`: the resumed Codex turn
+called MCP `get_context` before work and got useful project packets in
+`249.4908ms` with no degradation or budget miss; MCP `recall` then hit cache in
+`1.4862ms`. Matching AXI probes showed the warmed same-topic context path using
+project-file cache rescue in `2.5496ms`, same-topic recall `cache_satisfied` in
+`32.0827ms`, and a fresh no-evidence recall returning a project packet in
+`101.3667ms` with `preflight_timeout_context_packet_fallback`. A brand-new
+context-miss topic then hit cache rescue in `4.3832ms`; MCP `get_context` on
+that topic hit cache in `0.2735ms`, and MCP `recall` was `cache_satisfied` in
+`45.9587ms`. The current `engram axi value --json` read path still reports zero
+budget misses, degraded reads, or timeouts. This is the first post-commit
+evidence that the `1b98a19` cache/fallback behavior holds across a resumed real
+Codex turn without another runtime change.
 
 Latest dogfood performance note: the native PyO3 path now uses generated bulk
 Helix stats routes for evaluation graph-state refresh. The previous
