@@ -18,7 +18,10 @@ from engram.api.deps import (
     get_rate_limiter,
 )
 from engram.events.bus import get_event_bus
-from engram.ingestion.adjudication_surface import build_api_adjudication_resolution_surface
+from engram.ingestion.adjudication_surface import (
+    build_api_adjudication_resolution_surface,
+    build_api_adjudications_list_surface,
+)
 from engram.ingestion.capture_surface import (
     build_api_attachment_observe_write_surface,
     build_api_auto_observe_request_surface,
@@ -52,6 +55,7 @@ from engram.retrieval.lookup import build_api_fact_search_surface
 from engram.retrieval.packet_cache_surface import (
     build_api_packet_cache_clear_surface,
     build_api_packet_cache_summary_surface,
+    load_packet_cache_summary,
 )
 from engram.retrieval.preference_feedback import (
     build_api_explicit_feedback_surface,
@@ -595,7 +599,7 @@ async def get_fast_runtime_packet(
         get_config().activation,
         runtime_mode=get_mode(),
         project_path=normalized_project_path,
-        packet_cache_summary=_packet_cache_summary_or_empty(manager, tenant.group_id),
+        packet_cache_summary=load_packet_cache_summary(manager, group_id=tenant.group_id),
     )
     return JSONResponse(content=result)
 
@@ -618,14 +622,6 @@ async def get_packet_cache(request: Request) -> JSONResponse:
     manager = get_manager()
     payload = build_api_packet_cache_summary_surface(manager, group_id=group_id)
     return JSONResponse(content=payload)
-
-
-def _packet_cache_summary_or_empty(manager: Any, group_id: str) -> dict:
-    try:
-        summary = manager.get_memory_packet_cache_summary(group_id)
-    except Exception:
-        return {}
-    return summary if isinstance(summary, dict) else {}
 
 
 @router.post("/intentions")
@@ -662,8 +658,13 @@ async def get_adjudications(
     group_id = tenant.group_id
     manager = get_manager()
 
-    requests = await manager.get_all_adjudications(group_id, limit=limit, status=status)
-    return JSONResponse(content={"requests": requests})
+    payload = await build_api_adjudications_list_surface(
+        manager,
+        group_id=group_id,
+        limit=limit,
+        status=status,
+    )
+    return JSONResponse(content=payload)
 
 
 @router.get("/intentions")

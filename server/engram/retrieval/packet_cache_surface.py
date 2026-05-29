@@ -22,6 +22,22 @@ def build_api_packet_cache_summary_surface(
     }
 
 
+def load_packet_cache_summary(
+    manager: Any,
+    *,
+    group_id: str,
+) -> dict[str, Any]:
+    """Return the raw packet-cache summary mapping without mutating cache state."""
+    get_summary = getattr(manager, "get_memory_packet_cache_summary", None)
+    if not callable(get_summary):
+        return {}
+    try:
+        summary = get_summary(group_id)
+    except Exception:
+        return {}
+    return summary if isinstance(summary, dict) else {}
+
+
 def build_api_packet_cache_clear_surface(
     manager: Any,
     *,

@@ -40,6 +40,7 @@ from engram.ingestion.adjudication_surface import (
 )
 from engram.ingestion.capture_surface import (
     build_mcp_attachment_observe_write_surface,
+    build_mcp_observe_recall_surface,
     build_mcp_observe_write_surface,
     build_mcp_remember_write_surface,
 )
@@ -87,6 +88,7 @@ from engram.retrieval.prospective import (
 )
 from engram.retrieval.recall_surface import build_mcp_explicit_recall_tool_surface
 from engram.retrieval.runtime_state import build_runtime_state_surface
+from engram.retrieval.timeline import build_mcp_timeline_tool_surface
 from engram.storage.bootstrap import (
     close_if_supported,
     create_consolidation_store_for_graph,
@@ -790,6 +792,15 @@ async def observe(
         ingest_live_turn=_ingest_live_turn,
         recall_middleware=_recall_middleware,
     )
+    # Attach auto-recall context via a separate surface so the write path above
+    # stays pure (Capture-stage, timed in isolation) while the tool still
+    # surfaces recalled_context/session_context. For observe this is the
+    # cache-only path, staying within the bulk-capture latency budget.
+    response = await build_mcp_observe_recall_surface(
+        content=content,
+        response=response,
+        recall_middleware=_recall_middleware,
+    )
     return json.dumps(response)
 
 
@@ -950,6 +961,35 @@ async def search_facts(
         include_epistemic=include_epistemic,
         limit=limit,
         recall_middleware=_recall_middleware,
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def timeline(query: str, limit: int = 20) -> str:
+    """Return a dated, chronologically-ordered timeline of memories for a query.
+
+    Use this for temporal questions — "which came first?", "how many days
+    between X and Y?", "what is the current value of X?". Each row carries a
+    date_basis flag ("conversation_date"/"valid_from" = real event time;
+    "created_at" = ingestion time, do not over-trust it). A deterministic planner
+    block answers the easy comparisons; for harder reasoning, read the ordered
+    rows yourself.
+
+    Args:
+        query: What to build a timeline about.
+        limit: Max episodes/facts to consider (default 20).
+
+    Returns:
+        JSON with ordered rows[], a markdown rendering, and a planner block
+        (first / last / span_days / current_values).
+    """
+    manager = _get_manager()
+    result = await build_mcp_timeline_tool_surface(
+        manager,
+        group_id=_group_id,
+        query=query,
+        limit=limit,
     )
     return json.dumps(result)
 

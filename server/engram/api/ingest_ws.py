@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from engram.api.deps import get_manager
 from engram.events.bus import get_event_bus
 
 logger = logging.getLogger(__name__)
@@ -22,7 +20,6 @@ async def ingest_ws(websocket: WebSocket) -> None:
     Accepts incremental text chunks and builds a 'Latent Memory Trace'.
     """
     await websocket.accept()
-    manager = get_manager()
     bus = get_event_bus()
 
     buffer = ""

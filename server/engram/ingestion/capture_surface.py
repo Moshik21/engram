@@ -1039,6 +1039,26 @@ async def build_mcp_observe_write_surface(
     return response
 
 
+async def build_mcp_observe_recall_surface(
+    *,
+    content: str,
+    response: dict[str, Any],
+    recall_middleware: Callable[..., Any],
+) -> dict[str, Any]:
+    """Attach cheap auto-recall context to an observe response.
+
+    Kept separate from ``build_mcp_observe_write_surface`` so the Capture-stage
+    write path stays pure (and is timed in isolation), while the recall
+    attachment is an explicit, awaited surface step the tool layer composes.
+    For observe this is the cache-only path (no deep recall / get_context), so
+    it stays within observe's bulk-capture latency budget. ``recall_middleware``
+    mutates ``response`` in place; we return it to fit the ``response = await
+    build_*`` tool idiom and the public-surface boundary contract.
+    """
+    await recall_middleware(content, response, tool_name="observe")
+    return response
+
+
 async def build_mcp_attachment_observe_write_surface(
     manager: Any,
     *,
