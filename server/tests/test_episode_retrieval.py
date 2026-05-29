@@ -1572,8 +1572,11 @@ class TestGraphManagerRecallEpisodes:
         )
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 
+        # Query names the surfaced entity (mock entity is "Test"), so the
+        # entity is relevant to the current-state question and episodes are
+        # suppressed in favor of entity state.
         results = await gm.recall(
-            "Which framework does Falcon Dashboard use now?",
+            "Which framework does Test use now?",
             group_id="default",
         )
 

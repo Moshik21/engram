@@ -138,7 +138,7 @@ async def test_process_runs_recall_tail_in_order_and_filters_current_state_resul
     results = [
         {
             "result_type": "entity",
-            "entity": {"id": "ent_current", "name": "Native Helix"},
+            "entity": {"id": "ent_current", "name": "Engram"},
             "score": 0.9,
         },
         {
@@ -174,7 +174,7 @@ async def test_process_runs_recall_tail_in_order_and_filters_current_state_resul
     assert processed.results == [
         {
             "result_type": "entity",
-            "entity": {"id": "ent_current", "name": "Native Helix"},
+            "entity": {"id": "ent_current", "name": "Engram"},
             "score": 0.9,
             "score_breakdown": {"relevance_confidence": 0.91},
         }
