@@ -51,7 +51,31 @@ class EvidenceBridge:
         # Attach temporal hints to claims
         self._attach_temporal_hints(committed, claims)
 
+        # Ensure a canonical "User" entity exists whenever any claim references
+        # "User" as subject. Narrow extractors emit first-person/family
+        # relationships with subject="User" but never emit a "User" entity, so
+        # the endpoint would otherwise resolve to None and the edge be dropped.
+        self._ensure_user_entity(entities, claims)
+
         return entities, claims
+
+    @staticmethod
+    def _ensure_user_entity(
+        entities: list[EntityCandidate],
+        claims: list[ClaimCandidate],
+    ) -> None:
+        """Emit a single canonical 'User' Person entity if a claim needs it."""
+        if not any(c.subject_text == "User" for c in claims):
+            return
+        if any(e.name == "User" for e in entities):
+            return
+        entities.append(
+            EntityCandidate(
+                name="User",
+                entity_type="Person",
+                raw_payload={"signals": ["self_reference"], "confidence": 1.0},
+            )
+        )
 
     def _to_entity(self, ev: EvidenceCandidate) -> EntityCandidate:
         """Convert entity evidence to EntityCandidate."""

@@ -96,6 +96,10 @@ class RecallService:
 
         stage_timings_ms: dict[str, float] = {}
         self._last_stage_timings_ms = stage_timings_ms
+        # Cue candidates that an episode candidate outscored at merge time: the
+        # episode is surfaced (cue content stays unsurfaced), but the cue hit
+        # must still drive promotion feedback. Maps episode node_id -> cue score.
+        suppressed_cue_scores: dict[str, float] = {}
         retrieve_started = time.perf_counter()
         try:
             scored_results = await self._retrieve(
@@ -116,6 +120,7 @@ class RecallService:
                 record_feedback=record_feedback,
                 memory_need=memory_need,
                 stage_timings_ms=stage_timings_ms,
+                suppressed_cue_out=suppressed_cue_scores,
             )
         except asyncio.CancelledError:
             stage_timings_ms["recall_retrieve_cancelled"] = _elapsed_ms(
@@ -164,6 +169,14 @@ class RecallService:
             raise
         stage_timings_ms["recall_materialize"] = _elapsed_ms(materialize_started)
 
+        if suppressed_cue_scores:
+            await self._record_suppressed_cue_feedback(
+                primary_materialization.results,
+                suppressed_cue_scores=suppressed_cue_scores,
+                group_id=group_id,
+                query=query,
+            )
+
         post_started = time.perf_counter()
         try:
             post_processed = await self._post_processor.process(
@@ -192,6 +205,48 @@ class RecallService:
             near_misses=post_processed.near_misses,
             stage_timings_ms=stage_timings_ms,
         )
+
+    async def _record_suppressed_cue_feedback(
+        self,
+        results: list[dict[str, Any]],
+        *,
+        suppressed_cue_scores: dict[str, float],
+        group_id: str,
+        query: str,
+    ) -> None:
+        """Record cue feedback for episodes surfaced over their colliding cue.
+
+        The cue hit was dropped during merge because the episode candidate
+        outscored it (B13). Surface the episode unchanged, but still drive
+        promotion feedback for the suppressed cue exactly once per recall.
+        Episodes already surfaced as ``cue_episode`` count the hit there, so
+        they are skipped to avoid double-counting.
+        """
+        recorder = self._primary_materializer.cue_feedback_recorder
+        already_counted = {
+            result.get("episode", {}).get("id")
+            for result in results
+            if result.get("result_type") == "cue_episode"
+        }
+        seen: set[str] = set()
+        for result in results:
+            if result.get("result_type") != "episode":
+                continue
+            episode_id = result.get("episode", {}).get("id")
+            if not episode_id or episode_id in seen or episode_id in already_counted:
+                continue
+            if episode_id not in suppressed_cue_scores:
+                continue
+            seen.add(episode_id)
+            episode = await self._graph.get_episode_by_id(episode_id, group_id)
+            if episode is None:
+                continue
+            await recorder.record_cue_feedback(
+                episode,
+                suppressed_cue_scores[episode_id],
+                query,
+                interaction_type="surfaced",
+            )
 
 
 def _elapsed_ms(started: float) -> float:

@@ -183,8 +183,16 @@ def _merge_special_results(
     episode_candidates: list[ScoredResult],
     cue_candidates: list[ScoredResult],
     cfg: ActivationConfig,
+    suppressed_cue_out: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
-    """Merge episode and cue-backed candidates, keeping the strongest per episode."""
+    """Merge episode and cue-backed candidates, keeping the strongest per episode.
+
+    When an episode-typed candidate outscores its colliding cue candidate, the
+    survivor is surfaced as a plain episode (cue content stays unsurfaced). The
+    cue hit must still be recorded for promotion, so the dropped cue's score is
+    stashed in ``suppressed_cue_out`` (node_id -> cue score) for the caller to
+    feed to ``record_cue_feedback`` without mutating what is surfaced (B13).
+    """
     special_results: list[ScoredResult] = []
 
     if episode_candidates and cfg.episode_retrieval_enabled:
@@ -198,13 +206,11 @@ def _merge_special_results(
             existing = best_by_episode.get(cue_result.node_id)
             if existing is None or cue_result.score > existing.score:
                 best_by_episode[cue_result.node_id] = cue_result
-            # NOTE: B13 (cue-hit -> promotion feedback when the episode result
-            # outscores its cue) is intentionally NOT fixed here. The previous
-            # attempt mutated result_type to "cue_episode" to trigger feedback,
-            # but that swaps the surfaced episode content for the cue snippet and
-            # drops required evidence. The correct fix decouples cue-feedback
-            # recording from result surfacing (record the hit for raw cue
-            # candidates without changing what is surfaced) — deferred.
+            elif suppressed_cue_out is not None:
+                # Episode candidate outscored its cue: the survivor is surfaced
+                # as a plain episode, so the cue hit would otherwise be dropped.
+                # Record the suppressed cue's score for decoupled feedback.
+                suppressed_cue_out[cue_result.node_id] = cue_result.score
         special_results = list(best_by_episode.values())
 
     special_results.sort(key=lambda r: r.score, reverse=True)
@@ -338,6 +344,7 @@ async def retrieve(
     record_feedback: bool = True,
     memory_need=None,
     stage_timings_ms: dict[str, float] | None = None,
+    suppressed_cue_out: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -1030,7 +1037,9 @@ async def retrieve(
             stage_timings_ms["recall_entity_match_skipped_primary_timeout"] = 0.0
 
     if not candidates:
-        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        special_results = _merge_special_results(
+            episode_candidates, cue_candidates, cfg, suppressed_cue_out
+        )
         if special_results:
             return special_results[: min(limit, cfg.retrieval_top_n)]
         return []
@@ -1039,7 +1048,9 @@ async def retrieve(
         primary_search_timed_out
         and _candidate_pool_has_zero_semantic_score(stage_timings_ms)
     ):
-        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        special_results = _merge_special_results(
+            episode_candidates, cue_candidates, cfg, suppressed_cue_out
+        )
         if special_results:
             _set_stage_metric(
                 stage_timings_ms,
@@ -1055,7 +1066,9 @@ async def retrieve(
         return []
 
     if _candidate_pool_has_no_semantic_anchor(stage_timings_ms):
-        special_results = _merge_special_results(episode_candidates, cue_candidates, cfg)
+        special_results = _merge_special_results(
+            episode_candidates, cue_candidates, cfg, suppressed_cue_out
+        )
         if special_results:
             _set_stage_metric(
                 stage_timings_ms,
@@ -1921,7 +1934,7 @@ async def retrieve(
             entity_limit = max(0, entity_budget)
             entity_results = scored[:entity_limit]
             special_results = _merge_special_results(
-                episode_candidates, cue_candidates, cfg,
+                episode_candidates, cue_candidates, cfg, suppressed_cue_out,
             )
             # Give episode/chunk candidates 2x weight in the merge sort
             for sr in special_results:
@@ -1938,7 +1951,7 @@ async def retrieve(
             entity_limit = max(1, top_n - special_budget)
             entity_results = scored[:entity_limit]
             special_results = _merge_special_results(
-                episode_candidates, cue_candidates, cfg,
+                episode_candidates, cue_candidates, cfg, suppressed_cue_out,
             )
             results = entity_results + special_results
             results.sort(key=lambda r: r.score, reverse=True)

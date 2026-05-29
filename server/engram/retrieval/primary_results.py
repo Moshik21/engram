@@ -50,6 +50,11 @@ class RecallPrimaryResultMaterializer:
         self._interaction_recorder = interaction_recorder
         self._working_memory_updater = working_memory_updater
 
+    @property
+    def cue_feedback_recorder(self) -> RecallCueFeedbackRecorder:
+        """Expose the cue feedback recorder for decoupled suppressed-cue feedback."""
+        return self._cue_feedback_recorder
+
     async def materialize(
         self,
         scored_results: Sequence[ScoredResult],

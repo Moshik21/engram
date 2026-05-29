@@ -2279,6 +2279,16 @@ class ActivationConfig(BaseModel):
     schema_max_per_cycle: int = 5
     schema_max_entities_scan: int = 500
 
+    # --- Graph write: endpoint auto-creation (D1) ---
+    # Narrow/deterministic extraction proposes relationships whose endpoint
+    # entities often defer below the commit threshold, so the edge is dropped as
+    # missing_entities and the graph stays empty without a consolidation pass.
+    # When enabled, apply_relationship_fact materializes a minimal provisional
+    # endpoint entity (Concept, episodic tier) so graph-ON has structure to
+    # traverse; prune + microglia reap unsupported nodes. Default off; enabled in
+    # the standard profile.
+    graph_auto_create_endpoints: bool = False
+
     # --- Microglia (graph immune surveillance) ---
     microglia_enabled: bool = False
     microglia_tag_threshold: float = 0.5
@@ -2491,7 +2501,13 @@ class ActivationConfig(BaseModel):
             _set("memory_maturation_enabled", True)
             _set("episode_transition_enabled", True)
             _set("reconsolidation_enabled", True)
-            _set("schema_formation_enabled", True)
+            # schema_formation disabled in standard: it writes Schema/INSTANCE_OF/
+            # schema_members rows that NO retrieval/scoring/context path reads yet
+            # (B11). Re-enable once a consumer exists; phase code stays for opt-in.
+            _set("schema_formation_enabled", False)
+            # Populate the graph on the write path so graph-ON has structure to
+            # traverse without requiring a consolidation pass (D1, Option A).
+            _set("graph_auto_create_endpoints", True)
             _set("cross_domain_penalty_enabled", True)
             _set("consolidation_dream_ltd_sweep_enabled", True)
             _set("microglia_enabled", True)

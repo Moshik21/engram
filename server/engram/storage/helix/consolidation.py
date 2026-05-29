@@ -110,6 +110,18 @@ class HelixConsolidationStore:
         if str(cache[external_id]) != str(helix_id):
             cache[external_id] = None
 
+    def _cache_tag_id(self, tag_id: int, helix_id: Any) -> None:
+        """Cache a tag's Helix node id and advance the id counter past it.
+
+        Repopulates _tag_id_cache from list-fetch queries so confirm/clear/demote
+        work after a process restart, and seeds _next_tag_id beyond loaded ids to
+        avoid collisions when creating new tags.
+        """
+        if helix_id is not None:
+            self._tag_id_cache[tag_id] = helix_id
+        if isinstance(tag_id, int) and tag_id >= self._next_tag_id:
+            self._next_tag_id = tag_id + 1
+
     def _cache_cycle(
         self,
         helix_id: Any,
@@ -1307,7 +1319,12 @@ class HelixConsolidationStore:
             "find_active_complement_tags",
             {"gid": group_id},
         )
-        return [self._tag_dict(r) for r in results]
+        tags = []
+        for r in results:
+            tag = self._tag_dict(r)
+            self._cache_tag_id(tag["id"], self._extract_helix_id(r))
+            tags.append(tag)
+        return tags
 
     async def get_confirmed_tags(
         self,
@@ -1327,6 +1344,7 @@ class HelixConsolidationStore:
         tags = []
         for r in results:
             tag = self._tag_dict(r)
+            self._cache_tag_id(tag["id"], self._extract_helix_id(r))
             cc = tag.get("cycle_confirmed")
             if cc is not None and (current_cycle - cc) >= min_age_cycles:
                 tags.append(tag)
@@ -1349,6 +1367,7 @@ class HelixConsolidationStore:
         tags = []
         for r in results:
             tag = self._tag_dict(r)
+            self._cache_tag_id(tag["id"], self._extract_helix_id(r))
             if tag.get("cycle_tagged", 0) < max_cycle:
                 tags.append(tag)
         return tags

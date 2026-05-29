@@ -381,10 +381,16 @@ class MicrogliaPhase(ConsolidationPhase):
                     if not should_clear:
                         for eid in (src_id, tgt_id):
                             entity = await graph_store.get_entity(eid, group_id)
-                            if entity and getattr(entity, "mat_tier", None) == "semantic":
-                                should_clear = True
-                                reason = "semantic_tier"
-                                break
+                            if entity:
+                                attrs = (
+                                    entity.attributes
+                                    if isinstance(entity.attributes, dict)
+                                    else {}
+                                )
+                                if attrs.get("mat_tier") == "semantic":
+                                    should_clear = True
+                                    reason = "semantic_tier"
+                                    break
 
             if should_clear:
                 await consolidation_store.clear_complement_tag(tag["id"])

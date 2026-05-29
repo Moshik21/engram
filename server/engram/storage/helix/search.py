@@ -1611,6 +1611,7 @@ class HelixSearchIndex:
             payload,
         )
 
+        matched_without_data = 0
         for row in rows:
             eid = str(row.get("entity_id", ""))
             if eid in target_ids:
@@ -1624,18 +1625,41 @@ class HelixSearchIndex:
                     results[eid] = [float(v) for v in vec]
                     if len(results) == len(target_ids):
                         break
+                else:
+                    # The row matched a requested id but carried no vector floats.
+                    matched_without_data += 1
 
         if len(results) < len(target_ids):
-            logger.warning(
-                "get_entity_embeddings exact lookup recovered %d/%d entity "
-                "vectors (group_id=%s, endpoint=%s, rows=%d). Missing vectors "
-                "may indicate stale vector metadata or incomplete indexing.",
-                len(results),
-                len(target_ids),
-                group_id,
-                endpoint,
-                len(rows),
-            )
+            if matched_without_data and not results:
+                # Rows came back and matched the requested ids, but every one was
+                # serialized WITHOUT its embedding payload — this is the native
+                # VectorWithoutData serialization gap on plain-traversal returns
+                # (only SearchV carries vector floats), NOT sparse/missing data.
+                # Consequence: MMR diversity, inhibitory spreading, and
+                # state-dependent retrieval silently fall back to no-ops on the
+                # Helix native transport. Loud so the inertness is observable.
+                logger.warning(
+                    "get_entity_embeddings: %d/%d rows matched but returned NO "
+                    "vector data (group_id=%s, endpoint=%s) — native vector "
+                    "serialization gap (plain traversal omits embedding floats); "
+                    "MMR/inhibition/state-dependent retrieval are degraded to "
+                    "no-ops on this transport until the native query returns data.",
+                    matched_without_data,
+                    len(target_ids),
+                    group_id,
+                    endpoint,
+                )
+            else:
+                logger.warning(
+                    "get_entity_embeddings exact lookup recovered %d/%d entity "
+                    "vectors (group_id=%s, endpoint=%s, rows=%d). Missing vectors "
+                    "may indicate stale vector metadata or incomplete indexing.",
+                    len(results),
+                    len(target_ids),
+                    group_id,
+                    endpoint,
+                    len(rows),
+                )
 
         return results
 
