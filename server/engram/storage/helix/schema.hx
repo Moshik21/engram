@@ -262,6 +262,10 @@ QUERY find_entities_by_canonical(canon: String, gid: String) =>
     entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{canonical_identifier}::EQ(canon), _::{is_deleted}::EQ(false)))
     RETURN entities
 
+QUERY find_entities_by_name_prefix(prefix: String, gid: String) =>
+    entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{name}::CONTAINS(prefix), _::{is_deleted}::EQ(false)))
+    RETURN entities
+
 QUERY find_identity_core_entities(gid: String) =>
     entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{identity_core}::EQ(true), _::{is_deleted}::EQ(false)))
     RETURN entities
@@ -617,6 +621,14 @@ QUERY add_graph_embed_vector(entity_id: String, group_id: String, method: String
     v <- AddV<GraphEmbedVec>(vec, {entity_id: entity_id, group_id: group_id, method: method, model_version: model_version})
     RETURN v
 
+QUERY find_entity_vectors_by_ids(entity_ids: [String], gid: String) =>
+    vectors <- V<EntityVec>::WHERE(AND(_::{entity_id}::IS_IN(entity_ids), _::{group_id}::EQ(gid)))
+    RETURN vectors
+
+QUERY find_entity_vectors_by_ids_all(entity_ids: [String]) =>
+    vectors <- V<EntityVec>::WHERE(_::{entity_id}::IS_IN(entity_ids))
+    RETURN vectors
+
 // Delete a single graph embedding vector by Helix internal ID
 QUERY delete_graph_embed_vector(id: ID) =>
     DROP V<GraphEmbedVec>(id)
@@ -628,6 +640,11 @@ QUERY delete_graph_embed_vector(id: ID) =>
 
 QUERY search_entities_bm25(query: String, k: I32) =>
     results <- SearchBM25<Entity>(query, k)
+    RETURN results
+
+QUERY search_entities_bm25_filtered(query: String, k: I32, gid: String) =>
+    bm25 <- SearchBM25<Entity>(query, k)
+    results <- bm25::WHERE(AND(_::{group_id}::EQ(gid), _::{is_deleted}::EQ(false)))
     RETURN results
 
 QUERY search_episodes_bm25(query: String, k: I32) =>

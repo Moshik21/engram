@@ -1129,17 +1129,28 @@ class HelixGraphStore:
         seen_ids: set[str] = set()
         results: list[Entity] = []
         form = analyze_name(name)
+        stripped_name = name.strip()
+
+        def append_rows(rows: list[dict]) -> None:
+            for d in rows:
+                if len(results) >= limit:
+                    return
+                row_group = str(d.get("group_id") or group_id)
+                if row_group != group_id:
+                    continue
+                if d.get("is_deleted") or d.get("deleted_at"):
+                    continue
+                entity = self._dict_to_entity(d, group_id)
+                if entity.id not in seen_ids:
+                    seen_ids.add(entity.id)
+                    results.append(entity)
 
         # Phase 1: Exact name match
         exact_results = await self._query(
             "find_entities_exact_name",
-            {"name_exact": name.strip(), "gid": group_id},
+            {"name_exact": stripped_name, "gid": group_id},
         )
-        for d in exact_results:
-            entity = self._dict_to_entity(d, group_id)
-            if entity.id not in seen_ids:
-                seen_ids.add(entity.id)
-                results.append(entity)
+        append_rows(exact_results)
 
         if len(results) >= limit:
             return results[:limit]
@@ -1150,30 +1161,41 @@ class HelixGraphStore:
                 "find_entities_by_canonical",
                 {"canon": form.canonical_code, "gid": group_id},
             )
-            for d in canon_results:
-                entity = self._dict_to_entity(d, group_id)
-                if entity.id not in seen_ids:
-                    seen_ids.add(entity.id)
-                    results.append(entity)
+            append_rows(canon_results)
 
         if len(results) >= limit:
             return results[:limit]
 
-        # Phase 2: CONTAINS match on full name
+        # Phase 2: BM25 token search, matching SQLite's FTS-first candidate path.
+        # Use the filtered endpoint when deployed; fall back to the legacy
+        # unfiltered endpoint so older Helix schemas degrade by recall, not by
+        # throwing away the whole candidate path.
+        bm25_limit = max(limit * 3, 30)
+        bm25_results = await self._query(
+            "search_entities_bm25_filtered",
+            {"query": stripped_name, "k": bm25_limit, "gid": group_id},
+        )
+        if not bm25_results:
+            bm25_results = await self._query(
+                "search_entities_bm25",
+                {"query": stripped_name, "k": bm25_limit},
+            )
+        append_rows(bm25_results)
+
+        if len(results) >= limit:
+            return results[:limit]
+
+        # Phase 3: CONTAINS match on full name
         contains_results = await self._query(
             "find_entities_by_name",
-            {"name_query": name.strip(), "gid": group_id},
+            {"name_query": stripped_name, "gid": group_id},
         )
-        for d in contains_results:
-            entity = self._dict_to_entity(d, group_id)
-            if entity.id not in seen_ids:
-                seen_ids.add(entity.id)
-                results.append(entity)
+        append_rows(contains_results)
 
         if len(results) >= limit:
             return results[:limit]
 
-        # Phase 3: Token fallback — search individual tokens >= 3 chars.
+        # Phase 4: Token fallback — search individual lexical tokens.
         # CONTAINS only matches when the query is a substring of the stored name,
         # so multi-word query phrases ("St. Mary's Church") that aren't a literal
         # substring need token recovery. Previously gated to NATURAL_LANGUAGE
@@ -1182,7 +1204,7 @@ class HelixGraphStore:
         # plus any multi-word name regardless of regime. Single-word non-NL names
         # keep the old behavior (no token spray). Extra candidates are name-scored
         # downstream, so broadening recall here is safe.
-        tokens = [t for t in name.strip().split() if len(t) >= 3]
+        tokens = [t for t in re.findall(r"[A-Za-z0-9]+", stripped_name) if len(t) >= 2]
         if form.regime != NameRegime.NATURAL_LANGUAGE and len(tokens) < 2:
             tokens = []
         for token in tokens:
@@ -1192,11 +1214,20 @@ class HelixGraphStore:
                 "find_entities_by_name",
                 {"name_query": token, "gid": group_id},
             )
-            for d in token_results:
-                entity = self._dict_to_entity(d, group_id)
-                if entity.id not in seen_ids:
-                    seen_ids.add(entity.id)
-                    results.append(entity)
+            append_rows(token_results)
+
+        if len(results) >= limit:
+            return results[:limit]
+
+        # Phase 5: Prefix fallback for typo variants ("Alexa" -> "Alex").
+        if len(stripped_name) >= 3 and form.regime == NameRegime.NATURAL_LANGUAGE:
+            prefix = stripped_name[:3]
+            if prefix not in tokens:
+                prefix_results = await self._query(
+                    "find_entities_by_name_prefix",
+                    {"prefix": prefix, "gid": group_id},
+                )
+                append_rows(prefix_results)
 
         return results[:limit]
 

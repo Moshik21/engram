@@ -1586,74 +1586,54 @@ class HelixSearchIndex:
     ) -> dict[str, list[float]]:
         """Retrieve stored entity embedding vectors.
 
-        Helix does not support fetching vectors by metadata filter directly.
-        Strategy: perform a broad vector search using a zero vector to pull
-        back a large number of entries, then filter by entity_id. This is
-        a best-effort approach; for exact retrieval a Helix get-by-ID
-        endpoint would be needed.
-
-        If very few entity_ids are requested, we can also try searching with
-        each entity's text to recover its vector indirectly. However, for
-        simplicity we use the zero-vector approach with a large k.
+        Uses exact metadata lookup instead of a zero-vector ANN sweep. The
+        sweep path is not a get-by-id operation: cosine against zero is
+        degenerate, so requested IDs can silently fall outside the top-k window
+        on larger native stores.
         """
         if not self._embeddings_enabled or not entity_ids:
             return {}
 
         target_ids = set(entity_ids)
         results: dict[str, list[float]] = {}
-
-        # Use a zero vector to do a broad sweep of the index
-        dim = self._storage_dim if self._storage_dim > 0 else self._provider.dimension()
-        if dim <= 0:
-            return {}
-
-        # Fetch a large batch from the vector index.  The zero-vector ANN
-        # sweep returns rows in an undefined order (cosine against a zero
-        # query is degenerate), so a small k can silently omit requested ids
-        # on graphs larger than k.  Use a generous k so the requested set is
-        # robustly covered even when only a few ids are asked for.
-        # NOTE: a proper exact get-vectors-by-id HelixQL query is the correct
-        # fix and is a deferred follow-up.
-        zero_vec = [0.0] * dim
-        sweep_k = max(len(entity_ids) * 50, 2000)
+        endpoint = (
+            "find_entity_vectors_by_ids"
+            if group_id
+            else "find_entity_vectors_by_ids_all"
+        )
+        payload = (
+            {"entity_ids": list(target_ids), "gid": group_id}
+            if group_id
+            else {"entity_ids": list(target_ids)}
+        )
         rows = await self._query(
-            "search_entity_vectors",
-            {"vec": zero_vec, "k": sweep_k},
+            endpoint,
+            payload,
         )
 
         for row in rows:
             eid = str(row.get("entity_id", ""))
             if eid in target_ids:
-                vec = row.get("vec") or row.get("vector") or row.get("embedding")
+                vec = (
+                    row.get("vec")
+                    or row.get("vector")
+                    or row.get("embedding")
+                    or row.get("data")
+                )
                 if vec and isinstance(vec, list):
                     results[eid] = [float(v) for v in vec]
                     if len(results) == len(target_ids):
                         break
 
-        # Filter by group_id if specified
-        if group_id:
-            gid_lookup: dict[str, str] = {}
-            for row in rows:
-                eid = str(row.get("entity_id", ""))
-                gid_lookup[eid] = str(row.get("group_id", ""))
-            results = {
-                eid: vec
-                for eid, vec in results.items()
-                if gid_lookup.get(eid) == group_id
-            }
-
-        # Surface silent partial recovery: the zero-vector sweep can omit
-        # requested ids when the index is larger than the sweep window.
         if len(results) < len(target_ids):
             logger.warning(
-                "get_entity_embeddings recovered %d/%d entity vectors "
-                "(group_id=%s, sweep_k=%d, rows=%d). Zero-vector ANN sweep "
-                "may have omitted requested ids; exact get-by-id retrieval "
-                "is a deferred follow-up.",
+                "get_entity_embeddings exact lookup recovered %d/%d entity "
+                "vectors (group_id=%s, endpoint=%s, rows=%d). Missing vectors "
+                "may indicate stale vector metadata or incomplete indexing.",
                 len(results),
                 len(target_ids),
                 group_id,
-                sweep_k,
+                endpoint,
                 len(rows),
             )
 

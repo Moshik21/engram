@@ -368,13 +368,11 @@ async def test_b15_briefing_degraded_flag_when_no_entities(tmp_path):
         await graph.close()
 
 
-# ─────────────── B14: helix embedding partial-recovery warning ───────────────
+# ─────────────── B14: exact helix entity-vector recovery ───────────────
 
 
-def test_b14_partial_recovery_warns(monkeypatch, caplog):
-    """get_entity_embeddings must WARN when fewer vectors are recovered than
-    requested, turning the silent zero-vector sweep miss into an observable
-    signal."""
+def test_b14_exact_recovery_warns_on_missing_vectors(monkeypatch, caplog):
+    """get_entity_embeddings must use exact metadata lookup and warn on misses."""
     import logging
 
     from engram.config import EmbeddingConfig, HelixDBConfig
@@ -391,11 +389,15 @@ def test_b14_partial_recovery_warns(monkeypatch, caplog):
     )
     index._embeddings_enabled = True
     index._storage_dim = 4
+    calls: list[tuple[str, dict]] = []
 
     async def _fake_query(name, params):
-        # Sweep returns only one of the two requested ids.
+        calls.append((name, params))
+        assert name == "find_entity_vectors_by_ids"
+        assert set(params["entity_ids"]) == {"ent_a", "ent_b"}
+        assert params["gid"] == "g"
         return [
-            {"entity_id": "ent_a", "vec": [0.1, 0.2, 0.3, 0.4], "group_id": "g"},
+            {"entity_id": "ent_a", "data": [0.1, 0.2, 0.3, 0.4], "group_id": "g"},
         ]
 
     monkeypatch.setattr(index, "_query", _fake_query)
@@ -409,12 +411,14 @@ def test_b14_partial_recovery_warns(monkeypatch, caplog):
 
     assert "ent_a" in result
     assert "ent_b" not in result
+    assert len(calls) == 1
     assert any(
-        "recovered 1/2 entity vectors" in rec.getMessage() for rec in caplog.records
+        "exact lookup recovered 1/2 entity vectors" in rec.getMessage()
+        for rec in caplog.records
     ), "expected a WARNING about partial embedding recovery"
 
 
-def test_b14_full_recovery_no_warning(monkeypatch, caplog):
+def test_b14_exact_full_recovery_no_warning(monkeypatch, caplog):
     import logging
 
     from engram.config import EmbeddingConfig, HelixDBConfig
@@ -431,8 +435,12 @@ def test_b14_full_recovery_no_warning(monkeypatch, caplog):
     )
     index._embeddings_enabled = True
     index._storage_dim = 4
+    calls: list[tuple[str, dict]] = []
 
     async def _fake_query(name, params):
+        calls.append((name, params))
+        assert name == "find_entity_vectors_by_ids"
+        assert set(params["entity_ids"]) == {"ent_a", "ent_b"}
         return [
             {"entity_id": "ent_a", "vec": [0.1, 0.2, 0.3, 0.4], "group_id": "g"},
             {"entity_id": "ent_b", "vec": [0.5, 0.6, 0.7, 0.8], "group_id": "g"},
@@ -448,6 +456,39 @@ def test_b14_full_recovery_no_warning(monkeypatch, caplog):
         )
 
     assert set(result) == {"ent_a", "ent_b"}
+    assert len(calls) == 1
     assert not any(
         "recovered" in rec.getMessage() for rec in caplog.records
     )
+
+
+def test_b14_exact_recovery_uses_all_groups_endpoint(monkeypatch):
+    from engram.config import EmbeddingConfig, HelixDBConfig
+    from engram.embeddings.provider import NoopProvider
+    from engram.storage.helix.search import HelixSearchIndex
+
+    index = HelixSearchIndex(
+        helix_config=HelixDBConfig(host="localhost", port=6969),
+        provider=NoopProvider(),
+        embed_config=EmbeddingConfig(),
+        storage_dim=4,
+        embed_provider="noop",
+        embed_model="noop",
+    )
+    index._embeddings_enabled = True
+    calls: list[tuple[str, dict]] = []
+
+    async def _fake_query(name, params):
+        calls.append((name, params))
+        assert name == "find_entity_vectors_by_ids_all"
+        assert set(params["entity_ids"]) == {"ent_a"}
+        return [{"entity_id": "ent_a", "vec": [0.1, 0.2, 0.3, 0.4]}]
+
+    monkeypatch.setattr(index, "_query", _fake_query)
+
+    import asyncio
+
+    result = asyncio.run(index.get_entity_embeddings(["ent_a"]))
+
+    assert result == {"ent_a": [0.1, 0.2, 0.3, 0.4]}
+    assert len(calls) == 1

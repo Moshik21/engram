@@ -208,6 +208,51 @@ def test_graph_embed_delete_route_is_available_to_native_helix() -> None:
         assert signature.strip() == "id: ID"
 
 
+def test_candidate_and_exact_vector_queries_are_synced_across_sources() -> None:
+    """Native Helix recall parity depends on candidate and vector lookup routes."""
+    expected_signatures = {
+        "find_entities_by_name_prefix": "prefix: String, gid: String",
+        "search_entities_bm25_filtered": "query: String, k: I32, gid: String",
+        "find_entity_vectors_by_ids": "entity_ids: [String], gid: String",
+        "find_entity_vectors_by_ids_all": "entity_ids: [String]",
+    }
+
+    for schema_path in (SERVER_SCHEMA, NATIVE_SCHEMA):
+        text = schema_path.read_text()
+        for query_name, expected_signature in expected_signatures.items():
+            assert _helix_query_signature(text, query_name).strip() == expected_signature
+
+
+def test_generated_candidate_and_exact_vector_queries_are_native_available() -> None:
+    """Generated PyO3 route map must expose candidate and exact vector routes."""
+    expected_inputs = {
+        "find_entities_by_name_prefixInput": {
+            "prefix": "String",
+            "gid": "String",
+        },
+        "search_entities_bm25_filteredInput": {
+            "query": "String",
+            "k": "i32",
+            "gid": "String",
+        },
+        "find_entity_vectors_by_idsInput": {
+            "entity_ids": "Vec<String>",
+            "gid": "String",
+        },
+        "find_entity_vectors_by_ids_allInput": {
+            "entity_ids": "Vec<String>",
+        },
+    }
+
+    for generated in _native_generated_query_texts():
+        assert "pub fn find_entities_by_name_prefix" in generated
+        assert "pub fn search_entities_bm25_filtered" in generated
+        assert "pub fn find_entity_vectors_by_ids" in generated
+        assert "pub fn find_entity_vectors_by_ids_all" in generated
+        for struct_name, fields in expected_inputs.items():
+            assert _rust_struct_fields(generated, struct_name) == fields
+
+
 def test_generated_graph_embed_delete_route_is_available_to_native_helix() -> None:
     """Generated PyO3 route map must expose graph embedding cleanup."""
     generated = _native_generated_query_text()
