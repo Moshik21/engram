@@ -175,7 +175,7 @@ async def _graph_neighborhood_pool(
                     fan_in[nid] = fan_in.get(nid, 0) + 1
 
         # Sort by fan-in descending, take top pool_limit
-        ranked = sorted(fan_in.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(fan_in.items(), key=lambda x: (-x[1], x[0]))
         return [(nid, float(count)) for nid, count in ranked[:pool_limit]]
     except Exception as e:
         logger.warning("Graph neighborhood pool failed (non-fatal): %s", e)
@@ -219,7 +219,7 @@ async def _working_memory_pool(
                         results[nid] = dampened
 
         # Sort by score descending, take top pool_limit
-        ranked = sorted(results.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(results.items(), key=lambda x: (-x[1], x[0]))
         return ranked[:pool_limit]
     except Exception as e:
         logger.warning("Working memory pool failed (non-fatal): %s", e)
@@ -380,7 +380,7 @@ async def _entity_query_pool(
             return []
 
         # Sort by score descending, take top limit
-        ranked = sorted(entity_scores.items(), key=lambda x: x[1], reverse=True)
+        ranked = sorted(entity_scores.items(), key=lambda x: (-x[1], x[0]))
         return ranked[:limit]
     except Exception as e:
         logger.warning("Entity query pool failed (non-fatal): %s", e)
@@ -403,7 +403,7 @@ def _merge_pools_rrf(
         for rank, (eid, _score) in enumerate(pool):
             rrf_scores[eid] = rrf_scores.get(eid, 0.0) + 1.0 / (rrf_k + rank + 1)
 
-    ranked = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    ranked = sorted(rrf_scores.items(), key=lambda x: (-x[1], x[0]))
     return [eid for eid, _ in ranked[:limit]]
 
 

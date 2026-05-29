@@ -189,7 +189,7 @@ def score_candidates(
             )
         )
 
-    results.sort(key=lambda r: r.score, reverse=True)
+    results.sort(key=lambda r: (-r.score, r.node_id))
     return results
 
 
@@ -330,7 +330,7 @@ def score_candidates_thompson(
             )
         )
 
-    results.sort(key=lambda r: r.score, reverse=True)
+    results.sort(key=lambda r: (-r.score, r.node_id))
     return results
 
 

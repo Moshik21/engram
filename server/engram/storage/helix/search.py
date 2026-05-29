@@ -94,7 +94,8 @@ def _rrf_fusion(
     for rank, (item_id, _) in enumerate(vec_results):
         scores[item_id] = scores.get(item_id, 0.0) + vec_weight / (k + rank + 1)
 
-    merged = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # Stable tie-break by item id so equal RRF scores order deterministically.
+    merged = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
 
     # Normalize to 0-1
     if merged:

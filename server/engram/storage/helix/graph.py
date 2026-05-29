@@ -1115,8 +1115,13 @@ class HelixGraphStore:
             if entity_type and d.get("entity_type") != entity_type:
                 continue
             entities.append(self._dict_to_entity(d, group_id))
-        # Sort by updated_at descending
-        entities.sort(key=lambda e: e.updated_at or utc_now(), reverse=True)
+        # Sort by updated_at descending; null timestamps sort last and ties
+        # break by id, so the order is stable across calls (a fresh utc_now()
+        # per null row previously made this nondeterministic).
+        entities.sort(
+            key=lambda e: (e.updated_at.timestamp() if e.updated_at else 0.0, e.id),
+            reverse=True,
+        )
         return entities[:limit]
 
     async def find_entity_candidates(

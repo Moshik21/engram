@@ -155,6 +155,10 @@ async def _ingest_persona(adapter: _CachingAdapter, group_id: str, persona: dict
 
 
 async def _build_adapter(cfg, *, graph_on: bool, cache_path: str, extraction: str) -> tuple[_CachingAdapter, str]:
+    # Determinism: disable Thompson Sampling exploration for the eval (its RNG is
+    # unseeded in production and perturbs near-tied scores every recall). The
+    # production default is unchanged; this only pins the measurement arm.
+    cfg.activation.ts_enabled = False
     adapter = _CachingAdapter(
         cfg=cfg.activation,
         extraction_mode=extraction,

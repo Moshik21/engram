@@ -111,9 +111,10 @@ async def resolve_entity_fast(
     Checks session_entities first (within-episode dedup), then retrieves
     ~30 candidates from the DB and fuzzy-matches only those.
     """
-    # Check session cache first (entities created earlier in this episode)
+    # Check session cache first (entities created earlier in this episode).
+    # Iterate in a stable id order so a tie resolves identically across runs.
     if session_entities:
-        for entity in session_entities.values():
+        for entity in sorted(session_entities.values(), key=lambda e: e.id):
             decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
             if not decision.allowed:
                 continue
@@ -129,13 +130,23 @@ async def resolve_entity_fast(
     best_match: Entity | None = None
     best_score = 0.0
 
+    best_key: tuple[float, bool] = (0.0, False)
     for entity in candidates:
         decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
         if not decision.allowed:
             continue
-        if entity.entity_type == entity_type and not decision.exact_identifier_match:
+        type_match = entity.entity_type == entity_type and not decision.exact_identifier_match
+        if type_match:
             score = min(score + 0.05, 1.0)
-        if score > best_score:
+        # Deterministic, order-independent selection: maximise score, then prefer
+        # a type match on an exact score tie (preserving the type-boost intent),
+        # then keep the lowest entity id. This removes the dependence on the
+        # (unsorted) candidate query order returned by the backend.
+        cand_key = (score, type_match)
+        if best_match is None or cand_key > best_key or (
+            cand_key == best_key and entity.id < best_match.id
+        ):
+            best_key = cand_key
             best_score = score
             best_match = entity
 
