@@ -25,7 +25,7 @@ from engram.benchmark.longmemeval.evaluator import (
     compute_retrieval_metrics,
     judge_by_containment,
 )
-from engram.config import ActivationConfig
+from engram.config import EngramConfig
 
 logger = logging.getLogger(__name__)
 
@@ -217,8 +217,11 @@ async def run_longmemeval(
         containment_threshold,
     )
 
-    # Configure Engram
-    cfg = ActivationConfig()
+    # Configure Engram. Load activation via EngramConfig (BaseSettings) so
+    # ENGRAM_ACTIVATION__* env vars actually apply — a bare ActivationConfig()
+    # is a plain BaseModel and silently ignores them, which previously made
+    # benchmark knobs (graph_auto_create_endpoints, mmr_enabled, ...) no-ops.
+    cfg = EngramConfig().activation
 
     # Create adapter
     adapter = EngramLongMemEvalAdapter(
