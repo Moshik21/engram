@@ -594,14 +594,16 @@ class ActivationConfig(BaseModel):
         ),
     )
     passage_first_entity_budget: int = Field(
-        default=-1,
+        default=0,
         ge=-1,
         le=100,
         description=(
             "Max entity slots in passage_first mode. "
-            "-1 = use heuristic (min(3, top_n//3)), "
-            "0 = no entities (all slots to episodes). "
-            "Useful for benchmarks where entity summaries add noise."
+            "0 = no entities in top-k (default, core episode-vector tier); "
+            ">=1 = explicit graph/depth tier (entities reachable on opt-in); "
+            "-1 = legacy heuristic min(3, top_n//3). "
+            "Defaulting to 0 keeps graph entities out of the needle top-k so "
+            "recall is episode-vector + rerank by default."
         ),
     )
 
@@ -2607,6 +2609,11 @@ class ActivationConfig(BaseModel):
             _set("auto_recall_on_tool_call", True)
             _set("memory_maturation_enabled", True)
             _set("episode_transition_enabled", True)
+            # rework is the full graph/depth profile: opt back into the depth
+            # tier so entities can surface in the top-k (the default core tier
+            # keeps them out). Respect an explicit caller override.
+            if "passage_first_entity_budget" not in self.model_fields_set:
+                _set("passage_first_entity_budget", 3)
 
         # --- Guard: disable LLM features if no API key (only for profile-set) ---
         if profile in ("standard",) and not os.environ.get("ANTHROPIC_API_KEY"):

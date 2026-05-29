@@ -66,6 +66,13 @@ class TestEpisodeRetrievalConfig:
         cfg = ActivationConfig()
         assert cfg.episode_retrieval_max == 5
 
+    def test_default_core_tier_excludes_entities(self):
+        """Core episode-vector tier is the default: no entity slots in top-k,
+        passage_first strategy. Pins the core-tier separation defaults."""
+        cfg = ActivationConfig()
+        assert cfg.passage_first_entity_budget == 0
+        assert cfg.retrieval_strategy == "passage_first"
+
 
 # ── HelixSearchIndex search_episodes tests ──────────────────────────
 
@@ -328,6 +335,52 @@ class TestPipelineEpisodeRetrieval:
         episode_results = [r for r in results if r.result_type == "episode"]
         assert len(episode_results) > 0
         assert stage_timings["recall_embed"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_default_core_tier_returns_no_entities(self):
+        """Default config (core episode-vector tier) keeps entities out of the
+        top-k: every result is an episode or cue_episode, never an entity."""
+        cfg = ActivationConfig()  # passage_first_entity_budget defaults to 0
+        assert cfg.passage_first_entity_budget == 0
+
+        results = await retrieve(
+            query="test query",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(
+                entity_results=[("e1", 0.95), ("e2", 0.9)],
+                episode_results=[("ep_1", 0.8), ("ep_2", 0.6)],
+            ),
+            cfg=cfg,
+        )
+        assert results
+        assert all(r.result_type in {"episode", "cue_episode"} for r in results)
+        assert not any(r.result_type == "entity" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_explicit_depth_path_returns_entities(self):
+        """Opt-in depth/graph tier (passage_first_entity_budget >= 1 plus a
+        nonzero weight_graph_structural) surfaces entity results in the top-k."""
+        cfg = ActivationConfig(
+            passage_first_entity_budget=3,
+            weight_graph_structural=0.1,
+        )
+        assert cfg.passage_first_entity_budget == 3
+
+        results = await retrieve(
+            query="test query",
+            group_id="default",
+            graph_store=_mock_graph_store(),
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(
+                entity_results=[("e1", 0.95), ("e2", 0.9)],
+                episode_results=[("ep_1", 0.8), ("ep_2", 0.6)],
+            ),
+            cfg=cfg,
+        )
+        entity_results = [r for r in results if r.result_type == "entity"]
+        assert len(entity_results) > 0
 
     @pytest.mark.asyncio
     async def test_primary_search_timeout_uses_fast_episode_fallback(self):
@@ -1453,7 +1506,14 @@ class TestGraphManagerRecallEpisodes:
         search = _mock_search_index_with_episodes()
         extractor = AsyncMock()
 
-        cfg = ActivationConfig(episode_retrieval_enabled=True, episode_retrieval_max=2)
+        # Opt into the depth/graph tier (passage_first_entity_budget >= 1) so
+        # entities are reachable in the top-k alongside episodes. The default
+        # core tier (budget=0) keeps entities out of the needle top-k.
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            episode_retrieval_max=2,
+            passage_first_entity_budget=3,
+        )
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 
         results = await gm.recall("test query", group_id="default")
@@ -1565,10 +1625,13 @@ class TestGraphManagerRecallEpisodes:
         )
         extractor = AsyncMock()
 
+        # Depth tier (passage_first_entity_budget >= 1) so entity state can
+        # surface; current-state suppression then drops the historical episode.
         cfg = ActivationConfig(
             episode_retrieval_enabled=True,
             cue_recall_enabled=False,
             working_memory_enabled=False,
+            passage_first_entity_budget=3,
         )
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 

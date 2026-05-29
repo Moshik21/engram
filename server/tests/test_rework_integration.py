@@ -165,6 +165,9 @@ async def test_used_cue_feedback_schedules_worker_projection_and_enables_entity_
         triage_enabled=False,
         worker_enabled=True,
         working_memory_enabled=False,
+        # Depth tier: this case asserts entity recall ("React") surfaces in the
+        # top-k, which the default core tier (budget=0) keeps out.
+        passage_first_entity_budget=3,
     )
     extraction_result = ExtractionResult(
         entities=[
