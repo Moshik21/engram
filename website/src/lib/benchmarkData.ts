@@ -60,7 +60,7 @@ export type BenchmarkSummary = {
   headline: {
     engram_full_pass_rate: number | null;
     engram_full_false_recall: number | null;
-    best_headline_competitor_pass_rate: number | null;
+    best_reference_pattern_pass_rate: number | null;
   };
   headline_baselines: BaselineCard[];
   control_baselines: BaselineCard[];
@@ -253,7 +253,7 @@ export function fallbackBenchmarkSummary(): BenchmarkSummary {
     headline: {
       engram_full_pass_rate: null,
       engram_full_false_recall: null,
-      best_headline_competitor_pass_rate: null,
+      best_reference_pattern_pass_rate: null,
     },
     headline_baselines: headlineBaselines,
     control_baselines: controlBaselines,

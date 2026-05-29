@@ -223,7 +223,7 @@ export function BenchmarkShowcase({ data: providedData, error: providedError }: 
             Best Reference Pattern
           </div>
           <div style={{ ...serif, ...tabularNums, fontSize: 36, color: "var(--text-primary)" }}>
-            {fmt(data.headline.best_headline_competitor_pass_rate)}
+            {fmt(data.headline.best_reference_pattern_pass_rate)}
           </div>
         </div>
         <div style={{ border: "1px solid rgba(103,232,249,0.14)", borderRadius: 18, padding: 18, background: "rgba(255,255,255,0.02)" }}>

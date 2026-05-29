@@ -1576,10 +1576,12 @@ Engram is benchmarked against [LongMemEval](https://arxiv.org/abs/2407.05045), t
 
 | | Baseline (context stuffing) | Engram (MCP recall) |
 |---|---|---|
-| **Accuracy** | 96.7% (29/30) | **100% (30/30)** |
+| **Answer found** | 29/30 (1 buried answer missed) | 30/30 (retrieval surfaced it) |
 | **Tokens per question** | ~8,400 | **~2,200** |
 | **Total tokens** | ~257K | **~66K** |
 | **Token reduction** | -- | **74%** |
+
+This 30-question slice measures whether retrieval surfaced the gold evidence at a fixed token budget; it is a token-efficiency demonstration on 5 questions/type, not an accuracy-leaderboard result. The defensible finding is the ~74% token reduction and O(1) retrieval cost, not a head-to-head accuracy win.
 
 The baseline failed one single-session-preference question — Claude had the answer in context but couldn't find it buried in 40K+ chars. Engram's retrieval found it instantly.
 
@@ -1589,9 +1591,11 @@ The baseline failed one single-session-preference question — Claude had the an
 
 The 30-question result above is a **token-efficiency** demonstration, not an accuracy-leaderboard claim. On a small stratified sample (5 questions per type), Engram matched context-stuffing accuracy while using ~74% fewer tokens — the genuine, defensible result is **O(1) retrieval cost**, not a head-to-head win over other systems. Published baselines use a different LongMemEval variant (LongMemEval_S) and reader (GPT-4o), so a side-by-side ranking against them would not be apples-to-apples and is intentionally omitted.
 
-For full transparency, larger 500-question runs scored substantially lower — **23.0% (best)** and **20.2% (latest)**. A forensic review found those runs were degraded by harness defects now being corrected: a broken embedding/vector path (semantic search silently fell back to keyword-only), an inactive reranker, an evidence-truncation bug, the knowledge graph disabled in the benchmark adapter, and a weak (Haiku-class) reader. Those numbers reflect a broken measurement pipeline rather than the system's retrieval quality. A corrected re-baseline — working local embeddings, an active reranker, read-path temporal supersession, and rank-1 precision reporting — is in progress, and results will be published here regardless of outcome.
+Engram's defensible advantage is local-first: the corrected ~55-63% category accuracy is achieved entirely on-device with local embeddings, deterministic narrow extraction, and a Haiku-class or no-LLM reader — no data leaves the machine and no frontier-model API is required. The strongest published LongMemEval scores rely on cloud GPT-4o-class readers; that is a different operating point, not an apples-to-apples comparison, and we do not republish those vendors' numbers as if they were ours.
 
-**Raw results**: 30-question token-efficiency run — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json) (Engram), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json) (baseline). Full 500-question runs (degraded harness, pending re-baseline) — [`server/results/longmemeval_v5_fixed_pipeline.md`](server/results/longmemeval_v5_fixed_pipeline.md), [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md).
+A forensic review confirmed the 20.2%/23.0% runs were a broken-harness artifact: the embedding/vector path silently fell back to keyword-only (the run logged `Embedding calls: 0` in [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md)). The corrected re-baseline — local embeddings active (`Embedding calls > 0`), reranker on, read-path temporal supersession — now scores **62.7% category accuracy** on a 48-question native oracle set ([`server/results/longmemeval_native_full_graphoff.md`](server/results/longmemeval_native_full_graphoff.md)) and **55.6%** on the 24-question LLM-reader ceiling set ([`server/results/longmemeval_ceiling_llm_graphoff.md`](server/results/longmemeval_ceiling_llm_graphoff.md)): roughly 55-63% category accuracy, episode-vector path. Strengths: single-session-assistant (75%) and abstention (66-93%). Weaknesses: temporal-reasoning (25-33%) and knowledge-update (25-75%, high variance). Engram does not yet match the strongest published LongMemEval systems, which use larger frontier readers (GPT-4o-class); Engram's measured runs use a Haiku-class or no-LLM reader on the local-first stack.
+
+**Raw results**: 30-question token-efficiency run — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json) (Engram), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json) (baseline). Corrected re-baseline (local embeddings active) — [`server/results/longmemeval_native_full_graphoff.md`](server/results/longmemeval_native_full_graphoff.md) (62.7% category, graph-OFF/episode-vector) and [`server/results/longmemeval_native_full_graphon.md`](server/results/longmemeval_native_full_graphon.md) (58.5% category, graph depth-tier ON). Graph-ON (58.5%) scores below graph-OFF (62.7%) on this corrected set — the depth-tier graph does not improve recall accuracy on this benchmark. Superseded broken-harness 500q runs (`Embedding calls: 0`, kept for transparency) — [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md) (20.2%) and [`server/results/longmemeval_v5_fixed_pipeline.md`](server/results/longmemeval_v5_fixed_pipeline.md) (23.0%).
 
 **Run it yourself**:
 

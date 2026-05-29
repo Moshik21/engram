@@ -377,7 +377,7 @@
   ],
   "generated_at": "2026-03-08T23:23:50+00:00",
   "headline": {
-    "best_headline_competitor_pass_rate": 0.6923076923076923,
+    "best_reference_pattern_pass_rate": 0.6923076923076923,
     "engram_full_false_recall": 0.0,
     "engram_full_pass_rate": 1.0
   },
