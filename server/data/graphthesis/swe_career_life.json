@@ -1,0 +1,258 @@
+{
+  "persona_id": "swe_career_life",
+  "domain": "a software engineer's work and personal life",
+  "sessions": [
+    {
+      "session_id": "s1",
+      "date": "2024/01/08",
+      "turns": [
+        {"role": "user", "text": "First day at Veridian Systems went well. I got staffed on Project Atlas, working alongside a teammate named Dana."},
+        {"role": "assistant", "text": "Congrats on starting at Veridian Systems. Project Atlas with Dana sounds like a strong start."}
+      ]
+    },
+    {
+      "session_id": "s2",
+      "date": "2024/01/19",
+      "turns": [
+        {"role": "user", "text": "My manager for Project Atlas is named Rourke. He runs the weekly architecture reviews."},
+        {"role": "assistant", "text": "Good to know Rourke leads the architecture reviews on Atlas."}
+      ]
+    },
+    {
+      "session_id": "s3",
+      "date": "2024/01/27",
+      "turns": [
+        {"role": "user", "text": "Big news at home — I adopted a cat. Her name is Mochi and she's a Ragdoll."},
+        {"role": "assistant", "text": "Welcome home, Mochi the Ragdoll! That's wonderful."}
+      ]
+    },
+    {
+      "session_id": "s4",
+      "date": "2024/02/04",
+      "turns": [
+        {"role": "user", "text": "Slow Sunday. I reorganized my bookshelf and finally finished that sci-fi trilogy I'd been stuck on for months."},
+        {"role": "assistant", "text": "Sounds like a satisfying reset day. Nice to close out a long trilogy."}
+      ]
+    },
+    {
+      "session_id": "s5",
+      "date": "2024/02/14",
+      "turns": [
+        {"role": "user", "text": "I booked a trip to Lisbon with my friend Sofia for the spring. Really looking forward to it."},
+        {"role": "assistant", "text": "Lisbon in spring with Sofia — that should be a lovely trip."}
+      ]
+    },
+    {
+      "session_id": "s6",
+      "date": "2024/02/22",
+      "turns": [
+        {"role": "user", "text": "Honestly I prefer coffee over tea, and I do my best focused work first thing in the morning."},
+        {"role": "assistant", "text": "Coffee and early mornings — noted as your peak setup."}
+      ]
+    },
+    {
+      "session_id": "s7",
+      "date": "2024/03/02",
+      "turns": [
+        {"role": "user", "text": "I started rock climbing this month. My coach is a guy named Theo and he's really patient."},
+        {"role": "assistant", "text": "Rock climbing with a patient coach like Theo is a great way to start."}
+      ]
+    },
+    {
+      "session_id": "s8",
+      "date": "2024/03/11",
+      "turns": [
+        {"role": "user", "text": "Spent the weekend repotting my houseplants. The monstera has gotten huge and needed a bigger pot."},
+        {"role": "assistant", "text": "Repotting day! A thriving monstera is a good problem to have."}
+      ]
+    },
+    {
+      "session_id": "s9",
+      "date": "2024/03/20",
+      "turns": [
+        {"role": "user", "text": "Great news on the team — Dana moved up to Staff Engineer this week after the last review cycle."},
+        {"role": "assistant", "text": "That's a well-earned step up for Dana. Congrats to the whole team."}
+      ]
+    },
+    {
+      "session_id": "s10",
+      "date": "2024/03/29",
+      "turns": [
+        {"role": "user", "text": "Tried a new ramen place downtown called Tanuki. The tonkotsu broth was incredible."},
+        {"role": "assistant", "text": "Tanuki sounds like a keeper — great tonkotsu is hard to find."}
+      ]
+    },
+    {
+      "session_id": "s11",
+      "date": "2024/04/06",
+      "turns": [
+        {"role": "user", "text": "Rough night. I had to rush Mochi to the emergency vet for a blocked bladder, but she's stable now."},
+        {"role": "assistant", "text": "I'm so sorry — scary night. Glad Mochi is stable after the emergency visit."}
+      ]
+    },
+    {
+      "session_id": "s12",
+      "date": "2024/04/15",
+      "turns": [
+        {"role": "user", "text": "My sister is getting married in October and asked me to give a speech at the reception."},
+        {"role": "assistant", "text": "That's a real honor. October will come fast — exciting times."}
+      ]
+    },
+    {
+      "session_id": "s13",
+      "date": "2024/04/24",
+      "turns": [
+        {"role": "user", "text": "Caught up with Sofia today. She just started a new role at Brightwave Capital as an analyst."},
+        {"role": "assistant", "text": "Big move for Sofia — analyst at Brightwave Capital sounds promising."}
+      ]
+    },
+    {
+      "session_id": "s14",
+      "date": "2024/05/03",
+      "turns": [
+        {"role": "user", "text": "I've been getting into film photography. Picked up an old Pentax and shot my first roll of black and white."},
+        {"role": "assistant", "text": "Film photography is a rewarding rabbit hole. That Pentax should be fun."}
+      ]
+    },
+    {
+      "session_id": "s15",
+      "date": "2024/05/12",
+      "turns": [
+        {"role": "user", "text": "Theo suggested I switch over to Summit Ridge — apparently the bouldering walls there are way better."},
+        {"role": "assistant", "text": "If Theo rates Summit Ridge, it's probably worth the move for the bouldering."}
+      ]
+    },
+    {
+      "session_id": "s16",
+      "date": "2024/05/21",
+      "turns": [
+        {"role": "user", "text": "My landlord finally fixed the leaky kitchen faucet that had been dripping for weeks."},
+        {"role": "assistant", "text": "Relief at last — a dripping faucet is maddening. Glad it's sorted."}
+      ]
+    },
+    {
+      "session_id": "s17",
+      "date": "2024/05/30",
+      "turns": [
+        {"role": "user", "text": "Rourke made the call in standup today — we're standardizing all new services on Go from now on."},
+        {"role": "assistant", "text": "A clear direction from Rourke. Standardizing the stack should reduce friction."}
+      ]
+    },
+    {
+      "session_id": "s18",
+      "date": "2024/06/09",
+      "turns": [
+        {"role": "user", "text": "Ran my first 10K race this morning. Slower than I hoped but I finished without walking."},
+        {"role": "assistant", "text": "Finishing a 10K without walking is a real milestone. Well done."}
+      ]
+    },
+    {
+      "session_id": "s19",
+      "date": "2024/06/18",
+      "turns": [
+        {"role": "user", "text": "Over lunch Dana mentioned she used to be at Cobalt Robotics before all this."},
+        {"role": "assistant", "text": "Interesting background — Cobalt Robotics explains a lot of her instincts."}
+      ]
+    },
+    {
+      "session_id": "s20",
+      "date": "2024/06/27",
+      "turns": [
+        {"role": "user", "text": "I baked sourdough for the first time. The crust came out great but the crumb was a bit dense."},
+        {"role": "assistant", "text": "First sourdough with a great crust is a win — the crumb improves with practice."}
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "qid": "q1",
+      "type": "multi_hop",
+      "question": "What is the current job title of Dana, who I work with on Project Atlas?",
+      "answer": "Staff Engineer",
+      "bridge_entity": "Dana",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q2",
+      "type": "multi_hop",
+      "question": "What breed is Mochi, the one I rushed to the emergency vet?",
+      "answer": "Ragdoll",
+      "bridge_entity": "Mochi",
+      "anchor_session_ids": ["s11"],
+      "answer_session_ids": ["s3"]
+    },
+    {
+      "qid": "q3",
+      "type": "multi_hop",
+      "question": "Which company now employs Sofia, my travel companion for the Lisbon trip?",
+      "answer": "Brightwave Capital",
+      "bridge_entity": "Sofia",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q4",
+      "type": "multi_hop",
+      "question": "Which gym did my climbing coach Theo recommend I train at?",
+      "answer": "Summit Ridge",
+      "bridge_entity": "Theo",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q5",
+      "type": "multi_hop",
+      "question": "Which programming language did my Project Atlas manager Rourke choose for the team?",
+      "answer": "Go",
+      "bridge_entity": "Rourke",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s17"]
+    },
+    {
+      "qid": "q6",
+      "type": "multi_hop",
+      "question": "Where did my Project Atlas teammate Dana work before joining Veridian Systems?",
+      "answer": "Cobalt Robotics",
+      "bridge_entity": "Dana",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s19"]
+    },
+    {
+      "qid": "q7",
+      "type": "single_hop_control",
+      "question": "Do I prefer tea or coffee?",
+      "answer": "Coffee",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s6"],
+      "answer_session_ids": ["s6"]
+    },
+    {
+      "qid": "q8",
+      "type": "single_hop_control",
+      "question": "What is my cat's name?",
+      "answer": "Mochi",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s3"]
+    },
+    {
+      "qid": "q9",
+      "type": "single_hop_control",
+      "question": "Who is my rock climbing coach?",
+      "answer": "Theo",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s7"]
+    },
+    {
+      "qid": "q10",
+      "type": "single_hop_control",
+      "question": "What city did I book a trip to?",
+      "answer": "Lisbon",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s5"]
+    }
+  ]
+}

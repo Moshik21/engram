@@ -1,0 +1,251 @@
+{
+  "persona_id": "grad_research_life",
+  "domain": "a graduate researcher's life",
+  "sessions": [
+    {
+      "session_id": "s1",
+      "date": "2024/01/08",
+      "turns": [
+        {"role": "user", "text": "First day back from break. My advisor Dr. Voss wants me to lead the literature review for our new direction this quarter."},
+        {"role": "assistant", "text": "That's a big responsibility. Did Dr. Voss give you a scope, or is the framing up to you?"},
+        {"role": "user", "text": "Pretty open. She said to map out everything on temporal graph memory from the last three years and bring her a synthesis by February."}
+      ]
+    },
+    {
+      "session_id": "s2",
+      "date": "2024/01/15",
+      "turns": [
+        {"role": "user", "text": "My labmate Priya and I are pairing on the retrieval experiments. She's the strongest engineer in our group."},
+        {"role": "assistant", "text": "Sounds like a good pairing. What are you each owning?"},
+        {"role": "user", "text": "Priya takes the indexing side and I handle evaluation. We sit next to each other so it's easy to sync."}
+      ]
+    },
+    {
+      "session_id": "s3",
+      "date": "2024/01/22",
+      "turns": [
+        {"role": "user", "text": "We finally named the system. Our main project is called Atlas — it's the activation-aware memory layer."},
+        {"role": "assistant", "text": "Nice name. Is Atlas the thing you'll write up for submission?"},
+        {"role": "user", "text": "Yeah, Atlas is the centerpiece of my thesis. Everything else is supporting work."}
+      ]
+    },
+    {
+      "session_id": "s4",
+      "date": "2024/02/03",
+      "turns": [
+        {"role": "user", "text": "Crunch mode. We're aiming the Atlas paper at NeurIPS this cycle."},
+        {"role": "assistant", "text": "When's the deadline you're targeting?"},
+        {"role": "user", "text": "Abstracts in May, full papers a week later. I want to submit to NeurIPS even if it's tight."}
+      ]
+    },
+    {
+      "session_id": "s5",
+      "date": "2024/02/12",
+      "turns": [
+        {"role": "user", "text": "An external collaborator named Marco joined the effort. He reached out after seeing our preprint."},
+        {"role": "assistant", "text": "What's Marco bringing to the table?"},
+        {"role": "user", "text": "Marco knows graph embedding theory cold. He'll co-author the analysis section with me."}
+      ]
+    },
+    {
+      "session_id": "s6",
+      "date": "2024/02/20",
+      "turns": [
+        {"role": "user", "text": "I need an outlet that isn't a screen, so I started bouldering at a gym called Stone Summit."},
+        {"role": "assistant", "text": "Bouldering is a great reset. How are you finding it?"},
+        {"role": "user", "text": "Brutal on the forearms but I love it. Going twice a week to Stone Summit now."}
+      ]
+    },
+    {
+      "session_id": "s7",
+      "date": "2024/03/01",
+      "turns": [
+        {"role": "user", "text": "Spent the whole afternoon fighting a memory leak in the embedding cache. Three hours gone."},
+        {"role": "assistant", "text": "Did you find the source?"},
+        {"role": "user", "text": "A dangling reference in the eviction loop. Fixed now, but I'm wiped."}
+      ]
+    },
+    {
+      "session_id": "s8",
+      "date": "2024/03/14",
+      "turns": [
+        {"role": "user", "text": "Booked a flight home for my sister's wedding in April. First real break in months."},
+        {"role": "assistant", "text": "That sounds lovely. Where's the wedding?"},
+        {"role": "user", "text": "Just outside Portland, where I grew up. Three days, no laptop, I promise."}
+      ]
+    },
+    {
+      "session_id": "s9",
+      "date": "2024/03/28",
+      "turns": [
+        {"role": "user", "text": "Huge news — Priya defended last week and it went beautifully. The committee barely had pushback."},
+        {"role": "assistant", "text": "Congratulations to her! What's next for Priya?"},
+        {"role": "user", "text": "She accepted a position as Director of Research at Anthropic. She starts in the summer."}
+      ]
+    },
+    {
+      "session_id": "s10",
+      "date": "2024/04/09",
+      "turns": [
+        {"role": "user", "text": "Funny how things connect. Lena, who I started climbing with at Stone Summit, turns out to be a PhD in stats."},
+        {"role": "assistant", "text": "That's a great overlap. Are you working together?"},
+        {"role": "user", "text": "We are now — Lena agreed to do the statistical significance testing for the Atlas results."}
+      ]
+    },
+    {
+      "session_id": "s11",
+      "date": "2024/04/22",
+      "turns": [
+        {"role": "user", "text": "The workshop results are in. Atlas took home Best Paper at the regional symposium!"},
+        {"role": "assistant", "text": "That's fantastic recognition. How did the talk go?"},
+        {"role": "user", "text": "Standing room only. Atlas got a lot of questions afterward, all friendly."}
+      ]
+    },
+    {
+      "session_id": "s12",
+      "date": "2024/05/06",
+      "turns": [
+        {"role": "user", "text": "Bittersweet day. Dr. Voss is relocating — she accepted a chaired professorship at Stanford starting in the fall."},
+        {"role": "assistant", "text": "That's a big move. Does that change your situation?"},
+        {"role": "user", "text": "She'll remote-supervise me through graduation, then I follow if I want a postdoc. Dr. Voss says Palo Alto suits her."}
+      ]
+    },
+    {
+      "session_id": "s13",
+      "date": "2024/05/19",
+      "turns": [
+        {"role": "user", "text": "Marco invited me to give a guest lecture at his home institution this autumn."},
+        {"role": "assistant", "text": "Where would you be traveling to?"},
+        {"role": "user", "text": "ETH Zurich — that's where Marco runs his group. I've never been to Switzerland."}
+      ]
+    },
+    {
+      "session_id": "s14",
+      "date": "2024/06/02",
+      "turns": [
+        {"role": "user", "text": "Acceptance email came through. The Atlas paper got into NeurIPS!"},
+        {"role": "assistant", "text": "Incredible! Do you know the logistics yet?"},
+        {"role": "user", "text": "NeurIPS is in Vancouver this December. I need to sort out travel and a poster."}
+      ]
+    },
+    {
+      "session_id": "s15",
+      "date": "2024/06/16",
+      "turns": [
+        {"role": "user", "text": "Reorganized my entire reference manager today. Over 600 papers, finally tagged properly."},
+        {"role": "assistant", "text": "That's a satisfying kind of cleanup. What tagging scheme did you land on?"},
+        {"role": "user", "text": "By method family and dataset. Should make the related-work section way faster to write."}
+      ]
+    },
+    {
+      "session_id": "s16",
+      "date": "2024/06/29",
+      "turns": [
+        {"role": "user", "text": "Adopted a cat from the shelter. Named her Maple. She already commandeered my desk chair."},
+        {"role": "assistant", "text": "Welcome to the household, Maple. Is she settling in?"},
+        {"role": "user", "text": "Slept on my keyboard during a meeting. The lab loves her on video calls."}
+      ]
+    },
+    {
+      "session_id": "s17",
+      "date": "2024/07/10",
+      "turns": [
+        {"role": "user", "text": "Coffee budget is out of control. I'm averaging four espressos a day during writing season."},
+        {"role": "assistant", "text": "That's a lot of caffeine. Thinking of cutting back?"},
+        {"role": "user", "text": "Maybe switch the afternoon one to decaf. The jitters are affecting my sleep."}
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "qid": "q1",
+      "type": "multi_hop",
+      "question": "Which university does my advisor Dr. Voss work at now?",
+      "answer": "Stanford",
+      "bridge_entity": "Dr. Voss",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s12"]
+    },
+    {
+      "qid": "q2",
+      "type": "multi_hop",
+      "question": "What job title does my collaborator Priya hold now?",
+      "answer": "Director of Research",
+      "bridge_entity": "Priya",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q3",
+      "type": "multi_hop",
+      "question": "What award did the Atlas project receive?",
+      "answer": "Best Paper",
+      "bridge_entity": "Atlas",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s11"]
+    },
+    {
+      "qid": "q4",
+      "type": "multi_hop",
+      "question": "In which city is the conference NeurIPS being held this year?",
+      "answer": "Vancouver",
+      "bridge_entity": "NeurIPS",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s14"]
+    },
+    {
+      "qid": "q5",
+      "type": "multi_hop",
+      "question": "Where is my collaborator Marco based?",
+      "answer": "ETH Zurich",
+      "bridge_entity": "Marco",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q6",
+      "type": "multi_hop",
+      "question": "Who did I meet at the bouldering gym Stone Summit?",
+      "answer": "Lena",
+      "bridge_entity": "Stone Summit",
+      "anchor_session_ids": ["s6"],
+      "answer_session_ids": ["s10"]
+    },
+    {
+      "qid": "q7",
+      "type": "single_hop_control",
+      "question": "What did I name the cat I adopted from the shelter?",
+      "answer": "Maple",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s16"],
+      "answer_session_ids": ["s16"]
+    },
+    {
+      "qid": "q8",
+      "type": "single_hop_control",
+      "question": "Where is my sister's wedding being held?",
+      "answer": "Just outside Portland",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s8"],
+      "answer_session_ids": ["s8"]
+    },
+    {
+      "qid": "q9",
+      "type": "single_hop_control",
+      "question": "What caused the memory leak in the embedding cache?",
+      "answer": "A dangling reference in the eviction loop",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s7"]
+    },
+    {
+      "qid": "q10",
+      "type": "single_hop_control",
+      "question": "How many espressos a day am I averaging during writing season?",
+      "answer": "Four",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s17"],
+      "answer_session_ids": ["s17"]
+    }
+  ]
+}

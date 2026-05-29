@@ -1,0 +1,250 @@
+{
+  "personas": [
+    {
+      "persona_id": "swe_career_life",
+      "extractor": "EntityExtractor",
+      "num_sessions": 20,
+      "top_k": 5,
+      "queries": [
+        {
+          "qid": "q1",
+          "type": "multi_hop",
+          "bridge": "Dana",
+          "answer_sessions": [
+            "s9"
+          ],
+          "on_hit": false,
+          "off_hit": false,
+          "ret_on": [],
+          "ret_off": [],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": true
+          }
+        },
+        {
+          "qid": "q2",
+          "type": "multi_hop",
+          "bridge": "Mochi",
+          "answer_sessions": [
+            "s3"
+          ],
+          "on_hit": true,
+          "off_hit": true,
+          "ret_on": [
+            "s11",
+            "s3"
+          ],
+          "ret_off": [
+            "s11",
+            "s3",
+            "s10",
+            "s16",
+            "s17"
+          ],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": true
+          }
+        },
+        {
+          "qid": "q3",
+          "type": "multi_hop",
+          "bridge": "Sofia",
+          "answer_sessions": [
+            "s13"
+          ],
+          "on_hit": false,
+          "off_hit": true,
+          "ret_on": [],
+          "ret_off": [
+            "s13",
+            "s2",
+            "s17",
+            "s9",
+            "s12"
+          ],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": true
+          }
+        },
+        {
+          "qid": "q4",
+          "type": "multi_hop",
+          "bridge": "Theo",
+          "answer_sessions": [
+            "s15"
+          ],
+          "on_hit": true,
+          "off_hit": true,
+          "ret_on": [
+            "s7",
+            "s15"
+          ],
+          "ret_off": [
+            "s7",
+            "s15",
+            "s1",
+            "s2",
+            "s18"
+          ],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": true
+          }
+        },
+        {
+          "qid": "q5",
+          "type": "multi_hop",
+          "bridge": "Rourke",
+          "answer_sessions": [
+            "s17"
+          ],
+          "on_hit": false,
+          "off_hit": true,
+          "ret_on": [
+            "s2",
+            "s1"
+          ],
+          "ret_off": [
+            "s2",
+            "s1",
+            "s17",
+            "s9",
+            "s15"
+          ],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": true
+          }
+        },
+        {
+          "qid": "q6",
+          "type": "multi_hop",
+          "bridge": "Dana",
+          "answer_sessions": [
+            "s19"
+          ],
+          "on_hit": false,
+          "off_hit": false,
+          "ret_on": [
+            "s1",
+            "s2"
+          ],
+          "ret_off": [
+            "s1",
+            "s2",
+            "s9",
+            "s13",
+            "s15"
+          ],
+          "gate": {
+            "bridge_in_graph": true,
+            "bridge_linked_to_answer": false
+          }
+        },
+        {
+          "qid": "q7",
+          "type": "single_hop_control",
+          "bridge": null,
+          "answer_sessions": [
+            "s6"
+          ],
+          "on_hit": false,
+          "off_hit": false,
+          "ret_on": [
+            "s18",
+            "s15"
+          ],
+          "ret_off": [
+            "s18",
+            "s15",
+            "s10",
+            "s4",
+            "s14"
+          ],
+          "gate": null
+        },
+        {
+          "qid": "q8",
+          "type": "single_hop_control",
+          "bridge": null,
+          "answer_sessions": [
+            "s3"
+          ],
+          "on_hit": true,
+          "off_hit": true,
+          "ret_on": [
+            "s3",
+            "s2"
+          ],
+          "ret_off": [
+            "s3",
+            "s2",
+            "s11",
+            "s1",
+            "s16"
+          ],
+          "gate": null
+        },
+        {
+          "qid": "q9",
+          "type": "single_hop_control",
+          "bridge": null,
+          "answer_sessions": [
+            "s7"
+          ],
+          "on_hit": true,
+          "off_hit": true,
+          "ret_on": [
+            "s7",
+            "s15"
+          ],
+          "ret_off": [
+            "s7",
+            "s15",
+            "s2",
+            "s1",
+            "s9"
+          ],
+          "gate": null
+        },
+        {
+          "qid": "q10",
+          "type": "single_hop_control",
+          "bridge": null,
+          "answer_sessions": [
+            "s5"
+          ],
+          "on_hit": false,
+          "off_hit": false,
+          "ret_on": [
+            "s10",
+            "s2"
+          ],
+          "ret_off": [
+            "s10",
+            "s2",
+            "s14",
+            "s1",
+            "s18"
+          ],
+          "gate": null
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "multi_hop": {
+      "graph_on_hits": 2,
+      "graph_off_hits": 4,
+      "total": 6
+    },
+    "control": {
+      "graph_on_hits": 2,
+      "graph_off_hits": 2,
+      "total": 4
+    }
+  }
+}
