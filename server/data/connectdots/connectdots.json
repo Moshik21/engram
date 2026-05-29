@@ -1,0 +1,1250 @@
+[
+  {
+    "question_id": "m1",
+    "question_type": "multi_hop",
+    "question": "What is the current job title of my Helix teammate?",
+    "answer": "Director",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s7"
+    ]
+  },
+  {
+    "question_id": "m2",
+    "question_type": "multi_hop",
+    "question": "What breed is the pet of mine that later needed leg surgery?",
+    "answer": "beagle",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s4"
+    ]
+  },
+  {
+    "question_id": "m3",
+    "question_type": "multi_hop",
+    "question": "What is the job title of the person I'm planning to travel to Japan with?",
+    "answer": "Director",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s7"
+    ]
+  },
+  {
+    "question_id": "m4",
+    "question_type": "multi_hop",
+    "question": "Which instrument did I originally sign up to learn from the teacher who also offers piano?",
+    "answer": "guitar",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s6"
+    ]
+  },
+  {
+    "question_id": "m5",
+    "question_type": "multi_hop",
+    "question": "Which company did the Director on my team work at before Nimbus Labs?",
+    "answer": "Acme",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s5"
+    ]
+  },
+  {
+    "question_id": "c1",
+    "question_type": "single_hop_control",
+    "question": "Do I prefer tea or coffee?",
+    "answer": "Tea",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s2"
+    ]
+  },
+  {
+    "question_id": "c2",
+    "question_type": "single_hop_control",
+    "question": "What is my dog's name?",
+    "answer": "Biscuit",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s4"
+    ]
+  },
+  {
+    "question_id": "c3",
+    "question_type": "single_hop_control",
+    "question": "Who is my guitar instructor?",
+    "answer": "Marcus",
+    "question_date": "2024/06/05 (Wed) 10:00",
+    "haystack_dates": [
+      "2024/01/08 (Mon) 09:15",
+      "2024/01/20 (Sat) 18:40",
+      "2024/02/03 (Sat) 11:05",
+      "2024/02/18 (Sun) 14:20",
+      "2024/03/05 (Tue) 10:00",
+      "2024/03/22 (Fri) 19:30",
+      "2024/04/10 (Wed) 16:45",
+      "2024/04/25 (Thu) 08:50",
+      "2024/05/12 (Sun) 13:15",
+      "2024/05/30 (Thu) 21:10"
+    ],
+    "haystack_session_ids": [
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+      "s8",
+      "s9",
+      "s10"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Started my new job today at Nimbus Labs. I'm on the Helix project with a teammate named Priya.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Congrats on the new role at Nimbus Labs! Working with Priya on Helix sounds exciting.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I really prefer tea over coffee, and I usually work late on Thursdays.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Tea it is \u2014 and a Thursday night owl. Noted.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Spent the day deep in the Helix codebase. It's written in Rust and backed by a Postgres database.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Rust plus Postgres is a solid stack for Helix.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I adopted a dog! Her name is Biscuit and she's a beagle.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Welcome to the family, Biscuit the beagle!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Priya is our team lead. She actually used to work at Acme before joining Nimbus.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Good context on Priya \u2014 team lead, ex-Acme.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "I started learning to play the guitar. My instructor is a guy named Marcus.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Nice \u2014 guitar lessons with Marcus. Have fun!",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Huge week \u2014 we shipped the launch. Right after it, Priya was promoted to Director.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Massive milestone, and a well-earned promotion to Director.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Rough day: Biscuit had surgery on her leg. The vet says she'll recover fully.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Sorry to hear about the leg surgery \u2014 glad Biscuit's expected to fully recover.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Turns out Marcus also teaches piano, not just guitar. I'm tempted to switch.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "Marcus teaching piano too gives you a nice option to switch.",
+          "has_answer": false
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Planning a trip to Japan this fall with Priya and another coworker.",
+          "has_answer": false
+        },
+        {
+          "role": "assistant",
+          "content": "A fall trip to Japan with Priya sounds wonderful!",
+          "has_answer": false
+        }
+      ]
+    ],
+    "answer_session_ids": [
+      "s6"
+    ]
+  }
+]

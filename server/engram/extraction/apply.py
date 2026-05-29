@@ -222,6 +222,21 @@ async def apply_relationship_fact(
             metadata={"source_name": source_name, "target_name": target_name},
         )
 
+    if source_id == target_id:
+        # A relationship whose endpoints resolve to the same entity is a garbage
+        # self-loop (e.g. "Guitar -FOCUSES_ON-> Guitar"). Drop it before persist.
+        logger.debug(
+            "Dropping self-loop relationship %s -> %s (%s)",
+            source_name,
+            target_name,
+            source_id,
+        )
+        return RelationshipApplyResult(
+            action="self_loop_dropped",
+            created=False,
+            metadata={"source_name": source_name, "target_name": target_name},
+        )
+
     predicate = (
         (
             rel_data.get("predicate")
