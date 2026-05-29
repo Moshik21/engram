@@ -133,6 +133,7 @@ class RecallService:
             scored_results,
             limit,
             near_miss_enabled=self._cfg.conv_near_miss_enabled,
+            cfg=self._cfg,
         )
 
         now = self._time()
