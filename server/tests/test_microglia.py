@@ -739,3 +739,119 @@ class TestOrphanEdgeFix:
         assert not any(nid == "e2" for nid, *_ in neighbors)
 
         await store.close()
+
+
+# ---------------------------------------------------------------------------
+# 20. Semantic-tier protection reads mat_tier from the attributes blob
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticTierProtection:
+    @pytest.mark.asyncio
+    async def test_semantic_tier_endpoint_protects_edge_tag(self):
+        """An edge whose endpoint entity has attributes.mat_tier=='semantic' is protected."""
+        phase = MicrogliaPhase()
+        cfg = _cfg()
+        graph, activation, search = _make_stores()
+
+        # Entity carries mat_tier in the attributes blob (written by maturation),
+        # NOT as a model attribute.
+        semantic_entity = _entity("e2", "Person", "Bob")
+        object.__setattr__(semantic_entity, "attributes", {"mat_tier": "semantic"})
+        plain_entity = _entity("e1", "Person", "Alice")
+
+        graph.get_entity = AsyncMock(
+            side_effect=lambda eid, gid: semantic_entity if eid == "e2" else plain_entity
+        )
+        activation.get_activation = AsyncMock(return_value=None)
+
+        # Edge tag whose endpoints are e1 and e2
+        edge_tag = {
+            "id": "tag_1",
+            "target_type": "edge",
+            "target_id": "e1:e2:RELATES_TO",
+            "tag_type": "c1q_domain",
+            "score": 0.8,
+        }
+
+        consol_store = AsyncMock()
+        consol_store.get_active_complement_tags = AsyncMock(return_value=[edge_tag])
+        consol_store.clear_complement_tag = AsyncMock()
+
+        records: list = []
+        cleared = await phase._clear_protected_tags(
+            consolidation_store=consol_store,
+            graph_store=graph,
+            activation_store=activation,
+            group_id="default",
+            identity_core_ids=set(),
+            cfg=cfg,
+            now=utc_now().timestamp(),
+            cycle_id="cyc_abc123",
+            records=records,
+        )
+
+        assert cleared == 1
+        consol_store.clear_complement_tag.assert_called_once_with("tag_1")
+        assert len(records) == 1
+        assert records[0].action == "cleared"
+        assert records[0].detail == "Protected: semantic_tier"
+
+
+# ---------------------------------------------------------------------------
+# 21. Helix tag-id cache repopulates from list-fetch after restart
+# ---------------------------------------------------------------------------
+
+
+class TestHelixTagCacheRepopulation:
+    @pytest.mark.asyncio
+    async def test_list_fetch_repopulates_tag_id_cache(self):
+        """After a fresh store (empty cache), list-fetch caches helix ids so
+        confirm/clear actually issue updates instead of no-op'ing."""
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.consolidation import HelixConsolidationStore
+
+        store = HelixConsolidationStore(HelixDBConfig(host="localhost", port=6969))
+        # Simulate a process restart: cache is empty, but a tag was persisted
+        # in a prior process with tag_id=7 and helix node id "helix-node-7".
+        assert store._tag_id_cache == {}
+
+        queries: list[tuple[str, dict]] = []
+
+        async def fake_query(endpoint: str, payload: dict):
+            queries.append((endpoint, payload))
+            if endpoint == "find_confirmed_complement_tags":
+                return [
+                    {
+                        "id": "helix-node-7",
+                        "tag_id": 7,
+                        "target_type": "edge",
+                        "target_id": "e1:e2:RELATES_TO",
+                        "tag_type": "c1q_domain",
+                        "score": 0.8,
+                        "cycle_tagged": 1,
+                        "cycle_confirmed": 2,
+                        "group_id": "default",
+                    }
+                ]
+            return []
+
+        store._query = fake_query  # type: ignore[assignment]
+
+        tags = await store.get_confirmed_tags(
+            min_age_cycles=1, current_cycle=5, group_id="default"
+        )
+        assert len(tags) == 1
+        assert tags[0]["id"] == 7
+
+        # Cache must now hold the helix node id keyed by integer tag id.
+        assert store._tag_id_cache[7] == "helix-node-7"
+        # _next_tag_id must be advanced past the loaded id to avoid collisions.
+        assert store._next_tag_id == 8
+
+        # clear_complement_tag should now issue a real update, not a no-op warning.
+        await store.clear_complement_tag(7)
+        update_calls = [q for q in queries if q[0] == "update_complement_tag"]
+        assert len(update_calls) == 1
+        assert update_calls[0][1]["id"] == "helix-node-7"
+        assert update_calls[0][1]["cleared"] is True

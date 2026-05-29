@@ -682,6 +682,7 @@ async def build_api_observe_write_surface(
     group_id: str,
     source: str,
     conversation_date: str | None = None,
+    events: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Run the REST observe write path behind a Capture-stage surface boundary."""
     _started, finish_operation = measured_memory_operation(
@@ -696,6 +697,17 @@ async def build_api_observe_write_surface(
         source=source,
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
+    )
+    # observe stays cheap: persist event annotations as deferred evidence (CQRS
+    # bridge) without projecting. Consolidation later promotes them into dated
+    # Event nodes once the threshold/corroboration bar is met.
+    await persist_observe_event_annotations(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+        content=content,
+        events=events,
+        conversation_date=parse_conversation_date(conversation_date),
     )
     await _record_write_operation(manager, group_id, finish_operation)
     return attach_api_capture_diagnostics(present_api_memory_write(
@@ -751,12 +763,20 @@ async def build_api_remember_write_surface(
     proposed_entities: list[dict] | None = None,
     proposed_relationships: list[dict] | None = None,
     model_tier: str = "default",
+    events: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Run the REST remember write path behind a Capture -> Project boundary."""
     _started, finish_operation = measured_memory_operation(
         operation="remember",
         source="api_remember",
         mode="api_remember",
+    )
+    # Dated event annotations materialize as first-class Event nodes + OCCURRED_ON
+    # edges by flowing through the existing client-proposal evidence pipeline.
+    proposed_entities, proposed_relationships = merge_event_proposals(
+        events,
+        proposed_entities,
+        proposed_relationships,
     )
     episode_id = await ingest_projecting_memory(
         manager,

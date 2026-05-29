@@ -173,14 +173,25 @@ def test_config_schema_off_by_default():
     assert cfg.schema_formation_enabled is False
 
 
-def test_config_standard_enables_schema():
+def test_config_standard_does_not_enable_schema():
+    # B11: schema_formation writes Schema/INSTANCE_OF/schema_members rows that no
+    # retrieval/scoring/context path reads yet, so it is no longer run in the
+    # standard profile (re-enable once a consumer exists). Phase code stays for
+    # explicit opt-in.
     cfg = ActivationConfig(consolidation_profile="standard")
-    assert cfg.schema_formation_enabled is True
+    assert cfg.schema_formation_enabled is False
 
 
 def test_config_conservative_does_not_enable_schema():
     cfg = ActivationConfig(consolidation_profile="conservative")
     assert cfg.schema_formation_enabled is False
+
+
+def test_config_graph_auto_create_endpoints_profile_wiring():
+    # D1 (Option A): off by default, enabled in the standard profile so graph-ON
+    # has structure to traverse without requiring a consolidation pass.
+    assert ActivationConfig().graph_auto_create_endpoints is False
+    assert ActivationConfig(consolidation_profile="standard").graph_auto_create_endpoints is True
 
 
 def test_config_defaults():

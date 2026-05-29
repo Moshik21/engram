@@ -146,6 +146,7 @@ class ObserveBody(BaseModel):
     content: str
     source: str = "dashboard"
     conversation_date: str | None = None
+    events: list[dict] | None = None
 
 
 class ObserveImageRequest(BaseModel):
@@ -169,6 +170,7 @@ class RememberBody(BaseModel):
     proposed_entities: list[dict] | None = None
     proposed_relationships: list[dict] | None = None
     model_tier: str = "default"
+    events: list[dict] | None = None
 
 
 class AdjudicateBody(BaseModel):
@@ -262,6 +264,7 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
         group_id=group_id,
         source=body.source,
         conversation_date=body.conversation_date,
+        events=body.events,
     )
     return JSONResponse(content=payload)
 
@@ -359,6 +362,7 @@ async def remember(request: Request, body: RememberBody) -> JSONResponse:
         proposed_entities=body.proposed_entities,
         proposed_relationships=body.proposed_relationships,
         model_tier=body.model_tier,
+        events=body.events,
     )
     return JSONResponse(content=payload)
 

@@ -251,7 +251,14 @@ class EpisodeProjectionService:
             # as entities (action="missing_entities"); reporting len(bundle.claims)
             # made an empty graph look successfully projected (a "phantom graph"
             # that silently contributes nothing to retrieval).
-            persisted_entities = len(apply_outcome.new_entity_names)
+            # Auto-created endpoints (D1) are real new entities written to the graph
+            # but never pass through apply_entities, so count them here so the
+            # drop->create swap is visible rather than hidden.
+            auto_created_endpoints = sum(
+                len(getattr(r, "metadata", {}).get("auto_created_endpoints", []))
+                for r in apply_outcome.relationship_results
+            )
+            persisted_entities = len(apply_outcome.new_entity_names) + auto_created_endpoints
             persisted_relationships = sum(
                 1 for r in apply_outcome.relationship_results if getattr(r, "created", False)
             )
@@ -388,10 +395,14 @@ class EpisodeProjectionService:
             for result in apply_outcome.relationship_results
             if getattr(result, "created", False)
         )
+        auto_created_endpoints = sum(
+            len(getattr(result, "metadata", {}).get("auto_created_endpoints", []))
+            for result in apply_outcome.relationship_results
+        )
         try:
             self._record_storage_counts(
                 group_id,
-                entities=len(apply_outcome.new_entity_names),
+                entities=len(apply_outcome.new_entity_names) + auto_created_endpoints,
                 relationships=relationship_count,
             )
         except Exception:

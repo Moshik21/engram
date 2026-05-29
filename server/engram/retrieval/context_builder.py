@@ -1638,6 +1638,9 @@ def _cached_context_payload_from_manager(
             }
         },
     }
+    if format == "briefing":
+        payload["briefing_degraded"] = True
+        payload["briefing_degraded_reason"] = "cache_fast_path"
     return payload
 
 
@@ -1712,7 +1715,7 @@ async def _loaded_store_context_payload_from_manager(
     )
     context = MemoryContextBuilder.render_cached_packets(packet_payloads)
     duration_ms = _elapsed_ms(started)
-    return {
+    payload: dict[str, Any] = {
         "context": context,
         "entity_count": 0,
         "fact_count": 0,
@@ -1750,6 +1753,10 @@ async def _loaded_store_context_payload_from_manager(
             }
         },
     }
+    if format == "briefing":
+        payload["briefing_degraded"] = True
+        payload["briefing_degraded_reason"] = "loaded_store_fast_path"
+    return payload
 
 
 def _project_file_context_payload_from_manager(
@@ -2245,7 +2252,7 @@ def _project_file_context_payload_from_packets(
         total_duration_ms if total_duration_ms is not None else duration_ms + fallback_duration_ms,
         4,
     )
-    return {
+    payload: dict[str, Any] = {
         "context": context,
         "entity_count": 0,
         "fact_count": 0,
@@ -2284,6 +2291,10 @@ def _project_file_context_payload_from_packets(
             )
         },
     }
+    if format == "briefing":
+        payload["briefing_degraded"] = True
+        payload["briefing_degraded_reason"] = "project_file_fast_path"
+    return payload
 
 
 def project_file_fallback_packet_payloads(
@@ -3958,7 +3969,7 @@ def _context_timeout_payload(
         "## Active Memory Context\n\n"
         "Context lookup degraded before fresh memory context could be assembled."
     )
-    return {
+    payload: dict[str, Any] = {
         "context": context,
         "entity_count": 0,
         "fact_count": 0,
@@ -3990,6 +4001,10 @@ def _context_timeout_payload(
         "cached_packets": [],
         "packet_cache": {"hit": False, "packet_count": 0, "scopes": {}},
     }
+    if format == "briefing":
+        payload["briefing_degraded"] = True
+        payload["briefing_degraded_reason"] = "context_timeout"
+    return payload
 
 
 def _close_awaitable(value: Any) -> None:

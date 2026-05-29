@@ -125,6 +125,44 @@ def resolve_relationship_temporals(
     return valid_from, valid_to, confidence
 
 
+async def _auto_create_endpoint(
+    graph_store,
+    name: str,
+    entity_map: dict[str, str],
+    group_id: str,
+) -> str | None:
+    """Materialize a minimal provisional endpoint entity for a dropped edge.
+
+    Returns the new entity id and records it in entity_map so the relationship
+    can persist, or None when the name is not a plausible entity (so the caller
+    falls back to the existing missing_entities drop). Gated by the caller on
+    cfg.graph_auto_create_endpoints.
+    """
+    from engram.extraction.narrow.entity_extractor import _STOPWORDS
+
+    stripped = (name or "").strip()
+    if not validate_entity_name(stripped) or len(stripped) < 3:
+        return None
+    if stripped.lower() in {w.lower() for w in _STOPWORDS}:
+        return None
+
+    entity_id = f"ent_{uuid.uuid4().hex[:12]}"
+    now = utc_now()
+    entity = Entity(
+        id=entity_id,
+        name=stripped,
+        entity_type="Concept",
+        group_id=group_id,
+        evidence_count=1,
+        evidence_span_start=now,
+        evidence_span_end=now,
+        attributes={"provisional_endpoint": True},
+    )
+    await graph_store.create_entity(entity)
+    entity_map[name] = entity_id
+    return entity_id
+
+
 async def apply_relationship_fact(
     graph_store,
     canonicalizer: PredicateCanonicalizer,
@@ -156,6 +194,27 @@ async def apply_relationship_fact(
     )
     source_id = rel_data.get("source_id") or entity_map.get(source_name)
     target_id = rel_data.get("target_id") or entity_map.get(target_name)
+
+    auto_created_endpoints: list[str] = []
+    if (not source_id or not target_id) and cfg.graph_auto_create_endpoints:
+        if not source_id:
+            source_id = await _auto_create_endpoint(
+                graph_store,
+                source_name,
+                entity_map,
+                group_id,
+            )
+            if source_id:
+                auto_created_endpoints.append(source_name)
+        if not target_id:
+            target_id = await _auto_create_endpoint(
+                graph_store,
+                target_name,
+                entity_map,
+                group_id,
+            )
+            if target_id:
+                auto_created_endpoints.append(target_name)
 
     if not source_id or not target_id:
         return RelationshipApplyResult(
@@ -350,6 +409,9 @@ async def apply_relationship_fact(
             except Exception:
                 logger.warning("Failed to mark identity core for %s", eid_to_mark, exc_info=True)
 
+    metadata: dict = {"relationship_id": rel.id}
+    if auto_created_endpoints:
+        metadata["auto_created_endpoints"] = auto_created_endpoints
     return RelationshipApplyResult(
         source_id=source_id,
         target_id=target_id,
@@ -360,7 +422,7 @@ async def apply_relationship_fact(
         action="created",
         created=True,
         constraints_hit=constraints_hit,
-        metadata={"relationship_id": rel.id},
+        metadata=metadata,
     )
 
 
@@ -578,6 +640,11 @@ class ApplyEngine:
                     claim.subject_text,
                     claim.object_text,
                 )
+                # Append a sentinel instead of `continue` so results stay
+                # positionally aligned with `claims`. committed_id_map zips the
+                # two together; dropping a result here shifts every later
+                # evidence_id onto the wrong relationship_id.
+                results.append(RelationshipApplyResult(action="skipped_meta"))
                 continue
 
             rel_result = await apply_relationship_fact(
