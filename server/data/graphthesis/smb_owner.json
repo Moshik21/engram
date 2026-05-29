@@ -1,0 +1,236 @@
+{
+  "persona_id": "smb_owner",
+  "domain": "a small-business owner's life: the coffee shop, employees, suppliers, a renovation, family, and a side venture",
+  "sessions": [
+    {
+      "session_id": "s1",
+      "date": "2024/01/09",
+      "turns": [
+        {"role": "user", "text": "Big news, I finally signed the lease and opened my coffee shop, Maple & Crow, on Birch Street this morning. My very first hire is a barista named Marcus."},
+        {"role": "assistant", "text": "Congratulations on opening Maple & Crow on Birch Street! Bringing Marcus on as your first barista is a great start."}
+      ]
+    },
+    {
+      "session_id": "s2",
+      "date": "2024/01/18",
+      "turns": [
+        {"role": "user", "text": "Sorted out my beans. I'm buying espresso from a roaster called Cedar Peak, and our house blend is their Midnight Harbor roast."},
+        {"role": "assistant", "text": "Cedar Peak as your roaster with the Midnight Harbor blend sounds like a solid foundation for the menu."}
+      ]
+    },
+    {
+      "session_id": "s3",
+      "date": "2024/01/27",
+      "turns": [
+        {"role": "user", "text": "Random aside, my sister Tara is getting married in the fall and asked me to be in the wedding party. I'm thrilled but nervous about the toast."},
+        {"role": "assistant", "text": "That's wonderful news about Tara's wedding. A toast is daunting, but you'll do great."},
+        {"role": "user", "text": "Yeah, I have months to prepare so I'm not panicking yet."},
+        {"role": "assistant", "text": "Plenty of time. Jot down a few stories now while they're fresh."}
+      ]
+    },
+    {
+      "session_id": "s4",
+      "date": "2024/02/06",
+      "turns": [
+        {"role": "user", "text": "Marcus has really stepped up, so I made him my shift lead this week. He basically runs the floor when I'm not there."},
+        {"role": "assistant", "text": "Promoting Marcus to shift lead makes sense given how much he's handling. That should free you up considerably."}
+      ]
+    },
+    {
+      "session_id": "s5",
+      "date": "2024/02/15",
+      "turns": [
+        {"role": "user", "text": "I've decided to gut and renovate the back room to add eight more seats. The contractor I hired is a firm called Holloway Build."},
+        {"role": "assistant", "text": "Expanding seating with the back room makes sense as you grow. Holloway Build handling it should keep things on track."}
+      ]
+    },
+    {
+      "session_id": "s6",
+      "date": "2024/02/24",
+      "turns": [
+        {"role": "user", "text": "My espresso machine is a temperamental old La Marzocco. I named her Gertrude because she hisses when she's unhappy."},
+        {"role": "assistant", "text": "Gertrude the La Marzocco it is. Old machines have personality, for better or worse."}
+      ]
+    },
+    {
+      "session_id": "s7",
+      "date": "2024/03/04",
+      "turns": [
+        {"role": "user", "text": "Hired a second barista today, a college kid named Devon who works weekends. Good energy, learns fast."},
+        {"role": "assistant", "text": "Devon sounds like a great weekend addition to the team. Quick learners are worth a lot behind the bar."}
+      ]
+    },
+    {
+      "session_id": "s8",
+      "date": "2024/03/13",
+      "turns": [
+        {"role": "user", "text": "Spent the evening on my taxes. I switched from spreadsheets to QuickBooks this year and my accountant is a woman named Renata."},
+        {"role": "assistant", "text": "Moving to QuickBooks should make next year smoother, and having Renata on the books helps."}
+      ]
+    },
+    {
+      "session_id": "s9",
+      "date": "2024/03/21",
+      "turns": [
+        {"role": "user", "text": "Got chatting with Marcus during close. Turns out he grew up in Tucson and only moved out here for school a few years back."},
+        {"role": "assistant", "text": "Tucson to here is quite a change. Nice to learn a bit more about his background."}
+      ]
+    },
+    {
+      "session_id": "s10",
+      "date": "2024/03/30",
+      "turns": [
+        {"role": "user", "text": "Cedar Peak is raising prices again. Their rep mentioned they source most of their beans from a single farm in Guatemala called Finca Aurora."},
+        {"role": "assistant", "text": "Finca Aurora in Guatemala being their main origin explains a lot about the flavor profile. Price hikes are tough, though."}
+      ]
+    },
+    {
+      "session_id": "s11",
+      "date": "2024/04/08",
+      "turns": [
+        {"role": "user", "text": "The renovation hit a snag. Holloway Build found old knob-and-tube wiring behind the wall, so we're delayed two weeks for an electrical permit."},
+        {"role": "assistant", "text": "Old wiring is a classic surprise in older buildings. A two-week delay for the permit is frustrating but better safe than sorry."}
+      ]
+    },
+    {
+      "session_id": "s12",
+      "date": "2024/04/17",
+      "turns": [
+        {"role": "user", "text": "I'm starting a little side venture: a monthly subscription box of single-origin beans shipped to people's homes. I'm calling it Crow's Nest Club."},
+        {"role": "assistant", "text": "Crow's Nest Club is a clever name and a natural extension of the shop. A subscription box could be a nice recurring revenue stream."}
+      ]
+    },
+    {
+      "session_id": "s13",
+      "date": "2024/04/26",
+      "turns": [
+        {"role": "user", "text": "Devon surprised me, he's actually a graphic design major. He volunteered to do all the visual work for Crow's Nest Club, the labels and the box artwork."},
+        {"role": "assistant", "text": "That's a fantastic bit of luck. Having Devon handle the visuals for Crow's Nest Club in-house will save you a fortune and keep the branding consistent."}
+      ]
+    },
+    {
+      "session_id": "s14",
+      "date": "2024/05/05",
+      "turns": [
+        {"role": "user", "text": "Quiet weekend. I finally repotted all the plants on my apartment windowsill and binged an old detective series. Recharged."},
+        {"role": "assistant", "text": "Sounds like exactly the kind of low-key weekend that resets you. Repotting is oddly satisfying."}
+      ]
+    },
+    {
+      "session_id": "s15",
+      "date": "2024/05/14",
+      "turns": [
+        {"role": "user", "text": "The back room is finally done and we held a little reopening. To handle the extra tables I bumped Marcus up again, he's now my assistant manager and gets a cut of the tips pool."},
+        {"role": "assistant", "text": "Assistant manager is a well-earned step up for Marcus, and the back room being finished is a big milestone. Congrats on the reopening."}
+      ]
+    },
+    {
+      "session_id": "s16",
+      "date": "2024/05/23",
+      "turns": [
+        {"role": "user", "text": "Renata called with my Q1 numbers. The subscription side is doing better than the cafe margins, honestly. She suggested I incorporate the side venture separately as an LLC."},
+        {"role": "assistant", "text": "Interesting that the subscription is outpacing the cafe on margins. Renata's advice to spin it into its own LLC is worth taking seriously."}
+      ]
+    },
+    {
+      "session_id": "s17",
+      "date": "2024/06/01",
+      "turns": [
+        {"role": "user", "text": "Devon graduates this month and is moving to Portland for a full-time design job. Bittersweet, but I'm proud of him."},
+        {"role": "assistant", "text": "That's a great opportunity for Devon, even if it leaves a gap on your weekend crew. Portland's lucky to have him."}
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "qid": "q1",
+      "type": "multi_hop",
+      "question": "Which city did my shift lead Marcus originally come from?",
+      "answer": "Tucson",
+      "bridge_entity": "Marcus",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q2",
+      "type": "multi_hop",
+      "question": "What is the current job title I gave Marcus, my first barista?",
+      "answer": "Assistant manager",
+      "bridge_entity": "Marcus",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q3",
+      "type": "multi_hop",
+      "question": "Which country is connected to my roaster, Cedar Peak?",
+      "answer": "Guatemala",
+      "bridge_entity": "Cedar Peak",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s10"]
+    },
+    {
+      "qid": "q4",
+      "type": "multi_hop",
+      "question": "Who took charge of designing the look of my Crow's Nest Club subscription?",
+      "answer": "Devon",
+      "bridge_entity": "Crow's Nest Club",
+      "anchor_session_ids": ["s12"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q5",
+      "type": "multi_hop",
+      "question": "What unexpected issue did my contractor Holloway Build run into on the job?",
+      "answer": "Old knob-and-tube wiring",
+      "bridge_entity": "Holloway Build",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s11"]
+    },
+    {
+      "qid": "q6",
+      "type": "multi_hop",
+      "question": "Which US city is my barista Devon relocating to?",
+      "answer": "Portland",
+      "bridge_entity": "Devon",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s17"]
+    },
+    {
+      "qid": "q7",
+      "type": "single_hop_control",
+      "question": "What is the name of my coffee shop and what street is it on?",
+      "answer": "Maple & Crow, on Birch Street",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s1"]
+    },
+    {
+      "qid": "q8",
+      "type": "single_hop_control",
+      "question": "What did I name my old La Marzocco espresso machine?",
+      "answer": "Gertrude",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s6"],
+      "answer_session_ids": ["s6"]
+    },
+    {
+      "qid": "q9",
+      "type": "single_hop_control",
+      "question": "What accounting software did I switch to this year?",
+      "answer": "QuickBooks",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s8"],
+      "answer_session_ids": ["s8"]
+    },
+    {
+      "qid": "q10",
+      "type": "single_hop_control",
+      "question": "What is the name of my monthly bean subscription box side venture?",
+      "answer": "Crow's Nest Club",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s12"],
+      "answer_session_ids": ["s12"]
+    }
+  ]
+}
