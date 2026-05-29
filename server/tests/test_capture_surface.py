@@ -18,6 +18,7 @@ from engram.ingestion.capture_surface import (
     build_api_observe_write_surface,
     build_api_remember_write_surface,
     build_mcp_attachment_observe_write_surface,
+    build_mcp_observe_recall_surface,
     build_mcp_observe_write_surface,
     build_mcp_remember_write_surface,
     build_observation_attachment,
@@ -555,6 +556,26 @@ async def test_build_mcp_observe_write_surface_uses_short_live_turn_timeout(
     assert timings["live_turn_timeout"] < 50
     assert "recall_middleware_timeout" not in timings
     await asyncio.wait_for(live_turn_finished.wait(), timeout=0.2)
+
+
+@pytest.mark.asyncio
+async def test_build_mcp_observe_recall_surface_attaches_context() -> None:
+    """The recall surface (composed by the observe tool after the pure write
+    surface) awaits recall_middleware as observe, so cached context surfaces."""
+
+    async def fake_recall_middleware(content, response, *, tool_name):
+        assert content == "Observed something."
+        assert tool_name == "observe"
+        response["session_context"] = {"context": "primed"}
+
+    response = await build_mcp_observe_recall_surface(
+        content="Observed something.",
+        response={"operation": "observe"},
+        recall_middleware=fake_recall_middleware,
+    )
+
+    assert response["operation"] == "observe"
+    assert response["session_context"] == {"context": "primed"}
 
 
 @pytest.mark.asyncio

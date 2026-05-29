@@ -2495,10 +2495,11 @@ async def finalize_dogfood_labels(
         include_all_modes=include_all_modes,
         dry_run=False,
     )
+    resolved_cost_group_id = import_report.get("group_id") or group_id
     cost_report = await import_dogfood_replay_cost_metrics(
         replay_report=replay_report,
         sqlite_path=sqlite_path,
-        group_id=str(import_report.get("group_id") or group_id or "default"),
+        **({"group_id": str(resolved_cost_group_id)} if resolved_cost_group_id else {}),
     )
     export_report = export_dogfood_human_label_evidence(
         labels_path=labels_path,

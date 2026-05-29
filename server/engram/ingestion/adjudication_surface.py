@@ -51,6 +51,23 @@ async def load_client_enabled_episode_adjudication_requests(
     )
 
 
+async def build_api_adjudications_list_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    limit: int = 20,
+    status: str = "pending",
+) -> dict:
+    """Return pending adjudication work items across episodes in the REST shape."""
+    getter = getattr(manager, "get_all_adjudications", None)
+    if getter is None:
+        return {"requests": []}
+    result = getter(group_id, limit=limit, status=status)
+    if inspect.isawaitable(result):
+        result = await result
+    return {"requests": result if isinstance(result, list) else []}
+
+
 async def build_api_adjudication_resolution_surface(
     manager: Any,
     *,

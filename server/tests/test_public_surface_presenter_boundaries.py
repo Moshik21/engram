@@ -32,6 +32,7 @@ PRESENTER_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "observe"): {
         "build_mcp_observe_write_surface",
+        "build_mcp_observe_recall_surface",
     },
     ("engram/mcp/server.py", "observe_image"): {
         "build_mcp_attachment_observe_write_surface",
@@ -162,6 +163,28 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/knowledge.py", "get_runtime_state"): {
         "build_runtime_state_surface",
     },
+    ("engram/api/knowledge.py", "get_fast_runtime_packet"): {
+        "build_fast_runtime_packet",
+        "load_packet_cache_summary",
+        "schedule_project_file_prefix_warmup",
+        "get_config",
+        "get_mode",
+    },
+    ("engram/api/knowledge.py", "get_packet_cache"): {
+        "build_api_packet_cache_summary_surface",
+    },
+    ("engram/api/knowledge.py", "clear_packet_cache"): {
+        "build_api_packet_cache_clear_surface",
+    },
+    ("engram/api/knowledge.py", "get_adjudications"): {
+        "build_api_adjudications_list_surface",
+    },
+    ("engram/api/storage.py", "storage_summary"): {
+        "get_storage_diagnostics",
+    },
+    ("engram/api/ingest_ws.py", "ingest_ws"): {
+        "get_event_bus",
+    },
     ("engram/api/knowledge.py", "get_notifications"): {
         "build_api_notifications_surface",
         "get_notification_surface_service",
@@ -259,6 +282,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "observe"): {
         "build_mcp_observe_write_surface",
+        "build_mcp_observe_recall_surface",
     },
     ("engram/mcp/server.py", "observe_image"): {
         "build_mcp_attachment_observe_write_surface",
@@ -280,6 +304,9 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     },
     ("engram/mcp/server.py", "search_facts"): {
         "build_mcp_fact_search_tool_surface",
+    },
+    ("engram/mcp/server.py", "timeline"): {
+        "build_mcp_timeline_tool_surface",
     },
     ("engram/mcp/server.py", "get_context"): {
         "build_mcp_context_tool_surface",
@@ -629,6 +656,10 @@ PUBLIC_API_ROUTE_ALLOWED_CONTROL_FLOW = Counter(
         ("engram/api/knowledge.py", "chat", "If"): 1,
         ("engram/api/websocket.py", "dashboard_ws", "ExceptHandler"): 2,
         ("engram/api/websocket.py", "dashboard_ws", "Try"): 2,
+        ("engram/api/ingest_ws.py", "ingest_ws", "ExceptHandler"): 3,
+        ("engram/api/ingest_ws.py", "ingest_ws", "If"): 2,
+        ("engram/api/ingest_ws.py", "ingest_ws", "Try"): 2,
+        ("engram/api/ingest_ws.py", "ingest_ws", "While"): 1,
     }
 )
 
