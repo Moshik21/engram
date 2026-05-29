@@ -38,50 +38,13 @@ def should_record_ranking_feedback(
     return record_access
 
 
-_EPISODE_RESULT_TYPES = frozenset({"episode", "cue_episode"})
-
-
 def split_primary_and_near_miss_results(
     scored_results: Sequence[T],
     limit: int,
     *,
     near_miss_enabled: bool,
-    cfg: ActivationConfig | None = None,
 ) -> tuple[list[T], list[T]]:
-    """Split retrieved candidates into primary results and near-miss tail.
-
-    Under ``passage_first`` the entity count in the primary window is capped to a
-    budget sized against the CONSUMER ``limit`` (not the inflated overfetch the
-    pipeline assembled against). Without this, a few high-scoring entities survive
-    the truncation and EVICT answer-bearing episodes from the consumer's top-k —
-    the graph then hurts recall (entities displacing passages). Capping keeps
-    episodes from being decimated while preserving a small entity lead for
-    fact/"current value" queries that answer from an entity. Entities beyond the
-    cap fall to the near-miss tail.
-    """
-    if (
-        cfg is not None
-        and getattr(cfg, "retrieval_strategy", None) == "passage_first"
-        and limit > 0
-    ):
-        if cfg.passage_first_entity_budget >= 0:
-            entity_budget = cfg.passage_first_entity_budget
-        else:
-            entity_budget = min(3, max(1, limit // 3))
-        primary: list[T] = []
-        overflow: list[T] = []
-        entity_count = 0
-        for result in scored_results:
-            is_entity = getattr(result, "result_type", None) not in _EPISODE_RESULT_TYPES
-            if len(primary) < limit and not (is_entity and entity_count >= entity_budget):
-                primary.append(result)
-                if is_entity:
-                    entity_count += 1
-            else:
-                overflow.append(result)
-        near_miss_results = overflow if near_miss_enabled else []
-        return primary, near_miss_results
-
+    """Split retrieved candidates into primary results and near-miss tail."""
     primary_results = list(scored_results[:limit])
     near_miss_results = list(scored_results[limit:]) if near_miss_enabled else []
     return primary_results, near_miss_results
