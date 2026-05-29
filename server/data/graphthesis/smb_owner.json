@@ -147,6 +147,7 @@
       "type": "multi_hop",
       "question": "Which city did my shift lead Marcus originally come from?",
       "answer": "Tucson",
+      "forbidden": [],
       "bridge_entity": "Marcus",
       "anchor_session_ids": ["s4"],
       "answer_session_ids": ["s9"]
@@ -156,6 +157,8 @@
       "type": "multi_hop",
       "question": "What is the current job title I gave Marcus, my first barista?",
       "answer": "Assistant manager",
+      "accepted_forms": ["assistant manager"],
+      "forbidden": ["shift lead", "first barista"],
       "bridge_entity": "Marcus",
       "anchor_session_ids": ["s1"],
       "answer_session_ids": ["s15"]
@@ -165,6 +168,7 @@
       "type": "multi_hop",
       "question": "Which country is connected to my roaster, Cedar Peak?",
       "answer": "Guatemala",
+      "forbidden": [],
       "bridge_entity": "Cedar Peak",
       "anchor_session_ids": ["s2"],
       "answer_session_ids": ["s10"]
@@ -174,6 +178,7 @@
       "type": "multi_hop",
       "question": "Who took charge of designing the look of my Crow's Nest Club subscription?",
       "answer": "Devon",
+      "forbidden": [],
       "bridge_entity": "Crow's Nest Club",
       "anchor_session_ids": ["s12"],
       "answer_session_ids": ["s13"]
@@ -182,7 +187,9 @@
       "qid": "q5",
       "type": "multi_hop",
       "question": "What unexpected issue did my contractor Holloway Build run into on the job?",
-      "answer": "Old knob-and-tube wiring",
+      "answer": "knob-and-tube wiring",
+      "accepted_forms": ["old knob-and-tube wiring", "knob-and-tube wiring"],
+      "forbidden": [],
       "bridge_entity": "Holloway Build",
       "anchor_session_ids": ["s5"],
       "answer_session_ids": ["s11"]
@@ -192,9 +199,52 @@
       "type": "multi_hop",
       "question": "Which US city is my barista Devon relocating to?",
       "answer": "Portland",
+      "forbidden": [],
       "bridge_entity": "Devon",
       "anchor_session_ids": ["s7"],
       "answer_session_ids": ["s17"]
+    },
+    {
+      "qid": "q11",
+      "type": "current_value",
+      "question": "What is Marcus's current role at the shop?",
+      "answer": "assistant manager",
+      "accepted_forms": ["assistant manager"],
+      "forbidden": ["shift lead", "first barista", "first hire is a barista"],
+      "bridge_entity": "Marcus",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q14",
+      "type": "current_value",
+      "question": "What is the latest title Marcus has been promoted to?",
+      "answer": "assistant manager",
+      "accepted_forms": ["assistant manager"],
+      "forbidden": ["made him my shift lead", "shift lead this week"],
+      "bridge_entity": "Marcus",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q12",
+      "type": "synthesis",
+      "question": "What do I know about Marcus?",
+      "required_facts": ["barista", "Tucson", "assistant manager"],
+      "forbidden_facts": ["Holloway Build", "QuickBooks"],
+      "bridge_entity": "Marcus",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s1", "s9", "s15"]
+    },
+    {
+      "qid": "q13",
+      "type": "synthesis",
+      "question": "What do I know about Devon?",
+      "required_facts": ["weekends", "graphic design", "Portland"],
+      "forbidden_facts": ["Marcus", "Tucson"],
+      "bridge_entity": "Devon",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s7", "s13", "s17"]
     },
     {
       "qid": "q7",

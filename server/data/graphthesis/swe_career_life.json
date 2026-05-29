@@ -169,6 +169,8 @@
       "type": "multi_hop",
       "question": "What is the current job title of Dana, who I work with on Project Atlas?",
       "answer": "Staff Engineer",
+      "accepted_forms": ["Staff Engineer", "moved up to Staff Engineer"],
+      "forbidden": ["teammate"],
       "bridge_entity": "Dana",
       "anchor_session_ids": ["s1"],
       "answer_session_ids": ["s9"]
@@ -178,6 +180,7 @@
       "type": "multi_hop",
       "question": "What breed is Mochi, the one I rushed to the emergency vet?",
       "answer": "Ragdoll",
+      "forbidden": [],
       "bridge_entity": "Mochi",
       "anchor_session_ids": ["s11"],
       "answer_session_ids": ["s3"]
@@ -187,6 +190,7 @@
       "type": "multi_hop",
       "question": "Which company now employs Sofia, my travel companion for the Lisbon trip?",
       "answer": "Brightwave Capital",
+      "forbidden": [],
       "bridge_entity": "Sofia",
       "anchor_session_ids": ["s5"],
       "answer_session_ids": ["s13"]
@@ -196,6 +200,7 @@
       "type": "multi_hop",
       "question": "Which gym did my climbing coach Theo recommend I train at?",
       "answer": "Summit Ridge",
+      "forbidden": [],
       "bridge_entity": "Theo",
       "anchor_session_ids": ["s7"],
       "answer_session_ids": ["s15"]
@@ -205,6 +210,8 @@
       "type": "multi_hop",
       "question": "Which programming language did my Project Atlas manager Rourke choose for the team?",
       "answer": "Go",
+      "accepted_forms": ["standardizing all new services on Go"],
+      "forbidden": [],
       "bridge_entity": "Rourke",
       "anchor_session_ids": ["s2"],
       "answer_session_ids": ["s17"]
@@ -214,9 +221,52 @@
       "type": "multi_hop",
       "question": "Where did my Project Atlas teammate Dana work before joining Veridian Systems?",
       "answer": "Cobalt Robotics",
+      "forbidden": [],
       "bridge_entity": "Dana",
       "anchor_session_ids": ["s1"],
       "answer_session_ids": ["s19"]
+    },
+    {
+      "qid": "q11",
+      "type": "current_value",
+      "question": "What is Dana's current role on the team right now?",
+      "answer": "Staff Engineer",
+      "accepted_forms": ["Staff Engineer", "moved up to Staff Engineer"],
+      "forbidden": ["teammate named Dana"],
+      "bridge_entity": "Dana",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q12",
+      "type": "synthesis",
+      "question": "What do I know about Dana?",
+      "required_facts": ["Project Atlas", "Staff Engineer", "Cobalt Robotics"],
+      "forbidden_facts": ["Brightwave Capital", "Lisbon"],
+      "bridge_entity": "Dana",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s1", "s9", "s19"]
+    },
+    {
+      "qid": "q13",
+      "type": "current_value",
+      "question": "Which climbing gym am I training at now?",
+      "answer": "Summit Ridge",
+      "forbidden": [],
+      "bridge_entity": "Theo",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q14",
+      "type": "current_value",
+      "question": "What is Dana's most recent job title?",
+      "answer": "Staff Engineer",
+      "accepted_forms": ["Staff Engineer", "moved up to Staff Engineer"],
+      "forbidden": ["working alongside a teammate named Dana"],
+      "bridge_entity": "Dana",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s9"]
     },
     {
       "qid": "q7",

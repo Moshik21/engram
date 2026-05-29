@@ -162,6 +162,8 @@
       "type": "multi_hop",
       "question": "Which university does my advisor Dr. Voss work at now?",
       "answer": "Stanford",
+      "accepted_forms": ["Stanford", "chaired professorship at Stanford"],
+      "forbidden": [],
       "bridge_entity": "Dr. Voss",
       "anchor_session_ids": ["s1"],
       "answer_session_ids": ["s12"]
@@ -171,6 +173,8 @@
       "type": "multi_hop",
       "question": "What job title does my collaborator Priya hold now?",
       "answer": "Director of Research",
+      "accepted_forms": ["Director of Research"],
+      "forbidden": ["labmate", "strongest engineer in our group"],
       "bridge_entity": "Priya",
       "anchor_session_ids": ["s2"],
       "answer_session_ids": ["s9"]
@@ -180,6 +184,7 @@
       "type": "multi_hop",
       "question": "What award did the Atlas project receive?",
       "answer": "Best Paper",
+      "forbidden": [],
       "bridge_entity": "Atlas",
       "anchor_session_ids": ["s3"],
       "answer_session_ids": ["s11"]
@@ -189,6 +194,7 @@
       "type": "multi_hop",
       "question": "In which city is the conference NeurIPS being held this year?",
       "answer": "Vancouver",
+      "forbidden": [],
       "bridge_entity": "NeurIPS",
       "anchor_session_ids": ["s4"],
       "answer_session_ids": ["s14"]
@@ -198,6 +204,7 @@
       "type": "multi_hop",
       "question": "Where is my collaborator Marco based?",
       "answer": "ETH Zurich",
+      "forbidden": [],
       "bridge_entity": "Marco",
       "anchor_session_ids": ["s5"],
       "answer_session_ids": ["s13"]
@@ -207,9 +214,63 @@
       "type": "multi_hop",
       "question": "Who did I meet at the bouldering gym Stone Summit?",
       "answer": "Lena",
+      "forbidden": [],
       "bridge_entity": "Stone Summit",
       "anchor_session_ids": ["s6"],
       "answer_session_ids": ["s10"]
+    },
+    {
+      "qid": "q11",
+      "type": "current_value",
+      "question": "What position does Priya hold now?",
+      "answer": "Director of Research",
+      "accepted_forms": ["Director of Research"],
+      "forbidden": ["labmate Priya", "strongest engineer"],
+      "bridge_entity": "Priya",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q12",
+      "type": "current_value",
+      "question": "Which university is Dr. Voss at now?",
+      "answer": "Stanford",
+      "accepted_forms": ["Stanford", "chaired professorship at Stanford"],
+      "forbidden": [],
+      "bridge_entity": "Dr. Voss",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s12"]
+    },
+    {
+      "qid": "q13",
+      "type": "synthesis",
+      "question": "What do I know about Priya?",
+      "required_facts": ["retrieval experiments", "Director of Research", "defended"],
+      "forbidden_facts": ["Marco", "ETH Zurich"],
+      "bridge_entity": "Priya",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s2", "s9"]
+    },
+    {
+      "qid": "q14",
+      "type": "synthesis",
+      "question": "What do I know about the Atlas project?",
+      "required_facts": ["activation-aware memory layer", "NeurIPS", "Best Paper"],
+      "forbidden_facts": ["Stone Summit", "wedding"],
+      "bridge_entity": "Atlas",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s3", "s11", "s14"]
+    },
+    {
+      "qid": "q15",
+      "type": "current_value",
+      "question": "What is Priya's most recent role?",
+      "answer": "Director of Research",
+      "accepted_forms": ["Director of Research"],
+      "forbidden": ["labmate Priya and I", "She's the strongest engineer"],
+      "bridge_entity": "Priya",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s9"]
     },
     {
       "qid": "q7",

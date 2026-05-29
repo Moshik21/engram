@@ -119,6 +119,7 @@ class EntityExtractor:
                 client.messages.create,
                 model=self._model,
                 max_tokens=max_tokens,
+                temperature=0,
                 system=EXTRACTION_SYSTEM_CACHED,
                 messages=[{"role": "user", "content": text}],
             )
@@ -139,6 +140,7 @@ class EntityExtractor:
                         client.messages.create,
                         model=self._model,
                         max_tokens=_MAX_OUTPUT_TOKENS,
+                        temperature=0,
                         system=EXTRACTION_SYSTEM_CACHED,
                         messages=[{"role": "user", "content": text}],
                     )
