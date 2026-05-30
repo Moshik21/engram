@@ -622,11 +622,11 @@ QUERY add_graph_embed_vector(entity_id: String, group_id: String, method: String
     RETURN v
 
 QUERY find_entity_vectors_by_ids(entity_ids: [String], gid: String) =>
-    vectors <- V<EntityVec>::WHERE(AND(_::{entity_id}::IS_IN(entity_ids), _::{group_id}::EQ(gid)))
+    vectors <- V<EntityVec>::WHERE(AND(_::{entity_id}::IS_IN(entity_ids), _::{group_id}::EQ(gid)))::{data, entity_id, group_id, content_type, embed_provider, embed_model}
     RETURN vectors
 
 QUERY find_entity_vectors_by_ids_all(entity_ids: [String]) =>
-    vectors <- V<EntityVec>::WHERE(_::{entity_id}::IS_IN(entity_ids))
+    vectors <- V<EntityVec>::WHERE(_::{entity_id}::IS_IN(entity_ids))::{data, entity_id, group_id, content_type, embed_provider, embed_model}
     RETURN vectors
 
 // Delete a single graph embedding vector by Helix internal ID

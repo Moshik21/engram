@@ -1591,6 +1591,12 @@ class HelixSearchIndex:
         sweep path is not a get-by-id operation: cosine against zero is
         degenerate, so requested IDs can silently fall outside the top-k window
         on larger native stores.
+
+        The ``find_entity_vectors_by_ids[_all]`` HelixQL queries project the
+        ``data`` field, so the compiler loads the embedding floats on the
+        native PyO3 transport (``v_from_type(label, true)``). The
+        ``matched_without_data`` branch below is now a defensive guard for the
+        HTTP fallback / older binaries rather than the expected native path.
         """
         if not self._embeddings_enabled or not entity_ids:
             return {}
@@ -1633,18 +1639,20 @@ class HelixSearchIndex:
         if len(results) < len(target_ids):
             if matched_without_data and not results:
                 # Rows came back and matched the requested ids, but every one was
-                # serialized WITHOUT its embedding payload — this is the native
-                # VectorWithoutData serialization gap on plain-traversal returns
-                # (only SearchV carries vector floats), NOT sparse/missing data.
-                # Consequence: MMR diversity, inhibitory spreading, and
-                # state-dependent retrieval silently fall back to no-ops on the
-                # Helix native transport. Loud so the inertness is observable.
+                # serialized WITHOUT its embedding payload. On the native PyO3
+                # transport this is now fixed (the by-ids queries project the
+                # ``data`` field, so floats are loaded), so reaching here implies
+                # an HTTP fallback or a stale native binary that predates the
+                # data-field projection. Consequence when it does occur: MMR
+                # diversity, inhibitory spreading, and state-dependent retrieval
+                # silently fall back to no-ops. Loud so the inertness is
+                # observable.
                 logger.warning(
                     "get_entity_embeddings: %d/%d rows matched but returned NO "
-                    "vector data (group_id=%s, endpoint=%s) — native vector "
-                    "serialization gap (plain traversal omits embedding floats); "
+                    "vector data (group_id=%s, endpoint=%s) — embedding floats "
+                    "missing (rebuild native binary or check HTTP query); "
                     "MMR/inhibition/state-dependent retrieval are degraded to "
-                    "no-ops on this transport until the native query returns data.",
+                    "no-ops on this transport until the query returns data.",
                     matched_without_data,
                     len(target_ids),
                     group_id,

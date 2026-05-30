@@ -7156,7 +7156,7 @@ let data = input.request.in_fmt.deserialize::<find_entity_vectors_by_ids_allInpu
 let arena = Bump::new();
 let txn = db.graph_env.read_txn().map_err(|e| GraphError::New(format!("Failed to start read transaction: {:?}", e)))?;
     let vectors = G::new(&db, &txn, &arena)
-.v_from_type("EntityVec", false)
+.v_from_type("EntityVec", true)
 
 .filter_ref(|val, txn|{
                 if let Ok(val) = val {
@@ -15028,7 +15028,7 @@ let data = input.request.in_fmt.deserialize::<find_entity_vectors_by_idsInput>(&
 let arena = Bump::new();
 let txn = db.graph_env.read_txn().map_err(|e| GraphError::New(format!("Failed to start read transaction: {:?}", e)))?;
     let vectors = G::new(&db, &txn, &arena)
-.v_from_type("EntityVec", false)
+.v_from_type("EntityVec", true)
 
 .filter_ref(|val, txn|{
                 if let Ok(val) = val {
