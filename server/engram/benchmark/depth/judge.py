@@ -26,6 +26,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
+from typing import Any
 
 from engram.benchmark.showcase.scoring import _normalize
 
@@ -276,3 +277,124 @@ def delta_bootstrap_ci(
     lo_i = int((1 - confidence) / 2 * iterations)
     hi_i = int((1 + confidence) / 2 * iterations) - 1
     return (deltas[lo_i], deltas[hi_i])
+
+
+# --------------------------------------------------------------------------- #
+# Repeated-run aggregation (the standing measurement rig). All deterministic:  #
+# given the same per-run inputs the mean / std / CI / flip counts are exactly  #
+# reproducible (the bootstrap is seeded, std is population std, flips are a     #
+# plain count of verdict disagreement across runs).                            #
+# --------------------------------------------------------------------------- #
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else 0.0
+
+
+def _pop_std(values: list[float]) -> float:
+    """Population standard deviation (ddof=0). 0.0 for <2 values."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mu = _mean(values)
+    return math.sqrt(sum((v - mu) ** 2 for v in values) / n)
+
+
+def verdict_flip_count(per_run_verdicts: list[dict[str, bool]]) -> dict[str, Any]:
+    """Count per-query verdict instability across repeated runs.
+
+    ``per_run_verdicts`` is a list (one entry per run) mapping qid -> pass bool
+    for a single arm (core or depth). A query is "unstable" (a flip) when its
+    verdict is not identical across every run in which it appears. Returns the
+    flip count, the unstable qids (sorted), and the total queries considered.
+
+    Deterministic: a pure count of disagreement, no sampling.
+    """
+    if not per_run_verdicts:
+        return {"flips": 0, "unstable_qids": [], "n_queries": 0}
+    qids: set[str] = set()
+    for run in per_run_verdicts:
+        qids.update(run.keys())
+    unstable: list[str] = []
+    for qid in qids:
+        observed = {run[qid] for run in per_run_verdicts if qid in run}
+        if len(observed) > 1:
+            unstable.append(qid)
+    unstable.sort()
+    return {
+        "flips": len(unstable),
+        "unstable_qids": unstable,
+        "n_queries": len(qids),
+    }
+
+
+def aggregate_repeated_runs(
+    runs: list[dict[str, Any]],
+    *,
+    seed: int = 1234,
+) -> dict[str, Any]:
+    """Aggregate N repeated paired runs of one query class into a stable report.
+
+    Each entry in ``runs`` describes one run of a single query class and must
+    carry the headline-included paired outcomes (precondition / core-already-pass
+    queries already filtered out by the caller):
+
+        {
+            "core_pass_rate": float,        # this run's headline core pass-rate
+            "depth_pass_rate": float,       # this run's headline depth pass-rate
+            "core_verdicts": {qid: bool},   # per-query core pass (this run)
+            "depth_verdicts": {qid: bool},  # per-query depth pass (this run)
+        }
+
+    Aggregation:
+      * per-class pass-rate MEAN / STD (population std) over the N runs, for each
+        arm;
+      * the paired delta (depth - core) MEAN over runs, with a paired bootstrap CI
+        and an exact McNemar p computed over the POOLED per-query outcomes (every
+        (run, qid) pair contributes one paired observation), so the CI/​p reflect
+        both within-run and across-run variation;
+      * verdict-FLIP counts per arm (first-class output): how many qids changed
+        verdict across runs on an identical-corpus rerun. Zero flips => the rig is
+        fully deterministic for that arm.
+
+    Fully deterministic for fixed inputs and ``seed``.
+    """
+    n_runs = len(runs)
+    core_rates = [float(r.get("core_pass_rate", 0.0)) for r in runs]
+    depth_rates = [float(r.get("depth_pass_rate", 0.0)) for r in runs]
+    per_run_deltas = [d - c for c, d in zip(core_rates, depth_rates)]
+
+    # Pool every (run, qid) paired outcome in a stable order so the bootstrap /
+    # McNemar are reproducible across processes.
+    pooled_core: list[bool] = []
+    pooled_depth: list[bool] = []
+    for r in runs:
+        cv = r.get("core_verdicts", {}) or {}
+        dv = r.get("depth_verdicts", {}) or {}
+        for qid in sorted(set(cv) & set(dv)):
+            pooled_core.append(bool(cv[qid]))
+            pooled_depth.append(bool(dv[qid]))
+
+    core_flips = verdict_flip_count([r.get("core_verdicts", {}) or {} for r in runs])
+    depth_flips = verdict_flip_count([r.get("depth_verdicts", {}) or {} for r in runs])
+
+    delta_ci = delta_bootstrap_ci(pooled_core, pooled_depth, seed=seed)
+    win = bool(pooled_core) and (delta_ci[0] > 0 or delta_ci[1] < 0)
+
+    return {
+        "n_runs": n_runs,
+        "n_pooled": len(pooled_core),
+        "core_pass_rate_mean": round(_mean(core_rates), 4),
+        "core_pass_rate_std": round(_pop_std(core_rates), 4),
+        "depth_pass_rate_mean": round(_mean(depth_rates), 4),
+        "depth_pass_rate_std": round(_pop_std(depth_rates), 4),
+        "delta_mean": round(_mean(per_run_deltas), 4),
+        "delta_std": round(_pop_std(per_run_deltas), 4),
+        "delta_ci_95": [round(delta_ci[0], 4), round(delta_ci[1], 4)],
+        "mcnemar_p": round(mcnemar_p(pooled_core, pooled_depth), 4),
+        "ci_excludes_zero": win,
+        "core_flips": core_flips["flips"],
+        "depth_flips": depth_flips["flips"],
+        "core_unstable_qids": core_flips["unstable_qids"],
+        "depth_unstable_qids": depth_flips["unstable_qids"],
+    }

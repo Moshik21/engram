@@ -40,12 +40,19 @@ from __future__ import annotations
 # ruff: noqa: E501  (diagnostic script; long report/dict lines are fine)
 import argparse
 import asyncio
+import contextlib
 import json
+import os
 import sys
+import tempfile
+import time
+from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from engram.benchmark.depth.judge import (
+    aggregate_repeated_runs,
     delta_bootstrap_ci,
     judge_current_value,
     judge_multi_hop,
@@ -59,6 +66,50 @@ from engram.benchmark.longmemeval.adapter import (
 )
 from engram.config import EngramConfig
 from engram.extraction.extraction_cache import ExtractionCache
+from engram.utils import dates as _dates
+
+# A fixed instant for the frozen-clock guard. Any constant works; the only
+# requirement is that it is identical across runs. Mid-2026 keeps episode ages
+# non-negative relative to the graphthesis conversation dates.
+_FROZEN_EPOCH = 1_780_000_000.0  # 2026-05-28T... UTC
+_FROZEN_DT = datetime.fromtimestamp(_FROZEN_EPOCH, tz=timezone.utc).replace(tzinfo=None)
+
+
+@contextlib.contextmanager
+def _frozen_clock() -> Iterator[None]:
+    """Pin every wall-clock source the recall/ingest path reads to ONE instant.
+
+    Removes wall-clock as a determinism confound: without this, two runs ingest +
+    recall at different ``time.time()``, so ACT-R base-level decay (access_history
+    age vs ``now``) and the entity ``updated_at`` sort tie-break differ. Freezing
+    makes both runs observe identical episode ages and entity timestamps.
+
+    Scope is strictly the eval process. We freeze ONLY ``time.time`` and
+    ``engram.utils.dates.utc_now``/``utc_now_iso`` (the float-epoch ACT-R clock
+    and the datetime entity-timestamp clock). ``time.perf_counter`` and the
+    asyncio event-loop monotonic clock are untouched, so ``perf_counter``-based
+    stage timeouts and ``asyncio.wait_for`` budgets keep measuring real elapsed
+    time. Production recall behavior is unchanged — this guard exists only here.
+
+    NOTE (measured 2026-05-29): freezing the clock did NOT eliminate the residual
+    verdict flips. The dominant residual is native HNSW index-construction
+    nondeterminism: recall against a *settled* store is byte-identical across
+    processes, but building the same corpus into a fresh store twice yields HNSW
+    graphs with slightly different neighbor orderings, perturbing RRF ranks on
+    near-tied candidates. The flip SET is non-reproducible across two identical
+    ``--repeat 2`` runs (confirming run-to-run build variation, not wall-clock).
+    This guard is kept because it is the correct, behavior-preserving way to
+    remove the wall-clock variable; closing the residual to 0 requires a
+    deterministic (seeded) native HNSW build, tracked separately.
+    """
+    real_time = time.time
+    time.time = lambda: _FROZEN_EPOCH  # type: ignore[assignment]
+    _dates.set_now_override(_FROZEN_DT)
+    try:
+        yield
+    finally:
+        time.time = real_time  # type: ignore[assignment]
+        _dates.set_now_override(None)
 
 
 class _CachingAdapter(EngramLongMemEvalAdapter):
@@ -79,6 +130,57 @@ class _CachingAdapter(EngramLongMemEvalAdapter):
         inner = super()._build_extractor()
         self.extraction_cache = ExtractionCache(inner, self._cache_path)
         return self.extraction_cache
+
+
+# --------------------------------------------------------------------------- #
+# Ablation seam (item #6 phase-gating prep).                                    #
+#                                                                               #
+# A clean, declarative map from a consolidation phase / depth-operator NAME to  #
+# the config field(s) that turn it OFF. --ablate <name> sets those fields False #
+# on ONE arm's config before the adapter is built, so a later phase-gating loop #
+# can attribute a per-phase delta by re-running with each name ablated. The eval#
+# path itself does not yet invoke the consolidation engine; this establishes    #
+# the seam (and validates the names) so the attribution loop is a drop-in.      #
+# --------------------------------------------------------------------------- #
+_ABLATABLE: dict[str, tuple[str, ...]] = {
+    # consolidation phases (config _enabled flags)
+    "merge": ("consolidation_merge_multi_signal_enabled", "consolidation_merge_llm_enabled"),
+    "infer": ("consolidation_infer_pmi_enabled", "consolidation_infer_auto_validation_enabled", "consolidation_infer_llm_enabled"),
+    "replay": ("consolidation_replay_enabled",),
+    "dream": ("consolidation_dream_enabled", "consolidation_dream_associations_enabled"),
+    "triage": ("triage_enabled",),
+    "schema": ("schema_formation_enabled",),
+    "calibrate": ("consolidation_calibration_enabled",),
+    "evidence_adjudication": ("evidence_extraction_enabled",),
+    # depth-tier retrieval operators (the graph-side recall path under test)
+    "mmr": ("mmr_enabled",),
+    "reranker": ("reranker_enabled",),
+    "community_spreading": ("community_spreading_enabled",),
+    "graph_query_expansion": ("graph_query_expansion_enabled",),
+}
+
+
+def _apply_ablation(cfg: EngramConfig, ablate: list[str]) -> dict[str, list[str]]:
+    """Turn the named phases/operators OFF on this config. Returns the applied
+    name -> [fields] map (for the report). Unknown names hard-fail (a typo'd
+    ablation that silently no-ops would corrupt the attribution)."""
+    applied: dict[str, list[str]] = {}
+    for name in ablate:
+        fields = _ABLATABLE.get(name)
+        if fields is None:
+            raise SystemExit(
+                f"ABORT: unknown --ablate target {name!r}. "
+                f"Known: {', '.join(sorted(_ABLATABLE))}."
+            )
+        for f in fields:
+            if not hasattr(cfg.activation, f):
+                raise SystemExit(
+                    f"ABORT: ablation field {f!r} for {name!r} is not a config "
+                    "field (the config drifted from the ablation map)."
+                )
+            object.__setattr__(cfg.activation, f, False)
+        applied[name] = list(fields)
+    return applied
 
 
 def _parse_date(s: str | None):
@@ -154,11 +256,14 @@ async def _ingest_persona(adapter: _CachingAdapter, group_id: str, persona: dict
     return ep_to_session
 
 
-async def _build_adapter(cfg, *, graph_on: bool, cache_path: str, extraction: str) -> tuple[_CachingAdapter, str]:
+async def _build_adapter(
+    cfg, *, graph_on: bool, cache_path: str, extraction: str, ablate: list[str] | None = None
+) -> tuple[_CachingAdapter, str, dict[str, list[str]]]:
     # Determinism: disable Thompson Sampling exploration for the eval (its RNG is
     # unseeded in production and perturbs near-tied scores every recall). The
     # production default is unchanged; this only pins the measurement arm.
     cfg.activation.ts_enabled = False
+    applied_ablation = _apply_ablation(cfg, ablate) if ablate else {}
     adapter = _CachingAdapter(
         cfg=cfg.activation,
         extraction_mode=extraction,
@@ -171,7 +276,7 @@ async def _build_adapter(cfg, *, graph_on: bool, cache_path: str, extraction: st
     )
     await adapter._ensure_initialized()
     await adapter._setup_manager("depthtier")
-    return adapter, GROUP_PREFIX
+    return adapter, GROUP_PREFIX, applied_ablation
 
 
 def _evidence_texts(results: list[dict], *, newest_first: bool) -> list[str]:
@@ -265,13 +370,36 @@ async def _close(adapter: _CachingAdapter) -> None:
         pass
 
 
-async def run_persona(path: Path, top_k: int, cache_path: str, extraction: str, allow_narrow: bool) -> dict:
+def _cfg_for(data_dir: str | None) -> EngramConfig:
+    """Build a config, optionally pinning the native store dir for a fresh-store
+    repeat. ``--repeat`` gives each run its own dir so the stores are independent
+    while the warm ExtractionCache is shared via ``cache_path``."""
+    cfg = EngramConfig()
+    if data_dir:
+        object.__setattr__(cfg.helix, "data_dir", data_dir)
+    return cfg
+
+
+async def run_persona(
+    path: Path,
+    top_k: int,
+    cache_path: str,
+    extraction: str,
+    allow_narrow: bool,
+    *,
+    ablate: list[str] | None = None,
+    data_dir: str | None = None,
+) -> dict:
     persona = json.loads(path.read_text())
     pid = persona.get("persona_id", path.stem)
 
     # ---- build + freeze corpus ONCE under graph-ON (cache warm) ----
-    cfg = EngramConfig()
-    adapter_on, gid = await _build_adapter(cfg, graph_on=True, cache_path=cache_path, extraction=extraction)
+    # Ablation toggles depth-side phases/operators OFF on the graph-ON (depth)
+    # arm only; the core arm stays the fixed baseline so the delta is attributable.
+    cfg = _cfg_for(data_dir)
+    adapter_on, gid, applied_ablation = await _build_adapter(
+        cfg, graph_on=True, cache_path=cache_path, extraction=extraction, ablate=ablate
+    )
     extractor_kind = _assert_clean_extractor(adapter_on, allow_narrow)
     ep_to_session = await _ingest_persona(adapter_on, gid, persona)
     session_to_ep: dict[str, list[str]] = {}
@@ -289,8 +417,8 @@ async def run_persona(path: Path, top_k: int, cache_path: str, extraction: str, 
     await _close(adapter_on)
 
     # ---- core-only arm: SAME frozen store, no re-ingest, graph toggled OFF ----
-    cfg_off = EngramConfig()
-    adapter_off, gid2 = await _build_adapter(cfg_off, graph_on=False, cache_path=cache_path, extraction=extraction)
+    cfg_off = _cfg_for(data_dir)
+    adapter_off, gid2, _ = await _build_adapter(cfg_off, graph_on=False, cache_path=cache_path, extraction=extraction)
     core_rows: dict[str, list[str]] = {}
     for q in persona["queries"]:
         nf = q["type"] == "current_value"
@@ -318,13 +446,20 @@ async def run_persona(path: Path, top_k: int, cache_path: str, extraction: str, 
     return {
         "persona_id": pid, "extractor": extractor_kind, "num_sessions": len(persona["sessions"]),
         "top_k": top_k, "cache_stats_ingest": cache_stats_ingest, "queries": out_queries,
+        "ablation": applied_ablation,
     }
 
 
-def _per_class_report(all_personas: list[dict], qtype: str) -> dict:
-    """Headline per-class report with precondition / core-already-pass exclusions."""
-    included_core: list[bool] = []
-    included_depth: list[bool] = []
+def _headline_filter(all_personas: list[dict], qtype: str) -> dict:
+    """Apply the headline inclusion rules for one query class to a set of personas.
+
+    Precondition (extraction-gap) failures and core-already-passing
+    multi_hop/current_value queries are reported separately and excluded from the
+    headline delta. Returns the per-query headline outcomes (qid-keyed verdict
+    maps so a repeated-run aggregator can pool by qid) plus the exclusion lists.
+    """
+    core_verdicts: dict[str, bool] = {}
+    depth_verdicts: dict[str, bool] = {}
     excluded_precondition: list[str] = []
     excluded_core_pass: list[str] = []
     false_recall = 0
@@ -348,8 +483,27 @@ def _per_class_report(all_personas: list[dict], qtype: str) -> dict:
                 if q["core_pass"]:
                     excluded_core_pass.append(q["qid"])
                     continue
-            included_core.append(q["core_pass"])
-            included_depth.append(q["depth_pass"])
+            core_verdicts[q["qid"]] = bool(q["core_pass"])
+            depth_verdicts[q["qid"]] = bool(q["depth_pass"])
+    return {
+        "core_verdicts": core_verdicts,
+        "depth_verdicts": depth_verdicts,
+        "excluded_precondition": excluded_precondition,
+        "excluded_core_already_passes": excluded_core_pass,
+        "false_recall_count": false_recall,
+        "n_seen": n_seen,
+    }
+
+
+def _per_class_report(all_personas: list[dict], qtype: str) -> dict:
+    """Headline per-class report with precondition / core-already-pass exclusions."""
+    f = _headline_filter(all_personas, qtype)
+    included_core = list(f["core_verdicts"].values())
+    included_depth = list(f["depth_verdicts"].values())
+    excluded_precondition = f["excluded_precondition"]
+    excluded_core_pass = f["excluded_core_already_passes"]
+    false_recall = f["false_recall_count"]
+    n_seen = f["n_seen"]
 
     n = len(included_core)
     core_rate = sum(included_core) / n if n else 0.0
@@ -374,6 +528,29 @@ def _per_class_report(all_personas: list[dict], qtype: str) -> dict:
     }
 
 
+def _repeat_class_report(run_personas: list[list[dict]], qtype: str) -> dict:
+    """Aggregate one query class across N repeated runs.
+
+    ``run_personas[i]`` is the persona list for run i. Each run is headline-
+    filtered independently, then the per-run pass-rates + per-query verdict maps
+    are handed to the deterministic aggregator (mean/std + pooled bootstrap CI +
+    McNemar + verdict-flip counts)."""
+    per_run: list[dict] = []
+    for personas in run_personas:
+        f = _headline_filter(personas, qtype)
+        cv, dv = f["core_verdicts"], f["depth_verdicts"]
+        n = len(cv)
+        per_run.append({
+            "core_pass_rate": (sum(cv.values()) / n) if n else 0.0,
+            "depth_pass_rate": (sum(dv.values()) / n) if n else 0.0,
+            "core_verdicts": cv,
+            "depth_verdicts": dv,
+        })
+    agg = aggregate_repeated_runs(per_run)
+    agg["query_type"] = qtype
+    return agg
+
+
 def _markdown(report: dict) -> str:
     lines = ["# Depth-Tier Eval Report", ""]
     lines.append(f"- Extractor: {report['extractor_identity']}")
@@ -394,22 +571,32 @@ def _markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def main(args) -> None:
-    paths = [Path(p) for p in args.files]
-    all_personas = []
-    extractor_identity = "unknown"
-    hits = misses = 0
-    for p in paths:
-        print(f"=== persona {p.name} ===", file=sys.stderr)
-        per = await run_persona(p, args.top_k, args.cache, args.extraction, args.allow_narrow)
-        all_personas.append(per)
-        extractor_identity = per["extractor"]
-        cs = per.get("cache_stats_ingest") or {}
-        hits += cs.get("hits", 0)
-        misses += cs.get("misses", 0)
+def _repeat_markdown(report: dict) -> str:
+    lines = ["# Depth-Tier Eval Report (repeated runs)", ""]
+    lines.append(f"- Extractor: {report['extractor_identity']}")
+    lines.append(f"- Runs: {report['n_runs']} (fresh stores, shared warm ExtractionCache)")
+    if report.get("ablation"):
+        lines.append(f"- Ablated (depth arm): {report['ablation']}")
+    lines.append("")
+    lines.append("Per-class pass-rate mean +/- std over runs; delta = depth - core (paired).")
+    lines.append("`flips` = per-query verdict disagreement across runs (0 => deterministic).")
+    lines.append("")
+    lines.append("| class | core mean+/-std | depth mean+/-std | delta mean+/-std | delta CI95 | McNemar p | win | core flips | depth flips |")
+    lines.append("|---|---|---|---|---|---|---|---|---|")
+    for c in report["per_class"]:
+        lines.append(
+            f"| {c['query_type']} | {c['core_pass_rate_mean']:.2f}+/-{c['core_pass_rate_std']:.2f} | "
+            f"{c['depth_pass_rate_mean']:.2f}+/-{c['depth_pass_rate_std']:.2f} | "
+            f"{c['delta_mean']:+.2f}+/-{c['delta_std']:.2f} | "
+            f"[{c['delta_ci_95'][0]:+.2f},{c['delta_ci_95'][1]:+.2f}] | {c['mcnemar_p']:.3f} | "
+            f"{'YES' if c['ci_excludes_zero'] else 'no'} | {c['core_flips']} | {c['depth_flips']} |"
+        )
+    return "\n".join(lines) + "\n"
 
+
+def _single_report(all_personas: list[dict], extractor_identity: str, hits: int, misses: int) -> dict:
     total = hits + misses
-    report = {
+    return {
         "extractor_identity": extractor_identity,
         "cache_hits": hits,
         "cache_misses": misses,
@@ -421,20 +608,105 @@ async def main(args) -> None:
         ],
         "personas": all_personas,
     }
+
+
+async def _run_once(args, *, data_dir: str | None = None) -> tuple[list[dict], str, int, int]:
+    """Run the paired eval over every persona once. Returns (personas, extractor,
+    cache_hits, cache_misses)."""
+    all_personas: list[dict] = []
+    extractor_identity = "unknown"
+    hits = misses = 0
+    for p in (Path(p) for p in args.files):
+        print(f"=== persona {p.name} ===", file=sys.stderr)
+        per = await run_persona(
+            p, args.top_k, args.cache, args.extraction, args.allow_narrow,
+            ablate=args.ablate, data_dir=data_dir,
+        )
+        all_personas.append(per)
+        extractor_identity = per["extractor"]
+        cs = per.get("cache_stats_ingest") or {}
+        hits += cs.get("hits", 0)
+        misses += cs.get("misses", 0)
+    return all_personas, extractor_identity, hits, misses
+
+
+async def main(args) -> None:
+    # Pin a single deterministic wall clock across every ingest + recall in this
+    # process (unless explicitly disabled) so episode ages and entity timestamps
+    # are identical between runs and ACT-R near-ties cannot flip on wall-clock.
+    guard = contextlib.nullcontext() if args.no_frozen_clock else _frozen_clock()
+    with guard:
+        await _main_inner(args)
+
+
+async def _main_inner(args) -> None:
+    if args.repeat <= 1:
+        # ---- default: single run, unchanged behavior ----
+        all_personas, extractor_identity, hits, misses = await _run_once(args)
+        report = _single_report(all_personas, extractor_identity, hits, misses)
+        print(json.dumps(report, indent=2))
+        print("\n=== SUMMARY ===", file=sys.stderr)
+        for c in report["per_class"]:
+            print(
+                f"{c['query_type']:>14}: core {c['core_pass_rate']:.2f} -> depth {c['depth_pass_rate']:.2f} "
+                f"(delta {c['delta']:+.2f}, CI95 {c['delta_ci_95']}, win={c['ci_excludes_zero']}, "
+                f"n_headline={c['n_headline']}/{c['n_seen']})",
+                file=sys.stderr,
+            )
+        print(f"cache hit-rate (ingest): {report['cache_hit_rate']:.2%}", file=sys.stderr)
+        if args.output:
+            out = Path(args.output)
+            out.write_text(json.dumps(report, indent=2))
+            Path(str(out).replace(".json", ".md")).write_text(_markdown(report))
+        return
+
+    # ---- --repeat N: N fresh stores, shared warm cache, aggregate ----
+    base_dir = os.environ.get("ENGRAM_HELIX__DATA_DIR")
+    run_personas: list[list[dict]] = []
+    extractor_identity = "unknown"
+    ablation: dict[str, list[str]] = {}
+    for i in range(args.repeat):
+        # Each run gets its own fresh store dir so the stores are independent;
+        # the warm ExtractionCache (--cache) is shared, so extraction stays frozen
+        # and only retrieval/activation nondeterminism can produce a flip.
+        if base_dir:
+            data_dir = f"{base_dir.rstrip('/')}_run{i}"
+        else:
+            data_dir = str(Path(tempfile.gettempdir()) / f"depthtier_run{i}")
+        print(f"=== repeat {i + 1}/{args.repeat} (store={data_dir}) ===", file=sys.stderr)
+        personas, extractor_identity, _, _ = await _run_once(args, data_dir=data_dir)
+        run_personas.append(personas)
+        if personas and personas[0].get("ablation"):
+            ablation = personas[0]["ablation"]
+
+    report = {
+        "mode": "repeat",
+        "n_runs": args.repeat,
+        "extractor_identity": extractor_identity,
+        "ablation": ablation,
+        "per_class": [
+            _repeat_class_report(run_personas, "multi_hop"),
+            _repeat_class_report(run_personas, "current_value"),
+            _repeat_class_report(run_personas, "synthesis"),
+        ],
+        "runs": run_personas,
+    }
     print(json.dumps(report, indent=2))
-    print("\n=== SUMMARY ===", file=sys.stderr)
+    print(f"\n=== REPEAT SUMMARY ({args.repeat} runs) ===", file=sys.stderr)
     for c in report["per_class"]:
         print(
-            f"{c['query_type']:>14}: core {c['core_pass_rate']:.2f} -> depth {c['depth_pass_rate']:.2f} "
-            f"(delta {c['delta']:+.2f}, CI95 {c['delta_ci_95']}, win={c['ci_excludes_zero']}, "
-            f"n_headline={c['n_headline']}/{c['n_seen']})",
+            f"{c['query_type']:>14}: core {c['core_pass_rate_mean']:.2f}+/-{c['core_pass_rate_std']:.2f} "
+            f"-> depth {c['depth_pass_rate_mean']:.2f}+/-{c['depth_pass_rate_std']:.2f} "
+            f"(delta {c['delta_mean']:+.2f}+/-{c['delta_std']:.2f}, CI95 {c['delta_ci_95']}, "
+            f"win={c['ci_excludes_zero']}, flips core={c['core_flips']}/depth={c['depth_flips']})",
             file=sys.stderr,
         )
-    print(f"cache hit-rate (ingest): {report['cache_hit_rate']:.2%}", file=sys.stderr)
+    if ablation:
+        print(f"ablated (depth arm): {ablation}", file=sys.stderr)
     if args.output:
         out = Path(args.output)
         out.write_text(json.dumps(report, indent=2))
-        Path(str(out).replace(".json", ".md")).write_text(_markdown(report))
+        Path(str(out).replace(".json", ".md")).write_text(_repeat_markdown(report))
 
 
 if __name__ == "__main__":
@@ -445,6 +717,21 @@ if __name__ == "__main__":
     ap.add_argument("--extraction", default="auto", choices=["auto", "anthropic", "narrow"])
     ap.add_argument("--allow-narrow", action="store_true", help="accept the deterministic narrow extractor (determinism floor)")
     ap.add_argument("--output", default=None)
+    ap.add_argument(
+        "--repeat", type=int, default=1,
+        help="run the paired eval N times on FRESH stores (sharing the warm cache) "
+             "and aggregate per-class mean/std + paired delta CI + McNemar + verdict-flip counts",
+    )
+    ap.add_argument(
+        "--ablate", action="append", default=None, metavar="PHASE",
+        help="turn a consolidation phase / depth operator OFF on the DEPTH arm "
+             "(repeatable). Known: " + ", ".join(sorted(_ABLATABLE)),
+    )
+    ap.add_argument(
+        "--no-frozen-clock", action="store_true",
+        help="do NOT pin time.time/utc_now to a fixed instant (default: pinned "
+             "for determinism; perf_counter timeouts are unaffected)",
+    )
     args = ap.parse_args()
     if args.extraction == "narrow":
         args.allow_narrow = True
