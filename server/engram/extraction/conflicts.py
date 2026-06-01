@@ -7,6 +7,7 @@ from __future__ import annotations
 EXCLUSIVE_PREDICATES: set[str] = {
     "LIVES_IN",
     "WORKS_AT",
+    "HAS_ROLE",
     "MARRIED_TO",
     "BASED_IN",
     "CEO_OF",

@@ -91,7 +91,12 @@ def merge_entity_attributes(
         elif existing.summary:
             merged = f"{existing.summary}; {new_summary}"
             if len(merged) > 500:
-                merged = merged[:497] + "..."
+                # Keep the most RECENT fragments (the tail), not the oldest. The
+                # summary is appended chronologically, so the current state lives
+                # at the end; truncating the head (the prior behavior kept the
+                # head and dropped the tail) would discard the current value and
+                # retain stale text -- the opposite of "carry current values".
+                merged = "..." + merged[-497:]
             updates["summary"] = merged
         else:
             updates["summary"] = new_summary[:500]

@@ -8,6 +8,23 @@ CANONICAL_MAP: dict[str, str] = {
     "WORKS_FOR": "WORKS_AT",
     "EMPLOYED_AT": "WORKS_AT",
     "HIRED_BY": "WORKS_AT",
+    # Role / title (a person's current role or title). Unify the varied
+    # predicates extraction emits for role CHANGES so they land on one exclusive
+    # slot (HAS_ROLE, see EXCLUSIVE_PREDICATES) and a newer assertion supersedes
+    # the prior. NOTE: ASSIGNED_TO is intentionally NOT mapped here -- it is
+    # ambiguous (task assignment vs role) and mapping it would be lossy.
+    "PROMOTED_TO": "HAS_ROLE",
+    "APPOINTED_AS": "HAS_ROLE",
+    "APPOINTED_TO": "HAS_ROLE",
+    "WORKS_AS": "HAS_ROLE",
+    "SERVES_AS": "HAS_ROLE",
+    "HAS_TITLE": "HAS_ROLE",
+    "HOLDS_TITLE": "HAS_ROLE",
+    "HAS_POSITION": "HAS_ROLE",
+    "HOLDS_POSITION": "HAS_ROLE",
+    "HAS_JOB_TITLE": "HAS_ROLE",
+    "TITLE_IS": "HAS_ROLE",
+    "ROLE_IS": "HAS_ROLE",
     # Expertise
     "SKILLED_IN": "EXPERT_IN",
     "SPECIALIZES_IN": "EXPERT_IN",
