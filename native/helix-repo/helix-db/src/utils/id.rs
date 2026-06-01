@@ -49,20 +49,29 @@ pub(crate) fn stable_id_from_bytes(bytes: &[u8]) -> u128 {
 
 /// Deterministic graph-NODE id from the stable business key already in
 /// `properties` (Episode=episode_id, Entity=entity_id, label-prefixed so
-/// distinct node types never collide). Returns None when no recognized key is
-/// present (caller falls back to a fresh UUID). Mirrors the HNSW
-/// `stable_vector_id` so a node and its vector are derived from the same key.
+/// distinct node types never collide). Returns None when the label is not a
+/// known unique-key type or the key is absent (caller falls back to a fresh
+/// UUID). Mirrors the HNSW `stable_vector_id` so a node and its vector are
+/// derived from the same key.
+///
+/// IMPORTANT: only node types whose business key is PROVABLY UNIQUE per node get
+/// a deterministic id. Episode (episode_id) and Entity (entity_id) are 1:1 with
+/// their key. Multi-per-key node types — e.g. Evidence (many per episode_id),
+/// cues, schema members — MUST keep a fresh UUID, otherwise distinct nodes
+/// sharing the key collapse to one id (data loss + a BM25 duplicate-doc error).
 pub(crate) fn stable_node_id(
     label: &str,
     properties: Option<&ImmutablePropertiesMap>,
 ) -> Option<u128> {
-    let props = properties?;
-    let key = ["entity_id", "episode_id", "id"].iter().find_map(|k| {
-        props
-            .get(k)
-            .map(|v| v.inner_stringify())
-            .filter(|s| !s.is_empty())
-    })?;
+    let key_field = match label {
+        "Episode" => "episode_id",
+        "Entity" => "entity_id",
+        _ => return None,
+    };
+    let key = properties?
+        .get(key_field)
+        .map(|v| v.inner_stringify())
+        .filter(|s| !s.is_empty())?;
     Some(stable_id_from_bytes(format!("{label}\x1f{key}").as_bytes()))
 }
 use sonic_rs::{Deserialize, Serialize};
