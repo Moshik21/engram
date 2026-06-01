@@ -2017,16 +2017,27 @@ async def retrieve(
             special_results = _merge_special_results(
                 episode_candidates, cue_candidates, cfg, suppressed_cue_out,
             )
-            # Give episode/chunk candidates 2x weight in the merge sort
-            for sr in special_results:
-                sr.score *= 2.0
-            results = entity_results + special_results
-            results.sort(key=lambda r: (-r.score, r.node_id))
-            results = results[:top_n]
-            # Restore original scores after selection (undo the 2x sort boost)
-            for sr in results:
-                if sr.result_type in {"episode", "cue_episode"}:
-                    sr.score /= 2.0
+            if cfg.passage_first_channel_separated:
+                # Channel-separated (additive): episodes/cues take the top-k by
+                # their own ranked order, then entities fill ONLY leftover slots —
+                # an entity can never evict an answer episode. Tests whether the
+                # graph's additive upside survives once displacement is removed.
+                results = special_results[:top_n]
+                remaining = top_n - len(results)
+                if remaining > 0 and entity_results:
+                    results = results + entity_results[:remaining]
+            else:
+                # Legacy blend: 2x-boost episodes then sort together (a high-
+                # scoring entity can still displace a lower-scored episode).
+                for sr in special_results:
+                    sr.score *= 2.0
+                results = entity_results + special_results
+                results.sort(key=lambda r: (-r.score, r.node_id))
+                results = results[:top_n]
+                # Restore original scores after selection (undo the 2x boost)
+                for sr in results:
+                    if sr.result_type in {"episode", "cue_episode"}:
+                        sr.score /= 2.0
         else:
             # Default: preserve room for special results, keep at least one entity slot.
             entity_limit = max(1, top_n - special_budget)

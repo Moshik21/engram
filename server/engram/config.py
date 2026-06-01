@@ -629,6 +629,19 @@ class ActivationConfig(BaseModel):
             "recall is episode-vector + rerank by default."
         ),
     )
+    passage_first_channel_separated: bool = Field(
+        default=False,
+        description=(
+            "Channel-separated passage_first assembly: episodes/cues fill the "
+            "top-k FIRST, then up to passage_first_entity_budget entities are "
+            "APPENDED into any leftover slots — entities can NEVER evict an "
+            "answer episode (additive, not displacing). When False, the legacy "
+            "blend (2x-episode-boosted, sorted together) is used, where a high- "
+            "scoring entity can still displace a lower-scored episode. Tests the "
+            "channel-separation thesis (docs/CHANNEL_SEPARATION_DESIGN.md) without "
+            "the full multi-channel surface."
+        ),
+    )
 
     cue_recall_enabled: bool = Field(
         default=False,
