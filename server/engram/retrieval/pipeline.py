@@ -1632,6 +1632,7 @@ async def retrieve(
             entity_attributes=entity_attributes,
             state_biases=state_biases,
             preference_boosts=preference_boosts,
+            name_match_scores=name_match_seeds,
         )
     else:
         scored = score_candidates(
@@ -1648,6 +1649,7 @@ async def retrieve(
             entity_attributes=entity_attributes,
             state_biases=state_biases,
             preference_boosts=preference_boosts,
+            name_match_scores=name_match_seeds,
         )
     _set_stage_metric(stage_timings_ms, "recall_scored_count", len(scored))
     _set_stage_metric(

@@ -130,6 +130,17 @@ class ActivationConfig(BaseModel):
     weight_activation: float = Field(default=0.25, ge=0.0, le=1.0)
     weight_spreading: float = Field(default=0.15, ge=0.0, le=1.0)
     weight_edge_proximity: float = Field(default=0.15, ge=0.0, le=1.0)
+    weight_name_match: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Score lift for a candidate entity whose name strongly matches the "
+            "query (e.g. the query names the subject). Additive + clamped so a "
+            "named subject reliably ranks into the top entity slots, since its "
+            "question->name embedding similarity is otherwise weak. 0.0 disables."
+        ),
+    )
     seed_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     activation_ttl_days: int = Field(default=90, ge=1, le=365)
     exploration_weight: float = Field(default=0.05, ge=0.0, le=0.5)

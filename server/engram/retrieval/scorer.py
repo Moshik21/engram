@@ -61,6 +61,7 @@ def score_candidates(
     entity_attributes: dict[str, dict] | None = None,
     state_biases: dict[str, float] | None = None,
     preference_boosts: dict[str, float] | None = None,
+    name_match_scores: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score and rank candidate nodes.
 
@@ -149,6 +150,17 @@ def score_candidates(
         if preference_boosts is not None and cfg.preference_directed_enabled:
             pref_boost = cfg.preference_retrieval_weight * preference_boosts.get(node_id, 0.0)
 
+        # Name-match boost: an entity whose name strongly matches the query gets
+        # an explicit, bounded lift so a NAMED subject reliably ranks into the top
+        # entity slots (its question->name embedding similarity is otherwise weak,
+        # so it loses its own slot to higher-semantic episodes/entities). Additive
+        # + clamped so it can't dominate a genuine semantic match.
+        name_boost = (
+            cfg.weight_name_match * min(1.0, max(0.0, name_match_scores.get(node_id, 0.0)))
+            if name_match_scores
+            else 0.0
+        )
+
         # Composite score
         score = (
             cfg.weight_semantic * sem_sim
@@ -162,6 +174,7 @@ def score_candidates(
             + emo_boost
             + s_boost
             + pref_boost
+            + name_boost
         )
 
         # Hop distance: 0 for seeds, from hop_distances dict, or None
@@ -208,6 +221,7 @@ def score_candidates_thompson(
     entity_attributes: dict[str, dict] | None = None,
     state_biases: dict[str, float] | None = None,
     preference_boosts: dict[str, float] | None = None,
+    name_match_scores: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Score candidates using Thompson Sampling for exploration.
 
@@ -292,6 +306,17 @@ def score_candidates_thompson(
         if preference_boosts is not None and cfg.preference_directed_enabled:
             pref_boost = cfg.preference_retrieval_weight * preference_boosts.get(node_id, 0.0)
 
+        # Name-match boost: an entity whose name strongly matches the query gets
+        # an explicit, bounded lift so a NAMED subject reliably ranks into the top
+        # entity slots (its question->name embedding similarity is otherwise weak,
+        # so it loses its own slot to higher-semantic episodes/entities). Additive
+        # + clamped so it can't dominate a genuine semantic match.
+        name_boost = (
+            cfg.weight_name_match * min(1.0, max(0.0, name_match_scores.get(node_id, 0.0)))
+            if name_match_scores
+            else 0.0
+        )
+
         score = (
             cfg.weight_semantic * sem_sim
             + cfg.weight_activation * base_act
@@ -304,6 +329,7 @@ def score_candidates_thompson(
             + emo_boost
             + s_boost
             + pref_boost
+            + name_boost
         )
 
         if node_id in seed_node_ids:
