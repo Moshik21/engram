@@ -27,10 +27,14 @@ impl PartialOrd for Candidate {
 
 impl Ord for Candidate {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Total order: break exact-distance ties by id (same direction as
+        // HVector::cmp) so the candidate-heap frontier is build-stable.
+        // Recall-neutral — only orders items already tied on distance.
         other
             .distance
             .partial_cmp(&self.distance)
             .unwrap_or(Ordering::Equal)
+            .then_with(|| self.id.cmp(&other.id))
     }
 }
 
@@ -200,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn test_candidate_partial_ord_consistency() {
+    fn test_candidate_equal_distance_breaks_tie_by_id() {
         let c1 = Candidate {
             id: 1,
             distance: 0.5,
@@ -210,9 +214,12 @@ mod tests {
             distance: 0.5,
         };
 
-        // Same distance should be equal in ordering
-        assert_eq!(c1.cmp(&c2), Ordering::Equal);
-        assert_eq!(c1.partial_cmp(&c2), Some(Ordering::Equal));
+        // Equal distance is now broken by id (smaller id orders Less) so the
+        // candidate heap is build-stable rather than collapsing ties to Equal.
+        assert_eq!(c1.cmp(&c2), Ordering::Less);
+        assert_eq!(c1.partial_cmp(&c2), Some(Ordering::Less));
+        // A candidate is still Equal only to itself (same id).
+        assert_eq!(c1.cmp(&c1), Ordering::Equal);
     }
 
     #[test]

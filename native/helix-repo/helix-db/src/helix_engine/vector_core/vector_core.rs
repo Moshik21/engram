@@ -10,16 +10,62 @@ use crate::{
             vector_without_data::VectorWithoutData,
         },
     },
-    utils::{id::uuid_str, properties::ImmutablePropertiesMap},
+    utils::{
+        id::{uuid_str, v6_uuid},
+        properties::ImmutablePropertiesMap,
+    },
 };
 use heed3::{
     Database, Env, RoTxn, RwTxn,
     byteorder::BE,
     types::{Bytes, U128, Unit},
 };
-use rand::prelude::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+
+// Deterministic hashing for build-independent HNSW topology. A weak/clustering
+// hash would skew the level distribution (and thus recall), so use well-mixed
+// finalizers, never raw key bytes.
+#[inline]
+fn splitmix64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+#[inline]
+fn fnv1a64(seed: u64, bytes: &[u8]) -> u64 {
+    let mut h = seed;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
+}
+
+/// Build- and insertion-order-independent 128-bit id from a canonical byte
+/// string. Two independent finalized FNV-1a halves give ample collision
+/// resistance at our corpus scale (thousands–millions of vectors).
+#[inline]
+fn stable_id_from_bytes(bytes: &[u8]) -> u128 {
+    let h1 = splitmix64(fnv1a64(0xCBF2_9CE4_8422_2325, bytes));
+    let h2 = splitmix64(fnv1a64(0x9E37_79B9_7F4A_7C15, bytes));
+    ((h1 as u128) << 64) | (h2 as u128)
+}
+
+/// Pure, deterministic HNSW level from a vector id. Hashes the id to a uniform
+/// f64 in (0,1] and applies the standard `(-ln(u) * m_l).floor()` transform, so
+/// the level distribution matches the original random construction while being
+/// reproducible across builds. Extracted from `get_new_level` so the
+/// distribution is unit-testable without a `VectorCore`.
+#[inline]
+fn level_from_id(id: u128, m_l: f64) -> usize {
+    let h = splitmix64((id as u64) ^ ((id >> 64) as u64));
+    let u = ((h >> 11) as f64) / ((1u64 << 53) as f64);
+    let r = if u <= 0.0 { f64::MIN_POSITIVE } else { u };
+    (-r.ln() * m_l).floor() as usize
+}
 
 const DB_VECTORS: &str = "vectors"; // for vector data (v:)
 const DB_VECTOR_DATA: &str = "vector_data"; // for vector data (v:)
@@ -112,10 +158,38 @@ impl VectorCore {
     }
 
     #[inline]
-    fn get_new_level(&self) -> usize {
-        let mut rng = rand::rng();
-        let r: f64 = rng.random::<f64>();
-        (-r.ln() * self.config.m_l).floor() as usize
+    fn get_new_level(&self, id: u128) -> usize {
+        // Deterministic per-id level: hash the (stable) id to a uniform f64 in
+        // (0,1] and reuse the EXACT existing transform, so the exponential level
+        // distribution — and thus hub/entry-point statistics and recall quality —
+        // is preserved. Replaces the unseeded rand::rng() draw that made levels
+        // differ on every rebuild. Top-53 bits give a uniform double; the u<=0
+        // guard is strictly safer than rand (which could draw 0.0 -> ln(0)=-inf).
+        level_from_id(id, self.config.m_l)
+    }
+
+    /// Derive a deterministic, build-independent vector id from the stable
+    /// business key the caller already supplies in `properties` (EntityVec /
+    /// GraphEmbedVec -> entity_id; EpisodeVec / CueVec / EpisodeChunk ->
+    /// episode_id [+ chunk_index]). Label-prefixed so distinct vector types that
+    /// share a key (e.g. EpisodeVec vs CueVec) never collide. Returns None when
+    /// no recognized key is present (caller falls back to a fresh UUID).
+    fn stable_vector_id(label: &str, properties: Option<&ImmutablePropertiesMap>) -> Option<u128> {
+        let props = properties?;
+        let key = ["entity_id", "episode_id", "id"]
+            .iter()
+            .find_map(|k| {
+                props
+                    .get(k)
+                    .map(|v| v.inner_stringify())
+                    .filter(|s| !s.is_empty())
+            })?;
+        let mut canonical = format!("{label}\x1f{key}");
+        if let Some(ci) = props.get("chunk_index") {
+            canonical.push('\x1f');
+            canonical.push_str(&ci.inner_stringify());
+        }
+        Some(stable_id_from_bytes(canonical.as_bytes()))
     }
 
     #[inline]
@@ -572,10 +646,14 @@ impl HNSW for VectorCore {
         'db: 'arena,
         'arena: 'txn,
     {
-        let new_level = self.get_new_level();
-
-        let mut query = HVector::from_slice(label, 0, data);
+        // Deterministic id from the stable business key (falls back to a fresh
+        // UUID only when no recognized key is present) so the persisted graph —
+        // ids are the LMDB edge keys, so they also fix neighbor-iteration order —
+        // and the per-id level are build-independent.
+        let id = Self::stable_vector_id(label, properties.as_ref()).unwrap_or_else(v6_uuid);
+        let mut query = HVector::from_slice_with_id(label, 0, data, id);
         query.properties = properties;
+        let new_level = self.get_new_level(query.id);
         self.put_vector(txn, &query)?;
 
         query.level = new_level;
@@ -592,6 +670,7 @@ impl HNSW for VectorCore {
         };
 
         let l = entry_point.level;
+        let ep_id = entry_point.id;
         let mut curr_ep = entry_point;
         for level in (new_level + 1..=l).rev() {
             let mut nearest =
@@ -632,7 +711,12 @@ impl HNSW for VectorCore {
             }
         }
 
-        if new_level > l {
+        // Update the entry point on a strictly higher level, OR break a max-level
+        // tie by smaller id. The id tie-break makes the entry point converge to
+        // the smallest-id node at the max level regardless of insertion order —
+        // removing an insertion-order dependence in the otherwise-deterministic
+        // graph (transitive: any smaller-id max-level node inserted later wins).
+        if new_level > l || (new_level == l && query.id < ep_id) {
             self.set_entry_point(txn, &query)?;
         }
 
@@ -659,5 +743,78 @@ impl HNSW for VectorCore {
             }
             None => Err(VectorError::VectorNotFound(id.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod determinism_tests {
+    use super::{fnv1a64, level_from_id, splitmix64, stable_id_from_bytes};
+
+    #[test]
+    fn stable_id_is_deterministic_and_distinct() {
+        // Same bytes -> same id on every call (build-independent).
+        assert_eq!(
+            stable_id_from_bytes(b"EpisodeVec\x1fep_123"),
+            stable_id_from_bytes(b"EpisodeVec\x1fep_123")
+        );
+        // Distinct keys -> distinct ids; label prefix keeps a shared business key
+        // (episode_id) distinct across vector types.
+        assert_ne!(
+            stable_id_from_bytes(b"EpisodeVec\x1fep_123"),
+            stable_id_from_bytes(b"CueVec\x1fep_123")
+        );
+        assert_ne!(
+            stable_id_from_bytes(b"EpisodeVec\x1fep_123"),
+            stable_id_from_bytes(b"EpisodeVec\x1fep_124")
+        );
+        // splitmix64 is a pure finalizer.
+        assert_eq!(splitmix64(42), splitmix64(42));
+        assert_ne!(fnv1a64(0, b"a"), fnv1a64(0, b"b"));
+    }
+
+    #[test]
+    fn level_is_deterministic_per_id() {
+        // The dominant fix: a given id always maps to the same level (was a fresh
+        // rand draw every build).
+        let m_l = 1.0 / (2.0_f64).ln();
+        for id in [0u128, 1, 7, u128::MAX, 0x1234_5678_9ABC_DEF0] {
+            assert_eq!(level_from_id(id, m_l), level_from_id(id, m_l));
+        }
+    }
+
+    #[test]
+    fn level_distribution_is_preserved() {
+        // Recall-safety guard: hashing the id instead of drawing rand must keep
+        // the exponential profile. Level 0 should dominate (~1-1/e of nodes) and
+        // the mean should sit near m_l, matching the original construction.
+        let m_l = 1.0 / (2.0_f64).ln(); // ~1.4427, the canonical HNSW factor
+        let n = 50_000u128;
+        let mut level0 = 0u64;
+        let mut sum = 0u64;
+        let mut max_level = 0usize;
+        for i in 0..n {
+            // Spread ids the way stable_id_from_bytes would (not sequential).
+            let id = stable_id_from_bytes(format!("EpisodeVec\x1fep_{i}").as_bytes());
+            let lvl = level_from_id(id, m_l);
+            if lvl == 0 {
+                level0 += 1;
+            }
+            sum += lvl as u64;
+            max_level = max_level.max(lvl);
+        }
+        let frac_level0 = level0 as f64 / n as f64;
+        let mean = sum as f64 / n as f64;
+        // P(level==0) = 1 - e^{-1/m_l} ~= 0.5 for m_l=1/ln2; allow generous slack.
+        assert!(
+            (0.40..0.60).contains(&frac_level0),
+            "level-0 fraction {frac_level0} outside expected ~0.5 band"
+        );
+        // Mean level of a geometric(p=0.5) tail ~= 1.0; guard a sane band.
+        assert!(
+            (0.6..1.6).contains(&mean),
+            "mean level {mean} outside expected band"
+        );
+        // Sanity: the tower has some height but is not absurd for 50k nodes.
+        assert!((5..40).contains(&max_level), "max level {max_level} implausible");
     }
 }

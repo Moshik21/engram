@@ -88,10 +88,15 @@ impl PartialOrd for HVector<'_> {
 }
 impl Ord for HVector<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Total order: break exact-distance ties by id so the heap pop order (and
+        // thus which equidistant neighbors survive the m/ef/k cutoffs) is
+        // build-stable. Recall-neutral — only orders items already tied on
+        // distance. Must use the SAME id direction as Candidate::cmp.
         other
             .distance
             .partial_cmp(&self.distance)
             .unwrap_or(Ordering::Equal)
+            .then_with(|| self.id.cmp(&other.id))
     }
 }
 
@@ -112,7 +117,20 @@ impl Debug for HVector<'_> {
 impl<'arena> HVector<'arena> {
     #[inline(always)]
     pub fn from_slice(label: &'arena str, level: usize, data: &'arena [f64]) -> Self {
-        let id = v6_uuid();
+        // Transient query vectors (and any caller without a stable business key)
+        // mint a fresh v6 UUID. The INSERT path uses `from_slice_with_id` with a
+        // deterministic, build-independent id so the persisted HNSW graph is
+        // reproducible across rebuilds of the same corpus.
+        Self::from_slice_with_id(label, level, data, v6_uuid())
+    }
+
+    #[inline(always)]
+    pub fn from_slice_with_id(
+        label: &'arena str,
+        level: usize,
+        data: &'arena [f64],
+        id: u128,
+    ) -> Self {
         HVector {
             id,
             // is_deleted: false,
