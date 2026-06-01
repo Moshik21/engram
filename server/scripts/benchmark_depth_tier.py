@@ -267,6 +267,15 @@ async def _build_adapter(
     # unseeded in production and perturbs near-tied scores every recall). The
     # production default is unchanged; this only pins the measurement arm.
     cfg.activation.ts_enabled = False
+    if graph_on:
+        # DEPTH arm: mirror the rework profile's depth-tier entity budget so the
+        # graph can actually surface entities into the top-k. The eval built a
+        # bare EngramConfig() (integration_profile="off"), whose
+        # passage_first_entity_budget default is 0 -- so the depth arm was
+        # silently EPISODE-ONLY (zero entity slots) and never tested the depth
+        # tier at all. Budget 3 = the rework depth tier. The core arm
+        # (use_graph=False) keeps budget 0 (set by the adapter).
+        cfg.activation.passage_first_entity_budget = 3
     applied_ablation = _apply_ablation(cfg, ablate) if ablate else {}
     adapter = _CachingAdapter(
         cfg=cfg.activation,
