@@ -400,6 +400,18 @@ class ActivationConfig(BaseModel):
     reranker_provider: str = Field(default="noop", pattern="^(cohere|local|noop)$")
     reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")
     reranker_top_n: int = Field(default=10, ge=1, le=50)
+    reranker_rerank_episodes: bool = Field(
+        default=False,
+        description=(
+            "OFF-by-default experiment. When True, the cross-encoder rerank also "
+            "builds documents from episode content (+ chunk_context when present) "
+            "for the episode/cue candidates, reranks the merged episode+entity set, "
+            "and writes the rerank-derived relevance score onto the surviving "
+            "episode/cue candidates so the order reaches the final passage-first "
+            "top-k (not just the discarded entity list). When False the rerank path "
+            "is byte-identical to the entity-only behavior."
+        ),
+    )
     retrieval_reranker_timeout_ms: int = Field(
         default=75,
         ge=0,

@@ -1763,25 +1763,102 @@ async def retrieve(
             reranker_started = time.perf_counter()
             try:
                 async def _rerank_results() -> None:
-                    docs: list[tuple[str, str]] = []
-                    for sr in scored[: cfg.reranker_top_n * 2]:
-                        entity = await graph_store.get_entity(sr.node_id, group_id)
+                    if not cfg.reranker_rerank_episodes:
+                        docs: list[tuple[str, str]] = []
+                        for sr in scored[: cfg.reranker_top_n * 2]:
+                            entity = await graph_store.get_entity(sr.node_id, group_id)
+                            text = ""
+                            if entity:
+                                text = entity.name
+                                if entity.summary:
+                                    text = f"{entity.name}: {entity.summary}"
+                            docs.append((sr.node_id, text))
+
+                        if not docs:
+                            return
+                        reranked = await reranker.rerank(
+                            query,
+                            docs,
+                            top_n=cfg.reranker_top_n,
+                        )
+                        rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
+                        scored.sort(
+                            key=lambda sr: rerank_order.get(sr.node_id, len(scored))
+                        )
+                        return
+
+                    # --- OFF-by-default episode rerank experiment ---
+                    # Build entity docs (as above) plus episode docs from raw
+                    # episode content (+ chunk_context when present), rerank the
+                    # merged set, then write the rerank-derived relevance score
+                    # back onto the surviving episode/cue candidates so the order
+                    # reaches the passage-first top-k (Step 6 re-sorts special
+                    # results by score, so list order alone would be discarded).
+                    entity_srs = list(scored[: cfg.reranker_top_n * 2])
+                    episode_srs: list[ScoredResult] = list(episode_candidates) + list(
+                        cue_candidates
+                    )
+
+                    entities = await asyncio.gather(
+                        *(
+                            graph_store.get_entity(sr.node_id, group_id)
+                            for sr in entity_srs
+                        )
+                    )
+                    episodes = await asyncio.gather(
+                        *(
+                            graph_store.get_episode_by_id(sr.node_id, group_id)
+                            for sr in episode_srs
+                        )
+                    )
+
+                    docs = []
+                    for sr, entity in zip(entity_srs, entities):
                         text = ""
                         if entity:
                             text = entity.name
                             if entity.summary:
                                 text = f"{entity.name}: {entity.summary}"
-                        docs.append((sr.node_id, text))
+                        docs.append((f"entity::{sr.node_id}", text))
+                    for sr, ep in zip(episode_srs, episodes):
+                        text = ep.content if ep else ""
+                        if sr.chunk_context:
+                            text = (
+                                f"{text}\n{sr.chunk_context}"
+                                if text
+                                else sr.chunk_context
+                            )
+                        docs.append((f"episode::{id(sr)}", text))
 
                     if not docs:
                         return
                     reranked = await reranker.rerank(
                         query,
                         docs,
-                        top_n=cfg.reranker_top_n,
+                        top_n=len(docs),
                     )
-                    rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
-                    scored.sort(key=lambda sr: rerank_order.get(sr.node_id, len(scored)))
+                    # Entities: re-sort scored by rerank rank (same as OFF path).
+                    entity_rank = {
+                        key.split("::", 1)[1]: i
+                        for i, (key, _) in enumerate(reranked)
+                        if key.startswith("entity::")
+                    }
+                    scored.sort(
+                        key=lambda sr: entity_rank.get(sr.node_id, len(scored))
+                    )
+                    # Episodes/cues: overwrite score with the cross-encoder
+                    # relevance score so Step 6's (-score, node_id) sort surfaces
+                    # the reranked order. Keyed by id() to keep episode and cue
+                    # candidates that share a node_id independently scored.
+                    episode_score = {
+                        int(key.split("::", 1)[1]): rscore
+                        for key, rscore in reranked
+                        if key.startswith("episode::")
+                    }
+                    for sr in episode_srs:
+                        rscore = episode_score.get(id(sr))
+                        if rscore is not None:
+                            sr.score = rscore
 
                 rerank_call = _rerank_results()
                 timeout_seconds = _stage_timeout_seconds(
