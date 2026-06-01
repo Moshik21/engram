@@ -284,7 +284,9 @@ class HybridSearchIndex:
         for rank, (eid, _) in enumerate(vec_results, start=1):
             rrf_scores[eid] = rrf_scores.get(eid, 0.0) + 1.0 / (k + rank)
 
-        merged = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+        # (-score, id): break tied RRF scores by id so the lite path is
+        # deterministic, matching the Helix _rrf_fusion tie-break.
+        merged = sorted(rrf_scores.items(), key=lambda x: (-x[1], x[0]))
 
         # Normalize to 0-1
         if merged:
@@ -324,8 +326,8 @@ class HybridSearchIndex:
             combined = self._fts_weight * fts_s + self._vec_weight * vec_s
             merged.append((eid, combined))
 
-        # Sort by combined score descending
-        merged.sort(key=lambda x: x[1], reverse=True)
+        # Sort by combined score descending, id tie-break for determinism
+        merged.sort(key=lambda x: (-x[1], x[0]))
 
         # Normalize to 0-1
         if merged:

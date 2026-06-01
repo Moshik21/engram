@@ -196,11 +196,13 @@ def _merge_special_results(
     special_results: list[ScoredResult] = []
 
     if episode_candidates and cfg.episode_retrieval_enabled:
-        episode_candidates.sort(key=lambda r: r.score, reverse=True)
+        # (-score, node_id): break tied scores by id so the core top-k is
+        # deterministic across builds (mirrors scorer.py / candidate_pool).
+        episode_candidates.sort(key=lambda r: (-r.score, r.node_id))
         special_results.extend(episode_candidates[: cfg.episode_retrieval_max])
 
     if cue_candidates and cfg.cue_recall_enabled:
-        cue_candidates.sort(key=lambda r: r.score, reverse=True)
+        cue_candidates.sort(key=lambda r: (-r.score, r.node_id))
         best_by_episode = {result.node_id: result for result in special_results}
         for cue_result in cue_candidates[: cfg.cue_recall_max]:
             existing = best_by_episode.get(cue_result.node_id)
@@ -213,7 +215,7 @@ def _merge_special_results(
                 suppressed_cue_out[cue_result.node_id] = cue_result.score
         special_results = list(best_by_episode.values())
 
-    special_results.sort(key=lambda r: r.score, reverse=True)
+    special_results.sort(key=lambda r: (-r.score, r.node_id))
     return special_results
 
 
@@ -1711,8 +1713,8 @@ async def retrieve(
                     oldness_boost = 1 - math.exp(-age_days / halflife)
                     sr.score *= 1 + oldness_boost
 
-            # Re-sort after temporal adjustment
-            scored.sort(key=lambda sr: sr.score, reverse=True)
+            # Re-sort after temporal adjustment ((-score, node_id) tie-break)
+            scored.sort(key=lambda sr: (-sr.score, sr.node_id))
 
             # Step 5.06: Temporal date filtering — ensure temporally
             # relevant episodes survive into final results even if their
@@ -1942,7 +1944,7 @@ async def retrieve(
             for sr in special_results:
                 sr.score *= 2.0
             results = entity_results + special_results
-            results.sort(key=lambda r: r.score, reverse=True)
+            results.sort(key=lambda r: (-r.score, r.node_id))
             results = results[:top_n]
             # Restore original scores after selection (undo the 2x sort boost)
             for sr in results:
@@ -1956,7 +1958,7 @@ async def retrieve(
                 episode_candidates, cue_candidates, cfg, suppressed_cue_out,
             )
             results = entity_results + special_results
-            results.sort(key=lambda r: r.score, reverse=True)
+            results.sort(key=lambda r: (-r.score, r.node_id))
             results = results[:top_n]
     else:
         results = scored[:top_n]
