@@ -65,12 +65,17 @@ class TestExtract:
         assert len(result.entities) == 1
         assert result.entities[0]["name"] == "Go"
 
-    async def test_invalid_json_returns_empty(self):
+    async def test_invalid_json_degrades_to_empty_with_error(self):
+        """An unparseable (non-blank) response degrades to EMPTY -- no extractable
+        facts -- rather than PARSE_ERROR, so it can't hard-abort a corpus build.
+        The error string is retained (and a WARNING logged) so a systematic
+        extraction defect stays observable."""
         extractor = self._make_extractor_with_response("not valid json {{{")
         result = await extractor.extract("test text")
         assert result.entities == []
         assert result.relationships == []
-        assert result.status == ExtractionStatus.PARSE_ERROR
+        assert result.status == ExtractionStatus.EMPTY
+        assert result.error and "unparseable_response" in result.error
 
     async def test_api_exception_returns_empty(self):
         extractor = EntityExtractor()
@@ -144,6 +149,18 @@ class TestExtract:
         assert result.entities == []
         assert result.relationships == []
         assert result.status == ExtractionStatus.EMPTY
+
+    async def test_blank_response_is_empty_not_parse_error(self):
+        """A truly blank model response (observed deterministically on some
+        sessions at temperature=0) must degrade to EMPTY, not PARSE_ERROR, so it
+        cannot hard-abort a corpus build. Distinct from non-blank malformed JSON,
+        which stays PARSE_ERROR (see test_invalid_json_returns_empty)."""
+        for blank in ("", "   ", "```\n```"):
+            extractor = self._make_extractor_with_response(blank)
+            result = await extractor.extract("test text")
+            assert result.status == ExtractionStatus.EMPTY, f"blank={blank!r}"
+            assert result.entities == []
+            assert result.relationships == []
 
     async def test_uses_cached_system_prompt(self):
         """System kwarg should be a list with cache_control for prompt caching."""

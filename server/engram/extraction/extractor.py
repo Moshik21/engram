@@ -178,12 +178,24 @@ class EntityExtractor:
                 status=status,
             )
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse extraction response as JSON: %s\n%s", e, response_text)
+            # An unparseable response (blank, prose/refusal preamble, or a
+            # transient non-JSON reply) means "no extractable facts" for this
+            # episode, NOT a reason to hard-abort the whole corpus build. The
+            # episode is still stored and recallable; it simply yields no graph
+            # entities/relationships. Degrade to EMPTY (deterministic, cacheable),
+            # keeping the error string + a WARNING log so a systematic extraction
+            # defect stays observable rather than silently aborting.
+            logger.warning(
+                "Unparseable extraction response (%s); treating as EMPTY. "
+                "Response head: %r",
+                e,
+                (response_text or "")[:120],
+            )
             return ExtractionResult(
                 entities=[],
                 relationships=[],
-                status=ExtractionStatus.PARSE_ERROR,
-                error=str(e),
+                status=ExtractionStatus.EMPTY,
+                error=f"unparseable_response: {e}",
             )
         except Exception as e:
             logger.error("Entity extraction failed: %s", e)
