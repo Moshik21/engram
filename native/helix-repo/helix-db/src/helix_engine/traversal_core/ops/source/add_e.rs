@@ -105,15 +105,16 @@ impl<'db, 'arena, 'txn, 's, I: Iterator<Item = Result<TraversalValue<'arena>, Gr
                 HelixGraphStorage::edge_key(&edge.id),
                 &bytes,
             )?;
-            self.storage.out_edges_db.put_with_flags(
+            // Plain dup put (not APPEND_DUP): adjacency keys embed node ids, which
+            // are now deterministic/non-monotonic, so APPEND_DUP would reject
+            // out-of-order inserts.
+            self.storage.out_edges_db.put(
                 self.txn,
-                PutFlags::APPEND_DUP,
                 &out_key,
                 &HelixGraphStorage::pack_edge_data(&edge.id, &to_node),
             )?;
-            self.storage.in_edges_db.put_with_flags(
+            self.storage.in_edges_db.put(
                 self.txn,
-                PutFlags::APPEND_DUP,
                 &HelixGraphStorage::in_edge_key(&to_node, &label_hash),
                 &HelixGraphStorage::pack_edge_data(&edge.id, &from_node),
             )?;

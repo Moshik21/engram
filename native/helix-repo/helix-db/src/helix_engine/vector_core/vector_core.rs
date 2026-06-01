@@ -11,7 +11,7 @@ use crate::{
         },
     },
     utils::{
-        id::{uuid_str, v6_uuid},
+        id::{splitmix64, stable_id_from_bytes, uuid_str, v6_uuid},
         properties::ImmutablePropertiesMap,
     },
 };
@@ -22,37 +22,6 @@ use heed3::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-
-// Deterministic hashing for build-independent HNSW topology. A weak/clustering
-// hash would skew the level distribution (and thus recall), so use well-mixed
-// finalizers, never raw key bytes.
-#[inline]
-fn splitmix64(x: u64) -> u64 {
-    let mut z = x.wrapping_add(0x9E3779B97F4A7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-    z ^ (z >> 31)
-}
-
-#[inline]
-fn fnv1a64(seed: u64, bytes: &[u8]) -> u64 {
-    let mut h = seed;
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01B3);
-    }
-    h
-}
-
-/// Build- and insertion-order-independent 128-bit id from a canonical byte
-/// string. Two independent finalized FNV-1a halves give ample collision
-/// resistance at our corpus scale (thousands–millions of vectors).
-#[inline]
-fn stable_id_from_bytes(bytes: &[u8]) -> u128 {
-    let h1 = splitmix64(fnv1a64(0xCBF2_9CE4_8422_2325, bytes));
-    let h2 = splitmix64(fnv1a64(0x9E37_79B9_7F4A_7C15, bytes));
-    ((h1 as u128) << 64) | (h2 as u128)
-}
 
 /// Pure, deterministic HNSW level from a vector id. Hashes the id to a uniform
 /// f64 in (0,1] and applies the standard `(-ln(u) * m_l).floor()` transform, so
@@ -748,7 +717,8 @@ impl HNSW for VectorCore {
 
 #[cfg(test)]
 mod determinism_tests {
-    use super::{fnv1a64, level_from_id, splitmix64, stable_id_from_bytes};
+    use super::level_from_id;
+    use crate::utils::id::{fnv1a64, splitmix64, stable_id_from_bytes};
 
     #[test]
     fn stable_id_is_deterministic_and_distinct() {

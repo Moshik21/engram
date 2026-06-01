@@ -81,7 +81,7 @@ mcp-helix: ## Start MCP server (streamable HTTP on port 8200, connects to Docker
 
 # Native HelixDB (in-process via PyO3)
 
-HELIX_REPO = helixdb-cfg/.helix/dev/helix-repo-copy
+HELIX_REPO = native/helix-repo
 NATIVE_DATA_DIR ?=
 NATIVE_DATA_ARG = $(if $(NATIVE_DATA_DIR),--helix-data-dir $(NATIVE_DATA_DIR),)
 

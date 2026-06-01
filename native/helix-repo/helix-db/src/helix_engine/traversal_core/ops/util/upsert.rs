@@ -11,7 +11,7 @@ use crate::{
     },
     protocol::value::Value,
     utils::{
-        id::v6_uuid,
+        id::{stable_node_id, v6_uuid},
         items::{Edge, Node},
         label_hash::hash_label,
         properties::ImmutablePropertiesMap,
@@ -300,20 +300,20 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
                         }
                     };
 
+                    // Deterministic node id (idempotent re-ingest) + plain put:
+                    // hashed ids are non-monotonic so PutFlags::APPEND would
+                    // MDB_KEYEXIST. Mirrors add_n.rs.
+                    let id =
+                        stable_node_id(label, properties.as_ref()).unwrap_or_else(v6_uuid);
                     let node = Node {
-                        id: v6_uuid(),
+                        id,
                         label,
                         version: 1,
                         properties,
                     };
 
                     let bytes = bincode::serialize(&node)?;
-                    self.storage.nodes_db.put_with_flags(
-                        self.txn,
-                        PutFlags::APPEND,
-                        &node.id,
-                        &bytes,
-                    )?;
+                    self.storage.nodes_db.put(self.txn, &node.id, &bytes)?;
 
                     for (k, v) in create_props.iter() {
                         let Some((db, secondary_index)) = self.storage.secondary_indices.get(*k)
@@ -331,13 +331,10 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
                                     &node.id,
                                 )
                                 .map_err(|_| GraphError::DuplicateKey(k.to_string()))?,
-                            crate::helix_engine::types::SecondaryIndex::Index(_) => db
-                                .put_with_flags(
-                                    self.txn,
-                                    PutFlags::APPEND_DUP,
-                                    &v_serialized,
-                                    &node.id,
-                                )?,
+                            // Plain dup put: deterministic node ids are non-monotonic.
+                            crate::helix_engine::types::SecondaryIndex::Index(_) => {
+                                db.put(self.txn, &v_serialized, &node.id)?
+                            }
                             crate::helix_engine::types::SecondaryIndex::None => unreachable!(),
                         }
                     }
@@ -496,15 +493,14 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
                         HelixGraphStorage::edge_key(&edge.id),
                         &bytes,
                     )?;
-                    self.storage.out_edges_db.put_with_flags(
+                    // Plain dup put: adjacency keys embed non-monotonic node ids.
+                    self.storage.out_edges_db.put(
                         self.txn,
-                        PutFlags::APPEND_DUP,
                         &HelixGraphStorage::out_edge_key(&from_node, &label_hash),
                         &HelixGraphStorage::pack_edge_data(&edge.id, &to_node),
                     )?;
-                    self.storage.in_edges_db.put_with_flags(
+                    self.storage.in_edges_db.put(
                         self.txn,
-                        PutFlags::APPEND_DUP,
                         &HelixGraphStorage::in_edge_key(&to_node, &label_hash),
                         &HelixGraphStorage::pack_edge_data(&edge.id, &from_node),
                     )?;
@@ -726,13 +722,10 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
                                     &vector.id,
                                 )
                                 .map_err(|_| GraphError::DuplicateKey(k.to_string()))?,
-                            crate::helix_engine::types::SecondaryIndex::Index(_) => db
-                                .put_with_flags(
-                                    self.txn,
-                                    PutFlags::APPEND_DUP,
-                                    &v_serialized,
-                                    &vector.id,
-                                )?,
+                            // Plain dup put: deterministic vector ids are non-monotonic.
+                            crate::helix_engine::types::SecondaryIndex::Index(_) => {
+                                db.put(self.txn, &v_serialized, &vector.id)?
+                            }
                             crate::helix_engine::types::SecondaryIndex::None => unreachable!(),
                         }
                     }

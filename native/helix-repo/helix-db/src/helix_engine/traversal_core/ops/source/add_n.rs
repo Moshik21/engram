@@ -5,7 +5,11 @@ use crate::{
         traversal_core::{traversal_iter::RwTraversalIterator, traversal_value::TraversalValue},
         types::GraphError,
     },
-    utils::{id::v6_uuid, items::Node, properties::ImmutablePropertiesMap},
+    utils::{
+        id::{stable_node_id, v6_uuid},
+        items::Node,
+        properties::ImmutablePropertiesMap,
+    },
 };
 use heed3::{PutFlags, RwTxn};
 
@@ -68,8 +72,12 @@ impl<'db, 'arena, 'txn, 's, I: Iterator<Item = Result<TraversalValue<'arena>, Gr
         'txn,
         impl Iterator<Item = Result<TraversalValue<'arena>, GraphError>>,
     > {
+        // Deterministic node id from the stable business key (episode_id/
+        // entity_id) so the graph — and BM25, which is keyed by the node id —
+        // is reproducible across rebuilds. v6_uuid fallback when no key.
+        let id = stable_node_id(label, properties.as_ref()).unwrap_or_else(v6_uuid);
         let node = Node {
-            id: v6_uuid(),
+            id,
             label,
             version: 1,
             properties,
@@ -98,13 +106,13 @@ impl<'db, 'arena, 'txn, 's, I: Iterator<Item = Result<TraversalValue<'arena>, Gr
                                             &serialized,
                                             &node.id,
                                         ),
-                                    crate::helix_engine::types::SecondaryIndex::Index(_) => db
-                                        .put_with_flags(
-                                            self.txn,
-                                            PutFlags::APPEND_DUP,
-                                            &serialized,
-                                            &node.id,
-                                        ),
+                                    // Plain dup put (not APPEND_DUP): deterministic
+                                    // node ids are non-monotonic, so APPEND_DUP would
+                                    // reject an out-of-order (key,value). Mirrors the
+                                    // Index arm in upsert.rs.
+                                    crate::helix_engine::types::SecondaryIndex::Index(_) => {
+                                        db.put(self.txn, &serialized, &node.id)
+                                    }
                                     crate::helix_engine::types::SecondaryIndex::None => {
                                         unreachable!()
                                     }
@@ -132,12 +140,16 @@ impl<'db, 'arena, 'txn, 's, I: Iterator<Item = Result<TraversalValue<'arena>, Gr
         if result.is_ok() {
             match bincode::serialize(&node) {
                 Ok(bytes) => {
-                    if let Err(e) = self.storage.nodes_db.put_with_flags(
-                        self.txn,
-                        PutFlags::APPEND,
-                        &node.id,
-                        &bytes,
-                    ) {
+                    // Plain put (not PutFlags::APPEND): deterministic hashed ids
+                    // are NOT monotonically increasing, so APPEND would
+                    // MDB_KEYEXIST. Re-inserting the same business key is now
+                    // idempotent (overwrites in place), which is the intended
+                    // re-ingest semantics.
+                    if let Err(e) = self
+                        .storage
+                        .nodes_db
+                        .put(self.txn, &node.id, &bytes)
+                    {
                         result = Err(GraphError::from(e));
                     }
                 }

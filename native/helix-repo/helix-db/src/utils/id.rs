@@ -11,6 +11,60 @@ use core::fmt;
 use std::ops::Deref;
 
 use serde::{Deserializer, Serializer, de::Visitor};
+
+use crate::utils::properties::ImmutablePropertiesMap;
+
+// --- Deterministic id derivation (build- and insertion-order-independent) ----
+// Shared by the HNSW vector path (stable_vector_id) and the graph-node path
+// (stable_node_id). A weak/clustering hash would skew the HNSW level
+// distribution, so these use well-mixed finalizers, never raw key bytes.
+
+#[inline]
+pub(crate) fn splitmix64(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E3779B97F4A7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+#[inline]
+pub(crate) fn fnv1a64(seed: u64, bytes: &[u8]) -> u64 {
+    let mut h = seed;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
+}
+
+/// Build- and insertion-order-independent 128-bit id from a canonical byte
+/// string. Two independent finalized FNV-1a halves give ample collision
+/// resistance at our corpus scale.
+#[inline]
+pub(crate) fn stable_id_from_bytes(bytes: &[u8]) -> u128 {
+    let h1 = splitmix64(fnv1a64(0xCBF2_9CE4_8422_2325, bytes));
+    let h2 = splitmix64(fnv1a64(0x9E37_79B9_7F4A_7C15, bytes));
+    ((h1 as u128) << 64) | (h2 as u128)
+}
+
+/// Deterministic graph-NODE id from the stable business key already in
+/// `properties` (Episode=episode_id, Entity=entity_id, label-prefixed so
+/// distinct node types never collide). Returns None when no recognized key is
+/// present (caller falls back to a fresh UUID). Mirrors the HNSW
+/// `stable_vector_id` so a node and its vector are derived from the same key.
+pub(crate) fn stable_node_id(
+    label: &str,
+    properties: Option<&ImmutablePropertiesMap>,
+) -> Option<u128> {
+    let props = properties?;
+    let key = ["entity_id", "episode_id", "id"].iter().find_map(|k| {
+        props
+            .get(k)
+            .map(|v| v.inner_stringify())
+            .filter(|s| !s.is_empty())
+    })?;
+    Some(stable_id_from_bytes(format!("{label}\x1f{key}").as_bytes()))
+}
 use sonic_rs::{Deserialize, Serialize};
 
 /// A wrapper around a 128-bit UUID.

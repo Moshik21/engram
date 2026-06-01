@@ -1,0 +1,337 @@
+{
+  "persona_id": "tech_consulting_life",
+  "domain": "an independent IT and security consultant's business and personal life",
+  "sessions": [
+    {
+      "session_id": "s1",
+      "date": "2024/01/09",
+      "turns": [
+        {"role": "user", "text": "Signed my first big retainer of the year. A regional bank called Halverson Group brought me on to run their security program."},
+        {"role": "assistant", "text": "Congrats on landing Halverson Group. Running a whole security program is a meaty engagement."},
+        {"role": "user", "text": "Yeah, it's a twelve-month retainer. They're my anchor client for the year."}
+      ]
+    },
+    {
+      "session_id": "s2",
+      "date": "2024/01/18",
+      "turns": [
+        {"role": "user", "text": "I'm not solo anymore. My business partner Marisol came on board to handle the compliance and audit side of the practice."},
+        {"role": "assistant", "text": "Having Marisol cover compliance and audit frees you up. How do you split the work?"},
+        {"role": "user", "text": "I take the technical engagements, she takes the paperwork-heavy ones. We co-own the firm fifty-fifty."}
+      ]
+    },
+    {
+      "session_id": "s3",
+      "date": "2024/01/27",
+      "turns": [
+        {"role": "user", "text": "Had coffee with my old mentor Devraj. He's the one who convinced me to go independent five years ago."},
+        {"role": "assistant", "text": "Mentors like Devraj are gold. Is he still consulting himself?"},
+        {"role": "user", "text": "He's winding his own practice down, mostly giving advice now. Always picks up when I call."}
+      ]
+    },
+    {
+      "session_id": "s4",
+      "date": "2024/02/05",
+      "turns": [
+        {"role": "user", "text": "Started building a little side product on weekends. It's a credential-rotation tool I'm calling GateKeep."},
+        {"role": "assistant", "text": "GateKeep sounds useful for exactly the clients you serve. Is it just for you or a real product?"},
+        {"role": "user", "text": "Half scratch-my-own-itch, half maybe-a-business. We'll see if GateKeep goes anywhere."}
+      ]
+    },
+    {
+      "session_id": "s5",
+      "date": "2024/02/14",
+      "turns": [
+        {"role": "user", "text": "New logo signed: a fintech startup called Nordic Vault wants a readiness assessment before their Series B."},
+        {"role": "assistant", "text": "Nordic Vault doing diligence before a raise is smart. What's the scope of the assessment?"},
+        {"role": "user", "text": "Two weeks, mostly architecture review. Good short engagement to balance the long Halverson one."}
+      ]
+    },
+    {
+      "session_id": "s6",
+      "date": "2024/02/23",
+      "turns": [
+        {"role": "user", "text": "Adopted a scruffy terrier mix from the rescue this weekend. Named him Biscuit."},
+        {"role": "assistant", "text": "Welcome home, Biscuit! A terrier mix will keep you on your toes."},
+        {"role": "user", "text": "He's already claimed the chair in my home office. Total menace, total love."}
+      ]
+    },
+    {
+      "session_id": "s7",
+      "date": "2024/03/04",
+      "turns": [
+        {"role": "user", "text": "Finally kicking off the kitchen renovation I've put off for two years. Hired a contractor named Otto to run it."},
+        {"role": "assistant", "text": "A kitchen reno is a big project. Is Otto handling the whole thing end to end?"},
+        {"role": "user", "text": "Design through demo. Otto says six weeks if the cabinets show up on time."}
+      ]
+    },
+    {
+      "session_id": "s8",
+      "date": "2024/03/15",
+      "turns": [
+        {"role": "user", "text": "Rough week. Halverson Group got hit by a ransomware attack on Tuesday night."},
+        {"role": "assistant", "text": "That's serious. How bad was the ransomware hit at Halverson Group, and is the response under control?"},
+        {"role": "user", "text": "Contained by Thursday thanks to the backups we'd set up. Brutal but it validated the program."}
+      ]
+    },
+    {
+      "session_id": "s9",
+      "date": "2024/03/26",
+      "turns": [
+        {"role": "user", "text": "Nordic Vault passed with flying colors. They specifically needed to satisfy SOC 2 Type II for their investors."},
+        {"role": "assistant", "text": "Achieving SOC 2 Type II readiness ahead of a raise is a strong signal to Nordic Vault's investors."},
+        {"role": "user", "text": "Exactly. The report goes straight into their data room. Clean engagement."}
+      ]
+    },
+    {
+      "session_id": "s10",
+      "date": "2024/04/07",
+      "turns": [
+        {"role": "user", "text": "Marisol finished a credential I didn't know she was working toward. She passed the CISA exam this month."},
+        {"role": "assistant", "text": "Passing the CISA is no small feat. That deepens the audit side of your firm a lot."},
+        {"role": "user", "text": "It does. Now Marisol can sign off on certain audits herself instead of subcontracting them."}
+      ]
+    },
+    {
+      "session_id": "s11",
+      "date": "2024/04/19",
+      "turns": [
+        {"role": "user", "text": "Flew out to Reykjavik this week to do the on-site portion for Nordic Vault."},
+        {"role": "assistant", "text": "Reykjavik for an on-site with Nordic Vault! How was it being there in person?"},
+        {"role": "user", "text": "Cold and gorgeous. Their whole engineering team is in Iceland, so it had to be in person."}
+      ]
+    },
+    {
+      "session_id": "s12",
+      "date": "2024/05/02",
+      "turns": [
+        {"role": "user", "text": "Big personnel change at Halverson Group. They poached my main day-to-day contact, so my new point of contact there is a woman named Freya."},
+        {"role": "assistant", "text": "A new point of contact can reset a relationship. What's Freya like to work with?"},
+        {"role": "user", "text": "Sharp, decisive. Freya runs their whole IT org, so decisions move faster now."}
+      ]
+    },
+    {
+      "session_id": "s13",
+      "date": "2024/05/14",
+      "turns": [
+        {"role": "user", "text": "My mentor took a new gig. After years of advising me, Devraj joined a venture firm as an operating partner."},
+        {"role": "assistant", "text": "Devraj going in-house at a venture firm is a big shift. Which firm did he land at?"},
+        {"role": "user", "text": "A shop called Hearthstone Ventures. He'll be vetting their security investments now."}
+      ]
+    },
+    {
+      "session_id": "s14",
+      "date": "2024/05/27",
+      "turns": [
+        {"role": "user", "text": "The weekend project got real. A larger security vendor acquired GateKeep for an undisclosed sum."},
+        {"role": "assistant", "text": "An acquisition of GateKeep — congratulations! Who picked it up?"},
+        {"role": "user", "text": "A company called Sentinel Labs. They want it as a feature in their platform. Surreal week."}
+      ]
+    },
+    {
+      "session_id": "s15",
+      "date": "2024/06/08",
+      "turns": [
+        {"role": "user", "text": "The renovation hit a wall — my contractor bailed mid-project. I brought in a new contractor named Greta to finish the kitchen."},
+        {"role": "assistant", "text": "Losing a contractor mid-job is painful. Is Greta able to pick up where things were left?"},
+        {"role": "user", "text": "She's untangling the mess now. Greta thinks two more weeks and the kitchen is finally done."}
+      ]
+    },
+    {
+      "session_id": "s16",
+      "date": "2024/06/20",
+      "turns": [
+        {"role": "user", "text": "Got the green light to overhaul the access model. Freya picked the new direction: a zero-trust architecture across the whole org."},
+        {"role": "assistant", "text": "Moving to zero-trust is a major modernization. Good that Freya backed it decisively."},
+        {"role": "user", "text": "She pushed it through in a single meeting. Rollout starts next quarter."}
+      ]
+    },
+    {
+      "session_id": "s17",
+      "date": "2024/07/03",
+      "turns": [
+        {"role": "user", "text": "My partner is taking the lead on a brand-new service line for the firm: a virtual CISO offering for small banks."},
+        {"role": "assistant", "text": "A virtual CISO line for small banks fits your niche perfectly. Is that Marisol's initiative?"},
+        {"role": "user", "text": "All hers. She's productizing what we already do ad hoc. Could become our biggest revenue stream."}
+      ]
+    },
+    {
+      "session_id": "s18",
+      "date": "2024/07/16",
+      "turns": [
+        {"role": "user", "text": "Took Biscuit to the lake for the first time today. He was terrified of the water for about ten minutes, then wouldn't get out."},
+        {"role": "assistant", "text": "Classic dog arc — terror to obsession in ten minutes. Sounds like a good day at the lake."},
+        {"role": "user", "text": "Slept the whole drive home. Best kind of tired."}
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "qid": "q1",
+      "type": "multi_hop",
+      "question": "What type of attack hit my anchor client Halverson Group?",
+      "answer": "ransomware",
+      "accepted_forms": ["ransomware", "ransomware attack"],
+      "forbidden": [],
+      "bridge_entity": "Halverson Group",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s8"]
+    },
+    {
+      "qid": "q2",
+      "type": "multi_hop",
+      "question": "Which professional credential did my business partner Marisol pass?",
+      "answer": "CISA",
+      "accepted_forms": ["CISA", "CISA exam"],
+      "forbidden": ["compliance and audit"],
+      "bridge_entity": "Marisol",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s10"]
+    },
+    {
+      "qid": "q3",
+      "type": "multi_hop",
+      "question": "Which venture firm did my mentor Devraj join?",
+      "answer": "Hearthstone Ventures",
+      "accepted_forms": ["Hearthstone Ventures", "Hearthstone"],
+      "forbidden": [],
+      "bridge_entity": "Devraj",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q4",
+      "type": "multi_hop",
+      "question": "Which company acquired my side product GateKeep?",
+      "answer": "Sentinel Labs",
+      "accepted_forms": ["Sentinel Labs", "Sentinel"],
+      "forbidden": [],
+      "bridge_entity": "GateKeep",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s14"]
+    },
+    {
+      "qid": "q5",
+      "type": "multi_hop",
+      "question": "Which compliance standard did the fintech client Nordic Vault need to satisfy?",
+      "answer": "SOC 2 Type II",
+      "accepted_forms": ["SOC 2 Type II", "SOC 2"],
+      "forbidden": [],
+      "bridge_entity": "Nordic Vault",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q6",
+      "type": "multi_hop",
+      "question": "In which city did I do the on-site work for the Nordic Vault engagement?",
+      "answer": "Reykjavik",
+      "accepted_forms": ["Reykjavik", "Iceland"],
+      "forbidden": [],
+      "bridge_entity": "Nordic Vault",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s11"]
+    },
+    {
+      "qid": "q7",
+      "type": "multi_hop",
+      "question": "Which security architecture did Freya, my contact at the anchor client, choose for the bank?",
+      "answer": "zero-trust",
+      "accepted_forms": ["zero-trust", "zero-trust architecture"],
+      "forbidden": [],
+      "bridge_entity": "Freya",
+      "anchor_session_ids": ["s12"],
+      "answer_session_ids": ["s16"]
+    },
+    {
+      "qid": "q11",
+      "type": "current_value",
+      "question": "Who is the contractor currently finishing my kitchen renovation?",
+      "answer": "Greta",
+      "accepted_forms": ["Greta"],
+      "forbidden": ["Otto"],
+      "bridge_entity": "kitchen",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q12",
+      "type": "current_value",
+      "question": "Who is my current main point of contact at the anchor client Halverson Group?",
+      "answer": "Freya",
+      "accepted_forms": ["Freya"],
+      "forbidden": [],
+      "bridge_entity": "Halverson Group",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s12"]
+    },
+    {
+      "qid": "q13",
+      "type": "current_value",
+      "question": "What is my mentor Devraj's most recent job?",
+      "answer": "operating partner",
+      "accepted_forms": ["operating partner", "operating partner at Hearthstone Ventures"],
+      "forbidden": [],
+      "bridge_entity": "Devraj",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q14",
+      "type": "synthesis",
+      "question": "What do I know about my business partner Marisol?",
+      "required_facts": ["compliance and audit", "CISA", "virtual CISO"],
+      "forbidden_facts": ["Devraj", "Hearthstone Ventures"],
+      "bridge_entity": "Marisol",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s2", "s10", "s17"]
+    },
+    {
+      "qid": "q15",
+      "type": "synthesis",
+      "question": "What do I know about the Nordic Vault engagement?",
+      "required_facts": ["readiness assessment", "SOC 2 Type II", "Reykjavik"],
+      "forbidden_facts": ["Sentinel Labs", "ransomware"],
+      "bridge_entity": "Nordic Vault",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s5", "s9", "s11"]
+    },
+    {
+      "qid": "q16",
+      "type": "synthesis",
+      "question": "What do I know about my side product GateKeep?",
+      "required_facts": ["credential-rotation tool", "acquired", "Sentinel Labs"],
+      "forbidden_facts": ["Nordic Vault", "Halverson"],
+      "bridge_entity": "GateKeep",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s4", "s14"]
+    },
+    {
+      "qid": "q8",
+      "type": "single_hop_control",
+      "question": "What did I name the dog I adopted from the rescue?",
+      "answer": "Biscuit",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s6"],
+      "answer_session_ids": ["s6"]
+    },
+    {
+      "qid": "q9",
+      "type": "single_hop_control",
+      "question": "Which room of my house am I renovating?",
+      "answer": "kitchen",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s7"]
+    },
+    {
+      "qid": "q10",
+      "type": "single_hop_control",
+      "question": "How long is the retainer with my anchor client?",
+      "answer": "twelve-month",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s1"]
+    }
+  ]
+}
