@@ -53,11 +53,14 @@ def test_template_is_deterministic_bytes():
     out1 = synth.synthesize(eps, entities, rels)
     out2 = synth.synthesize(list(reversed(eps)), list(reversed(entities)), list(rels))
     assert out1 == out2  # order-independent, byte-identical
+    # FOCUSED: one observation per subject entity, each dense about that subject.
+    joined = " ".join(out1)
     # Uses the canonical current-value convention.
-    assert "Current role: Engineer." in out1
-    assert "Current role: Manager." in out1
-    # Relationship fact rendered.
-    assert "Alice reports to Bob." in out1
+    assert "Current role: Engineer." in joined
+    assert "Current role: Manager." in joined
+    # Relationship fact rendered, grouped under its subject (Alice).
+    assert any("Alice reports to Bob." in o for o in out1)
+    assert all("Alice" in o for o in out1 if "reports to" in o)  # rel stays with subject
 
 
 def test_template_facts_stably_sorted():
@@ -79,7 +82,7 @@ def test_template_only_positive_polarity_facts():
     rels = [_rel("e1", "e2", "WORKS_AT", polarity="negative")]
     synth = TemplateObservationSynthesizer()
     out = synth.synthesize(eps, entities, rels)
-    assert "works at" not in out  # negated edge must not be surfaced
+    assert "works at" not in " ".join(out)  # negated edge must not be surfaced
 
 
 # --- No network on default path ---
@@ -97,7 +100,7 @@ def test_template_no_network(monkeypatch):
     synth = select_synthesizer(llm_enabled=False)
     assert isinstance(synth, TemplateObservationSynthesizer)
     out = synth.synthesize([_ep("ep_1", "x")], [_entity("e1", "Alice", role="Engineer")], [])
-    assert "Engineer" in out
+    assert any("Engineer" in o for o in out)
 
 
 def test_select_synthesizer_llm_stub():
@@ -105,7 +108,7 @@ def test_select_synthesizer_llm_stub():
     assert isinstance(synth, LLMObservationSynthesizer)
     # Stub falls back to deterministic template output (no live call).
     out = synth.synthesize([_ep("ep_1", "x")], [_entity("e1", "Alice", role="Engineer")], [])
-    assert "Engineer" in out
+    assert any("Engineer" in o for o in out)
 
 
 # --- ExtractionCache freeze determinism (mechanism the LLM path will rely on) ---

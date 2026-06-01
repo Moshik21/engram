@@ -37,7 +37,7 @@ class ObservationSynthesizer(Protocol):
         episodes: list[Episode],
         entities: list[Entity],
         relationships: list[Relationship],
-    ) -> str: ...
+    ) -> list[str]: ...
 
 
 def _entity_current_value(entity: Entity) -> str | None:
@@ -54,28 +54,6 @@ def _entity_current_value(entity: Entity) -> str | None:
     return None
 
 
-def _relationship_facts(
-    entities: list[Entity],
-    relationships: list[Relationship],
-) -> list[str]:
-    """Render clear-predicate relationship facts as ``Subject PREDICATE Object``.
-
-    Only positive-polarity edges between entities in the cluster are emitted, so
-    the observation never resurfaces a negated or out-of-cluster claim.
-    """
-    name_by_id = {e.id: e.name for e in entities}
-    facts: list[str] = []
-    for rel in relationships:
-        if rel.polarity != "positive":
-            continue
-        src = name_by_id.get(rel.source_id)
-        tgt = name_by_id.get(rel.target_id)
-        if not src or not tgt or not rel.predicate:
-            continue
-        facts.append(f"{src} {rel.predicate.replace('_', ' ').lower()} {tgt}.")
-    return facts
-
-
 class TemplateObservationSynthesizer:
     """Default, zero-cost, fully deterministic template synthesizer."""
 
@@ -86,27 +64,42 @@ class TemplateObservationSynthesizer:
         episodes: list[Episode],
         entities: list[Entity],
         relationships: list[Relationship],
-    ) -> str:
-        # Stable ordering by entity name, then by full fact string, guarantees
-        # byte-identical output for identical inputs.
+    ) -> list[str]:
+        # FOCUSED synthesis: one dense observation per SUBJECT entity, not one
+        # diffuse per-cluster summary. A per-cluster mega-summary embeds to an
+        # average vector across all cluster entities and ranks below sharp source
+        # episodes for a focused query ("what do I know about Atlas?"). Grouping
+        # each entity's current value + its outgoing positive relationships into a
+        # single observation ABOUT that entity keeps every sentence on the same
+        # subject, so the embedding is sharp and surfaces for queries about it.
+        # Stable ordering (entity name/id, then sorted facts) keeps output
+        # byte-identical for identical inputs.
         sorted_entities = sorted(entities, key=lambda e: (e.name, e.id))
+        name_by_id = {e.id: e.name for e in entities}
 
-        value_facts: list[str] = []
+        rels_by_subject: dict[str, list[str]] = {}
+        for rel in relationships:
+            if rel.polarity != "positive":
+                continue
+            src = name_by_id.get(rel.source_id)
+            tgt = name_by_id.get(rel.target_id)
+            if not src or not tgt or not rel.predicate:
+                continue
+            rels_by_subject.setdefault(rel.source_id, []).append(
+                f"{src} {rel.predicate.replace('_', ' ').lower()} {tgt}."
+            )
+
+        observations: list[str] = []
         for entity in sorted_entities:
+            parts: list[str] = []
             value = _entity_current_value(entity)
             if value:
-                value_facts.append(value)
-
-        rel_facts = sorted(set(_relationship_facts(sorted_entities, relationships)))
-
-        names = sorted({e.name for e in entities})
-        if names:
-            header = "Observation across related memories about " + ", ".join(names) + "."
-        else:
-            header = "Observation across related memories."
-
-        parts = [header, *value_facts, *rel_facts]
-        return " ".join(p for p in parts if p)
+                parts.append(value)
+            parts.extend(sorted(set(rels_by_subject.get(entity.id, []))))
+            if not parts:
+                continue
+            observations.append(" ".join(parts))
+        return observations
 
 
 class LLMObservationSynthesizer:
@@ -137,7 +130,7 @@ class LLMObservationSynthesizer:
         episodes: list[Episode],
         entities: list[Entity],
         relationships: list[Relationship],
-    ) -> str:
+    ) -> list[str]:
         # STUB: no live LLM call. Deterministic template until the frozen-cache
         # synthesis prompt is wired (see module docstring).
         return self._fallback.synthesize(episodes, entities, relationships)

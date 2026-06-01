@@ -154,9 +154,7 @@ class ObserverReflectPhase(ConsolidationPhase):
             if created >= cfg.observer_reflect_max_observations_per_cycle:
                 break
 
-            key = cluster_key(cluster.episode_ids)
-            if key in existing_keys:
-                continue  # already synthesized — do not duplicate
+            base_key = cluster_key(cluster.episode_ids)
 
             cluster_eps = [episode_by_id[eid] for eid in cluster.episode_ids]
             importance = cluster_importance([ep.content for ep in cluster_eps])
@@ -205,57 +203,65 @@ class ObserverReflectPhase(ConsolidationPhase):
                         seen_rel_ids.add(rel.id)
                         relationships.append(rel)
 
-            content = synthesizer.synthesize(cluster_eps, entities, relationships)
-
+            # FOCUSED synthesis returns one dense observation per subject entity.
+            # Each is persisted as its own observation episode with a per-content
+            # idempotency key so a later cold-tier re-run does not duplicate it.
             newest = _max_conversation_date(cluster_eps)
-            obs_id = f"ep_{_obs_uuid()}"
-            observation = Episode(
-                id=obs_id,
-                content=content,
-                source=_OBSERVER_SOURCE,
-                status=EpisodeStatus.COMPLETED,
-                group_id=group_id,
-                conversation_date=newest,
-                memory_tier="observation",
-                projection_state=EpisodeProjectionState.PROJECTED,
-                encoding_context=key,
-            )
-
-            if not dry_run:
-                await graph_store.create_episode(observation)
-                # REQUIRED for vector retrievability — create_episode does NOT
-                # embed. Treat an embed failure as non-fatal (FTS5/BM25 still
-                # index it via the same call on most backends).
-                try:
-                    await search_index.index_episode(observation)
-                except Exception:
-                    logger.warning(
-                        "reflect: index_episode failed for %s; observation rides FTS5 only",
-                        obs_id,
-                        exc_info=True,
-                    )
-                # Entity-link so entity-seeded traversal can reach the observation.
-                for ent in entities:
-                    try:
-                        await graph_store.link_episode_entity(obs_id, ent.id, group_id=group_id)
-                    except Exception:
-                        logger.debug("reflect: link_episode_entity failed", exc_info=True)
-                if context is not None:
-                    context.observation_episode_ids.add(obs_id)
-
-            records.append(
-                ObservationRecord(
-                    cycle_id=cycle_id,
+            for content in synthesizer.synthesize(cluster_eps, entities, relationships):
+                if created >= cfg.observer_reflect_max_observations_per_cycle:
+                    break
+                obs_key = f"{base_key}:{hashlib.sha256(content.encode('utf-8')).hexdigest()[:8]}"
+                if obs_key in existing_keys:
+                    continue  # already synthesized — do not duplicate
+                existing_keys.add(obs_key)
+                obs_id = f"ep_{_obs_uuid()}"
+                observation = Episode(
+                    id=obs_id,
+                    content=content,
+                    source=_OBSERVER_SOURCE,
+                    status=EpisodeStatus.COMPLETED,
                     group_id=group_id,
-                    observation_episode_id=obs_id,
-                    cluster_episode_ids=list(cluster.episode_ids),
-                    cluster_size=len(cluster.episode_ids),
-                    importance=round(importance, 4),
-                    synthesizer=synthesizer.name,
-                    action="created",
+                    conversation_date=newest,
+                    memory_tier="observation",
+                    projection_state=EpisodeProjectionState.PROJECTED,
+                    encoding_context=obs_key,
                 )
-            )
-            created += 1
+
+                if not dry_run:
+                    await graph_store.create_episode(observation)
+                    # REQUIRED for vector retrievability — create_episode does NOT
+                    # embed. Treat an embed failure as non-fatal (FTS5/BM25 still
+                    # index it via the same call on most backends).
+                    try:
+                        await search_index.index_episode(observation)
+                    except Exception:
+                        logger.warning(
+                            "reflect: index_episode failed for %s; observation rides FTS5 only",
+                            obs_id,
+                            exc_info=True,
+                        )
+                    # Entity-link so entity-seeded traversal can reach the observation.
+                    for ent in entities:
+                        try:
+                            await graph_store.link_episode_entity(obs_id, ent.id, group_id=group_id)
+                        except Exception:
+                            logger.debug("reflect: link_episode_entity failed", exc_info=True)
+                    if context is not None:
+                        context.observation_episode_ids.add(obs_id)
+
+                records.append(
+                    ObservationRecord(
+                        cycle_id=cycle_id,
+                        group_id=group_id,
+                        observation_episode_id=obs_id,
+                        cluster_episode_ids=list(cluster.episode_ids),
+                        cluster_size=len(cluster.episode_ids),
+                        importance=round(importance, 4),
+                        synthesizer=synthesizer.name,
+                        action="created",
+                    )
+                )
+                created += 1
 
         return PhaseResult(
             phase=self.name,
