@@ -139,3 +139,47 @@ def test_aggregate_empty_runs_safe():
     assert agg["core_pass_rate_mean"] == 0.0
     assert agg["ci_excludes_zero"] is False
     assert agg["core_flips"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# _headline_filter: verdict keys MUST be persona-qualified.                    #
+# Regression for the qid-namespace collision: every persona reuses q1..q6 /    #
+# q11..q15, so a bare-qid key collapsed cross-persona queries (last-writer-     #
+# wins), silently discarding real per-persona depth passes from the headline   #
+# pool AND from the repeat aggregator / flip count.                            #
+# --------------------------------------------------------------------------- #
+
+
+def _mh_query(qid, *, core_pass, depth_pass):
+    return {
+        "qid": qid,
+        "type": "multi_hop",
+        "core_pass": core_pass,
+        "depth_pass": depth_pass,
+        "core_false_recall": False,
+        "depth_false_recall": False,
+        "gate": {"bridge_in_graph": True, "bridge_linked_to_answer": True},
+    }
+
+
+def test_headline_filter_keys_are_persona_qualified():
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    from benchmark_depth_tier import _headline_filter
+
+    # Two personas BOTH expose multi_hop q1; one is a depth WIN, the other a
+    # depth FAIL. A bare-qid key would keep only the last (collapsing to 1
+    # entry); persona-qualified keys must keep BOTH.
+    all_personas = [
+        {"persona_id": "alpha", "queries": [_mh_query("q1", core_pass=False, depth_pass=True)]},
+        {"persona_id": "beta", "queries": [_mh_query("q1", core_pass=False, depth_pass=False)]},
+    ]
+    f = _headline_filter(all_personas, "multi_hop")
+    assert len(f["depth_verdicts"]) == 2, "cross-persona q1 must NOT collapse"
+    assert set(f["depth_verdicts"]) == {"alpha:q1", "beta:q1"}
+    # The depth WIN from alpha survives the headline pool.
+    assert f["depth_verdicts"]["alpha:q1"] is True
+    assert f["depth_verdicts"]["beta:q1"] is False
+    assert sum(f["depth_verdicts"].values()) == 1  # 1 of 2 depth passes (was 0 under the bug)

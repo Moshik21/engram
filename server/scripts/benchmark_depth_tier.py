@@ -495,10 +495,17 @@ def _headline_filter(all_personas: list[dict], qtype: str) -> dict:
     false_recall = 0
     n_seen = 0
     for per in all_personas:
+        # Qualify the verdict key by persona: every persona reuses q1..q6 / q11..
+        # q15, so a bare-qid key collapses cross-persona queries (last-writer-wins),
+        # silently discarding real per-persona depth passes from the headline pool
+        # AND from the repeat aggregator / flip count (which both pool by these
+        # keys). Persona-qualifying is the single fix point for all three.
+        pid = per.get("persona_id", "?")
         for q in per["queries"]:
             if q["type"] != qtype:
                 continue
             n_seen += 1
+            qkey = f"{pid}:{q['qid']}"
             if q["depth_false_recall"] or q["core_false_recall"]:
                 false_recall += 1
             # For multi_hop/current_value: a precondition (extraction-gap) failure is
@@ -506,15 +513,15 @@ def _headline_filter(all_personas: list[dict], qtype: str) -> dict:
             if qtype in ("multi_hop", "current_value"):
                 g = q.get("gate") or {}
                 if not g.get("bridge_linked_to_answer"):
-                    excluded_precondition.append(q["qid"])
+                    excluded_precondition.append(qkey)
                     continue
                 # If the core can already answer it, the query does not isolate the
                 # depth tier (the answer was term-reachable) -> exclude from headline.
                 if q["core_pass"]:
-                    excluded_core_pass.append(q["qid"])
+                    excluded_core_pass.append(qkey)
                     continue
-            core_verdicts[q["qid"]] = bool(q["core_pass"])
-            depth_verdicts[q["qid"]] = bool(q["depth_pass"])
+            core_verdicts[qkey] = bool(q["core_pass"])
+            depth_verdicts[qkey] = bool(q["depth_pass"])
     return {
         "core_verdicts": core_verdicts,
         "depth_verdicts": depth_verdicts,
