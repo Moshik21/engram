@@ -136,13 +136,25 @@ class RecallResultBuilder:
         relationships: Sequence[Relationship],
         scored_result: ScoredResult,
     ) -> dict[str, Any]:
+        # Surface the entity's CURRENT role at the front of its recall summary.
+        # The role attribute is the canonical current value (see apply.py's
+        # _canonicalize_attribute_keys), but recall otherwise only surfaces
+        # name/summary/relationships -- so the value the entity holds was
+        # invisible to consumers (and to current-value queries) when it lived in
+        # an attribute. Leading with it also ranks the current value ahead of any
+        # historical text the accumulated summary may still carry.
+        summary = entity.summary
+        role = (entity.attributes or {}).get("role")
+        if role and str(role).strip():
+            prefix = f"Current role: {str(role).strip()}."
+            summary = f"{prefix} {summary}" if summary else prefix
         result: dict[str, Any] = {
             "result_type": "entity",
             "entity": {
                 "id": entity.id,
                 "name": entity.name,
                 "type": entity.entity_type,
-                "summary": entity.summary,
+                "summary": summary,
             },
             "score": scored_result.score,
             "score_breakdown": self._entity_score_breakdown(scored_result),
