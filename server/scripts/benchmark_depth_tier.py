@@ -402,6 +402,7 @@ async def run_persona(
     *,
     ablate: list[str] | None = None,
     data_dir: str | None = None,
+    reflect: bool = False,
 ) -> dict:
     persona = json.loads(path.read_text())
     pid = persona.get("persona_id", path.stem)
@@ -410,6 +411,13 @@ async def run_persona(
     # Ablation toggles depth-side phases/operators OFF on the graph-ON (depth)
     # arm only; the core arm stays the fixed baseline so the delta is attributable.
     cfg = _cfg_for(data_dir)
+    # Write-side reflect (#3) ships dark: config post-init force-sets
+    # observer_reflect_enabled=False regardless of env, so --reflect must mutate
+    # the field AFTER construction (same pattern as passage_first_entity_budget).
+    # Observations land on the depth store both arms share, so this is a pure
+    # reflect-on/off contrast (and --ablate reflect can still force it back off).
+    if reflect:
+        object.__setattr__(cfg.activation, "observer_reflect_enabled", True)
     adapter_on, gid, applied_ablation = await _build_adapter(
         cfg, graph_on=True, cache_path=cache_path, extraction=extraction, ablate=ablate
     )
@@ -642,7 +650,7 @@ async def _run_once(args, *, data_dir: str | None = None) -> tuple[list[dict], s
         print(f"=== persona {p.name} ===", file=sys.stderr)
         per = await run_persona(
             p, args.top_k, args.cache, args.extraction, args.allow_narrow,
-            ablate=args.ablate, data_dir=data_dir,
+            ablate=args.ablate, data_dir=data_dir, reflect=args.reflect,
         )
         all_personas.append(per)
         extractor_identity = per["extractor"]
@@ -748,6 +756,12 @@ if __name__ == "__main__":
         "--ablate", action="append", default=None, metavar="PHASE",
         help="turn a consolidation phase / depth operator OFF on the DEPTH arm "
              "(repeatable). Known: " + ", ".join(sorted(_ABLATABLE)),
+    )
+    ap.add_argument(
+        "--reflect", action="store_true",
+        help="run the write-side Observer/Reflector phase (#3) before recall so "
+             "synthesized observation episodes are present on the shared store "
+             "(measures reflect-on vs the default reflect-off baseline)",
     )
     ap.add_argument(
         "--no-frozen-clock", action="store_true",
