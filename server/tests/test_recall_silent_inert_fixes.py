@@ -527,3 +527,213 @@ class TestCueFeedbackSurvivesMerge:
         assert graph_store.updates, "cue feedback recorded no update"
         new_hit_count = graph_store.updates[-1].get("hit_count")
         assert new_hit_count == 1, f"hit_count did not increment: {new_hit_count}"
+
+
+# ---------------------------------------------------------------------------
+# Core-hardening Step 1 + Step 4 — vector-channel degradation visibility +
+# deterministic merge/assembly ordering.
+# ---------------------------------------------------------------------------
+
+
+class _EmptyQueryEmbeddingProvider:
+    """Provider whose query embedding silently fails (returns []).
+
+    Index-time embeds succeed so the vector store has content (forcing the
+    code past the ``has_embeddings`` guard); only the per-query
+    ``embed_query`` degrades, exercising the silent vector-channel drop the
+    Step 1 counter must now surface.
+    """
+
+    def dimension(self) -> int:
+        return 2
+
+    async def embed_query(self, _text: str) -> list[float]:
+        return []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
+class _CannedFTS:
+    """FTS stub that returns fixed, non-empty results for every channel.
+
+    Mirrors the EmptyFTS pattern in test_sqlite_hybrid_search_group_scope but
+    returns hits so we can assert the FTS channel survives a vector failure.
+    """
+
+    async def search(self, **_kwargs):
+        return [("ent-alpha", 1.0)]
+
+    async def search_episodes(self, **_kwargs):
+        return [("ep-alpha", 1.0)]
+
+    async def search_episode_cues(self, **_kwargs):
+        return [("cue-alpha", 1.0)]
+
+    async def remove(self, _entity_id):
+        return None
+
+    async def delete_group(self, _group_id):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_empty_query_embedding_keeps_fts_results_and_increments_stats():
+    """Empty query embedding still returns FTS5 hits AND records the failure."""
+    from engram.storage.sqlite.hybrid_search import HybridSearchIndex
+    from engram.storage.sqlite.vectors import SQLiteVectorStore
+
+    vectors = SQLiteVectorStore(":memory:")
+    await vectors.initialize()
+    try:
+        # Seed real vectors so the code path reaches embed_query (the
+        # has_embeddings guard is bypassed by group_id=None anyway).
+        await vectors.upsert("ent-alpha", "entity", "g1", "alpha", [1.0, 0.0])
+        await vectors.upsert("ep-alpha", "episode", "g1", "alpha", [1.0, 0.0])
+        await vectors.upsert("cue-alpha", "episode_cue", "g1", "alpha", [1.0, 0.0])
+
+        index = HybridSearchIndex(
+            _CannedFTS(),
+            vectors,
+            _EmptyQueryEmbeddingProvider(),
+            storage_dim=2,
+            embed_provider="tiny",
+            embed_model="tiny-2",
+        )
+
+        assert index.embed_stats["query_embed_failures"] == 0  # baseline
+
+        entity_results = await index.search("alpha", group_id=None, limit=5)
+        episode_results = await index.search_episodes("alpha", group_id=None, limit=5)
+        cue_results = await index.search_episode_cues("alpha", group_id=None, limit=5)
+
+        # FTS5 channel still returns the canned hits — graceful degradation.
+        assert [eid for eid, _ in entity_results] == ["ent-alpha"]
+        assert [eid for eid, _ in episode_results] == ["ep-alpha"]
+        assert [eid for eid, _ in cue_results] == ["cue-alpha"]
+
+        # All three empty-query-embedding degradations were recorded.
+        assert index.embed_stats["query_embed_failures"] == 3
+    finally:
+        await vectors.db.close()
+
+
+def _make_hybrid_for_merge(use_rrf: bool):
+    """Build a HybridSearchIndex with no I/O for exercising pure merge helpers."""
+    from engram.storage.sqlite.hybrid_search import HybridSearchIndex
+
+    cfg = ActivationConfig()
+    cfg.use_rrf = use_rrf
+    return HybridSearchIndex(
+        fts=None,  # type: ignore[arg-type]
+        vector_store=None,  # type: ignore[arg-type]
+        provider=_EmptyQueryEmbeddingProvider(),
+        cfg=cfg,
+        storage_dim=2,
+    )
+
+
+def test_merge_linear_deterministic_for_tied_scores_under_shuffle():
+    """_merge_linear gives identical order across shuffled equal-score inputs.
+
+    Linear merge is score-based, so equal input scores collapse to equal
+    combined scores and the (-score, id) tie-break must produce ascending-id
+    order regardless of input arrangement.
+    """
+    import random
+
+    index = _make_hybrid_for_merge(use_rrf=False)
+    ids = [f"id-{i}" for i in range(12)]
+    base_fts = [(eid, 1.0) for eid in ids]
+    base_vec = [(eid, 1.0) for eid in ids]
+
+    orders: list[list[str]] = []
+    rng = random.Random(1234)
+    for _ in range(8):
+        fts = base_fts[:]
+        vec = base_vec[:]
+        rng.shuffle(fts)
+        rng.shuffle(vec)
+        merged = index._merge_linear(fts, vec, limit=len(ids))
+        orders.append([eid for eid, _ in merged])
+
+    first = orders[0]
+    assert all(o == first for o in orders), f"non-deterministic order: {orders}"
+    assert first == sorted(ids)  # documented ascending-id tie-break
+
+
+def test_merge_rrf_deterministic_and_breaks_score_ties_by_id():
+    """_merge_rrf is run-stable and resolves equal RRF scores by ascending id.
+
+    RRF score is a function of input *rank*, not input score, so it is
+    intentionally rank-sensitive (upstream channels are already deterministically
+    ordered). The merge must therefore (1) be byte-stable across repeated runs on
+    the same input order, and (2) break ties between equal RRF scores by id.
+    """
+    index = _make_hybrid_for_merge(use_rrf=True)
+    ids = [f"id-{i}" for i in range(12)]
+    # Place each id at rank r in fts and the mirror rank (n+1-r) in vec. This
+    # pairs ids into equal-RRF-score buckets (id-0/id-11, id-1/id-10, ...): a
+    # clean, repeatable way to force score ties that the id tie-break resolves.
+    fts = [(eid, 1.0) for eid in ids]
+    vec = [(eid, 1.0) for eid in reversed(ids)]
+
+    runs = [index._merge_rrf(fts[:], vec[:], limit=len(ids)) for _ in range(8)]
+    orders = [[eid for eid, _ in r] for r in runs]
+    first = orders[0]
+    # (1) Byte-stable across repeated runs on the same input order.
+    assert all(o == first for o in orders), f"non-deterministic order: {orders}"
+
+    # (2) Within every equal-RRF-score group, ids are in ascending order
+    #     (the documented (-score, id) tie-break).
+    by_score: dict[float, list[str]] = {}
+    for eid, score in runs[0]:
+        by_score.setdefault(round(score, 6), []).append(eid)
+    for grouped_ids in by_score.values():
+        if len(grouped_ids) > 1:
+            assert grouped_ids == sorted(grouped_ids), f"tie not id-ordered: {grouped_ids}"
+    # Sanity: ties actually occurred (otherwise the assertion is vacuous).
+    assert any(len(g) > 1 for g in by_score.values())
+
+
+def _scored_special(node_id: str, score: float) -> ScoredResult:
+    return ScoredResult(
+        node_id=node_id,
+        score=score,
+        semantic_similarity=score,
+        activation=0.0,
+        spreading=0.0,
+        edge_proximity=0.0,
+        result_type="episode",
+    )
+
+
+def test_merge_special_results_passage_first_deterministic_under_ties():
+    """passage_first assembly is deterministic under tied episode scores."""
+    import random
+
+    cfg = ActivationConfig(
+        retrieval_strategy="passage_first",
+        episode_retrieval_enabled=True,
+        cue_recall_enabled=True,
+        episode_retrieval_max=10,
+        cue_recall_max=10,
+    )
+
+    episode_ids = [f"ep-{i}" for i in range(10)]
+    cue_ids = [f"cue-{i}" for i in range(6)]
+
+    orders: list[list[str]] = []
+    rng = random.Random(99)
+    for _ in range(8):
+        episodes = [_scored_special(eid, 0.9) for eid in episode_ids]
+        cues = [_scored_special(cid, 0.5) for cid in cue_ids]
+        rng.shuffle(episodes)
+        rng.shuffle(cues)
+        merged = _merge_special_results(episodes, cues, cfg)
+        orders.append([r.node_id for r in merged])
+
+    first = orders[0]
+    assert all(o == first for o in orders), f"non-deterministic order: {orders}"
+    # (-score, node_id): higher-score episodes first (ascending id), then cues.
+    assert first == sorted(episode_ids) + sorted(cue_ids)

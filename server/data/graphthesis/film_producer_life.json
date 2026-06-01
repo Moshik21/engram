@@ -1,0 +1,337 @@
+{
+  "persona_id": "film_producer_life",
+  "domain": "an independent film producer's slate and personal life",
+  "sessions": [
+    {
+      "session_id": "s1",
+      "date": "2024/01/10",
+      "turns": [
+        {"role": "user", "text": "First financing win of the year. A private investor named Aldous Renn agreed to anchor my next feature."},
+        {"role": "assistant", "text": "Landing Aldous Renn as an anchor investor is a strong start. How much of the budget does he cover?"},
+        {"role": "user", "text": "He's putting in the lead equity, roughly half the budget. Aldous Renn is the cornerstone of the whole raise."}
+      ]
+    },
+    {
+      "session_id": "s2",
+      "date": "2024/01/19",
+      "turns": [
+        {"role": "user", "text": "I'm not running this alone. My co-producer Tamsin Okoro came aboard to handle the line-producing and the crew."},
+        {"role": "assistant", "text": "Having Tamsin Okoro on line-producing and crew takes a huge load off you. How do you divide it?"},
+        {"role": "user", "text": "I take the creative and the money side, Tamsin Okoro takes the physical production. We split producer credit evenly."}
+      ]
+    },
+    {
+      "session_id": "s3",
+      "date": "2024/01/28",
+      "turns": [
+        {"role": "user", "text": "We finally locked the title. The feature is called Saltmarsh, a slow-burn coastal thriller."},
+        {"role": "assistant", "text": "Saltmarsh is an evocative title. Is that the film you're building the whole slate around?"},
+        {"role": "user", "text": "Yeah, Saltmarsh is the flagship. Everything else on my slate is secondary to it."}
+      ]
+    },
+    {
+      "session_id": "s4",
+      "date": "2024/02/06",
+      "turns": [
+        {"role": "user", "text": "Setting our premiere strategy. We're aiming Saltmarsh at the Telluride Film Festival for its world premiere."},
+        {"role": "assistant", "text": "Telluride Film Festival is a prestige launch. When do submissions close?"},
+        {"role": "user", "text": "Submissions are in the spring. I want Telluride Film Festival even if the edit is tight."}
+      ]
+    },
+    {
+      "session_id": "s5",
+      "date": "2024/02/15",
+      "turns": [
+        {"role": "user", "text": "Big call today. A boutique distributor called Lantern Releasing wants first look at Saltmarsh."},
+        {"role": "assistant", "text": "Lantern Releasing taking a first look is encouraging. Are they offering anything concrete yet?"},
+        {"role": "user", "text": "Just interest for now. Lantern Releasing handles arthouse titles, which fits us perfectly."}
+      ]
+    },
+    {
+      "session_id": "s6",
+      "date": "2024/02/24",
+      "turns": [
+        {"role": "user", "text": "Casting breakthrough. Our lead actor is Marguerite Vale, who read for the fisherman's widow and was extraordinary."},
+        {"role": "assistant", "text": "Marguerite Vale in the lead is a real coup. Is she officially attached now?"},
+        {"role": "user", "text": "Signing this week. Marguerite Vale carries the entire third act, so it had to be her."}
+      ]
+    },
+    {
+      "session_id": "s7",
+      "date": "2024/03/05",
+      "turns": [
+        {"role": "user", "text": "Brought on a location scout named Boyd Castellan to find our coastline before the budget locks."},
+        {"role": "assistant", "text": "A scout like Boyd Castellan early can save you a fortune later. What's his brief?"},
+        {"role": "user", "text": "Find a tidal flat that reads as bleak and remote. Boyd Castellan has three weeks to come back with options."}
+      ]
+    },
+    {
+      "session_id": "s8",
+      "date": "2024/03/16",
+      "turns": [
+        {"role": "user", "text": "Adopted a one-eyed rescue greyhound this weekend. Named her Pixel. My partner Soren and I picked her up near our place in Glasgow."},
+        {"role": "assistant", "text": "Welcome home, Pixel! A greyhound is a surprisingly low-energy housemate. How is she with the Glasgow apartment?"},
+        {"role": "user", "text": "She's already taken over the only sunny spot in our Glasgow flat. Total diva. Soren is smitten."}
+      ]
+    },
+    {
+      "session_id": "s9",
+      "date": "2024/03/27",
+      "turns": [
+        {"role": "user", "text": "Gut punch. Aldous Renn got cold feet and withdrew his equity entirely last night."},
+        {"role": "assistant", "text": "Aldous Renn withdrawing the lead equity is a serious hole. What's your gap now?"},
+        {"role": "user", "text": "He pulled the full amount. I'm scrambling to backfill before the bond company panics."}
+      ]
+    },
+    {
+      "session_id": "s10",
+      "date": "2024/04/08",
+      "turns": [
+        {"role": "user", "text": "Tamsin Okoro got recognized in a way I didn't expect. She won the Producers Guild Mark of the Year for an earlier film."},
+        {"role": "assistant", "text": "Winning the Producers Guild Mark is a major honor. That raises the whole production's profile."},
+        {"role": "user", "text": "It does. Tamsin Okoro carrying that credential makes the rest of the financing conversations far easier."}
+      ]
+    },
+    {
+      "session_id": "s11",
+      "date": "2024/04/20",
+      "turns": [
+        {"role": "user", "text": "The rough cut screened privately and the response floored us. Saltmarsh won the jury's Kestrel Prize at the work-in-progress showcase."},
+        {"role": "assistant", "text": "The Kestrel Prize for a work-in-progress cut is huge validation. How was the room?"},
+        {"role": "user", "text": "Silent in the right way, then thunderous. Saltmarsh clearly landed with that audience."}
+      ]
+    },
+    {
+      "session_id": "s12",
+      "date": "2024/05/03",
+      "turns": [
+        {"role": "user", "text": "Premiere logistics are firming up. The Telluride Film Festival confirmed its dates and it runs in Mountain Village this year."},
+        {"role": "assistant", "text": "Mountain Village for the Telluride Film Festival — that's the heart of it. Are you set for travel?"},
+        {"role": "user", "text": "Booking now. Being in Mountain Village for the premiere means everything for the film's launch."}
+      ]
+    },
+    {
+      "session_id": "s13",
+      "date": "2024/05/15",
+      "turns": [
+        {"role": "user", "text": "Deal news. Lantern Releasing closed and they're taking Benelux rights for the theatrical run."},
+        {"role": "assistant", "text": "Lantern Releasing locking the Benelux territory is a real commitment. Are other territories still open?"},
+        {"role": "user", "text": "For now they only took Benelux. The rest of the world I'll sell at the festival."}
+      ]
+    },
+    {
+      "session_id": "s14",
+      "date": "2024/05/28",
+      "turns": [
+        {"role": "user", "text": "Wonderful news about my lead. Marguerite Vale was just named to the Cannes jury for next year's competition."},
+        {"role": "assistant", "text": "Marguerite Vale on the Cannes jury is a real prestige boost for the whole project. How did she take it?"},
+        {"role": "user", "text": "Thrilled and slightly terrified. Marguerite Vale on that jury will draw eyes to our premiere too."}
+      ]
+    },
+    {
+      "session_id": "s15",
+      "date": "2024/06/09",
+      "turns": [
+        {"role": "user", "text": "The scout came through. Boyd Castellan found our coastline on the Isle of Harris in the Outer Hebrides."},
+        {"role": "assistant", "text": "The Isle of Harris is a stunning, brutal coastline. Did Boyd Castellan lock the permits?"},
+        {"role": "user", "text": "Permits pending, but the Isle of Harris is exactly the bleakness the script needs. Boyd Castellan nailed it."}
+      ]
+    },
+    {
+      "session_id": "s16",
+      "date": "2024/06/21",
+      "turns": [
+        {"role": "user", "text": "Life change to match the work. My partner Soren, who works as a freelance colorist, and I are relocating to be near the post house. We're moving to Bristol."},
+        {"role": "assistant", "text": "Moving to Bristol with Soren to be near post is a smart consolidation. Is the post house there?"},
+        {"role": "user", "text": "Right downtown. Living in Bristol means I can walk to the edit suite every day, and Soren's freelance gigs are all nearby too."}
+      ]
+    },
+    {
+      "session_id": "s17",
+      "date": "2024/07/04",
+      "turns": [
+        {"role": "user", "text": "Soren made it official too. Soren just accepted a staff colorist position at the post house and starts Monday."},
+        {"role": "assistant", "text": "Soren going on staff as a colorist at the same post house is convenient and exciting. Same building as your edit?"},
+        {"role": "user", "text": "Same floor. Soren grading our film as a staff colorist keeps the whole thing in the family."}
+      ]
+    },
+    {
+      "session_id": "s18",
+      "date": "2024/07/17",
+      "turns": [
+        {"role": "user", "text": "Took Pixel to the harbor for the first time. She watched the boats for an hour, completely transfixed."},
+        {"role": "assistant", "text": "A greyhound mesmerized by boats is a lovely image. Did she try to chase any?"},
+        {"role": "user", "text": "Too dignified for that. She just judged the seagulls and refused to walk home."}
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "qid": "q1",
+      "type": "multi_hop",
+      "question": "What happened to the equity from my anchor investor Aldous Renn?",
+      "answer": "withdrew his equity",
+      "accepted_forms": ["withdrew his equity", "got cold feet and withdrew", "pulled the full amount"],
+      "forbidden": [],
+      "bridge_entity": "Aldous Renn",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q2",
+      "type": "multi_hop",
+      "question": "Which industry award did my co-producer Tamsin Okoro win?",
+      "answer": "Producers Guild Mark of the Year",
+      "accepted_forms": ["Producers Guild Mark of the Year", "Producers Guild Mark"],
+      "forbidden": ["line-producing", "physical production"],
+      "bridge_entity": "Tamsin Okoro",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s10"]
+    },
+    {
+      "qid": "q3",
+      "type": "multi_hop",
+      "question": "What prize did the film Saltmarsh win at the work-in-progress showcase?",
+      "answer": "Kestrel Prize",
+      "accepted_forms": ["Kestrel Prize", "jury's Kestrel Prize"],
+      "forbidden": [],
+      "bridge_entity": "Saltmarsh",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s11"]
+    },
+    {
+      "qid": "q4",
+      "type": "multi_hop",
+      "question": "In which town is the Telluride Film Festival being held this year?",
+      "answer": "Mountain Village",
+      "accepted_forms": ["Mountain Village"],
+      "forbidden": [],
+      "bridge_entity": "Telluride Film Festival",
+      "anchor_session_ids": ["s4"],
+      "answer_session_ids": ["s12"]
+    },
+    {
+      "qid": "q5",
+      "type": "multi_hop",
+      "question": "Which distribution territory did Lantern Releasing take for the film?",
+      "answer": "Benelux",
+      "accepted_forms": ["Benelux", "Benelux rights"],
+      "forbidden": [],
+      "bridge_entity": "Lantern Releasing",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s13"]
+    },
+    {
+      "qid": "q6",
+      "type": "multi_hop",
+      "question": "What festival jury was my lead actor Marguerite Vale named to?",
+      "answer": "Cannes jury",
+      "accepted_forms": ["Cannes jury", "named to the Cannes jury"],
+      "forbidden": [],
+      "bridge_entity": "Marguerite Vale",
+      "anchor_session_ids": ["s6"],
+      "answer_session_ids": ["s14"]
+    },
+    {
+      "qid": "q7",
+      "type": "multi_hop",
+      "question": "Where did my location scout Boyd Castellan find the coastline for the shoot?",
+      "answer": "Isle of Harris",
+      "accepted_forms": ["Isle of Harris", "Isle of Harris in the Outer Hebrides"],
+      "forbidden": [],
+      "bridge_entity": "Boyd Castellan",
+      "anchor_session_ids": ["s7"],
+      "answer_session_ids": ["s15"]
+    },
+    {
+      "qid": "q11",
+      "type": "current_value",
+      "question": "What city do my partner Soren and I live in now?",
+      "answer": "Bristol",
+      "accepted_forms": ["Bristol", "moving to Bristol", "living in Bristol"],
+      "forbidden": ["Glasgow"],
+      "bridge_entity": "Soren",
+      "anchor_session_ids": ["s8"],
+      "answer_session_ids": ["s16"]
+    },
+    {
+      "qid": "q12",
+      "type": "current_value",
+      "question": "What is the current status of Aldous Renn's investment in the film?",
+      "answer": "withdrew his equity",
+      "accepted_forms": ["withdrew his equity", "pulled the full amount", "got cold feet and withdrew"],
+      "forbidden": ["agreed to anchor", "lead equity, roughly half the budget"],
+      "bridge_entity": "Aldous Renn",
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s9"]
+    },
+    {
+      "qid": "q13",
+      "type": "current_value",
+      "question": "What is my partner Soren's most recent job?",
+      "answer": "staff colorist",
+      "accepted_forms": ["staff colorist", "staff colorist position", "staff colorist position at the post house"],
+      "forbidden": ["freelance colorist"],
+      "bridge_entity": "Soren",
+      "anchor_session_ids": ["s16"],
+      "answer_session_ids": ["s17"]
+    },
+    {
+      "qid": "q14",
+      "type": "synthesis",
+      "question": "What do I know about my co-producer Tamsin Okoro?",
+      "required_facts": ["line-producing", "Producers Guild Mark of the Year", "producer credit"],
+      "forbidden_facts": ["Aldous Renn", "Boyd Castellan"],
+      "bridge_entity": "Tamsin Okoro",
+      "anchor_session_ids": ["s2"],
+      "answer_session_ids": ["s2", "s10"]
+    },
+    {
+      "qid": "q15",
+      "type": "synthesis",
+      "question": "What do I know about the film Saltmarsh?",
+      "required_facts": ["coastal thriller", "Telluride Film Festival", "Kestrel Prize"],
+      "forbidden_facts": ["Pixel", "greyhound"],
+      "bridge_entity": "Saltmarsh",
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s3", "s4", "s11"]
+    },
+    {
+      "qid": "q16",
+      "type": "synthesis",
+      "question": "What do I know about the distributor Lantern Releasing?",
+      "required_facts": ["first look", "arthouse titles", "Benelux"],
+      "forbidden_facts": ["Aldous Renn", "Cannes jury"],
+      "bridge_entity": "Lantern Releasing",
+      "anchor_session_ids": ["s5"],
+      "answer_session_ids": ["s5", "s13"]
+    },
+    {
+      "qid": "q8",
+      "type": "single_hop_control",
+      "question": "What did I name the rescue greyhound I adopted?",
+      "answer": "Pixel",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s8"],
+      "answer_session_ids": ["s8"]
+    },
+    {
+      "qid": "q9",
+      "type": "single_hop_control",
+      "question": "What genre is the feature Saltmarsh?",
+      "answer": "coastal thriller",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s3"],
+      "answer_session_ids": ["s3"]
+    },
+    {
+      "qid": "q10",
+      "type": "single_hop_control",
+      "question": "How much of the budget did my anchor investor originally agree to cover?",
+      "answer": "half the budget",
+      "bridge_entity": null,
+      "anchor_session_ids": ["s1"],
+      "answer_session_ids": ["s1"]
+    }
+  ]
+}

@@ -48,6 +48,32 @@ class HybridSearchIndex:
         self._embed_provider = embed_provider
         self._embed_model = embed_model
 
+        # Embedding statistics for diagnostics — mirrors the Helix index
+        # (engram/storage/helix/search.py:194,285). Counts how often the vector
+        # channel was silently dropped and the query degraded to FTS5-only.
+        self._embed_stats = {"query_embed_failures": 0}
+
+    @property
+    def embed_stats(self) -> dict[str, int]:
+        """Return embedding statistics for external diagnostics."""
+        return dict(self._embed_stats)
+
+    def _record_query_embed_failure(self, reason: str) -> None:
+        """Increment the failure counter and emit a throttled warning.
+
+        Throttle schedule mirrors common 1/10/100/every-1000 cadence so a
+        persistent embedding outage stays visible without flooding logs.
+        """
+        self._embed_stats["query_embed_failures"] += 1
+        count = self._embed_stats["query_embed_failures"]
+        if count <= 10 or (count <= 100 and count % 10 == 0) or count % 1000 == 0:
+            logger.warning(
+                "Hybrid search degraded to FTS5-only (vector channel dropped): "
+                "%s [query_embed_failures=%d]",
+                reason,
+                count,
+            )
+
     async def initialize(self, db=None) -> None:
         """Initialize both FTS5 and vector store."""
         await self._fts.initialize(db=db)
@@ -219,13 +245,14 @@ class HybridSearchIndex:
                 self._provider.embed_query(query),
             )
         except Exception as e:
-            logger.warning("Parallel search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"parallel search failed: {e}")
             fts_results = await self._fts.search(
                 query=query, entity_types=entity_types, group_id=group_id, limit=limit * 2
             )
             return fts_results[:limit]
 
         if not query_vec:
+            self._record_query_embed_failure("empty query embedding")
             return fts_results[:limit]
 
         # Truncate query vector to storage dimension for consistent comparison
@@ -244,7 +271,7 @@ class HybridSearchIndex:
                 entity_types=entity_types,
             )
         except Exception as e:
-            logger.warning("Vector search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"vector search failed: {e}")
             return fts_results[:limit]
 
         if not vec_results:
@@ -426,7 +453,7 @@ class HybridSearchIndex:
                 self._provider.embed_query(query),
             )
         except Exception as e:
-            logger.warning("Parallel episode search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"parallel episode search failed: {e}")
             return await self._fts.search_episodes(
                 query=query,
                 group_id=group_id,
@@ -434,6 +461,7 @@ class HybridSearchIndex:
             )
 
         if not query_vec:
+            self._record_query_embed_failure("empty episode query embedding")
             return fts_results[:limit]
 
         # Truncate query vector to storage dimension
@@ -450,7 +478,7 @@ class HybridSearchIndex:
                 storage_dim=self._storage_dim,
             )
         except Exception as e:
-            logger.warning("Vector episode search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"vector episode search failed: {e}")
             return fts_results[:limit]
 
         if not vec_results:
@@ -481,10 +509,11 @@ class HybridSearchIndex:
                 self._provider.embed_query(query),
             )
         except Exception as e:
-            logger.warning("Parallel cue search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"parallel cue search failed: {e}")
             return await self._fts.search_episode_cues(query=query, group_id=group_id, limit=limit)
 
         if not query_vec:
+            self._record_query_embed_failure("empty cue query embedding")
             return fts_results[:limit]
         if self._storage_dim > 0:
             query_vec = truncate_vectors([query_vec], self._storage_dim)[0]
@@ -498,7 +527,7 @@ class HybridSearchIndex:
                 storage_dim=self._storage_dim,
             )
         except Exception as e:
-            logger.warning("Vector cue search failed, falling back to FTS5: %s", e)
+            self._record_query_embed_failure(f"vector cue search failed: {e}")
             return fts_results[:limit]
 
         if not vec_results:
