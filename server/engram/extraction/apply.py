@@ -35,6 +35,40 @@ from engram.utils.text_guards import is_meta_summary
 logger = logging.getLogger(__name__)
 
 
+# Role/title attribute keys that all denote a person's (current) role or title.
+# Extraction emits these inconsistently (role / new_role / job_title / position /
+# title), which left stale and current values COEXISTING on the entity (e.g.
+# Priya: role="engineer" + new_role="Director of Research"). Collapse them to a
+# single canonical "role" key so a newer assertion overwrites the prior via
+# merge_entity_attributes' {**existing, **new}. Update-intent prefixes
+# (new_/current_/latest_) win an in-dict collision.
+_ROLE_ATTR_KEYS = {
+    "role", "new_role", "current_role", "latest_role",
+    "title", "new_title", "current_title", "job_title", "job",
+    "position", "new_position", "occupation",
+}
+
+
+def _canonicalize_attribute_keys(attrs: dict | None) -> dict | None:
+    """Collapse inconsistent role/title attribute keys to a canonical 'role'."""
+    if not attrs:
+        return None
+    out: dict = {}
+    role_value = None
+    role_priority = -1
+    for key, value in attrs.items():
+        if str(key).lower() in _ROLE_ATTR_KEYS:
+            priority = 1 if str(key).lower().startswith(("new_", "current_", "latest_")) else 0
+            if priority >= role_priority:
+                role_value = value
+                role_priority = priority
+        else:
+            out[key] = value
+    if role_value is not None:
+        out["role"] = role_value
+    return out or None
+
+
 def merge_entity_attributes(
     existing: Entity,
     new_summary: str | None,
@@ -492,7 +526,7 @@ class ApplyEngine:
                 candidate.entity_type,
             )
             summary = candidate.summary
-            attributes = candidate.attributes or None
+            attributes = _canonicalize_attribute_keys(candidate.attributes)
             pii_detected = candidate.pii_detected
             pii_categories = candidate.pii_categories
 

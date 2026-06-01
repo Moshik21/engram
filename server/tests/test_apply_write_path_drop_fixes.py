@@ -107,8 +107,12 @@ async def test_bug_b_recurring_attributes_merge(graph, activation):
     priyas = [e for e in stored if e.name == "Priya"]
     assert len(priyas) == 1, f"Expected single Priya, got {len(priyas)}"
     attrs = priyas[0].attributes or {}
-    assert attrs.get("title") == "Director", f"New attribute lost; attrs={attrs}"
-    assert attrs.get("role") == "team lead", f"Existing attribute lost; attrs={attrs}"
+    # Role/title attribute keys collapse to a canonical "role", and the newer
+    # assertion (Director) SUPERSEDES the stale one (team lead) instead of both
+    # coexisting -- the current-value extraction-quality fix. The new attribute
+    # still merges into the node (BUG B); it now also overwrites the prior role.
+    assert attrs.get("role") == "Director", f"Current role not surfaced; attrs={attrs}"
+    assert "team lead" not in str(attrs), f"Stale role not superseded; attrs={attrs}"
 
 
 @pytest.mark.asyncio
