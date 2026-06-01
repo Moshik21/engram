@@ -548,6 +548,7 @@ def test_engine_phase_order():
         "compact",
         "mature",
         "semanticize",
+        "reflect",
         "schema",
         "reindex",
         "graph_embed",

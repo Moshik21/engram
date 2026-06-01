@@ -11,6 +11,7 @@ export const CONSOLIDATION_PHASE_ORDER = [
   "compact",
   "mature",
   "semanticize",
+  "reflect",
   "schema",
   "reindex",
   "graph_embed",

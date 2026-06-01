@@ -176,6 +176,7 @@ class CycleContext:
     matured_entity_ids: set[str] = field(default_factory=set)
     transitioned_episode_ids: set[str] = field(default_factory=set)
     schema_entity_ids: set[str] = field(default_factory=set)
+    observation_episode_ids: set[str] = field(default_factory=set)
     microglia_demoted_edge_ids: set[str] = field(default_factory=set)
     microglia_repaired_entity_ids: set[str] = field(default_factory=set)
     maturity_feature_cache: dict[str, dict] = field(default_factory=dict)
@@ -297,6 +298,22 @@ class SchemaRecord:
     predicate_count: int
     action: str  # "created" | "reinforced"
     id: str = field(default_factory=lambda: f"sch_{uuid.uuid4().hex[:12]}")
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ObservationRecord:
+    """Audit entry for a write-side observer/reflect synthesis decision."""
+
+    cycle_id: str
+    group_id: str
+    observation_episode_id: str
+    cluster_episode_ids: list[str]
+    cluster_size: int
+    importance: float
+    synthesizer: str  # "template" | "llm"
+    action: str  # "created" | "skipped_low_importance" | "skipped_dark"
+    id: str = field(default_factory=lambda: f"obs_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
 
 

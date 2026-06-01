@@ -2281,6 +2281,21 @@ class ActivationConfig(BaseModel):
     schema_max_per_cycle: int = 5
     schema_max_entities_scan: int = 500
 
+    # --- Observer/Reflector synthesis (write-side, ships dark) ---
+    # Offline, importance-gated phase that clusters related raw episodes by
+    # shared graph entities and synthesizes ONE durable "observation" episode per
+    # cluster (memory_tier="observation"). Rides the existing episode retrieval
+    # path; introduces NO new retrieval surface. Both flags default False and NO
+    # profile turns them on (mirror of schema_formation_enabled). The LLM
+    # synthesizer is gated by observer_reflect_llm_enabled and is ignored when the
+    # master flag is off.
+    observer_reflect_enabled: bool = False
+    observer_reflect_llm_enabled: bool = False
+    observer_reflect_min_cluster: int = 3
+    observer_reflect_min_importance: float = 0.4
+    observer_reflect_max_observations_per_cycle: int = 5
+    observer_reflect_max_episodes_scan: int = 500
+
     # --- Graph write: endpoint auto-creation (D1) ---
     # Narrow/deterministic extraction proposes relationships whose endpoint
     # entities often defer below the commit threshold, so the edge is dropped as
@@ -2507,6 +2522,13 @@ class ActivationConfig(BaseModel):
             # schema_members rows that NO retrieval/scoring/context path reads yet
             # (B11). Re-enable once a consumer exists; phase code stays for opt-in.
             _set("schema_formation_enabled", False)
+            # observer/reflect ships dark until a retrieval-measured win exists.
+            # The phase is registered (so order validation passes) but its
+            # execute() returns ('skipped', []) before any read/write while OFF,
+            # so the standard profile stays byte-identical. Explicit-False makes
+            # the intent auditable and prevents a future profile edit from
+            # silently enabling write-side synthesis.
+            _set("observer_reflect_enabled", False)
             # Populate the graph on the write path so graph-ON has structure to
             # traverse without requiring a consolidation pass (D1, Option A).
             _set("graph_auto_create_endpoints", True)

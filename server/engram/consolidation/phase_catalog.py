@@ -16,6 +16,7 @@ from engram.consolidation.phases.maturation import MaturationPhase
 from engram.consolidation.phases.merge import EntityMergePhase
 from engram.consolidation.phases.microglia import MicrogliaPhase
 from engram.consolidation.phases.prune import PrunePhase
+from engram.consolidation.phases.reflect import ObserverReflectPhase
 from engram.consolidation.phases.reindex import ReindexPhase
 from engram.consolidation.phases.replay import EpisodeReplayPhase
 from engram.consolidation.phases.schema_formation import SchemaFormationPhase
@@ -42,6 +43,7 @@ def build_consolidation_phases(
         AccessHistoryCompactionPhase(),
         MaturationPhase(),
         SemanticTransitionPhase(),
+        ObserverReflectPhase(extractor=extractor, llm_client=llm_client),
         SchemaFormationPhase(),
         ReindexPhase(),
         GraphEmbedPhase(),

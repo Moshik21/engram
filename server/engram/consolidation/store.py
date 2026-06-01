@@ -22,6 +22,7 @@ from engram.models.consolidation import (
     MaturationRecord,
     MergeRecord,
     MicrogliaRecord,
+    ObservationRecord,
     PhaseResult,
     PruneRecord,
     ReindexRecord,
@@ -302,6 +303,24 @@ class SQLiteConsolidationStore:
         """)
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_schemas_cycle ON consolidation_schemas(cycle_id)"
+        )
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_observations (
+                id TEXT PRIMARY KEY,
+                cycle_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                observation_episode_id TEXT NOT NULL,
+                cluster_episode_ids_json TEXT NOT NULL,
+                cluster_size INTEGER NOT NULL,
+                importance REAL NOT NULL,
+                synthesizer TEXT NOT NULL,
+                action TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            )
+        """)
+        await self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_consol_observations_cycle "
+            "ON consolidation_observations(cycle_id)"
         )
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS consolidation_decision_traces (
@@ -1238,6 +1257,57 @@ class SQLiteConsolidationStore:
                 schema_name=r["schema_name"],
                 instance_count=r["instance_count"],
                 predicate_count=r["predicate_count"],
+                action=r["action"],
+                timestamp=r["timestamp"],
+            )
+            for r in rows
+        ]
+
+    async def save_observation_record(self, record: ObservationRecord) -> None:
+        """Insert an observer/reflect synthesis audit record."""
+        await self.db.execute(
+            "INSERT INTO consolidation_observations "
+            "(id, cycle_id, group_id, observation_episode_id, "
+            "cluster_episode_ids_json, cluster_size, importance, "
+            "synthesizer, action, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                record.id,
+                record.cycle_id,
+                record.group_id,
+                record.observation_episode_id,
+                json.dumps(record.cluster_episode_ids),
+                record.cluster_size,
+                record.importance,
+                record.synthesizer,
+                record.action,
+                record.timestamp,
+            ),
+        )
+        await self.db.commit()
+
+    async def get_observation_records(
+        self,
+        cycle_id: str,
+        group_id: str,
+    ) -> list[ObservationRecord]:
+        """Fetch observation records for a cycle."""
+        cursor = await self.db.execute(
+            "SELECT * FROM consolidation_observations "
+            "WHERE cycle_id = ? AND group_id = ? ORDER BY timestamp",
+            (cycle_id, group_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            ObservationRecord(
+                id=r["id"],
+                cycle_id=r["cycle_id"],
+                group_id=r["group_id"],
+                observation_episode_id=r["observation_episode_id"],
+                cluster_episode_ids=json.loads(r["cluster_episode_ids_json"]),
+                cluster_size=r["cluster_size"],
+                importance=r["importance"],
+                synthesizer=r["synthesizer"],
                 action=r["action"],
                 timestamp=r["timestamp"],
             )

@@ -74,6 +74,7 @@ export const PHASE_DESCRIPTIONS: Record<ConsolidationPhaseName, string> = {
   compact: "Compressing access history into efficient buffers",
   mature: "Solidifying transient memories into knowledge",
   semanticize: "Transcending episodic data into conceptual wisdom",
+  reflect: "Synthesizing durable observations from related memories",
   schema: "Crystallizing recurring motifs into abilities",
   reindex: "Re-cataloging the neural storage indices",
   graph_embed: "Encoding structural geometry into vectors",

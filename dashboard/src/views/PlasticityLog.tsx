@@ -14,6 +14,7 @@ const NEURAL_STAGES: Record<string, { stage: string; color: string }> = {
   compact: { stage: "PACK", color: "#7a7a94" },
   mature: { stage: "HARDEN", color: "#a78bfa" },
   semanticize: { stage: "DISTILL", color: "#67e8f9" },
+  reflect: { stage: "SYNTH", color: "#5eead4" },
   schema: { stage: "STRATIFY", color: "#fbbf24" },
   reindex: { stage: "INDEX", color: "#7a7a94" },
   graph_embed: { stage: "VECTOR", color: "#818cf8" },

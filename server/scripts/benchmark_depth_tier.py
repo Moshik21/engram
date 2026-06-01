@@ -138,9 +138,12 @@ class _CachingAdapter(EngramLongMemEvalAdapter):
 # A clean, declarative map from a consolidation phase / depth-operator NAME to  #
 # the config field(s) that turn it OFF. --ablate <name> sets those fields False #
 # on ONE arm's config before the adapter is built, so a later phase-gating loop #
-# can attribute a per-phase delta by re-running with each name ablated. The eval#
-# path itself does not yet invoke the consolidation engine; this establishes    #
-# the seam (and validates the names) so the attribution loop is a drop-in.      #
+# can attribute a per-phase delta by re-running with each name ablated. The     #
+# write-side reflect phase is wired into the eval write path (run_persona): when #
+# observer_reflect_enabled is True it runs a manual consolidation cycle after    #
+# ingest so the synthesized observations persist as episodes visible to BOTH     #
+# arms' episode-vector recall, making --ablate reflect a pure on/off contrast.   #
+# Other phases still establish only the seam (names validated) for the loop.     #
 # --------------------------------------------------------------------------- #
 _ABLATABLE: dict[str, tuple[str, ...]] = {
     # consolidation phases (config _enabled flags)
@@ -150,6 +153,7 @@ _ABLATABLE: dict[str, tuple[str, ...]] = {
     "dream": ("consolidation_dream_enabled", "consolidation_dream_associations_enabled"),
     "triage": ("triage_enabled",),
     "schema": ("schema_formation_enabled",),
+    "reflect": ("observer_reflect_enabled",),
     "calibrate": ("consolidation_calibration_enabled",),
     "evidence_adjudication": ("evidence_extraction_enabled",),
     # depth-tier retrieval operators (the graph-side recall path under test)
@@ -402,6 +406,15 @@ async def run_persona(
     )
     extractor_kind = _assert_clean_extractor(adapter_on, allow_narrow)
     ep_to_session = await _ingest_persona(adapter_on, gid, persona)
+    # Write-side reflect (item #3): when the phase is enabled, run a manual
+    # consolidation cycle BEFORE recall so synthesized observation episodes are
+    # embedded into the SAME frozen store the core arm reuses. Manual trigger
+    # bypasses tiering and runs the cold-tier reflect phase fully. Off by default
+    # (and ablatable via --ablate reflect), so the baseline arm is unchanged.
+    if cfg.activation.observer_reflect_enabled:
+        await adapter_on._manager.trigger_consolidation_cycle(
+            group_id=gid, trigger="manual", dry_run=False
+        )
     session_to_ep: dict[str, list[str]] = {}
     for ep, sid in ep_to_session.items():
         session_to_ep.setdefault(sid, []).append(ep)
