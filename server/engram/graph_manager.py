@@ -610,7 +610,16 @@ class GraphManager:
         with curated outputs that still rely on the legacy projection path.
         """
         has_client_proposals = bool(proposed_entities or proposed_relationships)
-        extractor_supports_v2 = type(self._extractor) is EntityExtractor or isinstance(
+        # NOTE: the Anthropic EntityExtractor is deliberately NOT evidence-capable.
+        # _build_evidence_bundle only ever runs the narrow _evidence_pipeline; it never
+        # consumes an LLM extractor's output. Routing the LLM here silently DISCARDS its
+        # clean entities and persists narrow-regex fragments instead (a silent-inert bug:
+        # graph built from 'Voss wants me to', not 'Dr. Voss'). The LLM produces final,
+        # commit-quality entities directly, so it belongs on the legacy projection path.
+        # Client proposals still route to v2 via the has_client_proposals OR below, so the
+        # evidence/adjudication enrichment path is preserved. (OllamaExtractor has the same
+        # latent issue but is left unchanged here — unmeasured; tracked separately.)
+        extractor_supports_v2 = isinstance(
             self._extractor, (NarrowExtractorAdapter, OllamaExtractor)
         )
         if not extractor_supports_v2:
