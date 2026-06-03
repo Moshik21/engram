@@ -133,6 +133,9 @@ async def run_locomo(
     for conv in conversations:
         # Each conversation is an isolated memory; one group per conversation.
         await adapter._setup_manager(f"locomo_{conv.conversation_id}")
+        # The lite store persists across runs — clear any prior ingest of this
+        # conversation so retrieval isn't polluted by stale duplicate sessions.
+        await adapter.cleanup_group(f"locomo_{conv.conversation_id}")
         mgr = adapter._manager
         gid = adapter._current_group_id
 
