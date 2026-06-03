@@ -590,6 +590,16 @@ class ActivationConfig(BaseModel):
         le=365.0,
         description="Half-life in days for recency exponential decay in temporal scoring",
     )
+    current_value_entity_boost: float = Field(
+        default=1.2,
+        ge=1.0,
+        le=2.0,
+        description=(
+            "Multiplicative score boost applied to role/current-value-bearing entities "
+            "on current-value queries (wants_latest/is_state_query), so the answer "
+            "entity reliably reaches the entity budget. 1.0 disables it."
+        ),
+    )
 
     # --- Chunk search ---
     chunk_search_enabled: bool = Field(

@@ -1713,6 +1713,29 @@ async def retrieve(
                     oldness_boost = 1 - math.exp(-age_days / halflife)
                     sr.score *= 1 + oldness_boost
 
+            # Current-value entity lift: a "what is X now" query needs the
+            # role-bearing answer entity seated in the (small) entity budget so
+            # its summary — which leads with the canonical current value
+            # ("Current role: ...", see result_builder) — reaches the consumer.
+            # The recency loops above are episode-only, so an answer entity at a
+            # near-tie gets flipped out of the top-k by ranking noise. A small
+            # boost on entities that actually hold a current value makes that
+            # coverage reliable. Gated on wants_latest/is_state_query (multi-hop
+            # queries never trip it) and on the role affordance (generic entities
+            # untouched), so it only resolves near-ties for current-value queries.
+            if (
+                temporal_cues["wants_latest"] or temporal_cues["is_state_query"]
+            ) and cfg.current_value_entity_boost != 1.0:
+                for sr in scored:
+                    if sr.result_type != "entity":
+                        continue
+                    try:
+                        ent = await graph_store.get_entity(sr.node_id, group_id)
+                    except Exception:
+                        continue
+                    if ent and (ent.attributes or {}).get("role"):
+                        sr.score *= cfg.current_value_entity_boost
+
             # Re-sort after temporal adjustment ((-score, node_id) tie-break)
             scored.sort(key=lambda sr: (-sr.score, sr.node_id))
 
