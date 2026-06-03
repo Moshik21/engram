@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-
-import pytest
 
 from engram.benchmark.locomo.adapter import (
     LOCOMO_BENCHMARK_GROUP_ID,
@@ -15,38 +12,6 @@ from engram.benchmark.locomo.adapter import (
 )
 from engram.benchmark.locomo.answer_composer import compose_answer
 from engram.benchmark.locomo.metrics import exact_match, normalize_answer, token_f1
-from engram.config import ActivationConfig
-
-
-@dataclass
-class _FakeRetrievalResult:
-    node_id: str
-
-
-@dataclass
-class _FakeEntity:
-    summary: str
-
-
-class _FakeGraphStore:
-    def __init__(self) -> None:
-        self.episodes = []
-        self.entity_group_ids: list[str] = []
-
-    async def create_episode(self, episode) -> None:
-        self.episodes.append(episode)
-
-    async def get_entity(self, entity_id: str, group_id: str):
-        self.entity_group_ids.append(group_id)
-        return _FakeEntity(summary=f"{entity_id} likes tea")
-
-
-class _FakeSearchIndex:
-    def __init__(self) -> None:
-        self.indexed = []
-
-    async def index_episode(self, episode) -> None:
-        self.indexed.append(episode)
 
 
 class TestNormalizeAnswer:
@@ -172,17 +137,27 @@ class TestComposeAnswer:
 
 
 class TestLoadLocomoDataset:
-    def test_load_list_format(self, tmp_path):
-        """Load LoCoMo in list-of-conversations format."""
+    def test_load_real_schema(self, tmp_path):
+        """Load the real LoCoMo schema (qa + conversation.session_N)."""
         data = [
             {
-                "conversation_id": "conv_1",
-                "conversation": [
-                    {"text": "Hello!", "speaker": "Alice"},
-                    {"text": "Hi!", "speaker": "Bob"},
-                ],
-                "questions": [
-                    {"question": "Who said hello?", "answer": "Alice"},
+                "sample_id": "conv_1",
+                "conversation": {
+                    "speaker_a": "Alice",
+                    "speaker_b": "Bob",
+                    "session_1_date_time": "1:00 pm on 8 May, 2023",
+                    "session_1": [
+                        {"speaker": "Alice", "dia_id": "D1:1", "text": "Hello!"},
+                        {"speaker": "Bob", "dia_id": "D1:2", "text": "Hi!"},
+                    ],
+                },
+                "qa": [
+                    {
+                        "question": "Who said hello?",
+                        "answer": "Alice",
+                        "evidence": ["D1:1"],
+                        "category": "4",
+                    },
                 ],
             },
         ]
@@ -192,9 +167,14 @@ class TestLoadLocomoDataset:
         convs = load_locomo_dataset(path)
         assert len(convs) == 1
         assert convs[0].conversation_id == "conv_1"
-        assert len(convs[0].turns) == 2
+        assert len(convs[0].sessions) == 1
+        assert len(convs[0].sessions[0].turns) == 2
         assert len(convs[0].probes) == 1
         assert convs[0].probes[0].question == "Who said hello?"
+        assert convs[0].probes[0].evidence == ["D1:1"]
+        from engram.benchmark.locomo.adapter import category_label
+
+        assert category_label(convs[0].probes[0].category) == "single_hop"
 
     def test_max_conversations(self, tmp_path):
         """Respects max_conversations limit."""
@@ -208,42 +188,34 @@ class TestLoadLocomoDataset:
         assert len(convs) == 3
 
 
-@pytest.mark.asyncio
-async def test_run_locomo_defaults_to_benchmark_group(tmp_path, monkeypatch):
-    from engram.benchmark.locomo import runner as locomo_runner
-
-    data = [
-        {
-            "conversation_id": "conv_1",
-            "conversation": [{"text": "Alice likes tea", "speaker": "Alice"}],
-            "questions": [{"question": "What does Alice like?", "answer": "tea"}],
-        },
-    ]
-    path = tmp_path / "locomo.json"
-    path.write_text(json.dumps(data))
-
-    retrieve_group_ids: list[str] = []
-
-    async def fake_retrieve(**kwargs):
-        retrieve_group_ids.append(kwargs["group_id"])
-        return [_FakeRetrievalResult("ent_alice")]
-
-    monkeypatch.setattr(locomo_runner, "retrieve", fake_retrieve)
-    graph_store = _FakeGraphStore()
-    search_index = _FakeSearchIndex()
-
-    result = await locomo_runner.run_locomo(
-        path,
-        graph_store,
-        activation_store=object(),
-        search_index=search_index,
-        cfg=ActivationConfig(),
-        max_conversations=1,
-        limit=1,
+def test_conversation_to_session_contents():
+    """Sessions become dated, speaker-prefixed episode contents for ingestion."""
+    from engram.benchmark.locomo.adapter import (
+        LoCoMoConversation,
+        LoCoMoSession,
+        conversation_to_session_contents,
     )
 
-    assert result.total_conversations == 1
-    assert [ep.group_id for ep in graph_store.episodes] == [LOCOMO_BENCHMARK_GROUP_ID]
-    assert [ep.group_id for ep in search_index.indexed] == [LOCOMO_BENCHMARK_GROUP_ID]
-    assert retrieve_group_ids == [LOCOMO_BENCHMARK_GROUP_ID]
-    assert graph_store.entity_group_ids == [LOCOMO_BENCHMARK_GROUP_ID]
+    conv = LoCoMoConversation(
+        conversation_id="c1",
+        turns=[],
+        probes=[],
+        sessions=[
+            LoCoMoSession(
+                session_id="session_1",
+                date="1:00 pm on 8 May, 2023",
+                turns=[
+                    {"speaker": "Alice", "dia_id": "D1:1", "text": "I started a new job."},
+                    {"speaker": "Bob", "dia_id": "D1:2", "text": "Congrats!"},
+                ],
+            ),
+        ],
+    )
+
+    contents = conversation_to_session_contents(conv)
+    assert len(contents) == 1
+    sid, date, content = contents[0]
+    assert sid == "session_1"
+    assert "8 May, 2023" in content
+    assert "Alice: I started a new job." in content
+    assert "Bob: Congrats!" in content
