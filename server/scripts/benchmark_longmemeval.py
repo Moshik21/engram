@@ -64,6 +64,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
         question_types=args.types.split(",") if args.types else None,
         output_path=args.output,
         checkpoint_path=args.checkpoint,
+        reader=args.reader,
+        judge=args.judge,
+        reader_model=args.reader_model,
         verbose=args.verbose,
     )
 
@@ -248,6 +251,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--types",
         default=None,
         help="Comma-separated question types to include",
+    )
+    run.add_argument(
+        "--reader",
+        choices=["none", "llm"],
+        default="none",
+        help="Answer generation: none (deterministic containment) or llm (generate from evidence)",
+    )
+    run.add_argument(
+        "--judge",
+        choices=["containment", "llm"],
+        default="containment",
+        help="Grading: containment (embedding) or llm (grade generated answer vs gold)",
+    )
+    run.add_argument(
+        "--reader-model",
+        default="claude-sonnet-4-6",
+        help="Claude model for the LLM reader/judge (default: claude-sonnet-4-6)",
     )
     run.add_argument(
         "--output",

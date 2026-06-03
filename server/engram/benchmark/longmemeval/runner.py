@@ -21,6 +21,7 @@ from engram.benchmark.longmemeval.dataset import (
     load_dataset,
 )
 from engram.benchmark.longmemeval.evaluator import (
+    JudgeVerdict,
     compute_containment_score,
     compute_retrieval_metrics,
     judge_by_containment,
@@ -87,6 +88,9 @@ class LongMemEvalResult:
     instance_results: list[InstanceResult]
     adapter_stats: AdapterStats
     elapsed_seconds: float
+    reader_mode: str = "none"
+    judge_mode: str = "containment"
+    reader_model: str = ""
 
     def to_dict(self) -> dict:
         """Serialize to a JSON-safe dict."""
@@ -97,8 +101,14 @@ class LongMemEvalResult:
             "reranker_provider": self.reranker_provider,
             "use_graph": self.use_graph,
             "consolidation_used": self.consolidation_used,
-            "assessment_method": "embedding_containment",
-            "reader": "none (deterministic embedding containment, no LLM)",
+            "assessment_method": (
+                "llm_judge" if self.judge_mode == "llm" else "embedding_containment"
+            ),
+            "reader": (
+                f"llm:{self.reader_model}" if self.reader_mode == "llm"
+                else "none (deterministic embedding containment, no LLM)"
+            ),
+            "judge_mode": self.judge_mode,
             "total_instances": self.total_instances,
             "total_correct": self.total_correct,
             "overall_accuracy": round(self.overall_accuracy, 4),
@@ -171,6 +181,9 @@ async def run_longmemeval(
     question_types: list[str] | None = None,
     output_path: str | Path | None = None,
     checkpoint_path: str | Path | None = None,
+    reader: str = "none",
+    judge: str = "containment",
+    reader_model: str = "claude-sonnet-4-6",
     verbose: bool = False,
 ) -> LongMemEvalResult:
     """Run the full LongMemEval benchmark (zero LLM calls).
@@ -234,6 +247,16 @@ async def run_longmemeval(
         use_graph=use_graph,
     )
 
+    # Optional LLM reader/judge (apples-to-apples cell). Off unless requested.
+    reader_judge = None
+    if reader == "llm" or judge == "llm":
+        from engram.benchmark.longmemeval.reader import LLMReaderJudge
+
+        reader_judge = LLMReaderJudge(model=reader_model)
+        logger.info(
+            "LLM reader/judge enabled: model=%s reader=%s judge=%s", reader_model, reader, judge,
+        )
+
     # Load checkpoint if resuming
     completed_ids: set[str] = set()
     checkpointed_results: list[InstanceResult] = []
@@ -262,6 +285,9 @@ async def run_longmemeval(
                 adapter=adapter,
                 instance=instance,
                 containment_threshold=containment_threshold,
+                reader_judge=reader_judge,
+                reader=reader,
+                judge=judge,
             )
             instance_results.append(result)
 
@@ -295,6 +321,8 @@ async def run_longmemeval(
             )
 
     await adapter.close()
+    if reader_judge is not None:
+        await reader_judge.close()
     elapsed = time.perf_counter() - start
 
     # Aggregate metrics
@@ -330,6 +358,9 @@ async def run_longmemeval(
         instance_results=instance_results,
         adapter_stats=adapter.stats,
         elapsed_seconds=elapsed,
+        reader_mode=reader,
+        judge_mode=judge,
+        reader_model=reader_model if (reader == "llm" or judge == "llm") else "",
     )
 
     if output_path:
@@ -342,6 +373,9 @@ async def _process_instance(
     adapter: EngramLongMemEvalAdapter,
     instance: LongMemEvalInstance,
     containment_threshold: float,
+    reader_judge: object | None = None,
+    reader: str = "none",
+    judge: str = "containment",
 ) -> InstanceResult:
     """Process a single LongMemEval instance: ingest, query, judge."""
     # Ingest all sessions
@@ -350,7 +384,15 @@ async def _process_instance(
     # Query
     query_result = await adapter.query_instance(instance)
 
-    # Compute embedding-based containment score
+    # Optional LLM reader: generate an answer from the retrieved evidence so the
+    # metric measures retrieval+reasoning (apples-to-apples with LLM-read systems)
+    # instead of raw retrieval containment.
+    if reader == "llm" and reader_judge is not None:
+        query_result.hypothesis = await reader_judge.read(
+            instance.question, query_result.evidence,
+        )
+
+    # Compute embedding-based containment score (retrieval-side metric, always reported)
     embed_fn = adapter.get_embed_fn()
     containment_score = 0.0
     if embed_fn and query_result.evidence:
@@ -360,16 +402,31 @@ async def _process_instance(
             embed_fn=embed_fn,
         )
 
-    # Judge by containment
-    verdict = judge_by_containment(
-        question_id=instance.question_id,
-        question_type=instance.question_type,
-        containment_score=containment_score,
-        is_abstention=instance.is_abstention,
-        threshold=containment_threshold,
-        hypothesis=query_result.hypothesis,
-        gold_answer=instance.answer,
-    )
+    # Judge: LLM judge grades the generated answer; else embedding containment.
+    if judge == "llm" and reader_judge is not None:
+        correct, judge_raw = await reader_judge.judge(
+            question=instance.question,
+            hypothesis=query_result.hypothesis,
+            gold_answer=instance.answer,
+            is_abstention=instance.is_abstention,
+        )
+        verdict = JudgeVerdict(
+            question_id=instance.question_id,
+            question_type=instance.question_type,
+            correct=correct,
+            judge_raw=judge_raw,
+            containment_score=containment_score,
+        )
+    else:
+        verdict = judge_by_containment(
+            question_id=instance.question_id,
+            question_type=instance.question_type,
+            containment_score=containment_score,
+            is_abstention=instance.is_abstention,
+            threshold=containment_threshold,
+            hypothesis=query_result.hypothesis,
+            gold_answer=instance.answer,
+        )
 
     # Compute retrieval metrics
     retrieval_metrics = compute_retrieval_metrics(
