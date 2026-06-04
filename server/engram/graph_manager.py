@@ -35,7 +35,6 @@ from engram.extraction.extractor import EntityExtractor, ExtractionResult
 from engram.extraction.models import ApplyOutcome, ProjectionBundle
 from engram.extraction.narrow.pipeline import NarrowExtractionPipeline
 from engram.extraction.narrow_adapter import NarrowExtractorAdapter
-from engram.extraction.ollama_extractor import OllamaExtractor
 from engram.extraction.planner import ProjectionPlanner
 from engram.extraction.policy import ProjectionPolicy
 from engram.extraction.post_apply import ProjectionPostProcessor
@@ -610,17 +609,17 @@ class GraphManager:
         with curated outputs that still rely on the legacy projection path.
         """
         has_client_proposals = bool(proposed_entities or proposed_relationships)
-        # NOTE: the Anthropic EntityExtractor is deliberately NOT evidence-capable.
-        # _build_evidence_bundle only ever runs the narrow _evidence_pipeline; it never
-        # consumes an LLM extractor's output. Routing the LLM here silently DISCARDS its
-        # clean entities and persists narrow-regex fragments instead (a silent-inert bug:
-        # graph built from 'Voss wants me to', not 'Dr. Voss'). The LLM produces final,
-        # commit-quality entities directly, so it belongs on the legacy projection path.
-        # Client proposals still route to v2 via the has_client_proposals OR below, so the
-        # evidence/adjudication enrichment path is preserved. (OllamaExtractor has the same
-        # latent issue but is left unchanged here — unmeasured; tracked separately.)
+        # NOTE: LLM extractors (Anthropic EntityExtractor, OllamaExtractor) are deliberately
+        # NOT evidence-capable. _build_evidence_bundle only ever runs the narrow
+        # _evidence_pipeline; it never consumes an LLM extractor's output. Routing an LLM
+        # here silently DISCARDS its clean entities and persists narrow-regex fragments
+        # instead (a silent-inert bug: graph built from 'Voss wants me to', not 'Dr. Voss').
+        # An LLM produces final, commit-quality entities directly, so it belongs on the
+        # legacy projection path. Only the narrow adapter legitimately feeds v2. Client
+        # proposals still route to v2 via the has_client_proposals OR below, so the
+        # evidence/adjudication enrichment path is preserved.
         extractor_supports_v2 = isinstance(
-            self._extractor, (NarrowExtractorAdapter, OllamaExtractor)
+            self._extractor, (NarrowExtractorAdapter,)
         )
         if not extractor_supports_v2:
             canned_result = getattr(self._extractor, "_result", None)

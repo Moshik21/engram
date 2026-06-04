@@ -44,6 +44,15 @@ def test_llm_extractor_with_client_proposals_still_uses_evidence():
     assert _gate(EntityExtractor(), proposed_entities=[{"name": "Acme"}]) is True
 
 
+def test_ollama_extractor_routes_to_legacy_not_evidence():
+    # OllamaExtractor is also an LLM extractor (the fully-local fallback). Its clean
+    # output must commit via the legacy path, not be discarded by the narrow-only
+    # evidence pipeline — same silent-inert bug as the Anthropic extractor.
+    from engram.extraction.ollama_extractor import OllamaExtractor
+
+    assert _gate(OllamaExtractor()) is False
+
+
 def test_narrow_extractor_uses_evidence_pipeline():
     # The narrow adapter legitimately feeds the evidence pipeline.
     assert _gate(NarrowExtractorAdapter()) is True
