@@ -42,9 +42,11 @@ class TestRememberV2Config:
         cfg = ActivationConfig()
         assert cfg.evidence_store_deferred is True
 
-    def test_client_proposals_default_off(self):
+    def test_client_proposals_default_on(self):
+        # Agent-as-extractor is the operating mode: the attached agent supplies clean
+        # atomic facts via remember(), so client proposals are accepted by default.
         cfg = ActivationConfig()
-        assert cfg.evidence_client_proposals_enabled is False
+        assert cfg.evidence_client_proposals_enabled is True
 
     def test_forced_commit_cycles(self):
         cfg = ActivationConfig(evidence_forced_commit_cycles=10)
@@ -149,6 +151,73 @@ class TestGraphManagerEvidencePath:
         assert len(bundle.candidates) == 2
         assert all(c.source_type == "client_proposal" for c in bundle.candidates)
         assert bundle.extractor_stats["client_proposals"]["count"] == 2
+
+    def test_blank_proposals_still_suppress_internal_extractor(self):
+        """Supplied-but-empty proposals must NOT fall through to the internal extractor.
+
+        The agent chose to propose; even if the proposals filter to zero candidates
+        (e.g. blank names), the clean-channel must stay sole — never run regex fragments.
+        """
+        from unittest.mock import MagicMock
+
+        from engram.graph_manager import GraphManager
+
+        cfg = ActivationConfig(
+            evidence_extraction_enabled=True,
+            evidence_client_proposals_enabled=True,
+        )
+        manager = GraphManager(
+            graph_store=MagicMock(),
+            activation_store=MagicMock(),
+            search_index=MagicMock(),
+            extractor=MagicMock(),
+            cfg=cfg,
+        )
+        manager._evidence_pipeline = MagicMock()
+        manager._evidence_pipeline.extract.side_effect = AssertionError(
+            "internal extractor must stay suppressed when the agent supplied proposals",
+        )
+
+        bundle = manager._build_evidence_bundle(
+            text="Alice works at Google",
+            episode_id="ep1",
+            group_id="default",
+            proposed_entities=[{"name": "", "entity_type": "Person"}],  # blank -> 0 candidates
+            proposed_relationships=[],
+            model_tier="opus",
+        )
+        assert bundle.candidates == []
+        assert "client_proposals" in bundle.extractor_stats
+
+    def test_no_proposals_falls_back_to_internal_extractor(self):
+        """With no proposals supplied, the internal extractor runs as the fallback."""
+        from unittest.mock import MagicMock
+
+        from engram.extraction.evidence import EvidenceBundle
+        from engram.graph_manager import GraphManager
+
+        cfg = ActivationConfig(
+            evidence_extraction_enabled=True,
+            evidence_client_proposals_enabled=True,
+        )
+        manager = GraphManager(
+            graph_store=MagicMock(),
+            activation_store=MagicMock(),
+            search_index=MagicMock(),
+            extractor=MagicMock(),
+            cfg=cfg,
+        )
+        manager._evidence_pipeline = MagicMock()
+        sentinel = EvidenceBundle(episode_id="ep1", group_id="default")
+        manager._evidence_pipeline.extract.return_value = sentinel
+
+        bundle = manager._build_evidence_bundle(
+            text="Alice works at Google",
+            episode_id="ep1",
+            group_id="default",
+        )
+        manager._evidence_pipeline.extract.assert_called_once()
+        assert bundle is sentinel
 
     @pytest.mark.asyncio
     async def test_ingest_episode_materializes_client_proposals(

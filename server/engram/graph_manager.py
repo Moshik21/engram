@@ -649,8 +649,17 @@ class GraphManager:
         proposed_relationships: list[dict] | None = None,
         model_tier: str = "default",
     ) -> EvidenceBundle:
-        """Resolve the active evidence source for a projection."""
-        if self._cfg.evidence_client_proposals_enabled:
+        """Resolve the active evidence source for a projection.
+
+        When the attached agent supplies proposals, they are the SOLE evidence source —
+        the internal narrow/LLM extractor is suppressed so the agent's clean atomic facts
+        are never mixed with regex fragments. This holds even when the proposals filter
+        down to zero candidates (e.g. all-blank names): we still return the (empty) bundle
+        rather than falling through to the internal extractor. Only when NO proposals are
+        supplied do we fall back to internal extraction.
+        """
+        proposals_supplied = bool(proposed_entities or proposed_relationships)
+        if self._cfg.evidence_client_proposals_enabled and proposals_supplied:
             proposal_candidates = proposals_to_evidence(
                 proposed_entities,
                 proposed_relationships,
@@ -658,19 +667,18 @@ class GraphManager:
                 group_id,
                 model_tier,
             )
-            if proposal_candidates:
-                return EvidenceBundle(
-                    episode_id=episode_id,
-                    group_id=group_id,
-                    candidates=proposal_candidates,
-                    extractor_stats={
-                        "client_proposals": {
-                            "count": len(proposal_candidates),
-                            "duration_ms": 0.0,
-                        },
+            return EvidenceBundle(
+                episode_id=episode_id,
+                group_id=group_id,
+                candidates=proposal_candidates,
+                extractor_stats={
+                    "client_proposals": {
+                        "count": len(proposal_candidates),
+                        "duration_ms": 0.0,
                     },
-                    total_ms=0.0,
-                )
+                },
+                total_ms=0.0,
+            )
         if self._evidence_pipeline is None:
             return EvidenceBundle(episode_id=episode_id, group_id=group_id)
         return self._evidence_pipeline.extract(

@@ -2399,8 +2399,15 @@ class ActivationConfig(BaseModel):
         description="Store deferred evidence for later adjudication",
     )
     evidence_client_proposals_enabled: bool = Field(
-        default=False,
-        description="Accept client-supplied entity/relationship proposals",
+        default=True,
+        description=(
+            "Accept client-supplied proposed_entities/proposed_relationships (the attached "
+            "agent acts as the extractor and hands Engram clean atomic facts via remember()). "
+            "When proposals are supplied they are the SOLE evidence source for that episode — "
+            "the internal narrow/LLM extractor is suppressed, so the agent's clean facts are "
+            "never mixed with regex fragments. When no proposals are supplied, falls back to "
+            "internal extraction."
+        ),
     )
     evidence_forced_commit_cycles: int = Field(
         default=5,

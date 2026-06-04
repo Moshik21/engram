@@ -655,18 +655,26 @@ async def remember(
     image_mime: str = "image/png",
     events: list[dict] | None = None,
 ) -> str:
-    """Store a memory. Extracts entities and relationships from the text.
+    """Store a high-signal fact. YOU are the extractor: supply the atomic facts.
+
+    Prefer passing proposed_entities + proposed_relationships — you understand the text
+    better than Engram's internal extractor, so hand over the structured atoms and Engram
+    will store, link, and retrieve them. When proposals are supplied they are the SOLE
+    evidence source (the internal extractor is suppressed, so your clean facts are never
+    mixed with regex fragments). Omit proposals only for bulk/uncertain content (use
+    observe() for that instead).
 
     Args:
-        content: The text to remember (conversation excerpt, fact, note, etc.)
+        content: The source text (used for storage + span verification of proposals)
         source: Where this memory came from (e.g., "claude_desktop", "claude_code")
         conversation_date: Optional ISO 8601 date string for when the conversation happened
-        proposed_entities: Optional client-proposed entities
+        proposed_entities: The entities you extracted
             [{"name": ..., "entity_type": ..., "source_span": ...}]
-        proposed_relationships: Optional client-proposed relationships
-            [{"subject": ..., "predicate": ..., "object": ..., "source_span": ...}]
-        model_tier: The calling model tier (opus/sonnet/haiku/default)
-            for confidence scoring
+        proposed_relationships: The relationships you extracted
+            [{"subject": ..., "predicate": ..., "object": ..., "source_span": ...,
+              "valid_from"?: ...}]
+        model_tier: YOUR model tier (opus/sonnet/haiku/default) — calibrates how far
+            Engram trusts the supplied facts
         image_data: Optional base64 encoded image to attach to the memory
         image_mime: MIME type of the attached image (default "image/png")
         events: Optional dated event annotations

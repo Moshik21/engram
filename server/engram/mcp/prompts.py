@@ -77,7 +77,9 @@ responding and use its `capture` decision for post-response `observe` or \
 ## Memory Tools
 
 - **observe** — Store raw text for background processing. Default for most content.
-- **remember** — Store high-signal information with full extraction.
+- **remember** — Store a high-signal fact AND pre-extract it yourself: pass \
+`proposed_entities` + `proposed_relationships`. You are the extractor — Engram \
+stores, links, and retrieves the atomic facts you supply.
 - **recall** — Retrieve relevant memories by query.
 - **search_entities** — Look up specific people, projects, or concepts.
 - **search_facts** — Find specific facts or relationships. User-facing by \
@@ -102,14 +104,32 @@ fresh or empty. If `beforeAnswer.required` is true, follow it before answering.
 
 ## When to Observe vs Remember
 
-Default to `observe`. Use `remember` only for high-signal items.
+Default to `observe` (cheap, raw — Engram just queues the text). Use `remember` for \
+high-signal facts you can decompose into atomic structure yourself — and when you do, \
+**you are the extractor**: hand Engram the entities and relationships, don't make it \
+guess from the raw text.
 
-**observe**: General context, uncertain value, bulk conversation content, \
-anything you are unsure about.
+**observe**: general context, uncertain value, bulk conversation, anything you are \
+unsure about. Just the text.
 
-**remember**: User explicitly asks you to remember, personal identity facts \
-(name, location, job), explicit preferences or corrections, key decisions, \
-goals with concrete details.
+**remember**: identity facts (name, location, job), explicit preferences or \
+corrections, key decisions, goals. Supply the structure you already understand:
+- `proposed_entities`: `[{"name", "entity_type", "source_span"}]`
+- `proposed_relationships`: \
+`[{"subject", "predicate", "object", "source_span", "valid_from"?}]`
+- `content`: the source text (used for storage + span verification)
+- `model_tier`: your own tier (opus/sonnet/haiku) — calibrates how far Engram trusts \
+the facts.
+
+Example — user says *"I started at Stripe"* →
+`remember(content="I started at Stripe", model_tier="<your tier>",
+proposed_entities=[{"name":"Stripe","entity_type":"Organization",
+"source_span":"started at Stripe"}],
+proposed_relationships=[{"subject":"User","predicate":"WORKS_AT",
+"object":"Stripe","source_span":"started at Stripe"}])`
+
+Rule of thumb: if you can cite the exact text span for each entity and relationship, \
+use `remember` with proposals. Otherwise `observe`.
 
 ## When to Recall
 
