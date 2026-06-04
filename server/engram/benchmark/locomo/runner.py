@@ -120,9 +120,24 @@ async def run_locomo(
 
     reader_judge = None
     if reader == "llm" or judge == "llm":
-        from engram.benchmark.longmemeval.reader import LLMReaderJudge
+        if reader_model.startswith("claude"):
+            from engram.benchmark.longmemeval.reader import LLMReaderJudge
 
-        reader_judge = LLMReaderJudge(model=reader_model)
+            reader_judge = LLMReaderJudge(model=reader_model)
+        else:
+            # Fully-local reader/judge: any non-claude model name routes to Ollama
+            # (base URL from the same env the fully-local config uses). Lets us grade
+            # answer accuracy with zero external key / credits.
+            import os
+
+            from engram.benchmark.longmemeval.reader import OllamaReaderJudge
+
+            reader_judge = OllamaReaderJudge(
+                model=reader_model,
+                base_url=os.environ.get(
+                    "ENGRAM_ACTIVATION__OLLAMA_BASE_URL", "http://localhost:11434"
+                ),
+            )
 
     conversation_results = []
     all_em_scores: list[float] = []
