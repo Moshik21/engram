@@ -162,8 +162,10 @@ class OllamaReaderJudge:
             f"Proposed answer: {hypothesis}\n\n"
             "Grade (CORRECT or INCORRECT):"
         )
-        # gemma needs headroom with the longer judge system prompt (16 tokens -> empty).
-        raw = (await self._generate(_JUDGE_SYSTEM, prompt, 64)).upper()
+        # gemma ruminates ~190 tokens on fuzzy hypotheses ("I don't know") BEFORE emitting
+        # the verdict word — a 64-token cap hits done=length and strips to empty (every
+        # retry overflows identically at temp=0). 256 lets it finish; we parse-anywhere below.
+        raw = (await self._generate(_JUDGE_SYSTEM, prompt, 256)).upper()
         # Robust parse: "INCORRECT" contains "CORRECT", and gemma may add a word or two.
         correct = "INCORRECT" not in raw and "CORRECT" in raw
         return correct, f"ollama_judge({self._model}): {raw!r}"
