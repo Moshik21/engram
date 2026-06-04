@@ -131,6 +131,12 @@ class OllamaReaderJudge:
                     "system": system,
                     "prompt": prompt,
                     "stream": False,
+                    # Disable thinking: reasoning models (e.g. gemma-26b, not the e4b
+                    # "nothink" variant) otherwise burn the whole num_predict budget on
+                    # a <think> preamble before the answer on long-context reads — done=length,
+                    # empty after strip. think=false makes them answer directly (eval~4).
+                    # No-op for non-thinking models.
+                    "think": False,
                     "options": {"num_predict": max_tokens, "temperature": 0.0},
                 },
             )
