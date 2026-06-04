@@ -99,3 +99,77 @@ class LLMReaderJudge:
             await self._client.close()
         except Exception:
             pass
+
+
+class OllamaReaderJudge:
+    """Reader+judge backed by a LOCAL Ollama model — same interface, zero external key.
+
+    Lets us measure answer accuracy (not just retrieval reachability) fully self-hosted,
+    e.g. an Ollama instance on the home PC over Tailscale.
+    """
+
+    def __init__(
+        self,
+        model: str = "gemma4-e4b-nothink:32k",
+        base_url: str = "http://localhost:11434",
+        max_evidence: int = 10,
+    ) -> None:
+        import httpx
+
+        self._client = httpx.AsyncClient(timeout=120.0)
+        self._model = model
+        self._base_url = base_url.rstrip("/")
+        self._max_evidence = max_evidence
+
+    async def _generate(self, system: str, prompt: str, max_tokens: int) -> str:
+        # A cold/loading Ollama model can return an empty response on first hit; retry once.
+        for _ in range(2):
+            resp = await self._client.post(
+                f"{self._base_url}/api/generate",
+                json={
+                    "model": self._model,
+                    "system": system,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"num_predict": max_tokens, "temperature": 0.0},
+                },
+            )
+            resp.raise_for_status()
+            out = (resp.json().get("response") or "").strip()
+            if out:
+                return out
+        return ""
+
+    async def read(self, question: str, evidence: list[str]) -> str:
+        context = "\n".join(f"- {e}" for e in evidence[: self._max_evidence]) or "(no context)"
+        return await self._generate(
+            _READER_SYSTEM, f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:", 256,
+        )
+
+    async def judge(
+        self,
+        *,
+        question: str,
+        hypothesis: str,
+        gold_answer: str,
+        is_abstention: bool,
+    ) -> tuple[bool, str]:
+        kind = "ABSTENTION question (premise false/unanswerable)" if is_abstention else "answerable"
+        prompt = (
+            f"Question type: {kind}\n"
+            f"Question: {question}\n"
+            f"Gold answer: {gold_answer}\n"
+            f"Proposed answer: {hypothesis}\n\n"
+            "Grade (CORRECT or INCORRECT):"
+        )
+        # gemma needs headroom with the longer judge system prompt (16 tokens -> empty).
+        raw = (await self._generate(_JUDGE_SYSTEM, prompt, 64)).upper()
+        # Robust parse: "INCORRECT" contains "CORRECT", and gemma may add a word or two.
+        correct = "INCORRECT" not in raw and "CORRECT" in raw
+        return correct, f"ollama_judge({self._model}): {raw!r}"
+
+    async def close(self) -> None:
+        try:
+            await self._client.aclose()
+        except Exception:
+            pass
