@@ -269,7 +269,7 @@ export function DashboardShell() {
 
   return (
     <div
-      className={`relative h-screen w-screen overflow-hidden${dashboardMode === "nerve" ? " nerve-mode" : ""}`}
+      className={`relative h-screen w-screen overflow-hidden${dashboardMode === "nerve" || dashboardMode === "labs" ? " nerve-mode" : ""}`}
       style={{ background: "var(--void)" }}
     >
       <Suspense fallback={<PanelFallback />}>{renderMainContent()}</Suspense>

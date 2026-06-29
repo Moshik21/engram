@@ -16,22 +16,39 @@ const OBSERVATORY_VIEWS: { id: DashboardView; label: string; icon: string }[] = 
 ];
 
 const NERVE_VIEWS: { id: DashboardView; label: string; icon: string }[] = [
-  { id: "nerve_center", label: "Nerve Center", icon: "\u2699" },
   { id: "neural_field", label: "Neural Field", icon: "\u25C9" },
   { id: "ingestion", label: "Ingestion Chamber", icon: "\u269B" },
-  { id: "adjudicate", label: "Adjudication", icon: "\u2696" },
-  { id: "immunity", label: "Immunity Sweep", icon: "\u26E8" },
-  { id: "profile", label: "Cerebral Profile", icon: "\u2606" },
   { id: "synaptic_log", label: "Plasticity Log", icon: "\u2721" },
 ];
 
+const LABS_VIEWS: { id: DashboardView; label: string; icon: string }[] = [
+  { id: "nerve_center", label: "Nerve Center", icon: "\u2699" },
+  { id: "adjudicate", label: "Adjudication", icon: "\u2696" },
+  { id: "immunity", label: "Immunity Sweep", icon: "\u26E8" },
+  { id: "profile", label: "Cerebral Profile", icon: "\u2606" },
+];
+
+const MODE_CYCLE: DashboardMode[] = ["observatory", "nerve", "labs"];
+
+const MODE_DEFAULT_VIEW: Record<DashboardMode, DashboardView> = {
+  observatory: "lifecycle",
+  nerve: "neural_field",
+  labs: "nerve_center",
+};
+
+const MODE_LABEL: Record<DashboardMode, string> = {
+  observatory: "Memory Explorer",
+  nerve: "Nerve Center",
+  labs: "Labs",
+};
+
 // Map between modes for toggle
 const VIEW_MAP: Record<string, DashboardView> = {
-  lifecycle: "nerve_center",
-  nerve_center: "lifecycle",
+  lifecycle: "neural_field",
+  neural_field: "lifecycle",
   knowledge: "nerve_center",
+  nerve_center: "knowledge",
   graph: "neural_field",
-  neural_field: "graph",
   feed: "ingestion",
   ingestion: "feed",
   stats: "profile",
@@ -41,27 +58,45 @@ const VIEW_MAP: Record<string, DashboardView> = {
   synaptic_log: "consolidation",
 };
 
+function viewsForMode(mode: DashboardMode) {
+  if (mode === "nerve") return NERVE_VIEWS;
+  if (mode === "labs") return LABS_VIEWS;
+  return OBSERVATORY_VIEWS;
+}
+
+function nextMode(mode: DashboardMode): DashboardMode {
+  const index = MODE_CYCLE.indexOf(mode);
+  return MODE_CYCLE[(index + 1) % MODE_CYCLE.length];
+}
+
 export function Sidebar() {
   const currentView = useEngramStore((s) => s.currentView);
   const setCurrentView = useEngramStore((s) => s.setCurrentView);
   const dashboardMode = useEngramStore((s) => s.dashboardMode);
   const setDashboardMode = useEngramStore((s) => s.setDashboardMode);
 
-  const views = dashboardMode === "nerve" ? NERVE_VIEWS : OBSERVATORY_VIEWS;
+  const views = viewsForMode(dashboardMode);
 
   const handleModeToggle = () => {
-    const newMode: DashboardMode = dashboardMode === "observatory" ? "nerve" : "observatory";
+    const newMode = nextMode(dashboardMode);
     setDashboardMode(newMode);
-    // Switch to equivalent view in new mode
     const mappedView = VIEW_MAP[currentView];
-    if (mappedView) {
+    const viewsInMode = viewsForMode(newMode).map((view) => view.id);
+    if (mappedView && viewsInMode.includes(mappedView)) {
       setCurrentView(mappedView);
+    } else if (viewsInMode.includes(currentView)) {
+      setCurrentView(currentView);
     } else {
-      // Default to first view in new mode
-      const defaultView = newMode === "nerve" ? "nerve_center" : "lifecycle";
-      setCurrentView(defaultView);
+      setCurrentView(MODE_DEFAULT_VIEW[newMode]);
     }
   };
+
+  const modeButtonLabel =
+    dashboardMode === "observatory"
+      ? "Nerve Center"
+      : dashboardMode === "nerve"
+        ? "Labs"
+        : "Observatory";
 
   return (
     <aside
@@ -102,7 +137,7 @@ export function Sidebar() {
           />
         </div>
         <p className="label" style={{ marginTop: 3, fontSize: 9, letterSpacing: "0.1em" }}>
-          {dashboardMode === "nerve" ? "Nerve Center" : "Memory Explorer"}
+          {MODE_LABEL[dashboardMode]}
         </p>
       </div>
 
@@ -115,8 +150,16 @@ export function Sidebar() {
             padding: "6px 10px",
             border: "1px solid var(--border)",
             borderRadius: "var(--radius-sm)",
-            background: dashboardMode === "nerve" ? "rgba(103, 232, 249, 0.08)" : "rgba(103, 232, 249, 0.04)",
-            color: dashboardMode === "nerve" ? "var(--accent)" : "var(--text-secondary)",
+            background:
+              dashboardMode === "nerve"
+                ? "rgba(103, 232, 249, 0.08)"
+                : dashboardMode === "labs"
+                  ? "rgba(212, 168, 75, 0.08)"
+                  : "rgba(103, 232, 249, 0.04)",
+            color:
+              dashboardMode === "observatory"
+                ? "var(--text-secondary)"
+                : "var(--accent)",
             fontFamily: "var(--font-mono)",
             fontSize: 10,
             fontWeight: 500,
@@ -130,8 +173,8 @@ export function Sidebar() {
             gap: 6,
           }}
         >
-          <span>{dashboardMode === "nerve" ? "\u2630" : "\u2699"}</span>
-          {dashboardMode === "nerve" ? "Observatory" : "Nerve Center"}
+          <span>{dashboardMode === "observatory" ? "\u2699" : dashboardMode === "nerve" ? "\u2692" : "\u2630"}</span>
+          {modeButtonLabel}
         </button>
       </div>
 
@@ -160,7 +203,7 @@ export function Sidebar() {
                 border: "none",
                 borderRadius: "var(--radius-sm)",
                 background: active
-                  ? dashboardMode === "nerve"
+                  ? dashboardMode === "nerve" || dashboardMode === "labs"
                     ? "rgba(212, 168, 75, 0.08)"
                     : "rgba(34, 211, 238, 0.08)"
                   : "transparent",
@@ -186,7 +229,6 @@ export function Sidebar() {
                 }
               }}
             >
-              {/* Active indicator line */}
               {active && (
                 <span
                   style={{

@@ -1328,6 +1328,13 @@ async def build_mcp_explicit_recall_tool_surface(
     session: Any,
     recall_middleware: Callable[..., Awaitable[None]],
     project_path: str | None = None,
+    lookup_kind: str = "general",
+    entity_name: str | None = None,
+    entity_type: str | None = None,
+    subject: str | None = None,
+    predicate: str | None = None,
+    include_expired: bool = False,
+    include_epistemic: bool = False,
     perf_counter: Callable[[], float] = time.perf_counter,
     time_source: Callable[[], float] = time.time,
 ) -> dict[str, Any]:
@@ -1341,6 +1348,37 @@ async def build_mcp_explicit_recall_tool_surface(
         cfg=cfg,
         project_path=project_path,
     )
+    lookup_kind_normalized = (lookup_kind or "general").strip().lower()
+    if lookup_kind_normalized == "entities":
+        from engram.retrieval.lookup import build_mcp_entity_search_surface
+
+        lookup = await build_mcp_entity_search_surface(
+            manager,
+            group_id=group_id,
+            name=entity_name or query,
+            entity_type=entity_type,
+            limit=limit,
+        )
+        if lookup.get("status") != "error":
+            response["entities"] = lookup.get("entities", [])
+            response["entityTotal"] = lookup.get("total", 0)
+            response["lookupKind"] = "entities"
+    elif lookup_kind_normalized == "facts":
+        from engram.retrieval.lookup import build_mcp_fact_search_surface
+
+        lookup = await build_mcp_fact_search_surface(
+            manager,
+            group_id=group_id,
+            query=query,
+            subject=subject,
+            predicate=predicate,
+            include_expired=include_expired,
+            include_epistemic=include_epistemic,
+            limit=limit,
+        )
+        response["facts"] = lookup.get("facts", [])
+        response["factTotal"] = lookup.get("total", 0)
+        response["lookupKind"] = "facts"
     response["query_time_ms"] = round((perf_counter() - started) * 1000, 1)
     session.last_recall_time = time_source()
     session.auto_recall_primed = True

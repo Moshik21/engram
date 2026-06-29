@@ -80,10 +80,9 @@ responding and use its `capture` decision for post-response `observe` or \
 - **remember** — Store a high-signal fact AND pre-extract it yourself: pass \
 `proposed_entities` + `proposed_relationships`. You are the extractor — Engram \
 stores, links, and retrieves the atomic facts you supply.
-- **recall** — Retrieve relevant memories by query.
-- **search_entities** — Look up specific people, projects, or concepts.
-- **search_facts** — Find specific facts or relationships. User-facing by \
-default; internal graph facts only appear in debug mode.
+- **recall** — Primary retrieval entrypoint. Use for general memory lookup; \
+pass `lookup_kind='entities'` with `name`/`entity_type`, or \
+`lookup_kind='facts'` with `subject`/`predicate`, for structured lookups.
 - **forget** — Remove outdated or incorrect information.
 - **get_context** — Broad overview of what you know about the user.
 - **mark_identity_core** — Protect important personal entities from pruning.
@@ -159,10 +158,12 @@ current documented/implemented truth.
 
 ## Auto-Recall on Tool Calls
 
-All read-oriented tools (recall, search_entities, search_facts, get_context, \
-route_question, search_artifacts) may include recalled_context, \
-session_context, triggered_intentions, and memory_notifications in their \
-responses. Memory context flows on every tool call without explicit observe.
+All read-oriented tools (recall, get_context, route_question, search_artifacts) \
+may include recalled_context, session_context, triggered_intentions, and \
+memory_notifications in their responses. Deprecated compat aliases \
+(`search_entities`, `search_facts`) still piggyback recall but should not be \
+used for new agent flows. Memory context flows on every tool call without \
+explicit observe.
 
 ## Recalled Context Integration
 

@@ -527,7 +527,7 @@ Engram is designed to minimize LLM dependency. The only operation that *requires
 | **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
 | **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
 | **Replay** (deferred extraction) | No | Runs deferred extraction on triage-skipped episodes, then links known entity names found in episode text. Skips already-extracted episodes. Zero LLM calls. |
-| **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (recall, search_entities, search_facts). Rate-limited. |
+| **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (`recall` primary; `search_entities`/`search_facts` deprecated compat). Rate-limited. |
 | **Briefing synthesis** | Yes | Haiku summarizes memory context into 2-3 sentences. Cached with prompt caching. |
 | **Dream** (offline consolidation) | No | Spreading activation + embedding similarity. Pure math. |
 | **Graph embeddings** | No | Node2Vec, TransE, GNN — all trained with numpy/torch locally. |
@@ -1109,8 +1109,8 @@ Engram exposes 27 MCP tools for AI agents:
 | `observe_file` | Store a file attachment as a cueable observation |
 | `remember` | Store a memory with immediate entity extraction (for high-signal content) |
 | `recall` | Retrieve relevant memories using activation-aware search; returns packets plus raw scored results |
-| `search_entities` | Search entities by name or type |
-| `search_facts` | Search relationships in the knowledge graph |
+| `search_entities` | Deprecated compat alias — prefer `recall` with `lookup_kind='entities'` |
+| `search_facts` | Deprecated compat alias — prefer `recall` with `lookup_kind='facts'` |
 | `feedback` | Rate an entity to influence future retrieval preference |
 | `forget` | Soft-delete an entity or fact |
 | `get_context` | Tiered context with identity/project/recency/intentions layers; supports briefing format |
@@ -1190,7 +1190,7 @@ Optionally, add memory directives to your project's `.claude/CLAUDE.md` for stro
 - Default to `observe()` for general conversation context and uncertain-value content.
 - Use `agent_protocol.capture`; use `remember()` for high-signal cross-context facts, identity facts, explicit preferences, key decisions, and corrections.
 - Use `recall()` when the user references past conversations or when context would help.
-- Use `search_facts()` for user-facing relationship lookups. Internal epistemic decision/artifact edges are hidden unless you explicitly opt into debug behavior.
+- Use `recall(query, lookup_kind='facts')` for user-facing relationship lookups. Internal epistemic decision/artifact edges are hidden unless you explicitly opt into debug behavior.
 - When the user corrects a memory, call `forget()` on the old fact then `remember()` the correction.
 - Do not announce memory operations. Integrate recalled context naturally.
 ```

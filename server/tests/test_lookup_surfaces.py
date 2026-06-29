@@ -114,7 +114,10 @@ async def test_mcp_entity_search_tool_surface_runs_middleware_after_valid_lookup
         recall_middleware=recall_middleware,
     )
 
-    assert payload == {"entities": [ENTITY_RESULT], "total": 1}
+    assert payload["entities"] == [ENTITY_RESULT]
+    assert payload["total"] == 1
+    assert payload["preferRecall"] is True
+    assert "deprecationNotice" in payload
     recall_middleware.assert_awaited_once_with(
         "Alice",
         payload,
@@ -181,7 +184,10 @@ async def test_mcp_fact_search_tool_surface_runs_middleware() -> None:
         recall_middleware=recall_middleware,
     )
 
-    assert payload == {"facts": [FACT_RESULT], "total": 1}
+    assert payload["facts"] == [FACT_RESULT]
+    assert payload["total"] == 1
+    assert payload["preferRecall"] is True
+    assert "deprecationNotice" in payload
     recall_middleware.assert_awaited_once_with(
         "Alice",
         payload,

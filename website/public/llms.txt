@@ -51,7 +51,8 @@ The OpenClaw path installs the `engram-brain` skill, configures MCP at `http://1
 ## MCP Tools
 
 Capture: observe, remember, observe_image, observe_file, adjudicate_evidence, forget, bootstrap_project
-Retrieval: recall, search_entities, search_facts, search_artifacts, get_context, route_question
+Retrieval: recall (primary; supports entity/fact lookup_kind), search_artifacts, get_context, route_question
+Compat aliases (deprecated): search_entities, search_facts
 Authority/evaluation: claim_authority, get_runtime_state, get_lifecycle_summary, get_evaluation_report, record_recall_evaluation, record_session_continuity_evaluation
 Management: mark_identity_core, feedback, intend, dismiss_intention, list_intentions
 System: get_graph_state, get_consolidation_status, trigger_consolidation

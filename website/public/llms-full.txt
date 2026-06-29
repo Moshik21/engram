@@ -161,9 +161,8 @@ Engram exposes 27 MCP tools.
 
 ### Retrieval Tools
 
-- `recall` — Retrieve memories relevant to a query.
-- `search_entities` — Search for specific entities by name or type.
-- `search_facts` — Search for facts and relationships.
+- `recall` — Primary retrieval entrypoint (general, entity, or fact lookup via `lookup_kind`).
+- `search_entities` / `search_facts` — Deprecated compat aliases; prefer `recall`.
 - `search_artifacts` — Search bootstrapped project artifacts.
 - `get_context` — Return a broad context summary for session start.
 - `route_question` — Classify questions for memory, artifact, or reconciliation routing.

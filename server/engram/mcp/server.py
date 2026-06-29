@@ -879,7 +879,18 @@ async def observe_file(
 
 
 @mcp.tool()
-async def recall(query: str, limit: int = 5, project_path: str | None = None) -> str:
+async def recall(
+    query: str,
+    limit: int = 5,
+    project_path: str | None = None,
+    lookup_kind: str = "general",
+    entity_type: str | None = None,
+    name: str | None = None,
+    subject: str | None = None,
+    predicate: str | None = None,
+    include_expired: bool = False,
+    include_epistemic: bool = False,
+) -> str:
     """Retrieve memories relevant to a query using activation-aware search.
 
     Args:
@@ -888,6 +899,13 @@ async def recall(query: str, limit: int = 5, project_path: str | None = None) ->
         project_path: Optional current project path for recall bias/fallbacks. If
             omitted, recall uses the last project_path passed to get_context in
             this MCP session.
+        lookup_kind: general (default), entities, or facts for structured lookup
+        entity_type: Optional entity-type filter when lookup_kind=entities
+        name: Optional entity name when lookup_kind=entities
+        subject: Optional subject filter when lookup_kind=facts
+        predicate: Optional predicate filter when lookup_kind=facts
+        include_expired: Include expired facts when lookup_kind=facts
+        include_epistemic: Include internal epistemic facts when lookup_kind=facts
 
     Returns:
         JSON with results array, total_candidates, and query_time_ms.
@@ -904,6 +922,13 @@ async def recall(query: str, limit: int = 5, project_path: str | None = None) ->
         session=session,
         recall_middleware=_recall_middleware,
         project_path=effective_project_path,
+        lookup_kind=lookup_kind,
+        entity_name=name,
+        entity_type=entity_type,
+        subject=subject,
+        predicate=predicate,
+        include_expired=include_expired,
+        include_epistemic=include_epistemic,
     )
     return json.dumps(response)
 
@@ -914,7 +939,7 @@ async def search_entities(
     entity_type: str | None = None,
     limit: int = 10,
 ) -> str:
-    """Search for specific entities by name or type.
+    """Deprecated compat alias — prefer recall(query, lookup_kind='entities').
 
     Args:
         name: Entity name to search for (fuzzy matching)
@@ -925,6 +950,7 @@ async def search_entities(
         JSON with entities array and total count.
     """
     manager = _get_manager()
+    session = _get_session()
     result = await build_mcp_entity_search_tool_surface(
         manager,
         group_id=_group_id,
@@ -932,6 +958,8 @@ async def search_entities(
         entity_type=entity_type,
         limit=limit,
         recall_middleware=_recall_middleware,
+        cfg=_activation_cfg or ActivationConfig(),
+        project_path=session.last_project_path,
     )
     return json.dumps(result)
 
@@ -945,7 +973,7 @@ async def search_facts(
     include_epistemic: bool = False,
     limit: int = 10,
 ) -> str:
-    """Search for facts and relationships in the knowledge graph.
+    """Deprecated compat alias — prefer recall(query, lookup_kind='facts').
 
     Args:
         query: What to search for
@@ -959,6 +987,7 @@ async def search_facts(
         JSON with facts array and total count.
     """
     manager = _get_manager()
+    session = _get_session()
     result = await build_mcp_fact_search_tool_surface(
         manager,
         group_id=_group_id,
@@ -969,6 +998,8 @@ async def search_facts(
         include_epistemic=include_epistemic,
         limit=limit,
         recall_middleware=_recall_middleware,
+        cfg=_activation_cfg or ActivationConfig(),
+        project_path=session.last_project_path,
     )
     return json.dumps(result)
 

@@ -506,7 +506,7 @@ export interface TimeRange {
 }
 
 export type GraphRenderMode = "3d" | "2d";
-export type DashboardMode = "observatory" | "nerve";
+export type DashboardMode = "observatory" | "nerve" | "labs";
 
 export type BrainLoopEvaluationSignalKey =
   | "cueUsefulness"

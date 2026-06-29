@@ -19,6 +19,60 @@ EPISTEMIC_FACT_PREDICATES = {
     "SUPERSEDED_BY",
 }
 
+MCP_SEARCH_ENTITIES_DEPRECATION = (
+    "Deprecated compat alias. Use recall(query=...) for retrieval; "
+    "pass lookup_kind='entities' with name or entity_type when needed."
+)
+MCP_SEARCH_FACTS_DEPRECATION = (
+    "Deprecated compat alias. Use recall(query=...) for retrieval; "
+    "pass lookup_kind='facts' with subject or predicate when needed."
+)
+
+
+async def _prime_recall_lookup_path(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    cfg: Any,
+    project_path: str | None = None,
+) -> dict[str, Any] | None:
+    """Run explicit recall before lookup compat shims (no transport middleware)."""
+    if not query.strip():
+        return None
+    from engram.retrieval.recall_surface import build_mcp_recall_surface
+
+    return await build_mcp_recall_surface(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        cfg=cfg,
+        project_path=project_path,
+    )
+
+
+def _attach_lookup_compat_metadata(
+    result: dict[str, Any],
+    *,
+    tool_name: str,
+    recall_companion: dict[str, Any] | None,
+    recall_query: str,
+) -> None:
+    result["preferRecall"] = True
+    result["deprecationNotice"] = (
+        MCP_SEARCH_ENTITIES_DEPRECATION
+        if tool_name == "search_entities"
+        else MCP_SEARCH_FACTS_DEPRECATION
+    )
+    if recall_companion is not None:
+        result["recallCompanion"] = {
+            "query": recall_query,
+            "total": recall_companion.get("total", 0),
+            "resultCount": len(recall_companion.get("results") or []),
+        }
+
 
 async def build_api_entity_search_surface(
     manager: Any,
@@ -70,8 +124,21 @@ async def build_mcp_entity_search_tool_surface(
     entity_type: str | None = None,
     limit: int = 10,
     recall_middleware: Callable[..., Awaitable[None]],
+    cfg: Any | None = None,
+    project_path: str | None = None,
 ) -> dict:
-    """Build the MCP entity-search tool payload and run read-tool middleware."""
+    """Build the MCP entity-search compat shim and prime the unified recall path."""
+    recall_query = name or entity_type or ""
+    recall_companion = None
+    if cfg is not None:
+        recall_companion = await _prime_recall_lookup_path(
+            manager,
+            group_id=group_id,
+            query=recall_query,
+            limit=limit,
+            cfg=cfg,
+            project_path=project_path,
+        )
     result = await build_mcp_entity_search_surface(
         manager,
         group_id=group_id,
@@ -80,7 +147,13 @@ async def build_mcp_entity_search_tool_surface(
         limit=limit,
     )
     if result.get("status") != "error":
-        await recall_middleware(name or entity_type or "", result, tool_name="search_entities")
+        _attach_lookup_compat_metadata(
+            result,
+            tool_name="search_entities",
+            recall_companion=recall_companion,
+            recall_query=recall_query,
+        )
+        await recall_middleware(recall_query, result, tool_name="search_entities")
     return result
 
 
@@ -145,8 +218,21 @@ async def build_mcp_fact_search_tool_surface(
     include_epistemic: bool = False,
     limit: int = 10,
     recall_middleware: Callable[..., Awaitable[None]],
+    cfg: Any | None = None,
+    project_path: str | None = None,
 ) -> dict:
-    """Build the MCP fact-search tool payload and run read-tool middleware."""
+    """Build the MCP fact-search compat shim and prime the unified recall path."""
+    recall_query = query or subject or predicate or ""
+    recall_companion = None
+    if cfg is not None:
+        recall_companion = await _prime_recall_lookup_path(
+            manager,
+            group_id=group_id,
+            query=recall_query,
+            limit=limit,
+            cfg=cfg,
+            project_path=project_path,
+        )
     result = await build_mcp_fact_search_surface(
         manager,
         group_id=group_id,
@@ -157,7 +243,13 @@ async def build_mcp_fact_search_tool_surface(
         include_epistemic=include_epistemic,
         limit=limit,
     )
-    await recall_middleware(query, result, tool_name="search_facts")
+    _attach_lookup_compat_metadata(
+        result,
+        tool_name="search_facts",
+        recall_companion=recall_companion,
+        recall_query=recall_query,
+    )
+    await recall_middleware(recall_query, result, tool_name="search_facts")
     return result
 
 
