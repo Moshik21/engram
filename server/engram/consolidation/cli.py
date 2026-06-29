@@ -17,6 +17,7 @@ from engram.consolidation.presenter import (
     serialize_cycle_summary,
 )
 from engram.extraction.factory import create_extractor
+from engram.graph_manager import GraphManager
 from engram.models.consolidation import ConsolidationCycle
 from engram.storage.bootstrap import (
     close_if_supported,
@@ -129,6 +130,13 @@ async def run(args: argparse.Namespace) -> None:
         )
 
         extractor = create_extractor(config)
+        graph_manager = GraphManager(
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            extractor=extractor,
+            cfg=cfg,
+        )
         engine = ConsolidationEngine(
             graph_store,
             activation_store,
@@ -136,6 +144,7 @@ async def run(args: argparse.Namespace) -> None:
             cfg=cfg,
             consolidation_store=store,
             extractor=extractor,
+            graph_manager=graph_manager,
         )
 
         phase_names = set(args.phases) if args.phases else None
@@ -170,8 +179,8 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         choices=["off", "observe", "conservative", "standard"],
-        default="observe",
-        help="Consolidation profile preset (default: observe)",
+        default="standard",
+        help="Consolidation profile preset (default: standard)",
     )
     parser.add_argument(
         "--group-id",

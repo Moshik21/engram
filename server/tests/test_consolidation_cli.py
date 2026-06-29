@@ -128,6 +128,10 @@ async def test_consolidation_cli_closes_runtime_stores_after_phase_validation_er
             assert group_id == "native_brain"
             return {"episodes": 1}
 
+    class FakeGraphManager:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
     class FakeEngine:
         def __init__(
             self,
@@ -138,12 +142,14 @@ async def test_consolidation_cli_closes_runtime_stores_after_phase_validation_er
             cfg,
             consolidation_store,
             extractor,
+            graph_manager=None,
         ) -> None:
             assert graph_store.name == "graph"
             assert activation_store.name == "activation"
             assert search_index.name == "search"
             assert consolidation_store.name == "consolidation"
             assert extractor is expected_extractor
+            assert graph_manager is not None
 
         async def run_cycle(self, **kwargs):
             assert kwargs["group_id"] == "native_brain"
@@ -191,6 +197,7 @@ async def test_consolidation_cli_closes_runtime_stores_after_phase_validation_er
         fake_create_consolidation_store_for_graph,
     )
     monkeypatch.setattr(cli, "create_extractor", lambda config: expected_extractor)
+    monkeypatch.setattr(cli, "GraphManager", FakeGraphManager)
     monkeypatch.setattr(cli, "ConsolidationEngine", FakeEngine)
 
     args = Namespace(

@@ -107,6 +107,21 @@ Content-Type: application/json
 {"project_path": "<absolute project path>", "session_id": "<optional session id>", "include_patterns": ["docs/**/*.md", "memory/**/*.md", "exports/**/*.json"]}
 ```
 
+## MCP Core Tools (use these six)
+
+When MCP tools are visible, use **only** these six as the primary agent surface:
+
+| Tool | When |
+|------|------|
+| `claim_authority` | Session start when project-local file memory is present — decides Engram vs file ownership |
+| `get_context` | Start of each conversation; broad briefing before answering |
+| `recall` | Before answering when prior context could change the response |
+| `observe` | Default capture for most content (cheap, background processing) |
+| `remember` | High-signal facts: identity, preferences, corrections, durable decisions |
+| `route_question` | Install/config/current-truth questions — follow `answerContract` and `requiredNextSources` |
+
+Do **not** treat `search_entities`, `search_facts`, `search_artifacts`, or maintenance/eval tools as primary entry points. Prefer `recall` for retrieval and `route_question` for project-truth routing. Other MCP tools exist for operators and advanced workflows.
+
 ## When to Observe vs Remember
 
 **Default to observe for most content.** Use remember only for high-signal items.
@@ -152,6 +167,10 @@ Content-Type: application/json
 
 ## How to Recall Memories
 
+**MCP (preferred):** `get_context()` once per session; `recall(query=...)` when prior context matters; `route_question(question=..., project_path=...)` for install/config/current-truth.
+
+**REST fallback** when MCP is unavailable:
+
 At the start of every conversation, get broad context:
 ```
 GET http://localhost:8100/api/knowledge/context
@@ -188,19 +207,7 @@ Use this when deciding whether the brain has recent captures, cue coverage,
 projection failures, active recall context, or consolidation cycles before
 running heavier diagnostics.
 
-To search for specific entities:
-```
-GET http://localhost:8100/api/entities/search?q=<name>
-```
-
-To search for specific facts and relationships:
-```
-GET http://localhost:8100/api/knowledge/facts?q=<query>
-```
-
-`search_facts` is user-facing by default. Internal decision/artifact graph edges
-stay hidden unless you explicitly opt into debug mode with
-`include_epistemic=true`.
+For entity or fact lookup, use `recall` first. REST `search_entities` / `search_facts` are secondary fallbacks only when MCP `recall` is unavailable.
 
 ## Guidelines
 

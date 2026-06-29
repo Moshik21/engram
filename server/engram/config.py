@@ -762,7 +762,7 @@ class ActivationConfig(BaseModel):
 
     # --- Memory consolidation ---
     consolidation_profile: str = Field(
-        default="off",
+        default="standard",
         pattern="^(off|observe|conservative|standard)$",
     )
     integration_profile: str = Field(
@@ -1594,7 +1594,7 @@ class ActivationConfig(BaseModel):
 
     # --- Recall profile (enables Wave 1-4 features) ---
     recall_profile: str = Field(
-        default="off",
+        default="wave2",
         pattern="^(off|wave1|wave2|wave3|wave4|all)$",
     )
 
@@ -2639,6 +2639,11 @@ class ActivationConfig(BaseModel):
             _set("conv_session_entity_seeds_enabled", True)
             _set("conv_near_miss_enabled", True)
             _set("recall_planner_enabled", True)
+            # Cue feedback loop (MERGE path): record hits without full rework bundle.
+            if "cue_layer_enabled" not in self.model_fields_set:
+                _set("cue_layer_enabled", True)
+            if "cue_recall_enabled" not in self.model_fields_set:
+                _set("cue_recall_enabled", True)
 
         if rp in ("wave3", "wave4", "all"):
             # Wave 3: Proactive Intelligence
