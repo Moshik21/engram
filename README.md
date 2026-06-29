@@ -1526,7 +1526,31 @@ Connect to `/ws/dashboard` for real-time updates. Events include episode lifecyc
 
 ## Benchmarks
 
-Engram includes a deterministic benchmark framework with 1,000 entities, 2,500+ relationships, and 80 ground-truth queries across 8 categories.
+Engram's public benchmark contract matches how agents actually use memory through MCP harnesses — not a single long-history leaderboard score.
+
+**Three primary signals:**
+
+1. **Showcase** — deterministic scenario pass rates and ablations (`benchmark_showcase.py`; published at [`website/public/benchmarks/latest.json`](website/public/benchmarks/latest.json), `track: showcase`).
+2. **Adoption** — live harness MCP protocol compliance (`engram adoption` with authority payload + tool-call transcript).
+3. **Evaluate** — operational brain-loop health on your install (`engram evaluate` with cue/projection/recall/consolidation gates).
+
+```bash
+cd server
+
+# Showcase — deterministic harness scenarios + ablations
+uv run python scripts/benchmark_showcase.py --mode quick --track showcase
+uv run python scripts/benchmark_showcase.py --mode full --track showcase --website-export-path ../website/public/benchmarks/latest.json
+
+# Adoption — validate real MCP client followed the memory-authority protocol
+engram adoption --authority claim-authority.json --calls mcp-calls.jsonl --require-live-evidence --report-out adoption-report.json
+
+# Evaluate — brain-loop operator report on the configured runtime
+uv run engram evaluate --mode helix --require-evaluation-signals --format json
+```
+
+### Deterministic retrieval ablations
+
+Supporting retrieval ablations use a synthetic 1K-entity graph with 2,500+ relationships and 80 ground-truth queries across 8 categories:
 
 ```bash
 cd server
@@ -1567,57 +1591,6 @@ Native PyO3 mode achieves the best retrieval quality across nDCG@10 and MRR whil
 Full pipeline with spreading activation shows +28% P@5 improvement over pure search. Frequency queries (identifying most-accessed entities) are the standout at 94% precision — this is where ACT-R activation shines.
 
 **Query categories**: direct lookup, recency, frequency, associative, temporal, semantic, graph traversal, cross-cluster. **Core script metrics**: P@5, R@10, MRR, nDCG@5, latency percentiles, bootstrap CI (1,000 resamples).
-
-### LongMemEval (ICLR 2025)
-
-Engram is benchmarked against [LongMemEval](https://arxiv.org/abs/2407.05045), the standard long-term memory evaluation suite from ICLR 2025. The benchmark tests whether a memory system can answer questions about a user's past conversations across 6 categories: single-session (user, assistant, preference), multi-session, temporal reasoning, and knowledge update.
-
-**Methodology**: Claude Code connects to Engram via MCP, calls `recall` to retrieve evidence, then answers. The baseline stuffs all conversation history into context with no retrieval. Both use Claude Sonnet 4.6 on the same 30 stratified questions (5 per type). Evaluation uses hybrid embedding containment + token overlap judging. No LLM judge calls.
-
-| | Baseline (context stuffing) | Engram (MCP recall) |
-|---|---|---|
-| **Answer found** | 29/30 (1 buried answer missed) | 30/30 (retrieval surfaced it) |
-| **Tokens per question** | ~8,400 | **~2,200** |
-| **Total tokens** | ~257K | **~66K** |
-| **Token reduction** | -- | **74%** |
-
-This 30-question slice measures whether retrieval surfaced the gold evidence at a fixed token budget; it is a token-efficiency demonstration on 5 questions/type, not an accuracy-leaderboard result. The defensible finding is the ~74% token reduction and O(1) retrieval cost, not a head-to-head accuracy win.
-
-The baseline failed one single-session-preference question — Claude had the answer in context but couldn't find it buried in 40K+ chars. Engram's retrieval found it instantly.
-
-**Scaling**: Context stuffing is O(N) — every query pays the cost of the entire history. Engram is O(1) — retrieval cost is constant regardless of memory size. At 1,000 conversations, stuffing requires ~2M tokens per query (exceeds any context window). Engram still returns in ~2,200 tokens.
-
-### Where Engram actually stands (honest public contract)
-
-The 30-question table above is a **token-efficiency** demonstration, not an accuracy-leaderboard claim. The defensible finding is **O(1) retrieval cost** (~74% fewer tokens), not a head-to-head win over other systems.
-
-**Containment core (episode-vector, graph-off):** **58.3%** on **N=24** oracle questions using deterministic embedding containment (no LLM reader) — [`server/results/longmemeval_ceiling_llm_graphoff.json`](server/results/longmemeval_ceiling_llm_graphoff.json). Small N; oracle variant has zero distractors.
-
-**LLM reader ceiling:** **83.3%** on **N=30** oracle questions with Sonnet reader + LLM judge — [`server/results/lme_lite_llmreader.json`](server/results/lme_lite_llmreader.json). Upper bound on a local stack, not distractor-hard LongMemEval_S.
-
-**Graph channel-separation (150Q oracle, containment):** graph-OFF **53.3%** ([`server/results/cs_off.json`](server/results/cs_off.json)) vs graph-ON blend **52.0%** ([`server/results/cs_blend.json`](server/results/cs_blend.json)) — net neutral to slight hurt on single-pass facts. Graph is a **depth tier** for multi-hop, not a default retrieval win.
-
-**Retract:** The 20.2% / 500-question run in [`server/results/longmemeval_final.json`](server/results/longmemeval_final.json) is a **broken-harness artifact** (`Embedding calls: 0`); do not cite it as system quality.
-
-Engram's defensible advantage is **local-first**: measured runs use on-device embeddings and Haiku-class or no-LLM readers. Strongest published LongMemEval scores use cloud GPT-4o-class readers — a different operating point, not apples-to-apples.
-
-**Raw results**: 30-question token-efficiency — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json). Containment + reader ceiling — files above. Superseded broken harness — [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md).
-
-**Run it yourself**:
-
-```bash
-cd server
-
-# Baseline (Claude Code CLI, Max subscription)
-uv run python scripts/benchmark_baseline.py run \
-    --dataset data/longmemeval/longmemeval_oracle.json \
-    --n-per-type 5 --output results/baseline.json --verbose
-
-# Engram (Claude Code CLI + Engram MCP, Max subscription)
-uv run python scripts/benchmark_agent_sdk.py run \
-    --dataset data/longmemeval/longmemeval_oracle.json \
-    --n-per-type 5 --output results/engram.json --verbose
-```
 
 ### Recall Behavior Metrics
 
@@ -1854,6 +1827,59 @@ The same local evaluation store is available over REST and MCP:
 - MCP tools `record_recall_evaluation`,
   `record_session_continuity_evaluation`, and `get_evaluation_report` expose the
   same semantics for agent-side evaluation workflows.
+
+### LongMemEval (appendix: retrieval ceiling experiments)
+
+LongMemEval serves as a long-history retrieval stress test and ceiling measurement; it is not the primary harness-fit signal for agent usage.
+
+[LongMemEval](https://arxiv.org/abs/2407.05045) (ICLR 2025) tests whether retrieval can answer questions about a user's past conversations across 6 categories: single-session (user, assistant, preference), multi-session, temporal reasoning, and knowledge update.
+
+**Methodology**: Claude Code connects to Engram via MCP, calls `recall` to retrieve evidence, then answers. The baseline stuffs all conversation history into context with no retrieval. Both use Claude Sonnet 4.6 on the same 30 stratified questions (5 per type). Evaluation uses hybrid embedding containment + token overlap judging. No LLM judge calls.
+
+| | Baseline (context stuffing) | Engram (MCP recall) |
+|---|---|---|
+| **Answer found** | 29/30 (1 buried answer missed) | 30/30 (retrieval surfaced it) |
+| **Tokens per question** | ~8,400 | **~2,200** |
+| **Total tokens** | ~257K | **~66K** |
+| **Token reduction** | -- | **74%** |
+
+This 30-question slice measures whether retrieval surfaced the gold evidence at a fixed token budget; it is a token-efficiency demonstration on 5 questions/type, not an accuracy-leaderboard result. The defensible finding is the ~74% token reduction and O(1) retrieval cost, not a head-to-head accuracy win.
+
+The baseline failed one single-session-preference question — Claude had the answer in context but couldn't find it buried in 40K+ chars. Engram's retrieval found it instantly.
+
+**Scaling**: Context stuffing is O(N) — every query pays the cost of the entire history. Engram is O(1) — retrieval cost is constant regardless of memory size. At 1,000 conversations, stuffing requires ~2M tokens per query (exceeds any context window). Engram still returns in ~2,200 tokens.
+
+#### Where Engram stands on LongMemEval (honest ceiling contract)
+
+The 30-question table above is a **token-efficiency** demonstration, not an accuracy-leaderboard claim. The defensible finding is **O(1) retrieval cost** (~74% fewer tokens), not a head-to-head win over other systems.
+
+**Containment core (episode-vector, graph-off):** **58.3%** on **N=24** oracle questions using deterministic embedding containment (no LLM reader) — [`server/results/longmemeval_ceiling_llm_graphoff.json`](server/results/longmemeval_ceiling_llm_graphoff.json). Small N; oracle variant has zero distractors.
+
+**LLM reader ceiling:** **83.3%** on **N=30** oracle questions with Sonnet reader + LLM judge — [`server/results/lme_lite_llmreader.json`](server/results/lme_lite_llmreader.json). Upper bound on a local stack, not distractor-hard LongMemEval_S.
+
+**Graph channel-separation (150Q oracle, containment):** graph-OFF **53.3%** ([`server/results/cs_off.json`](server/results/cs_off.json)) vs graph-ON blend **52.0%** ([`server/results/cs_blend.json`](server/results/cs_blend.json)) — net neutral to slight hurt on single-pass facts. Graph is a **depth tier** for multi-hop, not a default retrieval win.
+
+**Retract:** The 20.2% / 500-question run in [`server/results/longmemeval_final.json`](server/results/longmemeval_final.json) is a **broken-harness artifact** (`Embedding calls: 0`); do not cite it as system quality.
+
+Engram's defensible advantage is **local-first**: measured runs use on-device embeddings and Haiku-class or no-LLM readers. Strongest published LongMemEval scores use cloud GPT-4o-class readers — a different operating point, not apples-to-apples.
+
+**Raw results**: 30-question token-efficiency — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json). Containment + reader ceiling — files above. Superseded broken harness — [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md).
+
+**Run it yourself**:
+
+```bash
+cd server
+
+# Baseline (Claude Code CLI, Max subscription)
+uv run python scripts/benchmark_baseline.py run \
+    --dataset data/longmemeval/longmemeval_oracle.json \
+    --n-per-type 5 --output results/baseline.json --verbose
+
+# Engram (Claude Code CLI + Engram MCP, Max subscription)
+uv run python scripts/benchmark_agent_sdk.py run \
+    --dataset data/longmemeval/longmemeval_oracle.json \
+    --n-per-type 5 --output results/engram.json --verbose
+```
 
 ## Configuration
 
