@@ -764,5 +764,5 @@ class TestRecallSetsLastTime:
             await server.recall("React")
 
         call_kwargs = mock_manager.recall.await_args.kwargs
-        assert call_kwargs["interaction_type"] == "used"
+        assert call_kwargs["interaction_type"] == "surfaced"
         assert call_kwargs["interaction_source"] == "mcp_recall"

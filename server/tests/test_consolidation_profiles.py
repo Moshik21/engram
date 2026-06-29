@@ -372,4 +372,6 @@ def _quiet_sqlite_recall_config() -> ActivationConfig:
     cfg.conv_near_miss_enabled = False
     cfg.chunk_search_enabled = False
     cfg.weight_graph_structural = 0.0
+    cfg.recall_packets_enabled = False
+    cfg.recall_fast_preflight_enabled = False
     return cfg

@@ -782,7 +782,7 @@ async def _run_explicit_recall_with_budget(
                 query=_recall_query_with_project_context(query, project_path),
                 group_id=group_id,
                 limit=limit,
-                interaction_type="used",
+                interaction_type="surfaced",
                 interaction_source=operation_source,
             ),
             timeout=timeout_seconds,

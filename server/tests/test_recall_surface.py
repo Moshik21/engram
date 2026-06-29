@@ -99,7 +99,7 @@ async def test_api_recall_surface_threads_operation_source_into_manager_recall()
         query="Engram recall",
         group_id="native_brain",
         limit=3,
-        interaction_type="used",
+        interaction_type="surfaced",
         interaction_source="axi_recall",
     )
 
@@ -140,7 +140,7 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
         query="Engram recall",
         group_id="native_brain",
         limit=3,
-        interaction_type="used",
+        interaction_type="surfaced",
         interaction_source="mcp_recall",
     )
     manager.get_surprise_connection_views.assert_called_once()
