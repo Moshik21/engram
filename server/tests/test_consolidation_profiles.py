@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import uuid
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.brain_loop_report import build_brain_loop_report
 from engram.events.bus import EventBus
-from engram.extraction.policy import ProjectionPolicy
 from engram.graph_manager import GraphManager
-from engram.models.episode import Episode, EpisodeProjectionState
+from engram.lifecycle_summary import build_lifecycle_summary
+from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
-from engram.retrieval.control import RecallNeedController
-from engram.retrieval.feedback import RecallCueFeedbackRecorder
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.search import FTS5SearchIndex
@@ -294,64 +290,31 @@ class TestAuditFollowUpDefaults:
         await graph_store.close()
 
     @pytest.mark.asyncio
-    async def test_default_wave2_cue_feedback_increments_hit(self):
-        cfg = ActivationConfig()
+    async def test_default_wave2_recall_records_cue_hit_e2e(self, tmp_path):
+        """Default wave2 config records cue hits through GraphManager.recall()."""
+        cfg = _quiet_sqlite_recall_config()
         assert cfg.cue_recall_enabled is True
 
-        class _CueGraphStore:
-            def __init__(self) -> None:
-                from engram.models.episode import EpisodeProjectionState
-                from engram.models.episode_cue import EpisodeCue
-
-                self.episode = Episode(
-                    id="ep_cue",
-                    group_id="default",
-                    content="deadline is friday",
-                    projection_state=EpisodeProjectionState.CUED,
-                )
-                self.cue = EpisodeCue(
-                    episode_id="ep_cue",
-                    group_id="default",
-                    cue_text="deadline is friday",
-                    hit_count=0,
-                )
-                self.updates: list[dict] = []
-
-            async def get_episode_cue(self, episode_id: str, group_id: str):
-                return self.cue
-
-            async def update_episode_cue(self, episode_id, updates, group_id) -> None:
-                self.updates.append(updates)
-                if "hit_count" in updates:
-                    self.cue.hit_count = updates["hit_count"]
-
-        graph_store = _CueGraphStore()
-        recorder = RecallCueFeedbackRecorder(
-            cfg=cfg,
-            graph_store=graph_store,
-            projection_policy=ProjectionPolicy(cfg),
-            recall_need_controller=RecallNeedController(cfg),
-            event_bus=None,
-        )
-        await recorder.record_cue_feedback(
-            graph_store.episode,
-            score=0.5,
-            query="when is the deadline",
-            interaction_type="surfaced",
-        )
-        assert graph_store.updates
-        assert graph_store.cue.hit_count == 1
-
-    @pytest.mark.asyncio
-    async def test_default_wave2_sqlite_lifecycle_cue_hit_count(self, tmp_path):
-        cfg = ActivationConfig()
-        graph_store = SQLiteGraphStore(str(tmp_path / "cue_hit.db"))
+        graph_store = SQLiteGraphStore(str(tmp_path / "recall_cue.db"))
         await graph_store.initialize()
+        search_index = FTS5SearchIndex(graph_store._db_path)
+        await search_index.initialize(db=graph_store._db)
+        activation_store = MemoryActivationStore(cfg=cfg)
+        manager = GraphManager(
+            graph_store,
+            activation_store,
+            search_index,
+            MockExtractor(),
+            cfg=cfg,
+        )
+
         episode = Episode(
-            id="ep_lifecycle_cue",
+            id="ep_recall_cue",
+            content="The migration to native Helix finished on Tuesday.",
+            source="test",
+            status=EpisodeStatus.COMPLETED,
+            projection_state=EpisodeProjectionState.CUE_ONLY,
             group_id="default",
-            content="project deadline is friday afternoon",
-            projection_state=EpisodeProjectionState.CUED,
             created_at=utc_now(),
         )
         await graph_store.create_episode(episode)
@@ -359,23 +322,54 @@ class TestAuditFollowUpDefaults:
             EpisodeCue(
                 episode_id=episode.id,
                 group_id="default",
-                cue_text="deadline friday afternoon",
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                cue_text="native Helix migration",
                 hit_count=0,
-            )
+            ),
         )
-        recorder = RecallCueFeedbackRecorder(
-            cfg=cfg,
-            graph_store=graph_store,
-            projection_policy=ProjectionPolicy(cfg),
-            recall_need_controller=RecallNeedController(cfg),
-            event_bus=None,
-        )
-        await recorder.record_cue_feedback(
-            episode,
-            score=0.6,
-            query="when is the deadline",
+
+        results = await manager.recall(
+            "native Helix migration",
+            group_id="default",
+            limit=5,
+            record_access=False,
             interaction_type="surfaced",
+            interaction_source="recall",
         )
+        assert results
+
         stats = await graph_store.get_stats(group_id="default")
         assert stats["cue_metrics"]["cue_hit_count"] > 0
+
+        lifecycle = await build_lifecycle_summary(
+            group_id="default",
+            manager=manager,
+            graph_store=graph_store,
+        )
+        assert lifecycle["cue"]["hitCount"] > 0
         await graph_store.close()
+
+
+def _quiet_sqlite_recall_config() -> ActivationConfig:
+    """Default wave2 config with noisy recall stages disabled for SQLite FTS."""
+    cfg = ActivationConfig()
+    cfg.multi_pool_enabled = False
+    cfg.graph_query_expansion_enabled = False
+    cfg.template_reformulation_enabled = False
+    cfg.query_decomposition_enabled = False
+    cfg.recall_planner_enabled = False
+    cfg.reranker_enabled = False
+    cfg.mmr_enabled = False
+    cfg.gc_mmr_enabled = False
+    cfg.ts_enabled = False
+    cfg.working_memory_enabled = False
+    cfg.goal_priming_enabled = False
+    cfg.inhibitory_spreading_enabled = False
+    cfg.cross_domain_penalty_enabled = False
+    cfg.emotional_salience_enabled = False
+    cfg.state_dependent_retrieval_enabled = False
+    cfg.preference_directed_enabled = False
+    cfg.conv_near_miss_enabled = False
+    cfg.chunk_search_enabled = False
+    cfg.weight_graph_structural = 0.0
+    return cfg

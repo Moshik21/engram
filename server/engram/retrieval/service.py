@@ -222,7 +222,6 @@ class RecallService:
         Episodes already surfaced as ``cue_episode`` count the hit there, so
         they are skipped to avoid double-counting.
         """
-        recorder = self._primary_materializer.cue_feedback_recorder
         already_counted = {
             result.get("episode", {}).get("id")
             for result in results
@@ -241,7 +240,7 @@ class RecallService:
             episode = await self._graph.get_episode_by_id(episode_id, group_id)
             if episode is None:
                 continue
-            await recorder.record_cue_feedback(
+            await self._primary_materializer.record_cue_hit(
                 episode,
                 suppressed_cue_scores[episode_id],
                 query,

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from engram.models.episode import EpisodeProjectionState
+from engram.models.episode import Episode, EpisodeProjectionState
 from engram.retrieval.feedback import (
     RecallCueFeedbackRecorder,
     RecallEntityAccessRecorder,
@@ -19,6 +19,7 @@ from engram.retrieval.scorer import ScoredResult
 from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 from engram.storage.protocols import GraphStore
 
+CueHitFn = Callable[..., Awaitable[None]]
 T = TypeVar("T")
 
 
@@ -42,10 +43,12 @@ class RecallPrimaryResultMaterializer:
         entity_access_recorder: RecallEntityAccessRecorder,
         interaction_recorder: RecallInteractionRecorder,
         working_memory_updater: RecallWorkingMemoryUpdater,
+        record_cue_hit_fn: CueHitFn | None = None,
     ) -> None:
         self._graph = graph_store
         self._result_builder = result_builder
         self._cue_feedback_recorder = cue_feedback_recorder
+        self._record_cue_hit_fn = record_cue_hit_fn
         self._entity_access_recorder = entity_access_recorder
         self._interaction_recorder = interaction_recorder
         self._working_memory_updater = working_memory_updater
@@ -54,6 +57,36 @@ class RecallPrimaryResultMaterializer:
     def cue_feedback_recorder(self) -> RecallCueFeedbackRecorder:
         """Expose the cue feedback recorder for decoupled suppressed-cue feedback."""
         return self._cue_feedback_recorder
+
+    async def record_cue_hit(
+        self,
+        episode: Episode,
+        score: float,
+        query: str,
+        *,
+        interaction_type: str | None = None,
+        near_miss: bool = False,
+        count_hit: bool = True,
+    ) -> None:
+        """Record cue feedback via GraphManager hook or the bundled recorder."""
+        if self._record_cue_hit_fn is not None:
+            await self._record_cue_hit_fn(
+                episode,
+                score,
+                query,
+                interaction_type=interaction_type,
+                near_miss=near_miss,
+                count_hit=count_hit,
+            )
+            return
+        await self._cue_feedback_recorder.record_cue_feedback(
+            episode,
+            score,
+            query,
+            interaction_type=interaction_type,
+            near_miss=near_miss,
+            count_hit=count_hit,
+        )
 
     async def materialize(
         self,
@@ -172,7 +205,7 @@ class RecallPrimaryResultMaterializer:
             if cue is None:
                 return
             await _bounded_materialize_call(
-                self._cue_feedback_recorder.record_cue_feedback(
+                self.record_cue_hit(
                     episode,
                     scored_result.score,
                     query,

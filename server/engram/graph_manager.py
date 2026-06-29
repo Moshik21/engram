@@ -384,6 +384,7 @@ class GraphManager:
             entity_access_recorder=self._recall_access_recorder,
             interaction_recorder=self._recall_interaction_recorder,
             working_memory_updater=self._recall_working_memory_updater,
+            record_cue_hit_fn=self._record_cue_hit,
         )
         self._recall_post_processor = RecallPostProcessor(
             cfg=self._cfg,
