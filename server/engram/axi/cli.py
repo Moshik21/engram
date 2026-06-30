@@ -19,6 +19,7 @@ from engram.axi.hooks import (
     install_hook,
     uninstall_hook,
 )
+from engram.retrieval.artifacts import _normalize_project_path as _resolve_project_path
 from engram.axi.surfaces import (
     VALUE_TIMEOUT_SECONDS,
     AxiResult,
@@ -717,10 +718,13 @@ def _hook_input_project_path(raw_input: str, *, explicit_project_path: str | Non
 
 def _normalize_project_path(project_path: str | None) -> str | None:
     if project_path:
-        path = Path(project_path).expanduser()
+        resolved = _resolve_project_path(project_path)
+        if not resolved:
+            return None
+        path = Path(resolved)
         if _is_filesystem_root(path):
             return None
-        return str(path)
+        return resolved
     return _infer_current_project_path()
 
 

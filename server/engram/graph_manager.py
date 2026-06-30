@@ -1562,18 +1562,12 @@ class GraphManager:
         within the last 24 hours, returns early. Otherwise re-observes
         files to pick up changes (cheap store_episode, no LLM).
         """
-        result = await self._project_bootstrap_service.bootstrap_project(
+        return await self._project_bootstrap_service.bootstrap_project(
             project_path,
             group_id=group_id,
             include_patterns=include_patterns,
             session_id=session_id,
         )
-        if result.get("status") not in {"skipped"}:
-            self._runtime_state_service.invalidate_cache(
-                group_id=group_id,
-                project_path=project_path,
-            )
-        return result
 
     async def _project_bootstrap_store_episode(self, *args, **kwargs) -> str:
         """Late-bound episode capture adapter for project bootstrap."""

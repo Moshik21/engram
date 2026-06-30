@@ -5,7 +5,7 @@ import io
 import json
 import os
 
-from engram.axi.cli import configure_axi_parser, run_axi_command
+from engram.axi.cli import _normalize_project_path, configure_axi_parser, run_axi_command
 
 
 class HealthyClient:
@@ -75,6 +75,12 @@ def _parse_axi_args(*argv: str) -> argparse.Namespace:
     axi_parser = subparsers.add_parser("axi")
     configure_axi_parser(axi_parser)
     return parser.parse_args(["axi", *argv])
+
+
+def test_normalize_project_path_resolves_tmp_symlink() -> None:
+    left = _normalize_project_path("/tmp/engram-followup-test")
+    right = _normalize_project_path("/private/tmp/engram-followup-test")
+    assert left == right
 
 
 def test_axi_parser_preserves_global_flags_before_subcommand() -> None:

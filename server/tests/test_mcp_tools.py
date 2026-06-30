@@ -713,6 +713,8 @@ class TestEpistemicArtifacts:
 
     @pytest.mark.asyncio
     async def test_bootstrap_refreshes_cached_runtime_state(self, rich_manager, tmp_path):
+        from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
+
         (tmp_path / "README.md").write_text("# Engram\nCache invalidation proof.\n")
         empty = await rich_manager.get_runtime_state(
             group_id=GROUP,
@@ -721,7 +723,11 @@ class TestEpistemicArtifacts:
         )
         assert empty["artifactBootstrap"]["artifactCount"] == 0
 
-        await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+        await build_project_bootstrap_surface(
+            rich_manager,
+            group_id=GROUP,
+            project_path=str(tmp_path),
+        )
 
         cached = await rich_manager.get_runtime_state(
             group_id=GROUP,

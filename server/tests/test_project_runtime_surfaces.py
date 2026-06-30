@@ -48,6 +48,47 @@ async def test_project_bootstrap_surface_forwards_group_path_and_session() -> No
     )
 
 
+@pytest.mark.asyncio
+async def test_project_bootstrap_surface_invalidates_runtime_cache() -> None:
+    manager = MagicMock()
+    manager.bootstrap_project = AsyncMock(
+        return_value={
+            "status": "bootstrapped",
+            "project_entity_id": "ent_project",
+            "files_observed": ["README.md"],
+        }
+    )
+    runtime_service = MagicMock()
+    manager._runtime_state_service = runtime_service
+
+    await build_project_bootstrap_surface(
+        manager,
+        group_id="native_brain",
+        project_path="/tmp/engram",
+    )
+
+    runtime_service.invalidate_cache.assert_called_once_with(
+        group_id="native_brain",
+        project_path="/tmp/engram",
+    )
+
+
+@pytest.mark.asyncio
+async def test_project_bootstrap_surface_skips_cache_invalidation_when_skipped() -> None:
+    manager = MagicMock()
+    manager.bootstrap_project = AsyncMock(return_value={"status": "skipped", "reason": "invalid_path"})
+    runtime_service = MagicMock()
+    manager._runtime_state_service = runtime_service
+
+    await build_project_bootstrap_surface(
+        manager,
+        group_id="native_brain",
+        project_path="/",
+    )
+
+    runtime_service.invalidate_cache.assert_not_called()
+
+
 def test_project_bootstrap_http_status_maps_skipped_to_bad_request() -> None:
     assert project_bootstrap_http_status({"status": "skipped", "reason": "invalid_path"}) == 400
     assert project_bootstrap_http_status({"status": "already_bootstrapped"}) == 200

@@ -36,12 +36,18 @@ async def build_project_bootstrap_surface(
     session_id: str | None = None,
 ) -> dict:
     """Run project bootstrap through the shared manager compatibility facade."""
-    return await manager.bootstrap_project(
+    result = await manager.bootstrap_project(
         project_path=project_path,
         group_id=group_id,
         include_patterns=include_patterns,
         session_id=session_id,
     )
+    if result.get("status") not in {"skipped"}:
+        runtime_service = getattr(manager, "_runtime_state_service", None)
+        invalidate = getattr(runtime_service, "invalidate_cache", None)
+        if callable(invalidate):
+            invalidate(group_id=group_id, project_path=project_path)
+    return result
 
 
 def project_bootstrap_http_status(result: dict) -> int:
