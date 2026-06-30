@@ -8,7 +8,12 @@ import sys
 from pathlib import Path
 
 from engram.showcase.export import export_showcase_payload
-from engram.showcase.runner import format_showcase_run, run_showcase_beats, showcase_open_instructions
+from engram.showcase.resources import prepare_showcase_db
+from engram.showcase.runner import (
+    format_showcase_run,
+    run_showcase_beats,
+    showcase_open_instructions,
+)
 from engram.showcase.seed import default_seed_output, seed_demo_db
 
 
@@ -99,13 +104,11 @@ async def _run_showcase_command(args: argparse.Namespace) -> int:
         return 0
 
     if args.showcase_command == "run":
-        results = await run_showcase_beats(db_path=args.db)
+        prepared = prepare_showcase_db(db_path=args.db)
+        results, runtime_db = await run_showcase_beats(prepared_db_path=prepared)
         print(format_showcase_run(results), end="")
         if args.open and not args.no_open:
-            from engram.showcase.resources import resolve_demo_db_path
-
-            db_path = resolve_demo_db_path(db_path=args.db)
-            print(showcase_open_instructions(db_path, api_port=args.port), end="")
+            print(showcase_open_instructions(runtime_db, api_port=args.port), end="")
         if any(not item.passed for item in results):
             return 1
         return 0

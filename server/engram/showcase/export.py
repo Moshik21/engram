@@ -18,7 +18,7 @@ async def export_showcase_payload(
     out_path: Path | None = None,
     markdown_path: Path | None = None,
 ) -> dict:
-    results = await run_showcase_beats(db_path=db_path)
+    results, _resolved = await run_showcase_beats(db_path=db_path)
     payload = beat_results_to_json(results)
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)

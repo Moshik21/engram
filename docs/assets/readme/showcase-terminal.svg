@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 420" role="img" aria-label="engram showcase run terminal output">
+  <defs>
+    <linearGradient id="termBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#141428"/>
+      <stop offset="100%" stop-color="#0a0a14"/>
+    </linearGradient>
+    <style>
+      .mono { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+      .title { fill: #e2e8f0; font-size: 13px; font-weight: 600; }
+      .cmd { fill: #a5b4fc; font-size: 12px; }
+      .dim { fill: #64748b; font-size: 11px; }
+      .pass { fill: #34d399; font-size: 11px; font-weight: 600; }
+      .beat { fill: #cbd5e1; font-size: 11px; }
+      .highlight { fill: #94a3b8; font-size: 10.5px; }
+      .summary { fill: #f8fafc; font-size: 12px; font-weight: 600; }
+      @media (prefers-reduced-motion: reduce) {
+        .cursor { animation: none !important; opacity: 1; }
+      }
+      .cursor { animation: blink 1.2s step-end infinite; }
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+      }
+    </style>
+  </defs>
+  <rect width="920" height="420" rx="14" fill="url(#termBg)" stroke="#2d2d4a" stroke-width="1"/>
+  <rect x="1" y="1" width="918" height="34" rx="13" fill="#1a1a30"/>
+  <circle cx="22" cy="18" r="5.5" fill="#ef4444"/>
+  <circle cx="40" cy="18" r="5.5" fill="#f59e0b"/>
+  <circle cx="58" cy="18" r="5.5" fill="#22c55e"/>
+  <text x="78" y="22" class="mono dim">server — zsh — engram showcase run</text>
+
+  <text x="28" y="62" class="mono cmd">$ cd server &amp;&amp; uv run engram showcase run</text>
+  <text x="28" y="88" class="mono title">Engram showcase (bundled lite demo.db)</text>
+
+  <text x="28" y="118" class="mono beat">Beat 1/3: Continuity</text>
+  <text x="210" y="118" class="mono pass">[PASS]</text>
+  <text x="28" y="136" class="mono dim">  User: He had a great game today.</text>
+  <text x="28" y="154" class="mono dim">  Action: recall(He had a great game today)</text>
+  <text x="28" y="172" class="mono highlight">  Matched: liam</text>
+
+  <text x="28" y="202" class="mono beat">Beat 2/3: Correction</text>
+  <text x="210" y="202" class="mono pass">[PASS]</text>
+  <text x="28" y="220" class="mono dim">  User: What sport does Liam play now?</text>
+  <text x="28" y="238" class="mono highlight">  Matched: liam, baseball</text>
+
+  <text x="28" y="268" class="mono beat">Beat 3/3: Cross-session briefing</text>
+  <text x="290" y="268" class="mono pass">[PASS]</text>
+  <text x="28" y="286" class="mono dim">  User: (new session) What do we know about Liam?</text>
+  <text x="28" y="304" class="mono dim">  Action: get_context(Liam family practice)</text>
+  <text x="28" y="322" class="mono highlight">  Matched: liam</text>
+
+  <text x="28" y="358" class="mono summary">Summary: 3/3 beats passed</text>
+  <rect x="218" y="346" width="8" height="14" class="cursor" fill="#a5b4fc"/>
+</svg>

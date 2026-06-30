@@ -145,7 +145,11 @@ Replay a bundled lite demo brain with no API keys:
 cd server && uv run engram showcase run
 ```
 
-Three scripted beats: Liam continuity ("He had a great game today"), a correction (soccer to baseball), and a cross-session `get_context` briefing.
+<p align="center">
+  <img src="docs/assets/showcase/showcase-demo.gif" alt="engram showcase run: 3/3 Liam continuity beats passed" width="920">
+</p>
+
+Three scripted beats: Liam continuity ("He had a great game today"), a correction (soccer to baseball), and a cross-session `get_context` briefing. Runs copy the bundled `demo.db` to `~/.engram/showcase/demo-run.db` so the packaged brain stays pristine.
 
 ```bash
 # Export static beats for the website theater
@@ -156,7 +160,15 @@ cd server && uv run engram showcase seed
 cd server && uv run python scripts/simulate.py --showcase-seed engram/data/demo.db
 ```
 
-Record a screen capture from `engram showcase run` for README or social posts. The website scenario theater reads `website/public/showcase-export.json`.
+Regenerate the recording anytime:
+
+```bash
+cd server && uv run python ../scripts/record_showcase.py
+```
+
+Outputs `docs/assets/showcase/showcase-demo.mp4` and `.gif` (also copied to `website/public/` for the site).
+
+Step through the same beats in the [website scenario theater](https://engram-roan.vercel.app/#try-it). It reads `website/public/showcase-export.json`.
 
 <br>
 

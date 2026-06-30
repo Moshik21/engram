@@ -654,7 +654,7 @@ export function HomePage() {
         </div>
       </section>
 
-      <section style={section}>
+      <section id="try-it" style={section}>
         <div style={{ ...wideContainer, display: "grid", gap: 32 }}>
           <ScrollReveal>
             <div style={narrowContainer}>
@@ -665,6 +665,28 @@ export function HomePage() {
               <p style={bodyText}>
                 The public showcase replays a bundled lite demo.db with three beats: Liam continuity, a correction, and a cross-session briefing. Run the same script locally with <code style={mono}>engram showcase run</code>.
               </p>
+            </div>
+          </ScrollReveal>
+          <ScrollReveal delay={80}>
+            <div
+              style={{
+                borderRadius: 16,
+                overflow: "hidden",
+                border: "1px solid rgba(139, 92, 246, 0.22)",
+                boxShadow: "0 24px 60px rgba(8, 8, 20, 0.45)",
+                background: "#0c0c18",
+              }}
+            >
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                poster="/showcase-demo.gif"
+                style={{ display: "block", width: "100%", height: "auto" }}
+              >
+                <source src="/showcase-demo.mp4" type="video/mp4" />
+              </video>
             </div>
           </ScrollReveal>
           <ScrollReveal delay={120}>

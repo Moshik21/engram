@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from engram.showcase.beats import SHOWCASE_BEATS, ShowcaseBeat
-from engram.showcase.resources import resolve_demo_db_path
+from engram.showcase.resources import prepare_showcase_db
 from engram.showcase.runtime import open_showcase_manager
 
 SHOWCASE_GROUP_ID = "showcase"
@@ -96,6 +95,7 @@ async def execute_showcase_beat(
                 beat.query,
                 group_id=group_id,
                 limit=8,
+                record_access=False,
                 interaction_source="showcase_recall",
             )
             outcome.recall_results = results
@@ -144,14 +144,15 @@ async def run_showcase_beats(
     *,
     db_path: Path | None = None,
     group_id: str = SHOWCASE_GROUP_ID,
-) -> list[ShowcaseBeatResult]:
-    resolved = resolve_demo_db_path(db_path=db_path)
+    prepared_db_path: Path | None = None,
+) -> tuple[list[ShowcaseBeatResult], Path]:
+    resolved = prepared_db_path or prepare_showcase_db(db_path=db_path)
     manager, graph_store = await open_showcase_manager(resolved, group_id=group_id)
     try:
         results: list[ShowcaseBeatResult] = []
         for beat in SHOWCASE_BEATS:
             results.append(await execute_showcase_beat(manager, beat, group_id=group_id))
-        return results
+        return results, resolved
     finally:
         await graph_store.close()
 
