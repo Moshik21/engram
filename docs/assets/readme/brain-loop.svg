@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 220" role="img" aria-label="Engram brain loop: Capture, Cue, Project, Recall, Consolidate">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16162a"/>
+      <stop offset="100%" stop-color="#0c0c18"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        .packet, .ring { animation: none !important; }
+      }
+      .packet { animation: travel 3.5s linear infinite; }
+      .packet-2 { animation-delay: 1.1s; }
+      .packet-3 { animation-delay: 2.2s; }
+      @keyframes travel {
+        0% { offset-distance: 0%; opacity: 0; }
+        8% { opacity: 1; }
+        92% { opacity: 1; }
+        100% { offset-distance: 100%; opacity: 0; }
+      }
+      .ring { animation: ringPulse 2.8s ease-in-out infinite; transform-origin: center; }
+      .ring-2 { animation-delay: 0.7s; }
+      .ring-3 { animation-delay: 1.4s; }
+      .ring-4 { animation-delay: 2.1s; }
+      .ring-5 { animation-delay: 2.8s; }
+      @keyframes ringPulse {
+        0%, 100% { stroke-opacity: 0.35; }
+        50% { stroke-opacity: 1; }
+      }
+    </style>
+    <path id="loopPath" d="M 110 110 L 250 110 L 390 110 L 530 110 L 670 110 L 810 110 L 850 110"/>
+  </defs>
+
+  <rect width="960" height="220" rx="14" fill="url(#panel)" stroke="#2e2e4a" stroke-width="1"/>
+
+  <text x="480" y="34" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13" font-weight="600" letter-spacing="3" fill="#94a3b8">BRAIN LOOP</text>
+
+  <!-- Track -->
+  <path d="M 90 110 L 870 110" stroke="#334155" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 870 130 C 870 175, 90 175, 90 130" stroke="#334155" stroke-width="1.5" fill="none" stroke-dasharray="5 7" opacity="0.5"/>
+
+  <!-- Nodes -->
+  <g font-family="ui-sans-serif, system-ui, sans-serif" text-anchor="middle">
+    <g transform="translate(110,110)">
+      <circle r="34" fill="#1e1b4b" stroke="#6366f1" stroke-width="2" class="ring"/>
+      <text y="5" font-size="11" font-weight="700" fill="#e0e7ff">CAPTURE</text>
+      <text y="48" font-size="9" fill="#64748b">observe · auto:*</text>
+    </g>
+    <g transform="translate(290,110)">
+      <circle r="34" fill="#1e1b4b" stroke="#818cf8" stroke-width="2" class="ring ring-2"/>
+      <text y="5" font-size="11" font-weight="700" fill="#e0e7ff">CUE</text>
+      <text y="48" font-size="9" fill="#64748b">latent trace</text>
+    </g>
+    <g transform="translate(470,110)">
+      <circle r="34" fill="#1e1b4b" stroke="#a78bfa" stroke-width="2" class="ring ring-3"/>
+      <text y="5" font-size="11" font-weight="700" fill="#e0e7ff">PROJECT</text>
+      <text y="48" font-size="9" fill="#64748b">extract · embed</text>
+    </g>
+    <g transform="translate(650,110)">
+      <circle r="34" fill="#1e1b4b" stroke="#22d3ee" stroke-width="2" class="ring ring-4"/>
+      <text y="5" font-size="11" font-weight="700" fill="#e0e7ff">RECALL</text>
+      <text y="48" font-size="9" fill="#64748b">packets · ACT-R</text>
+    </g>
+    <g transform="translate(830,110)">
+      <circle r="34" fill="#1e1b4b" stroke="#34d399" stroke-width="2" class="ring ring-5"/>
+      <text y="5" font-size="11" font-weight="700" fill="#e0e7ff">CONSOLIDATE</text>
+      <text y="48" font-size="9" fill="#64748b">merge · dream</text>
+    </g>
+  </g>
+
+  <!-- Animated packets along path -->
+  <circle r="5" fill="#c4b5fd" class="packet">
+    <animateMotion dur="3.5s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1">
+      <mpath href="#loopPath"/>
+    </animateMotion>
+  </circle>
+  <circle r="4" fill="#67e8f9" class="packet packet-2">
+    <animateMotion dur="3.5s" repeatCount="indefinite" begin="1.1s" keyPoints="0;1" keyTimes="0;1">
+      <mpath href="#loopPath"/>
+    </animateMotion>
+  </circle>
+  <circle r="3" fill="#6ee7b7" class="packet packet-3">
+    <animateMotion dur="3.5s" repeatCount="indefinite" begin="2.2s" keyPoints="0;1" keyTimes="0;1">
+      <mpath href="#loopPath"/>
+    </animateMotion>
+  </circle>
+</svg>

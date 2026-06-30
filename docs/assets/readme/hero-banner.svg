@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-label="Engram — long-term memory for AI agents">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#07070f"/>
+      <stop offset="55%" stop-color="#12122a"/>
+      <stop offset="100%" stop-color="#0d1020"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.35"/>
+      <stop offset="60%" stop-color="#4f46e5" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="synapse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        .pulse, .flow, .orbit { animation: none !important; }
+      }
+      .pulse { animation: pulse 3.2s ease-in-out infinite; transform-origin: center; }
+      .pulse-d { animation-delay: 0.8s; }
+      .pulse-e { animation-delay: 1.6s; }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.45; r: 5; }
+        50% { opacity: 1; r: 8; }
+      }
+      .flow { stroke-dasharray: 12 18; animation: flow 2.4s linear infinite; }
+      .flow-rev { animation-direction: reverse; animation-duration: 3.1s; }
+      @keyframes flow { to { stroke-dashoffset: -60; } }
+      .title-glow { animation: titleGlow 4s ease-in-out infinite; }
+      @keyframes titleGlow {
+        0%, 100% { opacity: 0.85; }
+        50% { opacity: 1; }
+      }
+      .orbit { animation: orbit 6s linear infinite; transform-origin: 600px 150px; }
+      @keyframes orbit {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="320" fill="url(#bg)" rx="16"/>
+  <rect width="1200" height="320" fill="url(#glow)" rx="16"/>
+
+  <!-- Neural mesh -->
+  <g opacity="0.55" stroke="url(#synapse)" stroke-width="1.2" fill="none">
+    <path class="flow" d="M120 180 C220 90, 340 90, 430 160"/>
+    <path class="flow flow-rev" d="M430 160 C520 230, 640 230, 770 170"/>
+    <path class="flow" d="M770 170 C860 110, 980 120, 1080 190"/>
+    <path class="flow flow-rev" d="M200 220 C320 260, 480 240, 600 200"/>
+    <path class="flow" d="M600 200 C720 150, 880 180, 1020 140"/>
+  </g>
+
+  <!-- Nodes -->
+  <g>
+    <circle class="pulse" cx="120" cy="180" r="6" fill="#818cf8"/>
+    <circle class="pulse pulse-d" cx="430" cy="160" r="7" fill="#a78bfa"/>
+    <circle class="pulse pulse-e" cx="770" cy="170" r="6" fill="#67e8f9"/>
+    <circle class="pulse" cx="600" cy="200" r="9" fill="#c4b5fd" filter="url(#blur)" opacity="0.5"/>
+    <circle class="pulse pulse-d" cx="600" cy="200" r="5" fill="#e9d5ff"/>
+    <circle class="pulse pulse-e" cx="1020" cy="140" r="5" fill="#22d3ee"/>
+    <circle class="pulse" cx="320" cy="250" r="4" fill="#6366f1" opacity="0.7"/>
+    <circle class="pulse pulse-d" cx="920" cy="210" r="4" fill="#818cf8" opacity="0.7"/>
+  </g>
+
+  <!-- Orbit accent -->
+  <g class="orbit" opacity="0.25">
+    <ellipse cx="600" cy="150" rx="280" ry="90" fill="none" stroke="#7c3aed" stroke-width="0.8" stroke-dasharray="4 10"/>
+  </g>
+
+  <!-- Title -->
+  <text x="600" y="118" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="54" font-weight="700" letter-spacing="12" fill="#f8fafc" class="title-glow">ENGRAM</text>
+  <text x="600" y="152" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="500" letter-spacing="4" fill="#94a3b8">LONG-TERM MEMORY FOR AI AGENTS</text>
+
+  <!-- Tagline pill -->
+  <rect x="330" y="248" width="540" height="42" rx="21" fill="#1e1b4b" stroke="#4c1d95" stroke-width="1"/>
+  <text x="600" y="275" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="14" fill="#c4b5fd">
+    Harness captures · Agent recalls · Brain consolidates
+  </text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 160" role="img" aria-label="Memory maturation tiers: episodic, transitional, semantic">
+  <defs>
+    <linearGradient id="epi" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#312e81"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </linearGradient>
+    <linearGradient id="trans" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5b21b6"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="sem" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0e7490"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        .grow, .arrow-move { animation: none !important; }
+      }
+      .grow { animation: grow 3s ease-in-out infinite; transform-origin: left center; }
+      .grow-2 { animation-delay: 1s; }
+      .grow-3 { animation-delay: 2s; }
+      @keyframes grow {
+        0%, 100% { transform: scaleX(0.92); opacity: 0.75; }
+        50% { transform: scaleX(1); opacity: 1; }
+      }
+      .arrow-move { animation: arrowMove 2.5s ease-in-out infinite; }
+      @keyframes arrowMove {
+        0%, 100% { transform: translateX(0); opacity: 0.4; }
+        50% { transform: translateX(6px); opacity: 1; }
+      }
+    </style>
+  </defs>
+
+  <rect width="800" height="160" rx="12" fill="#0c0c18" stroke="#2e2e4a"/>
+
+  <text x="400" y="28" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="600" letter-spacing="2" fill="#94a3b8">MEMORY MATURATION</text>
+
+  <g font-family="ui-sans-serif, system-ui, sans-serif" text-anchor="middle">
+    <g transform="translate(130, 90)">
+      <rect class="grow" x="-100" y="-28" width="200" height="56" rx="10" fill="url(#epi)"/>
+      <text y="-4" font-size="13" font-weight="700" fill="#e0e7ff">EPISODIC</text>
+      <text y="16" font-size="10" fill="#c7d2fe">fast decay · 14d prune</text>
+    </g>
+
+    <g class="arrow-move" transform="translate(290, 90)">
+      <path d="M0,-6 L16,0 L0,6 Z" fill="#64748b"/>
+      <path d="M-20,0 H10" stroke="#64748b" stroke-width="2"/>
+    </g>
+
+    <g transform="translate(400, 90)">
+      <rect class="grow grow-2" x="-100" y="-28" width="200" height="56" rx="10" fill="url(#trans)"/>
+      <text y="-4" font-size="13" font-weight="700" fill="#f5f3ff">TRANSITIONAL</text>
+      <text y="16" font-size="10" fill="#ddd6fe">2× episodic survival</text>
+    </g>
+
+    <g class="arrow-move" transform="translate(560, 90)" style="animation-delay:0.5s">
+      <path d="M0,-6 L16,0 L0,6 Z" fill="#64748b"/>
+      <path d="M-20,0 H10" stroke="#64748b" stroke-width="2"/>
+    </g>
+
+    <g transform="translate(670, 90)">
+      <rect class="grow grow-3" x="-100" y="-28" width="200" height="56" rx="10" fill="url(#sem)"/>
+      <text y="-4" font-size="13" font-weight="700" fill="#ecfeff">SEMANTIC</text>
+      <text y="16" font-size="10" fill="#a5f3fc">180d prune · identity core</text>
+    </g>
+  </g>
+</svg>

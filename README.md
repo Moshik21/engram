@@ -1,2177 +1,280 @@
 <p align="center">
-  <h1 align="center">Engram</h1>
-  <p align="center">
-    <strong>Long-term memory for AI agents.</strong><br>
-    Stores what happened, organizes it, and brings back the right context later.
-  </p>
+  <img src="docs/assets/readme/hero-banner.svg" alt="Engram — long-term memory for AI agents" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://engram-roan.vercel.app">Website</a> &middot;
-  <a href="#quickstart">Quickstart</a> &middot;
-  <a href="#how-it-works">How It Works</a> &middot;
-  <a href="#helixdb">HelixDB</a> &middot;
-  <a href="#multimodal-memory">Multimodal</a> &middot;
-  <a href="#mcp-integration">MCP Integration</a> &middot;
-  <a href="#one-click-openclaw-install">OpenClaw</a> &middot;
-  <a href="#dashboard">Dashboard</a> &middot;
-  <a href="#api-reference">API</a> &middot;
-  <a href="#benchmarks">Benchmarks</a>
+  <a href="https://engram-roan.vercel.app"><strong>Website</strong></a> &nbsp;·&nbsp;
+  <a href="#quickstart">Quickstart</a> &nbsp;·&nbsp;
+  <a href="#how-memory-compounds">How It Works</a> &nbsp;·&nbsp;
+  <a href="#connect-your-agent">Connect</a> &nbsp;·&nbsp;
+  <a href="docs/REFERENCE.md">Full Reference</a> &nbsp;·&nbsp;
+  <a href="#dashboard">Dashboard</a>
 </p>
 
 <p align="center">
-  <a href="https://engram-roan.vercel.app"><img src="https://img.shields.io/badge/website-engram-8b5cf6" alt="Website"></a>
+  <a href="https://engram-roan.vercel.app"><img src="https://img.shields.io/badge/website-engram-8b5cf6?style=flat-square" alt="Website"></a>
   <img src="https://github.com/Moshik21/engram/actions/workflows/ci.yml/badge.svg" alt="CI">
-  <img src="https://img.shields.io/badge/python-3.10+-blue" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/react-19-61dafb" alt="React 19">
-  <img src="https://img.shields.io/badge/tests-pytest%20%2B%20vitest-blue" alt="Pytest + Vitest">
-  <img src="https://img.shields.io/badge/license-Apache_2.0-green" alt="License">
+  <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/MCP-27_tools-6366f1?style=flat-square" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/license-Apache_2.0-22c55e?style=flat-square" alt="License">
 </p>
 
----
+<br>
 
-AI agents are good at reasoning in the moment, but bad at remembering across sessions. Engram gives them long-term memory.
+**Engram gives AI agents memory that persists across sessions, organizes itself, and surfaces the right context when it matters.**
 
-Engram stores conversations as episodes, turns important people, facts, and relationships into a temporal knowledge graph, ranks what matters with ACT-R activation, and runs background consolidation to merge duplicates, promote stable memories, and fade stale noise.
+Conversations become **episodes**. Important people, facts, and relationships become a **temporal knowledge graph**. ACT-R activation ranks what’s relevant. Background consolidation merges duplicates, promotes stable memories, and fades noise — like sleep for a knowledge graph.
 
-**In one sentence:** Engram gives AI agents a memory that persists across sessions, organizes itself, and retrieves the right context when needed.
+<table>
+<tr>
+<td width="33%" valign="top">
 
-**In 30 seconds:** Use `observe()` to save what happened quickly; when the cue layer is enabled, it immediately generates a deterministic latent memory trace that can be recalled before full extraction. Use `remember()` when something is important enough to extract immediately. Later, `recall()` brings back compact memory packets, cue-backed latent episodes, and raw supporting results instead of dumping an entire chat log. In the background, consolidation scores queued memories, merges duplicates, promotes stable patterns, and prunes low-value clutter.
+### Harness captures
+Session-start injection, auto-observe hooks, offline queue replay. Routine turns are infrastructure — zero agent tokens.
 
-**Key capabilities:**
+</td>
+<td width="33%" valign="top">
 
-- **Observe** conversations cheaply with optional cue-first latent memory and background processing that selectively extracts high-value content
-- **Remember** critical facts with evidence-first extraction — high-confidence facts commit immediately, ambiguous structure is stored as deferred evidence for later promotion
-- **Recall** with activation-aware retrieval, cue-backed latent episodes, planner-driven query bundles, and packetized memory shaped for the current turn
-- **Consolidate** memory offline: triage queued episodes, merge duplicates, infer missing relationships, prune stale entities, strengthen associative pathways
-- **Project progressively** by turning `observe`d text into `EpisodeCue` records first, then promoting hot episodes into targeted projection when recall demand justifies the cost
-- **Intend** with prospective memory — graph-embedded intentions that fire automatically via spreading activation when related topics come up ("remind me when...")
-- **Understand** personal, health, and emotional content with an expanded 17-type entity taxonomy and rich predicate vocabulary
-- **Visualize** the knowledge graph and memory pipeline in real-time with a 3D neural brain dashboard plus cue/projection observability
-- **Atlas** multi-scale graph exploration — zoom from high-level region clusters down to individual entity neighborhoods
-- **Self-Tune** with neuroplasticity loops that automatically optimize recall parameters based on agent interaction
-- **Safeguard** memory truth with topological immunity that dissolves semantic noise and hallucinated connections
+### Agent recalls
+`get_context` once, `recall` when cues fire, `remember` for durable facts. Judgment, not habit.
 
-## Key Concepts
+</td>
+<td width="33%" valign="top">
 
-| Term | Definition |
-|------|-----------|
-| **ACT-R** | Cognitive architecture model that scores memory relevance by recency and frequency of access |
-| **Spreading Activation** | When you recall an entity, related entities also "light up" based on graph proximity |
-| **Consolidation** | Background process that merges duplicates, discovers patterns, and prunes stale content (inspired by memory consolidation during sleep) |
-| **Activation** | Real-time relevance score for a memory, computed from access history — not stored, always recomputed |
-| **Episode** | A raw text input (conversation snippet) stored in the system |
-| **Entity** | A person, organization, technology, product, concept, or other typed node extracted from episodes and stored in the knowledge graph |
-| **Cue Layer** | Lightweight, deterministic memory trace stored alongside full extraction — enables latent recall without LLM |
-| **CQRS Split** | Ingestion pattern: `observe` (fast, no LLM) vs `remember` (full extraction with LLM) |
-| **Memory Tier** | Entities graduate from episodic → transitional → semantic as they mature (like biological memory) |
-| **Labile Window** | 5-minute reconsolidation window after recall where entity summaries can be updated with new info |
-| **Dream Phase** | Offline spreading activation that strengthens important connections and discovers cross-domain associations |
-| **Semantic Gravity** | Measure of a node's topological importance used by the Immunity System to prune noise |
-| **Nerve Center** | Central command dashboard for resolving memory conflicts and monitoring system health |
-| **Ingestion Chamber** | Real-time intake pipeline for new conversational episodes |
-| **Belief Map** | Probabilistic context packet including evidence density and temporal stability |
+### Brain consolidates
+Triage, projection, 16-phase consolidation, dream associations. Memory compounds while you work.
 
-## Project Synapse: Autonomous Memory
+</td>
+</tr>
+</table>
 
-Engram has evolved into an **autonomous, self-tuning memory layer** that actively safeguards its own truth and optimizes retrieval without human configuration.
+<br>
 
-- **Topological Immunity**: Treating the Knowledge Graph as a biological system. Entities lacking "semantic gravity" (meaningful connectivity or clusters) are automatically flagged and dissolved by a Graph-Aware Anomaly Detector, treating them as viral noise.
-- **Bayesian Recall**: Retrieval now delivers a **Belief Map** instead of a flat context packet. Every fact includes an Evidence Density Score based on corroboration frequency, recency, and temporal polarity (detecting contradictory "moved from" events).
-- **Auto-Neuroplasticity**: A meta-learning loop that tunes the 200+ internal activation parameters. By observing agent interaction, the system automatically dampens decay or adjusts spreading sensitivity for specific topic clusters based on their "Retrieval ROI."
-- **Nerve Center**: A high-fidelity bio-digital command center for memory management. Surfaces **Clarification Intents** (conflicting evidence) and **Immunity Logs** (background maintenance) as interactive, actionable events, allowing the user or agent to nurture system health.
-- **Fluid Ingestion**: Zero-latency text streaming via WebSockets. Incremental projection builds "Latent Memory Traces" that mature into full entities only when discourse reaches a logical conclusion, eliminating the wait for batch POST requests.
+## Brain Loop
+
+<p align="center">
+  <img src="docs/assets/readme/brain-loop.svg" alt="Capture → Cue → Project → Recall → Consolidate" width="920">
+</p>
+
+| Stage | What happens |
+|-------|----------------|
+| **Capture** | `observe`, harness `auto:*`, or `remember` — fast store, optional cue trace |
+| **Cue** | Deterministic latent memory — recall before full LLM extraction |
+| **Project** | Entity resolution, embedding, graph write (background or immediate) |
+| **Recall** | Activation-aware packets — not a chat-log dump |
+| **Consolidate** | Merge, infer, mature, prune, dream — offline graph hygiene |
+
+<br>
+
+## How Memory Compounds
+
+<p align="center">
+  <img src="docs/assets/readme/harness-flow.svg" alt="Harness, Agent, and Brain layers" width="920">
+</p>
+
+Engram separates **who captures** from **who judges**. The harness handles passive capture and session injection; the agent spends tokens only on recall and high-signal `remember`. The brain matures the graph in the background.
+
+| Tier | Trigger | Action | Budget |
+|------|---------|--------|--------|
+| **Hot** | Session start, project open | AXI home, bootstrap, session prime | &lt; 3s |
+| **Warm** | Read tools, proper nouns | auto_recall lite, packet cache | &lt; 350ms |
+| **Cold** | Identity query, deep prior work | `recall`, `search_artifacts` | &lt; 2s |
+| **Background** | Session end, schedule | triage, merge, dream | async |
+
+<p align="center">
+  <img src="docs/assets/readme/memory-tiers.svg" alt="Episodic → Transitional → Semantic memory tiers" width="760">
+</p>
+
+Entities graduate **episodic → transitional → semantic** as they mature. Semantic memories and identity-core entities survive pruning far longer than ephemeral episodic noise.
+
+<br>
 
 ## Quickstart
 
-### One-Click Install
+### One command
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
 ```
 
-The default path installs Engram with native Helix support, runs
-`engramctl quickstart`, and verifies that the local runtime is ready:
-
-- **Helix native** (recommended) — HelixDB in-process via PyO3, no Docker, best quality + speed
-- **Lite** — SQLite backend, no Docker needed, all features included
-- **Full** — FalkorDB + Redis via Docker, legacy high throughput
-
-Use an explicit mode when needed: `bash -s -- helix`, `bash -s -- lite`, or
-`bash -s -- full`. The Helix path installs Engram, adds the `helix-native` PyO3
-runtime to Engram's uv tool environment, and checks that the runtime is
-importable before accepting the configuration. Release wheels are the public
-path; if none match the current platform, the installer builds `helix-native`
-from Engram's bundled custom Helix source and reports Rust/Cargo as the only
-extra prerequisite. It does not silently switch to Docker.
-
-Release startup commands:
+Installs native Helix (recommended), runs `engramctl quickstart`, and verifies the runtime.
 
 ```bash
-engramctl quickstart --mode helix
 engramctl start
 engramctl status
-engramctl storage
 engramctl doctor
-engramctl connect claude-code --axi
-engramctl bootstrap /path/to/project
-engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
-engramctl logs
-engramctl stop
-engramctl update
-engramctl uninstall
 ```
 
-For local dogfood and release startup checks, run the non-destructive validator
-from a source checkout:
+### Connect your agent
 
 ```bash
-python3 scripts/dogfood_startup_validation.py
+# MCP + priming (Cursor, Windsurf, Grok Build)
+engramctl connect cursor --project "$PWD"
+
+# Claude Code / Codex — read-only session injection
+engramctl connect claude-code --project "$PWD" --axi
+
+# Passive transcript capture (Claude AutoCapture hooks)
+engramctl connect claude-code --project "$PWD" --capture-transcript
+
+# Bootstrap project docs into memory (idempotent)
+engramctl bootstrap "$PWD"
 ```
 
-It checks the native config, `/health`, port owner, LaunchAgent/PID parity,
-`engramctl status`, `engramctl storage`, `engramctl doctor`, the live MCP tool
-catalog including `remember`, Codex and Claude Code MCP config, AXI hook traces,
-OpenClaw MCP posture, and storage paths. Use `--skip-slow` for a quick config
-pass that skips doctor and the live MCP catalog probe.
-
-For release-style evidence, use the matrix recorder. It writes exact commands,
-raw outputs, JSON payloads, and a Markdown summary into `/tmp` by default:
-
-```bash
-python3 scripts/dogfood_startup_matrix.py --confirm-lifecycle
-```
-
-`--confirm-lifecycle` intentionally stops and restarts the local runtime, then
-records warmed, stopped, restarted, and stale-PID states. Without that flag it
-only records the warmed runtime checks.
-
-When an existing macOS LaunchAgent is present, `engramctl start` also repairs
-legacy local plists that invoke `/bin/zsh -lc`, switching them to the non-login
-shell form `/bin/zsh -c` before bootstrapping. That keeps supervised startup
-from paying user login-shell initialization cost while preserving the sourced
-Engram environment file.
-
-If a half-started native restart leaves an untracked Engram API listener behind,
-`engramctl stop` will clean up only listener processes whose command line looks
-like Engram's local `serve` command. If another process owns the port, it refuses
-to kill it and prints an `lsof` command for manual inspection.
-
-Use Helix native as the main no-Docker path when you want the full graph/vector
-backend. Lite is the fallback smoke/demo path. `engramctl upgrade` is still
-available for the legacy Docker full stack and starts a fresh graph store with
-SQLite data preserved on disk for reference.
-Use `engramctl storage` to inspect resolved storage paths, disk usage, cached
-write-through counts, and growth since startup. Operator storage commands print
-the count source so native Helix users can tell cached startup/write-through
-counts from full historical graph totals. Agent startup probes use cached
-last-known counts so a loaded graph store cannot stall session startup. Native
-Helix defaults to
-`~/.helix/engram-native`; lite defaults to `~/.engram/engram.db`.
-
-For shell-capable agents, `engram axi` provides a compact AXI packet without
-requiring the agent to read the full MCP tool catalog first:
-
-```bash
-engram axi --project "$PWD"
-engram axi context --project "$PWD" --budget 800 --timeout 10
-engram axi recall "current task" --limit 5 --timeout 10
-engram axi value --budget 800 --timeout 20
-engram axi storage
-engram axi packet-cache
-engram axi packet-cache clear
-engram axi doctor --hooks codex claude-code --require-hook-run --require-followup
-engram axi hooks print codex
-engram axi hooks status codex
-engram axi hooks install codex --dry-run
-engram axi hooks uninstall codex --dry-run
-```
-
-AXI is a lightweight context and fallback layer. MCP remains the structured
-tool protocol for agents that support it. To enable read-only session-start
-context through the installer, run `engramctl connect codex --axi` or
-`engramctl connect claude-code --axi`; capture stays disabled unless you pass
-`--capture`. Startup hooks also write metadata-only run records to
-`~/.engram/axi-hook-runs.jsonl` so you can confirm the hook ran without storing
-prompt text, recalled context, or memory bodies. The strict doctor gate requires
-startup records to come from `trace-origin=session-start-hook`; the optional
-follow-up gate requires a later metadata-only `context` or `recall` record from
-`trace-origin=agent-followup`. Manual checks do not masquerade as client startup
-or adoption proof. Managed startup hooks call `engram axi hook-run`, which reads
-the client hook payload from stdin and uses its `cwd` as the project path when
-available, avoiding shell `$PWD` drift in clients that launch hooks before the
-workspace cwd is ready. `engram axi packet-cache` prints cache entry counts,
-scopes, hit count, persistence, and sidecar path without mutating state.
-`engram axi packet-cache clear` is the fallback for clearing stale cached
-packets; it does not delete memories, graph data, labels, or native Helix
-storage. Codex may show a hook-review prompt the first time the
-managed hook changes; after trust, the TUI surfaces the session-start packet on
-the first submitted prompt.
-
-Details: [`docs/install/lite.md`](docs/install/lite.md) | [`docs/install/full-docker.md`](docs/install/full-docker.md) | [`docs/install/helix.md`](docs/install/helix.md)
-
-### One-Click OpenClaw Install
-
-```bash
-openclaw skills install engram-brain
-```
-
-```bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
-```
-
-This uses native Helix through PyO3, installs the shared OpenClaw skill,
-configures OpenClaw MCP at `http://127.0.0.1:8100/mcp`, and runs
-`engramctl doctor`.
-
-`engramctl connect openclaw` prefers a global `openclaw` command and falls back
-to `npx -y openclaw` when npm/npx is available, so the default setup does not
-require a separate global OpenClaw install.
-
-OpenClaw's `mcp set` / `mcp show` commands save registry config; they do not
-connect to the target MCP server. `engramctl doctor` and the dogfood validator
-cover Engram-side readiness and tool-catalog checks.
-
-Details: [`docs/install/openclaw.md`](docs/install/openclaw.md)
-
-### Developer / Source Install
-
-If you want to build from local source, use the repo-based workflow instead of
-the public installer:
-
-```bash
-bash scripts/dev-install.sh
-```
-
-Or manually:
+<details>
+<summary><strong>Developer / source install</strong></summary>
 
 ```bash
 git clone https://github.com/Moshik21/engram.git ~/engram
-cd ~/engram/server
-uv sync
+cd ~/engram/server && uv sync
 uv run engram setup --mode helix
+make mcp-native    # MCP with native HelixDB (no Docker)
 ```
 
-### Option 1: Native Mode (developer/source — best quality, no Docker)
+Modes: **Helix native** (best quality, no Docker) · **Lite** (SQLite, zero infra) · **Helix HTTP** (Docker) · **Full** (FalkorDB + Redis, legacy)
+
+See [docs/install/](docs/install/) and [docs/REFERENCE.md](docs/REFERENCE.md#storage-modes) for full install paths.
+
+</details>
+
+<br>
+
+## Connect Your Agent
+
+| Client | MCP | Priming rules | AXI inject | Transcript capture |
+|--------|-----|---------------|------------|-------------------|
+| **Claude Code** | ✓ | — | default | `--capture-transcript` |
+| **Codex** | — | — | default | future |
+| **Cursor** | ✓ | ✓ | — | — |
+| **Windsurf** | ✓ | ✓ | — | — |
+| **Grok Build** | ✓ | ✓ | — | — |
+| **OpenClaw** | ✓ | skill | — | — |
+
+**Agent protocol (harness-first):**
+
+1. `claim_authority` → follow `required_tools_before_answer`
+2. `get_context` once per session (or on project switch / adoption debt)
+3. `recall` when people, projects, or prior work appear
+4. `remember` for preferences, corrections, identity, durable decisions
+5. Do **not** `observe` every turn when harness capture is active
+
+Validate adoption:
 
 ```bash
-cd server
-uv sync
-make build-native         # Build PyO3 extension (one-time)
-make mcp-native           # MCP server (streamable HTTP) with native HelixDB
-# or: make up-native       # REST API with native HelixDB
+engram adoption --authority claim.json --calls trace.jsonl --expect-harness-capture
 ```
 
-This starts Engram with HelixDB running **in-process** via a Rust PyO3 binding
-(`helix_native`). Zero network overhead, ~97ms search latency, no Docker
-required. Same 171 compiled queries, same retrieval quality. Best nDCG@10 of all
-modes (0.448). The setup wizard defaults to `consolidation_profile=standard`,
-`recall_profile=all`, and `integration_profile=rework`.
+Design doc: [docs/harness-memory-adoption-plan.md](docs/harness-memory-adoption-plan.md)
 
-### Option 2: Lite Mode (zero setup)
+<br>
 
-```bash
-cd server
-uv sync
-uv run engram mcp        # MCP server (stdio)
-# or: uv run engram serve  # REST API
-```
+## Key Capabilities
 
-This starts Engram in **lite mode** (zero infrastructure beyond Python) using
-SQLite for storage. The setup wizard still defaults to the same recall-ready
-posture: `consolidation_profile=standard`, `recall_profile=all`, and
-`integration_profile=rework`.
+| | Capability | One line |
+|---|------------|----------|
+| 🧠 | **Temporal graph** | People, orgs, concepts, relationships — with valid-from / valid-to |
+| ⚡ | **ACT-R activation** | Recency + frequency scoring; lazy recompute from access history |
+| 🔗 | **Spreading activation** | Recall one entity → related nodes light up via graph proximity |
+| 🌙 | **16-phase consolidation** | Triage, merge, infer, dream, prune — biological-memory inspired |
+| 📦 | **Memory packets** | Compact, provenance-aware context shaped for the current turn |
+| 🎯 | **Prospective memory** | `intend` — graph-embedded intentions that fire on related topics |
+| 🗺️ | **Atlas** | Multi-scale graph exploration from region clusters to neighborhoods |
+| 📊 | **3D dashboard** | Neural brain visualization, consolidation monitor, evaluation gates |
+| 🔒 | **Topological immunity** | Dissolves low-gravity noise and hallucinated connections |
+| 🧬 | **Auto-neuroplasticity** | Tunes 200+ activation parameters from retrieval ROI |
 
-### Option 3: Helix Mode (production, multi-service)
+<br>
 
-```bash
-# Option A: Helix CLI
-helix push dev
+## MCP at a Glance
 
-# Option B: Docker Compose
-cp .env.example .env
-# Edit .env: optionally set ANTHROPIC_API_KEY, GEMINI_API_KEY, or VOYAGE_API_KEY
-make up-helix            # or: docker compose -f docker-compose.helix.yml up -d --build
-```
+**27 tools** · **3 resources** · **2 prompts** — stdio or streamable HTTP.
 
-This starts HelixDB (single service) with graph+vector+BM25 unified. Same dashboard
-and API. Best retrieval quality. Details: [`docs/install/helix.md`](docs/install/helix.md).
+| Tool | Purpose |
+|------|---------|
+| `observe` / `remember` | Capture (fast queue vs immediate extraction) |
+| `recall` / `get_context` | Activation-aware retrieval and briefing |
+| `bootstrap_project` | Ingest project docs as artifacts |
+| `claim_authority` | Memory ownership + tool protocol for the turn |
+| `route_question` | Epistemic routing: memory vs artifacts vs runtime |
+| `intend` / `list_intentions` | Prospective memory |
+| `trigger_consolidation` | Run a consolidation cycle |
 
-### Option 4: Full Mode (FalkorDB + Redis)
+Built-in MCP instructions teach compatible agents to use memory proactively. Harness auto-capture handles routine turns; agents focus on recall.
 
-```bash
-cp .env.example .env
-# Edit .env: optionally set ANTHROPIC_API_KEY, GEMINI_API_KEY, or VOYAGE_API_KEY
-make up                  # or: docker compose up -d --build
-```
+→ Full tool list: [docs/REFERENCE.md#mcp-integration](docs/REFERENCE.md#mcp-integration)
 
-This is the existing source-built compose flow for developers. The public
-installer does **not** use this path; it downloads a release bundle and pulls
-prebuilt images instead. Native Helix is the preferred full-backend path for
-no-Docker local operator readiness; treat Docker full mode as an explicit
-compatibility/integration lane, not the default completion gate.
+<br>
 
-### Option 5: REST API Only
+## Storage Modes
 
-```bash
-cd server
-uv sync
-export ANTHROPIC_API_KEY=sk-ant-...
-uv run engram serve
-```
-
-## How It Works
-
-### Storage Modes
-
-Engram runs in four modes with identical APIs:
-
-| Mode | Backend | Docker | Best For |
+| Mode | Backend | Docker | Best for |
 |------|---------|--------|----------|
-| **Lite** | SQLite | None | Zero setup, single user |
-| **Helix (native)** | HelixDB in-process (PyO3) | **None** | **Best quality + speed, recommended** |
-| **Helix (HTTP)** | HelixDB Docker | 1 container | Production, multi-service |
-| **Full** | FalkorDB + Redis | 2 containers | Legacy, high throughput |
+| **Helix native** | PyO3 in-process | None | **Recommended** — ~97ms search, nDCG@10 0.448 |
+| **Lite** | SQLite + FTS5 | None | Zero setup, demos |
+| **Helix HTTP** | HelixDB container | 1 | Production multi-service |
+| **Full** | FalkorDB + Redis | 2 | Legacy throughput |
 
-Mode is auto-detected (Helix → FalkorDB+Redis → SQLite) or set explicitly via `ENGRAM_MODE=helix|full|lite`. Helix transport is selected via `ENGRAM_HELIX__TRANSPORT=native|http|grpc` (default: `http`).
+HelixDB unifies graph, HNSW vector search, and field-level BM25 in one engine — 171 compiled HelixQL queries.
 
-### Architecture
+→ Details: [docs/install/helix.md](docs/install/helix.md) · [Benchmarks](docs/REFERENCE.md#benchmarks)
 
-| Layer | Lite Mode | Helix Native (PyO3) | Helix HTTP (Docker) | Full Mode (Docker) |
-|-------|-----------|---------------------|--------------------|--------------------|
-| Graph | SQLite (WAL, FTS5) | HelixDB in-process (HelixQL) | HelixDB (HelixQL) | FalkorDB (Cypher) |
-| Activation | In-memory dict | In-memory dict | In-memory dict | Redis hashes (7-day TTL) |
-| Search | FTS5 + numpy cosine | HelixDB native HNSW + BM25 | HelixDB native HNSW + BM25 | Redis Search HNSW (1024d) |
-| Embeddings | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) |
-| Infrastructure | Zero | Zero | 1 Docker service | 2 Docker services |
-
-### Data Persistence
-
-All data persists across server restarts in all modes:
-
-| Data | Lite Mode | Helix Native (PyO3) | Helix HTTP (Docker) | Full Mode |
-|------|-----------|---------------------|---------------------|-----------|
-| Knowledge graph | SQLite (`~/.engram/engram.db`) | HelixDB native data dir (`ENGRAM_HELIX__DATA_DIR`, or the native engine default) | HelixDB (Docker volume `engram_helix_data`) | FalkorDB (Docker volume `engram_falkordb_data`) |
-| Activation store | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | In-memory (rebuilt from access history) | Redis (Docker volume `engram_redis_data`) |
-| Search index | SQLite FTS5 (same db file) | HelixDB native (same native data dir) | HelixDB native (same volume) | Redis Search (same Redis volume) |
-| Consolidation history | SQLite (same db file) | HelixDB native (same native data dir) | HelixDB (same Docker volume) | SQLite (Docker volume `engram_server_data`) |
-| Episode content | SQLite (same db file) | HelixDB native (same native data dir) | HelixDB (same Docker volume) | FalkorDB graph store |
-
-In native mode, the graph, episode, cue, search, and consolidation audit state
-live in the native Helix data directory with no Docker volumes. The local
-SQLite DB may still hold ancillary local-only stores such as evaluation labels.
-
-To **reset all data**:
-
-```bash
-# Lite mode
-rm ~/.engram/engram.db
-
-# Helix mode (Docker) — WARNING: deletes everything
-docker compose -f docker-compose.helix.yml down -v
-
-# Helix native — WARNING: deletes the native Helix data directory you configured
-rm -rf /absolute/path/from/ENGRAM_HELIX__DATA_DIR
-
-# Full mode (Docker) — WARNING: deletes everything
-docker compose down -v
-```
-
-### HelixDB
-
-HelixDB is the recommended backend, unifying graph, vector, and full-text search in one engine. It is available in two transport modes:
-
-- **Native mode (PyO3)**: HelixDB engine runs in-process via a Rust->Python binding (`helix_native`). Zero network overhead, ~97ms search latency. Same 171 compiled queries. No Docker required. This is the recommended transport. Public installs use `engramctl quickstart`; developer source builds can use `make build-native`.
-- **HTTP mode**: Standard client-server over localhost. Good for production multi-service deployments. One Docker container replaces two (FalkorDB + Redis).
-
-**Why HelixDB:**
-- **Native graph algorithms** — BFS, Dijkstra shortest path, and spreading activation run server-side in HelixQL
-- **Server-side vector search** — HNSW index with post-filtering, no separate vector store needed
-- **Field-level BM25 indexing** — custom enhancement: only fields annotated with the `BM25` schema prefix are full-text indexed (e.g., `Episode.content`, `Entity.name`, `Entity.summary`), preventing metadata fields from diluting search relevance
-- **Unified BM25 + vector** — full-text and semantic search in the same engine with RRF fusion
-- **HelixQL query language** — 171 compiled queries in the schema (`server/engram/storage/helix/schema.hx`, ~1400 lines)
-- **Best retrieval quality** — nDCG@10 of 0.448 (native) / 0.412 (HTTP) vs SQLite 0.390 and FalkorDB 0.406 (see [Benchmarks](#benchmarks))
-
-**Getting started:**
-
-```bash
-# Option A: Native mode (recommended — no Docker)
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-engramctl status
-engramctl storage
-engramctl doctor
-engramctl connect claude-code --axi
-engramctl bootstrap /path/to/project
-engramctl bootstrap /path/to/project --include 'notes/**/*.md' --include 'exports/**/*.json'
-engram axi --project "$PWD"
-engram axi context --project "$PWD" --budget 800 --timeout 10
-engram axi recall "current task" --limit 5 --timeout 10
-engram axi value --budget 800 --timeout 20
-
-# Option B: Helix CLI (HTTP mode)
-helix push dev
-
-# Option C: Docker Compose (HTTP mode)
-make up-helix
-
-# Set mode explicitly (or let auto-detection find it)
-ENGRAM_MODE=helix uv run engram serve
-```
-
-#### HDB Optimization Journey
-
-HelixDB transport performance has been progressively optimized through four iterations:
-
-| Iteration | Optimization | Impact |
-|-----------|-------------|--------|
-| **HDB-1** | Batch endpoint | 5-10x for multi-query ops |
-| **HDB-2** | HTTP/2 support | Connection multiplexing |
-| **HDB-3** | gRPC transport | Binary protocol, lower overhead |
-| **HDB-4** | PyO3 native binding (`helix_native`) | ~97ms latency, zero Docker |
-
-Configuration:
-
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `ENGRAM_HELIX__HOST` | `localhost` | HelixDB host (HTTP/gRPC modes) |
-| `ENGRAM_HELIX__PORT` | `6969` | HelixDB port (HTTP/gRPC modes) |
-| `ENGRAM_HELIX__TRANSPORT` | `http` | Transport: `native` \| `http` \| `grpc` |
-
-Details: [`docs/install/helix.md`](docs/install/helix.md)
-
-### API Keys
-
-Engram uses external APIs for two things: extracting structure from text and (optionally) embedding entities for semantic search.
-
-#### Extraction Provider (auto-detected)
-
-Engram auto-detects the best available extraction provider in priority order: **Anthropic** (Claude Haiku) -> **Ollama** (local LLM) -> **Narrow** (deterministic, zero LLM). The narrow pipeline uses staged regex-based extractors (`IdentityEntityExtractor`, `RelationshipPatternExtractor`, `AttributeEvidenceExtractor`, `TemporalEvidenceExtractor`) that require no API key and no LLM at all. Set explicitly via `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=auto|anthropic|ollama|narrow`.
-
-```bash
-# Option A: Anthropic (best quality)
-export ANTHROPIC_API_KEY=sk-ant-...   # Get a key at console.anthropic.com
-
-# Option B: Ollama (local LLM, no API key)
-# Requires ollama running locally with a model pulled
-
-# Option C: Narrow (deterministic, zero LLM, default fallback)
-# No setup needed — works out of the box
-```
-
-**With Anthropic**: When you `remember` something (or when the background worker promotes an `observe`d episode), Engram sends the text to Claude Haiku (`claude-haiku-4-5-20251001`) to extract entities, relationships, temporal markers, structured attributes, and polarity. The extraction prompt recognizes 17 entity types (including health, emotional, and personal domains), ~73 predicate synonyms that canonicalize to ~25 semantic groups, and handles negation/uncertainty ("stopped using X" invalidates existing edges). This produces the highest-quality knowledge graph.
-
-**Without Anthropic**: The narrow deterministic pipeline handles extraction using pattern matching and heuristics. It includes multi-layer quality guards: input sanitization (strips protocol markers, XML, code blocks, URLs), sentence-position demotion for single-word candidates, expanded stopword filtering (~85 words), entity name validation (rejects fragments, short names, all-lowercase), and a signal-aware adaptive commit policy that requires cross-episode corroboration for uncertain candidates. Quality is lower than LLM extraction but sufficient for basic operation with zero API cost.
-
-**Cost**: Claude Haiku is Anthropic's fastest, cheapest model. A typical extraction uses ~500-1,500 input tokens and ~200-800 output tokens. At Haiku's pricing (~$0.80/1M input, ~$4/1M output), that's roughly **$0.001-0.005 per memory extracted**. Engram is designed to minimize LLM usage:
-
-- **Triage + merge + infer** use deterministic multi-signal scorers (zero API cost) — LLM judges are available as opt-in fallback but disabled by default in the `standard` profile
-- **Observe + triage flow** means only ~35% of stored content triggers extraction
-- **Background worker** uses three-tier confidence routing (extract/defer/skip) with zero LLM calls
-- **Prompt caching** on all extraction/validation prompts — static system prompts cached at $0.10/M vs $1.00/M, reducing input costs by ~80-90% on repeated calls
-- **Remaining LLM usage**: entity extraction (`remember` + promoted `observe`), consolidation replay (re-extraction), knowledge chat (optional), and briefing synthesis (cached)
-
-#### Embeddings (optional)
-
-Engram supports three embedding providers for semantic vector search, auto-detected in priority order: Gemini → Voyage → FastEmbed (local) → Noop. If none is configured, it falls back to keyword-only search.
-
-**Option A: Gemini Embedding 2 (cloud, multimodal)**
-
-```bash
-export GEMINI_API_KEY=...   # Get a key at aistudio.google.com
-```
-
-Uses Google's [Gemini Embedding 2](https://ai.google.dev/gemini-api/docs/embeddings) (`gemini-embedding-2-preview`) — the first multimodal embedding model. Embeds text, images, audio, video, and PDFs into a unified 3072-dimensional vector space. Task-aware prefixing (`RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search) improves retrieval quality. Supports Matryoshka (MRL) — prefix-slice vectors to 256d for fast approximate comparisons without retraining. Free tier available.
-
-Setting `GEMINI_API_KEY` automatically enables Gemini as the embedding provider. This also unlocks multimodal memory (see [Multimodal Memory](#multimodal-memory) below).
-
-**Option B: Voyage AI (cloud)**
-
-```bash
-export VOYAGE_API_KEY=pa-...   # Get a key at dash.voyageai.com
-```
-
-Embeds each entity into a 1024-dimensional vector (`voyage-4-lite` model). Cost: ~$0.01 per 1M tokens embedded.
-
-**Option C: Local embeddings (offline, private)**
-
-```bash
-pip install engram[local]     # or: uv sync --extra local
-export ENGRAM_EMBEDDING__PROVIDER=local
-```
-
-Uses [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). The model (~130MB) is downloaded on first use and cached locally. No API key required.
-
-**Auto-fallback**: Provider priority is Gemini → Voyage → FastEmbed (local) → Noop. If your configured provider's API key is missing, Engram falls to the next available provider. If none is available, vector search is disabled (keyword search still works).
-
-**Without embeddings**: Engram still works — retrieval uses FTS5 keyword matching, ACT-R activation, and spreading activation. You lose semantic similarity but keep everything else.
-
-| | Anthropic (recommended) | Gemini (optional) | Voyage AI (optional) | Local (optional) |
-|---|---|---|---|---|
-| **Purpose** | Entity extraction from text | Multimodal vector search | Semantic vector search | Semantic vector search |
-| **Model** | Claude Haiku | gemini-embedding-2-preview (3072d) | voyage-4-lite (1024d) | Nomic Embed v1.5 (768d) |
-| **When called** | `remember`, promoted `observe`, consolidation replay, knowledge chat | Entity creation + reindex + multimodal ingest | Entity creation + reindex | Entity creation + reindex |
-| **Cost per call** | ~$0.001-0.005 | Free tier available | ~$0.00001 | Free (CPU) |
-| **Multimodal** | No | Yes (text, images, audio, video, PDFs) | No | No |
-| **Without it** | Falls back to Ollama or narrow deterministic extraction | Falls back to Voyage/local/keyword | Falls back to local/keyword | Falls back to keyword search |
-
-#### Where LLM Is Used (and Where It Isn't)
-
-Engram is designed to minimize LLM dependency. The only operation that *requires* an LLM is turning text into knowledge graph structure. Everything else — scoring, routing, merging, inferring, pruning, consolidating — is deterministic.
-
-| Operation | Uses LLM? | What Happens |
-|-----------|-----------|--------------|
-| **`observe`** (store episode) | No | Episode stored in ~5ms. If `cue_layer_enabled`, Engram also builds an `EpisodeCue`, indexes cue text, and can route the episode to `cue_only` or `scheduled` before any LLM call. |
-| **`remember`** (extract + store) | Depends | Extraction provider auto-detected: Anthropic (Claude Haiku) -> Ollama -> Narrow (deterministic, zero LLM). Extracts entities, relationships, attributes, temporal markers, and polarity through the projector/apply pipeline. |
-| **`recall`** (retrieve memories) | No | Pure DB: FTS5/vector search, ACT-R activation, planner support, cue recall, spreading activation, re-ranking, packet assembly. Zero API calls. |
-| **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation remains available as an explicit opt-in fallback. |
-| **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
-| **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
-| **Replay** (deferred extraction) | No | Runs deferred extraction on triage-skipped episodes, then links known entity names found in episode text. Skips already-extracted episodes. Zero LLM calls. |
-| **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (`recall` primary; `search_entities`/`search_facts` deprecated compat). Rate-limited. |
-| **Briefing synthesis** | Yes | Haiku summarizes memory context into 2-3 sentences. Cached with prompt caching. |
-| **Dream** (offline consolidation) | No | Spreading activation + embedding similarity. Pure math. |
-| **Graph embeddings** | No | Node2Vec, TransE, GNN — all trained with numpy/torch locally. |
-
-**Cost in practice**: With the `standard` profile, a typical active user generates ~$0.50-2.00/day in Haiku costs, primarily from entity extraction. Consolidation scoring (triage, merge, infer) adds $0 — it's all deterministic. Knowledge chat adds ~$0.10-0.50/day depending on usage (rate-limited to 10 requests/minute).
-
-### Data Flow
-
-Engram has two ingestion paths — a cheap fast path and a full extraction path:
-
-```
-observe("talked about the Quantum project today")     remember("Alice works at Acme Corp")
-    │                                                      │
-    ▼                                                      ▼
-  QUEUED episode (~5ms, no LLM)                         QUEUED → immediate extraction
-    │                                                      │
-    ▼                                                      ▼
-  Background Worker (multi-signal scorer, ~2ms)         Entity Extraction (Claude Haiku)
-    │  8 signals: entity candidates, embedding              │  → Alice [Person]
-    │  surprise, structural extractability,                  │  → Acme Corp [Organization]
-    │  knowledge gaps, emotional salience...                 │  → Alice ──WORKS_AT──▶ Acme Corp
-    │                                                        ▼
-    ├─ high confidence (>0.70) ──▶ extract now           Graph Write + Activation + Embedding
-    │     (same extraction as remember)                      │
-    │                                                        ▼
-    ├─ mid confidence ──▶ defer to Triage phase          WebSocket → Dashboard updates
-    │     (batch-scored next consolidation cycle)
-    │
-    └─ low confidence (<0.15) ──▶ stored, not extracted
-                                   (searchable via FTS)
-```
-
-The system prompt biases the LLM toward `observe` for most content, reserving `remember` for high-signal items (identity facts, explicit preferences, corrections). The worker's three-tier confidence routing means obvious decisions are made immediately (no LLM), while uncertain episodes are deferred to the triage phase for batch scoring by the deterministic multi-signal scorer.
-
-### Progressive Projection
-
-> **Status**: The cue layer and progressive projection are behind feature flags (`cue_layer_enabled`, `projector_v2_enabled`). When `integration_profile=rework` is set, all flags are enabled together. The design is documented in [`docs/design/extraction-rework.md`](docs/design/extraction-rework.md).
-
-When enabled, the extraction pipeline becomes **cue-first** rather than binary:
-
-1. `store_episode()` writes the raw episode without an LLM call.
-2. Engram generates an `EpisodeCue` immediately: a deterministic retrieval tag with cue text, salient spans, mention candidates, contradiction hints, and projection priority. No LLM needed.
-3. Recall can surface that cue-backed latent memory right away (`result_type="cue_episode"`) even if the episode has never been fully projected.
-4. Repeated cue hits, selected/used feedback, or high-priority routing can promote the episode to `scheduled`.
-5. `project_episode()` then uses a deterministic span planner plus a typed projector/apply pipeline to project only the most relevant spans first.
-
-This creates three usable memory layers instead of the original binary (raw text vs. full graph):
-
-| Layer | What It Is | Cost | Recallable? |
-|-------|-----------|------|-------------|
-| **Raw Episode** | Stored text with timestamps | ~5ms | FTS only |
-| **Cue Memory** | Deterministic retrieval cues, embeddings, salience, mention spans | ~10ms | Yes (cue search) |
-| **Graph Memory** | Extracted entities, relationships, consolidated structure | LLM call | Yes (full pipeline) |
-
-The middle layer is the key architectural addition — it makes `observe()` materially more useful without paying full projection cost. Episodes that matter surface through recall demand, not just ingestion-time scoring.
-
-### Evidence-First Extraction
-
-> **Status**: The evidence pipeline and commit policy are behind `remember_v2_enabled` and related flags. Design: [`docs/design/remember-and-extractor-v2.md`](docs/design/remember-and-extractor-v2.md).
-
-When `remember()` is called, extraction no longer treats LLM output as immediate graph truth. Instead, it produces **evidence candidates** that pass through a commit policy:
-
-| Confidence | Signal | Action | Example |
-|-----------|--------|--------|---------|
-| **>= 0.90** | Identity pattern | Commit immediately | "My name is Alice" → Person entity |
-| **0.70** | Technical token | Commit immediately | `React`, `TypeScript` → Technology entity |
-| **0.55** | Proper name | Defer | "Alice" (bare capitalized word) → needs corroboration |
-| **< 0.40** | Any | Reject | Ambiguous pronouns, hedged future states |
-
-The commit policy adapts to graph density: at cold start (<50 entities), thresholds are relaxed by 0.15 **but only for high-confidence signals** (identity patterns, tech tokens). Bare proper names get no cold-start relaxation — preventing bootstrap pollution where documentation examples flood the graph.
-
-Deferred evidence is not lost — it remains attached to the episode and can be promoted later by:
-- Explicit user restatement
-- Cross-episode corroboration (bare proper names require count ≥ 2)
-- Consolidation replay
-- Optional offline LLM adjudication (batch, never on the hot path)
-
-**Staged narrow extractors** handle specific domains with high precision instead of one monolithic LLM call:
-- `IdentityEntityExtractor` — "my name is X", "I work at Y", "my wife Sarah" (identity captures at 0.90 confidence), proper names (0.55), tech tokens (0.70)
-- `RelationshipPatternExtractor` — "X works at Y", "X likes Y", "X moved to Y"
-- `AttributeEvidenceExtractor` — structured key-value attributes from text
-- `TemporalEvidenceExtractor` — explicit dates, "since X", "last month"
-
-All narrow extractors receive **sanitized input** — protocol markers, XML/HTML tags, code blocks, and URLs are stripped before extraction. Entity type inference uses ~100+ tech keywords, company/product suffix detection, and location suffixes before falling back to "Concept" (never "Person" by default — only identity captures produce Person entities).
-
-**Client proposals**: Capable callers (e.g., Claude Code) can pass `proposed_entities` and `proposed_relationships` alongside `remember()`. These are validated and scored — never blindly trusted — but can bypass redundant extraction when precise enough.
-
-The north star: **LLM-not-required memory quality**. The system commits only high-confidence facts immediately, lets latent memory (cues + deferred evidence) handle everything else, and refines over time through consolidation.
-
-### Semantic Compilation
-
-Engram's extraction pipeline acts as a semantic compiler — turning unstructured conversation into a structured, queryable knowledge graph. Five subsystems work together:
-
-**Expanded Entity Taxonomy (18 types):** Beyond the standard `Person`, `Organization`, `Technology` types, Engram recognizes `Product`, `HealthCondition`, `BodyPart`, `Emotion`, `Goal`, `Preference`, and `Habit`. The narrow pipeline infers types from ~100+ tech keywords, company suffixes (Inc, Labs, AI), product suffixes (App, Pro, Cloud), and location suffixes — defaulting to `Concept` rather than `Person` for unrecognized proper names. Only explicit identity patterns ("my name is X") produce `Person` entities.
-
-**Rich Predicate Vocabulary (~73 synonyms, ~25 canonical forms):** Predicates like `ENJOYS`, `LOVES`, `APPRECIATES` all canonicalize to `LIKES`. Groups cover health (`RECOVERING_FROM`, `HAS_CONDITION`, `TREATS`), sentiment (`LIKES`, `DISLIKES`, `PREFERS`), goals (`AIMS_FOR`), causation (`LED_TO`, `CAUSED_BY`, `REQUIRES`), hierarchy (`HAS_PART`, `PARENT_OF`, `CHILD_OF`), and learning (`STUDYING`). Contradictory pairs (`LIKES`/`DISLIKES`, `AIMS_FOR`/`AVOIDS`) are detected and invalidated automatically during graph writes.
-
-**Structured Entity Attributes:** Instead of accumulating facts as appended summary strings that degrade over time, entities now carry a structured `attributes` dict with key-value pairs (e.g., `{"status": "recovering", "duration": "3 weeks", "severity": "mild"}`). New values overwrite old for the same key, keeping entity state current.
-
-**Negation & Uncertainty Handling:** Every relationship carries a `polarity` field: `positive` (default), `negative`, or `uncertain`. "I stopped using React" creates a `negative` polarity `USES` edge that invalidates any existing positive `USES React` edge. Uncertain statements ("might switch to Svelte") are stored with halved weight. Negative-polarity edges are excluded from spreading activation at the SQL level, preventing invalidated relationships from influencing retrieval.
-
-**Variable-Resolution Context Rendering:** `get_context()` renders entities at different detail levels based on their relevance. Seed entities (direct match) and identity core get **full** detail (summary + attributes + 5 facts). Hop-1 neighbors get **summary** detail (summary + 2 facts). Hop-2+ discoveries get **mention** only (name + type). This uses token budget more efficiently — peripheral context doesn't crowd out important details.
-
-### Meta-Commentary Filtering
-
-Engram includes a 7-layer defense against meta-contamination — when debugging discussions or system telemetry get extracted as real-world facts (e.g., "Kallon has activation score 0.91" polluting Kallon's entity summary).
-
-| Layer | Where | What It Does |
-|-------|-------|-------------|
-| **Input sanitization** | `IdentityEntityExtractor.extract()`, `_entity_mentions()` | Strips protocol markers (`[user\|web]`), XML/HTML tags, code blocks, inline code, and URLs before any regex matching. |
-| **Discourse classifier** | Worker, Triage, `project_episode()` | Regex-based gate classifies content as `world`, `hybrid`, or `system`. Pure system-discourse episodes are skipped before extraction. |
-| **Extraction prompt** | LLM extraction | Instructions tell Claude to ignore system metrics and return empty results for meta-commentary. |
-| **Epistemic mode tagging** | LLM extraction + entity loop | Entities tagged `"meta"` by the LLM are skipped during graph writes. |
-| **Summary merge guard** | `_merge_entity_attributes()` | Meta-contaminated summaries are rejected universally for all entity types, preventing system telemetry from polluting any entity's summary. |
-| **Noisy text detection** | `_get_source_span()`, Microglia `_score_c3_summary` | Rejects source spans and summary segments where >50% of characters are non-alphanumeric (protocol noise, code fragments). Microglia cleans existing contaminated summaries during consolidation. |
-| **MCP prompt warning** | System prompt | Instructs AI agents not to store debugging output, activation scores, or system telemetry as memories. |
-
-This prevents every debugging session from degrading the knowledge graph. The `observe` path is especially protected since meta-commentary tends to be keyword-dense and would otherwise score high on triage heuristics.
-
-### Multimodal Memory
-
-Engram supports multimodal episodes — images, audio, video, and PDF attachments alongside text. When the Gemini Embedding 2 provider is active, all modalities are embedded into a unified 3072-dimensional vector space, enabling cross-modal search (text queries find image episodes and vice versa).
-
-**MCP tools:**
-
-| Tool | Purpose |
-|------|---------|
-| `observe_image` | Store an image with optional text description; embeds via Gemini for cross-modal recall |
-| `observe_file` | Store a file (PDF, audio, video) with optional text description |
-| `remember` | Supports `image` parameter for image-augmented memory extraction |
-
-**REST API:**
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/api/knowledge/observe-image` | Store image episode with multimodal embedding |
-| POST | `/api/knowledge/observe-file` | Store file episode (PDF, audio, video) with multimodal embedding |
-
-**How it works:**
-- Attachments are embedded alongside text using Gemini Embedding 2's unified vector space
-- Text queries find image/audio/video episodes through shared embedding geometry
-- Image queries find related text episodes (and vice versa)
-- Standard retrieval pipeline (ACT-R activation, spreading activation, reranking) applies to multimodal results
-- Requires `GEMINI_API_KEY` to be set (Gemini Embedding 2 is the only provider supporting multimodal inputs)
-
-### One Brain Per Person
-
-Engram is a brain, not a database. Each person gets **one** Engram instance — all their projects, personal life, health, goals, and conversations live in a single knowledge graph. Projects aren't separate partitions; they're natural entity clusters connected by topology.
-
-This means:
-- Memories from work **can** inform personal context (and vice versa)
-- Dream associations **can** discover cross-domain creative connections
-- Spreading activation reaches across project boundaries through shared concepts
-- Identity core entities (name, preferences, health) are always available, regardless of which project you're in
-
-**`group_id`** provides hard isolation between different people — like Row Level Security. It is not for separating projects. If you're the only user, the default (`"default"`) is all you need.
-
-**Why one brain?** Context windows are expensive, flat, and temporary. Memory is selective, layered, and durable. The future of AI assistants depends on building continuity over weeks, months, and years — and that requires a single persistent substrate where work knowledge can inform personal context and vice versa. See [`docs/vision/one-brain-per-person.md`](docs/vision/one-brain-per-person.md) and [`docs/vision/science-of-engram.md`](docs/vision/science-of-engram.md) for the scientific and strategic rationale.
-
-**Federated learning (roadmap):** While each brain is fully private, anonymized aggregate signals (schema patterns, activation curves, triage calibration, graph topology) can be shared across Engram instances to improve the system for everyone — like neuroscience studying many brains without reading anyone's thoughts.
-
-### ACT-R Activation
-
-Memory retrieval is based on the [ACT-R cognitive architecture](https://en.wikipedia.org/wiki/ACT-R). Each entity has an activation level computed lazily from its access history:
-
-```
-B_i(t) = ln(consolidated_strength + Σ (t - t_j)^(-0.5))
-```
-
-Entities accessed recently and frequently have higher activation. This is normalized via sigmoid to [0, 1] and combined with other signals for retrieval scoring.
-
-### Retrieval Pipeline
-
-The retrieval scorer still does the heavy lifting once a query exists. When Engram executes the underlying retrieval pipeline:
-
-1. **Search** — FTS5 + optional vector search, top-50 candidates
-2. **Route** — Classify query type (temporal, frequency, creation, associative, direct) and adjust scoring weights
-3. **Activate** — Batch-fetch ACT-R activation states
-4. **Spread** — BFS or PPR spreading activation through the graph (2 hops, fan-based dampening; `DREAM_ASSOCIATED` edges exempt from cross-domain penalty)
-5. **Enrich** — Compute similarity for entities discovered via spreading
-6. **Score** — Composite: `0.40 × semantic + 0.25 × activation + 0.15 × spreading + 0.15 × edge_proximity + graph_structural + exploration` (with hop_distance tracked per result)
-7. **Rerank** — Optional cross-encoder (Cohere) + MMR diversity filter
-8. **Return** — Top-10 results with score breakdowns including hop_distance
-
-### Memory Consolidation
-
-Engram runs offline consolidation cycles inspired by biological memory consolidation during sleep. The consolidation pipeline is an active area of improvement — see [`docs/design/consolidation-rework.md`](docs/design/consolidation-rework.md) for the full rework plan covering correctness fixes, store parity, and the neuro-symbolic decision stack.
-
-**Sleep stage mapping**: Phases map to biological sleep stages — triage parallels pre-sleep encoding, replay mirrors NREM3 slow-wave replay, merge maps to NREM2 spindle-driven binding, and dream corresponds to REM creative association.
-
-Seventeen phases execute sequentially:
-
-| Phase | What It Does |
-|-------|-------------|
-| **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. Optional LLM escalation remains available only as an explicit fallback. |
-| **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN + structural candidate discovery). Multi-signal scorer with 7 signals (name analysis + embeddings + neighbor Jaccard + summary Dice + referential exclusivity) — handles acronyms, numeronyms, tech suffixes, canonical aliases, and structural equivalents (entities sharing neighbors but with zero name overlap). Summary dedup via token-set Jaccard prevents bloat during merge. |
-| **Calibrate** | Convert decision traces and outcome labels into rolling local calibration snapshots so triage, merge, infer, and projection policies can be evaluated against observed yield. |
-| **Infer** | Create edges for co-occurring entities (PMI scoring). Multi-signal auto-validation (embedding coherence + type compatibility + ubiquity penalty + structural plausibility) replaces LLM judge — self-correcting via Dream LTD decay |
-| **Evidence Adjudication** | Revisit deferred or pending evidence candidates and materialize candidates that have become safe to commit. |
-| **Edge Adjudication** | Resolve ambiguous edge requests through the shared projection/adjudication path, preserving uncertain evidence until it can be decided safely. |
-| **Replay** | Run deferred extraction on triage-skipped episodes (CUE_ONLY/QUEUED), then link known entity names found in episode text via exact substring matching. Skips already-extracted (PROJECTED) episodes — deterministic re-extraction is waste. Zero LLM calls. Selective: only runs when upstream phases changed the graph during tiered scheduling. |
-| **Prune** | Soft-delete dead entities (no relationships, low access, old enough). Activation safety net prevents pruning warm entities. |
-| **Compact** | Logarithmic bucketing of access history + consolidated strength preservation |
-| **Mature** | Promote entities through three memory tiers (episodic → transitional → semantic) based on source diversity, temporal span, relationship richness, and access regularity. Each tier has differential ACT-R decay (0.5 exponent for episodic, 0.3 for semantic) and different pruning resistance (14 days episodic, 180 days semantic). Identity-core entities auto-promote. **Reconsolidation**: recently recalled entities enter a 5-minute labile window where new information can update their summary (max 3 modifications; window does not extend on re-recall). Reconsolidation count feeds maturation bonus. |
-| **Semanticize** | Promote episodes from episodic → transitional → semantic tiers based on mature-entity coverage and consolidation cycle count. Same-cycle maturations are visible immediately, so `semanticize` does not need to wait for a later consolidation pass to see newly mature entities. |
-| **Schema** | Detect recurring structural motifs, create `Schema` entities for them, and connect matching instances with `INSTANCE_OF` edges. Fingerprints are canonicalized, candidate motifs are biased toward mature/stable support, and promoted schemas record support summaries and reasons. |
-| **Reindex** | Re-embed entities affected by earlier phases |
-| **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Node2Vec supports a true dirty-subgraph incremental path with warm-started vectors. TransE and GNN are staggered, but currently retrain the full graph when they run. |
-| **Microglia** | Run graph hygiene checks and complement tagging so cleanup and low-confidence relation decisions can be carried forward without destructive churn. |
-| **Immunity** | Detect low-semantic-gravity nodes and dissolve isolated or weakly corroborated graph noise before it can dominate recall. |
-| **Dream** | Offline spreading activation to strengthen associative pathways + discover cross-domain creative connections. **LTP/LTD**: Boosted edges strengthen (predicate-aware); unboosted edges decay 0.005/cycle (floor 0.1). **Dream associations**: Embedding similarity (70% text + 30% graph) discovers cross-domain entity pairs, creates temporary `DREAM_ASSOCIATED` edges (weight 0.1, 30-day TTL, excluded from Hebbian boosting). Accessed dream edges extend TTL by 30 days. Repeated validation can graduate a dream edge to permanent `RELATED_TO`. |
-
-#### Three-Tier Scheduling
-
-Phases run at different frequencies based on urgency:
-
-| Tier | Phases | Default Interval |
-|------|--------|-----------------|
-| **Hot** | triage | 15 minutes |
-| **Warm** | merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, mature, semanticize, reindex, microglia | 2 hours |
-| **Cold** | replay, prune, schema, graph_embed, immunity, dream | 6 hours |
-
-Tiered cycles only run the phases that are due. Optimizations (incremental graph_embed, selective replay) only apply during tiered scheduling — manual triggers, pressure triggers, and scheduled flat cycles always run all phases fully.
-
-#### Profiles
-
-Consolidation is opt-in, controlled by profiles:
-
-| Profile | Behavior |
-|---------|----------|
-| `off` | No consolidation, no triage, no background worker. Extraction only (Haiku). |
-| `observe` | Consolidation enabled in dry-run mode. Triage heuristics + worker active. Dream spreading, PMI inference, dream associations active (in dry-run). Good for monitoring. |
-| `conservative` | Live consolidation with stricter thresholds. Dream spreading, replay enabled. Merge threshold 0.92, prune min age 30 days. Triage heuristics, extracts top 25%. |
-| `standard` | Full consolidation with all features. Multi-signal deterministic scorers for triage, merge, and infer — zero LLM cost for all consolidation decisions. PMI inference, transitivity, dream associations. Pressure-triggered. Three-tier scheduling. LLM judges available as opt-in fallback. |
-
-Set via env var: `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard`
-
-#### Known Limitations
-
-The consolidation rework ([`docs/design/consolidation-rework.md`](docs/design/consolidation-rework.md)) identified issues being addressed:
-
-- **Incremental graph embedding** is implemented for Node2Vec only; TransE and GNN currently retrain the full graph when they run
-- **FalkorDB parity** — late-phase methods (mature, semanticize) have incomplete FalkorDB implementations; episode tier fields may not fully round-trip in full mode
-- **Merge negative cache** (`keep_separate`) is in-memory without TTL — stale decisions can persist until restart
-- **Replay vocab linking** — uses exact substring matching only; fuzzy/partial entity name matches are not detected
-- **Schema formation** does not yet prefer mature entities over episodic ones when selecting candidate motifs
-
-### Multi-Signal Scoring Architecture
-
-All consolidation decisions — triage, merge, and infer — use **deterministic multi-signal scorers** instead of LLM API calls. These scorers use strictly more information than an LLM judge (which only sees text) — combining embeddings, graph structure, entity candidates, and statistics. Zero API cost, <5ms latency, deterministic results, with self-improving calibration.
-
-Mutable consolidation phases also emit structured `DecisionTrace` records plus outcome labels. Each cycle persists distillation examples and rolling calibration snapshots, and the cycle-detail API surfaces those artifacts for debugging, offline evaluation, and future scorer retraining.
-
-#### Triage Scorer (8 signals)
-
-The triage scorer evaluates whether an episode is worth extracting. It replaces the LLM judge with signals that directly measure what extraction will produce:
-
-| Signal | Weight | What It Measures |
-|--------|--------|-----------------|
-| Embedding surprise | 0.25 | Cosine distance from EMA corpus centroid (z-score normalized). Novel topics score high; redundant content scores low. |
-| Structural extractability | 0.20 | Regex: proper names, relationship verbs, dates, quoted strings, URLs, numbers-in-context. Directly predicts entity yield. |
-| Entity candidate count | 0.15 | FTS5 probe against entity index — how many names in the text already exist in the graph? More matches = richer extraction. |
-| Knowledge gap | 0.10 | Names found in text that DON'T match existing entities = new knowledge the graph doesn't have yet. |
-| Yield prediction | 0.10 | Online logistic regression calibrated from actual extraction outcomes. Cold-starts at 0.5, self-improves over ~200 samples. |
-| Emotional salience | 0.10 | Arousal (state-change verbs), self-reference (pronouns), social density (roles), narrative tension (uncertainty markers). |
-| Novelty (FTS5) | 0.05 | Episode search for similar existing content — high similarity = redundant, low = novel. |
-| Goal boost | 0.05 | Keyword overlap with active goal entities from the graph. |
-
-**Self-improving calibration:** After each extraction, the triage scorer records whether entities were actually extracted. An online logistic regression (sufficient statistics accumulator with exponential decay) learns which signal combinations predict successful extraction. Cold start → blending (30 samples) → fully calibrated (200+ samples). Per-group calibration, automatically adapts to each user's content patterns.
-
-**LLM escalation (optional):** Episodes scoring in the borderline band (0.35–0.55) can be escalated to Claude Haiku for a second opinion. Capped at 5 per cycle. This means ~95% of triage decisions are deterministic, with LLM reserved for genuinely ambiguous cases.
-
-#### Merge and Infer Scorers
-
-**Merge scorer** (7 signals, weighted ensemble):
-
-| Signal | Weight | What It Catches |
-|--------|--------|----------------|
-| Name analysis (fuzzy + acronym + numeronym + suffix strip + alias table) | 0.35 | JS↔JavaScript, K8s↔Kubernetes, React↔React.js |
-| Embedding cosine similarity | 0.25 | Semantic equivalence beyond surface names |
-| Neighbor Jaccard overlap | 0.15 | Same graph context = same entity |
-| Summary Dice coefficient | 0.10 | Shared description terms |
-| Referential exclusivity | 0.15 | Never co-occur in episodes + shared neighbors = same entity. Frequent co-occurrence = anti-merge penalty (prevents merging siblings). |
-| Type compatibility | gate | Person↔Technology = never merge |
-| Booster rules | override | Structural equivalence (shared neighbors ≥ 0.40 + never co-occur + embedding ≥ 0.50 → auto-merge), Person name variants, high-confidence combos |
-
-**Three candidate discovery paths** feed into the scorer:
-1. **Name-based** — fuzzy string matching with type-blocking and prefix sub-blocks
-2. **Embedding ANN** — cosine similarity pre-filtering on entity embeddings
-3. **Structural** — inverted neighbor index finds entity pairs sharing ≥3 graph neighbors, regardless of name similarity. Catches semantic duplicates like "Fourth Son" ↔ "Benjamin" that share parent/sibling relationships.
-
-**Summary dedup** — during merge, incoming sentences are compared to existing sentences via token-set Jaccard similarity (≥0.6 = duplicate). Prevents summary bloat from repeated observations.
-
-**Infer scorer** (6 signals, weighted ensemble):
-
-| Signal | Weight | What It Catches |
-|--------|--------|----------------|
-| Embedding coherence | 0.30 | Semantically related entities |
-| Type compatibility | 0.20 | Domain-aware noise filtering |
-| Statistical confidence (PMI) | 0.20 | Non-random association strength |
-| Ubiquity penalty | 0.15 | Filters entities that appear everywhere |
-| Structural plausibility (triangle closure) | 0.10 | Shared neighbors = plausible edge |
-| Graph embedding similarity | 0.05 | Structural proximity (Node2Vec/TransE) |
-
-**Tiered architecture** — all consolidation decisions (triage, merge, infer) flow through tiers until resolved:
-
-| Tier | Method | Coverage | Latency | Cost |
-|------|--------|----------|---------|------|
-| **Tier 0** | Multi-signal rules (triage 8 signals, merge 7 signals, infer 6 signals) | ~85% | <5ms | $0 |
-| **Tier 1** | Cross-encoder refinement (`Xenova/ms-marco-MiniLM-L-6-v2`, already loaded) | ~10% | ~50ms | $0 |
-| **Tier 2** | Self-improving calibration (online logistic regression, triage only) | built-in | <1ms | $0 |
-| **Tier 3** | LLM escalation (opt-in, borderline cases only) | ~5% | ~500ms | API cost |
-
-Uncertain cases from Tier 0 are refined by the cross-encoder (Tier 1), which blends its score with the multi-signal score. The triage scorer additionally feeds extraction outcomes back to an online calibrator (Tier 2) that learns which signal combinations predict successful extraction. Remaining uncertain infer edges self-correct via Dream LTD decay (unused edges weaken) and Hebbian reinforcement (useful edges strengthen). LLM judges remain available as opt-in fallback via `triage_llm_judge_enabled`, `consolidation_merge_llm_enabled`, and `consolidation_infer_llm_enabled`.
-
-### Graph Embeddings
-
-Engram learns structural embeddings from the knowledge graph topology during the **Graph Embed** consolidation phase. These capture patterns that text embeddings cannot: structural position, relational geometry, and multi-hop neighborhood identity.
-
-**Why this matters:** Text embeddings know that "parenting routines" and "code architecture" are semantically distant. Graph embeddings can discover they're *structurally* similar — both are hub entities with many `PART_OF` children, both connect to goal-oriented clusters. This is how cross-domain insights surface: not through word similarity, but through shared structural patterns in how you think about different topics.
-
-Three methods are available, each capturing different structural signals:
-
-| Method | What It Learns | Algorithm | Dependencies | Min Threshold |
-|--------|---------------|-----------|-------------|---------------|
-| **Node2Vec** | Structural position — entities with similar graph neighborhoods cluster together (hubs with hubs, bridges with bridges) | Biased random walks + Skip-gram | Pure numpy | 50 entities |
-| **TransE** | Relational geometry — learns `h + r ≈ t` so entities connected by the same predicate get geometrically consistent embeddings. `PARENT_OF` becomes a consistent vector direction. | Margin-based ranking loss | Pure numpy | 100 triples |
-| **GNN (GraphSAGE)** | Semantic + structural fusion — initialized from text embeddings, then reshaped by 2-layer neighborhood aggregation with contrastive learning. The only method that combines *what entities mean* with *how they're connected*. | BPR contrastive loss | [PyTorch](https://pytorch.org/) | 200 entities |
-
-#### Progressive Unlock
-
-All three methods are enabled by default and train during consolidation cycles. A 5% entity change threshold decides whether the cycle can stay on its incremental path. Today that incremental path is implemented for Node2Vec only: it expands the dirty entity set into a bounded local subgraph and warm-starts from existing vectors. TransE and GNN are still staggered across cycles to reduce compute load, but when they run they currently retrain the full graph. Each method has a minimum threshold — methods automatically skip training until the graph is large enough, then activate:
-
-```
-50 entities   → Node2Vec activates (structural position)
-100 triples   → TransE activates (relational geometry)
-200 entities  → GNN activates (semantic + structural fusion)
-```
-
-As your graph grows, you progressively unlock richer structural understanding. Early on, Node2Vec provides basic topology awareness. Once relationships accumulate, TransE adds relational consistency. At scale, GNN produces the richest embeddings by fusing text meaning with graph structure.
-
-#### Integration
-
-Graph embeddings are stored in a separate `graph_embeddings` table (not concatenated with text embeddings) and integrated at two levels:
-
-1. **Retrieval scoring** — `weight_graph_structural` (default 0.1) adds a topology-aware signal alongside semantic, activation, spreading, and edge proximity scores. The retrieval pipeline uses the first available method with stored embeddings (priority: node2vec > transe > gnn).
-
-2. **Dream associations** — The dream phase blends graph embeddings (30%) with text embeddings (70%) when discovering cross-domain entity pairs. This means dream associations are based on both semantic similarity *and* structural similarity, producing more meaningful creative connections.
-
-#### Install & Configure
-
-Node2Vec and TransE require no extra dependencies. GNN requires PyTorch:
-
-```bash
-# Install with GNN support
-pip install engram[gnn]
-# or install everything
-pip install engram[full]
-
-# Run consolidation to train embeddings
-cd server && uv run python -m engram.consolidation --profile standard
-```
-
-| Config | Default | Description |
-|--------|---------|-------------|
-| `graph_embedding_node2vec_enabled` | `true` | Enable Node2Vec random walk embeddings |
-| `graph_embedding_node2vec_dimensions` | `64` | Embedding dimensions (16-256) |
-| `graph_embedding_node2vec_min_entities` | `50` | Minimum entities to train |
-| `graph_embedding_transe_enabled` | `true` | Enable TransE relational embeddings |
-| `graph_embedding_transe_dimensions` | `64` | Embedding dimensions (16-256) |
-| `graph_embedding_transe_min_triples` | `100` | Minimum relationship triples to train |
-| `graph_embedding_gnn_enabled` | `true` | Enable GNN (requires PyTorch) |
-| `graph_embedding_gnn_min_entities` | `200` | Minimum entities to train |
-| `weight_graph_structural` | `0.1` | Retrieval weight for graph structural similarity (0.0-1.0) |
-
-### Recall Profiles
-
-Engram's retrieval intelligence is organized into four cumulative waves, controlled by a single `recall_profile` setting:
-
-| Profile | What It Enables |
-|---------|----------------|
-| `off` | Basic explicit `recall()` only — no automatic or proactive retrieval. Explicit recall still returns packets plus raw results. |
-| `wave1` | **AutoRecall + Natural Need Analysis** — Piggybacks on `observe`/`remember` and all read-oriented tools (`recall`, `search_entities`, `search_facts`, `get_context`, `route_question`, `search_artifacts`), runs the need analyzer before firing, enables pragmatic + structural signals, primes session context on first call, and records surfaced-vs-used recall semantics. |
-| `wave2` | + **Graph Grounding + Recall Planning** — Adds graph resonance for borderline turns, planner-driven multi-intent recall, session entity seeds for spreading activation, rolling topic fingerprinting, and near-miss detection. |
-| `wave3` | + **Shift / Impoverishment + Proactive Intelligence** — Shift detection and impoverishment modeling enter live gating, while proactive features add topic-shift bursts, surprise connection detection, retrieval priming, and graph-connected MMR re-ranking. |
-| `wave4` | + **Prospective Memory** — Graph-embedded intentions that fire via spreading activation when related entities light up. Create with `intend()`, monitor warmth in `get_context()`. |
-| `all` | Alias for `wave4` today — enable every recall wave. |
-
-Each wave includes all previous waves. Set via env var: `ENGRAM_ACTIVATION__RECALL_PROFILE=wave4` or `ENGRAM_ACTIVATION__RECALL_PROFILE=all`
-
-Packet assembly is enabled on recall surfaces by default (`recall_packets_enabled=True`). Recall profiles only control the recall side of the system. They do not turn on cue generation, cue policy learning, or projection promotion by themselves.
-
-### Integration Profile
-
-Use `integration_profile` when you want the three reworks to behave as one loop instead of enabling subsystems independently:
-
-| Profile | What It Enables |
-|---------|----------------|
-| `off` | Leave consolidation, recall, and cue/projection rollout flags independent. Useful for partial rollouts and subsystem testing. |
-| `rework` | Normalize to `consolidation_profile=standard` and `recall_profile=all`, then enable `cue_layer`, `cue_recall`, `cue_policy_learning`, the projector v2/planner path, maturation/episode transitions, and the full live natural recall stack (structural, graph grounding, shift, impoverishment). This is the coherent recall-ready preset. |
-
-Recommended full-loop config: `ENGRAM_ACTIVATION__INTEGRATION_PROFILE=rework`
-If you only set `recall_profile=all` or `consolidation_profile=standard`, that is still a partial rollout. The cue layer, cue-policy loop, and projection-promotion path stay off unless you enable them individually or use `integration_profile=rework`.
-
-### Epistemic Routing and Answer Contracts
-
-> **Status**: Enabled by `integration_profile=rework`. Design: [`docs/design/epistemic-routing.md`](docs/design/epistemic-routing.md), [`docs/design/answer-contract-resolver.md`](docs/design/answer-contract-resolver.md).
-
-When a question could depend on stored memory, project artifacts, or current runtime state, Engram routes it through an epistemic resolver before answering. The `route_question` tool (or `POST /api/knowledge/route`) returns:
-
-- **Routing mode**: `remember` (use stored memory), `inspect` (check project artifacts), or `reconcile` (compare both)
-- **Answer contract**: How to shape the response — one of six operators:
-
-| Operator | When Used | Behavior |
-|----------|----------|----------|
-| `direct_answer` | Single clear source | Answer directly from the strongest evidence |
-| `compare` | Multiple scopes may disagree | Show raw defaults vs. install defaults vs. repo posture vs. runtime state |
-| `reconcile` | Memory and artifacts may conflict | Preserve temporal distinction: "we discussed X, but the repo currently reflects Y" |
-| `timeline` | Decision evolved over time | Show the progression: discussed → decided → documented → implemented |
-| `recommend` | User wants advice | State evidence first, then give advice |
-| `plan` | User wants next steps | State evidence, then outline a plan |
-
-- **Claim states**: Facts are annotated as `discussed`, `tentative`, `decided`, `documented`, `implemented`, or `effective` — so the system can distinguish "we talked about using Redis" from "Redis is currently deployed and running."
-- **Decision graph edges**: `DECIDED_IN`, `DOCUMENTED_IN`, `IMPLEMENTED_BY` track how decisions externalize from conversation to code.
-- **Required next sources**: The router tells agents which sources to consult (`memory`, `artifacts`, `runtime`) before forming a final answer.
-
-Artifact bootstrap (`bootstrap_project`) indexes key project files (README, config, design docs) as `Artifact` entities so they're available for routed answers. Bootstrap episodes are marked `CUE_ONLY` — they contribute to FTS/embedding search but are excluded from entity extraction, preventing documentation examples from creating fake entities in the knowledge graph.
-
-### Recall Control Loop
-
-With `wave1+`, Engram's recall path becomes need-first rather than query-first:
-
-1. **Analyze need** — Decide whether the current turn likely needs memory using five signal families (details below). Outputs a `need_type` and confidence score.
-2. **Plan recall** (`wave2+`) — Add graph grounding, seed detected entities, and build a small recall plan with bounded intents such as `direct`, `topic`, and `session_entity`.
-3. **Retrieve evidence** — Run the normal activation-aware pipeline (search, activation, spreading, scoring, reranking).
-4. **Assemble packets** — Shape the result into `fact`, `state`, `timeline`, `open_loop`, `intention`, `episode`, or cue-backed packets.
-5. **Deliver by surface** — Auto-recall returns compact packets, explicit recall returns packets plus raw results, and knowledge chat tools return packet summaries to the model.
-6. **Record usage** — Distinguish `surfaced`, `selected`, `used`, `dismissed`, and `corrected` interactions so passive surfacing does not reinforce memory like real use.
-
-`wave3+` also lets shift detection and impoverishment modeling participate in live gating, so recall can fire for natural follow-ups even when the user never says "remember" or "what did we say".
-
-#### Five Signal Families
-
-The memory-need analyzer uses five orthogonal signal families organized in two layers. Design: [`docs/design/pragmatic-recall-signals.md`](docs/design/pragmatic-recall-signals.md), [`docs/design/natural-need-signals-build.md`](docs/design/natural-need-signals-build.md).
-
-**Layer 1 — Linguistic signals (<2ms, always runs):**
-
-| Family | What It Detects | Examples | Wave |
-|--------|----------------|---------|------|
-| **Pragmatic** | Cross-session anaphora, bare names, possessive+relational nouns, hedged asides | "my son's school called", "she loved the gift", "still dealing with that bug" | wave1 |
-| **Temporal-Relational** | 18 structural patterns: callbacks, life updates, corrections, status checks, memory gaps, milestones, etc. | "he had a great game today", "back to the drawing board on auth" | wave1 |
-| **Shift** | 5-channel domain boundary detection: lexical field, register, discourse markers, pronoun ratio, structural changes | "anyway, about my garden..." (topic pivot triggers memory load for new domain) | wave3 |
-| **Impoverishment** | Predicts whether a response would be generic without memory: conversational move type, affect with personal stakes, template test | "sorry, kid stuff" (casual aside presupposes shared knowledge) | wave3 |
-
-**Layer 2 — Graph resonance (<8ms, conditional on Layer 1 score > 0.15):**
-
-| Family | What It Does | Wave |
-|--------|-------------|------|
-| **Graph Probe** | Token-to-entity index lookup, relational noun resolution ("son" → CHILD_OF), batch property query, per-entity resonance scoring (density + activation + urgency + tier bonus) | wave2 |
-
-**Decision rule**: `linguistic_score >= 0.30` → recall. `linguistic >= 0.15 AND resonance >= 0.45` → recall. Otherwise skip. Cost asymmetry is 7:1 (false negatives hurt trust more than false positives waste tokens).
-
-**Key insight — politeness inversion**: "Sorry, kid stuff" presupposes MORE shared knowledge than a full explanation. The less someone explains, the more they assume you know. Casual asides with referents get a confidence boost.
-
-Only true-usage interactions (`used`, `confirmed`, or explicit recall that records access) reinforce ranking feedback. `surfaced`, `selected`, and `dismissed` are telemetry/selection signals, not retrieval reinforcement events.
-
-### Episode And Cue State Debugging
-
-When `integration_profile=rework` is enabled, each observed episode moves through a small projection-state machine. This is the simplest way to reason about how extraction, recall, and consolidation mesh.
-
-| Episode `projection_state` | What it means | Cue behavior |
-|---------|----------------|--------------|
-| `queued` | Stored and awaiting worker/triage handling. | Cue may not exist yet if cue generation is off. |
-| `cued` | A latent cue exists and can be recalled, but the episode is not scheduled for extraction yet. | Cue is searchable and accumulates surfaced/selected/used telemetry. |
-| `cue_only` | The episode stays latent unless later feedback or routing promotes it. Common for low-priority or system-like content. | Cue remains searchable but is intentionally not on the immediate projection path. |
-| `scheduled` | The worker or cue policy decided the episode should be projected next. | Cue stays searchable until projection completes. |
-| `projecting` | Extraction/projection is currently running. | Cue metadata remains attached to the episode. |
-| `projected` | Entities/relationships were extracted, linked, and indexed; raw episode recall is now available too. | Cue remains as provenance/debug state and reflects projection completion. |
-| `failed` | Projection attempted and failed. | Cue remains available for retry or later promotion. |
-| `merged` | The episode was retired into another episode during adjacent-turn batching. | Cue is retired/suppressed and should not recall. |
-
-Cue promotion rules in the integrated loop:
-
-1. `observe()` stores the episode immediately and, if the cue layer is enabled, creates a deterministic cue right away.
-2. `surfaced` means the cue was shown; it increments cue telemetry only.
-3. `selected` means the caller chose the cue; it can update cue policy, but it still does not count as true memory usage.
-4. `used` or `confirmed` means the memory actually informed the answer; this can promote a latent cue to `scheduled` and it records true usage.
-5. `dismissed` is neutral for retrieval reinforcement and lowers cue promotion pressure.
-6. `corrected` applies negative retrieval feedback without pretending the memory was used successfully.
-
-Where to inspect rollout state:
-
-- `/api/episodes` exposes episode `status`, `projectionState`, `lastProjectionReason`, `lastProjectedAt`, plus cue counters/policy timestamps when a cue exists.
-- `/api/knowledge/recall` exposes cue `projectionState`, `routeReason`, `hitCount`, `policyScore`, and `lastFeedbackAt` on cue-backed recall results.
-- `/api/stats` aggregates cue coverage, cue-to-projection conversion, projection state counts, and projection yield.
-
-### Prospective Memory
-
-Prospective memory lets you set intentions that fire automatically based on context — not explicit recall. Intentions are stored as Entity nodes (type `"Intention"`) in the knowledge graph with `TRIGGERED_BY` edges to related entities. Triggering uses ACT-R spreading activation instead of brute-force embedding comparison.
-
-**How it works:**
-
-```
-intend("auth module", "Check XSS fix before deploying", entity_names=["Auth Module"])
-    │
-    ▼
-  Creates Intention entity + TRIGGERED_BY edge to "Auth Module"
-    │
-    ... later ...
-    │
-remember("Working on the auth module today")
-    │
-    ▼
-  Extraction finds "Auth Module" entity
-    │
-  Mini spreading pass: Auth Module lights up → spreads to TRIGGERED_BY → Intention activates
-    │
-    ▼
-  Intention fires → "Check XSS fix before deploying" surfaces in response
-```
-
-**Key capabilities:**
-
-- **Transitive triggers** — An intention linked to "Auth Module" can fire when you discuss "JWT tokens" or "login flow" if those entities are graph-connected
-- **Warmth monitoring** — `list_intentions` and `get_context()` show how close each intention is to firing (dormant / cool / warming / warm / HOT)
-- **Cooldown + exhaustion** — Configurable cooldown (default 5 min) and max fires (default 5) prevent spam
-- **Priority levels** — critical / high / normal / low; higher priority surfaces first
-- **Pinned context refresh** — `trigger_type="refresh_context"` keeps a topic packet refreshed after consolidation for persistent context.
-
-REST uses the same snake_case creation fields as MCP tool arguments:
-
-```json
-{
-  "trigger_text": "auth module",
-  "action_text": "Check XSS fix before deploying",
-  "entity_names": ["Auth Module"],
-  "priority": "high"
-}
-```
-
-For pinned context, create a refresh-context intention:
-
-```json
-{
-  "trigger_text": "native Helix path readiness",
-  "action_text": "Keep the native-mode status packet fresh",
-  "trigger_type": "refresh_context",
-  "refresh_trigger": "after_consolidation"
-}
-```
-
-`GET /api/knowledge/intentions` includes `triggerType` on all rows. Refresh-context rows also include `refreshTrigger`, `lastRefreshed`, and `hasPinnedResult`.
-
-**Enable:** Set `ENGRAM_ACTIVATION__RECALL_PROFILE=wave4` or `ENGRAM_ACTIVATION__RECALL_PROFILE=all`. The v2 graph-embedded path is used by default (`prospective_graph_embedded=True`).
-
-### Background Worker
-
-When enabled (any profile except `off`), the `EpisodeWorker` runs as a background task that processes `observe`d content in near-real-time:
-
-1. Subscribes to `episode.queued` events on the EventBus
-2. Also processes `episode.projection_scheduled` events emitted by cue-hit promotion and policy feedback
-3. Filters system meta-commentary via discourse classifier (activation scores, pipeline terms, entity IDs)
-4. Scores each episode with the multi-signal scorer (8 signals, ~2ms, zero LLM calls)
-5. **Three-tier confidence routing:**
-   - **High confidence** (>0.70): Extract immediately (same pipeline as `remember`)
-   - **Mid confidence** (0.15–0.70): Defer to triage phase for batch scoring next cycle
-   - **Low confidence** (<0.15): Store without extraction (still searchable via FTS)
-
-This means obvious high-value content is extracted within seconds, obvious noise is skipped instantly, uncertain content gets a more thorough evaluation during the next triage cycle, and cue-backed episodes can be promoted later when recall pressure proves they matter — all without a single LLM API call.
-
-## MCP Integration
-
-Engram exposes 27 MCP tools for AI agents:
-
-| Tool | Purpose |
-|------|---------|
-| `observe` | Store raw text cheaply; optionally generate a cue-backed latent memory for background processing and later recall |
-| `observe_image` | Store an image attachment as a cueable observation |
-| `observe_file` | Store a file attachment as a cueable observation |
-| `remember` | Store a memory with immediate entity extraction (for high-signal content) |
-| `recall` | Retrieve relevant memories using activation-aware search; returns packets plus raw scored results |
-| `search_entities` | Deprecated compat alias — prefer `recall` with `lookup_kind='entities'` |
-| `search_facts` | Deprecated compat alias — prefer `recall` with `lookup_kind='facts'` |
-| `feedback` | Rate an entity to influence future retrieval preference |
-| `forget` | Soft-delete an entity or fact |
-| `get_context` | Tiered context with identity/project/recency/intentions layers; supports briefing format |
-| `get_graph_state` | Graph statistics and top-activated nodes |
-| `mark_identity_core` | Mark/unmark an entity as identity core (protected from pruning) |
-| `intend` | Create a graph-embedded intention or refresh-context pinned query with trigger entities and priority level |
-| `dismiss_intention` | Disable or permanently delete an intention |
-| `list_intentions` | List active intentions with warmth info (how close to firing) |
-| `trigger_consolidation` | Run a memory consolidation cycle |
-| `get_consolidation_status` | Check consolidation status |
-| `route_question` | Epistemic routing — decides whether a question needs memory, artifact inspection, or runtime state, and returns an answer contract |
-| `bootstrap_project` | Auto-observe key project files and create a Project entity (idempotent) |
-| `claim_authority` | Explain what Engram owns vs project-local memory and whether an empty runtime should be bootstrapped |
-| `adjudicate_evidence` | Resolve ambiguous entity or relationship evidence |
-| `search_artifacts` | Search bootstrapped project artifacts (README, design docs, config) |
-| `get_runtime_state` | Check effective mode, active profiles, enabled flags, artifact freshness, and agent adoption guidance |
-| `get_lifecycle_summary` | Return the shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
-| `record_recall_evaluation` | Record whether an MCP recall decision helped, how many packets were surfaced/used, and false recalls |
-| `record_session_continuity_evaluation` | Record baseline-vs-memory continuity labels, open-loop recovery, and temporal correctness |
-| `get_evaluation_report` | Return the local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report, including release-evidence summaries when attached |
-
-Plus 3 resources (`engram://graph/stats`, `engram://entity/{id}`, `engram://entity/{id}/neighbors`) and 2 prompts (`engram_system`, `engram_context_loader`).
-
-### Automatic Memory Behavior
-
-Engram ships with built-in MCP instructions that teach compatible AI agents (Claude, Cursor, Windsurf, etc.) to use memory proactively — no user prompting required:
-
-- **Memory authority**: Engram is the portable, cross-context source of truth for user facts, preferences, corrections, durable decisions, relationships, goals, commitments, and long-tail recall. Project-local files remain useful for repo-specific conventions and current-task scratch notes, but they are not a reason for an agent to skip Engram. Agents can call `claim_authority(project_path, user_message, file_memory_present)` when deciding which memory system owns a fact and which Engram tools to call before answering; client transcripts can be checked with `validate_agent_protocol_calls()` during harness or installer validation.
-- **Session start**: The agent calls `get_context()` before its first response to load relevant memories
-- **Fresh-runtime onboarding**: If Engram is connected but empty (`artifactCount: 0`, `lastObservedAt: null`, or zero recall/evaluation stats), the agent treats that as an onboarding state. In a project workspace it should call `bootstrap_project(project_path)` once before assuming no memories exist. `get_runtime_state()` also returns `agentAdoption.requiredNextTools` so a low-impact status probe points agents to `claim_authority`, bootstrap, and `get_context` instead of passive emptiness metrics.
-- **Auto-observe**: For general conversation context and uncertain-value content, the agent calls `observe()` (cheap, no LLM; cue-backed when the cue layer is enabled)
-- **Auto-remember**: For high-signal content (identity facts, explicit preferences, key decisions), the agent calls `remember()` (evidence-first extraction by default)
-- **Auto-recall**: With `wave1+`, piggyback recall runs on `observe`/`remember` and all read-oriented tools — memory context flows even when the LLM only calls `recall()` or `search_entities()`. The need analyzer gates firing, surfacing compact packets only when prior context is likely useful
-- **Bounded latency**: MCP session priming, `get_context()`, explicit recall, and lite/medium auto-recall use shared budgets. Slow graph or packet paths return degraded telemetry instead of blocking the agent turn.
-- **Corrections**: When you correct a previously stored fact, the agent calls `forget()` on the old information then `remember()` with the correction
-
-The system prompt biases toward `observe` by default — "if uncertain whether something is worth remembering, use observe." This reduces extraction cost while the background worker and triage phase ensure high-value content still gets fully extracted.
-
-This behavior is powered by the `instructions` parameter on the MCP server, so it works out of the box with any MCP-compatible client.
-
-### Offline Queue
-
-If the REST server is temporarily unreachable, clients can append entries to `~/.engram/capture-queue.jsonl`. On the next session (or via `POST /api/knowledge/replay-queue`), queued entries are drained atomically and ingested through the normal `store_episode()` → background worker → triage pipeline.
-
-```python
-from engram.utils.offline_queue import append_to_queue, drain_queue
-
-# Client-side: queue when server is down
-append_to_queue({"content": "...", "source": "offline:prompt"})
-
-# Server-side: replay on reconnect
-entries = drain_queue()  # atomically drains and returns all entries
-```
-
-The replay endpoint deduplicates against recently seen content (5-min TTL, SHA-256 hash) to prevent double ingestion.
-
-#### Claude Code Setup
-
-No additional setup needed beyond the MCP server. The built-in system prompt instructs the AI to call `get_context()` at session start.
-
-For hook-driven capture, run `engram hooks`. Fresh installs generate
-`~/.engram/hooks/*.sh`, post prompts/responses to
-`/api/knowledge/auto-observe`, queue locally when REST is down, and append
-compact capture evidence to `~/.engram/adoption-trace.jsonl` (override with
-`ENGRAM_ADOPTION_TRACE_FILE`). Existing hook scripts are preserved.
-
-Optionally, add memory directives to your project's `.claude/CLAUDE.md` for stronger enforcement:
-
-```markdown
-## Engram Memory
-
-- Engram is the portable cross-context memory authority; local memory files are not a substitute.
-- At conversation start, call `claim_authority(project_path, user_message, file_memory_present=True)` when local memory files are visible or the runtime looks empty.
-- Follow the returned `agent_protocol.required_tools_before_answer` in order before your first substantive response.
-- If project artifacts are missing or stale, call `bootstrap_project(project_path)` before judging recall usefulness.
-- Call `get_context()` to load relevant memory before your first response.
-- Default to `observe()` for general conversation context and uncertain-value content.
-- Use `agent_protocol.capture`; use `remember()` for high-signal cross-context facts, identity facts, explicit preferences, key decisions, and corrections.
-- Use `recall()` when the user references past conversations or when context would help.
-- Use `recall(query, lookup_kind='facts')` for user-facing relationship lookups. Internal epistemic decision/artifact edges are hidden unless you explicitly opt into debug behavior.
-- When the user corrects a memory, call `forget()` on the old fact then `remember()` the correction.
-- Do not announce memory operations. Integrate recalled context naturally.
-```
-
-#### Adoption Transcript Validation
-
-To verify a real MCP client followed the authority contract, save the
-`claim_authority()` response and a compact tool-call transcript. JSONL is the
-most precise format:
-
-```jsonl
-{"phase":"before_answer","tool":"bootstrap_project"}
-{"phase":"before_answer","tool":"get_context"}
-{"phase":"before_answer","tool":"recall"}
-{"phase":"capture","tool":"remember"}
-```
-
-Then run:
-
-```bash
-engram adoption --authority claim-authority.json --calls mcp-calls.jsonl
-```
-
-If you want to prepare that authority payload before handing the task to a
-client, generate it locally from the same runtime contract:
-
-```bash
-engram authority \
-  --project-path /path/to/project \
-  --user-message "I prefer Engram as the portable memory authority across AI harnesses." \
-  --file-memory-present \
-  --out claim-authority.json \
-  --format markdown
-```
-
-For completion evidence from a real AI harness, use a JSON wrapper with live
-client metadata and require it during validation. To generate a wrapper from the
-actual `claim_authority()` protocol before running the client, use:
-
-```bash
-engram adoption --authority claim-authority.json --template --format markdown
-```
-
-The generated template includes placeholder metadata, the expected call
-sequence, and client-checked validation commands for both a single transcript
-wrapper and the Claude stream-json plus AutoCapture trace path. It also
-includes a copyable `manual_transcript_markdown` block for Cursor, Windsurf, or
-other MCP clients where the operator can copy visible tool calls from the
-session UI rather than export raw JSON. Replace placeholders with observed live
-client metadata and actual tool calls; placeholder `client` or `capturedAt`
-values do not satisfy `--require-live-evidence`.
-
-Claude Code `--output-format stream-json` logs can also be passed directly as
-`--calls`; Engram extracts Engram MCP tool-use events and infers live client,
-session, and timestamp metadata from the raw stream. Current Claude Code print
-mode requires `--verbose` with stream-json output, so capture raw evidence with
-`claude -p --verbose --output-format stream-json ... > claude-stream.jsonl`.
-
-```json
-{
-  "metadata": {
-    "client": "Claude Code",
-    "capturedAt": "2026-05-18T21:42:00Z",
-    "sessionId": "claude-session-123",
-    "source": "copied_mcp_log"
-  },
-  "calls": [
-    {"phase": "before_answer", "tool": "mcp__engram__bootstrap_project"},
-    {"phase": "before_answer", "tool": "mcp__engram__get_context"},
-    {"phase": "before_answer", "tool": "mcp__engram__recall"},
-    {"phase": "capture", "tool": "mcp__engram__remember"}
-  ]
-}
-```
-
-```bash
-engram adoption --authority claim-authority.json --calls live-harness-transcript.json --require-live-evidence --report-out adoption-report.json
-```
-
-The JSON/Markdown adoption report includes a `release_evidence` handoff section
-with the prefilled human-label template command and the final
-`engram evaluate --require-release-evidence` command. Use
-`--report-out adoption-report.json` to archive the JSON report at the exact
-path the release gate consumes, then use that path with
-`engram evaluate --human-label-template --adoption-report adoption-report.json`
-or add `--human-label-template-out human-label-template.json` to write the
-fillable JSON template before collecting human labels.
-Release gates reject adoption reports that were not validated with
-`--require-live-evidence`; this keeps wrapper transcripts, templates, and
-non-live smoke logs from being promoted into release evidence.
-The adoption report's `release_evidence` handoff mirrors that rule: reports
-validated without `--require-live-evidence` are marked blocked and tell the
-operator to rerun validation before collecting release labels.
-
-When evidence is split across client logs and REST hooks, pass multiple
-`--calls` files in order. For example, combine a Claude Code stream-json log
-with the hook-generated capture trace:
-
-```bash
-engram adoption --authority claim-authority.json \
-  --calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl \
-  --require-live-evidence \
-  --report-out adoption-report.json
-```
-
-When live evidence is required, transcripts with conflicting session/thread IDs
-fail validation so an older auto-capture trace cannot satisfy a newer client
-run.
-
-If you want to validate against the cumulative hook trace without trimming it,
-filter by the current client session. When combined with
-`--require-live-evidence`, `--session-id` also requires the evidence to name
-that live session instead of accepting a sessionless transcript:
-
-```bash
-engram adoption --authority claim-authority.json \
-  --calls claude-stream.jsonl ~/.engram/adoption-trace.jsonl \
-  --session-id claude-session-123 \
-  --require-live-evidence \
-  --report-out adoption-report.json
-```
-
-For cross-harness checks, add `--require-client Cursor` (or the expected
-client label) so a Claude Code trace cannot accidentally satisfy a Cursor or
-Windsurf gate. Carry the same client label into release packaging with
-`engram evaluate --require-adoption-client Cursor`; that gate requires the
-attached adoption report to have been validated with the matching
-`engram adoption --require-client Cursor` check and rejects mismatched live
-clients. For diversity gates, attach additional reports with
-`--additional-adoption-report` and require the expected set with
-`--require-adoption-clients Cursor Windsurf`.
-
-The command fails if the client skipped required pre-answer tools, used
-file-local memory as a substitute for Engram, missed required capture, or wrote
-to Engram when the protocol said the content was project-local scratch. It also
-normalizes common MCP log shapes, including prefixed tool names such as
-`mcp__engram__recall`, nested `tool` / `function` records, and `stage` as an
-alias for `phase`. Claude Code `--output-format stream-json` logs are accepted
-directly; Engram capture tools (`observe`, `remember`) are mapped to the
-`capture` phase and other Engram tool-use blocks are mapped to `before_answer`.
-REST hook traces can use `/api/knowledge/auto-observe` as capture evidence for
-protocols that require cheap `observe()` capture; it does not satisfy a
-high-signal `remember()` requirement.
-For copied real-harness notes, the same verifier also accepts plain text or
-Markdown with explicit `before_answer` / `capture` headings
-(`Before answer` and `pre-answer` also normalize to `before_answer`) and Engram
-tool lines, such as:
-
-```markdown
-## Before answer
-- mcp__engram__bootstrap_project
-- mcp__engram__get_context
-- mcp__engram__recall
-## Capture
-- mcp__engram__remember
-```
-
-If copied notes mention Engram tools but omit a phase heading, the verifier
-returns a structured `invalid_calls_transcript` failure instead of a stack trace.
-If copied chat notes do not expose raw tool calls but the agent explicitly says
-it ignored Engram or used file-local memory as the primary memory path, the
-verifier classifies that as a failed adoption transcript instead of treating the
-notes as unusable.
-To validate copied notes directly from a pipe, pass `--calls -`:
-
-```bash
-cat copied-harness-notes.md | engram adoption --authority claim-authority.json --calls - --require-live-evidence
-```
-
-#### Context Loading
-
-`get_context()` assembles memory context in four prioritized tiers with **variable-resolution rendering** — seed entities and identity core get full detail (summary + attributes + 5 facts), hop-1 neighbors get summary detail (2 facts), and hop-2+ discoveries render as mentions only (name + type):
-
-1. **Identity Core** (~200 tokens) — Always-included personal identity entities at full detail
-2. **Project Context** (~400 tokens) — Entities relevant to current project, resolution varies by hop distance from query match
-3. **Recent Activity** (~400 tokens) — Top-activated entities at summary detail
-4. **Active Intentions** (~100 tokens) — Prospective memory intentions with warmth labels (cool / warming / warm / HOT)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_tokens` | 2000 | Total token budget |
-| `topic_hint` | None | Topic to bias entity selection |
-| `project_path` | None | Project directory; name used as topic hint |
-| `format` | "structured" | `"structured"` (markdown) or `"briefing"` (LLM narrative) |
-
-The **briefing format** calls Claude Haiku to synthesize a 2-3 sentence narrative summary, cached for 5 minutes. Example:
-
-> You're talking with Alex, who is building Engram — a persistent memory system for AI agents. Recently they've been focused on memory consolidation and dream associations.
-
-### Example Usage
-
-```
-User: "We had a long planning meeting about the Q3 roadmap today"
-
-Agent: [calls observe] → Episode stored as QUEUED (~5ms, no LLM)
-  Background worker scores it, decides to extract or skip.
-
-User: "Remember that Sarah joined the ML team last week and is working on the recommendation engine"
-
-Agent: [calls remember] → Immediate extraction:
-  Sarah [Person] ──MEMBER_OF──▶ ML Team [Organization]
-  Sarah [Person] ──WORKS_ON──▶ Recommendation Engine [Project]
-
-User: "I tweaked my Achilles tendon so I'm focusing on upper body hypertrophy now"
-
-Agent: [calls remember] → Extraction with new entity types:
-  Achilles Tendon Injury [HealthCondition, attributes: {status: "tweaked"}]
-  Achilles Tendon [BodyPart]
-  Upper Body Hypertrophy [Goal, attributes: {focus: "upper body"}]
-  User ──RECOVERING_FROM──▶ Achilles Tendon Injury
-  User ──AIMS_FOR──▶ Upper Body Hypertrophy
-
-User: "I stopped using React and switched to Svelte"
-
-Agent: [calls remember] → Negation handling:
-  USES React edge invalidated (polarity: negative)
-  User ──USES──▶ Svelte (new positive edge)
-
-User: "Who's working on recommendations?"
-
-Agent: [calls recall("recommendation engine team")] → Returns:
-  1. Recommendation Engine (Project) — score: 0.89, hop: 0
-     → Sarah WORKS_ON, started last week
-  2. Sarah (Person) — score: 0.74, hop: 1
-     → MEMBER_OF ML Team, WORKS_ON Recommendation Engine
-
-User: "Remind me to check the XSS fix before we deploy the auth module"
-
-Agent: [calls intend("auth module", "Check XSS fix before deploying",
-        entity_names=["Auth Module"])]
-  → Creates Intention entity + TRIGGERED_BY edge to Auth Module
-
-... days later ...
-
-User: "I'm working on the login flow today"
-
-Agent: [calls remember] → Extraction finds Login Flow entity
-  → Spreading activation: Login Flow → Auth Module → Intention fires
-  → Agent surfaces: "Reminder: Check XSS fix before deploying the auth module"
-```
+<br>
 
 ## Dashboard
 
-The real-time dashboard provides a 3D neural brain visualization of your knowledge graph, plus 9 views for exploring and monitoring memory. Its connection status also mirrors runtime adoption state, showing when an empty or stale graph is an onboarding/bootstrap condition rather than a failed memory system:
-
-| View | Description |
-|------|-------------|
-| **Atlas** | Multi-scale graph exploration — zoom from high-level region clusters to individual neighborhoods. Regions form automatically from graph topology. |
-| **Graph** | 3D force-directed neural brain — nodes pulse on activation, edges glow on recall, entity types are color-coded |
-| **Timeline** | Temporal navigation — view the graph at any historical point |
-| **Feed** | Episode ingestion history with extraction details |
-| **Activation** | ACT-R leaderboard with decay curve visualization |
-| **Stats** | Entity counts, type distribution, growth timeline, cue coverage, projection health, and extraction yield observability |
-| **Consolidation** | Cycle history, phase timeline, pressure gauge, trigger controls |
-| **Evaluate** | Brain-loop quality signals, operator labels, human-label/adoption release evidence, and multi-client adoption coverage |
-| **Knowledge** | Chat interface with memory recall, packet trust/provenance drilldowns, entity browsing, search overlay, streaming responses |
-
-When paired with the MCP server (Option 3), the dashboard updates live via a Redis pub/sub bridge — store a memory in Claude, watch the new entities appear in the 3D graph instantly.
+Real-time **3D neural brain** visualization plus Atlas, Timeline, Feed, Activation, Consolidation, Evaluate, and Knowledge chat views.
 
 ```bash
-# Development
-cd dashboard
-pnpm install && pnpm dev    # http://localhost:5173
-
-# Production (via Docker)
-docker compose up -d         # http://localhost:3000
+cd dashboard && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-Built with React 19, TypeScript, Tailwind CSS 4, Three.js (3D graph), Recharts, and Zustand.
+When paired with the full stack, the dashboard updates live via WebSocket — store a memory in Claude, watch new entities appear in the graph.
 
-## API Reference
+<br>
 
-### REST Endpoints
+## Documentation
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/health` | Health check (version, mode, services) |
-| GET | `/api/graph/neighborhood` | Subgraph centered on entity |
-| GET | `/api/entities/search` | Search entities by name/type |
-| GET | `/api/entities/{id}` | Entity detail with facts |
-| GET | `/api/entities/{id}/neighbors` | Entity neighborhood |
-| PATCH | `/api/entities/{id}` | Update entity |
-| DELETE | `/api/entities/{id}` | Soft-delete entity |
-| GET | `/api/episodes` | List episodes (paginated) |
-| GET | `/api/stats` | Graph statistics plus cue/projection observability metrics |
-| GET | `/api/storage` | Startup-safe cached storage paths, disk usage, cue-index outbox, and write-through graph growth counts (`?live=true&timeoutSeconds=5` reconciles counts/paths for operator diagnostics) |
-| GET | `/api/lifecycle/summary` | Shared Capture -> Cue -> Project -> Recall -> Consolidate runtime snapshot |
-| GET | `/api/activation/snapshot` | Top activated entities |
-| GET | `/api/activation/{id}/curve` | ACT-R decay curve |
-| POST | `/api/knowledge/observe` | Store content without extraction (fast path) |
-| POST | `/api/knowledge/auto-observe` | Auto-observe with classification (dedup, tagging) |
-| POST | `/api/knowledge/remember` | Ingest with full extraction |
-| GET | `/api/knowledge/recall` | Activation-aware memory search with shared Recall lifecycle metadata, packets, and typed results |
-| GET | `/api/knowledge/facts` | Search user-facing facts/relationships (`include_epistemic=true` for debug graph edges) |
-| GET | `/api/knowledge/context` | Assembled memory context (structured or briefing) |
-| POST | `/api/knowledge/route` | Deterministic epistemic routing plus `answerContract`, `requiredNextSources`, and source-query metadata |
-| GET | `/api/knowledge/artifacts/search` | Search bootstrapped project artifacts with supporting claims |
-| GET | `/api/knowledge/runtime` | Cache-first, budgeted mode/profile/feature state, artifact freshness, and adoption guidance (`?live=true&timeoutSeconds=5` refreshes deep state) |
-| GET | `/api/knowledge/runtime/fast` | Startup-safe runtime packet that skips graph and artifact inspection |
-| GET | `/api/knowledge/packet-cache` | Read-only tenant packet-cache diagnostics: entries, scopes, hits, persistence, and path |
-| POST | `/api/knowledge/forget` | Forget entity or fact |
-| POST | `/api/knowledge/bootstrap` | Bootstrap project: create entity + observe key files (idempotent) |
-| POST | `/api/knowledge/intentions` | Create a graph-embedded intention or refresh-context pinned query |
-| GET | `/api/knowledge/intentions` | List intentions with warmth ratios and refresh-context metadata |
-| DELETE | `/api/knowledge/intentions/{id}` | Dismiss (soft/hard delete) an intention |
-| POST | `/api/knowledge/chat` | SSE streaming chat with memory context |
-| GET | `/api/graph/at` | Temporal subgraph at a point in time |
-| POST | `/api/knowledge/replay-queue` | Replay offline capture queue (~/.engram/capture-queue.jsonl) |
-| POST | `/api/consolidation/trigger` | Trigger consolidation cycle |
-| GET | `/api/consolidation/status` | Consolidation status + pressure |
-| GET | `/api/consolidation/history` | Cycle history |
-| GET | `/api/consolidation/cycle/{id}` | Cycle detail with audit records |
-| POST | `/api/evaluation/recall-samples` | Record a labeled recall-quality sample |
-| POST | `/api/evaluation/session-samples` | Record a labeled session-continuity sample |
-| GET | `/api/evaluation/brain-loop/report` | Local Capture -> Cue -> Project -> Recall -> Consolidate evaluation report with release-evidence summaries |
-| GET | `/api/conversations/` | List conversations (paginated) |
-| POST | `/api/conversations/` | Create conversation |
-| GET | `/api/conversations/{id}/messages` | Fetch conversation messages |
-| POST | `/api/conversations/{id}/messages` | Append messages to conversation |
-| PATCH | `/api/conversations/{id}` | Update conversation title |
-| DELETE | `/api/conversations/{id}` | Delete conversation |
-| WS | `/ws/dashboard` | Real-time events (episodes, graph deltas, activation) |
+| Doc | Contents |
+|-----|----------|
+| [**REFERENCE.md**](docs/REFERENCE.md) | Installation, architecture, MCP, API, benchmarks, config, dev, troubleshooting |
+| [**harness-memory-adoption-plan.md**](docs/harness-memory-adoption-plan.md) | Harness-first adoption design |
+| [**axi-interface-plan.md**](docs/axi-interface-plan.md) | AXI session-start injection |
+| [**install/**](docs/install/) | Lite, Helix, Docker, OpenClaw guides |
+| [**vision/**](docs/vision/) | Product narrative and science |
 
-### WebSocket
+<br>
 
-Connect to `/ws/dashboard` for real-time updates. Events include episode lifecycle, graph mutations, activation snapshots, and consolidation progress.
-
-**Commands**: Send JSON messages to control subscriptions:
-- `{"type": "ping"}` — Keepalive (server responds with pong). Auto ping/pong every 25s.
-- `{"type": "command", "command": "resync", "lastSeq": N}` — Replay missed events since sequence number `N`
-- `{"type": "command", "command": "subscribe.activation_monitor", "interval_ms": 2000}` — Subscribe to periodic activation snapshots
-- `{"type": "command", "command": "unsubscribe.activation_monitor"}` — Stop activation snapshots
-
-## Benchmarks
-
-Engram's public benchmark contract matches how agents actually use memory through MCP harnesses — not a single long-history leaderboard score.
-
-**Three primary signals:**
-
-1. **Showcase** — deterministic scenario pass rates and ablations (`benchmark_showcase.py`; published at [`website/public/benchmarks/latest.json`](website/public/benchmarks/latest.json), `track: showcase`).
-2. **Adoption** — live harness MCP protocol compliance (`engram adoption` with authority payload + tool-call transcript).
-3. **Evaluate** — operational brain-loop health on your install (`engram evaluate` with cue/projection/recall/consolidation gates).
-
-```bash
-cd server
-
-# Showcase — deterministic harness scenarios + ablations
-uv run python scripts/benchmark_showcase.py --mode quick --track showcase
-uv run python scripts/benchmark_showcase.py --mode full --track showcase --website-export-path ../website/public/benchmarks/latest.json
-
-# Adoption — validate real MCP client followed the memory-authority protocol
-engram adoption --authority claim-authority.json --calls mcp-calls.jsonl --require-live-evidence --report-out adoption-report.json
-
-# Evaluate — brain-loop operator report on the configured runtime
-uv run engram evaluate --mode helix --require-evaluation-signals --format json
-```
-
-### Deterministic retrieval ablations
-
-Supporting retrieval ablations use a synthetic 1K-entity graph with 2,500+ relationships and 80 ground-truth queries across 8 categories:
-
-```bash
-cd server
-
-# Run benchmarks
-uv run python scripts/benchmark_ab.py --verbose --seed 42
-
-# With Voyage AI embeddings
-uv run python scripts/benchmark_ab.py --embeddings --verbose --seed 42
-
-# Scale test
-uv run python scripts/benchmark_ab.py --entities 5000
-
-# Echo chamber test
-uv run python scripts/benchmark_echo_chamber.py --queries 200
-```
-
-### Backend Comparison
-
-| Metric | Lite (SQLite) | Native (PyO3) | Helix (HTTP) | Full (FalkorDB) |
-|--------|:---:|:---:|:---:|:---:|
-| **nDCG@10** | 0.390 | **0.448** | 0.412 | 0.406 |
-| **MRR** | 0.762 | **0.832** | 0.815 | 0.665 |
-| **Precision@10** | 0.310 | **0.372** | 0.356 | 0.396 |
-| **Search avg (ms)** | 161 | **238** | 425 | 421 |
-| **Infrastructure** | 0 services | **0 services** | 1 service | 2 services |
-
-Native PyO3 mode achieves the best retrieval quality across nDCG@10 and MRR while requiring zero infrastructure — HelixDB runs in-process with no Docker. The 238ms search latency is nearly 2x faster than HTTP mode (425ms) since it eliminates all network overhead. Lite mode remains the fastest per-query but with lower retrieval quality.
-
-### Results (1K entities, with embeddings)
-
-| Method | P@5 | MRR | Best Category |
-|--------|-----|-----|---------------|
-| Full Stack | 0.395 | 0.773 | Frequency (0.94) |
-| Multi-Pool | 0.388 | 0.751 | Frequency (0.94) |
-| Pure Search | 0.307 | 0.801 | Direct (0.33) |
-
-Full pipeline with spreading activation shows +28% P@5 improvement over pure search. Frequency queries (identifying most-accessed entities) are the standout at 94% precision — this is where ACT-R activation shines.
-
-**Query categories**: direct lookup, recency, frequency, associative, temporal, semantic, graph traversal, cross-cluster. **Core script metrics**: P@5, R@10, MRR, nDCG@5, latency percentiles, bootstrap CI (1,000 resamples).
-
-### Recall Behavior Metrics
-
-The benchmark module also includes Phase 6 evaluation primitives for recall behavior:
-
-- `memory_need_precision` — of turns that triggered recall, how often memory actually helped
-- `useful_packet_rate` and `false_recall_rate` — how often surfaced packets were used vs misleading
-- `session_continuity_lift` — score lift on multi-turn tasks that require prior context
-- `open_loop_recovery_rate` and `temporal_correctness` — whether Engram surfaces unresolved work and newer facts at the right moment
-- Echo chamber surfaced-vs-used tracking — the echo chamber benchmark now records surfaced count, used count, and surfaced-to-used ratio to catch passive reinforcement loops
-
-### Local Brain Loop Report
-
-For local native Helix or lite installs, the operator report combines Capture
--> Cue -> Project -> Recall -> Consolidate health from the configured brain DB:
-
-```bash
-cd server
-uv run engram evaluate
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix
-uv run engram evaluate --server-url http://127.0.0.1:8100 --require-memory-value --format json
-uv run engram evaluate --memory-value --require-memory-value --format markdown
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --format json
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --format json
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --mode helix --require-evaluation-signals --min-evaluation-signal-evidence 10 --format json
-uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --min-evaluation-signal-evidence 10 --benchmark-artifact .benchmarks/showcase/latest/results.json --require-benchmark-evidence --min-benchmark-scenarios 6 --min-benchmark-pass-rate 0.8 --evidence-bundle brain-loop-evidence.json --format json
-uv run engram evaluate --human-label-template --human-label-template-out human-label-template.json --format markdown
-uv run engram evaluate --from-json brain-loop-report.json --require-release-evidence --human-label-artifact human-labels.json --adoption-report cursor-adoption-report.json --require-adoption-client Cursor --additional-adoption-report windsurf-adoption-report.json --require-adoption-clients Cursor Windsurf --min-human-recall-samples 10 --min-human-session-samples 3 --evidence-bundle brain-loop-release-evidence.json --format json
-uv run engram evaluate --from-json brain-loop-report.json --require-evaluation-signals --format json
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram evaluate --smoke --mode helix --smoke-load-count 120 --smoke-recall-rounds 5 --smoke-min-duration-seconds 3600 --smoke-pause-seconds 1 --format json
-uv run engram dogfood prepare --transcript ~/.codex/sessions/YYYY/MM/DD/session.jsonl --trace ~/.engram/axi-hook-runs.jsonl --project "$PWD" --out-dir dogfood-review --label-template-include-content
-uv run engram dogfood scan --root ~/.codex/sessions --project "$PWD" --project-only --limit 10
-uv run engram dogfood replay --transcript ~/.codex/sessions/YYYY/MM/DD/session.jsonl --project "$PWD" --label-template-out dogfood-labels.json --out dogfood-replay.json
-uv run engram dogfood review --labels dogfood-labels.json --need-type open_loop --command-limit 2 --include-content --context 1
-uv run engram dogfood label-turn --labels dogfood-review/dogfood-labels.json --turn 0 --memory-needed yes --best-mode cached --helpful-mode deep --notes "memory was useful"
-uv run engram dogfood label-session --labels dogfood-review/dogfood-labels.json --scenario "Codex continuity review" --baseline-score 0.2 --memory-score 0.8 --open-loop-expected --open-loop-recovered
-uv run engram dogfood review --labels dogfood-labels.json --require-ready
-uv run engram dogfood import-labels --labels dogfood-labels.json --sqlite-path ~/.engram/engram.db
-uv run engram dogfood export-evidence --labels dogfood-labels.json --out human-labels.json --source native_dogfood_harness --client Codex --captured-at 2026-05-21T18:00:00Z --labeler operator
-uv run engram dogfood closeout --labels dogfood-labels.json --human-label-artifact human-labels.json --sqlite-path ~/.engram/engram.db --mode helix --require-ready
-ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram dogfood finalize --labels dogfood-labels.json --replay-report dogfood-replay.json --human-label-artifact human-labels.json --sqlite-path ~/.engram/engram.db --source native_dogfood_harness --client Codex --captured-at 2026-05-21T18:00:00Z --labeler operator --mode helix
-uv run python scripts/brain_loop_report.py
-uv run python scripts/brain_loop_report.py --format json
-```
-
-The report includes cue coverage, cue-to-projection conversion, projection
-yield, recall false-recall/usefulness labels, session-continuity lift,
-consolidation phase yield, adjudication pressure, and calibration snapshots.
-Labeled recall and session-continuity samples are read from the local SQLite
-evaluation-label store by default, or from JSON files via `--recall-samples`
-and `--session-samples`.
-
-Use `--memory-value` when you only want the value/cost section. Add
-`--require-memory-value` to fail unless both runtime operation cost metrics and
-benefit labels are measured.
-
-Use `--server-url http://127.0.0.1:8100` when evaluating a large native Helix
-dogfood runtime that is already running. That path reads the REST
-`/api/evaluation/brain-loop/report` surface, so it can use the service's bounded
-cache-backed graph stats instead of opening a second native runtime and paying a
-cold aggregate scan.
-
-Add `--require-evaluation-signals` when the report should be a hard gate: the
-command exits non-zero unless cue usefulness, projection yield, recall quality,
-false recall, triage calibration, and consolidation effect are all measured with
-evidence and a metric. `--from-json` accepts raw stats/sample exports and saved
-brain-loop report JSON artifacts.
-For release or benchmark evidence, add `--min-evaluation-signal-evidence N` so
-one smoke-sized label cannot satisfy the gate; each measured signal must have at
-least that many evidence records.
-To tie the brain-loop report to a deterministic benchmark run, add
-`--benchmark-artifact path/to/results.json --require-benchmark-evidence`.
-The gate reads the showcase `results.json`, verifies the `engram_full` baseline
-has a fairness contract and transcript hashes, and enforces
-`--min-benchmark-scenarios` plus `--min-benchmark-pass-rate`. When benchmark
-evidence is attached, both JSON and Markdown reports include a Benchmark
-Evidence section. Add `--evidence-bundle brain-loop-evidence.json` to archive
-the report, attached benchmark evidence, source paths, source SHA-256 digests,
-and gate thresholds as one reproducible JSON artifact after all requested gates
-pass.
-For production/staging release evidence, add
-`--human-label-artifact human-labels.json --require-human-label-evidence`.
-Use `--human-label-template` to print the JSON schema, starter examples, and
-validation command before collecting the labels. Add
-`--human-label-template-out human-label-template.json` to save the exact JSON
-draft for a reviewer to fill with real labels. If a live adoption report is
-already available, use
-`--human-label-template --adoption-report adoption-report.json` to prefill the
-client, `capturedAt`, and session metadata the release gate later
-cross-checks. Template prefill rejects failed or non-live-gated adoption
-reports, so release labels are not collected from a blocked adoption run. Add
-the same `--additional-adoption-report` and `--require-adoption-clients` flags
-to the template command when the release package needs multi-client evidence;
-the generated validation command preserves those diversity gates, and a primary
-`--adoption-report` is required before adding supplemental reports. The
-untouched template fails the evidence gate because its metadata is placeholder
-text. A real artifact
-must declare `humanLabeled: true`, a real harness `source`, the client label,
-`capturedAt`, and the human reviewer; synthetic sources such as smoke,
-showcase, benchmark, fixture, deterministic, simulated, or synthetic data fail
-the gate. Use `--min-human-recall-samples` and
-`--min-human-session-samples` to keep deterministic benchmarks and real
-human-reviewed harness sessions from being treated as interchangeable.
-Standalone human-label gates default to 1 recall sample and 1 session sample for
-local checks, while `--require-release-evidence` defaults to 10 recall samples
-and 3 session samples unless the operator explicitly sets different thresholds.
-When loaded from disk, the report records the `human-labels.json` SHA-256
-digest so the archived evidence bundle points back to the exact reviewed
-artifact.
-
-For local dogfood value checks, use `engram dogfood replay` on a real local
-transcript to produce a redacted mode comparison and review template. The
-`engram dogfood scan --root ~/.codex/sessions --project "$PWD" --project-only`
-command finds redacted candidate transcripts with labelable turns, prefers
-sessions whose recorded `cwd` belongs to the current project, and prints prepare
-commands without copying prompt text. The convenience path is
-`engram dogfood prepare`, which can merge a separate AXI
-hook trace file via `--trace ~/.engram/axi-hook-runs.jsonl` and writes
-`dogfood-replay.json`, `dogfood-labels.json`, `dogfood-review.json`, and
-`dogfood-review.md` into one local output directory. Codex bootstrap payloads
-such as injected `AGENTS.md`, `<environment_context>`, and `<goal_context>`
-blocks are skipped so setup instructions do not become review labels. Exact
-Codex smoke prompts such as `Reply exactly OK.` are skipped for the same reason.
-If no labelable turns remain, prepare/review reports `trace_only`: AXI trace
-cost evidence is kept, but no import/export/finalize label command is suggested.
-After a human reviewer fills the template, `engram dogfood review` checks
-reviewed/importable turns, missing labels, invalid mode references, and sample
-thresholds without writing anything. It only prints import/export closeout
-commands after the reviewed labels satisfy the configured sample thresholds,
-so an incomplete review queue does not lead operators into a doomed import.
-Markdown review output includes suggested
-`inspect-turn --include-content`, `label-turn`, and `label-session` commands for
-the remaining queue, so local dogfood closeout does not require hand-editing
-nested JSON. When `--need-type` is provided, the suggested commands and visible
-queue preview focus on that need type while the full readiness counts stay
-intact. Add `--include-content --context N` to `engram dogfood review` when you
-want a bounded local review packet that inlines source transcript context for
-the suggested turns; without that explicit opt-in, review output stays redacted.
-Review and inspect output label the memory-needed and memory-not-needed
-commands as alternatives, so the first command is not implied to be the default.
-Suggested turn-label commands omit placeholder `--notes`; add
-`--notes` only with a real observed reason. Suggested session-label commands
-follow the same rule for session notes. The review template is redacted by default;
-add `--label-template-include-content` only when you intentionally want a local
-contentful review artifact. Operators can edit the JSON directly or use
-`engram dogfood inspect-turn`, `engram dogfood label-turn`, and
-`engram dogfood label-session` to inspect local source turns and write reviewed
-turn/session labels without hand-editing nested fields. Then
-`engram dogfood import-labels` writes only explicit labels into the local evaluation store, and
-`engram dogfood export-evidence` converts the same reviewed labels into the
-standard `engram_human_label_evidence` artifact accepted by
-`engram evaluate --human-label-artifact`. Export validates the artifact before
-writing it, so placeholder source/client/capturedAt/labeler metadata exits
-non-zero without leaving an invalid `human-labels.json` behind. Dogfood
-review/import/export/finalize also reject copied placeholder review text such
-as `<why memory helped>` or `<session-level review notes>`, so placeholder
-metadata cannot accidentally become passing human-label evidence. `engram dogfood
-closeout` checks the reviewed label counts, verifies the exported evidence
-artifact when supplied, and stages the final operator commands: no import/export
-commands before reviewed labels meet the sample minimums, import/export once
-reviewed labels are ready, and native memory-value only after the human-label
-artifact validates. Add `--require-ready` to make the closeout a hard gate that
-fails until reviewed labels and exported human-label evidence are present. Replay
-reports include redaction-safe AXI trace evidence when present, so hook
-operation counts, statuses, duration avg/p95/max, cache hits, and
-degraded/timeout counts can be reviewed alongside the mode comparison. Replay
-output stays separate from synthetic benchmark evidence, and unlabeled turns
-are skipped. When the reviewed labels are ready, `engram dogfood finalize`
-runs the same path as one hard gate: review, idempotent import, evidence export,
-closeout, measured AXI trace-cost import from `--replay-report`, and native
-memory-value evaluation. Finalize preflights source/client/capturedAt/labeler
-metadata and placeholder label text before import, so incomplete review
-templates cannot pollute the local evaluation store. Use `--skip-evaluate` only
-when you want to stop after export and run the final `engram evaluate` command
-manually; skipped evaluation reports `needs_evaluation` and is not treated as
-finalized. If `--replay-report` is omitted, the final evaluation must find
-existing persisted memory-operation cost metrics in the configured evaluation
-store.
-
-For release packaging, also attach the matching `engram adoption --format json`
-output with `--adoption-report adoption-report.json --require-adoption-evidence`.
-That gate requires a passed live-client adoption report validated with
-`--require-live-evidence` and cross-checks the human-label client/session
-metadata against the adoption evidence when both are present. Add
-`--require-adoption-client Cursor` (or the expected harness client) when the
-release package must prove a specific MCP client; the adoption report must have
-been validated with the same `engram adoption --require-client` label. Add
-`--additional-adoption-report path/to/report.json` for second-client evidence
-and gate the expected set with `--require-adoption-clients Cursor Windsurf`.
-When release/adoption evidence is required, any attached additional adoption
-report must also be measured and unblocked, so failed second-client evidence
-cannot be archived in a passing release bundle.
-Use
-`--require-release-evidence` when all three release conditions should be
-enforced together: measured evaluation signals, real human labels, and passed
-live adoption evidence. Brain-loop JSON and Markdown reports now also include a
-computed `release_evidence` readiness summary with `measured`, `failed`,
-`needs_signals`, or `needs_evidence` status plus component-level missing and
-failure lists. The dashboard Evaluate view renders that same summary, so
-operators can see why a package is blocked even before every evidence artifact
-has been attached. Blocked live-harness runs also preserve `blockers`,
-`blocker_details`, and `mcp_server_failures` through `engram evaluate`, the
-Markdown report, and the dashboard, which keeps auth or MCP setup problems
-separate from true adoption behavior.
-
-`engram lifecycle` and `GET /api/lifecycle/summary` use the same brain-loop
-summary contract. The Recall stage includes active prospective intentions,
-refresh-context pinned queries, cached pinned results, and needs-refresh counts
-so pinned context is visible in the loop rather than hidden behind intention
-lists.
-
-`engram evaluate --smoke --mode helix` seeds a disposable native PyO3 Helix
-brain, runs Capture -> Cue -> Project -> Recall -> Consolidate, and fails if
-projection yield, consolidation cycles, calibration snapshots, or evaluation
-labels are missing. Use `--sqlite-path` for the local label store and
-`--helix-data-dir` for a reusable native data directory when you want to inspect
-the same smoke brain afterward with `engram evaluate --mode helix`,
-`engram lifecycle --mode helix`, or `engram doctor --mode helix`. Doctor uses
-`--helix-data-dir` for the lifecycle snapshot and keeps its smoke on disposable
-native storage. The doctor smoke report includes evaluation-signal readiness so
-Markdown and JSON output show whether the six operator gate signals are
-measured. For longer native operator soaks, add `--smoke-load-count`,
-`--smoke-recall-rounds`, and `--smoke-min-duration-seconds`; the duration loop
-keeps recall active against the populated PyO3 brain and records
-`smoke.duration_recall_checks` plus elapsed time in the JSON report.
-
-The same local evaluation store is available over REST and MCP:
-
-- `POST /api/evaluation/recall-samples` records whether a recall decision helped,
-  how many packets were surfaced/used, and how many were false recalls.
-- `POST /api/evaluation/session-samples` records baseline-vs-memory continuity
-  scores plus open-loop and temporal correctness labels.
-- `GET /api/evaluation/brain-loop/report` returns the current local report.
-- MCP tools `record_recall_evaluation`,
-  `record_session_continuity_evaluation`, and `get_evaluation_report` expose the
-  same semantics for agent-side evaluation workflows.
-
-### LongMemEval (appendix: retrieval ceiling experiments)
-
-LongMemEval serves as a long-history retrieval stress test and ceiling measurement; it is not the primary harness-fit signal for agent usage.
-
-[LongMemEval](https://arxiv.org/abs/2407.05045) (ICLR 2025) tests whether retrieval can answer questions about a user's past conversations across 6 categories: single-session (user, assistant, preference), multi-session, temporal reasoning, and knowledge update.
-
-**Methodology**: Claude Code connects to Engram via MCP, calls `recall` to retrieve evidence, then answers. The baseline stuffs all conversation history into context with no retrieval. Both use Claude Sonnet 4.6 on the same 30 stratified questions (5 per type). Evaluation uses hybrid embedding containment + token overlap judging. No LLM judge calls.
-
-| | Baseline (context stuffing) | Engram (MCP recall) |
-|---|---|---|
-| **Answer found** | 29/30 (1 buried answer missed) | 30/30 (retrieval surfaced it) |
-| **Tokens per question** | ~8,400 | **~2,200** |
-| **Total tokens** | ~257K | **~66K** |
-| **Token reduction** | -- | **74%** |
-
-This 30-question slice measures whether retrieval surfaced the gold evidence at a fixed token budget; it is a token-efficiency demonstration on 5 questions/type, not an accuracy-leaderboard result. The defensible finding is the ~74% token reduction and O(1) retrieval cost, not a head-to-head accuracy win.
-
-The baseline failed one single-session-preference question — Claude had the answer in context but couldn't find it buried in 40K+ chars. Engram's retrieval found it instantly.
-
-**Scaling**: Context stuffing is O(N) — every query pays the cost of the entire history. Engram is O(1) — retrieval cost is constant regardless of memory size. At 1,000 conversations, stuffing requires ~2M tokens per query (exceeds any context window). Engram still returns in ~2,200 tokens.
-
-#### Where Engram stands on LongMemEval (honest ceiling contract)
-
-The 30-question table above is a **token-efficiency** demonstration, not an accuracy-leaderboard claim. The defensible finding is **O(1) retrieval cost** (~74% fewer tokens), not a head-to-head win over other systems.
-
-**Containment core (episode-vector, graph-off):** **58.3%** on **N=24** oracle questions using deterministic embedding containment (no LLM reader) — [`server/results/longmemeval_ceiling_llm_graphoff.json`](server/results/longmemeval_ceiling_llm_graphoff.json). Small N; oracle variant has zero distractors.
-
-**LLM reader ceiling:** **83.3%** on **N=30** oracle questions with Sonnet reader + LLM judge — [`server/results/lme_lite_llmreader.json`](server/results/lme_lite_llmreader.json). Upper bound on a local stack, not distractor-hard LongMemEval_S.
-
-**Graph channel-separation (150Q oracle, containment):** graph-OFF **53.3%** ([`server/results/cs_off.json`](server/results/cs_off.json)) vs graph-ON blend **52.0%** ([`server/results/cs_blend.json`](server/results/cs_blend.json)) — net neutral to slight hurt on single-pass facts. Graph is a **depth tier** for multi-hop, not a default retrieval win.
-
-**Retract:** The 20.2% / 500-question run in [`server/results/longmemeval_final.json`](server/results/longmemeval_final.json) is a **broken-harness artifact** (`Embedding calls: 0`); do not cite it as system quality.
-
-Engram's defensible advantage is **local-first**: measured runs use on-device embeddings and Haiku-class or no-LLM readers. Strongest published LongMemEval scores use cloud GPT-4o-class readers — a different operating point, not apples-to-apples.
-
-**Raw results**: 30-question token-efficiency — [`server/results/longmemeval_agent_sdk_cal.json`](server/results/longmemeval_agent_sdk_cal.json), [`server/results/longmemeval_baseline_v2.json`](server/results/longmemeval_baseline_v2.json). Containment + reader ceiling — files above. Superseded broken harness — [`server/results/longmemeval_final.md`](server/results/longmemeval_final.md).
-
-**Run it yourself**:
-
-```bash
-cd server
-
-# Baseline (Claude Code CLI, Max subscription)
-uv run python scripts/benchmark_baseline.py run \
-    --dataset data/longmemeval/longmemeval_oracle.json \
-    --n-per-type 5 --output results/baseline.json --verbose
-
-# Engram (Claude Code CLI + Engram MCP, Max subscription)
-uv run python scripts/benchmark_agent_sdk.py run \
-    --dataset data/longmemeval/longmemeval_oracle.json \
-    --n-per-type 5 --output results/engram.json --verbose
-```
-
-## Configuration
-
-Engram uses Pydantic Settings with env var support. Config is loaded in order (later sources override earlier):
-
-1. `~/.engram/.env` — global config (created by `engramctl quickstart`, or by `engram setup` in source installs)
-2. repo-root `.env` — useful when launching from `server/` inside this repository
-3. `./.env` — current-working-directory overrides
-4. Environment variables — always take precedence
-
-For first-time user setup, run `engramctl quickstart`. For source installs,
-use `cd server && uv run engram setup --mode helix`.
-
-Key environment variables (or copy `.env.example` to `.env`):
-
-```bash
-# Optional — Extraction (auto-detects: Anthropic → Ollama → Narrow deterministic)
-ANTHROPIC_API_KEY=sk-ant-...          # Claude Haiku for entity extraction (best quality; narrow fallback works without it)
-
-# Optional — Embeddings (priority: Gemini → Voyage → local → noop)
-GEMINI_API_KEY=...                     # Google Gemini API key for multimodal embeddings (aistudio.google.com)
-VOYAGE_API_KEY=pa-...                  # Voyage AI embeddings (optional, get key at dash.voyageai.com)
-ENGRAM_EMBEDDING__PROVIDER=auto        # auto | gemini | voyage | local | noop (auto-detects by API key priority)
-ENGRAM_EMBEDDING__LOCAL_MODEL=nomic-ai/nomic-embed-text-v1.5  # fastembed model name
-
-# Optional — General
-ENGRAM_DEFAULT_GROUP_ID=default        # Your brain ID (one per person, not per project)
-# ENGRAM_AUTH__DEFAULT_GROUP_ID=default  # Optional override; omit to follow ENGRAM_DEFAULT_GROUP_ID
-ENGRAM_MODE=auto                       # auto | lite | helix | full
-
-# Optional — HelixDB connection (for helix mode)
-ENGRAM_HELIX__HOST=localhost           # HelixDB host (default: localhost)
-ENGRAM_HELIX__PORT=6969                # HelixDB port (default: 6969)
-ENGRAM_HELIX__TRANSPORT=http           # Transport: native | http | grpc (default: http)
-ENGRAM_HELIX__DATA_DIR=                # Native transport data dir; blank uses helix_native default
-
-# Consolidation (off by default in code; Docker Compose defaults to standard)
-ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard   # Set to enable: off | observe | conservative | standard
-ENGRAM_ACTIVATION__WORKER_ENABLED=true              # Optional override; non-off profiles enable worker automatically
-
-# Full rework integration (recommended for MCP and Docker)
-ENGRAM_ACTIVATION__INTEGRATION_PROFILE=rework       # Normalizes to consolidation_profile=standard + recall_profile=all, enables cue/projection rollout flags, the live natural recall stack, and epistemic routing/artifact bootstrap
-
-# Recall intelligence (advanced / partial-rollout overrides)
-ENGRAM_ACTIVATION__RECALL_PROFILE=all               # off | wave1 | wave2 | wave3 | wave4 | all
-ENGRAM_ACTIVATION__RECALL_NEED_ANALYZER_ENABLED=true   # Advanced override; enabled by wave1+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_NEED_STRUCTURAL_ENABLED=true # Advanced override; enabled by wave1+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_NEED_GRAPH_PROBE_ENABLED=true # Advanced override; enabled by wave2+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_NEED_SHIFT_ENABLED=true      # Advanced override; enabled by wave3+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_NEED_IMPOVERISHMENT_ENABLED=true # Advanced override; enabled by wave3+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_NEED_SHIFT_SHADOW_ONLY=false    # Defaults true when shift is manually enabled
-ENGRAM_ACTIVATION__RECALL_NEED_IMPOVERISHMENT_SHADOW_ONLY=false # Defaults true when manually enabled
-ENGRAM_ACTIVATION__RECALL_PLANNER_ENABLED=true         # Advanced override; enabled by wave2+ or integration_profile=rework
-ENGRAM_ACTIVATION__RECALL_PACKETS_ENABLED=true      # Return packets on recall surfaces (default true)
-ENGRAM_ACTIVATION__RECALL_PACKET_AUTO_LIMIT=2       # Auto-recall packet cap
-ENGRAM_ACTIVATION__RECALL_PACKET_EXPLICIT_LIMIT=3   # Explicit recall packet cap
-ENGRAM_ACTIVATION__RECALL_PACKET_CHAT_LIMIT=2       # Chat tool packet cap
-ENGRAM_ACTIVATION__RECALL_USAGE_FEEDBACK_ENABLED=true  # surfaced/selected/used semantics (enabled by wave1+ or integration_profile=rework)
-ENGRAM_ACTIVATION__RECALL_NEED_ADAPTIVE_THRESHOLDS_ENABLED=false  # Optional bounded runtime tuning; off by default
-ENGRAM_ACTIVATION__RECALL_NEED_GRAPH_OVERRIDE_ENABLED=false       # Optional graph-only recall override; off by default
-ENGRAM_ACTIVATION__RECALL_NEED_POST_RESPONSE_SAFETY_NET_ENABLED=false # Optional one-shot knowledge-chat retry; off by default
-
-# Epistemic routing / artifact substrate (enabled by integration_profile=rework)
-ENGRAM_ACTIVATION__EPISTEMIC_ROUTING_ENABLED=true        # Route questions as remember | inspect | reconcile
-ENGRAM_ACTIVATION__ARTIFACT_BOOTSTRAP_ENABLED=true       # Bootstrap key project docs/config into Artifact entities
-ENGRAM_ACTIVATION__ARTIFACT_RECALL_ENABLED=true          # Let artifacts participate in routed answers
-ENGRAM_ACTIVATION__EPISTEMIC_RUNTIME_EXECUTOR_ENABLED=true  # Surface effective runtime/config state
-ENGRAM_ACTIVATION__DECISION_GRAPH_ENABLED=true           # Track discussed -> documented -> implemented decision edges
-ENGRAM_ACTIVATION__EPISTEMIC_RECONCILE_ENABLED=true      # Reconcile memory with artifacts/runtime
-ENGRAM_ACTIVATION__ANSWER_CONTRACT_ENABLED=true          # Shape answers as direct_answer | compare | reconcile | timeline | recommend | plan
-ENGRAM_ACTIVATION__CLAIM_STATE_MODELING_ENABLED=true     # Annotate claims as discussed | tentative | decided | documented | implemented | effective
-ENGRAM_ACTIVATION__ARTIFACT_BOOTSTRAP_STALE_SECONDS=86400  # Artifact refresh cadence
-
-# Routed answers distinguish multiple truth scopes when needed:
-# - raw config defaults      (code/config defaults)
-# - shipped install defaults (setup wizard, README, .env.example)
-# - repo current posture     (bootstrapped artifacts)
-# - effective runtime        (current running mode/profile/flags)
-
-# Progressive projection / cue layer (advanced / partial-rollout overrides)
-ENGRAM_ACTIVATION__CUE_LAYER_ENABLED=true              # Generate EpisodeCue records on observe/store
-ENGRAM_ACTIVATION__CUE_VECTOR_INDEX_ENABLED=true       # Index cue text for vector search when cue layer is on
-ENGRAM_ACTIVATION__CUE_RECALL_ENABLED=true             # Let cue-backed latent episodes participate in recall
-ENGRAM_ACTIVATION__CUE_POLICY_LEARNING_ENABLED=true    # Use surfaced/selected/used/near-miss feedback
-ENGRAM_ACTIVATION__TARGETED_PROJECTION_ENABLED=true    # Allow long episodes to use span-selected projection
-ENGRAM_ACTIVATION__PROJECTOR_V2_ENABLED=true           # Enable the progressive planner/projector path
-ENGRAM_ACTIVATION__PROJECTION_PLANNER_ENABLED=true     # Deterministic span planner before extractor calls
-
-# Prospective memory tuning (enabled by recall_profile=wave4 or all)
-ENGRAM_ACTIVATION__PROSPECTIVE_ACTIVATION_THRESHOLD=0.5  # Activation level to trigger an intention
-ENGRAM_ACTIVATION__PROSPECTIVE_COOLDOWN_SECONDS=300      # Min seconds between fires (default 5 min)
-ENGRAM_ACTIVATION__PROSPECTIVE_GRAPH_EMBEDDED=true       # Use v2 graph-embedded intentions (default)
-
-# Graph embeddings (enabled by default; train when consolidation runs)
-ENGRAM_ACTIVATION__GRAPH_EMBEDDING_NODE2VEC_ENABLED=true   # Node2Vec random walks (pure numpy)
-ENGRAM_ACTIVATION__GRAPH_EMBEDDING_TRANSE_ENABLED=true     # TransE relational geometry (pure numpy)
-ENGRAM_ACTIVATION__GRAPH_EMBEDDING_GNN_ENABLED=true        # GNN/GraphSAGE (requires torch)
-ENGRAM_ACTIVATION__WEIGHT_GRAPH_STRUCTURAL=0.1             # Retrieval weight (0.0 = disabled)
-
-# LLM fallback configuration (all default to OFF; enable explicitly if desired)
-ENGRAM_ACTIVATION__TRIAGE_LLM_JUDGE_ENABLED=true              # Use Haiku as triage judge (replaces heuristics)
-ENGRAM_ACTIVATION__CONSOLIDATION_INFER_LLM_ENABLED=true       # Haiku validates inferred edges
-ENGRAM_ACTIVATION__CONSOLIDATION_INFER_ESCALATION_ENABLED=true # Sonnet 4.6 re-validates uncertain edges
-ENGRAM_ACTIVATION__CONSOLIDATION_MERGE_LLM_ENABLED=true       # Haiku judges borderline entity merges
-ENGRAM_ACTIVATION__CONSOLIDATION_MERGE_ESCALATION_ENABLED=true # Sonnet 4.6 resolves uncertain merges
-
-# Auth (disabled by default)
-ENGRAM_AUTH__ENABLED=true
-ENGRAM_AUTH__BEARER_TOKEN=<token>
-
-# Encryption (disabled by default)
-ENGRAM_ENCRYPTION__ENABLED=true
-ENGRAM_ENCRYPTION__MASTER_KEY=<64-hex-chars>
-```
-
-All activation engine parameters (150+ fields) are configurable via `ENGRAM_ACTIVATION__*` env vars. See `server/engram/config.py` for the full schema.
-
-### LLM Models
-
-Engram uses a 2-model architecture: Haiku for all high-volume work, Sonnet for escalation of uncertain decisions.
-
-| Role | Model | Config Field | When Used |
-|------|-------|-------------|-----------|
-| **Extraction** | Auto: Anthropic (Haiku 4.5) -> Ollama -> Narrow (deterministic) | `extraction_provider` | `remember`, promoted `observe`, replay |
-| **Triage Judge** | Claude Haiku 4.5 | `triage_llm_judge_model` | Scoring queued episodes (replaces heuristics) |
-| **Infer Validation** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_infer_auto_validation_enabled` | Validating inferred edges |
-| **Merge Judge** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_merge_multi_signal_enabled` | Judging borderline entity merges |
-| **Infer Escalation** | Claude Sonnet 4.6 | `consolidation_infer_escalation_model` | Re-validating uncertain edge verdicts (LLM fallback only) |
-| **Merge Escalation** | Claude Sonnet 4.6 | `consolidation_merge_escalation_model` | Re-validating uncertain merge verdicts (LLM fallback only) |
-| **Briefing** | Claude Haiku 4.5 | `briefing_model` | Synthesizing `get_context(format="briefing")` narrative |
-
-All LLM features beyond basic extraction default to OFF. The `standard` consolidation profile keeps deterministic multi-signal scoring on by default; turn on the `...LLM...` flags above only if you want LLM fallback or escalation. Prompt caching is always active — static system prompts are cached via Anthropic's ephemeral cache, reducing input costs by ~80-90%.
-
-## Security
-
-- **Brain isolation**: Every query filters by `group_id` — one brain per person, hard-partitioned like RLS
-- **Authentication**: Optional bearer token auth on all endpoints, with OIDC JWT support (Clerk-compatible, JWKS caching)
-- **Encryption**: AES-256-GCM with per-tenant HKDF-SHA256 key derivation
-- **Rate limiting**: Redis-backed sliding window per-tenant per-route (observe: 100/min, remember: 20/min, recall: 60/min, trigger: 2/hour); graceful fallback to unlimited when Redis unavailable
-- **Usage metering**: Per-tenant API call and LLM token tracking with daily aggregation (90-day retention)
-- **PII detection**: Entity extraction flags PII (names, emails, phones) with `pii_detected` + `pii_categories` fields
-- **WebSocket**: Authenticates before accept (close 4001 on failure)
-- **Column injection prevention**: Frozenset validation on updatable fields
-- **Docker**: Non-root users, secrets via env vars only, `.env` excluded from images
-
-## Development
-
-### Prerequisites
-
-- Python 3.10+ with [uv](https://docs.astral.sh/uv/)
-- Node.js 22+ with pnpm (for dashboard)
-- Docker (optional, for helix or full mode)
-
-### Commands
-
-```bash
-# Public local install
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- helix
-openclaw skills install engram-brain
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw
-engramctl status
-engramctl connect openclaw
-engramctl update
-
-# Backend
-cd server
-uv run pytest -m "not requires_docker" -v    # Backend test suite
-uv run ruff check .                           # Lint
-uv run python -m engram.mcp.server            # MCP server (stdio)
-uv run uvicorn engram.main:app --port 8100    # REST API
-uv run python -m engram setup                 # Interactive setup wizard
-uv run python -m engram config                # Edit configuration
-
-# Frontend
-cd dashboard
-pnpm install && pnpm dev                      # Dev server (port 5173)
-pnpm test                                     # Frontend test suite
-pnpm build                                    # Production build
-
-# Docker (developer/source full mode) — via Makefile
-make up                                       # Build + start full stack (standard consolidation + rework integration)
-make down                                     # Stop everything
-make restart                                  # Stop + rebuild + start
-make logs                                     # Tail all logs (make logs-server for server only)
-make status                                   # Container status + health check
-make clean                                    # Stop + delete volumes (WARNING: deletes data)
-
-# Native mode (PyO3 — no Docker, recommended)
-make build-native                             # Build PyO3 extension (one-time, requires Rust toolchain)
-make up-native                                # Start server with native HelixDB
-make mcp-native                               # Start MCP with native HelixDB
-make up-native NATIVE_DATA_DIR=/path/to/native-data
-                                               # Start REST with a specific native brain directory
-make mcp-native NATIVE_DATA_DIR=/path/to/native-data
-                                               # Start MCP with a specific native brain directory
-cd server && uv run engram serve --mode helix --helix-data-dir /path/to/native-data
-                                               # Start REST with a specific native brain directory
-cd server && uv run engram mcp --mode helix --helix-data-dir /path/to/native-data
-                                               # Start MCP with a specific native brain directory
-cd server && ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native uv run engram lifecycle --mode helix
-                                               # Inspect native brain-loop state
-cd server && uv run engram lifecycle --mode helix --helix-data-dir /path/to/native-data
-                                               # Inspect a specific native brain directory
-make patch-helix                              # Re-apply HDB fork changes after helix push
-
-# Docker (HelixDB HTTP mode) — single-service graph+vector backend
-make up-helix                                 # Build + start Helix stack (HelixDB + server + dashboard)
-make down-helix                               # Stop Helix stack
-make restart-helix                            # Rebuild and restart
-make logs-helix                               # Tail Helix stack logs
-make mcp-helix                                # MCP server (streamable HTTP, connects to Docker Helix)
-```
-
-### Project Structure
+## Project Structure
 
 ```
 server/engram/
-  activation/       # ACT-R engine (BFS, PPR, strategy pattern)
-  api/              # REST endpoints + WebSocket
-  benchmark/        # Deterministic benchmark framework
-  consolidation/    # 17-phase engine, scheduler, pressure accumulator
-  embeddings/       # Embedding providers (Gemini multimodal, Voyage AI cloud, fastembed local, noop)
-  events/           # EventBus + Redis pub/sub bridge
-  extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
-  ingestion/        # CQRS ingestion paths
-  mcp/              # MCP server (27 tools, 3 resources, 2 prompts)
-  models/           # Pydantic data models
-  retrieval/        # Pipeline, scorer, router, reranker, MMR
-  security/         # Auth middleware, AES-256-GCM encryption, OIDC, rate limiting
-  storage/          # HelixDB, SQLite, FalkorDB, Redis implementations
-  worker.py         # Background episode processor (EventBus-driven)
+  activation/       ACT-R engine, BFS, PPR
+  consolidation/    16-phase engine + scheduler
+  ingestion/        CQRS: store_episode / project_episode
+  mcp/              27 tools, resources, prompts
+  retrieval/        Hybrid search, packets, auto_recall
+  storage/          Helix native, SQLite, FalkorDB
 
-dashboard/src/
-  components/       # Graph renderers, dashboard panels, and knowledge chat UI
-  store/            # Zustand slices and selectors
-  hooks/            # WebSocket with exponential backoff
-  api/              # HTTP client
-  lib/              # Utilities
-  test/             # Vitest test suite
-
+dashboard/src/      React 19 + Three.js brain + Zustand
 ```
 
-## Troubleshooting
+<br>
 
-**`remember` returns success but no entities are extracted**
-Your `ANTHROPIC_API_KEY` is missing or invalid. The server starts fine without it, but extraction silently returns empty results. Check `docker compose logs server` for `Entity extraction failed` errors.
-
-**Dashboard doesn't update when I use MCP tools**
-The Redis event bridge connects the MCP server to the dashboard. Verify:
-1. MCP server is configured with `ENGRAM_MODE=full` and the correct `ENGRAM_REDIS__URL` (including password)
-2. Docker stack is running (`docker compose ps` — all services should be `healthy`)
-3. Redis URL includes the password: `redis://:engram_dev@localhost:6381/0`
-
-**Mode auto-detects as "lite" when I have Docker running**
-Redis requires authentication. If `ENGRAM_FALKORDB__PASSWORD` or `ENGRAM_REDIS__URL` aren't set with the correct password, the 2s probe fails and Engram falls back to lite mode. Set the env vars in `.env` (see `.env.example`).
-
-**Docker compose up fails or services are unhealthy**
-```bash
-docker compose down -v   # Stop and remove volumes (WARNING: deletes data)
-docker compose up -d --build
-docker compose ps        # Check health status
-docker compose logs -f   # Watch for errors
-```
-
-**Public installer prerequisites fail**
-The one-click installer requires Docker and Docker Compose. If Docker is not
-installed, the installer exits with exact next-step instructions instead of
-trying to provision it automatically. After Docker is running, retry:
+## Development
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash
+cd server && uv run pytest -m "not requires_helix" -v   # Backend tests
+cd server && uv run ruff check .                        # Lint
+cd server && uv run engram mcp                          # MCP stdio
+make up-native                                          # Full stack, native Helix
 ```
 
-**"Connection refused" when MCP connects to Docker services**
-The MCP server runs on your host machine, connecting to Docker via mapped ports. FalkorDB maps `6380→6379`, Redis maps `6381→6379`. Make sure your MCP env uses `localhost:6380` (FalkorDB) and `localhost:6381` (Redis), not the Docker-internal port 6379.
+→ Full commands: [docs/REFERENCE.md#development](docs/REFERENCE.md#development)
+
+<br>
 
 ## License
 
-Engram is licensed under **Apache 2.0** — see [LICENSE](LICENSE).
+Engram is **Apache 2.0** — see [LICENSE](LICENSE).
 
-### Third-Party License Notice: HelixDB
-
-HelixDB is licensed under **AGPL-3.0**. How this affects you depends on which transport you use:
-
-| Transport | License impact | Default? |
-|-----------|---------------|----------|
-| **HTTP / gRPC** (Docker) | **No impact** — HelixDB runs as a separate service. Engram stays Apache 2.0. | Yes (default) |
-| **Native (PyO3)** | **AGPL applies** — HelixDB is linked into the Python process. Your deployment must comply with AGPL-3.0 terms. | No (opt-in) |
-
-**If you use the default HTTP or gRPC transport**, HelixDB is a separate process communicating over the network. This is the same as using PostgreSQL or Redis — no license contamination. Your code and any extensions you build remain under whatever license you choose.
-
-**If you use native mode** (`make build-native`), the HelixDB engine is compiled into a Python extension module and runs in-process. Under AGPL-3.0, this may require you to make your source code available if you provide the software as a network service. This is fine for personal use, self-hosted deployments, and open-source projects. For commercial/proprietary use with native mode, contact the [HelixDB team](https://github.com/HelixDB/helix-db) about commercial licensing options.
-
-The Lite (SQLite) and Full (FalkorDB + Redis) backends have no AGPL concerns.
+**HelixDB note:** HTTP/gRPC transport (default Docker) — no license impact. **Native PyO3** links AGPL-3.0 in-process; fine for personal/open-source, review terms for proprietary network services. Lite and Full backends have no AGPL concerns.
