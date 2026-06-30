@@ -1308,35 +1308,42 @@ async def retrieve(
 
     # Step 4.1: Inhibitory spreading (Brain Architecture)
     if cfg.inhibitory_spreading_enabled:
-        from engram.retrieval.inhibition import apply_inhibition
+        if _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_inhibitory_spreading_skipped_probe_timeout",
+                0.0,
+            )
+        else:
+            from engram.retrieval.inhibition import apply_inhibition
 
-        # Fetch seed relationships so predicate suppression (LIKES/DISLIKES etc.)
-        # has the contradictory-edge data it needs to actually fire.
-        seed_relationships: list[tuple[str, str, str, float]] = []
-        if cfg.inhibition_predicate_suppression and seed_node_ids:
-            for seed_id in seed_node_ids:
-                try:
-                    rels = await graph_store.get_relationships(
-                        seed_id,
-                        group_id=group_id,
-                    )
-                except Exception:
-                    continue
-                for rel in rels:
-                    seed_relationships.append(
-                        (rel.source_id, rel.target_id, rel.predicate, rel.weight)
-                    )
+            # Fetch seed relationships so predicate suppression (LIKES/DISLIKES etc.)
+            # has the contradictory-edge data it needs to actually fire.
+            seed_relationships: list[tuple[str, str, str, float]] = []
+            if cfg.inhibition_predicate_suppression and seed_node_ids:
+                for seed_id in seed_node_ids:
+                    try:
+                        rels = await graph_store.get_relationships(
+                            seed_id,
+                            group_id=group_id,
+                        )
+                    except Exception:
+                        continue
+                    for rel in rels:
+                        seed_relationships.append(
+                            (rel.source_id, rel.target_id, rel.predicate, rel.weight)
+                        )
 
-        bonuses = await apply_inhibition(
-            bonuses=bonuses,
-            hop_distances=hop_distances,
-            seed_node_ids=seed_node_ids,
-            graph_store=graph_store,
-            search_index=search_index,
-            group_id=group_id,
-            cfg=cfg,
-            relationships=seed_relationships or None,
-        )
+            bonuses = await apply_inhibition(
+                bonuses=bonuses,
+                hop_distances=hop_distances,
+                seed_node_ids=seed_node_ids,
+                graph_store=graph_store,
+                search_index=search_index,
+                group_id=group_id,
+                cfg=cfg,
+                relationships=seed_relationships or None,
+            )
 
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
     existing_ids = {eid for eid, _ in candidates}
@@ -1588,28 +1595,35 @@ async def retrieve(
     # Step 4.97: Preference-directed boosts
     preference_boosts: dict[str, float] | None = None
     if cfg.preference_directed_enabled:
-        try:
-            pref_entities = await graph_store.find_entities(
-                name="UserPreference",
-                entity_type="PreferenceProfile",
-                group_id=group_id,
-                limit=1,
+        if _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_preference_directed_skipped_probe_timeout",
+                0.0,
             )
-            if pref_entities:
-                pref_attrs = pref_entities[0].attributes or {}
-                domain_scores = pref_attrs.get("domain_preference_scores", {})
-                if domain_scores and entity_attributes:
-                    preference_boosts = {}
-                    for eid, attrs in entity_attributes.items():
-                        etype = attrs.get("entity_type", "Other")
-                        for domain, types in cfg.domain_groups.items():
-                            if etype in types:
-                                pref_score = domain_scores.get(domain, 0.0)
-                                if pref_score != 0.0:
-                                    preference_boosts[eid] = pref_score
-                                break
-        except Exception:
-            preference_boosts = None
+        else:
+            try:
+                pref_entities = await graph_store.find_entities(
+                    name="UserPreference",
+                    entity_type="PreferenceProfile",
+                    group_id=group_id,
+                    limit=1,
+                )
+                if pref_entities:
+                    pref_attrs = pref_entities[0].attributes or {}
+                    domain_scores = pref_attrs.get("domain_preference_scores", {})
+                    if domain_scores and entity_attributes:
+                        preference_boosts = {}
+                        for eid, attrs in entity_attributes.items():
+                            etype = attrs.get("entity_type", "Other")
+                            for domain, types in cfg.domain_groups.items():
+                                if etype in types:
+                                    pref_score = domain_scores.get(domain, 0.0)
+                                    if pref_score != 0.0:
+                                        preference_boosts[eid] = pref_score
+                                    break
+            except Exception:
+                preference_boosts = None
 
     # Step 5: Score all candidates
     if cfg.ts_enabled:

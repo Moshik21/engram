@@ -154,6 +154,7 @@ class HelixConsolidationStore:
 
         transport = getattr(self._config, "transport", "http")
         if transport == "native":
+            await self._ensure_scheduler_sidecar()
             logger.info("HelixDB consolidation store initialized (native transport)")
             return
 

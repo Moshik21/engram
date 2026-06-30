@@ -709,6 +709,8 @@ class TestPipelineEpisodeRetrieval:
             slow_expand,
         )
         cfg = ActivationConfig(
+            consolidation_profile="off",
+            recall_profile="off",
             episode_retrieval_enabled=False,
             cue_recall_enabled=False,
             chunk_search_enabled=False,
@@ -719,6 +721,8 @@ class TestPipelineEpisodeRetrieval:
             goal_priming_enabled=True,
             cross_domain_penalty_enabled=True,
             gc_mmr_enabled=True,
+            preference_directed_enabled=True,
+            inhibitory_spreading_enabled=True,
         )
         graph = _mock_graph_store()
         graph.get_entity = AsyncMock(side_effect=slow_get_entity)
@@ -745,6 +749,8 @@ class TestPipelineEpisodeRetrieval:
         assert stage_timings["recall_spread_skipped_probe_timeout"] == 0.0
         assert stage_timings["recall_entity_attributes_skipped_probe_timeout"] == 0.0
         assert stage_timings["recall_gc_mmr_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_preference_directed_skipped_probe_timeout"] == 0.0
+        assert stage_timings["recall_inhibitory_spreading_skipped_probe_timeout"] == 0.0
         assert "recall_graph_pool_timeout" not in stage_timings
         assert "recall_goal_priming_timeout" not in stage_timings
         assert "recall_cross_domain_seed_timeout" not in stage_timings
@@ -770,6 +776,8 @@ class TestPipelineEpisodeRetrieval:
             )
 
         cfg = ActivationConfig(
+            consolidation_profile="off",
+            recall_profile="off",
             episode_retrieval_enabled=False,
             cue_recall_enabled=False,
             chunk_search_enabled=False,
@@ -1627,6 +1635,8 @@ class TestGraphManagerRecallEpisodes:
         extractor = AsyncMock()
 
         cfg = ActivationConfig(
+            consolidation_profile="off",
+            recall_profile="off",
             episode_retrieval_enabled=False,
             cue_recall_enabled=False,
             retrieval_priming_enabled=True,
@@ -1634,6 +1644,7 @@ class TestGraphManagerRecallEpisodes:
             retrieval_priming_boost=0.15,
             working_memory_enabled=False,
         )
+        search.get_entity_embeddings = AsyncMock(return_value={})
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 
         results = await gm.recall("test query", group_id="default")
