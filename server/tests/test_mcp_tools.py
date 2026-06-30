@@ -712,6 +712,28 @@ class TestEpistemicArtifacts:
         assert "epistemicMetrics" in state["stats"]
 
     @pytest.mark.asyncio
+    async def test_get_runtime_state_reports_artifacts_for_tmp_path_alias(
+        self,
+        rich_manager,
+        tmp_path,
+    ):
+        (tmp_path / "README.md").write_text("# Engram\nBootstrap via tmp alias.\n")
+        await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+
+        alias = str(tmp_path).replace("/private/tmp", "/tmp")
+        if alias == str(tmp_path):
+            pytest.skip("tmp_path is not under /private/tmp on this platform")
+
+        state = await rich_manager.get_runtime_state(
+            group_id=GROUP,
+            project_path=alias,
+            live=True,
+        )
+        assert state["artifactBootstrap"]["artifactCount"] >= 1
+        assert state["artifactBootstrap"]["lastObservedAt"] is not None
+        assert state["agentAdoption"]["status"] == "ready"
+
+    @pytest.mark.asyncio
     async def test_gather_epistemic_evidence_prefers_artifacts_for_project_truth(
         self,
         rich_manager,

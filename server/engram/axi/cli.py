@@ -522,7 +522,9 @@ def _write_trace(args: argparse.Namespace, result: AxiResult, *, duration_ms: in
     if not raw_trace_file:
         return
     command = getattr(args, "axi_command", None) or "home"
-    if command == "hooks":
+    if command == "hook-run":
+        command = "home"
+    elif command == "hooks":
         command = f"hooks.{getattr(args, 'hooks_command', 'unknown')}"
     elif command == "packet-cache":
         command = f"packet-cache.{getattr(args, 'packet_cache_command', 'unknown')}"

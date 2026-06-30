@@ -319,6 +319,7 @@ def test_home_payload_auto_bootstraps_fresh_runtime() -> None:
     assert result.payload["bootstrap"]["observed"] == 2
     assert result.payload["brain"]["artifact_count"] >= 2
     assert result.payload["brain"]["artifact_status"] == "bootstrapped"
+    assert result.payload["brain"]["required_next_tools"] == ["get_context"]
     assert client.calls.count("runtime_fast") == 1
     assert "runtime" in client.calls
     assert "bootstrap" in client.calls

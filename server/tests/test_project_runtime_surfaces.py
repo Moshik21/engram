@@ -139,6 +139,42 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_state_cache_invalidates_for_matching_tmp_path() -> None:
+    calls = 0
+
+    async def list_project_artifacts(**_: object) -> list[object]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    service = RuntimeStateService(
+        cfg=ActivationConfig(artifact_bootstrap_enabled=True),
+        runtime_mode="helix",
+        list_project_artifacts=list_project_artifacts,
+        artifact_is_stale=lambda *_: False,
+        get_recall_metrics=lambda _: {},
+        get_memory_operation_metrics=lambda _: {},
+        get_epistemic_metrics=lambda _: {},
+        get_packet_cache_summary=lambda _: {},
+    )
+
+    await service.get_runtime_state(
+        group_id="native_brain",
+        project_path="/tmp/engram",
+        live=True,
+    )
+    service.invalidate_cache(group_id="native_brain", project_path="/private/tmp/engram")
+
+    await service.get_runtime_state(
+        group_id="native_brain",
+        project_path="/tmp/engram",
+        live=False,
+    )
+
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_runtime_state_cache_serves_default_without_live_artifact_read() -> None:
     calls = 0
 

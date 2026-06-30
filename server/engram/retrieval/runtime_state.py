@@ -12,6 +12,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
+from engram.retrieval.artifacts import _normalize_project_path
 from engram.utils.dates import utc_now_iso
 
 DEFAULT_RUNTIME_STATE_TIMEOUT_SECONDS = 1.0
@@ -138,7 +139,7 @@ class RuntimeStateService:
         not inherit deep artifact or graph-state latency. Operator callers can
         pass ``live=True`` for a fresh read.
         """
-        cache_key = (group_id, project_path)
+        cache_key = _runtime_cache_key(group_id, project_path)
         cached = self._cache.get(cache_key)
         if not live and cached is not None:
             return _with_cache_metadata(
@@ -198,6 +199,28 @@ class RuntimeStateService:
             cache_status="refreshed",
             cached_at=cached_at,
         )
+
+    def invalidate_cache(
+        self,
+        *,
+        group_id: str | None = None,
+        project_path: str | None = None,
+    ) -> None:
+        """Drop cached runtime packets after bootstrap or other graph mutations."""
+        if group_id is None and project_path is None:
+            self._cache.clear()
+            return
+        keys_to_drop = [
+            key
+            for key in self._cache
+            if (group_id is None or key[0] == group_id)
+            and (
+                project_path is None
+                or key[1] == _runtime_cache_key(group_id or key[0], project_path)[1]
+            )
+        ]
+        for key in keys_to_drop:
+            del self._cache[key]
 
     async def _build_live_runtime_state(
         self,
@@ -401,6 +424,10 @@ def _numeric_values(value: Any):
 
 def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 4)
+
+
+def _runtime_cache_key(group_id: str, project_path: str | None) -> tuple[str, str | None]:
+    return group_id, _normalize_project_path(project_path)
 
 
 def _with_cache_metadata(

@@ -119,6 +119,7 @@ def build_home_payload(
             brain = payload.get("brain") or {}
             brain["artifact_count"] = max(int(brain.get("artifact_count") or 0), observed)
             brain["artifact_status"] = "bootstrapped"
+            brain["required_next_tools"] = ["get_context"]
             payload["brain"] = brain
     if health.get("error"):
         payload["error"] = health.get("error")
