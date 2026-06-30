@@ -108,6 +108,11 @@ class ProjectBootstrapService:
     ) -> dict:
         """Create or refresh Project/Artifact graph context for a local project path."""
         project_dir = Path(project_path).expanduser()
+        try:
+            project_dir = project_dir.resolve()
+        except OSError:
+            pass
+        project_path = str(project_dir)
         project_name = project_dir.name
         if not project_name or str(project_dir) in (str(Path.home()), "/"):
             return {"status": "skipped", "reason": "invalid_path"}

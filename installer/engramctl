@@ -211,10 +211,11 @@ Commands:
   setup --mode helix|lite|auto   Preselect a local no-Docker backend
   quickstart [--project PATH]    Setup native mode, start, connect, bootstrap, doctor
              [--install-openclaw] [--connect CLIENT]
-             [--axi-hooks] [--capture]
+             [--axi-hooks] [--capture] [--no-bootstrap] [--no-axi]
   doctor                         Run the installed-user readiness gate
-  connect <client>               Configure MCP for codex|claude-code|cursor|windsurf|claude-desktop|openclaw
-                                  Add --axi for read-only AXI startup context on codex|claude-code
+  connect <client>               Configure MCP for codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw
+                                  Codex/Claude Code auto-install AXI hooks; Cursor/Windsurf/Grok get priming rules
+                                  Use --no-axi or --no-bootstrap to opt out; --axi/--capture remain supported
   bootstrap [--include GLOB] <project-dir> [...]
                                   Index selected project docs, notes, exports
   install [--mode full] [--no-open]
@@ -493,6 +494,64 @@ verify_api_reachable() {
   local port="${ENGRAM_API_PORT:-8100}"
   curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1 \
     || die "Engram API is not reachable on 127.0.0.1:${port}."
+}
+
+api_reachable_silent() {
+  local port="${ENGRAM_API_PORT:-8100}"
+  curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1
+}
+
+client_supports_axi_hooks() {
+  case "$1" in
+    codex|claude-code|claude) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+client_needs_priming_instructions() {
+  case "$1" in
+    cursor|windsurf|grok-build|grok) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+normalize_priming_client() {
+  case "$1" in
+    grok|grok-build) echo "grok-build" ;;
+    windsurf) echo "windsurf" ;;
+    cursor) echo "cursor" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+write_priming_instruction_for_client() {
+  local client="$1"
+  local project_path="$2"
+  client="$(normalize_priming_client "$client")"
+  if ! client_needs_priming_instructions "$client"; then
+    return 0
+  fi
+  local engram_cmd
+  engram_cmd="$(find_engram_command_optional || true)"
+  if [ -z "$engram_cmd" ]; then
+    warn "Engram CLI not found; skipped priming instructions for $client."
+    return 0
+  fi
+  if "$engram_cmd" harness write-priming --client "$client" --project "$project_path"; then
+    info "Wrote Engram priming instructions for $client at $project_path"
+  else
+    warn "Failed to write Engram priming instructions for $client"
+  fi
+}
+
+maybe_auto_bootstrap_connect() {
+  local project_path="$1"
+  [ -n "$project_path" ] || return 0
+  if ! api_reachable_silent; then
+    dim "Skipped bootstrap: Engram API not reachable. Run: engramctl bootstrap \"$project_path\""
+    return 0
+  fi
+  command_bootstrap "$project_path"
 }
 
 api_base_url() {
@@ -1562,13 +1621,15 @@ command_doctor() {
 
 command_connect() {
   local client="${1:-}"
-  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|claude-desktop|openclaw|manual [--project PATH] [--verify] [--axi] [--capture]"
+  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw|manual [--project PATH] [--verify] [--axi] [--capture] [--no-axi] [--no-bootstrap]"
   shift || true
 
   local project_path="$PWD"
   local verify=0
   local install_axi=0
   local axi_capture=0
+  local no_axi=0
+  local no_bootstrap=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --project)
@@ -1586,6 +1647,14 @@ command_connect() {
       --capture)
         install_axi=1
         axi_capture=1
+        shift
+        ;;
+      --no-axi)
+        no_axi=1
+        shift
+        ;;
+      --no-bootstrap)
+        no_bootstrap=1
         shift
         ;;
       *)
@@ -1627,6 +1696,12 @@ command_connect() {
       info "Configured Cursor project MCP at $target"
       dim "Restart Cursor or refresh MCP tools to pick up Engram."
       ;;
+    grok-build|grok)
+      local target="$project_path/.grok/mcp.json"
+      write_mcp_http_config "$target" "$url"
+      info "Configured Grok Build project MCP at $target"
+      dim "Restart Grok Build or refresh MCP tools to pick up Engram."
+      ;;
     windsurf)
       local target="$HOME/.codeium/windsurf/mcp_config.json"
       write_mcp_http_config "$target" "$url"
@@ -1655,8 +1730,16 @@ command_connect() {
       ;;
   esac
 
-  if [ "$install_axi" = "1" ]; then
+  if [ "$no_axi" != "1" ] && { [ "$install_axi" = "1" ] || client_supports_axi_hooks "$client"; }; then
     install_axi_hook_for_client "$client" "$axi_capture"
+  fi
+
+  if client_needs_priming_instructions "$client"; then
+    write_priming_instruction_for_client "$client" "$project_path"
+  fi
+
+  if [ "$no_bootstrap" != "1" ]; then
+    maybe_auto_bootstrap_connect "$project_path"
   fi
 }
 
@@ -1740,6 +1823,9 @@ command_quickstart() {
   local axi_capture=0
   local no_start=0
   local no_doctor=0
+  local no_bootstrap=0
+  local no_axi=0
+  local connect_ran=0
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1776,11 +1862,23 @@ command_quickstart() {
         no_doctor=1
         shift
         ;;
+      --no-bootstrap)
+        no_bootstrap=1
+        shift
+        ;;
+      --no-axi)
+        no_axi=1
+        shift
+        ;;
       *)
         die "Unknown quickstart option: $1"
         ;;
     esac
   done
+
+  if [ -z "$project_path" ] && [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
+    project_path="$PWD"
+  fi
 
   echo ""
   echo -e "  ${BOLD}Engram Quickstart${RESET}"
@@ -1816,30 +1914,36 @@ command_quickstart() {
     connect_client="${connect_client:-skip}"
   fi
   if [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
+    local connect_args=("$connect_client")
     if [ -n "$project_path" ]; then
-      command_connect "$connect_client" --project "$project_path"
-    else
-      command_connect "$connect_client"
+      connect_args+=(--project "$project_path")
     fi
-  fi
-
-  if [ "$install_axi_hooks" = "1" ]; then
-    if [ -n "$connect_client" ] && [ "$connect_client" != "skip" ]; then
-      install_axi_hook_for_client "$connect_client" "$axi_capture"
-    else
-      warn "AXI hook install was requested but no Codex or Claude Code client was selected."
-      dim "Run later: engramctl connect codex --axi"
-      dim "Or:        engramctl connect claude-code --axi"
+    if [ "$no_axi" = "1" ]; then
+      connect_args+=(--no-axi)
+    elif [ "$install_axi_hooks" = "1" ]; then
+      connect_args+=(--axi)
+      if [ "$axi_capture" = "1" ]; then
+        connect_args+=(--capture)
+      fi
     fi
+    if [ "$no_bootstrap" = "1" ]; then
+      connect_args+=(--no-bootstrap)
+    fi
+    command_connect "${connect_args[@]}"
+    connect_ran=1
+  elif [ "$install_axi_hooks" = "1" ]; then
+    warn "AXI hook install was requested but no Codex or Claude Code client was selected."
+    dim "Run later: engramctl connect codex"
+    dim "Or:        engramctl connect claude-code"
   fi
 
   if [ -z "$project_path" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
     echo ""
     read -r -p "  Bootstrap a project directory now? [path or Enter to skip]: " project_path || true
   fi
-  if [ -n "$project_path" ] && [ "$no_start" != "1" ]; then
-    command_bootstrap "$project_path"
-  elif [ -n "$project_path" ]; then
+  if [ "$connect_ran" != "1" ] && [ -n "$project_path" ] && [ "$no_start" != "1" ] && [ "$no_bootstrap" != "1" ]; then
+    maybe_auto_bootstrap_connect "$project_path"
+  elif [ -n "$project_path" ] && [ "$no_start" = "1" ]; then
     note "Skipped bootstrap because --no-start was set. Run: engramctl bootstrap \"$project_path\""
   fi
 

@@ -326,8 +326,8 @@ def test_engramctl_exposes_release_startup_commands() -> None:
     assert "[--axi-hooks] [--capture]" in engramctl
     assert "doctor                         Run the installed-user readiness gate" in engramctl
     assert "connect <client>" in engramctl
-    assert "Add --axi for read-only AXI startup context" in engramctl
-    assert "codex|claude-code|cursor|windsurf|claude-desktop|openclaw" in engramctl
+    assert "Codex/Claude Code auto-install AXI hooks" in engramctl
+    assert "codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw" in engramctl
     assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
     assert "storage                        Show resolved storage paths and disk growth" in engramctl
     assert "quickstart) command_quickstart" in engramctl
@@ -346,10 +346,94 @@ def test_engramctl_connect_can_install_axi_hooks() -> None:
     assert "local args=(" in engramctl
     assert 'axi hooks install "$client"' in engramctl
     assert '--engram-command "$engram_cmd"' in engramctl
-    assert "engramctl connect codex --axi" in engramctl
-    assert "engramctl connect claude-code --axi" in engramctl
+    assert "engramctl connect codex" in engramctl
+    assert "client_supports_axi_hooks" in engramctl
     assert '"$engram_cmd" "${args[@]}"' in engramctl
     assert '"$engram_cmd" hooks' not in engramctl
+
+
+def test_engramctl_exposes_harness_adoption_defaults() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "client_supports_axi_hooks" in engramctl
+    assert "write_priming_instruction_for_client" in engramctl
+    assert "maybe_auto_bootstrap_connect" in engramctl
+    assert "grok-build|grok" in engramctl
+    assert "--no-bootstrap" in engramctl
+    assert "--no-axi" in engramctl
+    assert "harness write-priming" in engramctl
+
+
+def test_engramctl_connect_codex_auto_installs_axi_without_flag(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    calls_file = tmp_path / "fake-engram-calls.jsonl"
+    env["ENGRAM_FAKE_CALLS"] = str(calls_file)
+    _write_fake_engram(tmp_path / "bin", calls_file)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+    result = _run_engramctl_with_env(
+        env,
+        "connect",
+        "codex",
+        "--project",
+        str(project),
+        "--no-bootstrap",
+    )
+
+    calls = [line for line in calls_file.read_text().splitlines() if line.strip()]
+    assert "Configured Codex MCP" in result.stdout + result.stderr
+    assert len(calls) == 1
+    args = json.loads(calls[0])
+    assert args[:4] == ["axi", "hooks", "install", "codex"]
+
+
+def test_engramctl_connect_cursor_writes_priming_rules(tmp_path: Path) -> None:
+    env = _engramctl_env(tmp_path)
+    calls_file = tmp_path / "fake-engram-calls.jsonl"
+    env["ENGRAM_FAKE_CALLS"] = str(calls_file)
+    _write_fake_engram_with_harness(tmp_path / "bin", calls_file, ROOT / "server")
+    project = tmp_path / "project"
+    project.mkdir()
+
+    _run_engramctl_with_env(env, "setup", "--mode", "helix")
+    result = _run_engramctl_with_env(
+        env,
+        "connect",
+        "cursor",
+        "--project",
+        str(project),
+        "--no-bootstrap",
+    )
+
+    priming_path = project / ".cursor/rules/engram-memory.mdc"
+    assert priming_path.exists()
+    content = priming_path.read_text(encoding="utf-8")
+    assert "claim_authority" in content
+    assert "get_context" in content
+    assert "Configured Cursor project MCP" in result.stdout + result.stderr
+
+
+def _write_fake_engram_with_harness(bin_dir: Path, calls_file: Path, server_root: Path) -> None:
+    fake_engram = bin_dir / "engram"
+    fake_engram.write_text(
+        f"""#!/usr/bin/env bash
+if [ "${{1:-}}" = "harness" ]; then
+  cd "{server_root}" && exec uv run python -m engram "$@"
+fi
+python3 - "$ENGRAM_FAKE_CALLS" "$@" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(sys.argv[2:]) + "\\n")
+PY
+echo "fake engram $*"
+""",
+    )
+    fake_engram.chmod(0o755)
+    calls_file.write_text("")
 
 
 def test_engramctl_connect_codex_axi_executes_installed_hook_command(tmp_path: Path) -> None:

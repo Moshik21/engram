@@ -56,9 +56,25 @@ class AxiRestClient:
             auth_token=self.auth_token,
         )
 
-    def runtime(self, *, project_path: str | None = None) -> dict[str, Any]:
-        query = {"project_path": project_path} if project_path else None
-        return self.request_json("GET", "/api/knowledge/runtime", query=query)
+    def runtime(
+        self,
+        *,
+        project_path: str | None = None,
+        live: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        if project_path:
+            query["project_path"] = project_path
+        if live:
+            query["live"] = True
+        if timeout_seconds is not None:
+            query["timeoutSeconds"] = timeout_seconds
+        return self.request_json(
+            "GET",
+            "/api/knowledge/runtime",
+            query=query or None,
+        )
 
     def runtime_fast(self, *, project_path: str | None = None) -> dict[str, Any]:
         query = {"project_path": project_path} if project_path else None

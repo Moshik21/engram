@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from engram.config import ActivationConfig
@@ -131,10 +132,11 @@ class ArtifactSearchService:
         )
         if project_path is None:
             return artifacts
+        normalized = _normalize_project_path(project_path)
         return [
             entity
             for entity in artifacts
-            if (entity.attributes or {}).get("project_path") == project_path
+            if _normalize_project_path((entity.attributes or {}).get("project_path")) == normalized
         ]
 
     async def search_artifacts(
@@ -284,3 +286,13 @@ class ArtifactSearchService:
             confidence=float(claim_data.get("confidence", 0.0) or 0.0),
             provenance=dict(claim_data.get("provenance") or {}),
         )
+
+
+def _normalize_project_path(path: str | None) -> str | None:
+    if not path:
+        return None
+    expanded = Path(str(path)).expanduser()
+    try:
+        return str(expanded.resolve())
+    except OSError:
+        return str(expanded)

@@ -13,10 +13,12 @@ from typing import Any
 
 from engram.axi.budgets import compact_whitespace, first_present, truncate_text
 from engram.axi.client import AxiRestClient, AxiRestError
+from engram.harness_adoption import runtime_needs_bootstrap
 
 LIFECYCLE = "Capture -> Cue -> Project -> Recall -> Consolidate"
 DESCRIPTION = "Long-term memory brain for AI agents"
 HOME_PROBE_TIMEOUT_SECONDS = 2.5
+HOME_BOOTSTRAP_TIMEOUT_SECONDS = 55.0
 FOLLOWUP_TIMEOUT_SECONDS = 10.0
 VALUE_TIMEOUT_SECONDS = 20.0
 
@@ -48,6 +50,13 @@ def build_home_payload(
     health = probes["health"]
     runtime = probes["runtime"]
     storage = probes["storage"]
+    bootstrap_summary = _maybe_auto_bootstrap_home(
+        probe_client,
+        project_path=project_path,
+        runtime=runtime,
+        probes=probes,
+    )
+    runtime = probes["runtime"]
     health_error = probes.get("health_error")
     runtime_error = probes.get("runtime_error")
     storage_error = probes.get("storage_error")
@@ -103,6 +112,14 @@ def build_home_payload(
             followup_trace_origin=followup_trace_origin,
         ),
     }
+    if bootstrap_summary is not None:
+        payload["bootstrap"] = bootstrap_summary
+        observed = int(bootstrap_summary.get("observed") or 0)
+        if observed > 0 and bootstrap_summary.get("status") != "error":
+            brain = payload.get("brain") or {}
+            brain["artifact_count"] = max(int(brain.get("artifact_count") or 0), observed)
+            brain["artifact_status"] = "bootstrapped"
+            payload["brain"] = brain
     if health.get("error"):
         payload["error"] = health.get("error")
     elif runtime_error and storage_error and not any_probe_succeeded:
@@ -651,13 +668,68 @@ def build_bootstrap_payload(
         "operation": "bootstrap",
         "status": result.get("status") or "ok",
         "project": project_path,
-        "observed": first_present(result, "observed", "observedCount", "count") or 0,
+        "observed": _bootstrap_observed_count(result),
         "skipped": first_present(result, "skipped", "skippedCount") or 0,
     }
     message = result.get("message")
     if message:
         payload["message"] = message
     return AxiResult(payload=payload)
+
+
+def _maybe_auto_bootstrap_home(
+    client: AxiRestClient,
+    *,
+    project_path: str | None,
+    runtime: dict[str, Any],
+    probes: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not project_path or not isinstance(runtime, dict):
+        return None
+    if not runtime_needs_bootstrap(runtime):
+        return None
+    bootstrap_client = client
+    with_timeout = getattr(client, "with_timeout", None)
+    if callable(with_timeout):
+        bootstrap_client = with_timeout(HOME_BOOTSTRAP_TIMEOUT_SECONDS)
+    try:
+        result = bootstrap_client.bootstrap(project_path=project_path)
+    except AxiRestError as exc:
+        return {
+            "status": "error",
+            "project": project_path,
+            "error": exc.message,
+            "auto": True,
+        }
+    probes["runtime"] = _home_runtime_packet_live(
+        bootstrap_client,
+        project_path=project_path,
+    )
+    return {
+        "status": result.get("status") or "ok",
+        "project": project_path,
+        "observed": _bootstrap_observed_count(result),
+        "skipped": first_present(result, "skipped", "skippedCount") or 0,
+        "auto": True,
+    }
+
+
+def _bootstrap_observed_count(result: dict[str, Any]) -> int:
+    raw = first_present(
+        result,
+        "files_observed",
+        "observed",
+        "observedCount",
+        "count",
+    )
+    if isinstance(raw, list):
+        return len(raw)
+    if isinstance(raw, int):
+        return raw
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _home_probe_payloads(
@@ -688,6 +760,24 @@ def _home_runtime_packet(client: AxiRestClient, *, project_path: str | None) -> 
     if callable(runtime_fast):
         return runtime_fast(project_path=project_path)
     return client.runtime(project_path=project_path)
+
+
+def _home_runtime_packet_live(
+    client: AxiRestClient,
+    *,
+    project_path: str | None,
+) -> dict[str, Any]:
+    runtime = getattr(client, "runtime", None)
+    if callable(runtime):
+        try:
+            return runtime(
+                project_path=project_path,
+                live=True,
+                timeout_seconds=10.0,
+            )
+        except TypeError:
+            return runtime(project_path=project_path)
+    return _home_runtime_packet(client, project_path=project_path)
 
 
 def _is_timeout_error(exc: AxiRestError) -> bool:

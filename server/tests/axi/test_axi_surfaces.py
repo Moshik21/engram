@@ -19,13 +19,15 @@ from engram.axi.surfaces import (
 class FakeClient:
     server_url = "http://127.0.0.1:8100"
 
-    def __init__(self, *, fail: set[str] | None = None) -> None:
+    def __init__(self, *, fail: set[str] | None = None, fresh_runtime: bool = False) -> None:
         self.fail = fail or set()
         self.observed: list[dict] = []
         self.remembered: list[dict] = []
         self.calls: list[str] = []
         self.timeouts: list[float] = []
         self.timeout_seconds = 10.0
+        self.fresh_runtime = fresh_runtime
+        self.bootstrapped: list[str] = []
 
     def _maybe_fail(self, name: str) -> None:
         if name in self.fail or (name == "runtime_fast" and "runtime" in self.fail):
@@ -40,7 +42,13 @@ class FakeClient:
         self._maybe_fail("health")
         return {"status": "healthy", "mode": "helix"}
 
-    def runtime(self, *, project_path: str | None = None) -> dict:
+    def runtime(
+        self,
+        *,
+        project_path: str | None = None,
+        live: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> dict:
         self.calls.append("runtime")
         self._maybe_fail("runtime")
         return {
@@ -49,6 +57,7 @@ class FakeClient:
             "artifactBootstrap": {
                 "projectPath": project_path,
                 "artifactCount": 3,
+                "lastObservedAt": "2026-01-01T00:00:00Z",
             },
             "agentAdoption": {
                 "status": "ready",
@@ -60,6 +69,26 @@ class FakeClient:
     def runtime_fast(self, *, project_path: str | None = None) -> dict:
         self.calls.append("runtime_fast")
         self._maybe_fail("runtime_fast")
+        if self.fresh_runtime and not self.bootstrapped:
+            return {
+                "projectName": "Engram",
+                "runtime": {
+                    "mode": "helix",
+                    "surface": "fast_packet",
+                    "loadedGraphTouched": False,
+                },
+                "artifactBootstrap": {
+                    "projectPath": project_path,
+                    "artifactCount": 0,
+                    "lastObservedAt": None,
+                },
+                "agentAdoption": {
+                    "status": "fresh_runtime",
+                    "doNotTreatEmptyAsFailure": True,
+                    "requiredNextTools": ["claim_authority", "get_context"],
+                },
+                "stats": {"packetCache": {"fresh_count": 0, "hit_count": 0}},
+            }
         return {
             "projectName": "Engram",
             "runtime": {
@@ -70,6 +99,7 @@ class FakeClient:
             "artifactBootstrap": {
                 "projectPath": project_path,
                 "artifactCount": 3,
+                "lastObservedAt": "2026-01-01T00:00:00Z",
             },
             "agentAdoption": {
                 "status": "ready",
@@ -77,6 +107,18 @@ class FakeClient:
             },
             "stats": {"packetCache": {"fresh_count": 2, "hit_count": 5}},
         }
+
+    def bootstrap(
+        self,
+        *,
+        project_path: str,
+        include_patterns: list[str] | None = None,
+    ) -> dict:
+        self.calls.append("bootstrap")
+        self._maybe_fail("bootstrap")
+        self.bootstrapped.append(project_path)
+        self.fresh_runtime = False
+        return {"status": "ok", "observed": 2, "skipped": 0}
 
     def storage(
         self,
@@ -259,6 +301,27 @@ class FakeClient:
         self._maybe_fail("remember")
         self.remembered.append(kwargs)
         return {"status": "stored", "episode_id": "ep_2"}
+
+
+def test_home_payload_auto_bootstraps_fresh_runtime() -> None:
+    client = FakeClient(fresh_runtime=True)
+
+    result = build_home_payload(
+        client,
+        project_path="/tmp/engram-followup-test",
+        topic_hint=None,
+        budget=800,
+    )
+
+    assert result.exit_code == 0
+    assert "bootstrap" in result.payload
+    assert result.payload["bootstrap"]["auto"] is True
+    assert result.payload["bootstrap"]["observed"] == 2
+    assert result.payload["brain"]["artifact_count"] >= 2
+    assert result.payload["brain"]["artifact_status"] == "bootstrapped"
+    assert client.calls.count("runtime_fast") == 1
+    assert "runtime" in client.calls
+    assert "bootstrap" in client.calls
 
 
 def test_home_payload_compacts_healthy_runtime() -> None:

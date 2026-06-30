@@ -192,6 +192,15 @@ def main():
 
     configure_adoption_parser(adoption_parser)
 
+    # --- harness ---
+    harness_parser = subparsers.add_parser(
+        "harness",
+        help="Harness adoption helpers for installer connect flows",
+    )
+    from engram.harness_cli import configure_harness_parser
+
+    configure_harness_parser(harness_parser)
+
     # --- doctor ---
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -343,6 +352,12 @@ def main():
         from engram.mcp.adoption_cli import run_adoption_command
 
         sys.exit(run_adoption_command(args))
+
+    # --- harness ---
+    if args.command == "harness":
+        from engram.harness_cli import run_harness_command
+
+        sys.exit(run_harness_command(args))
 
     # --- doctor ---
     if args.command == "doctor":
