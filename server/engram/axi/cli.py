@@ -320,12 +320,18 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
     if command == "value":
         return build_value_payload(client)
     if command == "hook-run":
-        project_path = _normalize_project_path(
-            _hook_input_project_path(
-                _read_hook_input_stdin(),
-                explicit_project_path=getattr(args, "project_path", None),
-            )
+        hook_stdin = _read_hook_input_stdin()
+        explicit_project_path = getattr(args, "project_path", None)
+        hook_candidate = _hook_input_project_path(
+            hook_stdin,
+            explicit_project_path=explicit_project_path,
         )
+        if hook_candidate is not None or explicit_project_path:
+            project_path = _normalize_project_path(hook_candidate or explicit_project_path)
+        elif _hook_stdin_declares_project(hook_stdin):
+            project_path = None
+        else:
+            project_path = _normalize_project_path(None)
         setattr(args, "project_path", project_path)
         return build_home_payload(
             client,
@@ -386,9 +392,19 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
             conversation_date=args.conversation_date,
         )
     if command == "bootstrap":
+        project_path = _normalize_project_path(args.project_path)
+        if not project_path:
+            return AxiResult(
+                payload={
+                    "operation": "bootstrap",
+                    "status": "error",
+                    "error": "Invalid or missing project path",
+                },
+                exit_code=1,
+            )
         return build_bootstrap_payload(
             client,
-            project_path=str(Path(args.project_path).expanduser()),
+            project_path=project_path,
             include_patterns=args.include_patterns,
         )
     if command == "hooks":
@@ -699,7 +715,7 @@ def _read_hook_input_stdin() -> str:
 
 def _hook_input_project_path(raw_input: str, *, explicit_project_path: str | None) -> str | None:
     if explicit_project_path:
-        return explicit_project_path
+        return explicit_project_path.strip()
     text = raw_input.strip()
     if not text:
         return None
@@ -714,6 +730,23 @@ def _hook_input_project_path(raw_input: str, *, explicit_project_path: str | Non
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _hook_stdin_declares_project(raw_input: str) -> bool:
+    text = raw_input.strip()
+    if not text:
+        return False
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    for key in ("cwd", "workspace", "workspaceRoot", "projectPath", "project_path"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _normalize_project_path(project_path: str | None) -> str | None:

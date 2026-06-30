@@ -83,6 +83,41 @@ def test_normalize_project_path_resolves_tmp_symlink() -> None:
     assert left == right
 
 
+def test_run_axi_hook_run_resolves_tmp_symlink_from_stdin(monkeypatch, capsys) -> None:
+    captured: dict[str, str | None] = {}
+
+    class CapturingClient(HealthyClient):
+        def runtime(self, *, project_path: str | None = None, **kwargs: object) -> dict:
+            captured["project_path"] = project_path
+            return super().runtime(project_path=project_path)
+
+        def runtime_fast(self, *, project_path: str | None = None) -> dict:
+            captured["project_path"] = project_path
+            return {
+                "runtime": {"mode": "helix"},
+                "artifactBootstrap": {
+                    "projectPath": project_path,
+                    "artifactCount": 1,
+                },
+                "agentAdoption": {"status": "ready", "requiredNextTools": ["get_context"]},
+            }
+
+    monkeypatch.setattr(
+        "engram.axi.cli.sys.stdin",
+        io.StringIO(json.dumps({"cwd": "/tmp/engram-followup-test"})),
+    )
+    monkeypatch.setattr("engram.axi.cli.AxiRestClient", lambda **_kwargs: CapturingClient())
+    args = _parse_axi_args("hook-run", "--json")
+
+    exit_code = run_axi_command(args)
+
+    assert exit_code == 0
+    expected = _normalize_project_path("/tmp/engram-followup-test")
+    assert captured["project_path"] == expected
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["brain"]["project"] == expected
+
+
 def test_axi_parser_preserves_global_flags_before_subcommand() -> None:
     args = _parse_axi_args("--json", "--budget", "500", "context", "--topic", "Engram")
 
