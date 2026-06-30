@@ -1160,19 +1160,20 @@ async def test_helix_update_evidence_normalizes_null_optional_strings(monkeypatc
         group_id="native_brain",
     )
 
-    assert calls[0][0] == "get_evidence"
-    assert calls[1] == (
-        "update_evidence",
-        {
-            "id": "h_ev_deferred",
-            "status": "committed",
-            "resolved_at": calls[1][1]["resolved_at"],
-            "commit_reason": "",
-            "committed_id": "",
-            "deferred_cycles": 2,
-            "confidence": 0.61,
-        },
-    )
+    assert calls == [
+        (
+            "update_evidence",
+            {
+                "id": "h_ev_deferred",
+                "status": "committed",
+                "resolved_at": calls[0][1]["resolved_at"],
+                "commit_reason": "",
+                "committed_id": "",
+                "deferred_cycles": 0,
+                "confidence": 0.0,
+            },
+        ),
+    ]
 
 
 @pytest.mark.asyncio

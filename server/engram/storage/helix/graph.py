@@ -3548,7 +3548,14 @@ class HelixGraphStore:
             "find_evidence_by_status",
             {"gid": group_id, "st": status},
         )
-        return [_evidence_dict_to_storage(d) for d in results]
+        evidence: list[dict] = []
+        for row in results:
+            stored = _evidence_dict_to_storage(row)
+            helix_id = self._extract_helix_id(row)
+            if helix_id is not None and stored.get("evidence_id"):
+                self._evidence_id_cache[stored["evidence_id"]] = helix_id
+            evidence.append(stored)
+        return evidence
 
     async def get_pending_evidence(
         self,
@@ -3610,16 +3617,18 @@ class HelixGraphStore:
         if status in {"committed", "rejected", "expired", "superseded"}:
             resolved_at = utc_now_iso()
 
+        needs_current = "deferred_cycles" in updates or "confidence" in updates
         current_cycles = 0
         current_confidence = 0.0
-        try:
-            current_rows = await self._query("get_evidence", {"id": hid})
-        except Exception:
-            current_rows = []
-        if current_rows:
-            current = current_rows[0]
-            current_cycles = int(current.get("deferred_cycles") or 0)
-            current_confidence = float(current.get("confidence") or 0.0)
+        if needs_current:
+            try:
+                current_rows = await self._query("get_evidence", {"id": hid})
+            except Exception:
+                current_rows = []
+            if current_rows:
+                current = current_rows[0]
+                current_cycles = int(current.get("deferred_cycles") or 0)
+                current_confidence = float(current.get("confidence") or 0.0)
 
         deferred_cycles = int(
             updates.get("deferred_cycles", current_cycles)
