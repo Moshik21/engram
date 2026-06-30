@@ -51,6 +51,22 @@ class FakeClient:
     ) -> dict:
         self.calls.append("runtime")
         self._maybe_fail("runtime")
+        if live and project_path in self.bootstrapped:
+            observed = 2
+            return {
+                "projectName": "Engram",
+                "runtime": {"mode": "helix"},
+                "artifactBootstrap": {
+                    "projectPath": project_path,
+                    "artifactCount": observed,
+                    "lastObservedAt": "2026-06-30T15:00:00Z",
+                },
+                "agentAdoption": {
+                    "status": "ready",
+                    "requiredNextTools": ["get_context"],
+                },
+                "stats": {"packetCache": {"fresh_count": 1, "hit_count": 0}},
+            }
         return {
             "projectName": "Engram",
             "runtime": {"mode": "helix"},
@@ -314,15 +330,32 @@ def test_home_payload_auto_bootstraps_fresh_runtime() -> None:
     )
 
     assert result.exit_code == 0
-    assert "bootstrap" in result.payload
-    assert result.payload["bootstrap"]["auto"] is True
-    assert result.payload["bootstrap"]["observed"] == 2
-    assert result.payload["brain"]["artifact_count"] >= 2
-    assert result.payload["brain"]["artifact_status"] == "bootstrapped"
-    assert result.payload["brain"]["required_next_tools"] == ["get_context"]
+    bootstrap = result.payload["bootstrap"]
+    brain = result.payload["brain"]
+    assert bootstrap["auto"] is True
+    assert bootstrap["observed"] == 2
+    assert brain["artifact_count"] == bootstrap["observed"]
+    assert brain["artifact_status"] == "ready"
+    assert brain["required_next_tools"] == ["get_context"]
     assert client.calls.count("runtime_fast") == 1
-    assert "runtime" in client.calls
+    assert client.calls.count("runtime") == 1
     assert "bootstrap" in client.calls
+
+
+def test_bootstrap_then_live_runtime_matches_observed_artifact_count() -> None:
+    """Canonical bootstrap path must return a live runtime consistent with observed files."""
+    from engram.axi.surfaces import bootstrap_then_live_runtime
+
+    client = FakeClient(fresh_runtime=True)
+    summary, runtime = bootstrap_then_live_runtime(
+        client,
+        project_path="/tmp/engram-followup-test",
+    )
+
+    assert summary["observed"] == 2
+    assert runtime["artifactBootstrap"]["artifactCount"] == summary["observed"]
+    assert runtime["agentAdoption"]["status"] == "ready"
+    assert runtime["agentAdoption"]["requiredNextTools"] == ["get_context"]
 
 
 def test_home_payload_compacts_healthy_runtime() -> None:

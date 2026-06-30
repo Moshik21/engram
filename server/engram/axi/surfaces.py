@@ -114,13 +114,6 @@ def build_home_payload(
     }
     if bootstrap_summary is not None:
         payload["bootstrap"] = bootstrap_summary
-        observed = int(bootstrap_summary.get("observed") or 0)
-        if observed > 0 and bootstrap_summary.get("status") != "error":
-            brain = payload.get("brain") or {}
-            brain["artifact_count"] = max(int(brain.get("artifact_count") or 0), observed)
-            brain["artifact_status"] = "bootstrapped"
-            brain["required_next_tools"] = ["get_context"]
-            payload["brain"] = brain
     if health.get("error"):
         payload["error"] = health.get("error")
     elif runtime_error and storage_error and not any_probe_succeeded:
@@ -678,6 +671,34 @@ def build_bootstrap_payload(
     return AxiResult(payload=payload)
 
 
+def bootstrap_then_live_runtime(
+    client: AxiRestClient,
+    *,
+    project_path: str,
+    bootstrap_timeout_seconds: float = HOME_BOOTSTRAP_TIMEOUT_SECONDS,
+    live_timeout_seconds: float = 10.0,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bootstrap a project and return one live runtime refresh for AXI home packets."""
+    bootstrap_client = client
+    with_timeout = getattr(client, "with_timeout", None)
+    if callable(with_timeout):
+        bootstrap_client = with_timeout(bootstrap_timeout_seconds)
+    result = bootstrap_client.bootstrap(project_path=project_path)
+    runtime = _home_runtime_packet_live(
+        bootstrap_client,
+        project_path=project_path,
+        timeout_seconds=live_timeout_seconds,
+    )
+    summary = {
+        "status": result.get("status") or "ok",
+        "project": project_path,
+        "observed": _bootstrap_observed_count(result),
+        "skipped": first_present(result, "skipped", "skippedCount") or 0,
+        "auto": True,
+    }
+    return summary, runtime
+
+
 def _maybe_auto_bootstrap_home(
     client: AxiRestClient,
     *,
@@ -694,7 +715,10 @@ def _maybe_auto_bootstrap_home(
     if callable(with_timeout):
         bootstrap_client = with_timeout(HOME_BOOTSTRAP_TIMEOUT_SECONDS)
     try:
-        result = bootstrap_client.bootstrap(project_path=project_path)
+        summary, refreshed = bootstrap_then_live_runtime(
+            bootstrap_client,
+            project_path=project_path,
+        )
     except AxiRestError as exc:
         return {
             "status": "error",
@@ -702,17 +726,8 @@ def _maybe_auto_bootstrap_home(
             "error": exc.message,
             "auto": True,
         }
-    probes["runtime"] = _home_runtime_packet_live(
-        bootstrap_client,
-        project_path=project_path,
-    )
-    return {
-        "status": result.get("status") or "ok",
-        "project": project_path,
-        "observed": _bootstrap_observed_count(result),
-        "skipped": first_present(result, "skipped", "skippedCount") or 0,
-        "auto": True,
-    }
+    probes["runtime"] = refreshed
+    return summary
 
 
 def _bootstrap_observed_count(result: dict[str, Any]) -> int:
@@ -767,6 +782,7 @@ def _home_runtime_packet_live(
     client: AxiRestClient,
     *,
     project_path: str | None,
+    timeout_seconds: float = 10.0,
 ) -> dict[str, Any]:
     runtime = getattr(client, "runtime", None)
     if callable(runtime):
@@ -774,7 +790,7 @@ def _home_runtime_packet_live(
             return runtime(
                 project_path=project_path,
                 live=True,
-                timeout_seconds=10.0,
+                timeout_seconds=timeout_seconds,
             )
         except TypeError:
             return runtime(project_path=project_path)
