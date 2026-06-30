@@ -215,7 +215,7 @@ def test_run_axi_command_prints_json_home(monkeypatch, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "healthy"
     assert payload["mode"] == "helix"
-    assert payload["brain"]["project"] == "/tmp/project"
+    assert payload["brain"]["project"] == _normalize_project_path("/tmp/project")
 
 
 def test_run_axi_context_infers_project_from_cwd(monkeypatch, tmp_path, capsys) -> None:
@@ -398,7 +398,7 @@ def test_run_axi_command_writes_metadata_only_trace(monkeypatch, tmp_path, capsy
     assert trace["origin"] == "manual"
     assert trace["operation"] == "home"
     assert trace["status"] == output["status"]
-    assert trace["project"] == "/tmp/project"
+    assert trace["project"] == _normalize_project_path("/tmp/project")
     assert "context" not in trace
     assert "brain" not in trace
 
