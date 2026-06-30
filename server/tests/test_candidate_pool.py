@@ -536,6 +536,79 @@ class TestGenerateCandidates:
         assert stage_timings["recall_graph_pool_timeout"] >= 10
 
     @pytest.mark.asyncio
+    async def test_auto_budget_profile_completes_slow_graph_pool(self):
+        """Auto profiles must use the relaxed graph timeout through generate_candidates."""
+        graph_delay_seconds = 0.12
+
+        async def slow_neighbors(**_kwargs):
+            await asyncio.sleep(graph_delay_seconds)
+            return [("n1", 0.8, "RELATED_TO")]
+
+        search_idx = _mock_search_index(results=[("e1", 0.9)])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.get_active_neighbors_with_weights = AsyncMock(side_effect=slow_neighbors)
+        stage_timings: dict[str, float] = {}
+        cfg = ActivationConfig(
+            multi_pool_enabled=True,
+            retrieval_graph_pool_timeout_ms=75,
+            retrieval_graph_pool_timeout_auto_ms=250,
+        )
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+            budget_profile="auto_deep",
+        )
+
+        result_ids = {entity_id for entity_id, _score in results}
+        assert "n1" in result_ids
+        assert "recall_graph_pool" in stage_timings
+        assert "recall_graph_pool_timeout" not in stage_timings
+        assert stage_timings["recall_graph_pool"] >= graph_delay_seconds * 1000
+
+    @pytest.mark.asyncio
+    async def test_explicit_budget_profile_times_out_slow_graph_pool(self):
+        """Explicit/default profiles keep the tight graph timeout through generate_candidates."""
+        graph_delay_seconds = 0.12
+
+        async def slow_neighbors(**_kwargs):
+            await asyncio.sleep(graph_delay_seconds)
+            return [("n1", 0.8, "RELATED_TO")]
+
+        search_idx = _mock_search_index(results=[("e1", 0.9)])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.get_active_neighbors_with_weights = AsyncMock(side_effect=slow_neighbors)
+        stage_timings: dict[str, float] = {}
+        cfg = ActivationConfig(
+            multi_pool_enabled=True,
+            retrieval_graph_pool_timeout_ms=75,
+            retrieval_graph_pool_timeout_auto_ms=250,
+        )
+
+        results = await generate_candidates(
+            query="test",
+            group_id="default",
+            search_index=search_idx,
+            activation_store=act_store,
+            graph_store=graph,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+            budget_profile="explicit",
+        )
+
+        result_ids = {entity_id for entity_id, _score in results}
+        assert "n1" not in result_ids
+        assert "recall_graph_pool_timeout" in stage_timings
+        assert stage_timings["recall_graph_pool_timeout"] < graph_delay_seconds * 1000
+
+    @pytest.mark.asyncio
     async def test_graph_pool_skips_after_probe_timeout_when_search_has_candidates(self):
         async def slow_neighbors(**_kwargs):
             await asyncio.sleep(0.2)
@@ -621,6 +694,56 @@ class TestPipelineMultiPoolIntegration:
             cfg=cfg,
         )
         assert len(results) > 0
+
+    @pytest.mark.asyncio
+    async def test_retrieve_auto_budget_profile_relaxes_graph_pool(self):
+        """retrieve() must thread auto budget profiles into candidate graph pooling."""
+        from engram.retrieval.pipeline import retrieve
+
+        graph_delay_seconds = 0.12
+        neighbor_calls = 0
+
+        async def neighbors_with_first_slow(
+            entity_id: str,
+            group_id: str | None = None,
+            **_kwargs,
+        ):
+            nonlocal neighbor_calls
+            neighbor_calls += 1
+            if neighbor_calls == 1:
+                await asyncio.sleep(graph_delay_seconds)
+                return [("n1", 0.8, "RELATED_TO")]
+            return []
+
+        search_idx = _mock_search_index(results=[("e1", 0.9)])
+        search_idx.search_episodes = AsyncMock(return_value=[])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+        graph.get_active_neighbors_with_weights = AsyncMock(side_effect=neighbors_with_first_slow)
+        graph.get_entity = AsyncMock(return_value=None)
+        graph.get_relationships = AsyncMock(return_value=[])
+        stage_timings: dict[str, float] = {}
+        cfg = ActivationConfig(
+            multi_pool_enabled=True,
+            episode_retrieval_enabled=False,
+            retrieval_graph_pool_timeout_ms=75,
+            retrieval_graph_pool_timeout_auto_ms=250,
+        )
+
+        await retrieve(
+            query="test",
+            group_id="default",
+            graph_store=graph,
+            activation_store=act_store,
+            search_index=search_idx,
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+            budget_profile="auto_lite",
+        )
+
+        assert "recall_graph_pool" in stage_timings
+        assert "recall_graph_pool_timeout" not in stage_timings
+        assert stage_timings["recall_graph_pool"] >= graph_delay_seconds * 1000
 
     @pytest.mark.asyncio
     async def test_multi_pool_disabled_original_path(self):

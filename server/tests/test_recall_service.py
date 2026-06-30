@@ -131,6 +131,7 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert retrieve_kwargs["goal_cache"] is goal_cache
     assert retrieve_kwargs["record_feedback"] is False
     assert retrieve_kwargs["memory_need"] == {"urgency": "high"}
+    assert retrieve_kwargs["budget_profile"] == "auto_deep"
     assert isinstance(retrieve_kwargs["stage_timings_ms"], dict)
 
     primary_ids, primary_kwargs = events[1][1]

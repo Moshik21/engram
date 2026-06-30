@@ -237,6 +237,55 @@ def _sample_field(sample: object, field: str) -> object | None:
 
 
 @pytest.mark.asyncio
+async def test_generate_candidates_auto_profile_graph_stage_evidence() -> None:
+    """Real generate_candidates path: auto profile completes graph pool auto timeout would miss."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from engram.retrieval.candidate_pool import generate_candidates
+
+    graph_delay_seconds = 0.12
+
+    async def slow_neighbors(**_kwargs):
+        await asyncio.sleep(graph_delay_seconds)
+        return [("n1", 0.8, "RELATED_TO")]
+
+    search_idx = AsyncMock()
+    search_idx.search = AsyncMock(return_value=[("e1", 0.9)])
+    search_idx.compute_similarity = AsyncMock(return_value={})
+    search_idx.search_episodes = AsyncMock(return_value=[])
+    search_idx._embeddings_enabled = False
+
+    act_store = AsyncMock()
+    act_store.get_top_activated = AsyncMock(return_value=[])
+    act_store.batch_get = AsyncMock(return_value={})
+
+    graph = AsyncMock()
+    graph.get_active_neighbors_with_weights = AsyncMock(side_effect=slow_neighbors)
+
+    stage_timings: dict[str, float] = {}
+    cfg = ActivationConfig(
+        multi_pool_enabled=True,
+        retrieval_graph_pool_timeout_ms=75,
+        retrieval_graph_pool_timeout_auto_ms=250,
+    )
+    results = await generate_candidates(
+        query="Engram harness adoption progressive memory",
+        group_id="default",
+        search_index=search_idx,
+        activation_store=act_store,
+        graph_store=graph,
+        cfg=cfg,
+        stage_timings_ms=stage_timings,
+        budget_profile="auto_deep",
+    )
+
+    assert any(entity_id == "n1" for entity_id, _score in results)
+    assert "recall_graph_pool" in stage_timings
+    assert "recall_graph_pool_timeout" not in stage_timings
+
+
+@pytest.mark.asyncio
 async def test_build_lite_auto_recall_surface_executes_without_timeout() -> None:
     gate_samples: list[object] = []
 
