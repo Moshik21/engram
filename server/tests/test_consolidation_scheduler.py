@@ -395,6 +395,49 @@ class _FakeConsolidationStore:
 
 class TestBacklogAndPersistence:
     @pytest.mark.asyncio
+    async def test_backlog_triggers_run_cycle_with_warm_phases(self):
+        """High open-work backlog runs warm-tier phases via scheduler loop."""
+        engine = _FakeEngine()
+        graph_store = _FakeGraphStore(open_work_count=2_000)
+        cfg = ActivationConfig(
+            consolidation_enabled=True,
+            consolidation_tiered_enabled=True,
+            consolidation_tier_hot_seconds=3600.0,
+            consolidation_tier_warm_seconds=7200.0,
+            consolidation_tier_cold_seconds=21600.0,
+            consolidation_open_work_backlog_enabled=True,
+            consolidation_open_work_backlog_threshold=500,
+            consolidation_open_work_backlog_cooldown_seconds=60.0,
+        )
+        scheduler = ConsolidationScheduler(
+            engine,
+            cfg,
+            default_group_id="default",
+            graph_store=graph_store,
+        )
+        scheduler._last_tier_time = {"hot": 1_000.0, "warm": 1_000.0, "cold": 1_000.0}
+        scheduler._tier_times_loaded = True
+
+        time_values = [1_100.0, 1_100.0, 1_100.0]
+        with (
+            patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
+            patch(_TIME_PATH, side_effect=time_values),
+        ):
+            mock_sleep.side_effect = [None, asyncio.CancelledError()]
+            scheduler.start()
+            try:
+                await scheduler._task
+            except asyncio.CancelledError:
+                pass
+
+        engine.run_cycle.assert_called_once()
+        call_kwargs = engine.run_cycle.call_args.kwargs
+        assert call_kwargs["group_id"] == "default"
+        assert "backlog" in call_kwargs["trigger"]
+        assert "evidence_adjudication" in call_kwargs["phase_names"]
+        assert "warm" in call_kwargs["trigger"]
+
+    @pytest.mark.asyncio
     async def test_backlog_triggers_warm_tier_before_interval(self):
         engine = _FakeEngine()
         graph_store = _FakeGraphStore(open_work_count=2_000)
@@ -421,6 +464,33 @@ class TestBacklogAndPersistence:
         assert due is not None
         assert "evidence_adjudication" in due
         assert due.issubset(set(PHASE_TIERS))
+
+    @pytest.mark.asyncio
+    async def test_helix_consolidation_store_persists_scheduler_tiers(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.consolidation import HelixConsolidationStore
+
+        store = HelixConsolidationStore(
+            HelixDBConfig(transport="native", data_dir=str(tmp_path)),
+        )
+
+        await store.save_scheduler_tier_last_runs(
+            "native_brain",
+            {"warm": 1_700_000_000.0},
+        )
+
+        restarted = HelixConsolidationStore(
+            HelixDBConfig(transport="native", data_dir=str(tmp_path)),
+        )
+        loaded = await restarted.get_scheduler_tier_last_runs("native_brain")
+
+        assert loaded["warm"] == 1_700_000_000.0
+        await store.close()
+        await restarted.close()
 
     @pytest.mark.asyncio
     async def test_tier_timestamps_persist_and_survive_restart(self):
@@ -458,3 +528,6 @@ class TestBacklogAndPersistence:
         )
         await restarted._load_tier_times()
         assert restarted._last_tier_time["warm"] == 200.0
+
+        not_due = await restarted._get_due_phases(now=300.0)
+        assert not_due is None

@@ -6,7 +6,10 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
+
+import aiosqlite
 
 from engram.config import HelixDBConfig
 from engram.models.consolidation import (
@@ -63,6 +66,8 @@ class HelixConsolidationStore:
         self._tag_id_cache: dict[int, Any] = {}
         # Auto-incrementing counter for complement tag IDs
         self._next_tag_id: int = 1
+        self._scheduler_sidecar_db: aiosqlite.Connection | None = None
+        self._scheduler_sidecar_ready = False
 
     async def _query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a Helix query.
@@ -175,9 +180,75 @@ class HelixConsolidationStore:
     async def close(self) -> None:
         """Close owned clients."""
         self._client = None
+        if self._scheduler_sidecar_db is not None:
+            await self._scheduler_sidecar_db.close()
+            self._scheduler_sidecar_db = None
+            self._scheduler_sidecar_ready = False
         if self._owns_helix_client and self._helix_client is not None:
             await self._helix_client.close()
             self._helix_client = None
+
+    def _scheduler_sidecar_path(self) -> Path:
+        base = (
+            Path(self._config.data_dir).expanduser()
+            if self._config.data_dir
+            else Path.home() / ".helix" / "engram-native"
+        )
+        path = base / "scheduler-state.sqlite3"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    async def _ensure_scheduler_sidecar(self) -> aiosqlite.Connection:
+        if self._scheduler_sidecar_db is not None:
+            if not self._scheduler_sidecar_ready:
+                await self._scheduler_sidecar_db.execute("""
+                    CREATE TABLE IF NOT EXISTS consolidation_scheduler_tiers (
+                        group_id TEXT NOT NULL,
+                        tier TEXT NOT NULL,
+                        last_run_at REAL NOT NULL,
+                        PRIMARY KEY (group_id, tier)
+                    )
+                """)
+                await self._scheduler_sidecar_db.commit()
+                self._scheduler_sidecar_ready = True
+            return self._scheduler_sidecar_db
+
+        db = await aiosqlite.connect(self._scheduler_sidecar_path())
+        db.row_factory = aiosqlite.Row
+        self._scheduler_sidecar_db = db
+        self._scheduler_sidecar_ready = False
+        return await self._ensure_scheduler_sidecar()
+
+    async def get_scheduler_tier_last_runs(self, group_id: str) -> dict[str, float]:
+        """Return persisted per-tier last-run timestamps for a group."""
+        db = await self._ensure_scheduler_sidecar()
+        cursor = await db.execute(
+            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers "
+            "WHERE group_id = ?",
+            (group_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row["tier"]): float(row["last_run_at"]) for row in rows}
+
+    async def save_scheduler_tier_last_runs(
+        self,
+        group_id: str,
+        tier_times: dict[str, float],
+    ) -> None:
+        """Persist per-tier last-run timestamps for a group."""
+        if not tier_times:
+            return
+        db = await self._ensure_scheduler_sidecar()
+        await db.executemany(
+            "INSERT INTO consolidation_scheduler_tiers "
+            "(group_id, tier, last_run_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(group_id, tier) DO UPDATE SET last_run_at = excluded.last_run_at",
+            [
+                (group_id, tier, last_run_at)
+                for tier, last_run_at in tier_times.items()
+            ],
+        )
+        await db.commit()
 
     # ------------------------------------------------------------------
     # Cycle CRUD

@@ -517,11 +517,83 @@ class TestPipelineEpisodeRetrieval:
         assert search.search.call_args.kwargs["query"] == "native latency"
 
     @pytest.mark.asyncio
+    async def test_recall_fast_stats_completes_under_deferred_evidence_backlog(
+        self,
+        monkeypatch,
+    ):
+        """Count-only Helix stats finish within budget even with a large evidence backlog."""
+        from engram.config import HelixDBConfig
+        from engram.storage.helix.graph import HelixGraphStore
+
+        store = HelixGraphStore(HelixDBConfig(transport="native"))
+        adjudication_calls = 0
+
+        async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+            nonlocal adjudication_calls
+            if endpoint == "count_entities_by_group":
+                return [{"count": 1_267}]
+            if endpoint == "count_episodes_by_group":
+                return [{"count": 5_345}]
+            if endpoint == "count_relationships_by_group":
+                return [{"count": 3_801}]
+            if endpoint == "count_cues_by_group":
+                return [{"count": 4_000}]
+            if endpoint in {
+                "find_evidence_by_status",
+                "find_adjudications_by_status",
+                "find_pending_evidence",
+                "find_pending_adjudications",
+            }:
+                adjudication_calls += 1
+                await asyncio.sleep(1.0)
+                return [{"evidence_id": f"ev_{adjudication_calls}", "status": "deferred"}]
+            raise AssertionError(f"unexpected Helix query during recall stats: {endpoint}")
+
+        monkeypatch.setattr(store, "_query", fake_query)
+        store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
+        store.get_entity = AsyncMock(
+            return_value=Entity(
+                id="e1",
+                name="Test",
+                entity_type="Thing",
+                summary="A test entity",
+                group_id="native_brain",
+            )
+        )
+
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=False,
+            cue_recall_enabled=False,
+            chunk_search_enabled=False,
+            graph_query_expansion_enabled=False,
+            retrieval_stats_timeout_ms=25,
+            retrieval_primary_search_timeout_ms=0,
+        )
+        stage_timings: dict[str, float] = {}
+
+        results = await retrieve(
+            query="dogfood recall latency",
+            group_id="native_brain",
+            graph_store=store,
+            activation_store=_mock_activation_store(),
+            search_index=_mock_search_index_with_episodes(entity_results=[("e1", 0.9)]),
+            cfg=cfg,
+            stage_timings_ms=stage_timings,
+        )
+
+        assert results
+        assert adjudication_calls == 0
+        assert "recall_stats" in stage_timings
+        assert stage_timings["recall_stats"] < 25
+        assert "recall_stats_timeout" not in stage_timings
+        assert "graph_expand_skipped_stats_timeout" not in stage_timings
+
+    @pytest.mark.asyncio
     async def test_stats_timeout_still_runs_graph_expansion_and_caps_primary_search(
         self,
         monkeypatch,
     ):
-        """A slow sizing probe must not skip graph expansion or stack full primary timeout."""
+        """A slow non-Helix sizing probe must not skip graph expansion."""
         expand_calls = 0
 
         async def slow_stats(_group_id):

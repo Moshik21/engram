@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from engram.config import HelixDBConfig
+from engram.config import ActivationConfig, HelixDBConfig
 from engram.models.episode_cue import EpisodeCue
 from engram.storage.helix.graph import HelixGraphStore
 
@@ -314,6 +314,71 @@ async def test_native_helix_fast_stats_use_count_routes_before_full_scans(monkey
     assert "find_episodes_by_group" not in endpoints
     assert "find_cues_by_group" not in endpoints
     assert "adjudication_metrics" not in stats
+
+
+@pytest.mark.asyncio
+async def test_native_helix_fast_stats_drive_recall_without_timeout(monkeypatch) -> None:
+    """Recall hot path uses count-only stats and avoids adjudication scans."""
+    from engram.retrieval.pipeline import retrieve
+    from engram.storage.helix.graph import HelixGraphStore
+
+    store = HelixGraphStore(HelixDBConfig(transport="native"))
+    adjudication_calls = 0
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        nonlocal adjudication_calls
+        if endpoint.startswith("count_"):
+            return [{"count": 9}]
+        if endpoint in {
+            "find_evidence_by_status",
+            "find_adjudications_by_status",
+            "find_pending_evidence",
+            "find_pending_adjudications",
+        }:
+            adjudication_calls += 1
+            raise AssertionError(
+                f"recall fast stats must not scan adjudication queues: {endpoint}"
+            )
+        raise AssertionError(f"unexpected Helix query {endpoint}")
+
+    monkeypatch.setattr(store, "_query", fake_query)
+    store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
+
+    search = AsyncMock()
+    search.search = AsyncMock(return_value=[("ent_a", 0.9)])
+    search.search_episodes = AsyncMock(return_value=[])
+    search.search_episode_cues = AsyncMock(return_value=[])
+    search.compute_similarity = AsyncMock(return_value={})
+    search._embeddings_enabled = False
+
+    activation = AsyncMock()
+    activation.batch_get = AsyncMock(return_value={})
+    activation.get = AsyncMock(return_value=None)
+
+    cfg = ActivationConfig(
+        episode_retrieval_enabled=False,
+        cue_recall_enabled=False,
+        chunk_search_enabled=False,
+        graph_query_expansion_enabled=False,
+        retrieval_stats_timeout_ms=25,
+        retrieval_primary_search_timeout_ms=0,
+    )
+    stage_timings: dict[str, float] = {}
+
+    await retrieve(
+        query="native recall",
+        group_id="native_brain",
+        graph_store=store,
+        activation_store=activation,
+        search_index=search,
+        cfg=cfg,
+        stage_timings_ms=stage_timings,
+    )
+
+    assert adjudication_calls == 0
+    assert "recall_stats" in stage_timings
+    assert stage_timings["recall_stats"] < 25
+    assert "recall_stats_timeout" not in stage_timings
 
 
 @pytest.mark.asyncio

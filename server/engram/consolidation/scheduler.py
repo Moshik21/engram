@@ -131,13 +131,14 @@ class ConsolidationScheduler:
         graph_store = self._graph_store
         if graph_store is None:
             return 0
+        metrics_loader = getattr(graph_store, "get_open_work_metrics", None)
+        if not callable(metrics_loader):
+            logger.debug(
+                "Graph store lacks get_open_work_metrics; skipping backlog signal",
+            )
+            return 0
         try:
-            metrics_loader = getattr(graph_store, "get_open_work_metrics", None)
-            if callable(metrics_loader):
-                metrics = await metrics_loader(self._group_id)
-            else:
-                stats = await graph_store.get_stats(self._group_id)
-                metrics = stats.get("adjudication_metrics", {})
+            metrics = await metrics_loader(self._group_id)
             return int(metrics.get("open_work_count", 0) or 0)
         except Exception:
             logger.debug("Failed to read open-work backlog metrics", exc_info=True)
