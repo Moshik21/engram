@@ -712,6 +712,28 @@ class TestEpistemicArtifacts:
         assert "epistemicMetrics" in state["stats"]
 
     @pytest.mark.asyncio
+    async def test_bootstrap_refreshes_cached_runtime_state(self, rich_manager, tmp_path):
+        (tmp_path / "README.md").write_text("# Engram\nCache invalidation proof.\n")
+        empty = await rich_manager.get_runtime_state(
+            group_id=GROUP,
+            project_path=str(tmp_path),
+            live=True,
+        )
+        assert empty["artifactBootstrap"]["artifactCount"] == 0
+
+        await rich_manager.bootstrap_project(str(tmp_path), group_id=GROUP)
+
+        cached = await rich_manager.get_runtime_state(
+            group_id=GROUP,
+            project_path=str(tmp_path),
+            live=False,
+        )
+        assert cached["artifactBootstrap"]["artifactCount"] >= 1
+        assert cached["artifactBootstrap"]["lastObservedAt"] is not None
+        assert cached["agentAdoption"]["status"] == "ready"
+        assert cached["agentAdoption"]["requiredNextTools"] == ["get_context"]
+
+    @pytest.mark.asyncio
     async def test_get_runtime_state_reports_artifacts_for_tmp_path_alias(
         self,
         rich_manager,
