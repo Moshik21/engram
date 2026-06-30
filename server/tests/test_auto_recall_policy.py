@@ -26,6 +26,17 @@ from engram.retrieval.auto_recall import (
 )
 
 
+def _policy_cfg(**kwargs: object) -> ActivationConfig:
+    """Isolate policy tests from consolidation/recall profile presets."""
+    base = {
+        "consolidation_profile": "off",
+        "recall_profile": "off",
+        "integration_profile": "off",
+    }
+    base.update(kwargs)
+    return ActivationConfig(**base)
+
+
 def test_mcp_auto_observe_turn_uses_capture_stage_helper() -> None:
     source = inspect.getsource(store_mcp_auto_observe_turn)
 
@@ -48,7 +59,7 @@ def test_extract_recall_query_falls_back_to_first_sentence() -> None:
 
 
 def test_should_recall_for_tool_uses_per_tool_flags() -> None:
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_on_observe=True,
         auto_recall_on_remember=False,
         auto_recall_on_tool_call=True,
@@ -62,7 +73,7 @@ def test_should_recall_for_tool_uses_per_tool_flags() -> None:
 
 
 def test_plan_session_prime_respects_enablement_and_first_call() -> None:
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_session_prime=True,
         auto_recall_session_prime_max_tokens=321,
     )
@@ -80,7 +91,7 @@ def test_plan_session_prime_respects_enablement_and_first_call() -> None:
     assert (
         plan_session_prime(
             "Planning the Engram path",
-            ActivationConfig(auto_recall_session_prime=False),
+            _policy_cfg(auto_recall_session_prime=False),
             already_primed=False,
         )
         is None
@@ -88,7 +99,7 @@ def test_plan_session_prime_respects_enablement_and_first_call() -> None:
 
 
 def test_plan_session_prime_allows_context_prime_without_topic() -> None:
-    cfg = ActivationConfig(auto_recall_session_prime=True)
+    cfg = _policy_cfg(auto_recall_session_prime=True)
 
     plan = plan_session_prime("short text", cfg, already_primed=False)
 
@@ -97,7 +108,7 @@ def test_plan_session_prime_allows_context_prime_without_topic() -> None:
 
 
 def test_plan_mcp_recall_middleware_plans_read_tool_side_effects() -> None:
-    cfg = ActivationConfig(auto_recall_on_tool_call=True)
+    cfg = _policy_cfg(auto_recall_on_tool_call=True)
 
     plan = plan_mcp_recall_middleware(
         "What should we do about the Engram native Helix route plan?",
@@ -114,7 +125,7 @@ def test_plan_mcp_recall_middleware_plans_read_tool_side_effects() -> None:
 
 
 def test_plan_mcp_recall_middleware_skips_write_tool_ingest() -> None:
-    cfg = ActivationConfig(auto_recall_on_observe=True)
+    cfg = _policy_cfg(auto_recall_on_observe=True)
 
     plan = plan_mcp_recall_middleware(
         "Observed content for the Engram native path",
@@ -130,7 +141,7 @@ def test_plan_mcp_recall_middleware_skips_write_tool_ingest() -> None:
 
 
 def test_plan_mcp_recall_middleware_surfaces_get_context_notifications_without_recall() -> None:
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_on_tool_call=False,
         notification_surfacing_enabled=True,
     )
@@ -260,7 +271,7 @@ async def test_build_lite_auto_recall_surface_dispatches_lite() -> None:
     manager = AsyncMock()
     manager.recall_lite.return_value = [{"name": "React"}]
     cache: dict = {}
-    cfg = ActivationConfig()
+    cfg = _policy_cfg(auto_recall_level="lite")
 
     result = await build_lite_auto_recall_surface(
         manager,
@@ -285,7 +296,7 @@ async def test_build_lite_auto_recall_surface_dispatches_medium() -> None:
     manager = AsyncMock()
     manager.recall_medium.return_value = [{"name": "React"}]
     cache: dict = {}
-    cfg = ActivationConfig(auto_recall_level="medium")
+    cfg = _policy_cfg(auto_recall_level="medium")
 
     result = await build_lite_auto_recall_surface(
         manager,
@@ -313,7 +324,7 @@ async def test_build_lite_auto_recall_surface_uses_cached_packets_before_medium(
             }
         ]
     )
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_level="medium",
         recall_packets_enabled=True,
         recall_packet_auto_limit=1,
@@ -364,7 +375,7 @@ async def test_build_lite_auto_recall_surface_uses_session_recent_before_medium(
             }
         ]
     )
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_level="medium",
         recall_packets_enabled=True,
         recall_packet_auto_limit=1,
@@ -390,7 +401,7 @@ async def test_build_lite_auto_recall_surface_cache_only_skips_probe_on_cache_mi
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
     manager.get_recent_cached_memory_packets = Mock(return_value=[])
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_level="medium",
         recall_packets_enabled=True,
         recall_packet_auto_limit=1,
@@ -427,7 +438,7 @@ async def test_build_lite_auto_recall_surface_cache_only_skips_probe_on_cache_mi
 async def test_build_lite_auto_recall_surface_records_short_content_skip() -> None:
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
-    cfg = ActivationConfig()
+    cfg = _policy_cfg()
 
     result = await build_lite_auto_recall_surface(
         manager,
@@ -452,7 +463,7 @@ async def test_build_lite_auto_recall_surface_records_empty_result_skip() -> Non
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
     manager.recall_lite.return_value = []
-    cfg = ActivationConfig()
+    cfg = _policy_cfg(auto_recall_level="lite")
 
     result = await build_lite_auto_recall_surface(
         manager,
@@ -478,7 +489,7 @@ async def test_build_lite_auto_recall_surface_degrades_on_probe_timeout() -> Non
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
     manager.recall_lite.side_effect = slow_recall_lite
-    cfg = ActivationConfig(recall_budget_auto_lite_ms=10)
+    cfg = _policy_cfg(auto_recall_level="lite", recall_budget_auto_lite_ms=10)
 
     result = await build_lite_auto_recall_surface(
         manager,
@@ -509,7 +520,7 @@ async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
             "score": 0.9,
         }
     ]
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_enabled=True,
         recall_need_analyzer_enabled=True,
     )
@@ -566,7 +577,7 @@ async def test_build_full_auto_recall_surface_uses_cached_packets_without_deep_r
             ]
         )
     )
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_enabled=True,
         recall_need_analyzer_enabled=True,
         recall_packets_enabled=True,
@@ -609,7 +620,7 @@ async def test_build_full_auto_recall_surface_records_budget_skip(
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
     manager.record_memory_need_analysis = Mock()
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_enabled=True,
         recall_need_analyzer_enabled=True,
     )
@@ -654,7 +665,7 @@ async def test_build_full_auto_recall_surface_records_budget_skip(
 async def test_build_full_auto_recall_surface_skips_recent_explicit_recall() -> None:
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
-    cfg = ActivationConfig(auto_recall_enabled=True)
+    cfg = _policy_cfg(auto_recall_enabled=True, recall_need_analyzer_enabled=False)
 
     result = await build_full_auto_recall_surface(
         manager,
@@ -678,7 +689,7 @@ async def test_build_full_auto_recall_surface_skips_recent_explicit_recall() -> 
 async def test_build_full_auto_recall_surface_records_disabled_skip() -> None:
     manager = AsyncMock()
     manager.record_memory_operation = Mock()
-    cfg = ActivationConfig(auto_recall_enabled=False)
+    cfg = _policy_cfg(auto_recall_enabled=False)
 
     result = await build_full_auto_recall_surface(
         manager,
@@ -716,7 +727,7 @@ async def test_build_full_auto_recall_surface_records_memory_need_skip(
         "engram.retrieval.auto_recall.analyze_memory_need",
         fake_analyze_memory_need,
     )
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_enabled=True,
         recall_need_analyzer_enabled=True,
     )
@@ -754,7 +765,7 @@ async def test_build_session_prime_surface_uses_cached_packets_and_marks_primed(
     manager.get_recent_cached_memory_packets.return_value = []
     manager.record_memory_operation = Mock()
     manager.get_context = AsyncMock()
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_session_prime=True,
         auto_recall_session_prime_max_tokens=256,
     )
@@ -790,7 +801,7 @@ async def test_build_session_prime_surface_skips_when_cache_misses() -> None:
     manager.get_cached_memory_packets.return_value = None
     manager.get_recent_cached_memory_packets.return_value = []
     manager.record_memory_operation = Mock()
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_session_prime=True,
         recall_budget_startup_ms=25,
     )
@@ -825,7 +836,7 @@ async def test_build_session_prime_surface_skips_when_cache_misses() -> None:
 @pytest.mark.asyncio
 async def test_build_session_prime_surface_skips_when_already_primed() -> None:
     manager = AsyncMock()
-    cfg = ActivationConfig(auto_recall_session_prime=True)
+    cfg = _policy_cfg(auto_recall_session_prime=True)
 
     surface = await build_session_prime_surface(
         manager,
@@ -944,7 +955,7 @@ def test_apply_mcp_recall_enrichment_preserves_payload_and_normalizes_sequences(
 
 @pytest.mark.asyncio
 async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_on_tool_call=True,
         auto_recall_session_prime=True,
         notification_surfacing_enabled=True,
@@ -989,7 +1000,7 @@ async def test_run_mcp_recall_middleware_executes_recall_side_effects() -> None:
 
 @pytest.mark.asyncio
 async def test_run_mcp_recall_middleware_uses_cache_only_for_write_tools() -> None:
-    cfg = ActivationConfig(auto_recall_on_observe=True)
+    cfg = _policy_cfg(auto_recall_on_observe=True)
     content = "Observed Engram write-side auto recall cache miss latency."
     manager = Mock()
     response: dict = {"status": "ok"}
@@ -1013,7 +1024,7 @@ async def test_run_mcp_recall_middleware_uses_cache_only_for_write_tools() -> No
 
 @pytest.mark.asyncio
 async def test_run_mcp_recall_middleware_notification_fallback_without_manager() -> None:
-    cfg = ActivationConfig(
+    cfg = _policy_cfg(
         auto_recall_on_tool_call=False,
         notification_surfacing_enabled=True,
     )
