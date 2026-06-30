@@ -347,6 +347,7 @@ async def retrieve(
     memory_need=None,
     stage_timings_ms: dict[str, float] | None = None,
     suppressed_cue_out: dict[str, float] | None = None,
+    budget_profile: str | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -509,6 +510,7 @@ async def retrieve(
             query_type=pre_query_type,
             stage_timings_ms=stage_timings_ms,
             name_match_out=name_match_seeds,
+            budget_profile=budget_profile,
         )
         primary_search_timed_out = bool(
             stage_timings_ms

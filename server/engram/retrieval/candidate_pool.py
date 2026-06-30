@@ -472,6 +472,21 @@ def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | No
     return timeout_ms / 1000.0
 
 
+def _graph_pool_timeout_seconds(
+    cfg: ActivationConfig,
+    *,
+    budget_profile: str | None = None,
+) -> float | None:
+    """Return graph-pool timeout; auto profiles use the relaxed auto budget."""
+    if budget_profile in {"auto_lite", "auto_deep", "startup"}:
+        timeout_ms = int(getattr(cfg, "retrieval_graph_pool_timeout_auto_ms", 0) or 0)
+    else:
+        timeout_ms = int(getattr(cfg, "retrieval_graph_pool_timeout_ms", 0) or 0)
+    if timeout_ms <= 0:
+        return None
+    return timeout_ms / 1000.0
+
+
 async def _bounded_pool(
     awaitable: Awaitable[T],
     *,
@@ -515,6 +530,7 @@ async def generate_candidates(
     query_type: QueryType | None = None,
     stage_timings_ms: dict[str, float] | None = None,
     name_match_out: dict[str, float] | None = None,
+    budget_profile: str | None = None,
 ) -> list[tuple[str, float]]:
     """Orchestrate multi-pool candidate generation.
 
@@ -620,7 +636,10 @@ async def generate_candidates(
                 limits["pool_graph_max_neighbors"],
                 limits["pool_graph_limit"],
             ),
-            timeout_seconds=_stage_timeout_seconds(cfg, "retrieval_graph_pool_timeout_ms"),
+            timeout_seconds=_graph_pool_timeout_seconds(
+                cfg,
+                budget_profile=budget_profile,
+            ),
             stage_timings_ms=stage_timings_ms,
             stage_key="recall_graph_pool",
             timeout_key="recall_graph_pool_timeout",

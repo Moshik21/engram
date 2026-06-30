@@ -77,22 +77,10 @@ def build_fast_runtime_packet(
             "lastObservedAt": None,
             "status": "not_inspected",
         },
-        "agentAdoption": {
-            "status": "startup_probe",
-            "doNotTreatEmptyAsFailure": True,
-            "requiredNextTools": ["get_context"],
-            "beforeAnswer": {
-                "required": False,
-                "tools": ["get_context"],
-                "reason": (
-                    "Fast runtime packet intentionally skips graph and artifact inspection; "
-                    "load context when prior memory could matter."
-                ),
-            },
-            "reason": (
-                "Startup-safe runtime metadata only; deep runtime and artifact state were not read."
-            ),
-        },
+        "agentAdoption": _fast_packet_agent_adoption(
+            cfg,
+            project_path=project_path,
+        ),
         "stats": {
             "source": "fast_runtime_packet",
             "packetCache": dict(packet_cache_summary or {}),
@@ -314,6 +302,44 @@ class RuntimeStateService:
             },
             "generatedAt": utc_now_iso(),
         }
+
+
+def _fast_packet_agent_adoption(
+    cfg: ActivationConfig,
+    *,
+    project_path: str | None,
+) -> dict[str, Any]:
+    adoption = _build_agent_adoption_guidance(
+        {
+            "enabled": cfg.artifact_bootstrap_enabled,
+            "artifactCount": 0,
+            "staleArtifactCount": 0,
+            "lastObservedAt": None,
+        },
+        recall_metrics={},
+        epistemic_metrics={},
+        memory_operation_metrics={},
+        project_path=project_path,
+    )
+    adoption.update(
+        {
+            "status": "startup_probe",
+            "doNotTreatEmptyAsFailure": True,
+            "requiredNextTools": ["get_context"],
+            "beforeAnswer": {
+                "required": False,
+                "tools": ["get_context"],
+                "reason": (
+                    "Fast runtime packet intentionally skips graph and artifact inspection; "
+                    "load context when prior memory could matter."
+                ),
+            },
+            "reason": (
+                "Startup-safe runtime metadata only; deep runtime and artifact state were not read."
+            ),
+        }
+    )
+    return adoption
 
 
 def _build_agent_adoption_guidance(

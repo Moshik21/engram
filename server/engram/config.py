@@ -200,6 +200,15 @@ class ActivationConfig(BaseModel):
             "0 disables the substage timeout."
         ),
     )
+    retrieval_graph_pool_timeout_auto_ms: int = Field(
+        default=250,
+        ge=0,
+        le=5000,
+        description=(
+            "Relaxed graph-neighborhood timeout for auto-recall budget profiles "
+            "(auto_lite/auto_deep). 0 disables the substage timeout."
+        ),
+    )
     retrieval_similarity_backfill_timeout_ms: int = Field(
         default=100,
         ge=0,

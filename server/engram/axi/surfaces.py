@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 import shutil
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,6 +120,7 @@ def build_home_payload(
         client,
         project_path=project_path,
         topic_hint=topic_hint,
+        storage_counts=(storage.get("counts") or {}) if isinstance(storage, dict) else {},
     )
     if injection is not None:
         payload.update(injection)
@@ -1070,6 +1071,7 @@ def _inject_session_start_briefing(
     *,
     project_path: str | None,
     topic_hint: str | None,
+    storage_counts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Proactively load briefing + artifact hits for session-start injection."""
     if not project_path:
@@ -1093,7 +1095,10 @@ def _inject_session_start_briefing(
             project_path=project_path,
             format="briefing",
         )
-        briefing_text = compact_whitespace(str(context.get("context") or ""))
+        briefing_text = _ensure_briefing_growth_line(
+            compact_whitespace(str(context.get("context") or "")),
+            storage_counts or {},
+        )
     except AxiRestError as exc:
         errors.append(f"context:{exc.message}")
 
@@ -1141,6 +1146,25 @@ def _inject_session_start_briefing(
     if errors:
         result["injection"]["errors"] = errors
     return result
+
+
+def _ensure_briefing_growth_line(
+    briefing_text: str,
+    storage_counts: Mapping[str, Any],
+) -> str:
+    if "Memory growth:" in briefing_text:
+        return briefing_text
+    episodes = int(storage_counts.get("episodes") or 0)
+    cues = int(storage_counts.get("cues") or 0)
+    entities = int(storage_counts.get("entities") or 0)
+    if not episodes and not cues and not entities:
+        return briefing_text
+    growth_line = (
+        f"Memory growth: {episodes} episodes, {cues} cue traces"
+        f"{f', {entities} entities' if entities else ''}"
+        " — compounding with each session you use Engram."
+    )
+    return f"{growth_line} {briefing_text}".strip()
 
 
 def _compact_injected_artifacts(items: Any) -> list[dict[str, Any]]:

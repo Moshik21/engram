@@ -402,6 +402,7 @@ def test_home_payload_compacts_healthy_runtime() -> None:
     assert result.payload["context"]["cmd"].startswith("engram axi context")
     assert result.payload["next"][0]["cmd"].startswith("engram axi context")
     assert result.payload["briefing"]
+    assert "Memory growth:" in result.payload["briefing"]
     assert result.payload["artifactHits"]
     assert result.payload["injection"]["status"] == "ok"
     assert client.timeouts == [2.5, 8.0]

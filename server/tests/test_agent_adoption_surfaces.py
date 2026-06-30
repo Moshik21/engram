@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from engram.axi.surfaces import build_home_payload
+from engram.axi.surfaces import _ensure_briefing_growth_line, build_home_payload
 from engram.config import ActivationConfig
 from engram.harness_adoption import priming_instruction_text
 from engram.mcp.prompts import ENGRAM_SYSTEM_PROMPT
@@ -14,10 +14,18 @@ from engram.retrieval.adoption_debt import (
     adoption_debt_is_actionable,
     build_adoption_debt,
 )
-from engram.retrieval.auto_recall import apply_mcp_recall_enrichment
+from engram.retrieval.auto_recall import (
+    apply_mcp_recall_enrichment,
+    build_full_auto_recall_surface,
+    build_lite_auto_recall_surface,
+)
 from engram.retrieval.budgets import recall_budget_for_profile
+from engram.retrieval.candidate_pool import _graph_pool_timeout_seconds
 from engram.retrieval.context_builder import MemoryContextBuilder
-from engram.retrieval.runtime_state import _build_agent_adoption_guidance
+from engram.retrieval.runtime_state import (
+    _build_agent_adoption_guidance,
+    build_fast_runtime_packet,
+)
 
 
 class _InjectionFakeClient:
@@ -192,6 +200,137 @@ def test_template_briefing_includes_growth_stats() -> None:
         growth_stats={"episodes": 12, "cues": 8, "promotions": 3},
     )
     assert "Memory growth: 12 episodes, 8 cue traces, 3 promoted to graph" in briefing
+
+
+def test_graph_pool_timeout_relaxed_for_auto_profiles() -> None:
+    cfg = ActivationConfig(
+        retrieval_graph_pool_timeout_ms=75,
+        retrieval_graph_pool_timeout_auto_ms=250,
+    )
+    assert _graph_pool_timeout_seconds(cfg) == pytest.approx(0.075)
+    assert _graph_pool_timeout_seconds(cfg, budget_profile="auto_lite") == pytest.approx(0.25)
+    assert _graph_pool_timeout_seconds(cfg, budget_profile="auto_deep") == pytest.approx(0.25)
+
+
+def test_fast_runtime_packet_includes_adoption_debt() -> None:
+    packet = build_fast_runtime_packet(
+        ActivationConfig(),
+        runtime_mode="helix",
+        project_path="/tmp/Engram",
+    )
+    assert "adoptionDebt" in packet["agentAdoption"]
+    assert "consequence" in packet["agentAdoption"]["adoptionDebt"]
+
+
+def test_injection_growth_line_from_storage_counts() -> None:
+    text = _ensure_briefing_growth_line(
+        "## Cached Memory Packets\n\n- item",
+        {"episodes": 3, "cues": 2, "entities": 0},
+    )
+    assert text.startswith("Memory growth: 3 episodes, 2 cue traces")
+
+
+def _sample_field(sample: object, field: str) -> object | None:
+    if isinstance(sample, dict):
+        return sample.get(field)
+    return getattr(sample, field, None)
+
+
+@pytest.mark.asyncio
+async def test_build_lite_auto_recall_surface_executes_without_timeout() -> None:
+    gate_samples: list[object] = []
+
+    def record_memory_operation(group_id: str, sample: object) -> None:
+        if _sample_field(sample, "operation") == "auto_recall_gate":
+            gate_samples.append(sample)
+
+    manager = MagicMock()
+    manager.recall_medium = AsyncMock(
+        return_value=[
+            {
+                "entity": {
+                    "id": "ent_engram",
+                    "name": "Engram",
+                    "type": "Project",
+                    "summary": "Portable memory",
+                },
+                "score": 0.9,
+                "result_type": "entity",
+                "relationships": [],
+            }
+        ]
+    )
+    manager.record_memory_operation = record_memory_operation
+
+    cfg = ActivationConfig(
+        auto_recall_level="medium",
+        recall_packets_enabled=False,
+    )
+    result = await build_lite_auto_recall_surface(
+        manager,
+        content="Working on Engram harness adoption progressive memory today",
+        group_id="default",
+        session_cache={},
+        cfg=cfg,
+    )
+    assert result is not None
+    assert result["source"] == "recall_medium"
+    manager.recall_medium.assert_awaited_once()
+    budget = recall_budget_for_profile(cfg, "auto_lite", surface="mcp", mode="medium")
+    assert budget.max_wall_ms >= 300
+    assert all(_sample_field(sample, "skip_reason") != "recall_timeout" for sample in gate_samples)
+    assert all(not _sample_field(sample, "timeout") for sample in gate_samples)
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_executes_without_timeout() -> None:
+    gate_samples: list[object] = []
+
+    def record_memory_operation(group_id: str, sample: object) -> None:
+        if _sample_field(sample, "operation") == "auto_recall_gate":
+            gate_samples.append(sample)
+
+    manager = MagicMock()
+    manager.recall = AsyncMock(
+        return_value=[
+            {
+                "entity": {
+                    "id": "ent_engram",
+                    "name": "Engram",
+                    "type": "Project",
+                    "summary": "Portable memory",
+                },
+                "score": 0.9,
+                "result_type": "entity",
+            }
+        ]
+    )
+    manager.record_memory_operation = record_memory_operation
+    manager.get_recall_need_graph_probe = MagicMock(return_value=None)
+
+    cfg = ActivationConfig(
+        consolidation_profile="off",
+        recall_profile="off",
+        integration_profile="off",
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=False,
+        recall_packets_enabled=False,
+        auto_recall_min_score=0.1,
+    )
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Working on Engram harness adoption progressive memory today",
+        group_id="default",
+        cfg=cfg,
+        session_last_recall_time=None,
+        cooldown=None,
+    )
+    assert result is not None
+    manager.recall.assert_awaited_once()
+    budget = recall_budget_for_profile(cfg, "auto_deep", surface="mcp", mode="auto_recall")
+    assert budget.max_wall_ms >= 300
+    assert all(_sample_field(sample, "skip_reason") != "recall_timeout" for sample in gate_samples)
+    assert all(not _sample_field(sample, "timeout") for sample in gate_samples)
 
 
 @pytest.mark.asyncio

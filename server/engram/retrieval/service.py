@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.retrieval.budgets import budget_profile_for_source
 from engram.retrieval.pipeline import retrieve
 from engram.retrieval.post_process import RecallPostProcessor
 from engram.retrieval.primary_results import RecallPrimaryResultMaterializer
@@ -121,6 +122,7 @@ class RecallService:
                 memory_need=memory_need,
                 stage_timings_ms=stage_timings_ms,
                 suppressed_cue_out=suppressed_cue_scores,
+                budget_profile=budget_profile_for_source(interaction_source),
             )
         except asyncio.CancelledError:
             stage_timings_ms["recall_retrieve_cancelled"] = _elapsed_ms(
