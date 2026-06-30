@@ -521,9 +521,9 @@ QUERY get_evidence(id: ID) =>
     evidence <- N<Evidence>(id)
     RETURN evidence
 
-QUERY update_evidence(id: ID, status: String, resolved_at: String, commit_reason: String, committed_id: String) =>
+QUERY update_evidence(id: ID, status: String, resolved_at: String, commit_reason: String, committed_id: String, deferred_cycles: I32, confidence: F64) =>
     evidence <- N<Evidence>(id)
-        ::UPDATE({status: status, resolved_at: resolved_at, commit_reason: commit_reason, committed_id: committed_id})
+        ::UPDATE({status: status, resolved_at: resolved_at, commit_reason: commit_reason, committed_id: committed_id, deferred_cycles: deferred_cycles, confidence: confidence})
     RETURN evidence
 
 QUERY hard_delete_evidence(id: ID) =>

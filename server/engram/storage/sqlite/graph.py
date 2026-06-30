@@ -2455,6 +2455,25 @@ class SQLiteGraphStore:
         await self.db.executemany(sql, rows)
         await self.db.commit()
 
+    async def find_evidence_by_status(
+        self,
+        group_id: str = "default",
+        status: str = "deferred",
+    ) -> list[dict]:
+        """Return all evidence rows for a group with the given status."""
+        sql = (
+            "SELECT evidence_id, episode_id, group_id, fact_class, confidence, "
+            "source_type, extractor_name, payload_json, source_span, "
+            "signals_json, ambiguity_tags_json, ambiguity_score, adjudication_request_id, "
+            "status, commit_reason, committed_id, deferred_cycles, created_at, resolved_at "
+            "FROM episode_evidence "
+            "WHERE group_id = ? AND status = ? "
+            "ORDER BY confidence DESC"
+        )
+        cursor = await self.db.execute(sql, (group_id, status))
+        rows = await cursor.fetchall()
+        return [_evidence_row_to_dict(r) for r in rows]
+
     async def get_pending_evidence(
         self,
         group_id: str = "default",

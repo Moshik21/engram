@@ -1102,10 +1102,19 @@ async def test_helix_update_evidence_finds_deferred_open_status(monkeypatch) -> 
                     }
                 ]
             return []
+        if endpoint == "get_evidence":
+            return [
+                {
+                    "deferred_cycles": 0,
+                    "confidence": 0.4,
+                }
+            ]
         if endpoint == "update_evidence":
             assert payload["id"] == "h_ev_deferred"
             assert payload["status"] == "committed"
             assert payload["committed_id"] == "rel_1"
+            assert payload["deferred_cycles"] == 0
+            assert payload["confidence"] == 0.4
             return []
         raise AssertionError(f"unexpected endpoint {endpoint}")
 
@@ -1118,13 +1127,16 @@ async def test_helix_update_evidence_finds_deferred_open_status(monkeypatch) -> 
         group_id="native_brain",
     )
 
-    assert ("update_evidence", {
+    assert calls[-1][0] == "update_evidence"
+    assert calls[-1][1] == {
         "id": "h_ev_deferred",
         "status": "committed",
         "resolved_at": calls[-1][1]["resolved_at"],
         "commit_reason": "",
         "committed_id": "rel_1",
-    }) in calls
+        "deferred_cycles": 0,
+        "confidence": 0.4,
+    }
 
 
 @pytest.mark.asyncio
@@ -1135,6 +1147,8 @@ async def test_helix_update_evidence_normalizes_null_optional_strings(monkeypatc
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
         calls.append((endpoint, payload))
+        if endpoint == "get_evidence":
+            return [{"deferred_cycles": 2, "confidence": 0.61}]
         return []
 
     monkeypatch.setattr(store, "_query", fake_query)
@@ -1146,18 +1160,19 @@ async def test_helix_update_evidence_normalizes_null_optional_strings(monkeypatc
         group_id="native_brain",
     )
 
-    assert calls == [
-        (
-            "update_evidence",
-            {
-                "id": "h_ev_deferred",
-                "status": "committed",
-                "resolved_at": calls[0][1]["resolved_at"],
-                "commit_reason": "",
-                "committed_id": "",
-            },
-        )
-    ]
+    assert calls[0][0] == "get_evidence"
+    assert calls[1] == (
+        "update_evidence",
+        {
+            "id": "h_ev_deferred",
+            "status": "committed",
+            "resolved_at": calls[1][1]["resolved_at"],
+            "commit_reason": "",
+            "committed_id": "",
+            "deferred_cycles": 2,
+            "confidence": 0.61,
+        },
+    )
 
 
 @pytest.mark.asyncio
