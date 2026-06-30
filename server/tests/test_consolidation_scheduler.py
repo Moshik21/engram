@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from engram.config import ActivationConfig
-from engram.consolidation.scheduler import ConsolidationScheduler
+from engram.consolidation.scheduler import ConsolidationScheduler, PHASE_TIERS
 
 _SLEEP_PATH = "engram.consolidation.scheduler.asyncio.sleep"
 _TIME_PATH = "engram.consolidation.scheduler.time.time"
@@ -366,3 +366,95 @@ class TestPressureTriggering:
             group_id="test",
             trigger="scheduled",
         )
+
+
+class _FakeGraphStore:
+    def __init__(self, open_work_count: int) -> None:
+        self.open_work_count = open_work_count
+        self.get_open_work_metrics = AsyncMock(
+            return_value={"open_work_count": open_work_count},
+        )
+
+
+class _FakeConsolidationStore:
+    def __init__(self) -> None:
+        self.tier_times: dict[str, float] = {}
+        self.save_calls: list[dict[str, float]] = []
+
+    async def get_scheduler_tier_last_runs(self, group_id: str) -> dict[str, float]:
+        return dict(self.tier_times)
+
+    async def save_scheduler_tier_last_runs(
+        self,
+        group_id: str,
+        tier_times: dict[str, float],
+    ) -> None:
+        self.tier_times.update(tier_times)
+        self.save_calls.append(dict(tier_times))
+
+
+class TestBacklogAndPersistence:
+    @pytest.mark.asyncio
+    async def test_backlog_triggers_warm_tier_before_interval(self):
+        engine = _FakeEngine()
+        graph_store = _FakeGraphStore(open_work_count=2_000)
+        cfg = ActivationConfig(
+            consolidation_enabled=True,
+            consolidation_tiered_enabled=True,
+            consolidation_tier_hot_seconds=3600.0,
+            consolidation_tier_warm_seconds=7200.0,
+            consolidation_tier_cold_seconds=21600.0,
+            consolidation_open_work_backlog_enabled=True,
+            consolidation_open_work_backlog_threshold=500,
+            consolidation_open_work_backlog_cooldown_seconds=60.0,
+        )
+        scheduler = ConsolidationScheduler(
+            engine,
+            cfg,
+            default_group_id="default",
+            graph_store=graph_store,
+        )
+        scheduler._last_tier_time = {"hot": 1_000.0, "warm": 1_000.0, "cold": 1_000.0}
+
+        due = await scheduler._get_due_phases(now=1_100.0)
+
+        assert due is not None
+        assert "evidence_adjudication" in due
+        assert due.issubset(set(PHASE_TIERS))
+
+    @pytest.mark.asyncio
+    async def test_tier_timestamps_persist_and_survive_restart(self):
+        engine = _FakeEngine()
+        store = _FakeConsolidationStore()
+        store.tier_times = {"warm": 42.0}
+        cfg = ActivationConfig(
+            consolidation_enabled=True,
+            consolidation_tiered_enabled=True,
+            consolidation_tier_warm_seconds=7200.0,
+        )
+        scheduler = ConsolidationScheduler(
+            engine,
+            cfg,
+            default_group_id="default",
+            consolidation_store=store,
+        )
+
+        await scheduler._load_tier_times()
+
+        assert scheduler._last_tier_time["warm"] == 42.0
+        due = await scheduler._get_due_phases(now=8_000.0)
+        assert due is not None
+        assert "evidence_adjudication" in due
+
+        scheduler._last_tier_time["warm"] = 200.0
+        await scheduler._persist_tier_times({"warm"})
+        assert store.tier_times["warm"] == 200.0
+
+        restarted = ConsolidationScheduler(
+            engine,
+            cfg,
+            default_group_id="default",
+            consolidation_store=store,
+        )
+        await restarted._load_tier_times()
+        assert restarted._last_tier_time["warm"] == 200.0

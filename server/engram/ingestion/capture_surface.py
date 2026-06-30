@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 import time
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -68,6 +69,22 @@ def _source_for_role(role: str | None) -> str:
 
 def _tag_hook_content(role: str, project: str, content: str) -> str:
     return f"[{role}|{project}] {content}"
+
+
+_HARNESS_XML_TAG_STRIP = re.compile(r"<[^>]{1,80}>", re.MULTILINE)
+
+
+def normalize_harness_observe_content(content: str) -> str:
+    """Strip harness/XML wrappers so narrow extraction sees plain user text."""
+    text = content.strip()
+    user_query_match = re.search(
+        r"<user_query>\s*(.*?)\s*</user_query>",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if user_query_match:
+        text = user_query_match.group(1).strip()
+    return _HARNESS_XML_TAG_STRIP.sub(" ", text).strip()
 
 
 def normalize_auto_observe_payload(raw: Mapping[str, Any]) -> dict[str, str | None]:
@@ -576,6 +593,8 @@ async def build_api_auto_observe_surface(
             result_count=0,
         )
         return present_api_observe_skip("skipped", reason="disabled")
+
+    content = normalize_harness_observe_content(content)
 
     if not content or len(content.strip()) < 10:
         await _record_write_operation(

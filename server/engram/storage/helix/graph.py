@@ -7,6 +7,7 @@ import json
 import logging
 import random
 import re
+import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -281,6 +282,8 @@ class HelixGraphStore:
         self._cue_id_cache: dict[str, Any] = {}
         # schema_member key -> Helix internal node ID
         self._schema_member_id_cache: dict[str, Any] = {}
+        # group_id -> (expires_at_monotonic, adjudication_metrics)
+        self._adjudication_metrics_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     async def _query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a Helix query.
@@ -2255,7 +2258,6 @@ class HelixGraphStore:
         episode_count = self._extract_count(rows_by_query[1])
         relationship_count = self._extract_count(rows_by_query[2])
         cue_count = self._extract_count(rows_by_query[3])
-        adjudication_metrics = await self._get_adjudication_metrics(group_id)
         return {
             "entities": entity_count,
             "relationships": relationship_count,
@@ -2283,12 +2285,23 @@ class HelixGraphStore:
                     "avg_relationships_per_projected_episode": 0.0,
                 },
             },
-            "adjudication_metrics": adjudication_metrics,
         }
+
+    async def get_open_work_metrics(self, group_id: str | None) -> dict[str, Any]:
+        """Return cached open-evidence/adjudication metrics for operational surfaces."""
+        return await self._get_adjudication_metrics(group_id)
 
     async def _get_adjudication_metrics(self, group_id: str | None) -> dict[str, Any]:
         if not group_id:
             return build_adjudication_metrics({}, {})
+
+        ttl_seconds = float(self._config.adjudication_metrics_cache_ttl_seconds or 0.0)
+        if ttl_seconds > 0:
+            cached = self._adjudication_metrics_cache.get(group_id)
+            if cached is not None:
+                expires_at, metrics = cached
+                if time.monotonic() < expires_at:
+                    return metrics
 
         evidence_rows = await self._query_open_status_rows(
             "find_evidence_by_status",
@@ -2302,10 +2315,16 @@ class HelixGraphStore:
             group_id,
             OPEN_ADJUDICATION_STATUSES,
         )
-        return build_adjudication_metrics(
+        metrics = build_adjudication_metrics(
             _count_statuses(evidence_rows),
             _count_statuses(request_rows),
         )
+        if ttl_seconds > 0:
+            self._adjudication_metrics_cache[group_id] = (
+                time.monotonic() + ttl_seconds,
+                metrics,
+            )
+        return metrics
 
     async def _fetch_episode_cues(
         self,

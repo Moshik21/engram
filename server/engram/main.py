@@ -214,6 +214,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         pressure=pressure_accumulator,
         temporal_scanner=temporal_scanner,
         graph_store=graph_store,
+        consolidation_store=consolidation_store,
     )
     if config.activation.consolidation_enabled:
         consolidation_scheduler.start()

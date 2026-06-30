@@ -367,7 +367,6 @@ async def retrieve(
     original_weight_semantic = cfg.weight_semantic
     planner_trace = None
     primary_search_timed_out = False
-    stats_timed_out = False
 
     # Fetch entity count for dynamic pool sizing
     total_entities = 0
@@ -386,7 +385,6 @@ async def retrieve(
         if isinstance(stats, dict):
             total_entities = int(stats.get("entity_count", stats.get("entities", 0)) or 0)
     except asyncio.TimeoutError:
-        stats_timed_out = True
         _add_stage_timing(stage_timings_ms, "recall_stats_timeout", stats_started)
     except asyncio.CancelledError:
         _add_stage_timing(stage_timings_ms, "recall_stats_cancelled", stats_started)
@@ -400,42 +398,35 @@ async def retrieve(
     # HyDE is disabled (production default).
     graph_expanded_query = query  # default: unchanged
     if cfg.graph_query_expansion_enabled:
-        if stats_timed_out and cfg.graph_query_expansion_skip_after_stats_timeout:
-            _set_stage_metric(
-                stage_timings_ms,
-                "graph_expand_skipped_stats_timeout",
-                0.0,
-            )
-        else:
-            stage_started = time.perf_counter()
-            try:
-                from engram.retrieval.graph_expansion import expand_query_from_graph
+        stage_started = time.perf_counter()
+        try:
+            from engram.retrieval.graph_expansion import expand_query_from_graph
 
-                expansion_call = expand_query_from_graph(
-                    query, graph_store, group_id
-                )
-                timeout_seconds = _stage_timeout_seconds(
-                    cfg,
-                    "graph_query_expansion_timeout_ms",
-                )
-                graph_expanded_query = (
-                    await asyncio.wait_for(expansion_call, timeout=timeout_seconds)
-                    if timeout_seconds is not None
-                    else await expansion_call
-                )
-                _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
-            except asyncio.TimeoutError:
-                graph_expanded_query = query
-                _add_stage_timing(stage_timings_ms, "graph_expand_timeout", stage_started)
-            except asyncio.CancelledError:
-                _add_stage_timing(
-                    stage_timings_ms,
-                    "graph_expand_cancelled",
-                    stage_started,
-                )
-                raise
-            except Exception:
-                pass  # Fall back to original query
+            expansion_call = expand_query_from_graph(
+                query, graph_store, group_id
+            )
+            timeout_seconds = _stage_timeout_seconds(
+                cfg,
+                "graph_query_expansion_timeout_ms",
+            )
+            graph_expanded_query = (
+                await asyncio.wait_for(expansion_call, timeout=timeout_seconds)
+                if timeout_seconds is not None
+                else await expansion_call
+            )
+            _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
+        except asyncio.TimeoutError:
+            graph_expanded_query = query
+            _add_stage_timing(stage_timings_ms, "graph_expand_timeout", stage_started)
+        except asyncio.CancelledError:
+            _add_stage_timing(
+                stage_timings_ms,
+                "graph_expand_cancelled",
+                stage_started,
+            )
+            raise
+        except Exception:
+            pass  # Fall back to original query
 
     # Step 0.1b: Template reformulation — convert question to statement form
     # for better embedding match.  Zero cost, <1ms.  If it produces a result,

@@ -144,6 +144,14 @@ class SQLiteConsolidationStore:
                 timestamp REAL NOT NULL
             )
         """)
+        await self.db.execute("""
+            CREATE TABLE IF NOT EXISTS consolidation_scheduler_tiers (
+                group_id TEXT NOT NULL,
+                tier TEXT NOT NULL,
+                last_run_at REAL NOT NULL,
+                PRIMARY KEY (group_id, tier)
+            )
+        """)
         await self.db.execute(
             "CREATE INDEX IF NOT EXISTS idx_consol_cycles_group ON consolidation_cycles(group_id)"
         )
@@ -1879,6 +1887,35 @@ class SQLiteConsolidationStore:
         )
         await self.db.commit()
         return del_cursor.rowcount
+
+    async def get_scheduler_tier_last_runs(self, group_id: str) -> dict[str, float]:
+        """Return persisted per-tier last-run timestamps for a group."""
+        cursor = await self.db.execute(
+            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers "
+            "WHERE group_id = ?",
+            (group_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row["tier"]): float(row["last_run_at"]) for row in rows}
+
+    async def save_scheduler_tier_last_runs(
+        self,
+        group_id: str,
+        tier_times: dict[str, float],
+    ) -> None:
+        """Persist per-tier last-run timestamps for a group."""
+        if not tier_times:
+            return
+        await self.db.executemany(
+            "INSERT INTO consolidation_scheduler_tiers "
+            "(group_id, tier, last_run_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(group_id, tier) DO UPDATE SET last_run_at = excluded.last_run_at",
+            [
+                (group_id, tier, last_run_at)
+                for tier, last_run_at in tier_times.items()
+            ],
+        )
+        await self.db.commit()
 
     async def close(self) -> None:
         """Close the database connection."""

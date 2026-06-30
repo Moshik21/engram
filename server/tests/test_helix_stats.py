@@ -289,8 +289,15 @@ async def test_native_helix_fast_stats_use_count_routes_before_full_scans(monkey
             return [{"count": 7}]
         if endpoint == "count_cues_by_group":
             return [{"count": 10}]
-        if endpoint in {"find_evidence_by_status", "find_adjudications_by_status"}:
-            return []
+        if endpoint in {
+            "find_evidence_by_status",
+            "find_adjudications_by_status",
+            "find_pending_evidence",
+            "find_pending_adjudications",
+        }:
+            raise AssertionError(
+                f"recall fast stats must not scan adjudication queues: {endpoint}"
+            )
         raise AssertionError(f"unexpected full Helix stats query {endpoint}")
 
     monkeypatch.setattr(store, "_query", fake_query)
@@ -306,6 +313,61 @@ async def test_native_helix_fast_stats_use_count_routes_before_full_scans(monkey
     assert "find_entities_by_group" not in endpoints
     assert "find_episodes_by_group" not in endpoints
     assert "find_cues_by_group" not in endpoints
+    assert "adjudication_metrics" not in stats
+
+
+@pytest.mark.asyncio
+async def test_native_helix_exact_stats_cache_adjudication_metrics(monkeypatch) -> None:
+    store = HelixGraphStore(
+        HelixDBConfig(transport="native", adjudication_metrics_cache_ttl_seconds=60.0),
+    )
+    adjudication_calls = 0
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        nonlocal adjudication_calls
+        if endpoint == "find_entities_by_group":
+            return [{"id": "h_ent_1", "entity_id": "ent_a", "group_id": "native_brain"}]
+        if endpoint == "find_episodes_by_group":
+            return [
+                {
+                    "id": "h_ep_projected",
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "projection_state": "projected",
+                    "retry_count": 0,
+                    "processing_duration_ms": 20,
+                    "created_at": "2026-05-13T12:00:00",
+                    "last_projected_at": "2026-05-13T12:00:01",
+                }
+            ]
+        if endpoint == "get_outgoing_edges":
+            return []
+        if endpoint == "find_cues_by_group":
+            return [
+                {
+                    "episode_id": "ep_projected",
+                    "group_id": "native_brain",
+                    "cue_text": "native projected cue",
+                    "projection_state": "projected",
+                }
+            ]
+        if endpoint == "get_projected_episode_entities_by_group":
+            return [{"entity_id": "ent_a"}]
+        if endpoint in {"find_evidence_by_status", "find_adjudications_by_status"}:
+            adjudication_calls += 1
+            if endpoint == "find_evidence_by_status" and payload["st"] == "deferred":
+                return [{"evidence_id": "ev_deferred", "status": "deferred"}]
+            return []
+        raise AssertionError(f"unexpected Helix query {endpoint}")
+
+    monkeypatch.setattr(store, "_query", fake_query)
+
+    first = await store.get_stats("native_brain")
+    second = await store.get_stats("native_brain")
+
+    assert first["adjudication_metrics"]["open_work_count"] == 1
+    assert second["adjudication_metrics"]["open_work_count"] == 1
+    assert adjudication_calls == 6
 
 
 @pytest.mark.asyncio

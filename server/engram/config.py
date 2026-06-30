@@ -55,6 +55,15 @@ class HelixDBConfig(BaseModel):
     verbose: bool = False
     max_workers: int = 4
     data_dir: str = ""  # Native transport: LMDB data dir (~/.helix/engram-native)
+    adjudication_metrics_cache_ttl_seconds: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3600.0,
+        description=(
+            "TTL for cached open-evidence/adjudication metrics on exact stats paths. "
+            "0 disables caching."
+        ),
+    )
 
 
 class PostgreSQLConfig(BaseModel):
@@ -823,6 +832,25 @@ class ActivationConfig(BaseModel):
         description=(
             "Cold tier interval (replay, prune, schema, graph_embed, dream): 6 hours default"
         ),
+    )
+    consolidation_open_work_backlog_enabled: bool = Field(
+        default=True,
+        description=(
+            "When open evidence/adjudication work exceeds the backlog threshold, "
+            "run warm-tier phases before the normal warm interval elapses."
+        ),
+    )
+    consolidation_open_work_backlog_threshold: int = Field(
+        default=500,
+        ge=1,
+        le=1_000_000,
+        description="Open-work count that triggers backlog-driven warm consolidation.",
+    )
+    consolidation_open_work_backlog_cooldown_seconds: float = Field(
+        default=300.0,
+        ge=60.0,
+        le=86400.0,
+        description="Minimum interval between backlog-driven warm-tier cycles.",
     )
     consolidation_merge_threshold: float = Field(default=0.88, ge=0.5, le=1.0)
     consolidation_merge_max_per_cycle: int = Field(default=50, ge=1, le=500)

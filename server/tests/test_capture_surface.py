@@ -10,6 +10,7 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.ingestion import capture_surface
+from engram.extraction.narrow.pipeline import NarrowExtractionPipeline
 from engram.ingestion.capture_surface import (
     attach_api_capture_diagnostics,
     attach_mcp_capture_diagnostics,
@@ -23,6 +24,7 @@ from engram.ingestion.capture_surface import (
     build_mcp_remember_write_surface,
     build_observation_attachment,
     ingest_projecting_memory,
+    normalize_harness_observe_content,
     parse_conversation_date,
     store_observation,
 )
@@ -681,3 +683,39 @@ async def test_build_mcp_attachment_observe_write_surface_preserves_attachment_k
     assert response["lifecycle"]["attachment_kind"] == "image"
     assert response["message"] == "Image stored for background processing."
     assert session.episode_count == 1
+
+
+def test_normalize_harness_observe_content_strips_user_query_wrapper() -> None:
+    raw = "<user_query>During showcase Liam plays baseball</user_query>"
+    assert normalize_harness_observe_content(raw) == "During showcase Liam plays baseball"
+
+
+@pytest.mark.asyncio
+async def test_auto_observe_stores_normalized_harness_text_for_narrow_extract() -> None:
+    manager = MagicMock()
+    manager.store_episode = AsyncMock(return_value="ep_harness")
+    manager.record_memory_operation = AsyncMock()
+    manager.get_last_capture_stage_timings = MagicMock(return_value={})
+
+    markup = "<user_query>During showcase Liam plays baseball</user_query>"
+    await build_api_auto_observe_surface(
+        manager,
+        content=markup,
+        group_id="default",
+        source="api_auto_observe",
+    )
+
+    stored_content = manager.store_episode.await_args.kwargs["content"]
+    assert stored_content == "During showcase Liam plays baseball"
+
+    bundle = NarrowExtractionPipeline().extract(
+        stored_content,
+        episode_id="ep_harness",
+        group_id="default",
+    )
+    entity_names = {
+        candidate.payload.get("name")
+        for candidate in bundle.candidates
+        if candidate.fact_class == "entity"
+    }
+    assert "Liam" in entity_names

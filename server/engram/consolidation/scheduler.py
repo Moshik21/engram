@@ -9,7 +9,7 @@ import time
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.phase_registry import CONSOLIDATION_PHASE_TIERS
-from engram.consolidation.pressure import PressureAccumulator
+from engram.consolidation.pressure import ConsolidationPressure, PressureAccumulator
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,11 @@ _PRESSURE_POLL_INTERVAL = 10.0  # seconds
 _TIER_POLL_INTERVAL = 30.0  # seconds — check tiers every 30s
 
 PHASE_TIERS = CONSOLIDATION_PHASE_TIERS
+_WARM_TIER_PHASES = frozenset(
+    phase_name
+    for phase_name, tier in PHASE_TIERS.items()
+    if tier == "warm"
+)
 
 
 class ConsolidationScheduler:
@@ -42,6 +47,7 @@ class ConsolidationScheduler:
         pressure: PressureAccumulator | None = None,
         temporal_scanner: object | None = None,
         graph_store: object | None = None,
+        consolidation_store: object | None = None,
     ) -> None:
         self._engine = engine
         self._cfg = cfg
@@ -49,23 +55,23 @@ class ConsolidationScheduler:
         self._pressure = pressure
         self._temporal_scanner = temporal_scanner
         self._graph_store = graph_store
+        self._consolidation_store = consolidation_store
         self._task: asyncio.Task | None = None
         self._last_cycle_time: float = time.time()
-        # Per-tier last run timestamps
-        now = time.time()
+        self._tier_times_loaded = False
+        self._last_backlog_warm_trigger: float = 0.0
+        # Per-tier last run timestamps (0.0 = never run)
         self._last_tier_time: dict[str, float] = {
-            "hot": now,
-            "warm": now,
-            "cold": now,
+            "hot": 0.0,
+            "warm": 0.0,
+            "cold": 0.0,
         }
 
     def start(self) -> None:
         """Start the scheduler loop. Idempotent — won't create a second task."""
         if self._task and not self._task.done():
             return
-        now = time.time()
-        self._last_cycle_time = now
-        self._last_tier_time = {"hot": now, "warm": now, "cold": now}
+        self._last_cycle_time = time.time()
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
@@ -83,6 +89,76 @@ class ConsolidationScheduler:
         """Whether the scheduler loop is currently running."""
         return self._task is not None and not self._task.done()
 
+    async def _load_tier_times(self) -> None:
+        """Hydrate tier timestamps from durable storage once per process."""
+        if self._tier_times_loaded:
+            return
+        self._tier_times_loaded = True
+        store = self._consolidation_store
+        if store is None:
+            return
+        loader = getattr(store, "get_scheduler_tier_last_runs", None)
+        if not callable(loader):
+            return
+        try:
+            persisted = await loader(self._group_id)
+        except Exception:
+            logger.debug("Failed to load scheduler tier timestamps", exc_info=True)
+            return
+        if persisted:
+            self._last_tier_time.update(persisted)
+
+    async def _persist_tier_times(self, tiers: set[str]) -> None:
+        store = self._consolidation_store
+        if store is None or not tiers:
+            return
+        saver = getattr(store, "save_scheduler_tier_last_runs", None)
+        if not callable(saver):
+            return
+        payload = {
+            tier: self._last_tier_time[tier]
+            for tier in tiers
+            if tier in self._last_tier_time
+        }
+        if not payload:
+            return
+        try:
+            await saver(self._group_id, payload)
+        except Exception:
+            logger.debug("Failed to persist scheduler tier timestamps", exc_info=True)
+
+    async def _get_open_work_count(self) -> int:
+        graph_store = self._graph_store
+        if graph_store is None:
+            return 0
+        try:
+            metrics_loader = getattr(graph_store, "get_open_work_metrics", None)
+            if callable(metrics_loader):
+                metrics = await metrics_loader(self._group_id)
+            else:
+                stats = await graph_store.get_stats(self._group_id)
+                metrics = stats.get("adjudication_metrics", {})
+            return int(metrics.get("open_work_count", 0) or 0)
+        except Exception:
+            logger.debug("Failed to read open-work backlog metrics", exc_info=True)
+            return 0
+
+    async def _backlog_warm_phases(self, now: float) -> set[str] | None:
+        cfg = self._cfg
+        if not cfg.consolidation_open_work_backlog_enabled:
+            return None
+        cooldown = cfg.consolidation_open_work_backlog_cooldown_seconds
+        if now - self._last_backlog_warm_trigger < cooldown:
+            return None
+        open_work_count = await self._get_open_work_count()
+        signal = ConsolidationPressure.open_work_backlog_signal(
+            open_work_count,
+            cfg.consolidation_open_work_backlog_threshold,
+        )
+        if signal <= 0.0:
+            return None
+        return set(_WARM_TIER_PHASES)
+
     async def _loop(self) -> None:
         """Main loop: sleep → check conditions → run cycle → repeat."""
         pressure_enabled = self._cfg.consolidation_pressure_enabled and self._pressure is not None
@@ -95,6 +171,8 @@ class ConsolidationScheduler:
                 await asyncio.sleep(_PRESSURE_POLL_INTERVAL)
             else:
                 await asyncio.sleep(self._cfg.consolidation_interval_seconds)
+
+            await self._load_tier_times()
 
             # Run temporal intention scan on every poll (piggyback on hot tier)
             if self._temporal_scanner is not None and self._graph_store is not None:
@@ -114,12 +192,20 @@ class ConsolidationScheduler:
 
             # --- Tiered scheduling ---
             if tiered:
-                due_phases = self._get_due_phases(now)
+                due_phases = await self._get_due_phases(now)
                 if due_phases:
                     tier_names = sorted(
                         {PHASE_TIERS.get(p, "warm") for p in due_phases},
                     )
-                    trigger = f"tiered:{'+'.join(tier_names)}"
+                    backlog_triggered = bool(due_phases & _WARM_TIER_PHASES) and (
+                        now - self._last_tier_time.get("warm", 0.0)
+                        < self._cfg.consolidation_tier_warm_seconds
+                    )
+                    trigger = (
+                        f"tiered:backlog+{'+'.join(tier_names)}"
+                        if backlog_triggered
+                        else f"tiered:{'+'.join(tier_names)}"
+                    )
                     try:
                         await self._engine.run_cycle(
                             group_id=self._group_id,
@@ -129,6 +215,9 @@ class ConsolidationScheduler:
                         # Update per-tier timestamps
                         for tier in tier_names:
                             self._last_tier_time[tier] = time.time()
+                        if backlog_triggered:
+                            self._last_backlog_warm_trigger = time.time()
+                        await self._persist_tier_times(set(tier_names))
                         self._last_cycle_time = time.time()
                     except Exception:
                         logger.exception("Tiered consolidation cycle failed")
@@ -154,6 +243,7 @@ class ConsolidationScheduler:
                                 self._last_cycle_time = now2
                                 for tier in self._last_tier_time:
                                     self._last_tier_time[tier] = now2
+                                await self._persist_tier_times(set(self._last_tier_time))
                                 pressure.reset(self._group_id)
                             except Exception:
                                 logger.exception("Pressure consolidation cycle failed")
@@ -193,7 +283,7 @@ class ConsolidationScheduler:
             except Exception:
                 logger.exception("Scheduled consolidation cycle failed")
 
-    def _get_due_phases(self, now: float) -> set[str] | None:
+    async def _get_due_phases(self, now: float) -> set[str] | None:
         """Determine which phases are due to run based on tier intervals."""
         cfg = self._cfg
         tier_intervals = {
@@ -208,5 +298,9 @@ class ConsolidationScheduler:
             last_run = self._last_tier_time.get(tier, 0.0)
             if now - last_run >= interval:
                 due.add(phase_name)
+
+        backlog_phases = await self._backlog_warm_phases(now)
+        if backlog_phases:
+            due.update(backlog_phases)
 
         return due if due else None

@@ -517,11 +517,11 @@ class TestPipelineEpisodeRetrieval:
         assert search.search.call_args.kwargs["query"] == "native latency"
 
     @pytest.mark.asyncio
-    async def test_stats_timeout_skips_graph_expansion_and_caps_primary_search(
+    async def test_stats_timeout_still_runs_graph_expansion_and_caps_primary_search(
         self,
         monkeypatch,
     ):
-        """A slow graph preflight avoids stacking expansion plus full primary timeout."""
+        """A slow sizing probe must not skip graph expansion or stack full primary timeout."""
         expand_calls = 0
 
         async def slow_stats(_group_id):
@@ -562,12 +562,12 @@ class TestPipelineEpisodeRetrieval:
         )
 
         assert results == []
-        assert expand_calls == 0
+        assert expand_calls == 1
         assert stage_timings["recall_stats_timeout"] >= 25
-        assert stage_timings["graph_expand_skipped_stats_timeout"] == 0.0
+        assert "graph_expand_skipped_stats_timeout" not in stage_timings
         assert stage_timings["recall_primary_search_effective_timeout_ms"] == 40
         assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
-        assert "graph_expand_timeout" not in stage_timings
+        assert stage_timings["graph_expand_timeout"] >= 25
 
     @pytest.mark.asyncio
     async def test_graph_expansion_timeout_caps_primary_search(self, monkeypatch):

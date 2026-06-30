@@ -44,6 +44,13 @@ class ConsolidationPressure:
             + cfg.consolidation_pressure_time_factor * elapsed
         )
 
+    @staticmethod
+    def open_work_backlog_signal(open_work_count: int, threshold: int) -> float:
+        """Normalized backlog excess above threshold (0 when below threshold)."""
+        if threshold <= 0 or open_work_count <= threshold:
+            return 0.0
+        return (open_work_count - threshold) / threshold
+
     def snapshot(self) -> ConsolidationPressure:
         """Return an independent copy of the current state."""
         return ConsolidationPressure(
