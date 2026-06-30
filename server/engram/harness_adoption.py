@@ -101,8 +101,13 @@ projection, which is relevant here." Then stay quiet about the machinery.
 
 ## Capture
 
-- Default to `observe` for uncertain-value conversation content.
-- Use `remember` with proposed entities/relationships for high-signal durable facts.
+Harness auto-capture handles routine turns when installed — do not call `observe`
+every turn. Use `remember` for high-signal durable facts (preferences, identity,
+corrections, decisions). Use `observe` only for explicit store requests or
+context the harness cannot see.
+
+If runtime metrics show `api_auto_observe` or `auto:*` sources, capture is
+already running — focus on `get_context` and `recall`.
 
 Treat an empty graph as onboarding state, not evidence that Engram should be skipped.
 """

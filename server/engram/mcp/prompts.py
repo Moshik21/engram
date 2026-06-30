@@ -21,10 +21,11 @@ soccer game?" A generic reply signals you forgot everything they told you.
 relevant — e.g. "I checked project memory — the extraction rework doc describes
 progressive projection, which is relevant here." Then integrate quietly afterward.
 
-Your job every session: `get_context` before substantive answers, `recall` when
-people/projects/prior work appear, `search_artifacts` for project truth, capture
-with `observe`/`remember` after. Empty graphs are onboarding state, not proof
-Engram is useless.
+Your job every session: `get_context` once before substantive answers, `recall`
+when people/projects/prior work appear, `search_artifacts` for project truth.
+Harness auto-capture handles routine turns when installed — do not duplicate
+with per-turn `observe`. Use `remember` for high-signal facts. Empty graphs are
+onboarding state, not proof Engram is useless.
 
 """
 
@@ -69,17 +70,28 @@ recall. If both sources conflict, prefer the user's latest statement and use \
 
 Before generating ANY response:
 
-1. Call `observe(user_message)` when the user shares new information worth \
-storing. Any memory tool call also captures context and returns recalled \
-memories automatically.
+1. Call `get_context(project_path=...)` once before your first substantive \
+answer in a session. When prior context could change the answer, call \
+`recall(query, project_path=...)`. When `adoptionDebt` is actionable, call \
+`get_context` before answering.
 2. If `recalled_context` is returned, weave it into your response when it is \
 clearly relevant. The user expects you to know what you have been told before. \
 Check the `freshness` label — treat `stale` items as possibly outdated.
 3. If the message references people, projects, or past conversations by name, \
-also call `recall(query, project_path=...)` for deeper retrieval when a project \
+call `recall(query, project_path=...)` for deeper retrieval when a project \
 path is available.
-4. If `adoptionDebt` appears in a tool response, call `get_context` before your \
-next substantive answer — capture is running but recall is not.
+
+## Capture Policy
+
+- **Harness auto-capture** (when installed) handles routine turns — do not \
+duplicate with `observe` every turn.
+- **remember**: explicit preferences, corrections, identity facts, durable \
+decisions. Pass `proposed_entities` and `proposed_relationships`.
+- **observe**: only when the user asks to store something or you have \
+high-value context the harness cannot see.
+
+If `api_auto_observe` or `auto:*` sources appear in runtime metrics, capture is \
+already happening — focus on recall, not re-capture.
 
 ## Session Start
 
@@ -131,13 +143,13 @@ before answering.
 
 ## When to Observe vs Remember
 
-Default to `observe` (cheap, raw — Engram just queues the text). Use `remember` for \
-high-signal facts you can decompose into atomic structure yourself — and when you do, \
+Do not call `observe` on every turn when harness capture is active. Use `remember` \
+for high-signal facts you can decompose into atomic structure yourself — when you do, \
 **you are the extractor**: hand Engram the entities and relationships, don't make it \
 guess from the raw text.
 
-**observe**: general context, uncertain value, bulk conversation, anything you are \
-unsure about. Just the text.
+**observe**: explicit store requests or harness-invisible context only — not \
+routine chat when AutoCapture hooks or `api_auto_observe` are active.
 
 **remember**: identity facts (name, location, job), explicit preferences or \
 corrections, key decisions, goals. Supply the structure you already understand:
@@ -203,8 +215,9 @@ fresh and recent items. If recalled context seems unrelated or stale, you may \
 omit it. But do not give a generic reply when returned memory clearly changes \
 what a good answer should say.
 - **session_context**: User briefing (first call only). Integrate naturally.
-- **adoptionDebt**: Signals you are capturing without recalling. Call \
-`get_context` before the next substantive answer when debt is present.
+- **adoptionDebt**: Actionable wake signal (includes `wakeReason` when present). \
+Call `get_context` or `recall` as indicated — omit when context is already loaded \
+and no wake reason applies.
 - **triggered_intentions**: Act on the `action` naturally. Do not announce \
 that a memory triggered. If `context` is provided, use it as-is.
 - **see_also**: Mention as conversational hooks if relevant. Do not search \

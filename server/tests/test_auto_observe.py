@@ -694,6 +694,23 @@ class TestInstallHooks:
 # ── Observe MCP Tool Message Test ───────────────────────────────────
 
 
+def test_harness_install_autocapture_command(tmp_path, monkeypatch) -> None:
+    from engram.harness_cli import configure_harness_parser, run_harness_command
+    import argparse
+
+    hooks_dir = tmp_path / "hooks"
+    settings_path = tmp_path / "settings.json"
+    monkeypatch.setattr("engram.setup._HOOKS_DIR", hooks_dir)
+    monkeypatch.setattr("engram.setup._SETTINGS_PATH", settings_path)
+
+    parser = argparse.ArgumentParser()
+    configure_harness_parser(parser)
+    args = parser.parse_args(["install-autocapture", "--format", "json"])
+    assert run_harness_command(args) == 0
+    assert (hooks_dir / "capture-prompt.sh").is_file()
+    assert "UserPromptSubmit" in json.loads(settings_path.read_text())["hooks"]
+
+
 def test_observe_response_message():
     """Observe tool response should use the simplified message."""
     from engram.ingestion.capture_surface import build_mcp_observe_write_surface

@@ -11,6 +11,18 @@ from engram.harness_adoption import write_priming_instruction
 
 def configure_harness_parser(parser: argparse.ArgumentParser) -> None:
     subparsers = parser.add_subparsers(dest="harness_command", required=True)
+
+    install_parser = subparsers.add_parser(
+        "install-autocapture",
+        help="Install Claude Code AutoCapture hooks (transcript capture)",
+    )
+    install_parser.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
     write_parser = subparsers.add_parser(
         "write-priming",
         help="Write managed Engram memory protocol instructions for an MCP-only client",
@@ -35,6 +47,22 @@ def configure_harness_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run_harness_command(args: argparse.Namespace) -> int:
+    if args.harness_command == "install-autocapture":
+        from engram.setup import install_hooks
+
+        result = install_hooks()
+        payload = {
+            "operation": "harness.install_autocapture",
+            "status": "ok",
+            "scripts": result.get("scripts", []),
+            "settings_updated": bool(result.get("settings_updated")),
+        }
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Installed AutoCapture hooks ({len(payload['scripts'])} scripts)")
+        return 0
+
     if args.harness_command != "write-priming":
         print(f"Unknown harness command: {args.harness_command}", file=sys.stderr)
         return 2

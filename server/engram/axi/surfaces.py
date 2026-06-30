@@ -14,6 +14,7 @@ from typing import Any
 from engram.axi.budgets import compact_whitespace, first_present, truncate_text
 from engram.axi.client import AxiRestClient, AxiRestError
 from engram.harness_adoption import runtime_needs_bootstrap
+from engram.identity.captain_export import captain_file_summary
 
 LIFECYCLE = "Capture -> Cue -> Project -> Recall -> Consolidate"
 DESCRIPTION = "Long-term memory brain for AI agents"
@@ -969,7 +970,7 @@ def _compact_brain(runtime: dict[str, Any], *, project_path: str | None) -> dict
     artifact = runtime.get("artifactBootstrap") or {}
     packet_cache = (runtime.get("stats") or {}).get("packetCache") or {}
     fresh_packets = int(packet_cache.get("fresh_count") or packet_cache.get("freshCount") or 0)
-    return {
+    brain = {
         "lifecycle": LIFECYCLE,
         "project": project_path or artifact.get("projectPath") or runtime.get("projectName"),
         "artifact_status": adoption.get("status") or "unknown",
@@ -980,7 +981,12 @@ def _compact_brain(runtime: dict[str, Any], *, project_path: str | None) -> dict
             "hits": packet_cache.get("hit_count") or packet_cache.get("hitCount") or 0,
         },
         "required_next_tools": adoption.get("requiredNextTools") or [],
+        "harness_capture_active": bool(adoption.get("harnessCaptureActive")),
     }
+    captain_note = captain_file_summary()
+    if captain_note:
+        brain["captain"] = captain_note
+    return brain
 
 
 def _compact_context(

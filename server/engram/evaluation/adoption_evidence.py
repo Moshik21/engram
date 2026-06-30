@@ -117,9 +117,14 @@ def build_adoption_evidence(
         failures.append("missing_adoption_required_tools")
     if required_tools.get("in_order") is False:
         failures.append("adoption_required_tools_out_of_order")
-    if capture.get("missing") is True:
+    harness_first = bool(payload.get("harnessFirst"))
+    if capture.get("missing") is True and not (
+        harness_first and capture.get("harness_capture_satisfied")
+    ):
         failures.append("missing_adoption_capture")
-    if not observed_capture_tools:
+    if not observed_capture_tools and not (
+        harness_first and capture.get("harness_capture_satisfied")
+    ):
         failures.append("missing_adoption_observed_capture_tools")
     if file_memory.get("substituted_for_engram") is True:
         failures.append("file_memory_substituted_for_engram")

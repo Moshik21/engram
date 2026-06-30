@@ -214,7 +214,8 @@ Commands:
              [--axi-hooks] [--capture] [--no-bootstrap] [--no-axi]
   doctor                         Run the installed-user readiness gate
   connect <client>               Configure MCP for codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw
-                                  Codex/Claude Code auto-install AXI hooks; Cursor/Windsurf/Grok get priming rules
+                                  Codex/Claude Code auto-install read-only AXI hooks; Cursor/Windsurf/Grok get priming
+                                  Use --capture-transcript for Claude Code AutoCapture (turn hooks)
                                   Use --no-axi or --no-bootstrap to opt out; --axi/--capture remain supported
   bootstrap [--include GLOB] <project-dir> [...]
                                   Index selected project docs, notes, exports
@@ -713,6 +714,17 @@ configure_openclaw_mcp() {
     run_openclaw_command mcp show engram --json || warn "OpenClaw MCP config was written, but verification failed."
   else
     dim "Verify: $openclaw_cmd mcp show engram --json"
+  fi
+}
+
+install_autocapture_hooks() {
+  local engram_cmd
+  engram_cmd="$(find_engram_command)"
+  if "$engram_cmd" harness install-autocapture --format json; then
+    info "Installed Claude Code AutoCapture transcript hooks"
+  else
+    warn "AutoCapture hook installation failed."
+    dim "Manual: engram harness install-autocapture"
   fi
 }
 
@@ -1621,13 +1633,14 @@ command_doctor() {
 
 command_connect() {
   local client="${1:-}"
-  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw|manual [--project PATH] [--verify] [--axi] [--capture] [--no-axi] [--no-bootstrap]"
+  [ -n "$client" ] || die "Usage: engramctl connect codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw|manual [--project PATH] [--verify] [--axi] [--capture] [--capture-transcript] [--no-axi] [--no-bootstrap]"
   shift || true
 
   local project_path="$PWD"
   local verify=0
   local install_axi=0
   local axi_capture=0
+  local capture_transcript=0
   local no_axi=0
   local no_bootstrap=0
   while [ $# -gt 0 ]; do
@@ -1647,6 +1660,10 @@ command_connect() {
       --capture)
         install_axi=1
         axi_capture=1
+        shift
+        ;;
+      --capture-transcript)
+        capture_transcript=1
         shift
         ;;
       --no-axi)
@@ -1732,6 +1749,17 @@ command_connect() {
 
   if [ "$no_axi" != "1" ] && { [ "$install_axi" = "1" ] || client_supports_axi_hooks "$client"; }; then
     install_axi_hook_for_client "$client" "$axi_capture"
+  fi
+
+  if [ "$capture_transcript" = "1" ]; then
+    case "$client" in
+      claude-code|claude)
+        install_autocapture_hooks
+        ;;
+      *)
+        warn "Transcript capture (--capture-transcript) is currently supported for Claude Code only."
+        ;;
+    esac
   fi
 
   if client_needs_priming_instructions "$client"; then

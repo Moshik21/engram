@@ -105,6 +105,15 @@ def test_motivation_first_in_priming() -> None:
     assert why_idx < before_idx
     assert "savings account" in text
     assert "Liam plays soccer" in text
+    assert "do not call `observe`" in text.lower()
+    assert "every turn" in text.lower()
+    assert "api_auto_observe" in text
+
+
+def test_prompts_do_not_mandate_per_turn_observe() -> None:
+    assert "Call `observe(user_message)`" not in ENGRAM_SYSTEM_PROMPT
+    assert "Do not call `observe` on every turn" in ENGRAM_SYSTEM_PROMPT
+    assert "Harness auto-capture" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_build_home_payload_injects_briefing_and_artifacts() -> None:
@@ -128,12 +137,15 @@ def test_adoption_debt_from_operation_metrics() -> None:
         {
             "operation_counts": {"observe": 47, "context": 1},
             "source_counts": {"api_auto_observe": 47, "mcp_context": 0},
-        }
+        },
+        session_tool_calls=5,
+        turns_since_context=5,
     )
-    assert debt["turnsWithoutRecall"] == 47
+    assert debt["turnsWithoutRecall"] == 5
     assert debt["episodesCaptured"] == 47
+    assert debt["harnessEpisodesCaptured"] == 47
     assert debt["agentRecallCount"] == 0
-    assert "47 episodes captured, 0 recalled" in debt["consequence"]
+    assert debt["wakeReason"] == "capture_without_recall"
     assert adoption_debt_is_actionable(debt)
 
 
@@ -144,6 +156,31 @@ def test_adoption_debt_cleared_after_context_load() -> None:
     )
     assert debt["turnsWithoutRecall"] == 0
     assert not adoption_debt_is_actionable(debt)
+    assert "wakeReason" not in debt
+
+
+def test_adoption_debt_wake_reason_session_unprimed() -> None:
+    debt = build_adoption_debt({}, session_tool_calls=1)
+    assert debt["wakeReason"] == "session_unprimed"
+    assert adoption_debt_is_actionable(debt)
+
+
+def test_adoption_debt_wake_reason_project_switched() -> None:
+    debt = build_adoption_debt(
+        {},
+        context_loaded_this_session=True,
+        project_path="/tmp/alpha",
+        last_context_project_path="/tmp/beta",
+    )
+    assert debt["wakeReason"] == "project_switched"
+    assert adoption_debt_is_actionable(debt)
+
+
+def test_adoption_debt_suppressed_when_not_actionable() -> None:
+    response: dict = {}
+    debt = build_adoption_debt({}, context_loaded_this_session=True)
+    apply_mcp_recall_enrichment(response, adoption_debt=debt)
+    assert "adoptionDebt" not in response
 
 
 def test_agent_adoption_guidance_includes_debt() -> None:
@@ -168,9 +205,10 @@ def test_agent_adoption_guidance_includes_debt() -> None:
 
 def test_apply_mcp_recall_enrichment_attaches_debt() -> None:
     response: dict = {}
-    debt = build_adoption_debt({"operation_counts": {"observe": 3}})
+    debt = build_adoption_debt({"operation_counts": {"observe": 3}}, session_tool_calls=1)
     apply_mcp_recall_enrichment(response, adoption_debt=debt)
     assert response["adoptionDebt"]["episodesCaptured"] == 3
+    assert response["adoptionDebt"]["wakeReason"] == "session_unprimed"
 
 
 def test_auto_lite_budget_no_longer_uses_aggressive_75ms_defaults() -> None:

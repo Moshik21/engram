@@ -173,9 +173,11 @@ class SessionState:
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
     last_project_path: str | None = None
+    last_context_project_path: str | None = None
     context_loaded_this_session: bool = False
     last_context_load_at: datetime | None = None
     turns_since_context: int = 0
+    session_tool_calls: int = 0
     recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
 
 
@@ -617,17 +619,27 @@ def _serialize_notifications(cfg: ActivationConfig, group_id: str) -> list[dict]
     )
 
 
-def _session_adoption_debt(session: SessionState) -> dict[str, Any]:
+def _session_adoption_debt(
+    session: SessionState,
+    *,
+    query_text: str | None = None,
+    project_path: str | None = None,
+) -> dict[str, Any]:
     manager = _get_manager()
     metrics = manager.get_memory_operation_metrics(_group_id)
     last_context_load = (
         session.last_context_load_at.isoformat() if session.last_context_load_at else None
     )
+    effective_project = project_path or session.last_project_path
     return build_adoption_debt(
         metrics,
         last_context_load=last_context_load,
         context_loaded_this_session=session.context_loaded_this_session,
         turns_since_context=session.turns_since_context,
+        project_path=effective_project,
+        last_context_project_path=session.last_context_project_path,
+        session_tool_calls=session.session_tool_calls,
+        query_text=query_text,
     )
 
 
@@ -635,6 +647,8 @@ def _mark_context_loaded(session: SessionState) -> None:
     session.context_loaded_this_session = True
     session.last_context_load_at = utc_now()
     session.turns_since_context = 0
+    if session.last_project_path:
+        session.last_context_project_path = session.last_project_path
 
 
 async def _recall_middleware(
@@ -650,6 +664,7 @@ async def _recall_middleware(
     memory_notifications, and adoptionDebt to any tool response.
     """
     session = _get_session()
+    session.session_tool_calls += 1
     if tool_name != "get_context":
         session.turns_since_context += 1
     await run_mcp_recall_middleware(
@@ -664,7 +679,11 @@ async def _recall_middleware(
         session_prime=_session_prime,
         ingest_live_turn=_ingest_live_tool_turn,
         auto_observe=auto_observe,
-        adoption_debt=_session_adoption_debt(session)
+        adoption_debt=_session_adoption_debt(
+            session,
+            query_text=content,
+            project_path=session.last_project_path,
+        )
         if tool_name != "get_context"
         else None,
     )

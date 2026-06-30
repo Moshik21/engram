@@ -12,7 +12,11 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
-from engram.retrieval.adoption_debt import build_adoption_debt
+from engram.retrieval.adoption_debt import (
+    adoption_debt_is_actionable,
+    build_adoption_debt,
+    harness_capture_active_from_metrics,
+)
 from engram.retrieval.artifacts import _normalize_project_path
 from engram.utils.dates import utc_now_iso
 
@@ -384,12 +388,21 @@ def _build_agent_adoption_guidance(
         last_context_load=last_context_load,
         context_loaded_this_session=context_loaded_this_session,
         turns_since_context=turns_since_context,
+        project_path=project_path,
     )
+    if adoption_debt_is_actionable(adoption_debt):
+        adoption_debt_field: dict[str, Any] | None = adoption_debt
+    else:
+        adoption_debt_field = None
+
     return {
         "status": status,
         "doNotTreatEmptyAsFailure": bool(fresh_runtime or needs_bootstrap),
         "requiredNextTools": required_tools,
-        "adoptionDebt": adoption_debt,
+        "harnessCaptureActive": harness_capture_active_from_metrics(
+            memory_operation_metrics
+        ),
+        **({"adoptionDebt": adoption_debt_field} if adoption_debt_field else {}),
         "beforeAnswer": {
             "required": True,
             "tools": required_tools,

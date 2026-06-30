@@ -201,6 +201,15 @@ def main():
 
     configure_harness_parser(harness_parser)
 
+    # --- captain ---
+    captain_parser = subparsers.add_parser(
+        "captain",
+        help="Export/import human-editable captain preferences",
+    )
+    from engram.captain_cli import configure_captain_parser
+
+    configure_captain_parser(captain_parser)
+
     # --- doctor ---
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -358,6 +367,12 @@ def main():
         from engram.harness_cli import run_harness_command
 
         sys.exit(run_harness_command(args))
+
+    # --- captain ---
+    if args.command == "captain":
+        from engram.captain_cli import run_captain_command
+
+        sys.exit(run_captain_command(args))
 
     # --- doctor ---
     if args.command == "doctor":

@@ -158,6 +158,14 @@ def configure_adoption_parser(parser: argparse.ArgumentParser) -> None:
             "Use with --require-live-evidence for cross-harness release gates."
         ),
     )
+    parser.add_argument(
+        "--expect-harness-capture",
+        action="store_true",
+        help=(
+            "Require capture-phase evidence from harness auto_observe or agent "
+            "observe/remember (harness-first adoption gate)."
+        ),
+    )
 
 
 def run_adoption_command(args: argparse.Namespace) -> int:
@@ -218,6 +226,7 @@ def run_adoption_command(args: argparse.Namespace) -> int:
         require_live_evidence=getattr(args, "require_live_evidence", False),
         session_id_filter=getattr(args, "session_id", None),
         required_client=getattr(args, "require_client", None),
+        expect_harness_capture=getattr(args, "expect_harness_capture", False),
     )
     report = _apply_report_output_path(
         report,
@@ -423,6 +432,29 @@ def _manual_transcript_markdown(
     return "\n".join(lines)
 
 
+_HARNESS_CAPTURE_TOOLS = frozenset({"observe", "auto_observe", "remember"})
+
+
+def _apply_harness_capture_gate(validation: dict[str, Any]) -> dict[str, Any]:
+    """Require harness or agent capture evidence for harness-first adoption."""
+    updated = dict(validation)
+    capture = dict(updated.get("capture") or {})
+    observed = [str(tool) for tool in capture.get("observed_tools") or []]
+    if any(tool in _HARNESS_CAPTURE_TOOLS for tool in observed):
+        capture["harness_capture_satisfied"] = True
+        updated["capture"] = capture
+        return updated
+
+    failures = list(updated.get("failures") or [])
+    if "missing_harness_capture_evidence" not in failures:
+        failures.append("missing_harness_capture_evidence")
+    updated["failures"] = failures
+    updated["status"] = "failed"
+    capture["harness_capture_satisfied"] = False
+    updated["capture"] = capture
+    return updated
+
+
 def build_adoption_validation_report(
     *,
     authority_path: Path,
@@ -431,6 +463,7 @@ def build_adoption_validation_report(
     require_live_evidence: bool = False,
     session_id_filter: str | None = None,
     required_client: str | None = None,
+    expect_harness_capture: bool = False,
 ) -> dict[str, Any]:
     """Build a validation report for a saved claim_authority payload and calls."""
     try:
@@ -462,6 +495,8 @@ def build_adoption_validation_report(
         )
 
     validation = validate_agent_protocol_calls(protocol, calls)
+    if expect_harness_capture:
+        validation = _apply_harness_capture_gate(validation)
     evidence_report = _build_live_evidence_report(
         evidence,
         require_live_evidence=require_live_evidence,
@@ -514,6 +549,7 @@ def build_adoption_validation_report(
         "callCount": len(calls),
         "evidence": evidence_report,
         "validation": validation,
+        "harnessFirst": expect_harness_capture,
     }
     report["release_evidence"] = _build_release_evidence_guidance(report)
     return report

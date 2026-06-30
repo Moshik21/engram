@@ -424,6 +424,57 @@ def test_adoption_validation_accepts_rest_auto_observe_for_observe_capture(
     assert report["evidence"]["source"] == "rest_hook_trace"
 
 
+def test_adoption_validation_expect_harness_capture_gate(tmp_path: Path) -> None:
+    authority_path = tmp_path / "claim-authority.json"
+    calls_path = tmp_path / "harness-first.jsonl"
+    protocol = _protocol()
+    protocol["capture"] = {
+        "destination": "engram",
+        "tool": None,
+        "reason": "Harness handles routine capture.",
+    }
+    authority_path.write_text(json.dumps({"agent_protocol": protocol}), encoding="utf-8")
+    calls_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"phase": "before_answer", "tool": "bootstrap_project"}),
+                json.dumps({"phase": "before_answer", "tool": "get_context"}),
+                json.dumps({"phase": "before_answer", "tool": "recall"}),
+                json.dumps({"phase": "capture", "tool": "auto_observe"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    passed = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=calls_path,
+        expect_harness_capture=True,
+    )
+    assert passed["status"] == "passed"
+    assert passed["harnessFirst"] is True
+    assert passed["validation"]["capture"]["harness_capture_satisfied"] is True
+
+    failed_path = tmp_path / "missing-capture.jsonl"
+    failed_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"phase": "before_answer", "tool": "bootstrap_project"}),
+                json.dumps({"phase": "before_answer", "tool": "get_context"}),
+                json.dumps({"phase": "before_answer", "tool": "recall"}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    failed = build_adoption_validation_report(
+        authority_path=authority_path,
+        calls_path=failed_path,
+        expect_harness_capture=True,
+    )
+    assert failed["status"] == "failed"
+    assert "missing_harness_capture_evidence" in failed["validation"]["failures"]
+
+
 def test_adoption_validation_does_not_treat_rest_auto_observe_as_remember(
     tmp_path: Path,
 ) -> None:

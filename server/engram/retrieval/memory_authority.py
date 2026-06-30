@@ -278,8 +278,11 @@ def _capture_decision(text: str) -> dict[str, Any]:
         }
     return {
         "destination": "engram",
-        "tool": "observe",
-        "reason": "Capture uncertain-value context cheaply for cue-backed recall.",
+        "tool": None,
+        "reason": (
+            "Harness auto-capture handles routine turns when installed; "
+            "use observe only for explicit store requests or harness-invisible context."
+        ),
     }
 
 
