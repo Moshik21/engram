@@ -15,6 +15,12 @@ from engram.activation.spreading import (
 )
 from engram.config import ActivationConfig
 from engram.retrieval.plan import build_recall_plan, execute_recall_plan
+from engram.retrieval.recall_graph_gate import (
+    GatedGraphStore,
+)
+from engram.retrieval.recall_graph_gate import (
+    skip_secondary_graph_after_probe_timeout as _skip_secondary_graph_after_probe_timeout,
+)
 from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
     ScoredResult,
@@ -282,26 +288,6 @@ def _primary_search_timeout_seconds(
     return timeout_ms / 1000.0
 
 
-def _graph_probe_timed_out(stage_timings_ms: dict[str, float] | None) -> bool:
-    return bool(
-        stage_timings_ms
-        and (
-            "recall_stats_timeout" in stage_timings_ms
-            or "graph_expand_timeout" in stage_timings_ms
-        )
-    )
-
-
-def _skip_secondary_graph_after_probe_timeout(
-    cfg: ActivationConfig,
-    stage_timings_ms: dict[str, float] | None,
-) -> bool:
-    return bool(
-        cfg.retrieval_skip_secondary_graph_after_probe_timeout
-        and _graph_probe_timed_out(stage_timings_ms)
-    )
-
-
 def _optional_recall_capability(
     search_index,
     method_name: str,
@@ -427,6 +413,8 @@ async def retrieve(
             raise
         except Exception:
             pass  # Fall back to original query
+
+    graph_store = GatedGraphStore(graph_store, cfg, stage_timings_ms)
 
     # Step 0.1b: Template reformulation — convert question to statement form
     # for better embedding match.  Zero cost, <1ms.  If it produces a result,

@@ -684,8 +684,58 @@ class TestPipelineEpisodeRetrieval:
         assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
 
     @pytest.mark.asyncio
+    async def test_gated_graph_store_blocks_secondary_reads_when_probe_timed_out(self):
+        """Gate returns empty results without touching the underlying graph store."""
+        from engram.retrieval.recall_graph_gate import GATED_GRAPH_METHODS, GatedGraphStore
+
+        underlying = AsyncMock()
+        underlying.get_entity = AsyncMock(
+            return_value=Entity(
+                id="e1",
+                name="Test",
+                entity_type="Thing",
+                summary="summary",
+                group_id="default",
+            ),
+        )
+        underlying.find_entities = AsyncMock(return_value=[object()])
+        underlying.find_entity_candidates = AsyncMock(return_value=[object()])
+        underlying.get_relationships = AsyncMock(return_value=[object()])
+        underlying.get_episode_by_id = AsyncMock(
+            return_value=Episode(
+                id="ep_1",
+                content="episode",
+                source="test",
+                status=EpisodeStatus.COMPLETED,
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                group_id="default",
+                created_at=utc_now(),
+            ),
+        )
+        underlying.get_active_neighbors_with_weights = AsyncMock(return_value=[("n1", 0.5)])
+        underlying.get_identity_core_entities = AsyncMock(return_value=[object()])
+
+        cfg = ActivationConfig(consolidation_profile="off", recall_profile="off")
+        gate = GatedGraphStore(underlying, cfg, {"graph_expand_timeout": 25.0})
+
+        assert await gate.get_entity("e1", "default") is None
+        assert await gate.find_entities(name="x", group_id="default") == []
+        assert await gate.find_entity_candidates("x", group_id="default") == []
+        assert await gate.get_relationships("e1", group_id="default") == []
+        assert await gate.get_episode_by_id("ep_1", "default") is None
+        assert await gate.get_active_neighbors_with_weights("e1", group_id="default") == []
+        assert await gate.get_identity_core_entities("default") == []
+
+        for method_name in GATED_GRAPH_METHODS:
+            getattr(underlying, method_name).assert_not_awaited()
+
+        underlying.get_stats = AsyncMock(return_value={"entity_count": 3})
+        assert await gate.get_stats("default") == {"entity_count": 3}
+        underlying.get_stats.assert_awaited_once_with("default")
+
+    @pytest.mark.asyncio
     async def test_probe_timeout_skips_secondary_graph_scoring(self, monkeypatch):
-        """Responsive primary hits are returned without graph-heavy enhancers."""
+        """State/current-value paths return without post-probe graph reads."""
         async def slow_expand(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return "expanded query"
@@ -700,6 +750,18 @@ class TestPipelineEpisodeRetrieval:
                 group_id="default",
             )
 
+        async def slow_get_episode_by_id(*_args, **_kwargs):
+            await asyncio.sleep(0.2)
+            return Episode(
+                id="ep_1",
+                content="Test episode content that is quite long",
+                source="test",
+                status=EpisodeStatus.COMPLETED,
+                projection_state=EpisodeProjectionState.CUE_ONLY,
+                group_id="default",
+                created_at=utc_now(),
+            )
+
         async def slow_find_entities(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return []
@@ -711,9 +773,10 @@ class TestPipelineEpisodeRetrieval:
         cfg = ActivationConfig(
             consolidation_profile="off",
             recall_profile="off",
-            episode_retrieval_enabled=False,
+            episode_retrieval_enabled=True,
             cue_recall_enabled=False,
             chunk_search_enabled=False,
+            temporal_retrieval_enabled=True,
             graph_query_expansion_timeout_ms=25,
             retrieval_graph_pool_timeout_ms=25,
             retrieval_entity_attributes_timeout_ms=25,
@@ -726,12 +789,16 @@ class TestPipelineEpisodeRetrieval:
         )
         graph = _mock_graph_store()
         graph.get_entity = AsyncMock(side_effect=slow_get_entity)
+        graph.get_episode_by_id = AsyncMock(side_effect=slow_get_episode_by_id)
         graph.find_entities = AsyncMock(side_effect=slow_find_entities)
-        search = _mock_search_index_with_episodes(entity_results=[("e1", 0.9)])
+        search = _mock_search_index_with_episodes(
+            entity_results=[("e1", 0.9)],
+            episode_results=[("ep_1", 0.85)],
+        )
         stage_timings = {}
 
         results = await retrieve(
-            query="Native Engram latency",
+            query="what is my current role now",
             group_id="default",
             graph_store=graph,
             activation_store=_mock_activation_store(),
@@ -741,7 +808,7 @@ class TestPipelineEpisodeRetrieval:
         )
 
         assert results
-        assert results[0].node_id == "e1"
+        assert {result.node_id for result in results} & {"e1", "ep_1"}
         assert stage_timings["graph_expand_timeout"] >= 25
         assert stage_timings["recall_graph_pool_skipped_probe_timeout"] == 0.0
         assert stage_timings["recall_goal_priming_skipped_probe_timeout"] == 0.0
@@ -759,6 +826,7 @@ class TestPipelineEpisodeRetrieval:
         assert "recall_gc_mmr" not in stage_timings
         graph.get_entity.assert_not_awaited()
         graph.find_entities.assert_not_awaited()
+        graph.get_episode_by_id.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_noop_reranker_does_not_materialize_documents(self):
