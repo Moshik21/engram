@@ -4,8 +4,6 @@ Date: 2026-06-30
 
 Status: proposed
 
-Implementation status: phases 1–5 shipped (commit `6c8d3b7`)
-
 Owner surface: harness adoption, AXI hooks, MCP prompts, evaluation
 
 Related docs:
@@ -148,9 +146,9 @@ default story.
 
 **Acceptance criteria:**
 
-- [x] `ENGRAM_SYSTEM_PROMPT` and priming rules no longer mandate per-turn `observe`
-- [x] `engram adoption` transcript schema still valid (`before_answer`: context/recall; `capture`: observe OR harness auto_observe)
-- [x] `test_agent_adoption_surfaces.py` updated; all prompt tests pass
+- [ ] `ENGRAM_SYSTEM_PROMPT` and priming rules no longer mandate per-turn `observe`
+- [ ] `engram adoption` transcript schema still valid (`before_answer`: context/recall; `capture`: observe OR harness auto_observe)
+- [ ] `test_agent_adoption_surfaces.py` updated; all prompt tests pass
 
 **Evaluation:**
 
@@ -207,11 +205,11 @@ engramctl connect claude-code --project /path --capture-transcript
 
 **Acceptance criteria:**
 
-- [x] `engramctl connect claude-code --capture-transcript` installs all four AutoCapture hooks
-- [x] `engramctl connect --help` documents capture tiers (read-only vs transcript)
-- [x] Adoption trace (`~/.engram/adoption-trace.jsonl`) records `rest_hook_prompt` / `rest_hook_response`
-- [x] `engram adoption --require-live-evidence` accepts harness capture as `capture` phase evidence
-- [x] Existing `--capture` AXI behavior unchanged
+- [ ] `engramctl connect claude-code --capture-transcript` installs all four AutoCapture hooks
+- [ ] `engramctl connect --help` documents capture tiers (read-only vs transcript)
+- [ ] Adoption trace (`~/.engram/adoption-trace.jsonl`) records `rest_hook_prompt` / `rest_hook_response`
+- [ ] `engram adoption --require-live-evidence` accepts harness capture as `capture` phase evidence
+- [ ] Existing `--capture` AXI behavior unchanged
 
 **Evaluation:**
 
@@ -255,10 +253,10 @@ act, not on every tool response after context is loaded.
 
 **Acceptance criteria:**
 
-- [x] `adoptionDebt` omitted from MCP responses when not actionable
-- [x] `wakeReason` present when debt is actionable
-- [x] `get_runtime_state().agentAdoption.adoptionDebt` uses same logic
-- [x] No regression in `test_adoption_debt_cleared_after_context_load`
+- [ ] `adoptionDebt` omitted from MCP responses when not actionable
+- [ ] `wakeReason` present when debt is actionable
+- [ ] `get_runtime_state().agentAdoption.adoptionDebt` uses same logic
+- [ ] No regression in `test_adoption_debt_cleared_after_context_load`
 
 ---
 
@@ -301,10 +299,10 @@ as the recall engine.
 
 **Acceptance criteria:**
 
-- [x] `engram captain export` writes valid markdown from identity_core entities
-- [x] Round-trip import does not duplicate entities (parse-only import; no auto-write on session start)
-- [x] Export is optional — empty graph still works
-- [x] No automatic import on every session (explicit `sync` or hook opt-in only)
+- [ ] `engram captain export` writes valid markdown from identity_core entities
+- [ ] Round-trip import does not duplicate entities (parse-only import; no auto-write on session start)
+- [ ] Export is optional — empty graph still works
+- [ ] No automatic import on every session (explicit `sync` or hook opt-in only)
 
 ---
 
@@ -314,7 +312,7 @@ as the recall engine.
 
 **Files:**
 
-- `docs/harness-memory-adoption-plan.md` — this doc; mark phases complete as shipped
+- `docs/harness-memory-adoption-plan.md` — this doc; update phase checkboxes when shipped
 - `server/engram/evaluation/adoption_evidence.py` — recognize harness capture in live evidence
 - `server/engram/lifecycle_cli.py` or `evaluation/cli.py` — `engram adoption --harness-first` checklist
 - `README.md` — short "How memory compounds" section pointing here (only if README already discusses adoption)
@@ -341,10 +339,10 @@ uv run engram adoption \
 
 **Acceptance criteria:**
 
-- [x] Live SessionStart evidence: AXI home or MCP session prime within budget
-- [x] Live capture evidence: at least one `auto:prompt` or `auto:response` per session OR explicit `remember`
-- [x] Live recall evidence: `get_context` or `recall` before substantive answer on identity/project query
-- [x] `engram adoption --expect-harness-capture` gate accepts `auto_observe` capture evidence
+- [ ] Live SessionStart evidence: AXI home or MCP session prime within budget
+- [ ] Live capture evidence: at least one `auto:prompt` or `auto:response` per session OR explicit `remember`
+- [ ] Live recall evidence: `get_context` or `recall` before substantive answer on identity/project query
+- [ ] `engram adoption --expect-harness-capture` gate accepts `auto_observe` capture evidence
 
 ---
 
@@ -394,10 +392,8 @@ After Phases 1–3 ship, a healthy cross-project session should show:
 
 ## Immediate Next Action
 
-Dogfood the shipped phases and measure success metrics (↓80% agent `observe` when
-`--capture-transcript` is active):
+Start Phase 1 — protocol rewrite in `mcp/prompts.py` and `harness_adoption.py`:
 
 ```bash
-engramctl connect claude-code --project "$PWD" --capture-transcript
-cd server && uv run engram adoption --authority claim.json --calls trace.jsonl --expect-harness-capture
+cd server && uv run pytest tests/test_agent_adoption_surfaces.py -v
 ```
