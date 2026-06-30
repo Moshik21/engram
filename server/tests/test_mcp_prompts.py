@@ -5,7 +5,12 @@ from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMP
 
 
 def test_system_prompt_requires_lookup_before_answer():
-    assert "BEFORE answering" in ENGRAM_SYSTEM_PROMPT
+    assert ENGRAM_SYSTEM_PROMPT.index("Why Engram Matters") < ENGRAM_SYSTEM_PROMPT.index(
+        "Brain Loop Contract"
+    )
+    assert "You will not know much on day one" in ENGRAM_SYSTEM_PROMPT
+    assert "Skipping Engram today steals from future sessions" in ENGRAM_SYSTEM_PROMPT
+    assert "BEFORE answering" in ENGRAM_SYSTEM_PROMPT or "before your" in ENGRAM_SYSTEM_PROMPT
     assert "observe(user_message)" in ENGRAM_SYSTEM_PROMPT
 
 

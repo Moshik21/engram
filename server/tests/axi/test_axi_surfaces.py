@@ -190,6 +190,25 @@ class FakeClient:
             "format": format,
         }
 
+    def search_artifacts(
+        self,
+        query_text: str,
+        *,
+        project_path: str | None = None,
+        limit: int = 5,
+    ) -> dict:
+        self.calls.append("search_artifacts")
+        self._maybe_fail("search_artifacts")
+        return {
+            "items": [
+                {
+                    "path": "docs/design/extraction-rework.md",
+                    "snippet": "Progressive Projection and Cue-First Memory",
+                    "score": 0.8,
+                }
+            ]
+        }
+
     def recall(
         self,
         query: str,
@@ -382,8 +401,17 @@ def test_home_payload_compacts_healthy_runtime() -> None:
     assert result.payload["context"]["status"] == "available"
     assert result.payload["context"]["cmd"].startswith("engram axi context")
     assert result.payload["next"][0]["cmd"].startswith("engram axi context")
-    assert client.timeouts == [2.5]
-    assert set(client.calls) == {"health", "runtime_fast", "storage"}
+    assert result.payload["briefing"]
+    assert result.payload["artifactHits"]
+    assert result.payload["injection"]["status"] == "ok"
+    assert client.timeouts == [2.5, 8.0]
+    assert set(client.calls) == {
+        "health",
+        "runtime_fast",
+        "storage",
+        "context",
+        "search_artifacts",
+    }
 
 
 def test_home_payload_adds_metadata_trace_flags_to_read_followups() -> None:

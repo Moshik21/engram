@@ -48,6 +48,7 @@ from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.notifications.surface import build_mcp_notifications_surface
+from engram.retrieval.adoption_debt import build_adoption_debt
 from engram.retrieval.artifacts import build_mcp_artifact_search_tool_surface
 from engram.retrieval.auto_recall import (
     RecallCooldown,
@@ -172,6 +173,9 @@ class SessionState:
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
     last_project_path: str | None = None
+    context_loaded_this_session: bool = False
+    last_context_load_at: datetime | None = None
+    turns_since_context: int = 0
     recall_cache: dict = field(default_factory=dict)  # entity_id -> (timestamp, compact_result)
 
 
@@ -613,6 +617,26 @@ def _serialize_notifications(cfg: ActivationConfig, group_id: str) -> list[dict]
     )
 
 
+def _session_adoption_debt(session: SessionState) -> dict[str, Any]:
+    manager = _get_manager()
+    metrics = manager.get_memory_operation_metrics(_group_id)
+    last_context_load = (
+        session.last_context_load_at.isoformat() if session.last_context_load_at else None
+    )
+    return build_adoption_debt(
+        metrics,
+        last_context_load=last_context_load,
+        context_loaded_this_session=session.context_loaded_this_session,
+        turns_since_context=session.turns_since_context,
+    )
+
+
+def _mark_context_loaded(session: SessionState) -> None:
+    session.context_loaded_this_session = True
+    session.last_context_load_at = utc_now()
+    session.turns_since_context = 0
+
+
 async def _recall_middleware(
     content: str,
     response: dict,
@@ -623,8 +647,11 @@ async def _recall_middleware(
     """Unified recall middleware — replaces per-tool piggyback blocks.
 
     Attaches recalled_context, session_context, triggered_intentions,
-    and memory_notifications to any tool response.
+    memory_notifications, and adoptionDebt to any tool response.
     """
+    session = _get_session()
+    if tool_name != "get_context":
+        session.turns_since_context += 1
     await run_mcp_recall_middleware(
         response,
         content=content,
@@ -637,7 +664,12 @@ async def _recall_middleware(
         session_prime=_session_prime,
         ingest_live_turn=_ingest_live_tool_turn,
         auto_observe=auto_observe,
+        adoption_debt=_session_adoption_debt(session)
+        if tool_name != "get_context"
+        else None,
     )
+    if tool_name == "get_context":
+        _mark_context_loaded(session)
 
 
 # ─── Tools ──────────────────────────────────────────────────────────
@@ -1213,6 +1245,7 @@ async def get_runtime_state(
     not as proof that Engram is optional or has no useful memory.
     """
     manager = _get_manager()
+    session = _get_session()
     result = await build_runtime_state_surface(
         manager,
         group_id=_group_id,
@@ -1220,6 +1253,20 @@ async def get_runtime_state(
         live=live,
         timeout_seconds=timeout_seconds,
     )
+    adoption = result.get("agentAdoption")
+    if isinstance(adoption, dict):
+        metrics = (result.get("stats") or {}).get("memoryOperationMetrics") or {}
+        debt = build_adoption_debt(
+            metrics,
+            last_context_load=(
+                session.last_context_load_at.isoformat()
+                if session.last_context_load_at
+                else None
+            ),
+            context_loaded_this_session=session.context_loaded_this_session,
+            turns_since_context=session.turns_since_context,
+        )
+        adoption["adoptionDebt"] = debt
     diagnostics = result.setdefault("diagnostics", {})
     stage_timings = diagnostics.setdefault("stageTimingsMs", {})
     if _mcp_init_timings:

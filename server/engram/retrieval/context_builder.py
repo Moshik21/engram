@@ -549,9 +549,15 @@ class MemoryContextBuilder:
         structured_context: str,
         group_id: str,
         topic_hint: str | None,
+        growth_stats: Mapping[str, Any] | None = None,
     ) -> str:
         """Render a brief deterministic narrative from structured context."""
-        cache_key = (group_id, topic_hint)
+        growth_key = (
+            int(growth_stats.get("episodes") or 0),
+            int(growth_stats.get("cues") or 0),
+            int(growth_stats.get("promotions") or 0),
+        ) if growth_stats else ()
+        cache_key = (group_id, topic_hint, growth_key)
         now = time.time()
         if cache_key in self._briefing_cache:
             timestamp, text = self._briefing_cache[cache_key]
@@ -559,6 +565,17 @@ class MemoryContextBuilder:
                 return text
 
         sentences: list[str] = []
+        if growth_stats:
+            episodes = int(growth_stats.get("episodes") or 0)
+            cues = int(growth_stats.get("cues") or 0)
+            promotions = int(growth_stats.get("promotions") or 0)
+            if episodes or cues or promotions:
+                growth_line = (
+                    f"Memory growth: {episodes} episodes, {cues} cue traces"
+                    f"{f', {promotions} promoted to graph' if promotions else ''}"
+                    " — compounding with each session you use Engram."
+                )
+                sentences.append(growth_line)
         tier1_lines: list[str] = []
         tier2_lines: list[str] = []
         tier3_lines: list[str] = []
@@ -593,6 +610,27 @@ class MemoryContextBuilder:
         briefing = " ".join(sentences) if sentences else structured_context
         self._briefing_cache[cache_key] = (now, briefing)
         return briefing
+
+    async def _collect_growth_stats(self, group_id: str) -> dict[str, Any]:
+        get_stats = getattr(self._graph, "get_stats", None)
+        if not callable(get_stats):
+            return {}
+        try:
+            stats = get_stats(group_id)
+            if inspect.isawaitable(stats):
+                stats = await stats
+        except Exception:
+            logger.debug("growth stats collection failed", exc_info=True)
+            return {}
+        if not isinstance(stats, dict):
+            return {}
+        cue_metrics = stats.get("cue_metrics") or {}
+        return {
+            "episodes": int(stats.get("episodes") or 0),
+            "cues": int(cue_metrics.get("cue_count") or 0),
+            "promotions": int(cue_metrics.get("projected_cue_count") or 0),
+            "entities": int(stats.get("entities") or 0),
+        }
 
     async def get_context(
         self,
@@ -1029,7 +1067,13 @@ class MemoryContextBuilder:
             # briefing request with no activated entities silently returned a
             # "structured" result, hiding the degradation from callers.
             if all_entities or cached_packet_text:
-                briefing = self.template_briefing(context_text, group_id, topic_hint)
+                growth_stats = await self._collect_growth_stats(group_id)
+                briefing = self.template_briefing(
+                    context_text,
+                    group_id,
+                    topic_hint,
+                    growth_stats=growth_stats,
+                )
                 result = {
                     "context": briefing,
                     "entity_count": len(all_entities),

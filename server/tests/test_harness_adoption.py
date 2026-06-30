@@ -55,6 +55,9 @@ def test_priming_instruction_paths() -> None:
 def test_priming_instruction_text_contains_protocol() -> None:
     text = priming_instruction_text()
     assert MANAGED_PRIMING_MARKER in text
+    assert text.index("Why this matters") < text.index("Before every substantive answer")
+    assert "Skipping Engram today steals from future sessions" in text
+    assert "I checked project memory" in text
     assert "claim_authority" in text
     assert "get_context" in text
     assert "recall" in text

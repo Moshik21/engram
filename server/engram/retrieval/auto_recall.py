@@ -1390,6 +1390,7 @@ async def run_mcp_recall_middleware(
     ],
     ingest_live_turn: Callable[[Any, str], Awaitable[None]],
     auto_observe: bool = False,
+    adoption_debt: Mapping[str, Any] | None = None,
 ) -> None:
     """Execute MCP recall middleware side effects behind a retrieval boundary."""
     plan = plan_mcp_recall_middleware(
@@ -1430,6 +1431,7 @@ async def run_mcp_recall_middleware(
         recalled_context=recalled,
         triggered_intentions=intentions,
         memory_notifications=notifications,
+        adoption_debt=adoption_debt,
     )
 
 
@@ -1440,6 +1442,7 @@ def apply_mcp_recall_enrichment(
     recalled_context: Mapping[str, Any] | None = None,
     triggered_intentions: Sequence[Mapping[str, Any]] | None = None,
     memory_notifications: Sequence[Mapping[str, Any]] | None = None,
+    adoption_debt: Mapping[str, Any] | None = None,
 ) -> None:
     """Attach non-empty recall enrichment fields to an MCP response."""
     if session_context:
@@ -1450,6 +1453,11 @@ def apply_mcp_recall_enrichment(
         response["triggered_intentions"] = [dict(item) for item in triggered_intentions]
     if memory_notifications:
         response["memory_notifications"] = [dict(item) for item in memory_notifications]
+    if adoption_debt:
+        from engram.retrieval.adoption_debt import adoption_debt_is_actionable
+
+        if adoption_debt_is_actionable(adoption_debt):
+            response["adoptionDebt"] = dict(adoption_debt)
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

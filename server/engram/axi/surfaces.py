@@ -19,6 +19,8 @@ LIFECYCLE = "Capture -> Cue -> Project -> Recall -> Consolidate"
 DESCRIPTION = "Long-term memory brain for AI agents"
 HOME_PROBE_TIMEOUT_SECONDS = 2.5
 HOME_BOOTSTRAP_TIMEOUT_SECONDS = 55.0
+HOME_INJECTION_TIMEOUT_SECONDS = 8.0
+HOME_INJECTION_CONTEXT_BUDGET = 600
 FOLLOWUP_TIMEOUT_SECONDS = 10.0
 VALUE_TIMEOUT_SECONDS = 20.0
 
@@ -114,6 +116,13 @@ def build_home_payload(
     }
     if bootstrap_summary is not None:
         payload["bootstrap"] = bootstrap_summary
+    injection = _inject_session_start_briefing(
+        client,
+        project_path=project_path,
+        topic_hint=topic_hint,
+    )
+    if injection is not None:
+        payload.update(injection)
     if health.get("error"):
         payload["error"] = health.get("error")
     elif runtime_error and storage_error and not any_probe_succeeded:
@@ -1051,6 +1060,108 @@ def _compact_context_packets(
                     "last_corrected": trust.get("last_corrected_at")
                     or trust.get("lastCorrectedAt"),
                 },
+            }
+        )
+    return compact
+
+
+def _inject_session_start_briefing(
+    client: AxiRestClient,
+    *,
+    project_path: str | None,
+    topic_hint: str | None,
+) -> dict[str, Any] | None:
+    """Proactively load briefing + artifact hits for session-start injection."""
+    if not project_path:
+        return None
+
+    injection_client = client
+    with_timeout = getattr(client, "with_timeout", None)
+    if callable(with_timeout):
+        injection_client = with_timeout(HOME_INJECTION_TIMEOUT_SECONDS)
+
+    project_leaf = Path(project_path).expanduser().name
+    search_query = topic_hint or project_leaf
+    briefing_text = ""
+    artifact_hits: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    try:
+        context = injection_client.context(
+            max_tokens=HOME_INJECTION_CONTEXT_BUDGET,
+            topic_hint=topic_hint or project_leaf,
+            project_path=project_path,
+            format="briefing",
+        )
+        briefing_text = compact_whitespace(str(context.get("context") or ""))
+    except AxiRestError as exc:
+        errors.append(f"context:{exc.message}")
+
+    search_artifacts = getattr(injection_client, "search_artifacts", None)
+    if callable(search_artifacts):
+        try:
+            artifacts = search_artifacts(
+                search_query,
+                project_path=project_path,
+                limit=5,
+            )
+            artifact_hits = _compact_injected_artifacts(artifacts.get("items") or [])
+        except AxiRestError as exc:
+            errors.append(f"artifacts:{exc.message}")
+
+    if not briefing_text and not artifact_hits:
+        if errors:
+            return {
+                "injection": {
+                    "status": "degraded",
+                    "errors": errors,
+                }
+            }
+        return None
+
+    result: dict[str, Any] = {
+        "injection": {
+            "status": "ok" if not errors else "degraded",
+            "project": project_path,
+            "searchQuery": search_query,
+        },
+    }
+    if briefing_text:
+        rendered, truncated, original_len = truncate_text(
+            briefing_text,
+            budget_tokens=HOME_INJECTION_CONTEXT_BUDGET,
+            minimum_chars=120,
+        )
+        result["briefing"] = rendered
+        result["injection"]["briefingTruncated"] = truncated
+        result["injection"]["briefingChars"] = original_len
+    if artifact_hits:
+        result["artifactHits"] = artifact_hits
+        result["injection"]["artifactCount"] = len(artifact_hits)
+    if errors:
+        result["injection"]["errors"] = errors
+    return result
+
+
+def _compact_injected_artifacts(items: Any) -> list[dict[str, Any]]:
+    compact: list[dict[str, Any]] = []
+    if not isinstance(items, list):
+        return compact
+    for item in items[:5]:
+        if not isinstance(item, dict):
+            continue
+        snippet, truncated, original_len = truncate_text(
+            compact_whitespace(str(item.get("snippet") or "")),
+            budget_tokens=80,
+            minimum_chars=80,
+        )
+        compact.append(
+            {
+                "path": item.get("path") or "",
+                "snippet": snippet,
+                "score": item.get("score"),
+                "truncated": truncated,
+                "originalChars": original_len,
             }
         )
     return compact

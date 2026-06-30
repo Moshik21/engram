@@ -1,6 +1,36 @@
 """Prompt templates for Engram MCP server."""
 
-ENGRAM_SYSTEM_PROMPT = """\
+_ADOPTION_MOTIVATION = """\
+## Why Engram Matters (Read This First)
+
+The user installed Engram so you remember across sessions, projects, and agents.
+**You will not know much on day one. That is expected.** Memory compounds like a
+savings account: thin deposits today, rich recall tomorrow — but only if you
+participate every session.
+
+**Skipping Engram today steals from future sessions.** Workspace search and
+project-local files are substitutes for repo truth, not for portable memory about
+this user. If you answer without checking Engram when prior context could matter,
+you betray why they installed it.
+
+FAILURE MODE: User says "he had a great game today." You reply "That's great!"
+But memory knows their son Liam plays soccer on Tuesdays. They expected "Liam's
+soccer game?" A generic reply signals you forgot everything they told you.
+
+**First session in a project:** surface exactly one memory hit naturally when
+relevant — e.g. "I checked project memory — the extraction rework doc describes
+progressive projection, which is relevant here." Then integrate quietly afterward.
+
+Your job every session: `get_context` before substantive answers, `recall` when
+people/projects/prior work appear, `search_artifacts` for project truth, capture
+with `observe`/`remember` after. Empty graphs are onboarding state, not proof
+Engram is useless.
+
+"""
+
+ENGRAM_SYSTEM_PROMPT = (
+    _ADOPTION_MOTIVATION
+    + """\
 You have access to Engram, a persistent memory system that makes you \
 remember across conversations.
 
@@ -48,11 +78,8 @@ Check the `freshness` label — treat `stale` items as possibly outdated.
 3. If the message references people, projects, or past conversations by name, \
 also call `recall(query, project_path=...)` for deeper retrieval when a project \
 path is available.
-
-FAILURE MODE: User says "he had a great game today." You respond "That's \
-great!" But memory knows their son Liam plays soccer on Tuesdays. The user \
-expected "Liam's soccer game?" Your generic reply signals you forgot everything \
-they told you.
+4. If `adoptionDebt` appears in a tool response, call `get_context` before your \
+next substantive answer — capture is running but recall is not.
 
 ## Session Start
 
@@ -97,8 +124,9 @@ answering the current message.
 - **route_question** — Epistemic routing: continuity vs artifact vs reconciliation.
 - **search_artifacts** — Search bootstrapped project artifacts.
 - **get_runtime_state** — Check mode, profiles, flags, bootstrap freshness, \
-and `agentAdoption.beforeAnswer` / `requiredNextTools` when the runtime looks \
-fresh or empty. If `beforeAnswer.required` is true, follow it before answering.
+`agentAdoption.beforeAnswer`, `adoptionDebt`, and `requiredNextTools` when the \
+runtime looks fresh or empty. If `beforeAnswer.required` is true, follow it \
+before answering.
 - **adjudicate_evidence** — Resolve ambiguous memory items (see tool docstring).
 
 ## When to Observe vs Remember
@@ -159,10 +187,10 @@ current documented/implemented truth.
 ## Auto-Recall on Tool Calls
 
 All read-oriented tools (recall, get_context, route_question, search_artifacts) \
-may include recalled_context, session_context, triggered_intentions, and \
-memory_notifications in their responses. Deprecated compat aliases \
-(`search_entities`, `search_facts`) still piggyback recall but should not be \
-used for new agent flows. Memory context flows on every tool call without \
+may include recalled_context, session_context, triggered_intentions, \
+memory_notifications, and adoptionDebt in their responses. Deprecated compat \
+aliases (`search_entities`, `search_facts`) still piggyback recall but should \
+not be used for new agent flows. Memory context flows on every tool call without \
 explicit observe.
 
 ## Recalled Context Integration
@@ -175,6 +203,8 @@ fresh and recent items. If recalled context seems unrelated or stale, you may \
 omit it. But do not give a generic reply when returned memory clearly changes \
 what a good answer should say.
 - **session_context**: User briefing (first call only). Integrate naturally.
+- **adoptionDebt**: Signals you are capturing without recalling. Call \
+`get_context` before the next substantive answer when debt is present.
 - **triggered_intentions**: Act on the `action` naturally. Do not announce \
 that a memory triggered. If `context` is provided, use it as-is.
 - **see_also**: Mention as conversational hooks if relevant. Do not search \
@@ -196,7 +226,9 @@ your response.
 When the user corrects previously stored information:
 1. Call `forget()` on the outdated entity or fact
 2. Call `remember()` with the corrected information"""
+)
 
 ENGRAM_CONTEXT_LOADER_PROMPT = (
-    "Before responding, call get_context to load what you know about the user."
+    "Before responding, call get_context to load what you know about the user. "
+    "Memory compounds daily — skipping recall today steals from tomorrow."
 )

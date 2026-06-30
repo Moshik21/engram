@@ -106,6 +106,18 @@ class AxiRestClient:
             query["project_path"] = project_path
         return self.request_json("GET", "/api/knowledge/context", query=query)
 
+    def search_artifacts(
+        self,
+        query_text: str,
+        *,
+        project_path: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {"q": query_text, "limit": limit}
+        if project_path:
+            query["project_path"] = project_path
+        return self.request_json("GET", "/api/knowledge/artifacts/search", query=query)
+
     def recall(
         self,
         query_text: str,

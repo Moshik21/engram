@@ -1672,7 +1672,7 @@ class ActivationConfig(BaseModel):
         description="Strict wall-clock budget for startup/cache-only recall surfaces",
     )
     recall_budget_auto_lite_ms: int = Field(
-        default=75,
+        default=350,
         ge=10,
         le=5000,
         description="Wall-clock budget for lite/medium auto-recall probes",

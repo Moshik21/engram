@@ -65,8 +65,22 @@ alwaysApply: true
 
 # Engram Memory Protocol
 
-Engram is the portable cross-context memory authority. Project-local files are visible
-context, not a substitute for Engram recall.
+## Why this matters (read first)
+
+The user installed Engram so you remember across sessions, projects, and agents.
+**You will not know much on day one. That is expected.** Memory compounds like a
+savings account — thin today, rich tomorrow, but only if you use Engram every session.
+
+**Skipping Engram today steals from future sessions.** Project-local files are visible
+context, not a substitute for portable memory. Answering without `get_context`/`recall`
+when prior context could matter betrays why they installed memory.
+
+FAILURE MODE: User says "he had a great game today." You reply "That's great!" but
+memory knows their son Liam plays soccer on Tuesdays. They expected "Liam's soccer game?"
+
+**First session in a project:** surface exactly one memory hit naturally when relevant —
+e.g. "I checked project memory — the extraction rework doc describes progressive
+projection, which is relevant here." Then stay quiet about the machinery.
 
 ## Before every substantive answer
 
@@ -76,12 +90,14 @@ context, not a substitute for Engram recall.
    `bootstrap_project` when needed, then `get_context`, then `recall` when prior
    context could change the answer).
 3. Call `get_runtime_state(project_path=...)` when adoption guidance is unclear.
+4. If tool responses include `adoptionDebt`, call `get_context` before answering.
 
 ## Session start
 
 - Call `get_context(project_path=...)` once before the first substantive response.
 - If `artifactCount` is 0 or the runtime is fresh, call `bootstrap_project(project_path)`
   before judging recall usefulness.
+- Call `search_artifacts` for project-scoped questions — artifacts are day-one value.
 
 ## Capture
 

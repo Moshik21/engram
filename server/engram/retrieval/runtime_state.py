@@ -12,6 +12,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.entity import Entity
+from engram.retrieval.adoption_debt import build_adoption_debt
 from engram.retrieval.artifacts import _normalize_project_path
 from engram.utils.dates import utc_now_iso
 
@@ -296,6 +297,7 @@ class RuntimeStateService:
                 artifact_bootstrap,
                 recall_metrics=recall_metrics,
                 epistemic_metrics=epistemic_metrics,
+                memory_operation_metrics=memory_operation_metrics,
                 project_path=project_path,
             ),
             "stats": stats,
@@ -319,7 +321,11 @@ def _build_agent_adoption_guidance(
     *,
     recall_metrics: Mapping[str, Any],
     epistemic_metrics: Mapping[str, Any],
+    memory_operation_metrics: Mapping[str, Any] | None = None,
     project_path: str | None,
+    last_context_load: str | None = None,
+    context_loaded_this_session: bool = False,
+    turns_since_context: int | None = None,
 ) -> dict[str, Any]:
     """Return compact adoption guidance for agents that only probe runtime state."""
     artifact_count = int(artifact_bootstrap.get("artifactCount") or 0)
@@ -347,10 +353,17 @@ def _build_agent_adoption_guidance(
         if needs_bootstrap
         else "ready"
     )
+    adoption_debt = build_adoption_debt(
+        memory_operation_metrics or {},
+        last_context_load=last_context_load,
+        context_loaded_this_session=context_loaded_this_session,
+        turns_since_context=turns_since_context,
+    )
     return {
         "status": status,
         "doNotTreatEmptyAsFailure": bool(fresh_runtime or needs_bootstrap),
         "requiredNextTools": required_tools,
+        "adoptionDebt": adoption_debt,
         "beforeAnswer": {
             "required": True,
             "tools": required_tools,
