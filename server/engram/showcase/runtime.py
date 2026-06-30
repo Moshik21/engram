@@ -1,0 +1,35 @@
+"""Open a read-only lite GraphManager against a showcase database."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from engram.config import ActivationConfig
+from engram.graph_manager import GraphManager
+from engram.showcase.extractor import ShowcaseExtractor
+from engram.storage.memory.activation import MemoryActivationStore
+from engram.storage.sqlite.graph import SQLiteGraphStore
+from engram.storage.sqlite.search import FTS5SearchIndex
+
+
+async def open_showcase_manager(
+    db_path: Path,
+    *,
+    group_id: str = "showcase",
+) -> tuple[GraphManager, SQLiteGraphStore]:
+    cfg = ActivationConfig()
+    graph_store = SQLiteGraphStore(str(db_path))
+    await graph_store.initialize()
+    activation_store = MemoryActivationStore(cfg=cfg)
+    search_index = FTS5SearchIndex(str(db_path))
+    await search_index.initialize(db=graph_store._db)
+    manager = GraphManager(
+        graph_store,
+        activation_store,
+        search_index,
+        ShowcaseExtractor(),
+        cfg=cfg,
+        runtime_mode="showcase_run",
+    )
+    manager._showcase_group_id = group_id  # type: ignore[attr-defined]
+    return manager, graph_store

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { BenchmarkShowcase } from "../components/BenchmarkShowcase";
+import { ShowcaseTheater } from "../components/ShowcaseTheater";
 import { BrainVisualization } from "../components/BrainVisualization";
 import { MemoryFlowDiagram } from "../components/MemoryFlowDiagram";
 import { ScrollReveal } from "../components/ScrollReveal";
@@ -650,6 +651,25 @@ export function HomePage() {
               </ScrollReveal>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section style={section}>
+        <div style={{ ...wideContainer, display: "grid", gap: 32 }}>
+          <ScrollReveal>
+            <div style={narrowContainer}>
+              <Label>Try it</Label>
+              <h2 className="operator-section-title" style={heading}>
+                Watch memory fire on a seeded brain.
+              </h2>
+              <p style={bodyText}>
+                The public showcase replays a bundled lite demo.db with three beats: Liam continuity, a correction, and a cross-session briefing. Run the same script locally with <code style={mono}>engram showcase run</code>.
+              </p>
+            </div>
+          </ScrollReveal>
+          <ScrollReveal delay={120}>
+            <ShowcaseTheater />
+          </ScrollReveal>
         </div>
       </section>
 

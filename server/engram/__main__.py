@@ -50,6 +50,7 @@ def main():
         "  engram adoption --authority claim-authority.json --calls mcp-calls.jsonl\n"
         "                            Validate an MCP client followed Engram authority\n"
         "  engram doctor            Run diagnostics and readiness smoke\n"
+        "  engram showcase run       Replay bundled Liam continuity demo\n"
         "  engram health             Check if server is running\n",
     )
     subparsers = parser.add_subparsers(dest="command")
@@ -209,6 +210,15 @@ def main():
     from engram.captain_cli import configure_captain_parser
 
     configure_captain_parser(captain_parser)
+
+    # --- showcase ---
+    showcase_parser = subparsers.add_parser(
+        "showcase",
+        help="Run the bundled Liam continuity demo against lite demo.db",
+    )
+    from engram.showcase.cli import configure_showcase_parser
+
+    configure_showcase_parser(showcase_parser)
 
     # --- doctor ---
     doctor_parser = subparsers.add_parser(
@@ -373,6 +383,12 @@ def main():
         from engram.captain_cli import run_captain_command
 
         sys.exit(run_captain_command(args))
+
+    # --- showcase ---
+    if args.command == "showcase":
+        from engram.showcase.cli import run_showcase_command
+
+        sys.exit(run_showcase_command(args))
 
     # --- doctor ---
     if args.command == "doctor":

@@ -1914,7 +1914,20 @@ def main() -> None:
     parser.add_argument(
         "--compare", action="store_true", help="Compare FTS-only vs activation scoring"
     )
+    parser.add_argument(
+        "--showcase-seed",
+        type=Path,
+        default=None,
+        help="Seed the public Liam showcase demo.db instead of running the full simulation",
+    )
     args = parser.parse_args()
+
+    if args.showcase_seed is not None:
+        from engram.showcase.seed import seed_demo_db
+
+        asyncio.run(seed_demo_db(args.showcase_seed))
+        print(f"Seeded showcase database: {args.showcase_seed}")
+        return
 
     # Suppress noisy logs unless verbose
     if not args.verbose:

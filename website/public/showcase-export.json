@@ -1,0 +1,266 @@
+{
+  "kind": "engram_showcase_export",
+  "version": 1,
+  "group_id": "showcase",
+  "beats": [
+    {
+      "id": "continuity",
+      "title": "Continuity",
+      "user_message": "He had a great game today.",
+      "action": "recall",
+      "query": "He had a great game today",
+      "narrative": "Harness captured prior turns. Agent recalls Liam before replying.",
+      "answer_hint": "Liam's soccer or baseball practice, depending on the latest correction.",
+      "expect_tokens": [
+        "liam"
+      ],
+      "passed": true,
+      "matched_tokens": [
+        "liam"
+      ],
+      "highlights": [
+        "After Liam's practice, ask how the game went. We keep his schedule in the family calendar.",
+        "My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar."
+      ],
+      "recall_results": [
+        {
+          "episode": {
+            "id": "ep_6a317a0faed0",
+            "source": "showcase:family_calendar",
+            "created_at": "2026-06-30T20:18:52.735997",
+            "conversation_date": null,
+            "content": "After Liam's practice, ask how the game went. We keep his schedule in the family calendar."
+          },
+          "score": 0.4,
+          "score_breakdown": {
+            "semantic": 1.0,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0
+          },
+          "result_type": "episode",
+          "linked_entities": [
+            "ent_0f5a3db13380",
+            "ent_bee128f8c7f8"
+          ]
+        },
+        {
+          "episode": {
+            "id": "ep_4acdd0d65d36",
+            "source": "showcase:liam_soccer",
+            "created_at": "2026-06-30T20:18:52.719796",
+            "conversation_date": null,
+            "content": "My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar."
+          },
+          "score": 0.35196441808747225,
+          "score_breakdown": {
+            "semantic": 0.8799110452186806,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0
+          },
+          "result_type": "episode",
+          "linked_entities": [
+            "ent_0f5a3db13380",
+            "ent_21e2f145e445",
+            "ent_bee128f8c7f8"
+          ]
+        }
+      ],
+      "context": null,
+      "steps": [
+        {
+          "label": "Episode",
+          "detail": "Harness captured prior turns. Agent recalls Liam before replying."
+        },
+        {
+          "label": "Cue",
+          "detail": "Deterministic latent traces from seeded turns"
+        },
+        {
+          "label": "Recall",
+          "detail": "After Liam's practice, ask how the game went. We keep his schedule in the family calendar.; My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar."
+        },
+        {
+          "label": "Answer",
+          "detail": "Liam's soccer or baseball practice, depending on the latest correction."
+        }
+      ]
+    },
+    {
+      "id": "correction",
+      "title": "Correction",
+      "user_message": "What sport does Liam play now?",
+      "action": "recall",
+      "query": "What sport does Liam play now",
+      "narrative": "A correction episode updated durable knowledge in the graph.",
+      "answer_hint": "Baseball since the spring switch from soccer.",
+      "expect_tokens": [
+        "liam",
+        "baseball"
+      ],
+      "passed": true,
+      "matched_tokens": [
+        "liam",
+        "baseball"
+      ],
+      "highlights": [
+        "Correction: Liam switched from soccer to baseball this spring. Tuesday practices are now baseball, not soccer.",
+        "My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar.",
+        "After Liam's practice, ask how the game went. We keep his schedule in the family calendar."
+      ],
+      "recall_results": [
+        {
+          "episode": {
+            "id": "ep_3b8ba030bd8d",
+            "source": "showcase:liam_correction",
+            "created_at": "2026-06-30T20:18:52.727941",
+            "conversation_date": null,
+            "content": "Correction: Liam switched from soccer to baseball this spring. Tuesday practices are now baseball, not soccer."
+          },
+          "score": 0.4,
+          "score_breakdown": {
+            "semantic": 1.0,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0
+          },
+          "result_type": "episode",
+          "linked_entities": [
+            "ent_21e2f145e445",
+            "ent_2bdf2e1c8c77",
+            "ent_bee128f8c7f8"
+          ]
+        },
+        {
+          "episode": {
+            "id": "ep_4acdd0d65d36",
+            "source": "showcase:liam_soccer",
+            "created_at": "2026-06-30T20:18:52.719796",
+            "conversation_date": null,
+            "content": "My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar."
+          },
+          "score": 0.3439584877687176,
+          "score_breakdown": {
+            "semantic": 0.8598962194217941,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0
+          },
+          "result_type": "episode",
+          "linked_entities": [
+            "ent_0f5a3db13380",
+            "ent_21e2f145e445",
+            "ent_bee128f8c7f8"
+          ]
+        },
+        {
+          "episode": {
+            "id": "ep_6a317a0faed0",
+            "source": "showcase:family_calendar",
+            "created_at": "2026-06-30T20:18:52.735997",
+            "conversation_date": null,
+            "content": "After Liam's practice, ask how the game went. We keep his schedule in the family calendar."
+          },
+          "score": 7.652330829981232e-07,
+          "score_breakdown": {
+            "semantic": 1.913082707495308e-06,
+            "activation": 0.0,
+            "edge_proximity": 0.0,
+            "exploration_bonus": 0.0
+          },
+          "result_type": "episode",
+          "linked_entities": [
+            "ent_0f5a3db13380",
+            "ent_bee128f8c7f8"
+          ]
+        }
+      ],
+      "context": null,
+      "steps": [
+        {
+          "label": "Episode",
+          "detail": "A correction episode updated durable knowledge in the graph."
+        },
+        {
+          "label": "Cue",
+          "detail": "Deterministic latent traces from seeded turns"
+        },
+        {
+          "label": "Recall",
+          "detail": "Correction: Liam switched from soccer to baseball this spring. Tuesday practices are now baseball, not soccer.; My son Liam plays soccer every Tuesday after school. He is 9 years old and we track his games in the family calendar.; After Liam's practice, ask how the game went. We keep his schedule in the family calendar."
+        },
+        {
+          "label": "Answer",
+          "detail": "Baseball since the spring switch from soccer."
+        }
+      ]
+    },
+    {
+      "id": "cross_session",
+      "title": "Cross-session briefing",
+      "user_message": "(new session) What do we know about Liam?",
+      "action": "get_context",
+      "query": "Liam family practice",
+      "narrative": "get_context loads a briefing without re-explaining the whole family history.",
+      "answer_hint": "Briefing surfaces Liam, practice day, and family calendar habits.",
+      "expect_tokens": [
+        "liam"
+      ],
+      "passed": true,
+      "matched_tokens": [
+        "liam"
+      ],
+      "highlights": [
+        "- Liam (Person, act=0.03) \u2014 Son who plays soccer on Tuesdays; Switched from soccer to baseball in spring; Ask about practice and games after Tuesday sessions [emo_arousal: 0.0, emo_self_ref: 0.0, emo_"
+      ],
+      "recall_results": [],
+      "context": {
+        "context": "## Identity\n\n- Liam (Person, act=0.03) \u2014 Son who plays soccer on Tuesdays; Switched from soccer to baseball in spring; Ask about practice and games after Tuesday sessions [emo_arousal: 0.0, emo_self_ref: 0.0, emo_social: 0.15, emo_composite: 0.03]\n  - Liam PLAYS Soccer\n  - Liam TRACKED_IN Family calendar\n  - Liam PLAYS Baseball\n  - Liam PLAYED Soccer\n\n## Recent Activity\n",
+        "entity_count": 1,
+        "fact_count": 4,
+        "token_estimate": 93,
+        "format": "structured",
+        "cached_packets": [],
+        "packet_cache": {
+          "hit": false,
+          "packet_count": 0,
+          "scopes": {}
+        },
+        "diagnostics": {
+          "stage_timings_ms": {
+            "packet_cache": 0.0486,
+            "identity_core": 0.8153,
+            "topic_recall": 4.3165,
+            "recency_lookup": 0.0033,
+            "intentions": 0.0806,
+            "pinned_contexts": 0.0687,
+            "cache_write": 0.0445
+          }
+        }
+      },
+      "steps": [
+        {
+          "label": "Episode",
+          "detail": "get_context loads a briefing without re-explaining the whole family history."
+        },
+        {
+          "label": "Cue",
+          "detail": "Deterministic latent traces from seeded turns"
+        },
+        {
+          "label": "Recall",
+          "detail": "- Liam (Person, act=0.03) \u2014 Son who plays soccer on Tuesdays; Switched from soccer to baseball in spring; Ask about practice and games after Tuesday sessions [emo_arousal: 0.0, emo_self_ref: 0.0, emo_"
+        },
+        {
+          "label": "Answer",
+          "detail": "Briefing surfaces Liam, practice day, and family calendar habits."
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "total": 3
+  }
+}

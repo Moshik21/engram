@@ -137,6 +137,29 @@ See [docs/install/](docs/install/) and [docs/REFERENCE.md](docs/REFERENCE.md#sto
 
 <br>
 
+## Try Engram (showcase)
+
+Replay a bundled lite demo brain with no API keys:
+
+```bash
+cd server && uv run engram showcase run
+```
+
+Three scripted beats: Liam continuity ("He had a great game today"), a correction (soccer to baseball), and a cross-session `get_context` briefing.
+
+```bash
+# Export static beats for the website theater
+cd server && uv run engram showcase export --out ../website/public/showcase-export.json
+
+# Reseed the bundled demo.db from source
+cd server && uv run engram showcase seed
+cd server && uv run python scripts/simulate.py --showcase-seed engram/data/demo.db
+```
+
+Record a screen capture from `engram showcase run` for README or social posts. The website scenario theater reads `website/public/showcase-export.json`.
+
+<br>
+
 ## Connect Your Agent
 
 | Client | MCP | Priming rules | AXI inject | Transcript capture |

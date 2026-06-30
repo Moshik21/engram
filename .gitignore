@@ -20,6 +20,7 @@ config.local.yaml
 
 # SQLite databases
 *.db
+!server/engram/data/demo.db
 *.db-journal
 *.db-wal
 
