@@ -424,6 +424,29 @@ def test_adoption_validation_accepts_rest_auto_observe_for_observe_capture(
     assert report["evidence"]["source"] == "rest_hook_trace"
 
 
+def test_harness_first_protocol_accepts_auto_observe_without_expected_tool() -> None:
+    from engram.retrieval.memory_authority import validate_agent_protocol_calls
+
+    protocol = {
+        "required_tools_before_answer": ["get_context"],
+        "capture": {
+            "destination": "engram",
+            "tool": None,
+            "reason": "Harness handles routine capture.",
+        },
+    }
+    validation = validate_agent_protocol_calls(
+        protocol,
+        [
+            {"phase": "before_answer", "tool": "get_context"},
+            {"phase": "capture", "tool": "auto_observe"},
+        ],
+    )
+    assert validation["status"] == "passed"
+    assert validation["capture"]["observed_tools"] == ["auto_observe"]
+    assert validation["capture"]["missing"] is False
+
+
 def test_adoption_validation_expect_harness_capture_gate(tmp_path: Path) -> None:
     authority_path = tmp_path / "claim-authority.json"
     calls_path = tmp_path / "harness-first.jsonl"

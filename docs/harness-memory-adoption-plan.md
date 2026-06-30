@@ -2,7 +2,9 @@
 
 Date: 2026-06-30
 
-Status: implemented (phases 1–5)
+Status: proposed
+
+Implementation status: phases 1–5 shipped (commit `6c8d3b7`)
 
 Owner surface: harness adoption, AXI hooks, MCP prompts, evaluation
 
@@ -392,7 +394,8 @@ After Phases 1–3 ship, a healthy cross-project session should show:
 
 ## Immediate Next Action
 
-Phases 1–5 are implemented. Dogfood with:
+Dogfood the shipped phases and measure success metrics (↓80% agent `observe` when
+`--capture-transcript` is active):
 
 ```bash
 engramctl connect claude-code --project "$PWD" --capture-transcript

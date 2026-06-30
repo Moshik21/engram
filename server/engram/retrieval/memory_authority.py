@@ -417,6 +417,10 @@ def _validate_capture(
             {str(expected_tool)},
         )
         missing = not any(tool in acceptable_tools for tool in capture_tools)
+    elif destination == "engram" and not expected_tool:
+        # Harness-first protocol: routine capture is infrastructure; any harness
+        # or agent capture tool in the transcript is acceptable evidence.
+        missing = not any(tool in ENGRAM_CAPTURE_TOOLS for tool in capture_tools)
     elif destination in {"none", "project_local"}:
         unexpected_engram_capture_tools = [
             tool

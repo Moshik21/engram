@@ -443,6 +443,14 @@ def _apply_harness_capture_gate(validation: dict[str, Any]) -> dict[str, Any]:
     if any(tool in _HARNESS_CAPTURE_TOOLS for tool in observed):
         capture["harness_capture_satisfied"] = True
         updated["capture"] = capture
+        failures = [
+            failure
+            for failure in (updated.get("failures") or [])
+            if failure != "missing_harness_capture_evidence"
+        ]
+        updated["failures"] = failures
+        if not failures:
+            updated["status"] = "passed"
         return updated
 
     failures = list(updated.get("failures") or [])
