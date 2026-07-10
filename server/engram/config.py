@@ -1245,6 +1245,24 @@ class ActivationConfig(BaseModel):
             "synchronously. Timed-out warmups continue best-effort in the background."
         ),
     )
+    continuity_startup_warmup_enabled: bool = Field(
+        default=True,
+        description=(
+            "After readiness, background-warm durable continuity paths "
+            "(identity_core list, get_context durable pack, Decision name recall) "
+            "so LaunchAgent cold boots don't pay the first-query latency spike."
+        ),
+    )
+    continuity_startup_warmup_timeout_ms: int = Field(
+        default=15000,
+        ge=0,
+        le=120000,
+        description=(
+            "Max wall time for background continuity warmup before cancel. "
+            "Does not block /health readiness."
+        ),
+    )
+
     capture_cue_vector_index_quiet_period_ms: int = Field(
         default=0,
         ge=0,

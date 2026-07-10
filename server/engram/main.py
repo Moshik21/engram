@@ -331,6 +331,8 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         _start_graph_stats_warmup(manager, config)
     if predicate_cache is not None and embedding_provider is not None:
         _start_predicate_cache_warmup(predicate_cache, config, embedding_provider)
+    if config.activation.continuity_startup_warmup_enabled:
+        _start_continuity_warmup(manager, config)
 
     _app_state.update(
         {
@@ -479,6 +481,127 @@ def _start_graph_stats_warmup(manager: GraphManager, config: EngramConfig) -> No
     if isinstance(task, asyncio.Task):
         _track_startup_background_task(task)
         logger.info("Native graph stats warmup started")
+
+
+def _start_continuity_warmup(manager: GraphManager, config: EngramConfig) -> None:
+    """Background-warm product continuity paths after readiness.
+
+    LaunchAgent cold boots previously paid multi-second first-hit latency on
+    get_context/recall. This primes identity_core listing, durable context packs,
+    and Decision-name recall without blocking /health.
+    """
+
+    async def _warm() -> None:
+        from engram.retrieval.context_builder import build_mcp_context_surface
+        from engram.retrieval.recall_surface import build_api_recall_surface
+
+        group_id = config.default_group_id
+        timings: dict[str, float] = {}
+
+        async def _stage(name: str, coro):
+            started = asyncio.get_running_loop().time()
+            try:
+                return await coro
+            finally:
+                timings[name] = round(
+                    (asyncio.get_running_loop().time() - started) * 1000,
+                    1,
+                )
+
+        try:
+            # 1) Live storage counts (seeds write-through baseline for AXI)
+            diagnostics = getattr(manager, "_storage_diagnostics", None)
+            if diagnostics is not None and hasattr(diagnostics, "snapshot"):
+                await _stage(
+                    "storage_live",
+                    diagnostics.snapshot(group_id=group_id, live=True, timeout_seconds=5.0),
+                )
+
+            # 2) Identity-core list (fast durable path used by get_context)
+            graph = getattr(manager, "_graph", None)
+            probe_name = "Cold Decision hit requires healthy search index"
+            if graph is not None and hasattr(graph, "get_identity_core_entities"):
+                core = await _stage(
+                    "identity_core",
+                    graph.get_identity_core_entities(group_id),
+                )
+                if isinstance(core, list) and core:
+                    for ent in core:
+                        name = getattr(ent, "name", None) or (
+                            ent.get("name") if isinstance(ent, dict) else None
+                        )
+                        et = getattr(ent, "entity_type", None) or (
+                            ent.get("entity_type") if isinstance(ent, dict) else None
+                        )
+                        if name and str(et or "") in {
+                            "Decision",
+                            "Preference",
+                            "Goal",
+                            "Commitment",
+                            "Correction",
+                        }:
+                            probe_name = str(name)
+                            break
+
+            # 3) Durable get_context pack
+            await _stage(
+                "get_context",
+                build_mcp_context_surface(
+                    manager,
+                    group_id=group_id,
+                    max_tokens=1200,
+                    topic_hint=probe_name,
+                    project_path=None,
+                    format="structured",
+                    operation_source="startup_warmup",
+                ),
+            )
+
+            # 4) Exact Decision recall (primes packet cache)
+            await _stage(
+                "recall",
+                build_api_recall_surface(
+                    manager,
+                    group_id=group_id,
+                    query=probe_name,
+                    limit=5,
+                    project_path=None,
+                    operation_source="startup_warmup",
+                ),
+            )
+
+            logger.info(
+                "Continuity startup warmup completed: probe=%r timings_ms=%s",
+                probe_name,
+                timings,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning(
+                "Continuity startup warmup failed (timings_ms=%s)",
+                timings,
+                exc_info=True,
+            )
+
+    async def _warm_bounded() -> None:
+        timeout_ms = int(
+            getattr(config.activation, "continuity_startup_warmup_timeout_ms", 15000) or 15000
+        )
+        timeout_seconds = max(1.0, timeout_ms / 1000.0)
+        try:
+            await asyncio.wait_for(_warm(), timeout=timeout_seconds)
+        except TimeoutError:
+            logger.warning(
+                "Continuity startup warmup exceeded %.1fs; continuing in background cancel",
+                timeout_seconds,
+            )
+        except asyncio.CancelledError:
+            raise
+
+    task = asyncio.create_task(_warm_bounded())
+    _track_startup_background_task(task)
+    logger.info("Continuity startup warmup started")
 
 
 def _track_startup_background_task(task: asyncio.Task) -> None:
