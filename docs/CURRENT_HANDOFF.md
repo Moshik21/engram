@@ -56,6 +56,12 @@ agent promotion”, “Prefer markdown handoffs until proven”.
 - MCP `remember` reads that file and **resets the 0–5 promotion window**
 - Also auto-observes `source=claude:precompact` (best-effort)
 
+### get_context durable pack (2026-07-10)
+
+`get_context` now prefers **graph Decision/Preference/… packets** (same rescue as
+explicit recall + type listing), before project-file fallback. Session-start
+continuity no longer requires the agent to call `recall` first for strategy facts.
+
 ### Recall budget defaults (tuned 2026-07-09)
 
 | Knob | Old | New |

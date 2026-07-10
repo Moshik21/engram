@@ -32,11 +32,17 @@ from engram.storage.protocols import ActivationStore, GraphStore
 
 logger = logging.getLogger(__name__)
 LOADED_STORE_CONTEXT_PACKET_SCOPE = "loaded_store_context"
+DURABLE_CONTEXT_PACKET_SCOPE = "durable_context"
 SESSION_RECENT_PACKET_SCOPE = "session_recent"
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)\s*([:=])\s*([^\s;,]+)"
 )
 _SECRET_TOKEN_RE = re.compile(r"\b(?:sk|pk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_\-]{8,}\b")
+# Session-start / topic-less get_context still needs a probe that can find
+# high-signal Decisions/Preferences without requiring the agent to craft a query.
+_DEFAULT_DURABLE_CONTEXT_QUERY = (
+    "durable decisions preferences goals commitments corrections"
+)
 
 
 async def build_api_context_surface(
@@ -149,6 +155,40 @@ async def build_mcp_context_surface(
             skip_reason="skipped_budget",
             timeout=False,
         )
+
+    # Product path: session-start continuity should not depend on project files.
+    # Prefer the same durable Decision/Preference rescue that explicit recall uses.
+    durable_started = time.perf_counter()
+    durable_payload = await _durable_context_payload_from_manager(
+        manager,
+        group_id=group_id,
+        topic_hint=topic_hint or cache_topic_hint,
+        project_path=project_path,
+        format=format,
+        budget=budget,
+        started=started,
+    )
+    if durable_payload is not None:
+        durable_payload.setdefault("diagnostics", {}).setdefault(
+            "stage_timings_ms", {}
+        )["durable_context"] = _elapsed_ms(durable_started)
+        await record_manager_memory_operation(
+            manager,
+            group_id,
+            MemoryOperationSample(
+                operation="context",
+                source=operation_source,
+                mode=operation_source,
+                status="ok",
+                duration_ms=_elapsed_ms(started),
+                budget_ms=budget.budget_ms,
+                budget_tokens=budget.budget_tokens,
+                cache_hit=False,
+                packet_count=len(durable_payload.get("cached_packets") or []),
+                result_count=int(durable_payload.get("entity_count") or 0),
+            ),
+        )
+        return durable_payload
 
     cached_payload = _cached_context_payload_from_manager(
         manager,
@@ -1686,6 +1726,211 @@ def _cached_context_payload_from_manager(
         payload["briefing_degraded"] = True
         payload["briefing_degraded_reason"] = "cache_fast_path"
     return payload
+
+
+async def _durable_context_payload_from_manager(
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    project_path: str | None,
+    format: str,
+    budget: RecallBudget,
+    started: float,
+) -> dict[str, Any] | None:
+    """Build get_context packets from durable graph facts (Decision/Preference/…).
+
+    Reuses explicit-recall durable-entity rescue so session-start continuity
+    matches the golden path without requiring the agent to call recall first.
+    """
+    from engram.retrieval.recall_surface import _durable_entity_name_rescue
+
+    query = (topic_hint or "").strip() or _derive_context_topic_hint(None, project_path)
+    if not query or query.casefold() in {"engram", "default", "project"}:
+        query = _DEFAULT_DURABLE_CONTEXT_QUERY
+    else:
+        # Blend topic with durable cues so short project names still probe decisions.
+        query = f"{query} decisions preferences goals"
+
+    cfg = _manager_activation_config(manager)
+    max_packets = max(1, min(5, int(getattr(cfg, "recall_packet_explicit_limit", 3) or 3)))
+    # Keep this bounded so context stays snappy on loaded Helix brains.
+    timeout_seconds = min(
+        1.75,
+        max(0.35, _context_fast_preflight_timeout_seconds(cfg) * 3),
+    )
+
+    try:
+        results = await _durable_entity_name_rescue(
+            manager,
+            group_id=group_id,
+            query=query,
+            limit=max_packets,
+            timeout_seconds=timeout_seconds,
+        )
+    except Exception:
+        logger.debug("Durable context pack failed", exc_info=True)
+        results = []
+    # Session-start often has only a project name as the topic. Name rescue may
+    # miss; fall back to listing durable types (filtered for scrap).
+    if len(results) < max_packets:
+        try:
+            typed = await _list_durable_entities_by_type(
+                manager,
+                group_id=group_id,
+                limit=max_packets,
+                timeout_seconds=timeout_seconds,
+            )
+            seen = {
+                str((r.get("entity") or {}).get("id") or "")
+                for r in results
+            }
+            for item in typed:
+                eid = str((item.get("entity") or {}).get("id") or "")
+                if eid and eid not in seen:
+                    results.append(item)
+                    seen.add(eid)
+                if len(results) >= max_packets:
+                    break
+        except Exception:
+            logger.debug("Durable type listing failed", exc_info=True)
+    if not results:
+        return None
+
+    packets = await assemble_memory_packets(
+        list(results),
+        query,
+        mode="context_durable",
+        max_packets=max_packets,
+        resolve_entity_name=_context_packet_name_resolver(manager, group_id),
+    )
+    if not packets:
+        return None
+
+    packet_payloads = [
+        _redact_packet_payload(
+            {**packet.to_dict(), "_cache_scope": DURABLE_CONTEXT_PACKET_SCOPE}
+        )
+        for packet in packets
+    ]
+    entity_ids: set[str] = set()
+    for packet in packet_payloads:
+        for key in ("entity_ids", "entityIds"):
+            raw = packet.get(key) or []
+            if isinstance(raw, list | tuple):
+                entity_ids.update(str(item) for item in raw if item)
+
+    context = MemoryContextBuilder.render_cached_packets(packet_payloads)
+    if not context.strip():
+        return None
+    duration_ms = _elapsed_ms(started)
+    payload: dict[str, Any] = {
+        "context": context,
+        "entity_count": len(entity_ids),
+        "fact_count": len(packet_payloads),
+        "token_estimate": MemoryContextBuilder.estimate_tokens(context),
+        "format": "structured" if format == "briefing" else format,
+        "cached_packets": packet_payloads,
+        "packet_cache": {
+            "hit": False,
+            "packet_count": len(packet_payloads),
+            "scopes": _packet_scope_counts(packet_payloads),
+        },
+        "status": "ok",
+        "budget": {
+            "profile": budget.profile,
+            "surface": budget.surface,
+            "mode": budget.mode,
+            "max_wall_ms": budget.max_wall_ms,
+            "duration_ms": duration_ms,
+            "budget_miss": budget.exceeded(duration_ms),
+            "timeout": False,
+            "degraded": False,
+            "skip_reason": None,
+        },
+        "lifecycle": {
+            "stage": "recall",
+            "degraded": False,
+            "timeout": False,
+            "skip_reason": None,
+            "fallback_status": "durable_context",
+        },
+        "diagnostics": {
+            "stage_timings_ms": {},
+        },
+    }
+    if format == "briefing":
+        # Still structured facts; mark as non-LLM briefing when that format was requested.
+        payload["briefing_degraded"] = True
+        payload["briefing_degraded_reason"] = "durable_context_fast_path"
+        payload["context"] = context
+    return payload
+
+
+async def _list_durable_entities_by_type(
+    manager: Any,
+    *,
+    group_id: str,
+    limit: int = 5,
+    timeout_seconds: float = 1.5,
+) -> list[dict[str, Any]]:
+    """List Decision/Preference/… entities, dropping decision_statement scrap."""
+    from engram.extraction.promotion import durable_result_boost, is_durable_recall_entity_type
+    from engram.retrieval.recall_surface import _is_decision_statement_noise
+
+    search = getattr(manager, "search_entities", None)
+    if not callable(search):
+        return []
+
+    hits: list[dict[str, Any]] = []
+    for entity_type in ("Decision", "Preference", "Goal", "Commitment", "Correction", "Person"):
+        try:
+            value = search(
+                group_id=group_id,
+                entity_type=entity_type,
+                limit=max(limit, 8),
+            )
+            if inspect.isawaitable(value):
+                value = await asyncio.wait_for(value, timeout=timeout_seconds)
+        except Exception:
+            continue
+        if not isinstance(value, list):
+            continue
+        for row in value:
+            if not isinstance(row, Mapping):
+                continue
+            name = str(row.get("name") or "")
+            if not name or _is_decision_statement_noise(name):
+                continue
+            et = str(row.get("entity_type") or row.get("type") or entity_type)
+            if not is_durable_recall_entity_type(et):
+                continue
+            eid = str(row.get("id") or "")
+            if not eid:
+                continue
+            activation = float(row.get("activation_score") or 0.0)
+            score = 0.55 + durable_result_boost(et) * 0.08 + min(0.2, activation * 0.2)
+            hits.append(
+                {
+                    "result_type": "entity",
+                    "score": min(0.95, score),
+                    "entity": {
+                        "id": eid,
+                        "name": name,
+                        "type": et,
+                        "summary": str(row.get("summary") or ""),
+                    },
+                    "relationships": [],
+                    "score_breakdown": {
+                        "relevance_confidence": min(0.95, score),
+                        "planner_support": 0.0,
+                        "rescue": "durable_type_list",
+                    },
+                    "source": "durable_context_type_list",
+                }
+            )
+    hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return hits[: max(1, limit)]
 
 
 async def _loaded_store_context_payload_from_manager(
